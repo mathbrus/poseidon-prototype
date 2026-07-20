@@ -1,0 +1,15 @@
+# Backend-engineer agent image: credential-free by construction (E3) — the
+# only secret it ever receives at runtime is AGENT_BEARER_TOKEN, via compose.
+# Build from the repo root: docker build -f Dockerfile.agent .
+FROM python:3.12-slim
+
+COPY packages/common /opt/poseidon/packages/common
+COPY packages/agent /opt/poseidon/packages/agent
+RUN pip install --no-cache-dir \
+    /opt/poseidon/packages/common \
+    /opt/poseidon/packages/agent
+
+WORKDIR /opt/poseidon
+
+EXPOSE 8000
+CMD ["uvicorn", "--factory", "agent.app:create_app", "--host", "0.0.0.0", "--port", "8000"]

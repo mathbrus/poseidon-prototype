@@ -280,15 +280,15 @@ with `run_id`/`agent_id` bound when known.
 
 ## Progress tracker
 
-- [ ] S0 scaffold
-- [ ] S1 common
-- [ ] S2 policies
-- [ ] S3 sandbox toolserver
-- [ ] S4 sandbox backend
-- [ ] S5 gateway core
-- [ ] S6 gateway git tools
-- [ ] S7 agent
-- [ ] S8 runner
-- [ ] S9 compose
+- [x] S0 scaffold
+- [x] S1 common
+- [x] S2 policies
+- [x] S3 sandbox toolserver
+- [x] S4 sandbox backend
+- [x] S5 gateway core
+- [x] S6 gateway git tools
+- [x] S7 agent
+- [x] S8 runner
+- [x] S9 compose
 - [ ] S10 e2e + CI
 - [ ] S11 docs + demo

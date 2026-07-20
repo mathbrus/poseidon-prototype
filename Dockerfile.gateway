@@ -1,0 +1,19 @@
+# MCP gateway image: the only container holding GIT_TOKEN; needs git for
+# the platform-side clones behind repo.archive and git.open_pr.
+# Build from the repo root: docker build -f Dockerfile.gateway .
+FROM python:3.12-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY packages/common /opt/poseidon/packages/common
+COPY packages/gateway /opt/poseidon/packages/gateway
+RUN pip install --no-cache-dir \
+    /opt/poseidon/packages/common \
+    /opt/poseidon/packages/gateway
+
+WORKDIR /opt/poseidon
+
+EXPOSE 8080
+CMD ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8080"]
