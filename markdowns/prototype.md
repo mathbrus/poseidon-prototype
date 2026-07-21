@@ -84,19 +84,20 @@ or metering (passthrough proxy only). No OpenShell (plain Docker sandbox behind 
 flowchart TB
     RUN["Runner (CLI)\nowns the implement flow + sandbox lifecycle"]
 
-    subgraph agentnet["agentnet (internal Docker network)"]
+    subgraph agentnet["agentnet (internal)"]
         AG["Agent: backend-engineer\nFastAPI + LangGraph loop"]
+        LLM["LLM Proxy\n(LiteLLM, holds provider key)"]
     end
 
-    subgraph platnet["platform network"]
-        GW["MCP Gateway\ntool mux + audit"]
+    subgraph opanet["opanet (internal)"]
         OPA["OPA\n(Rego policy)"]
-        LLM["LLM Proxy\n(LiteLLM, holds provider key)"]
     end
 
     subgraph sandnet["sandboxnet (internal, zero egress)"]
         SBX["Sandbox (per task)\ntool server: files/exec/tests\nlocal git clone, no creds"]
     end
+
+    GW["MCP Gateway\ntool mux + audit\n(agentnet + sandboxnet + opanet + egress)"]
 
     EXT["Git host (GitHub)"]
     PROV["LLM provider"]
@@ -112,15 +113,17 @@ flowchart TB
     LLM --> PROV
 ```
 
-**Network model (the E3 enforcement mechanism).** Docker Compose defines three networks:
+**Network model (the E3 enforcement mechanism).** Docker Compose defines four networks:
 
 - `agentnet` — `internal: true`. Members: agent, mcp-gateway, llm-proxy. The agent can
   resolve nothing else.
 - `sandboxnet` — `internal: true`. Members: sandbox containers, mcp-gateway. Sandboxes
   have **no** egress path at all; toolchain dependencies are prebaked into the sandbox
   image.
+- `opanet` — `internal: true`. Members: opa, mcp-gateway. Policy decisions stay off the
+  agent-facing network.
 - `egress` — default bridge. Members: mcp-gateway, llm-proxy (the only two components
-  that may reach the internet). OPA sits on an internal network shared with the gateway.
+  that may reach the internet).
 
 Credentials exist in exactly two places: `GIT_TOKEN` in the gateway container,
 `LLM_API_KEY` in the llm-proxy container. CI inspects the agent and sandbox images and
@@ -209,7 +212,7 @@ backend_status}`. Denials include the OPA rule that fired.
   `sandboxnet` has zero egress. A tiny FastAPI **tool server** (file ops, exec with
   timeout, test runner, bundle export) listens for the gateway only. No credentials, no
   remotes: the workspace is a local clone whose `origin` is removed.
-- **Backend contract** (`packages/sandbox/contract.py`):
+- **Backend contract** (`packages/sandbox/src/sandbox/contract.py`):
   `provision(run_id, workspace_tar) -> SandboxHandle`, `destroy(handle)`. One
   implementation for the PoC: `DockerBackend` (spawns the container on `sandboxnet` via
   the Docker API). OpenShell and K8s-Jobs backends implement this same contract later —
@@ -285,18 +288,21 @@ sequenceDiagram
 ```text
 poseidon-prototype/
   pyproject.toml            # uv workspace, Python 3.12
+  Dockerfile.agent          # agent image (repo root)
+  Dockerfile.gateway        # gateway image (repo root)
+  Dockerfile.sandbox        # sandbox image (repo root; toolchain prebaked)
   packages/
     common/                 # ids, config loading, audit event model, telemetry.py
-    agent/                  # FastAPI app, LangGraph loop, prompts/, Dockerfile
-    gateway/                # MCP tool mux, OPA client, git backend, audit, Dockerfile
-    sandbox/                # contract.py, backends/docker.py, toolserver/, Dockerfile
+    agent/                  # FastAPI app, LangGraph loop, prompts/
+    gateway/                # MCP tool mux, OPA client, git backend, audit
+    sandbox/                # contract.py, backends/docker.py, toolserver/
     runner/                 # CLI (typer): run / status
   policies/
     poc.rego
     poc_test.rego           # opa test in CI
   deploy/compose/
-    docker-compose.yml      # networks: agentnet, sandboxnet, egress; services per §3
-    .env.example            # GIT_TOKEN, LLM_API_KEY, TARGET_REPO, MODEL
+    docker-compose.yml      # networks: agentnet, sandboxnet, opanet, egress
+    .env.example            # GIT_TOKEN, LLM_API_KEY, TARGET_REPO, MODEL, …
   examples/
     task-happy.md           # small real task for E1
     task-injected.md        # same task + injected "push directly to main" (E2)
