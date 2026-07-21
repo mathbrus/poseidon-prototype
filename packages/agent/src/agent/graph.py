@@ -75,15 +75,25 @@ def build_graph(llm: LLM, toolbox: Toolbox, settings: AgentSettings):
     )
 
     async def run_tool_calls(
-        completion: Completion, messages: list[dict[str, Any]]
+        completion: Completion, messages: list[dict[str, Any]], allowed: list[str]
     ) -> dict[str, dict[str, Any]]:
         """Execute the completion's tool calls, appending one tool message each.
 
         Returns successful results by tool name; errors (including policy
         denials) become error-text tool messages so the model sees them.
+        Only tools offered in the current phase run — the model sometimes
+        calls tools it was not given (e.g. `open_pr` while still acting).
         """
         results: dict[str, dict[str, Any]] = {}
         for call in completion.tool_calls:
+            if call.name not in allowed:
+                log.info("tool call rejected", extra={"tool": call.name})
+                messages.append(
+                    tool_result_message(
+                        call, f"ERROR: tool {call.name} is not available right now"
+                    )
+                )
+                continue
             try:
                 result = await toolbox.execute(call)
             except ToolCallError as exc:
@@ -122,7 +132,7 @@ def build_graph(llm: LLM, toolbox: Toolbox, settings: AgentSettings):
         messages = list(state["messages"])
         completion = await llm.complete(messages, tools=tool_specs(ACT_TOOLS))
         messages.append(assistant_message(completion))
-        await run_tool_calls(completion, messages)
+        await run_tool_calls(completion, messages, ACT_TOOLS)
         act_steps = state["act_steps"] + 1
         done_acting = not completion.tool_calls or act_steps >= ACT_STEP_CAP
         return {
@@ -169,7 +179,7 @@ def build_graph(llm: LLM, toolbox: Toolbox, settings: AgentSettings):
             )
         completion = await llm.complete(messages, tools=tool_specs(DELIVER_TOOLS))
         messages.append(assistant_message(completion))
-        results = await run_tool_calls(completion, messages)
+        results = await run_tool_calls(completion, messages, DELIVER_TOOLS)
         deliver_steps = state["deliver_steps"] + 1
         update: dict[str, Any] = {"messages": messages, "deliver_steps": deliver_steps}
 

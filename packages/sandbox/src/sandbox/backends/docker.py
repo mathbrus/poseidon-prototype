@@ -6,6 +6,8 @@ tarball into /workspace, strips git remotes, and records the base ref that
 the tool server's /bundle endpoint later reads from `.poseidon-base`.
 """
 
+import time
+
 import docker
 import docker.errors
 
@@ -16,6 +18,14 @@ DEFAULT_IMAGE = "poseidon-sandbox"
 DEFAULT_NETWORK = "sandboxnet"
 TOOLSERVER_PORT = 8000
 WORKSPACE = "/workspace"
+READY_TIMEOUT_S = 30
+
+# Probes the tool server from inside the container (the host has no route
+# onto the zero-egress sandbox network).
+_READY_CMD = (
+    "import urllib.request; "
+    f"urllib.request.urlopen('http://localhost:{TOOLSERVER_PORT}/openapi.json', timeout=1)"
+)
 
 # Runs once after the workspace is unpacked: no remote may survive inside the
 # sandbox, and the base ref must be recorded for later `git bundle` calls.
@@ -57,6 +67,18 @@ class DockerBackend:
                     "workspace preparation failed: "
                     + output.decode(errors="replace").strip()
                 )
+            # `provision` must not return before the tool server accepts
+            # connections: the agent's first proxied call is not retried.
+            deadline = time.monotonic() + READY_TIMEOUT_S
+            while True:
+                exit_code, _ = container.exec_run(["python", "-c", _READY_CMD])
+                if exit_code == 0:
+                    break
+                if time.monotonic() > deadline:
+                    raise RuntimeError(
+                        f"tool server not ready after {READY_TIMEOUT_S}s"
+                    )
+                time.sleep(0.5)
         except Exception:
             container.remove(force=True)
             raise

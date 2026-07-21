@@ -56,8 +56,10 @@ services:
     command: ["--model", "${MODEL}", "--port", "4000"]
     environment:
       # LLM_API_KEY is provider-agnostic in the contract (C7); LiteLLM reads
-      # provider-specific names, so map it to the one MODEL implies.
+      # provider-specific names, so hand the key to every provider MODEL may
+      # imply — LiteLLM only ever reads the one matching the model's prefix.
       OPENAI_API_KEY: ${LLM_API_KEY}
+      ANTHROPIC_API_KEY: ${LLM_API_KEY}
     networks:
       - agentnet
       - egress

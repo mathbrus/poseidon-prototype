@@ -23,9 +23,11 @@ members = ["packages/*"]
 [tool.pytest.ini_options]
 markers = [
     "docker: integration tests needing a Docker daemon (run with -m docker)",
+    "e2e: end-to-end tests needing the live compose stack, a real repo and a real LLM key (run with -m e2e)",
 ]
-# Excluded by default; an explicit `-m docker` on the command line overrides this.
-addopts = "-m 'not docker'"
+# Excluded by default; an explicit `-m docker` / `-m e2e` on the command line
+# overrides this.
+addopts = "-m 'not docker and not e2e'"
 
 [tool.uv.sources]
 common = { workspace = true }

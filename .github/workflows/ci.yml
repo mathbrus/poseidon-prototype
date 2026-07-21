@@ -1,0 +1,116 @@
+# Poseidon PoC CI (S10): unit tests, policy tests, image builds, and the
+# secret-inspection gate that proves invariant #1 by inspection — no
+# *_TOKEN/*_KEY other than AGENT_BEARER_TOKEN may reach the agent or sandbox,
+# whether via the compose service env or baked into the image.
+#
+# The E2E suite needs a real GitHub repo, a real LLM key and a Docker host
+# running the full stack, so it is a separate manually-dispatched job.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: "Run the E2E suite (needs E2E_* repository secrets)"
+        type: boolean
+        default: false
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run pytest
+
+  opa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker run --rm -v "$PWD/policies:/policies:ro" openpolicyagent/opa test /policies -v
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build images
+        run: |
+          docker build -f Dockerfile.gateway -t poseidon-gateway .
+          docker build -f Dockerfile.agent   -t poseidon-agent .
+          docker build -f Dockerfile.sandbox -t poseidon-sandbox .
+
+      - name: "Secret-inspection gate: compose service env"
+        working-directory: deploy/compose
+        run: |
+          # Synthetic secrets: the gate checks where variables land, not values.
+          sed 's/=.*/=ci-placeholder/' .env.example > .env
+          # Secret-shaped variables actually set on the agent service (a null
+          # value means "unset in the container" and is what the compose file
+          # uses to strip the base image's GPG_KEY).
+          leaked=$(docker compose config --format json \
+            | jq -r '.services.agent.environment
+                     | to_entries[]
+                     | select(.value != null)
+                     | select(.key | test("_(TOKEN|KEY)$"))
+                     | .key' \
+            | grep -v '^AGENT_BEARER_TOKEN$' || true)
+          if [ -n "$leaked" ]; then
+            echo "secret-shaped variables reach the agent service: $leaked" >&2
+            exit 1
+          fi
+
+      - name: "Secret-inspection gate: agent and sandbox image layers"
+        run: |
+          # GPG_KEY is the python base image's public release-signing key
+          # fingerprint — not a credential — and cannot be removed from the
+          # inherited layer history; everything else *_TOKEN/*_KEY fails.
+          for image in poseidon-agent poseidon-sandbox; do
+            leaked=$( (docker history --no-trunc --format '{{.CreatedBy}}' "$image"; \
+                       docker inspect --format '{{join .Config.Env "\n"}}' "$image") \
+              | grep -oE '[A-Za-z_]*_(TOKEN|KEY)=' | sort -u \
+              | grep -vE '^(AGENT_BEARER_TOKEN|GPG_KEY)=$' || true)
+            if [ -n "$leaked" ]; then
+              echo "secret-shaped variables baked into $image: $leaked" >&2
+              exit 1
+            fi
+          done
+
+  e2e:
+    # Manual and optional: opens real PRs on a disposable repo and spends
+    # real LLM tokens. Requires the E2E_GIT_TOKEN / E2E_LLM_API_KEY /
+    # E2E_TARGET_REPO / E2E_MODEL repository secrets.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - name: Build sandbox image and bring the stack up
+        working-directory: deploy/compose
+        env:
+          GIT_TOKEN: ${{ secrets.E2E_GIT_TOKEN }}
+          LLM_API_KEY: ${{ secrets.E2E_LLM_API_KEY }}
+          TARGET_REPO: ${{ secrets.E2E_TARGET_REPO }}
+          MODEL: ${{ secrets.E2E_MODEL }}
+        run: |
+          sed -e "s|^GIT_TOKEN=.*|GIT_TOKEN=${GIT_TOKEN}|" \
+              -e "s|^LLM_API_KEY=.*|LLM_API_KEY=${LLM_API_KEY}|" \
+              -e "s|^TARGET_REPO=.*|TARGET_REPO=${TARGET_REPO}|" \
+              -e "s|^MODEL=.*|MODEL=${MODEL}|" \
+              .env.example > .env
+          docker build -f ../../Dockerfile.sandbox -t poseidon-sandbox ../..
+          docker compose up -d --build --wait
+      - run: uv run pytest tests/e2e -m e2e -v
+      - name: Tear the stack down
+        if: always()
+        working-directory: deploy/compose
+        run: docker compose down -v

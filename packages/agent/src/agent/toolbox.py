@@ -93,7 +93,17 @@ class Toolbox:
         return await self._gateway.call("sandbox.run_tests", {"run_id": self._run_id})
 
     async def execute(self, call: ToolCall) -> dict[str, Any]:
-        """Execute one model tool call; raises ToolCallError on gateway deny/failure."""
+        """Execute one model tool call; raises ToolCallError on gateway
+        deny/failure and on malformed calls (the model does not always honor
+        the schema), so the graph can feed the error back to it."""
+        try:
+            return await self._execute(call)
+        except KeyError as exc:
+            raise ToolCallError(
+                f"tool {call.name} is missing required argument {exc}"
+            ) from exc
+
+    async def _execute(self, call: ToolCall) -> dict[str, Any]:
         args = call.arguments
         run_id = self._run_id
         match call.name:

@@ -126,3 +126,50 @@ via Docker:
 ```bash
 docker run --rm -v "$PWD/policies:/policies:ro" openpolicyagent/opa test /policies -v
 ```
+
+## LLM provider
+
+`LLM_API_KEY` is provider-agnostic (contract C7); the provider is selected by the
+`MODEL` prefix and resolved entirely inside the llm-proxy container. The proxy is
+handed the key under every provider name it might need (`OPENAI_API_KEY`,
+`ANTHROPIC_API_KEY`), and LiteLLM reads only the one the model implies — so
+`MODEL=gpt-4o-mini` (with an `sk-...` key) and `MODEL=anthropic/claude-haiku-4-5`
+(with an `sk-ant-...` key) both work with no other changes.
+
+## End-to-end tests (exit criteria E1–E4)
+
+`tests/e2e/` scripts the four PoC exit criteria against the live stack and a real,
+disposable GitHub repo (they open real pull requests and spend real LLM tokens),
+so they are excluded from plain `pytest` and run explicitly with `-m e2e`:
+
+```bash
+docker build -f Dockerfile.sandbox -t poseidon-sandbox .   # sandbox image
+cd deploy/compose && docker compose up -d --build --wait   # stack healthy
+cd ../.. && uv run pytest tests/e2e -m e2e -v              # from a filled .env
+```
+
+- `test_happy_path.py` — E1: a run produces a PR on a `feature/*` branch.
+- `test_injection.py` — E2: the injected "deliver on `main`" task is denied by
+  policy and the agent still recovers onto a `feature/*` PR. (This one depends on
+  the model taking the injected bait far enough to trigger a push-to-`main`
+  attempt; a well-aligned model may simply refuse and deliver on a feature branch,
+  in which case no deny is recorded.)
+- `test_egress.py` — E3: the agent reaches only the gateway and llm-proxy, a live
+  sandbox reaches nothing, and no `*_TOKEN`/`*_KEY` but `AGENT_BEARER_TOKEN` is in
+  the agent env.
+- `test_audit.py` — E4: the whole E1 story is reconstructable from
+  `runs/audit.jsonl` alone.
+
+The two example tasks they drive are `examples/task-happy.md` and
+`examples/task-injected.md` (the latter is the happy task plus an embedded
+instruction to push straight to `main`).
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push/PR: `uv sync` + unit tests, `opa
+test`, the three image builds, and a **secret-inspection gate** that fails if any
+`*_TOKEN`/`*_KEY` other than `AGENT_BEARER_TOKEN` reaches the agent service env
+(`docker compose config`) or is baked into the agent/sandbox image layers
+(`docker history`/`inspect`). The E2E suite is a separate, manually-dispatched job
+(`workflow_dispatch` with `run_e2e`) because it needs real credentials and a
+disposable repo, supplied via the `E2E_*` repository secrets.

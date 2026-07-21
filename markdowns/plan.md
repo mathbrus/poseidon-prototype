@@ -290,5 +290,5 @@ with `run_id`/`agent_id` bound when known.
 - [x] S7 agent
 - [x] S8 runner
 - [x] S9 compose
-- [ ] S10 e2e + CI
+- [x] S10 e2e + CI
 - [ ] S11 docs + demo
