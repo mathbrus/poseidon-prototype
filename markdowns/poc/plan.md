@@ -1,6 +1,6 @@
 # Poseidon PoC — Implementation Plan
 
-**Source of truth:** [markdowns/prototype.md](prototype.md). This plan decomposes it into
+**Source of truth:** [markdowns/poc/prototype.md](prototype.md). This plan decomposes it into
 steps sized for one LLM coding-agent session each. Every step is self-contained: it lists
 exactly what to read, what to build, and how to verify.
 
@@ -125,7 +125,7 @@ with `run_id`/`agent_id` bound when known.
   `pyproject.toml` and `src/` layout; `policies/`, `deploy/compose/.env.example` (all C7
   vars, placeholder values), `examples/`, `tests/e2e/`, `runs/.gitkeep`; `.gitignore`
   (`runs/`, `.env`, `__pycache__`, `.venv`); `README.md` stub (project one-liner +
-  "see markdowns/prototype.md").
+  "see markdowns/poc/prototype.md").
 - **Definition of done:** `uv sync` succeeds; `uv run python -c "import common"` works.
 
 ### S1 — `packages/common`
@@ -270,7 +270,7 @@ with `run_id`/`agent_id` bound when known.
 - **Read:** everything built; `prototype.md` §9.3.
 - **Build:** `README.md` — setup (uv, Docker, `.env` from example), the two-command
   demo (happy task → PR link; injected task → show deny in `runs/audit.jsonl` + PR
-  still on `feature/*`), architecture pointer to `markdowns/prototype.md`,
+  still on `feature/*`), architecture pointer to `markdowns/poc/prototype.md`,
   troubleshooting (OPA decisions, audit tail, sandbox logs). Verify every documented
   command against the real system; reconcile any drift between code and
   `prototype.md` — **code wins, update the doc**.

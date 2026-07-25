@@ -158,7 +158,7 @@ Skim these; come back when a later section leans on one of them.
 ## 4. What the PoC proves — the four exit criteria
 
 Everything in this repo exists to make four claims pass as scripted tests
-(spec: [`markdowns/prototype.md`](markdowns/prototype.md) §2):
+(spec: [`markdowns/poc/prototype.md`](markdowns/poc/prototype.md) §2):
 
 | # | Claim | See it yourself |
 |---|---|---|
@@ -392,7 +392,7 @@ The agent's inner loop, in more detail (`packages/agent/src/agent/graph.py`):
 ## 8. Design rationale — why it is built this way
 
 The spec's own record of these decisions is
-[`markdowns/prototype.md`](markdowns/prototype.md) §10; this section explains
+[`markdowns/poc/prototype.md`](markdowns/poc/prototype.md) §10; this section explains
 them for someone meeting the system fresh.
 
 ### Why can't the agent just push? (the `git bundle` trick)
@@ -835,33 +835,42 @@ with a designed replacement seam, and those seams exist in the code today:
 | `examples/` | `task-happy.md` (E1) and `task-injected.md` (E2) |
 | `tests/e2e/` | The four exit-criteria tests, run against the live stack |
 | `runs/` | Per-run manifests + `audit.jsonl` (gitignored) |
-| `markdowns/` | The specification history — see below |
+| `markdowns/poc/` | PoC specification history — see below |
+| `markdowns/MVP/` | MVP design notes (post-PoC direction) |
 | `Dockerfile.{agent,gateway,sandbox}` | The three service images |
 
 ## 15. Further reading — how the design evolved
 
 The `markdowns/` folder preserves the design lineage, and it is instructive
 reading — several of this README's "why" answers were forged in those
-iterations:
+iterations.
 
-1. [`specification1.md`](markdowns/specification1.md) — the initial full-platform
+### PoC lineage (`markdowns/poc/`)
+
+1. [`specification1.md`](markdowns/poc/specification1.md) — the initial full-platform
    spec: blueprint, compiler, provisioner, orchestrator, gateways, sandbox pool,
    Studio, on the AGNTCY substrate.
-2. [`specification2.md`](markdowns/specification2.md) — first self-challenge:
+2. [`specification2.md`](markdowns/poc/specification2.md) — first self-challenge:
    *where does this actually run, and how much AGNTCY reuse is real?* Outcome:
    Kubernetes operator pattern instead of a hand-rolled provisioner, NetworkPolicy
    as the egress enforcement primitive, AGNTCY narrowed to where it earns its
    keep ("nothing young on the critical path").
-3. [`specification3.md`](markdowns/specification3.md) — second challenge: *does
+3. [`specification3.md`](markdowns/poc/specification3.md) — second challenge: *does
    NVIDIA OpenShell fit?* Outcome: yes, as a pluggable sandbox backend behind
    the contract this repo ships — infrastructure-layer policy complementing
    (never replacing) the gateway's semantic policy; the explicit three-layer
    defense-in-depth model.
-4. [`prototype.md`](markdowns/prototype.md) — the consolidated, implementable
+4. [`prototype.md`](markdowns/poc/prototype.md) — the consolidated, implementable
    PoC specification, including §10's record of what the final review changed
    and why. **The authoritative document for this repo.**
-5. [`plan.md`](markdowns/plan.md) — the implementation plan: the spec decomposed
+5. [`plan.md`](markdowns/poc/plan.md) — the implementation plan: the spec decomposed
    into 12 agent-sized steps with frozen inter-step contracts (C1–C8).
+
+### MVP notes (`markdowns/MVP/`)
+
+6. [`flexible-coding-agents.md`](markdowns/MVP/flexible-coding-agents.md) —
+   direction for more flexible coding-agent runtimes under Poseidon’s clear
+   governance model (brain / hands / law).
 
 Where this README and those documents disagree, the code wins — and a doc fix
 is in order.
