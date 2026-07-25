@@ -241,9 +241,9 @@ projected cost, then apply.
 | Building block | Relationship to blueprint |
 |---|---|
 | **Flexible coding agents** | Blueprint selects role template + model tier + tool scope; the brain framework is an implementation detail of the engineer role, still bound by compiled law |
-| **Temporal / HITL** | Blueprint `workflows.*.gates` configures which signals exist; orchestrator owns durability |
+| **Durable orchestrator / HITL** | Blueprint `workflows.*.gates` configures which signals exist; orchestrator owns durability — see [`durable-orchestrator.md`](durable-orchestrator.md) |
 | **LLM budgets** | Blueprint `budgets` → LLM gateway hard-stops |
-| **Sandbox / OpenShell** | Blueprint `stack` + role → infra policy YAML behind `SandboxBackend` |
+| **Sandbox hardening** | Blueprint `stack` + role → infra policy IR behind `SandboxBackend`; OpenShell is a preferred backend candidate — see [`sandbox-hardening.md`](sandbox-hardening.md) |
 | **SLIM review** | Blueprint enables `review` and which roles join the group session |
 
 ## Practical split
