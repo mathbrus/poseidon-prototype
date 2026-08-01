@@ -3,6 +3,7 @@
 > **Status:** work in progress. Direction notes for review — not a frozen
 > implementation plan. Cross-walked against
 > `[company-blueprint.md](company-blueprint.md)`,
+> `[standing-and-ephemeral-agents.md](standing-and-ephemeral-agents.md)`,
 > `[sandbox-hardening.md](sandbox-hardening.md)`, and
 > `[flexible-coding-agents.md](flexible-coding-agents.md)`; lineage from
 > `[../poc/specification1.md](../poc/specification1.md)`,
@@ -197,6 +198,7 @@ A bypass of one layer must still be caught by another.
 | Building block             | Relationship to durable orchestrator                                                                                       |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | **Company Blueprint**      | `workflows.*.gates` configures which signals exist and default drain behavior; orchestrator owns durability, not org truth |
+| **Standing and ephemeral** | Orchestrator **fulfills** `crew.request` (mint/teardown `run_participants`); must not create standing `AgentInstance`s — see `[standing-and-ephemeral-agents.md](standing-and-ephemeral-agents.md)` |
 | **Sandbox hardening**      | Activities call `SandboxBackend`; process gates stay *above* infra policy                                                  |
 | **Flexible coding agents** | Brain runs *inside* `dispatch_task`-class activities; must not own HITL or sandbox lifecycle                               |
 | **LLM budgets**            | Gateway hard-stops; orchestrator reacts (pause + escalate) — not silent degrade                                            |
@@ -204,10 +206,11 @@ A bypass of one layer must still be caught by another.
 | **Operator / Kubernetes**  | Operator materializes the company; orchestrator runs processes *against* it — two different control loops                  |
 
 
-**Altitude check:** Blueprint answers *what is the company?*; flexible agents
-answer *how does the engineer think?*; sandbox hardening answers *which runtime
-isolates code?*; this block answers *how do long-running company processes
-survive, wait on humans, and clean up?*
+**Altitude check:** Blueprint answers *what is the company?*; standing vs
+ephemeral answers *which constructs live with the company vs die with the
+task?*; flexible agents answer *how does the engineer think?*; sandbox
+hardening answers *which runtime isolates code?*; this block answers *how do
+long-running company processes survive, wait on humans, and clean up?*
 
 ## Failure matrix (MVP — keep it small)
 
@@ -279,11 +282,14 @@ None are all resolved here — they are the review surface.
 ### C1 — Two control loops: Operator vs Orchestrator
 
 The Company Operator reconciles *desired company shape*. The orchestrator runs
-*processes against that shape*. If workers start creating AgentInstances,
-rewriting policy bundles, or “fixing” drift, they become a second reconciler.
+*processes against that shape*. If workers start creating standing
+AgentInstances, rewriting policy bundles, or “fixing” drift, they become a
+second reconciler.
 
-**Split:** operator owns structure; orchestrator owns runs. Workers read
-registry/gateway endpoints; they do not apply blueprints.
+**Split:** operator owns standing roster; orchestrator owns runs **and**
+ephemeral fulfillment (`run_participants` mint/teardown under blueprint crew
+templates). Workers read registry/gateway endpoints; they do not apply
+blueprints. See `[standing-and-ephemeral-agents.md](standing-and-ephemeral-agents.md)`.
 
 ### C2 — Secrets in workers
 

@@ -871,6 +871,14 @@ iterations.
 6. [`flexible-coding-agents.md`](markdowns/MVP/flexible-coding-agents.md) —
    direction for more flexible coding-agent runtimes under Poseidon’s clear
    governance model (brain / hands / law).
+7. [`company-blueprint.md`](markdowns/MVP/company-blueprint.md) — Company
+   Blueprint as declarative source of truth; compiler → CRs on Kubernetes.
+8. [`sandbox-hardening.md`](markdowns/MVP/sandbox-hardening.md) — hardened
+   sandboxes behind `SandboxBackend` (OpenShell as preferred candidate, not
+   foundation); collisions and open tradeoffs called out for review.
+9. [`durable-orchestrator.md`](markdowns/MVP/durable-orchestrator.md) — PoC
+   runner → durable process plane (Temporal preferred, self-hosted);
+   intake → implement → review with HITL; package rename to `orchestrator`.
 
 Where this README and those documents disagree, the code wins — and a doc fix
 is in order.
