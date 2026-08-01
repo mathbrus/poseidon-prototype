@@ -1,0 +1,107 @@
+# MCP gateway: the only pod holding GIT_TOKEN. The audit JSONL moves onto a
+# PVC here (sequencing choice 1); the registry Postgres sink replaces it at
+# plan step 8.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gateway-audit
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.gateway.audit.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.gateway.audit.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-gateway
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # Recreate: the audit PVC is ReadWriteOnce; a rolling update would deadlock
+  # on the volume attachment.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mcp-gateway
+  template:
+    metadata:
+      labels:
+        app: mcp-gateway
+        {{- include "poseidon.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: mcp-gateway
+          image: "{{ .Values.images.gateway.repository }}:{{ .Values.images.gateway.tag }}"
+          imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: git-credentials
+                  key: GIT_TOKEN
+            - name: AGENT_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bearer-tokens
+                  key: AGENT_BEARER_TOKEN
+            - name: RUNNER_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bearer-tokens
+                  key: RUNNER_BEARER_TOKEN
+            - name: BASE_REF
+              value: {{ .Values.run.baseRef | quote }}
+            - name: OPA_URL
+              value: http://opa:8181
+            - name: AUDIT_PATH
+              value: /opt/poseidon/runs/audit.jsonl
+          volumeMounts:
+            - name: audit
+              mountPath: /opt/poseidon/runs
+          # No unauthenticated route exists; a 401 from the bearer middleware
+          # proves the server is up without putting a token in the probe.
+          # (httpGet probes treat 401 as failure, hence the exec probe.)
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import urllib.request, urllib.error\ntry:\n    urllib.request.urlopen('http://localhost:8080/mcp')\nexcept urllib.error.HTTPError as e:\n    raise SystemExit(0 if e.code == 401 else 1)\nraise SystemExit(1)"
+            periodSeconds: 5
+            initialDelaySeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            periodSeconds: 10
+            initialDelaySeconds: 10
+      volumes:
+        - name: audit
+          persistentVolumeClaim:
+            claimName: gateway-audit
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-gateway
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.gateway.service.type }}
+  selector:
+    app: mcp-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+      {{- if .Values.gateway.service.nodePort }}
+      nodePort: {{ .Values.gateway.service.nodePort }}
+      {{- end }}

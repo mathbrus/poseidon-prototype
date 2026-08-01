@@ -88,12 +88,9 @@ def workspace_tar(workspace: Path) -> bytes:
     return buf.getvalue()
 
 
-def toolserver_url(docker_client, handle, network: str) -> str:
-    """Host-reachable URL: the handle's in-network name only resolves on the
-    docker network, so tests talk to the container's bridge IP instead."""
+def container_ip(docker_client, handle, network: str) -> str:
     container = docker_client.containers.get(handle.container_id)
-    ip = container.attrs["NetworkSettings"]["Networks"][network]["IPAddress"]
-    return f"http://{ip}:8000"
+    return container.attrs["NetworkSettings"]["Networks"][network]["IPAddress"]
 
 
 def wait_ready(url: str, timeout_s: float = 30) -> None:
@@ -113,9 +110,13 @@ def test_provision_serve_destroy(docker_client, sandbox_image, network, workspac
     handle = backend.provision(RUN_ID, workspace_tar)
     try:
         assert handle.run_id == RUN_ID
-        assert handle.url == f"http://poseidon-sbx-{RUN_ID}:8000"
+        # The handle carries the container's IP on the sandbox network — the
+        # host has a route onto local bridge networks, so the test talks to
+        # the handle URL directly, exactly as the gateway would.
+        ip = container_ip(docker_client, handle, network)
+        assert handle.url == f"http://{ip}:8000"
 
-        url = toolserver_url(docker_client, handle, network)
+        url = handle.url
         wait_ready(url)
 
         entries = {

@@ -1,0 +1,129 @@
+{{- if .Values.networkPolicies.enabled }}
+# NetworkPolicy hardening (plan step 1c) — replaces the four Compose
+# networks. Requires a CNI that enforces NetworkPolicy (kind's default CNI
+# does not; the bootstrap installs Calico).
+#
+#   company namespace: default deny (ingress+egress) for every pod;
+#     agent egress only to mcp-gateway, llm-proxy and cluster DNS;
+#     agent ingress only for the host-side runner's dispatch/status calls.
+#   platform namespace: gateway egress restricted to OPA, DNS and
+#     non-cluster addresses (the external git host — and, transitionally,
+#     the Docker-hosted sandboxes, which sit outside the cluster CIDRs
+#     until the k8s_jobs backend lands at step 4).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: {{ .Values.companyNamespace }}
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-egress
+  namespace: {{ .Values.companyNamespace }}
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: agent
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app: mcp-gateway
+      ports:
+        - port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app: llm-proxy
+      ports:
+        - port: 4000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-ingress-runner
+  namespace: {{ .Values.companyNamespace }}
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: agent
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- range .Values.networkPolicies.runnerIngressCidrs }}
+        - ipBlock:
+            cidr: {{ . }}
+        {{- end }}
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-egress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-gateway
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: opa
+      ports:
+        - port: 8181
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Everything outside the cluster: the external git host and the
+    # transitional Docker-hosted sandboxes. Pods and services are explicitly
+    # excluded so "external" never quietly includes them.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- range .Values.networkPolicies.clusterCidrs }}
+              - {{ . }}
+              {{- end }}
+{{- end }}

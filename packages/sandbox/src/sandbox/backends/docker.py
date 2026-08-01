@@ -3,7 +3,10 @@
 Spawns one container per run from the prebaked sandbox image (see
 Dockerfile.sandbox) on the zero-egress sandbox network, unpacks the workspace
 tarball into /workspace, strips git remotes, and records the base ref that
-the tool server's /bundle endpoint later reads from `.poseidon-base`.
+the tool server's /bundle endpoint later reads from `.poseidon-base`. The
+handle carries the container's IP on that network, reachable by any peer
+with a route onto it (the Compose gateway, or a kind node connected to the
+network by the bootstrap).
 """
 
 import time
@@ -79,15 +82,21 @@ class DockerBackend:
                         f"tool server not ready after {READY_TIMEOUT_S}s"
                     )
                 time.sleep(0.5)
+            # Register by IP, not Docker DNS name: the name only resolves for
+            # peers on the same Docker network, while the IP is also routable
+            # from a kind cluster whose node joins the sandbox network — the
+            # M1 bridge until the k8s_jobs backend replaces this.
+            container.reload()
+            ip = container.attrs["NetworkSettings"]["Networks"][self._network][
+                "IPAddress"
+            ]
         except Exception:
             container.remove(force=True)
             raise
         handle = SandboxHandle(
             run_id=run_id,
             container_id=container.id,
-            # The container name resolves via Docker DNS for peers on the
-            # sandbox network (i.e. the gateway).
-            url=f"http://{name}:{TOOLSERVER_PORT}",
+            url=f"http://{ip}:{TOOLSERVER_PORT}",
         )
         self._log.info(
             "sandbox provisioned",

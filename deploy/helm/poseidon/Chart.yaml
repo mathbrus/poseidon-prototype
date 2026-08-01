@@ -1,0 +1,11 @@
+apiVersion: v2
+name: poseidon
+description: >-
+  Poseidon M1 — the PoC services (OPA, LiteLLM, MCP gateway, agent) re-hosted
+  on Kubernetes. The release installs into the platform namespace and creates
+  the company namespace (hardcoded hello-saas until the operator exists).
+  The same chart and values structure serves kind and real clusters (exit
+  criterion 7); kind-specific overrides live in values-kind.yaml.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

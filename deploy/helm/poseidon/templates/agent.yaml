@@ -1,0 +1,80 @@
+# The backend-engineer agent, in the company namespace. Credential-free by
+# construction (E3): the only secret it mounts is its own placeholder bearer
+# token. The Deployment moves to AgentInstance reconciliation at plan step 10.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent
+  namespace: {{ .Values.companyNamespace }}
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent
+  template:
+    metadata:
+      labels:
+        app: agent
+        {{- include "poseidon.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: agent
+          image: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+          imagePullPolicy: {{ .Values.images.agent.pullPolicy }}
+          ports:
+            - containerPort: 8000
+          env:
+            # Cross-namespace service URLs are topology, not deployment
+            # config — derived here, not user-set.
+            - name: MCP_GATEWAY_URL
+              value: http://mcp-gateway.{{ .Release.Namespace }}.svc.cluster.local:8080
+            - name: LLM_PROXY_URL
+              value: http://llm-proxy.{{ .Release.Namespace }}.svc.cluster.local:4000
+            - name: MODEL
+              value: {{ .Values.run.model | quote }}
+            - name: TARGET_REPO
+              value: {{ .Values.run.targetRepo | quote }}
+            - name: MAX_ITERATIONS
+              value: {{ .Values.run.maxIterations | quote }}
+            - name: AGENT_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: agent-bearer-token
+                  key: AGENT_BEARER_TOKEN
+            # python:3.12-slim bakes GPG_KEY (a public release-signing key
+            # fingerprint) into the image; blank it so the only token-shaped
+            # value in the agent env is AGENT_BEARER_TOKEN (E3).
+            - name: GPG_KEY
+              value: ""
+          readinessProbe:
+            httpGet:
+              path: /openapi.json
+              port: 8000
+            periodSeconds: 5
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /openapi.json
+              port: 8000
+            periodSeconds: 10
+            initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent
+  namespace: {{ .Values.companyNamespace }}
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.agent.service.type }}
+  selector:
+    app: agent
+  ports:
+    - port: 8000
+      targetPort: 8000
+      {{- if .Values.agent.service.nodePort }}
+      nodePort: {{ .Values.agent.service.nodePort }}
+      {{- end }}

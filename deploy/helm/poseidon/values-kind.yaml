@@ -1,0 +1,27 @@
+# kind overrides: NodePort services behind the kind extraPortMappings
+# (deploy/kind/kind-config.yaml maps host 127.0.0.1:8080 -> 30080 and
+# 127.0.0.1:8000 -> 30800) so the host-side runner keeps the familiar URLs.
+# Everything else is identical to a real cluster — that parity is exit
+# criterion 7 and starts here.
+
+gateway:
+  service:
+    type: NodePort
+    nodePort: 30080
+
+agent:
+  service:
+    type: NodePort
+    nodePort: 30800
+
+networkPolicies:
+  # kind-config.yaml pins podSubnet to Calico's default pool; the service
+  # CIDR is kind's default. NodePort traffic from the host runner arrives
+  # SNAT'd to a node address — on the Docker network the node sits on (a
+  # per-host subnet somewhere in 172.16.0.0/12) or the pod overlay.
+  clusterCidrs:
+    - 192.168.0.0/16
+    - 10.96.0.0/12
+  runnerIngressCidrs:
+    - 172.16.0.0/12
+    - 192.168.0.0/16

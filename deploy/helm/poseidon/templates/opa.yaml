@@ -1,0 +1,84 @@
+# OPA, fed the canonical policies/ directory via a ConfigMap populated at
+# install time (--set-file opa.policies.<name>=policies/<name>.rego) so the
+# repo stays the single source of truth. Compiled bundles replace this at
+# plan step 12.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-policies
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+data:
+  {{- range $name, $content := .Values.opa.policies }}
+  {{ $name }}.rego: |
+    {{- $content | nindent 4 }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opa
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opa
+  template:
+    metadata:
+      labels:
+        app: opa
+        {{- include "poseidon.labels" . | nindent 8 }}
+      annotations:
+        # Roll the pods when the policy content changes.
+        checksum/policies: {{ .Values.opa.policies | toJson | sha256sum }}
+    spec:
+      containers:
+        - name: opa
+          image: "{{ .Values.images.opa.repository }}:{{ .Values.images.opa.tag }}"
+          imagePullPolicy: {{ .Values.images.opa.pullPolicy }}
+          # Individual files, not the directory: a ConfigMap mount contains
+          # kubelet symlink bookkeeping (..data/…) that a recursive directory
+          # load would pick up as duplicate policies.
+          args:
+            - run
+            - --server
+            - --addr
+            - 0.0.0.0:8181
+            {{- range $name, $_ := .Values.opa.policies }}
+            - /policies/{{ $name }}.rego
+            {{- end }}
+          ports:
+            - containerPort: 8181
+          volumeMounts:
+            - name: policies
+              mountPath: /policies
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8181
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8181
+            periodSeconds: 10
+      volumes:
+        - name: policies
+          configMap:
+            name: opa-policies
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opa
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: opa
+  ports:
+    - port: 8181
+      targetPort: 8181

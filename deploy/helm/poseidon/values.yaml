@@ -1,0 +1,88 @@
+# Poseidon M1 values. The release is installed into the platform namespace
+# (`helm install -n poseidon-platform --create-namespace`); the chart creates
+# the company namespace itself. Defaults here are cluster-agnostic; kind
+# overrides live in values-kind.yaml.
+
+# The company namespace is hardcoded until the operator exists (plan step 10).
+companyNamespace: hello-saas
+
+images:
+  gateway:
+    repository: poseidon-gateway
+    tag: latest
+    # Images are side-loaded on kind (`kind load docker-image`); IfNotPresent
+    # keeps the kubelet from trying to pull them from a registry.
+    pullPolicy: IfNotPresent
+  agent:
+    repository: poseidon-agent
+    tag: latest
+    pullPolicy: IfNotPresent
+  opa:
+    # The plain (distroless) image is enough on Kubernetes: probes are
+    # kubelet-side httpGet, not in-container commands as on Compose.
+    repository: openpolicyagent/opa
+    tag: latest
+    pullPolicy: IfNotPresent
+  llmProxy:
+    repository: ghcr.io/berriai/litellm
+    tag: main-stable
+    pullPolicy: IfNotPresent
+
+# Secrets layout (plan step 1a): GIT_TOKEN mountable only into the gateway,
+# LLM_API_KEY only into LiteLLM — both live in the platform namespace. The
+# static bearer tokens are the PoC identity placeholders (deleted at step 12):
+# the gateway holds both, the agent (company namespace) only its own.
+# Placeholders keep `helm install` self-contained; real values come from the
+# bootstrap script (kind) or a values override (real cluster).
+secrets:
+  gitToken: ghp_replace-with-repo-scoped-pat
+  llmApiKey: sk-replace-with-provider-key
+  agentBearerToken: agent-token-placeholder
+  runnerBearerToken: runner-token-placeholder
+
+# Run configuration (the C7 subset the in-cluster services need).
+run:
+  model: gpt-4o-mini
+  targetRepo: github.com/example-org/example-repo
+  baseRef: main
+  maxIterations: 10
+
+opa:
+  # Rego files served to OPA, keyed by basename (".rego" is appended).
+  # Populated at install time from the canonical policies/ directory:
+  #   --set-file opa.policies.poc=policies/poc.rego
+  # so the repo keeps a single source of truth for policy.
+  policies: {}
+
+gateway:
+  service:
+    type: ClusterIP
+    # Set (with type NodePort) to give the host-side runner a stable port.
+    nodePort: null
+  audit:
+    # The audit JSONL moves onto a PVC mounted by the gateway (sequencing
+    # choice 1: JSONL on a PVC at M1, registry Postgres at step 8).
+    storage: 1Gi
+    # null = the cluster's default StorageClass ("standard" on kind).
+    storageClassName: null
+
+agent:
+  service:
+    type: ClusterIP
+    nodePort: null
+
+networkPolicies:
+  enabled: true
+  # CIDRs treated as cluster-internal: the gateway's external egress rule
+  # (git host) excludes them so "external" never quietly includes pods or
+  # services. Must match the cluster's pod and service CIDRs.
+  clusterCidrs:
+    - 10.244.0.0/16
+    - 10.96.0.0/12
+  # Where the host-side runner's dispatch/status calls enter the agent pod
+  # from (NodePort traffic is SNAT'd to a node address). 172.16.0.0/12 covers
+  # any Docker bridge subnet (Docker picks one per host), plus the pod CIDR
+  # for node addresses on the overlay.
+  runnerIngressCidrs:
+    - 172.16.0.0/12
+    - 10.244.0.0/16

@@ -24,10 +24,11 @@ members = ["packages/*"]
 markers = [
     "docker: integration tests needing a Docker daemon (run with -m docker)",
     "e2e: end-to-end tests needing the live compose stack, a real repo and a real LLM key (run with -m e2e)",
+    "e2e_kind: end-to-end tests needing the live kind cluster, a real repo and a real LLM key (run with -m e2e_kind)",
 ]
-# Excluded by default; an explicit `-m docker` / `-m e2e` on the command line
-# overrides this.
-addopts = "-m 'not docker and not e2e'"
+# Excluded by default; an explicit `-m docker` / `-m e2e` / `-m e2e_kind` on
+# the command line overrides this.
+addopts = "-m 'not docker and not e2e and not e2e_kind'"
 
 [tool.uv.sources]
 common = { workspace = true }
