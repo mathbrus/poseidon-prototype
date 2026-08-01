@@ -1,0 +1,18 @@
+# Orchestrator worker image: workflows, activities and the Temporal worker.
+# Credential posture: the orchestrator bearer token arrives via env at
+# deploy time — no GIT_TOKEN, no provider keys, ever. The docker SDK is
+# only here for the transitional Docker sandbox backend (gone at step 6).
+# Build from the repo root: docker build -f Dockerfile.orchestrator .
+FROM python:3.12-slim
+
+COPY packages/common /opt/poseidon/packages/common
+COPY packages/sandbox /opt/poseidon/packages/sandbox
+COPY packages/orchestrator /opt/poseidon/packages/orchestrator
+RUN pip install --no-cache-dir \
+    /opt/poseidon/packages/common \
+    /opt/poseidon/packages/sandbox \
+    /opt/poseidon/packages/orchestrator
+
+WORKDIR /opt/poseidon
+
+CMD ["python", "-m", "orchestrator.worker"]

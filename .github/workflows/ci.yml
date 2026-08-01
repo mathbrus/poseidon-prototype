@@ -42,9 +42,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build images
         run: |
-          docker build -f Dockerfile.gateway -t poseidon-gateway .
-          docker build -f Dockerfile.agent   -t poseidon-agent .
-          docker build -f Dockerfile.sandbox -t poseidon-sandbox .
+          docker build -f Dockerfile.gateway      -t poseidon-gateway .
+          docker build -f Dockerfile.agent        -t poseidon-agent .
+          docker build -f Dockerfile.sandbox      -t poseidon-sandbox .
+          docker build -f Dockerfile.orchestrator -t poseidon-orchestrator .
 
       - name: "Secret-inspection gate: compose service env"
         working-directory: deploy/compose

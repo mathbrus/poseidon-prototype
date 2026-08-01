@@ -290,9 +290,19 @@ blocked and a correlated deny event lands in the audit sink; an allowlisted
   as a scripted test.
 - Rewire CI: unit + OPA jobs unchanged; image builds and e2e move to a
   kind-based job.
+- **Lockfile-pinned image builds:** the Dockerfiles stop `pip install`-ing
+  packages at whatever version is current and instead install from `uv.lock`
+  (e.g. `uv export`/`uv sync` in the build), so images and the host
+  environment resolve identical dependency versions. Motivated by a real
+  step-3 incident: images picked up an `mcp` release with breaking API
+  renames (`streamable_http_client` 3-tuple → 2-tuple, `isError` →
+  `is_error`) that the lockfile-pinned host never saw.
 
 **Delete:** `deploy/compose/`, `packages/sandbox/.../backends/docker.py` and
-its tests, Compose-specific env documentation, any `poseidon-poc` remnants.
+its tests, Compose-specific env documentation, any `poseidon-poc` remnants,
+and the mcp version-compat shims in `orchestrator/clients.py` (the tuple
+unpack and `is_error`/`isError` fallbacks — dead once every environment
+resolves the same locked `mcp`).
 
 **Done when:** the suite is green on kind in CI and Compose plus the Docker
 backend are gone from the tree.

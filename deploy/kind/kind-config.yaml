@@ -22,3 +22,10 @@ nodes:
       - containerPort: 30800   # agent NodePort
         hostPort: 8000
         listenAddress: 127.0.0.1
+    # Transitional (plan steps 3→4): the orchestrator worker drives the
+    # Docker sandbox backend, so the host Docker socket must reach the node
+    # for the worker pod's hostPath mount. Leaves with the k8s_jobs backend.
+    # Changing this requires recreating the cluster (kind-down.sh, kind-up.sh).
+    extraMounts:
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/host-docker.sock

@@ -1,5 +1,6 @@
-"""Runner-side clients: the gateway (MCP + admin endpoint, runner token)
-and the agent's C6 HTTP API."""
+"""Activity-side clients: the gateway (MCP + admin endpoint, orchestrator
+token) and the agent's C6 HTTP API. Thin by design — process-level retries,
+timeouts and cancellation belong to the workflow, not here."""
 
 import base64
 import json
@@ -19,9 +20,14 @@ class AgentError(Exception):
     pass
 
 
+class AgentRunLost(AgentError):
+    """The agent no longer knows the run (its in-memory state restarted);
+    the dispatch activity retries from the POST."""
+
+
 class GatewayClient:
     """MCP session for `repo.archive` plus the non-MCP admin registration,
-    both authenticated with RUNNER_BEARER_TOKEN."""
+    both authenticated with the orchestrator bearer token."""
 
     def __init__(self, url: str, bearer_token: str) -> None:
         self._base = url.rstrip("/")
@@ -37,9 +43,11 @@ class GatewayClient:
                 timeout=httpx.Timeout(30.0, read=660.0),
             )
         )
-        read, write, _ = await self._stack.enter_async_context(
+        # 2-tuple (mcp >= 1.16) or 3-tuple (older) — take the two streams.
+        transport = await self._stack.enter_async_context(
             streamable_http_client(self._base + "/mcp", http_client=self._http)
         )
+        read, write = transport[0], transport[1]
         self._session = await self._stack.enter_async_context(ClientSession(read, write))
         await self._session.initialize()
         return self
@@ -55,7 +63,8 @@ class GatewayClient:
         text = "".join(
             block.text for block in result.content if getattr(block, "text", None)
         )
-        if result.isError:
+        # isError (mcp < 1.16) / is_error (newer).
+        if getattr(result, "is_error", None) or getattr(result, "isError", None):
             raise GatewayError(text or "repo.archive failed")
         return base64.b64decode(json.loads(text)["archive_b64"])
 
@@ -83,14 +92,19 @@ class AgentClient:
         await self._http.aclose()
 
     async def dispatch(self, run_id: str, task_text: str) -> None:
+        """Idempotent under retry: 409 means the agent already has the run
+        (a previous attempt dispatched it before the worker died) — the
+        caller proceeds to polling either way."""
         resp = await self._http.post(
             "/task", json={"run_id": run_id, "task_text": task_text}
         )
-        if resp.status_code != 202:
+        if resp.status_code not in (202, 409):
             raise AgentError(f"task dispatch failed: {resp.status_code} {resp.text}")
 
     async def status(self, run_id: str) -> dict[str, Any]:
         resp = await self._http.get(f"/task/{run_id}")
+        if resp.status_code == 404:
+            raise AgentRunLost(f"agent lost run {run_id} (restarted?)")
         if resp.status_code != 200:
             raise AgentError(f"status poll failed: {resp.status_code} {resp.text}")
         return resp.json()

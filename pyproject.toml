@@ -8,7 +8,7 @@ dependencies = [
     "agent",
     "gateway",
     "sandbox",
-    "runner",
+    "orchestrator",
 ]
 
 [dependency-groups]
@@ -39,4 +39,4 @@ common = { workspace = true }
 agent = { workspace = true }
 gateway = { workspace = true }
 sandbox = { workspace = true }
-runner = { workspace = true }
+orchestrator = { workspace = true }

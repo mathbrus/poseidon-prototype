@@ -78,6 +78,17 @@ spec:
       app: agent
   policyTypes: [Ingress]
   ingress:
+    # The orchestrator worker's dispatch/status calls.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app: orchestrator-worker
+      ports:
+        - port: 8000
+    # Host-side callers (bootstrap smoke, e2e stack check) via NodePort.
     - from:
         {{- range .Values.networkPolicies.runnerIngressCidrs }}
         - ipBlock:

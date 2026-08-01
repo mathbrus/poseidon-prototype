@@ -47,10 +47,11 @@ kubectl wait --for=condition=Ready node --all --timeout=300s
 echo "==> images"
 docker build -f Dockerfile.gateway -t poseidon-gateway .
 docker build -f Dockerfile.agent -t poseidon-agent .
+docker build -f Dockerfile.orchestrator -t poseidon-orchestrator .
 docker build -f Dockerfile.sandbox -t "$SANDBOX_IMAGE" .
 # The sandbox image is not loaded: sandboxes stay host-side Docker containers
 # until the k8s_jobs backend (plan step 4).
-kind load docker-image poseidon-gateway poseidon-agent --name "$CLUSTER_NAME"
+kind load docker-image poseidon-gateway poseidon-agent poseidon-orchestrator --name "$CLUSTER_NAME"
 
 echo "==> transitional sandbox network"
 # Internal (no route out — the sandbox keeps zero egress, E3); the kind node
@@ -110,6 +111,7 @@ helm upgrade --install temporal temporal/temporal \
 for deploy in temporal-frontend temporal-history temporal-matching temporal-worker temporal-web; do
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
 done
+kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeout=300s
 
 echo "==> smoke"
 # No unauthenticated gateway route exists; 401 proves the server is up.

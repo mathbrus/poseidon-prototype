@@ -27,6 +27,10 @@ images:
     repository: ghcr.io/berriai/litellm
     tag: main-stable
     pullPolicy: IfNotPresent
+  orchestrator:
+    repository: poseidon-orchestrator
+    tag: latest
+    pullPolicy: IfNotPresent
 
 # Secrets layout (plan step 1a): GIT_TOKEN mountable only into the gateway,
 # LLM_API_KEY only into LiteLLM — both live in the platform namespace. The
@@ -48,6 +52,19 @@ run:
   targetRepo: github.com/example-org/example-repo
   baseRef: main
   maxIterations: 10
+
+orchestrator:
+  temporalAddress: temporal-frontend:7233
+  sandboxImage: poseidon-sandbox
+  # The transitional host-side Docker sandbox network (plan step 4 replaces
+  # it with the k8s_jobs backend).
+  sandboxNetwork: poseidon-kind-sandboxnet
+  # Host path of the Docker socket as seen from the node — on kind, a
+  # kind-config extraMount. null disables the mount (post-step-4 clusters).
+  dockerSocketHostPath: /var/run/host-docker.sock
+  runs:
+    storage: 1Gi
+    storageClassName: null
 
 postgres:
   image:

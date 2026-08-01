@@ -9,10 +9,7 @@ test needs host access to Temporal yet).
 """
 
 import asyncio
-import contextlib
-import socket
 import subprocess
-import time
 import uuid
 from datetime import timedelta
 
@@ -26,9 +23,8 @@ from temporalio.worker import Worker
 with workflow.unsafe.imports_passed_through():
     import pytest
 
-    from .conftest import PLATFORM_NS
+    from .conftest import PLATFORM_NS, temporal_port_forward
 
-LOCAL_PORT = 17233
 SERVER_DEPLOYMENTS = [
     "temporal-frontend",
     "temporal-history",
@@ -49,34 +45,6 @@ class SmokeWorkflow:
         return await workflow.execute_activity(
             greet, name, start_to_close_timeout=timedelta(seconds=10)
         )
-
-
-@contextlib.contextmanager
-def frontend_port_forward():
-    proc = subprocess.Popen(
-        [
-            "kubectl", "-n", PLATFORM_NS,
-            "port-forward", "svc/temporal-frontend", f"{LOCAL_PORT}:7233",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while True:
-            if proc.poll() is not None:
-                pytest.fail("kubectl port-forward exited early")
-            try:
-                with socket.create_connection(("127.0.0.1", LOCAL_PORT), timeout=1):
-                    break
-            except OSError:
-                if time.monotonic() > deadline:
-                    pytest.fail("port-forward to temporal-frontend never came up")
-                time.sleep(0.5)
-        yield f"127.0.0.1:{LOCAL_PORT}"
-    finally:
-        proc.terminate()
-        proc.wait(timeout=10)
 
 
 def restart_temporal_server() -> None:
@@ -124,7 +92,7 @@ def test_workflow_survives_server_restart():
     workflow_id = f"smoke-{uuid.uuid4().hex[:8]}"
 
     # 1. Worker connects; a trivial workflow runs end-to-end.
-    with frontend_port_forward() as address:
+    with temporal_port_forward() as address:
         asyncio.run(_run_smoke_workflow(address, workflow_id))
 
     # 2. Every Temporal server pod restarts; the port-forward dies with the
@@ -133,5 +101,5 @@ def test_workflow_survives_server_restart():
 
     # 3. The completed workflow's history is still there, served by the new
     # pods out of Postgres.
-    with frontend_port_forward() as address:
+    with temporal_port_forward() as address:
         asyncio.run(_assert_history_survived(address, workflow_id))

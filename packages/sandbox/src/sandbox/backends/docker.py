@@ -53,6 +53,14 @@ class DockerBackend:
 
     def provision(self, run_id: str, workspace_tar: bytes) -> SandboxHandle:
         name = f"poseidon-sbx-{run_id}"
+        # Retry-safe under the durable orchestrator: a crashed earlier
+        # attempt may have left a container with this name (one provision
+        # per run, so it can only be our own remnant) — remove it first.
+        try:
+            self._client.containers.get(name).remove(force=True)
+            self._log.info("removed remnant sandbox", extra={"run_id": run_id})
+        except docker.errors.NotFound:
+            pass
         container = self._client.containers.create(
             self._image,
             name=name,
