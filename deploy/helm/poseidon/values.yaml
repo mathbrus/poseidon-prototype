@@ -39,6 +39,8 @@ secrets:
   llmApiKey: sk-replace-with-provider-key
   agentBearerToken: agent-token-placeholder
   runnerBearerToken: runner-token-placeholder
+  # Cluster-internal only (Postgres never leaves the platform namespace).
+  postgresPassword: postgres-password-placeholder
 
 # Run configuration (the C7 subset the in-cluster services need).
 run:
@@ -46,6 +48,19 @@ run:
   targetRepo: github.com/example-org/example-repo
   baseRef: main
   maxIterations: 10
+
+postgres:
+  image:
+    repository: postgres
+    tag: "16.6"
+    pullPolicy: IfNotPresent
+  # Superuser for the whole instance: Temporal's schema tool creates its own
+  # databases with it, and the registry (step 8) will get its database here
+  # too.
+  user: poseidon
+  storage: 5Gi
+  # null = the cluster's default StorageClass.
+  storageClassName: null
 
 opa:
   # Rego files served to OPA, keyed by basename (".rego" is appended).

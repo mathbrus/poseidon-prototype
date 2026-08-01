@@ -17,6 +17,7 @@ PLATFORM_NS=${PLATFORM_NS:-poseidon-platform}
 COMPANY_NS=${COMPANY_NS:-hello-saas}
 ENV_FILE=${ENV_FILE:-$SCRIPT_DIR/.env}
 CALICO_MANIFEST=${CALICO_MANIFEST:-https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/calico.yaml}
+TEMPORAL_CHART_VERSION=${TEMPORAL_CHART_VERSION:-1.6.0}
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "error: $ENV_FILE not found — copy $SCRIPT_DIR/.env.example and fill it in" >&2
@@ -74,6 +75,7 @@ secrets:
   llmApiKey: "${LLM_API_KEY:?LLM_API_KEY missing from $ENV_FILE}"
   agentBearerToken: "${AGENT_BEARER_TOKEN:?AGENT_BEARER_TOKEN missing from $ENV_FILE}"
   runnerBearerToken: "${RUNNER_BEARER_TOKEN:?RUNNER_BEARER_TOKEN missing from $ENV_FILE}"
+  postgresPassword: "${POSTGRES_PASSWORD:-poseidon-dev-postgres}"
 run:
   model: "${MODEL:?MODEL missing from $ENV_FILE}"
   targetRepo: "${TARGET_REPO:?TARGET_REPO missing from $ENV_FILE}"
@@ -90,7 +92,24 @@ echo "==> rollout"
 for deploy in opa llm-proxy mcp-gateway; do
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=300s
 done
+kubectl -n "$PLATFORM_NS" rollout status statefulset/postgres --timeout=300s
 kubectl -n "$COMPANY_NS" rollout status deployment/agent --timeout=300s
+
+echo "==> temporal (chart $TEMPORAL_CHART_VERSION)"
+# Version-pinned, same values path for kind and real clusters (plan step 2).
+# The schema hook jobs create/migrate both databases against the poseidon
+# chart's Postgres, which is Ready by now.
+if ! helm repo list 2>/dev/null | grep -q go.temporal.io; then
+  helm repo add temporal https://go.temporal.io/helm-charts
+fi
+helm upgrade --install temporal temporal/temporal \
+  --version "$TEMPORAL_CHART_VERSION" \
+  --namespace "$PLATFORM_NS" \
+  -f deploy/helm/temporal-values.yaml \
+  --timeout 15m
+for deploy in temporal-frontend temporal-history temporal-matching temporal-worker temporal-web; do
+  kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
+done
 
 echo "==> smoke"
 # No unauthenticated gateway route exists; 401 proves the server is up.
