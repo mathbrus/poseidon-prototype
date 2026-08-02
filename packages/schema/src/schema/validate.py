@@ -101,20 +101,65 @@ def _catalog_problems(document: Any) -> list[str]:
     for crew_name, crew in crews.items() if isinstance(crews, dict) else []:
         if not isinstance(crew, dict):
             continue
+        catalog_crew = CREW_TEMPLATES.get(crew_name)
+        if catalog_crew is None:
+            problems.append(
+                f"crews.{crew_name}: not a known crew template "
+                f"(known: {known_crews})"
+            )
         members = crew.get("members")
         for member_name, member in (members if isinstance(members, dict) else {}).items():
             if not isinstance(member, dict):
                 continue
-            if isinstance(member.get("role_template"), str) and (
-                member["role_template"] not in ROLE_TEMPLATES
+            where = f"crews.{crew_name}.members.{member_name}"
+            catalog_member = (
+                catalog_crew.members.get(member_name) if catalog_crew else None
+            )
+            if catalog_crew is not None and catalog_member is None:
+                problems.append(
+                    f"{where}: not a member of the {crew_name!r} crew "
+                    f"template (members: {', '.join(sorted(catalog_crew.members))})"
+                )
+            role_template = member.get("role_template")
+            if isinstance(role_template, str) and role_template not in ROLE_TEMPLATES:
+                problems.append(
+                    f"{where}.role_template: {role_template!r} is not in the "
+                    f"role catalog (known: {known_roles})"
+                )
+            elif (
+                catalog_member is not None
+                and isinstance(role_template, str)
+                and role_template != catalog_member.role_template
             ):
                 problems.append(
-                    f"crews.{crew_name}.members.{member_name}.role_template: "
-                    f"{member.get('role_template')!r} is not in the role "
-                    f"catalog (known: {known_roles})"
+                    f"{where}.role_template: {role_template!r} does not match "
+                    f"the catalog's {catalog_member.role_template!r} for this "
+                    f"member — the blueprint names the template, the catalog "
+                    f"defines it"
                 )
+            # The blueprint narrows the catalog member's allow-list, never
+            # widens it — the planner-is-read-only contract is a catalog
+            # property, and a document granting extra tools must fail here,
+            # not compile into a wider bundle. Unknown and platform-only
+            # tools are skipped: the schema enum and the platform check
+            # below already report those.
+            if catalog_member is not None:
+                declared = member.get("tools")
+                for tool in declared if isinstance(declared, list) else []:
+                    if (
+                        isinstance(tool, str)
+                        and tool in KNOWN_TOOLS
+                        and tool not in PLATFORM_ONLY
+                        and tool not in catalog_member.tools
+                    ):
+                        problems.append(
+                            f"{where}.tools: {tool!r} is not in the catalog "
+                            f"member's allow-list — the blueprint narrows "
+                            f"the catalog, never widens it (allowed: "
+                            f"{', '.join(sorted(catalog_member.tools))})"
+                        )
             problems += _platform_tool_problems(
-                f"crews.{crew_name}.members.{member_name}.tools",
+                f"{where}.tools",
                 member.get("tools") or [],
             )
 

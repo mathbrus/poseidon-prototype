@@ -446,6 +446,14 @@ fail with actionable errors.
 > `test_lean_roster_profile_validates` pins that the post-firing-diff
 > document still validates. Catalog cross-checks skip malformed values and
 > leave those to the schema pass, so the two never double-report.
+>
+> Review pass (2026-08-02): two widen paths closed. Crew names are now
+> checked against the catalog (an unknown `crews:` key used to validate and
+> then resolve against nothing in the compiler), and crew members are held
+> to the catalog member's contract — the member must exist in the catalog
+> crew, use its `role_template`, and declare `tools` ⊆ its allow-list, so
+> "the planner is read-only" is enforced at validation rather than living
+> only in `catalog.py` prose. 37 tests.
 
 ### Step 8 — `packages/registry`: Postgres models + API; runs and registrations move in
 

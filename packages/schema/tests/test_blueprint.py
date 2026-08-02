@@ -155,6 +155,58 @@ def test_crew_member_cannot_hold_the_platform_merge_tool(blueprint):
     assert any("platform identity" in p for p in problems_of(blueprint))
 
 
+def test_unknown_crew_name_is_caught(blueprint):
+    """A crews: key outside the catalog used to validate cleanly and then
+    resolve against nothing in the compiler."""
+    blueprint["crews"]["hotfix-swat"] = copy.deepcopy(
+        blueprint["crews"]["feature-review"]
+    )
+    (problem,) = [
+        p for p in problems_of(blueprint) if p.startswith("crews.hotfix-swat:")
+    ]
+    assert "crew template" in problem
+    assert "feature-delivery" in problem  # the known values are shown
+
+
+def test_unknown_crew_member_name_is_caught(blueprint):
+    members = blueprint["crews"]["feature-review"]["members"]
+    members["stenographer"] = copy.deepcopy(members["reviewer"])
+    (problem,) = [p for p in problems_of(blueprint) if "stenographer" in p]
+    assert "not a member" in problem
+    assert "reviewer" in problem  # the catalog's members are shown
+
+
+def test_crew_member_template_must_match_the_catalog(blueprint):
+    """The catalog defines who the reviewer is; a document swapping in a
+    different (but existing) template is wrong about the crew, not hiring."""
+    blueprint["crews"]["feature-review"]["members"]["reviewer"][
+        "role_template"
+    ] = "backend-engineer"
+    (problem,) = [
+        p for p in problems_of(blueprint) if "does not match the catalog" in p
+    ]
+    assert "'sdet'" in problem
+
+
+def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
+    """The planner-is-read-only contract is a catalog property: a blueprint
+    granting the planner a write tool must fail validation, not compile
+    into a wider bundle."""
+    planner = blueprint["crews"]["feature-delivery"]["members"]["planner"]
+    planner["tools"].append("sandbox.write_file")
+    (problem,) = [
+        p for p in problems_of(blueprint) if "sandbox.write_file" in p
+    ]
+    assert "never widens" in problem
+    assert "sandbox.read_file" in problem  # the allowed values are shown
+
+
+def test_crew_member_tools_may_narrow_the_catalog(blueprint):
+    executor = blueprint["crews"]["feature-delivery"]["members"]["executor"]
+    executor["tools"] = ["sandbox.read_file", "sandbox.run_tests"]
+    assert validate_blueprint(blueprint) is blueprint
+
+
 # -- the end-state roster still validates ---------------------------------
 
 
