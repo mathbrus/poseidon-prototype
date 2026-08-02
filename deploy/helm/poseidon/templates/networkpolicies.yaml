@@ -202,6 +202,15 @@ spec:
               app: poseidon-sandbox
       ports:
         - port: 8000
+    # The registry (plan step 8): sandbox registrations and audit events.
+    # Cluster CIDRs are excluded from the external rule below, so without
+    # this the gateway cannot reach its own database.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
     - to:
         - namespaceSelector:
             matchLabels:

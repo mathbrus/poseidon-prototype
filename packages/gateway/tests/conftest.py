@@ -15,6 +15,7 @@ import pytest
 
 from gateway.app import create_app
 from gateway.config import GatewaySettings
+from registry.memory import InMemoryAuditStore, InMemorySandboxRegistrations
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -117,17 +118,18 @@ def backends() -> Backends:
 
 
 @pytest.fixture
-def audit_path(tmp_path: Path) -> Path:
-    return tmp_path / "audit.jsonl"
+def audit() -> InMemoryAuditStore:
+    """The registry audit store, in memory (plan step 8 moved the sink off
+    JSONL; the interface is the same object the gateway writes through)."""
+    return InMemoryAuditStore()
 
 
 @pytest.fixture
-def settings(audit_path: Path) -> GatewaySettings:
+def settings() -> GatewaySettings:
     return GatewaySettings(
         agent_bearer_token=AGENT_TOKEN,
         runner_bearer_token=RUNNER_TOKEN,
         opa_url=OPA_URL,
-        audit_path=audit_path,
         git_token=GIT_TOKEN,
         base_ref="main",
         github_api_url=GITHUB_API_URL,
@@ -135,9 +137,14 @@ def settings(audit_path: Path) -> GatewaySettings:
 
 
 @pytest.fixture
-async def app(settings: GatewaySettings, backends: Backends):
+async def app(settings: GatewaySettings, backends: Backends, audit: InMemoryAuditStore):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
-    application = create_app(settings, stub_client)
+    application = create_app(
+        settings,
+        stub_client,
+        sandboxes=InMemorySandboxRegistrations(),
+        audit=audit,
+    )
     async with application.state.fastmcp.session_manager.run():
         yield application
     await stub_client.aclose()
@@ -166,10 +173,8 @@ async def register_sandbox(app, run_id: str, token: str = RUNNER_TOKEN) -> httpx
         return await client.post("/admin/sandboxes", json={"run_id": run_id, "url": SANDBOX_URL})
 
 
-def audit_events(audit_path: Path) -> list[dict]:
-    if not audit_path.exists():
-        return []
-    return [json.loads(line) for line in audit_path.read_text().splitlines()]
+def audit_events(audit: InMemoryAuditStore) -> list[dict]:
+    return [event.model_dump() for event in audit.events]
 
 
 # --- local git fixtures (TARGET_REPO stand-in, agent-side bundles) ------------

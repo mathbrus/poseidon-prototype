@@ -1,6 +1,6 @@
 """Step-5 exit criteria against the live kind cluster (§4.6): from inside a
 sandbox, a request to a non-allowlisted host is blocked *and* the deny lands
-in the egress audit sink correlated by run_id; an allowlisted `pip install`
+in the registry audit store correlated by run_id; an allowlisted `pip install`
 succeeds through the proxy; and the NetworkPolicy backstop silently drops
 attempts to bypass the proxy.
 
@@ -22,7 +22,7 @@ from sandbox.backends.k8s_jobs import K8sJobsBackend
 from sandbox.contract import SandboxPolicy
 from sandbox.egressproxy.credentials import sandbox_proxy_env
 
-from .conftest import COMPANY_NS, PLATFORM_NS, egress_audit_events
+from .conftest import COMPANY_NS, PLATFORM_NS, audit_story
 
 PROXY_URL = f"http://egress-proxy.{PLATFORM_NS}.svc.cluster.local:3128"
 
@@ -93,11 +93,11 @@ def test_egress_containment(egress_key: str, workspace_tar: bytes):
         deadline = time.monotonic() + 30
         denies = []
         while time.monotonic() < deadline:
-            denies = [e for e in egress_audit_events(run_id) if e["decision"] == "deny"]
+            denies = [e for e in audit_story(run_id) if e["decision"] == "deny"]
             if denies:
                 break
             time.sleep(1)
-        assert denies, "no correlated deny event in the egress audit sink"
+        assert denies, "no correlated deny event in the registry audit store"
         assert denies[0]["rule"] == "egress_not_allowlisted"
         assert denies[0]["role"] == "sandbox-infra"
 
@@ -108,7 +108,7 @@ def test_egress_containment(egress_key: str, workspace_tar: bytes):
             ["pip", "install", "--no-cache-dir", "--quiet", "six"],
         )
         assert exit_code == 0, output
-        allows = [e for e in egress_audit_events(run_id) if e["decision"] == "allow"]
+        allows = [e for e in audit_story(run_id) if e["decision"] == "allow"]
         assert allows, "pip install left no allow events"
 
         # NetworkPolicy backstop: bypassing the proxy is silently dropped.

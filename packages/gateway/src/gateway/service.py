@@ -14,13 +14,13 @@ from typing import Any
 
 import httpx
 
-from common import audit as audit_sink
 from common.audit import AuditEvent
 from common.telemetry import get_logger
 from gateway.config import GatewaySettings
 from gateway.git_backend import GitBackend
 from gateway.identity import AGENT_ID, Identity
 from gateway.opa import OpaClient
+from registry import AuditStore, SandboxRegistrations
 
 # tool name -> sandbox tool-server route (contract C4)
 SANDBOX_ROUTES = {
@@ -54,6 +54,8 @@ class GatewayService:
         settings: GatewaySettings,
         opa: OpaClient,
         http_client: httpx.AsyncClient,
+        sandboxes: SandboxRegistrations,
+        audit: AuditStore,
         git_backend: GitBackend | None = None,
     ) -> None:
         self._settings = settings
@@ -61,15 +63,25 @@ class GatewayService:
         self._http = http_client
         self._git = git_backend or GitBackend(settings, http_client)
         self._log = get_logger("gateway")
-        self._sandboxes: dict[str, str] = {}
+        # Registry-backed since plan step 8: an in-memory dict silently
+        # orphaned every sandbox call of every in-flight run whenever this
+        # process restarted (resolution row 16).
+        self._sandboxes = sandboxes
+        self._audit_store = audit
 
     # -- sandbox registry -------------------------------------------------
 
-    def register_sandbox(self, run_id: str, url: str) -> None:
-        self._sandboxes[run_id] = url.rstrip("/")
+    def register_sandbox(
+        self,
+        run_id: str,
+        url: str,
+        namespace: str | None = None,
+        job_name: str | None = None,
+    ) -> None:
+        self._sandboxes.register(run_id, url.rstrip("/"), namespace, job_name)
 
     def sandbox_url(self, run_id: str) -> str | None:
-        return self._sandboxes.get(run_id)
+        return self._sandboxes.url_for(run_id)
 
     # -- enforcement pipeline ---------------------------------------------
 
@@ -117,15 +129,34 @@ class GatewayService:
             raise BackendError(f"sandbox returned {resp.status_code}: {resp.text}")
         return resp.json()
 
-    async def register_run(self, identity: Identity, run_id: str, url: str) -> None:
+    async def register_run(
+        self,
+        identity: Identity,
+        run_id: str,
+        url: str,
+        namespace: str | None = None,
+        job_name: str | None = None,
+    ) -> None:
         """Admin action: register a sandbox and push the run assignment to OPA."""
 
         async def backend() -> None:
-            self.register_sandbox(run_id, url)
+            self.register_sandbox(run_id, url, namespace, job_name)
             await self._opa.assign_run(AGENT_ID, run_id)
 
         await self.call(
             identity, "/admin/sandboxes", {"run_id": run_id, "url": url}, backend
+        )
+
+    async def unregister_run(self, identity: Identity, run_id: str) -> None:
+        """Admin action: retire a registration at teardown. The OPA run
+        assignment stays until the compiled-policy cutover (plan step 12)
+        replaces `data.runs.assignments` with registry-enriched input."""
+
+        async def backend() -> None:
+            self._sandboxes.terminate(run_id)
+
+        await self.call(
+            identity, "/admin/sandboxes.delete", {"run_id": run_id}, backend
         )
 
     # -- git tools ----------------------------------------------------------
@@ -210,5 +241,5 @@ class GatewayService:
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=backend_status,
         )
-        audit_sink.append(event, self._settings.audit_path)
+        self._audit_store.append(event)
         self._log.info("audit", extra=event.model_dump())

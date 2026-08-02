@@ -1,21 +1,7 @@
-# MCP gateway: the only pod holding GIT_TOKEN. The audit JSONL moves onto a
-# PVC here (sequencing choice 1); the registry Postgres sink replaces it at
-# plan step 8.
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: gateway-audit
-  labels:
-    {{- include "poseidon.labels" . | nindent 4 }}
-spec:
-  accessModes: ["ReadWriteOnce"]
-  {{- with .Values.gateway.audit.storageClassName }}
-  storageClassName: {{ . }}
-  {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.gateway.audit.storage }}
----
+# MCP gateway: the only pod holding GIT_TOKEN. Audit events and sandbox
+# registrations live in the registry since plan step 8 — the PVC that
+# carried the audit JSONL is gone, and with it the reason this Deployment
+# could not roll normally.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,10 +10,6 @@ metadata:
     {{- include "poseidon.labels" . | nindent 4 }}
 spec:
   replicas: 1
-  # Recreate: the audit PVC is ReadWriteOnce; a rolling update would deadlock
-  # on the volume attachment.
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app: mcp-gateway
@@ -63,11 +45,11 @@ spec:
               value: {{ .Values.run.baseRef | quote }}
             - name: OPA_URL
               value: http://opa:8181
-            - name: AUDIT_PATH
-              value: /opt/poseidon/runs/audit.jsonl
-          volumeMounts:
-            - name: audit
-              mountPath: /opt/poseidon/runs
+            - name: REGISTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: registry-credentials
+                  key: REGISTRY_DSN
           # No unauthenticated route exists; a 401 from the bearer middleware
           # proves the server is up without putting a token in the probe.
           # (httpGet probes treat 401 as failure, hence the exec probe.)
@@ -84,10 +66,6 @@ spec:
               port: 8080
             periodSeconds: 10
             initialDelaySeconds: 10
-      volumes:
-        - name: audit
-          persistentVolumeClaim:
-            claimName: gateway-audit
 ---
 apiVersion: v1
 kind: Service

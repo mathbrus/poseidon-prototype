@@ -1,6 +1,11 @@
-"""Audit event model and append-only JSONL sink (contract C1)."""
+"""Audit event model (contract C1).
 
-from pathlib import Path
+The append-only JSONL sink this module used to carry retired at plan step 8:
+events go to the registry `audit_events` table, where one `run_id` query
+returns the whole story across sources (§4.10). The model stays here
+because every producer and consumer shares it; schema v2 lands at step 13.
+"""
+
 from typing import Literal
 
 from pydantic import BaseModel
@@ -17,10 +22,3 @@ class AuditEvent(BaseModel):
     rule: str | None
     latency_ms: int
     backend_status: Literal["ok", "error"] | None
-
-
-def append(event: AuditEvent, path: Path | str) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as f:
-        f.write(event.model_dump_json() + "\n")

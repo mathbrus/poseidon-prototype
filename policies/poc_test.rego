@@ -173,3 +173,15 @@ test_admin_sandboxes_denied_for_engineer if {
 		with data.runs.assignments as assignments
 	d == {"allow": false, "rule": "default_deny"}
 }
+
+test_admin_sandboxes_delete_allowed_for_runner if {
+	d := poc.decision with input as runner_input("/admin/sandboxes.delete", {"run_id": "run-abc"})
+		with data.runs.assignments as assignments
+	d == {"allow": true, "rule": "admin_sandboxes_runner"}
+}
+
+test_admin_sandboxes_delete_denied_for_engineer if {
+	d := poc.decision with input as engineer_input("/admin/sandboxes.delete", "run-abc", {"run_id": "run-abc"})
+		with data.runs.assignments as assignments
+	d == {"allow": false, "rule": "default_deny"}
+}

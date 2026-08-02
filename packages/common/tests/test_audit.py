@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from common.audit import AuditEvent, append
+from common.audit import AuditEvent
 
 
 def make_event(**overrides):
@@ -45,16 +45,3 @@ def test_decision_and_backend_status_are_constrained():
         make_event(decision="maybe")
     with pytest.raises(ValidationError):
         make_event(backend_status="crashed")
-
-
-def test_append_is_append_only_jsonl(tmp_path):
-    path = tmp_path / "runs" / "audit.jsonl"
-    append(make_event(tool="sandbox.exec"), path)
-    append(make_event(tool="git.open_pr", decision="deny", rule="default_deny"), path)
-
-    lines = path.read_text().splitlines()
-    assert len(lines) == 2
-    first, second = (json.loads(line) for line in lines)
-    assert first["tool"] == "sandbox.exec"
-    assert second["tool"] == "git.open_pr"
-    assert second["decision"] == "deny"

@@ -2,6 +2,7 @@
 token) and the agent's C6 HTTP API. Thin by design — process-level retries,
 timeouts and cancellation belong to the workflow, not here."""
 
+import asyncio
 import base64
 import contextlib
 import json
@@ -15,6 +16,20 @@ from mcp.client.streamable_http import streamable_http_client
 
 class GatewayError(Exception):
     pass
+
+
+def _is_spurious_cancel(exc: BaseException) -> bool:
+    """True for a CancelledError that no one asked for.
+
+    `Task.cancelling()` counts outstanding cancel requests against *this*
+    task; zero means the cancellation was manufactured inside the transport
+    rather than requested by the workflow, so converting it to an error
+    loses nothing and keeps real cancellation working.
+    """
+    if not isinstance(exc, asyncio.CancelledError):
+        return False
+    task = asyncio.current_task()
+    return task is not None and task.cancelling() == 0
 
 
 class AgentError(Exception):
@@ -54,14 +69,24 @@ class GatewayClient:
                 ClientSession(read, write)
             )
             await self._session.initialize()
-        except Exception as exc:
+        except BaseException as exc:
             # Unwind in the task that opened the stack. Left to the garbage
             # collector instead, the transport's async generator is finalized
             # on some other task and anyio raises "attempted to exit cancel
             # scope in a different task", which buries the real error and
             # leaves the caller hanging until its activity timeout.
             await self._close()
-            raise GatewayError(f"gateway connection failed: {exc}") from exc
+            if _is_spurious_cancel(exc):
+                # The transport runs the connection inside an anyio task
+                # group, so a plain connection failure can surface as this
+                # task group cancelling itself. Callers must be able to
+                # handle "the gateway is unreachable" as an ordinary error —
+                # otherwise a compensation path that only catches Exception
+                # dies instead of finalizing the run.
+                raise GatewayError(f"gateway connection failed: {exc!r}") from exc
+            if isinstance(exc, Exception):
+                raise GatewayError(f"gateway connection failed: {exc}") from exc
+            raise  # a genuine cancellation belongs to the caller
         return self
 
     async def __aexit__(self, *exc_info: Any) -> None:
@@ -88,14 +113,38 @@ class GatewayClient:
             raise GatewayError(text or "repo.archive failed")
         return base64.b64decode(json.loads(text)["archive_b64"])
 
-    async def register_sandbox(self, run_id: str, url: str) -> None:
+    async def register_sandbox(
+        self,
+        run_id: str,
+        url: str,
+        namespace: str | None = None,
+        job_name: str | None = None,
+    ) -> None:
         assert self._http is not None, "use `async with GatewayClient(...)`"
         resp = await self._http.post(
-            self._base + "/admin/sandboxes", json={"run_id": run_id, "url": url}
+            self._base + "/admin/sandboxes",
+            json={
+                "run_id": run_id,
+                "url": url,
+                "namespace": namespace,
+                "job_name": job_name,
+            },
         )
         if resp.status_code != 200:
             raise GatewayError(
                 f"sandbox registration failed: {resp.status_code} {resp.text}"
+            )
+
+    async def unregister_sandbox(self, run_id: str) -> None:
+        """Retire the registration at teardown so a later call for this run
+        finds nothing rather than an address someone else now answers."""
+        assert self._http is not None, "use `async with GatewayClient(...)`"
+        resp = await self._http.request(
+            "DELETE", self._base + "/admin/sandboxes", json={"run_id": run_id}
+        )
+        if resp.status_code != 200:
+            raise GatewayError(
+                f"sandbox unregistration failed: {resp.status_code} {resp.text}"
             )
 
 

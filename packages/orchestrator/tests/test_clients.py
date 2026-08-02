@@ -84,3 +84,39 @@ def test_connect_failure_releases_the_stack(monkeypatch):
 
     asyncio.run(scenario())
     assert closed == [True]
+
+
+def test_spurious_cancellation_becomes_a_gateway_error(monkeypatch):
+    """The transport runs its connection in an anyio task group, so an
+    unreachable gateway can surface as this task cancelling itself. A
+    compensation path that catches Exception must still see an error —
+    otherwise teardown dies instead of finalizing the run."""
+    connect(monkeypatch, transport(raises=asyncio.CancelledError()))
+
+    async def scenario() -> None:
+        with pytest.raises(GatewayError, match="gateway connection failed"):
+            await _attempt()
+
+    asyncio.run(asyncio.wait_for(scenario(), timeout=10))
+
+
+def test_a_real_cancellation_is_still_a_cancellation(monkeypatch):
+    """Cooperative cancel must keep working: when the workflow cancels the
+    activity while it is connecting, the CancelledError belongs to the
+    caller and must not be swallowed into a GatewayError."""
+
+    @contextlib.asynccontextmanager
+    async def slow_connect(*args, **kwargs):
+        await asyncio.sleep(30)  # cancelled long before this returns
+        yield ("read", "write", None)
+
+    connect(monkeypatch, slow_connect)
+
+    async def run() -> None:
+        connecting = asyncio.ensure_future(_attempt())
+        await asyncio.sleep(0.05)  # let it reach the await inside __aenter__
+        connecting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await connecting
+
+    asyncio.run(run())

@@ -52,12 +52,12 @@ async def test_missing_token_is_rejected_with_401(app):
 # --- admin registration -----------------------------------------------------
 
 
-async def test_runner_registers_sandbox_and_assignment_reaches_opa(app, backends, audit_path):
+async def test_runner_registers_sandbox_and_assignment_reaches_opa(app, backends, audit):
     resp = await register_sandbox(app, RUN_ID)
     assert resp.status_code == 200 and resp.json() == {"ok": True}
     assert backends.assignments == {"backend-engineer-1": [RUN_ID]}
 
-    events = audit_events(audit_path)
+    events = audit_events(audit)
     assert len(events) == 1
     event = events[0]
     assert event["tool"] == "/admin/sandboxes"
@@ -65,12 +65,12 @@ async def test_runner_registers_sandbox_and_assignment_reaches_opa(app, backends
     assert event["decision"] == "allow" and event["backend_status"] == "ok"
 
 
-async def test_agent_token_cannot_register_sandbox(app, backends, audit_path):
+async def test_agent_token_cannot_register_sandbox(app, backends, audit):
     resp = await register_sandbox(app, RUN_ID, token=AGENT_TOKEN)
     assert resp.status_code == 403
     assert resp.json()["rule"] == "default_deny"
     assert backends.assignments == {}
-    assert audit_events(audit_path)[-1]["decision"] == "deny"
+    assert audit_events(audit)[-1]["decision"] == "deny"
 
 
 async def test_register_rejects_malformed_body(app):
@@ -82,7 +82,7 @@ async def test_register_rejects_malformed_body(app):
 # --- allow path --------------------------------------------------------------
 
 
-async def test_assigned_agent_call_is_proxied_to_sandbox(app, backends, audit_path):
+async def test_assigned_agent_call_is_proxied_to_sandbox(app, backends, audit):
     await register_sandbox(app, RUN_ID)
 
     async with mcp_session(app, AGENT_TOKEN) as session:
@@ -94,7 +94,7 @@ async def test_assigned_agent_call_is_proxied_to_sandbox(app, backends, audit_pa
     # run_id is registry routing, not a sandbox arg (contract C4).
     assert backends.sandbox_calls == [("/files/read", {"path": "README.md"})]
 
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["tool"] == "sandbox.read_file"
     assert event["agent_id"] == "backend-engineer-1" and event["role"] == "backend-engineer"
     assert event["run_id"] == RUN_ID
@@ -127,7 +127,7 @@ async def test_all_six_sandbox_tools_map_to_c4_routes(app, backends):
 # --- deny path ---------------------------------------------------------------
 
 
-async def test_unassigned_run_is_denied_with_rule_name(app, backends, audit_path):
+async def test_unassigned_run_is_denied_with_rule_name(app, backends, audit):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(
             "sandbox.exec", {"run_id": "run-NOTMINE", "cmd": "rm -rf /", "timeout_s": 5}
@@ -137,7 +137,7 @@ async def test_unassigned_run_is_denied_with_rule_name(app, backends, audit_path
     assert "default_deny" in result.content[0].text
     assert backends.sandbox_calls == []
 
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["decision"] == "deny" and event["rule"] == "default_deny"
     assert event["backend_status"] is None
     assert SHA256_HEX.match(event["args_digest"])
@@ -146,7 +146,7 @@ async def test_unassigned_run_is_denied_with_rule_name(app, backends, audit_path
 # --- backend failures --------------------------------------------------------
 
 
-async def test_allowed_but_unregistered_run_id_errors_and_audits(app, backends, audit_path):
+async def test_allowed_but_unregistered_run_id_errors_and_audits(app, backends, audit):
     backends.force_allow = True  # policy says yes, but no sandbox was registered
 
     async with mcp_session(app, AGENT_TOKEN) as session:
@@ -157,11 +157,11 @@ async def test_allowed_but_unregistered_run_id_errors_and_audits(app, backends, 
     assert result.isError
     assert "no sandbox registered" in result.content[0].text
 
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["decision"] == "allow" and event["backend_status"] == "error"
 
 
-async def test_sandbox_http_error_surfaces_and_audits(app, backends, audit_path):
+async def test_sandbox_http_error_surfaces_and_audits(app, backends, audit):
     await register_sandbox(app, RUN_ID)
     backends.sandbox_error = 500
 
@@ -171,20 +171,20 @@ async def test_sandbox_http_error_surfaces_and_audits(app, backends, audit_path)
         )
 
     assert result.isError
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["decision"] == "allow" and event["backend_status"] == "error"
 
 
 # --- audit stream ------------------------------------------------------------
 
 
-async def test_every_call_appends_one_ordered_audit_line(app, backends, audit_path):
+async def test_every_call_appends_one_ordered_audit_line(app, backends, audit):
     await register_sandbox(app, RUN_ID)
     async with mcp_session(app, AGENT_TOKEN) as session:
         await session.call_tool("sandbox.run_tests", {"run_id": RUN_ID})
         await session.call_tool("sandbox.exec", {"run_id": "run-OTHER", "cmd": "id"})
 
-    events = audit_events(audit_path)
+    events = audit_events(audit)
     assert [(e["tool"], e["decision"]) for e in events] == [
         ("/admin/sandboxes", "allow"),
         ("sandbox.run_tests", "allow"),

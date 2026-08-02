@@ -4,16 +4,16 @@ SandboxBackend, or agent HTTP; sequencing, timeouts, retries and
 compensation live in the workflow, not here.
 
 Retry safety, per activity:
-    create_run        — overwrites the manifest; safe.
+    create_run        — upserts the run row; safe.
     fetch_workspace   — read-only; safe.
     provision_sandbox — the backend pre-removes a same-name remnant of a
-                        crashed earlier attempt; registration overwrites.
+                        crashed earlier attempt; registration upserts.
     dispatch_work     — the agent answers 409 to a re-dispatch and the
                         activity falls through to polling; if the agent
                         lost the run (restart), the poll raises and the
                         retry re-dispatches from scratch.
-    teardown          — destroy is idempotent; the manifest write is a
-                        plain overwrite.
+    teardown          — destroy is idempotent; the run row is finalized
+                        with an upsert.
 """
 
 import asyncio
@@ -24,12 +24,7 @@ from temporalio import activity
 from common.telemetry import get_logger
 from orchestrator.clients import AgentClient, GatewayClient
 from orchestrator.config import WorkerSettings
-from orchestrator.manifest import (
-    Manifest,
-    now,
-    read_manifest,
-    write_manifest,
-)
+from registry import Runs
 from sandbox.contract import SandboxBackend, SandboxHandle
 
 
@@ -40,16 +35,20 @@ def _heartbeat() -> None:
 
 
 class ImplementActivities:
-    def __init__(self, settings: WorkerSettings, backend: SandboxBackend) -> None:
+    def __init__(
+        self, settings: WorkerSettings, backend: SandboxBackend, runs: Runs
+    ) -> None:
         self._settings = settings
         self._backend = backend
+        self._runs = runs
         self._log = get_logger("orchestrator.activities")
 
     @activity.defn(name="create_run")
     async def create_run(self, run_id: str, task_text: str) -> None:
-        write_manifest(
-            self._settings.runs_dir,
-            Manifest(run_id=run_id, task=task_text, status="running", created_at=now()),
+        from orchestrator.workflows.implement import workflow_id
+
+        await asyncio.to_thread(
+            self._runs.start, run_id, task_text, "implement", workflow_id(run_id)
         )
         self._log.bind(run_id=run_id).info("run created")
 
@@ -77,7 +76,9 @@ class ImplementActivities:
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.orchestrator_bearer_token
         ) as gateway:
-            await gateway.register_sandbox(run_id, handle.url)
+            await gateway.register_sandbox(
+                run_id, handle.url, handle.namespace, handle.job_name
+            )
         self._log.bind(run_id=run_id).info("sandbox ready", extra={"url": handle.url})
         return handle.model_dump()
 
@@ -107,8 +108,8 @@ class ImplementActivities:
         error: str | None,
     ) -> dict[str, Any]:
         """Compensation + finalization: destroy the sandbox (when one was
-        provisioned) and write the honest terminal run record, which is
-        also the workflow's result."""
+        provisioned), retire its registration, and write the honest terminal
+        run record, which is also the workflow's result."""
         log = self._log.bind(run_id=run_id)
         if handle is not None:
             try:
@@ -119,22 +120,29 @@ class ImplementActivities:
             except Exception as exc:
                 error = error or f"teardown: {exc}"
                 log.info("teardown failed", extra={"error": str(exc)})
-        try:
-            manifest = read_manifest(self._settings.runs_dir, run_id)
-        except FileNotFoundError:
-            # create_run's write is gone (fresh volume?) — reconstruct.
-            manifest = Manifest(
-                run_id=run_id, task="", status="running", created_at=now()
-            )
+            try:
+                async with GatewayClient(
+                    self._settings.mcp_gateway_url,
+                    self._settings.orchestrator_bearer_token,
+                ) as gateway:
+                    await gateway.unregister_sandbox(run_id)
+            except Exception as exc:
+                # A stale registration is a governance problem, not a run
+                # failure: the sandbox is already gone, so the address it
+                # names answers nothing.
+                log.info("sandbox unregister failed", extra={"error": str(exc)})
         result = result or {}
-        manifest.pr_url = result.get("pr_url")
-        manifest.iterations = result.get("iterations", 0)
-        manifest.error = error or result.get("error")
-        manifest.status = "failed" if manifest.error else "done"
-        manifest.finished_at = now()
-        write_manifest(self._settings.runs_dir, manifest)
-        log.info("run finalized", extra={"status": manifest.status})
-        return manifest.model_dump()
+        error = error or result.get("error")
+        record = await asyncio.to_thread(
+            self._runs.finish,
+            run_id,
+            "failed" if error else "done",
+            result.get("pr_url"),
+            result.get("iterations", 0),
+            error,
+        )
+        log.info("run finalized", extra={"status": record.status})
+        return record.as_dict()
 
     def all(self) -> list[Any]:
         return [

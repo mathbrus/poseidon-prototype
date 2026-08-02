@@ -5,6 +5,7 @@ description = "Poseidon orchestrator: durable workflows (Temporal), activities, 
 requires-python = ">=3.12"
 dependencies = [
     "common",
+    "registry",
     "sandbox",
     "httpx>=0.27",
     "mcp>=1.12",

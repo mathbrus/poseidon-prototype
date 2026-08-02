@@ -12,6 +12,19 @@ type: Opaque
 stringData:
   POSTGRES_PASSWORD: {{ .Values.secrets.postgresPassword | quote }}
 ---
+# The registry DSN (plan step 8): the schema lives in the instance's default
+# database, so no CREATE DATABASE has to race the services that migrate at
+# startup. Held by the three writers — gateway, egress proxy, orchestrator.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: registry-credentials
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  REGISTRY_DSN: postgresql://{{ .Values.postgres.user }}:{{ .Values.secrets.postgresPassword }}@postgres:5432/{{ .Values.postgres.user }}
+---
 apiVersion: v1
 kind: Service
 metadata:

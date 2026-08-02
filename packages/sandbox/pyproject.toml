@@ -11,6 +11,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# The egress proxy writes audit events to the registry. Kept an extra so
+# the *sandbox* image — which runs untrusted workspace code — never carries
+# a database driver or registry credentials.
+egress = [
+    "registry",
+]
+
 # The prebaked in-sandbox toolchain (Dockerfile.sandbox): the test runner
 # the toolserver's /tests endpoint shells out to, lockfile-pinned like
 # everything else in the image.

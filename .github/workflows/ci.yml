@@ -23,6 +23,22 @@ on:
 jobs:
   unit:
     runs-on: ubuntu-latest
+    # The registry suite tests SQL, so it runs against a real Postgres —
+    # a fake would test nothing. Without REGISTRY_DSN it skips instead of
+    # failing, which is what keeps a laptop run green.
+    services:
+      postgres:
+        image: postgres:16.6
+        env:
+          POSTGRES_USER: poseidon
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: poseidon
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U poseidon"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      REGISTRY_DSN: postgresql://poseidon:ci@127.0.0.1:5432/poseidon
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -32,7 +48,7 @@ jobs:
       # Per package: the suites share fixture module names (conftest.py),
       # which collide in a single rootdir-wide collection.
       - run: |
-          for package in common gateway agent sandbox orchestrator mockllm schema; do
+          for package in common gateway agent sandbox orchestrator mockllm schema registry; do
             echo "::group::$package"
             uv run pytest "packages/$package" -q
             echo "::endgroup::"

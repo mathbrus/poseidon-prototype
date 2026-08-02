@@ -1,13 +1,13 @@
 """Unit tests for the egress proxy: allow/deny/credential paths over real
 sockets on localhost (plain-HTTP forward via httpx's proxy support, CONNECT
-via a raw socket), with the JSONL audit sink asserted per decision."""
+via a raw socket), with the audit store asserted per decision."""
 
 import asyncio
 import base64
-import json
 from pathlib import Path
 
 import httpx
+from registry.memory import InMemoryAuditStore
 
 from sandbox.egressproxy.credentials import mint, sandbox_proxy_env, verify
 from sandbox.egressproxy.proxy import EgressProxy
@@ -51,32 +51,28 @@ async def _upstream(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
 
 
 class Stack:
-    def __init__(self, proxy_port: int, upstream_port: int, audit_path: Path):
+    def __init__(self, proxy_port: int, upstream_port: int, audit: InMemoryAuditStore):
         self.proxy_port = proxy_port
         self.upstream_port = upstream_port
-        self.audit_path = audit_path
+        self.audit = audit
 
     @property
     def proxy_url(self) -> str:
         return f"http://{RUN_ID}:{mint(KEY, RUN_ID)}@127.0.0.1:{self.proxy_port}"
 
     def events(self) -> list[dict]:
-        if not self.audit_path.exists():
-            return []
-        return [json.loads(line) for line in self.audit_path.read_text().splitlines()]
+        return [event.model_dump() for event in self.audit.events]
 
 
 async def _with_stack(tmp_path: Path, scenario):
-    audit_path = tmp_path / "egress.jsonl"
+    audit = InMemoryAuditStore()
     upstream = await asyncio.start_server(_upstream, "127.0.0.1", 0)
     upstream_port = upstream.sockets[0].getsockname()[1]
-    proxy = EgressProxy(
-        key=KEY, allow_hosts=["127.0.0.1"], audit_path=audit_path, port=0
-    )
+    proxy = EgressProxy(key=KEY, allow_hosts=["127.0.0.1"], audit=audit, port=0)
     server = await proxy.start()
     proxy_port = server.sockets[0].getsockname()[1]
     try:
-        await scenario(Stack(proxy_port, upstream_port, audit_path))
+        await scenario(Stack(proxy_port, upstream_port, audit))
     finally:
         server.close()
         upstream.close()

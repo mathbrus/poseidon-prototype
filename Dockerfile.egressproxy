@@ -14,15 +14,18 @@ COPY packages/gateway/pyproject.toml packages/gateway/
 COPY packages/sandbox/pyproject.toml packages/sandbox/
 COPY packages/orchestrator/pyproject.toml packages/orchestrator/
 COPY packages/mockllm/pyproject.toml packages/mockllm/
+COPY packages/registry/pyproject.toml packages/registry/
 COPY packages/schema/pyproject.toml packages/schema/
-RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package sandbox \
+RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes \
+      --package sandbox --extra egress \
       -o /tmp/requirements.txt \
     && pip install --no-cache-dir -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 COPY packages/common packages/common
+COPY packages/registry packages/registry
 COPY packages/sandbox packages/sandbox
-RUN pip install --no-cache-dir --no-deps ./packages/common ./packages/sandbox
+RUN pip install --no-cache-dir --no-deps ./packages/common ./packages/registry ./packages/sandbox
 
 EXPOSE 3128
 CMD ["python", "-m", "sandbox.egressproxy"]

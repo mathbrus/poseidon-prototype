@@ -42,8 +42,7 @@ ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
 PLATFORM_NS = "poseidon-platform"
 COMPANY_NS = "hello-saas"
 RUN_ID_LABEL = "poseidon.io/run-id"
-AUDIT_PATH = "/opt/poseidon/runs/audit.jsonl"
-EGRESS_AUDIT_PATH = "/opt/poseidon/audit/egress.jsonl"
+POSTGRES_USER = "poseidon"
 TASK_QUEUE = "poseidon-orchestrator"
 TEMPORAL_LOCAL_PORT = 17233
 
@@ -90,43 +89,52 @@ def temporal_port_forward():
         proc.wait(timeout=10)
 
 
-def _jsonl_events(deployment: str, path: str, run_id: str) -> list[dict[str, Any]]:
-    proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "exec", f"deployment/{deployment}", "--",
-         "cat", path],
-        capture_output=True,
-        text=True,
-        timeout=60,
+def audit_story(run_id: str) -> list[dict[str, Any]]:
+    """The whole story for one run, from the registry (plan step 8 retired
+    the two JSONL sinks). Read through psql so the suite needs nothing on
+    the host but kubectl."""
+    query = (
+        "SELECT COALESCE(json_agg(e ORDER BY e.ts, e.id), '[]'::json) FROM ("
+        "SELECT * FROM registry.audit_events WHERE run_id = '" + run_id + "'"
+        ") e"
     )
-    if proc.returncode != 0:  # sink not written yet
-        return []
-    events = []
-    for line in proc.stdout.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if event.get("run_id") == run_id:
-            events.append(event)
-    return events
+    proc = subprocess.run(
+        ["kubectl", "-n", PLATFORM_NS, "exec", "statefulset/postgres", "--",
+         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At", "-c", query],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, f"cannot query the audit store: {proc.stderr}"
+    return json.loads(proc.stdout.strip() or "[]")
 
 
-def cluster_audit_events(run_id: str) -> list[dict[str, Any]]:
-    """The gateway's audit events for one run (PVC-backed JSONL)."""
-    return _jsonl_events("mcp-gateway", AUDIT_PATH, run_id)
+def run_record(run_id: str) -> dict[str, Any] | None:
+    """The registry's own view of a run — what survives a worker restart."""
+    query = (
+        "SELECT COALESCE(row_to_json(r), 'null'::json) FROM registry.runs r "
+        "WHERE run_id = '" + run_id + "'"
+    )
+    proc = subprocess.run(
+        ["kubectl", "-n", PLATFORM_NS, "exec", "statefulset/postgres", "--",
+         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At", "-c", query],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout.strip() or "null")
 
 
-def egress_audit_events(run_id: str) -> list[dict[str, Any]]:
-    """The egress proxy's audit events for one run (its own PVC sink until
-    the registry unifies audit at plan step 8)."""
-    return _jsonl_events("egress-proxy", EGRESS_AUDIT_PATH, run_id)
-
-
-def full_audit_story(run_id: str) -> list[dict[str, Any]]:
-    """The E4 promise at M1 scale: one run's whole story across both sinks,
-    time-ordered."""
-    events = cluster_audit_events(run_id) + egress_audit_events(run_id)
-    return sorted(events, key=lambda e: e["ts"])
+def restart_gateway() -> None:
+    """Delete the gateway pod and wait for its replacement to be Ready —
+    the step-8 done-when: a run's sandbox registration must survive it."""
+    subprocess.run(
+        ["kubectl", "-n", PLATFORM_NS, "delete", "pod", "-l", "app=mcp-gateway",
+         "--wait=true"],
+        check=True, capture_output=True, timeout=120,
+    )
+    subprocess.run(
+        ["kubectl", "-n", PLATFORM_NS, "rollout", "status",
+         "deployment/mcp-gateway", "--timeout=180s"],
+        check=True, capture_output=True, timeout=200,
+    )
 
 
 def sandbox_pods(run_id: str | None = None) -> list[str]:

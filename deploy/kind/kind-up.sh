@@ -156,11 +156,18 @@ echo "==> image check"
 # Assert every poseidon pod actually runs this build. Without it, a template
 # that forgets the tag value puts stale code back in the cluster and the
 # only symptom is a test failing for a bug you already fixed.
+# Pods on their way out (a superseded ReplicaSet still draining) and
+# finished sandbox Jobs are not "running stale code" — only live ones count.
+# Fields are pipe-delimited so an absent deletionTimestamp stays an empty
+# column rather than shifting the row.
 stale=$(
   kubectl get pods -A \
-    -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name} {range .spec.containers[*]}{.image} {end}{"\n"}{end}' \
-    | grep -E '(^|[ /])poseidon-[a-z-]*:' \
-    | grep -v ":$BUILD_TAG" || true
+    -o jsonpath='{range .items[*]}{.status.phase}|{.metadata.deletionTimestamp}|{.metadata.namespace}/{.metadata.name}|{range .spec.containers[*]}{.image} {end}{"\n"}{end}' \
+    | awk -F'|' -v tag=":$BUILD_TAG" '
+        $1 == "Succeeded" || $1 == "Failed" { next }   # finished sandbox Jobs
+        $2 != ""                            { next }   # terminating pods
+        $4 ~ /poseidon-[a-z-]*:/ && index($4, tag) == 0 { print $3, $4 }
+      '
 )
 if [ -n "$stale" ]; then
   echo "error: pods not running build $BUILD_TAG:" >&2

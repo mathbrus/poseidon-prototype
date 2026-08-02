@@ -10,7 +10,7 @@ import pytest
 
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
-from orchestrator.manifest import read_manifest
+from registry.memory import InMemoryRuns
 from sandbox.contract import SandboxHandle, SandboxPolicy
 
 RUN_ID = "run-test-0001"
@@ -58,22 +58,31 @@ def backend() -> FakeBackend:
 
 
 @pytest.fixture
-def activities(settings: WorkerSettings, backend: FakeBackend) -> ImplementActivities:
-    return ImplementActivities(settings, backend)
+def runs() -> InMemoryRuns:
+    return InMemoryRuns()
 
 
-def test_create_run_writes_running_manifest(activities, settings):
+@pytest.fixture
+def activities(
+    settings: WorkerSettings, backend: FakeBackend, runs: InMemoryRuns
+) -> ImplementActivities:
+    return ImplementActivities(settings, backend, runs)
+
+
+def test_create_run_opens_a_running_row(activities, runs):
     asyncio.run(activities.create_run(RUN_ID, "do the thing"))
-    manifest = read_manifest(settings.runs_dir, RUN_ID)
-    assert manifest.status == "running"
-    assert manifest.task == "do the thing"
-    assert manifest.finished_at is None
+    record = runs.get(RUN_ID)
+    assert record.status == "running"
+    assert record.task == "do the thing"
+    assert record.finished_at is None
+    # §5.5: the workflow id derives from the run id and is recorded with it.
+    assert record.workflow_id == f"implement-{RUN_ID}"
 
 
-def test_create_run_is_retry_safe(activities, settings):
+def test_create_run_is_retry_safe(activities, runs):
     asyncio.run(activities.create_run(RUN_ID, "attempt one"))
     asyncio.run(activities.create_run(RUN_ID, "attempt two"))
-    assert read_manifest(settings.runs_dir, RUN_ID).task == "attempt two"
+    assert runs.get(RUN_ID).task == "attempt two"
 
 
 JOB_HANDLE = {
@@ -104,7 +113,7 @@ def test_settings_inject_per_run_proxy_credentials_when_configured(settings):
     assert other["HTTPS_PROXY"] != env["HTTPS_PROXY"]
 
 
-def test_teardown_destroys_and_finalizes_done(activities, settings, backend):
+def test_teardown_destroys_and_finalizes_done(activities, settings, backend, runs):
     asyncio.run(activities.create_run(RUN_ID, "task"))
     result = {"status": "done", "pr_url": "https://pr", "iterations": 3, "error": None}
     record = asyncio.run(activities.teardown(RUN_ID, dict(JOB_HANDLE), result, None))
@@ -112,9 +121,9 @@ def test_teardown_destroys_and_finalizes_done(activities, settings, backend):
     assert record["status"] == "done"
     assert record["pr_url"] == "https://pr"
     assert record["iterations"] == 3
-    manifest = read_manifest(settings.runs_dir, RUN_ID)
-    assert manifest.status == "done"
-    assert manifest.finished_at is not None
+    stored = runs.get(RUN_ID)
+    assert stored.status == "done"
+    assert stored.finished_at is not None
 
 
 def test_teardown_records_error_and_still_destroys(activities, settings, backend):
@@ -144,8 +153,9 @@ def test_teardown_surfaces_destroy_failure_as_error(activities, settings, backen
     assert "apiserver gone" in record["error"]
 
 
-def test_teardown_reconstructs_missing_manifest(activities, settings, backend):
-    record = asyncio.run(activities.teardown(RUN_ID, None, None, "lost volume"))
+def test_teardown_reconstructs_a_missing_run_row(activities, settings, backend):
+    """A fresh database mid-run must not break compensation."""
+    record = asyncio.run(activities.teardown(RUN_ID, None, None, "row vanished"))
     assert record["status"] == "failed"
     assert record["run_id"] == RUN_ID
 

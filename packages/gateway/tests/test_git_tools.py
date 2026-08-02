@@ -55,7 +55,7 @@ async def open_pr(app, token, *, branch, bundle_b64, repo):
 # --- repo.archive -------------------------------------------------------------
 
 
-async def test_runner_archives_repo_stripped_of_remotes(app, target_repo, tmp_path, audit_path):
+async def test_runner_archives_repo_stripped_of_remotes(app, target_repo, tmp_path, audit):
     async with mcp_session(app, RUNNER_TOKEN) as session:
         result = await session.call_tool(
             "repo.archive",
@@ -74,7 +74,7 @@ async def test_runner_archives_repo_stripped_of_remotes(app, target_repo, tmp_pa
     assert git("log", "--format=%s", cwd=extracted).strip() == "initial commit"
     assert git("remote", cwd=extracted).strip() == ""
 
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["tool"] == "repo.archive" and event["role"] == "runner"
     assert event["decision"] == "allow" and event["rule"] == "repo_archive_runner"
     assert event["backend_status"] == "ok"
@@ -83,7 +83,7 @@ async def test_runner_archives_repo_stripped_of_remotes(app, target_repo, tmp_pa
     assert event["run_id"] == RUN_ID
 
 
-async def test_agent_token_cannot_archive(app, target_repo, audit_path):
+async def test_agent_token_cannot_archive(app, target_repo, audit):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(
             "repo.archive",
@@ -92,7 +92,7 @@ async def test_agent_token_cannot_archive(app, target_repo, audit_path):
 
     assert result.isError
     assert "default_deny" in result.content[0].text
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["tool"] == "repo.archive" and event["decision"] == "deny"
 
 
@@ -100,7 +100,7 @@ async def test_agent_token_cannot_archive(app, target_repo, audit_path):
 
 
 async def test_feature_branch_pr_is_pushed_and_opened(
-    app, backends, target_repo, tmp_path, audit_path
+    app, backends, target_repo, tmp_path, audit
 ):
     bundle = make_bundle(
         target_repo, tmp_path, "feature/add-greeting", {"greeting.py": "print('hi')\n"}
@@ -124,7 +124,7 @@ async def test_feature_branch_pr_is_pushed_and_opened(
     }
     assert headers["authorization"] == f"Bearer {GIT_TOKEN}"
 
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["tool"] == "git.open_pr" and event["run_id"] == RUN_ID
     assert event["decision"] == "allow" and event["rule"] == "git_open_pr_feature_branch"
     assert event["backend_status"] == "ok"
@@ -149,7 +149,7 @@ async def test_changed_paths_are_part_of_the_policy_input(app, backends, target_
 
 
 async def test_pr_to_main_is_denied_and_nothing_is_pushed(
-    app, backends, target_repo, tmp_path, audit_path
+    app, backends, target_repo, tmp_path, audit
 ):
     before = git("rev-parse", "main", cwd=target_repo)
     bundle = make_bundle(target_repo, tmp_path, "main", {"evil.py": "pwned = True\n"})
@@ -161,12 +161,12 @@ async def test_pr_to_main_is_denied_and_nothing_is_pushed(
     assert git("rev-parse", "main", cwd=target_repo) == before
     assert backends.github_calls == []
 
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["decision"] == "deny" and event["rule"] == "git_open_pr_protected_branch"
     assert event["backend_status"] is None
 
 
-async def test_pr_touching_workflows_is_denied(app, backends, target_repo, tmp_path, audit_path):
+async def test_pr_touching_workflows_is_denied(app, backends, target_repo, tmp_path, audit):
     bundle = make_bundle(
         target_repo,
         tmp_path,
@@ -182,14 +182,14 @@ async def test_pr_touching_workflows_is_denied(app, backends, target_repo, tmp_p
     assert "git_open_pr_workflow_paths" in result.content[0].text
     assert "refs/heads/feature/sneaky-ci" not in refs(target_repo)
     assert backends.github_calls == []
-    assert audit_events(audit_path)[-1]["rule"] == "git_open_pr_workflow_paths"
+    assert audit_events(audit)[-1]["rule"] == "git_open_pr_workflow_paths"
 
 
 # --- git.open_pr: bundle tampering -------------------------------------------------
 
 
 async def test_tampered_bundle_errors_and_is_audited(
-    app, backends, target_repo, tmp_path, audit_path
+    app, backends, target_repo, tmp_path, audit
 ):
     good = bytearray(base64.b64decode(make_bundle(target_repo, tmp_path, "feature/ok", {"f.py": "1\n"})))
     good[len(good) // 2] ^= 0xFF  # flip a byte in the packfile
@@ -202,17 +202,17 @@ async def test_tampered_bundle_errors_and_is_audited(
     assert backends.github_calls == []
 
     # The attempt is audited: policy allowed the call, the backend failed on it.
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["tool"] == "git.open_pr" and event["run_id"] == RUN_ID
     assert event["decision"] == "allow" and event["backend_status"] == "error"
 
 
-async def test_garbage_bundle_errors_and_is_audited(app, backends, target_repo, audit_path):
+async def test_garbage_bundle_errors_and_is_audited(app, backends, target_repo, audit):
     garbage = base64.b64encode(b"definitely not a git bundle").decode()
 
     result = await open_pr(app, AGENT_TOKEN, branch="feature/ok", bundle_b64=garbage, repo=target_repo)
 
     assert result.isError
     assert backends.github_calls == []
-    event = audit_events(audit_path)[-1]
+    event = audit_events(audit)[-1]
     assert event["decision"] == "allow" and event["backend_status"] == "error"

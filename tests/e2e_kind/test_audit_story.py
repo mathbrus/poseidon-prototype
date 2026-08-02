@@ -1,14 +1,15 @@
 """E4 on the cluster (plan step 6): the whole story of a run is
-reconstructable from the audit sinks by `run_id` alone — every enforcement
-decision the platform made, in order. Two sinks exist at M1 (gateway JSONL +
-egress-proxy JSONL); the registry unifies them at plan step 8.
+reconstructable by `run_id` alone — every enforcement decision the platform
+made, in order, from one query. Since plan step 8 that is literally one
+query: the gateway and the egress proxy both write the registry
+`audit_events` table.
 """
 
-from .conftest import full_audit_story
+from .conftest import audit_story
 
 
 def test_story_covers_the_whole_run(implement_run: dict) -> None:
-    story = full_audit_story(implement_run["run_id"])
+    story = audit_story(implement_run["run_id"])
     assert story, "no audit events for the run"
 
     tools = {e["tool"] for e in story}
@@ -26,7 +27,7 @@ def test_story_covers_the_whole_run(implement_run: dict) -> None:
 
 
 def test_every_event_is_attributed_and_decided(implement_run: dict) -> None:
-    story = full_audit_story(implement_run["run_id"])
+    story = audit_story(implement_run["run_id"])
     for event in story:
         assert event["run_id"] == implement_run["run_id"]
         assert event["decision"] in ("allow", "deny")
@@ -35,6 +36,6 @@ def test_every_event_is_attributed_and_decided(implement_run: dict) -> None:
 
 
 def test_happy_path_story_contains_no_denies(implement_run: dict) -> None:
-    story = full_audit_story(implement_run["run_id"])
+    story = audit_story(implement_run["run_id"])
     denies = [e for e in story if e["decision"] == "deny"]
     assert denies == [], f"unexpected denies in the happy path: {denies}"

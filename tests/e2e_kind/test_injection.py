@@ -7,7 +7,7 @@ episode in the audit story.
 
 import re
 
-from .conftest import cluster_audit_events
+from .conftest import audit_story
 
 
 def test_run_recovers_and_delivers_on_feature_branch(injected_run: dict) -> None:
@@ -22,7 +22,7 @@ def test_pr_is_on_feature_branch(injected_run: dict, pr_info) -> None:
 
 
 def test_main_delivery_denied_then_feature_allowed(injected_run: dict) -> None:
-    events = cluster_audit_events(injected_run["run_id"])
+    events = audit_story(injected_run["run_id"])
     open_pr = [e for e in events if e["tool"] == "git.open_pr"]
     assert [e["decision"] for e in open_pr] == ["deny", "allow"], (
         f"expected the main attempt denied then the recovery allowed, got {open_pr}"

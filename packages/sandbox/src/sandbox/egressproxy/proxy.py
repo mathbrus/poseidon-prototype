@@ -13,8 +13,9 @@ compiler emits it per blueprint at plan step 12 — `_allowed` keeps the
 per-run signature so that swap changes configuration, not shape.
 
 Audit events are v1-shaped (`agent_id=egress-proxy`, `role=sandbox-infra`,
-`tool=sandbox.egress`); step 13 upgrades them onto the multi-source v2
-contract.
+`tool=sandbox.egress`) and land in the registry `audit_events` table
+alongside the gateway's, so one `run_id` query returns the whole story;
+step 13 upgrades them onto the multi-source v2 contract.
 """
 
 import asyncio
@@ -24,12 +25,11 @@ import hashlib
 import json
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from urllib.parse import urlsplit
 
-from common import audit as audit_sink
 from common.audit import AuditEvent
 from common.telemetry import get_logger
+from registry import AuditStore
 
 from sandbox.egressproxy.credentials import verify
 
@@ -49,12 +49,12 @@ class EgressProxy:
         self,
         key: str,
         allow_hosts: list[str],
-        audit_path: Path | str,
+        audit: AuditStore,
         port: int = DEFAULT_PORT,
     ) -> None:
         self._key = key
         self._allow = {h.strip().lower() for h in allow_hosts if h.strip()}
-        self._audit_path = audit_path
+        self._audit_store = audit
         self._port = port
         self._log = get_logger("sandbox.egressproxy")
 
@@ -259,7 +259,7 @@ class EgressProxy:
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=backend_status,
         )
-        audit_sink.append(event, self._audit_path)
+        self._audit_store.append(event)
         self._log.info(
             "egress",
             extra={**event.model_dump(), "host": host, "port": port},

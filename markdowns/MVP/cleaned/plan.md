@@ -474,6 +474,32 @@ gateway's in-memory `_sandboxes` dict; the JSONL sink and its PVC.
 restart mid-run; the audit story for a run is queryable from Postgres by
 `run_id`; nothing writes to `runs/` anymore.
 
+> **Status (2026-08-02): done** — `packages/registry`: all eight tables as a
+> `registry` **schema inside the existing Postgres database** (no CREATE
+> DATABASE to race), migrated by every service at startup under an advisory
+> lock. Shared library, not a service: the writers are already separate
+> processes, so an HTTP hop would add a failure mode without adding a
+> boundary; write ownership is which accessor a service imports (`Runs` →
+> orchestrator, `SandboxRegistrations`/`AuditStore` → gateway, `AuditStore`
+> → egress proxy), one writer per table. `tests/e2e_kind/
+> test_registry_durability.py` kills the gateway between provisioning and
+> using a sandbox. Deleted: `manifest.py`, the gateway `_sandboxes` dict,
+> `common.audit.append`, and three PVCs (gateway audit, egress audit,
+> worker runs) — with them the `Recreate` strategies they forced.
+>
+> Keep an eye on: registry tests need a real Postgres (`REGISTRY_DSN`; CI
+> runs a service container, the suite skips without one) — faking SQL tests
+> nothing. `registry.memory` ships in-memory doubles because two packages
+> need them and a drifting double is worse than none. The sandbox package
+> takes registry via an **`egress` extra**, so the image running untrusted
+> workspace code never gets a database driver. New `DELETE
+> /admin/sandboxes` keeps teardown on the audited path (policy rule
+> extended). Gateway NetworkPolicy needed an explicit Postgres egress rule —
+> cluster CIDRs are excluded from its external rule. `GatewayClient` now
+> converts a *spurious* anyio `CancelledError` (connection failure inside a
+> task group) into `GatewayError` via `Task.cancelling()`, or compensation
+> dies instead of finalizing the run.
+
 ### Step 9 — `packages/compiler`
 
 **Depends on:** step 7; step 8 only for the registry-snapshot input (stub it

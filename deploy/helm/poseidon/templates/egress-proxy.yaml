@@ -1,23 +1,9 @@
 # The sandbox egress proxy (plan step 5): enforces the host allowlist and
 # audits every allow/deny with run attribution (§2b credential). The
 # allowlist is static config in this phase — empty means zero egress; the
-# compiler emits it from the blueprint at step 12. Deny events land in a
-# PVC-backed JSONL until the registry audit table (step 8).
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: egress-proxy-audit
-  labels:
-    {{- include "poseidon.labels" . | nindent 4 }}
-spec:
-  accessModes: ["ReadWriteOnce"]
-  {{- with .Values.egressProxy.audit.storageClassName }}
-  storageClassName: {{ . }}
-  {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.egressProxy.audit.storage }}
----
+# compiler emits it from the blueprint at step 12. Deny events go to the
+# registry audit table since plan step 8, so one run_id query returns the
+# gateway's decisions and the proxy's together.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,9 +12,6 @@ metadata:
     {{- include "poseidon.labels" . | nindent 4 }}
 spec:
   replicas: 1
-  # Recreate: the audit PVC is ReadWriteOnce.
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app: egress-proxy
@@ -54,8 +37,11 @@ spec:
                   key: EGRESS_PROXY_KEY
             - name: EGRESS_ALLOW_HOSTS
               value: {{ join "," .Values.egressProxy.allowedHosts | quote }}
-            - name: EGRESS_AUDIT_PATH
-              value: /opt/poseidon/audit/egress.jsonl
+            - name: REGISTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: registry-credentials
+                  key: REGISTRY_DSN
           ports:
             - containerPort: 3128
           readinessProbe:
@@ -67,13 +53,6 @@ spec:
               path: /healthz
               port: 3128
             initialDelaySeconds: 10
-          volumeMounts:
-            - name: audit
-              mountPath: /opt/poseidon/audit
-      volumes:
-        - name: audit
-          persistentVolumeClaim:
-            claimName: egress-proxy-audit
 ---
 apiVersion: v1
 kind: Service

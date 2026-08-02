@@ -2,9 +2,11 @@
 
 Contract C3, full surface: six sandbox tools proxied to the run's registered
 tool server, the two git tools (`repo.archive`, `git.open_pr`) backed by
-platform-side clones holding the GIT_TOKEN, plus `POST /admin/sandboxes`
-(runner only) to register a sandbox address for a run. Bearer auth per
-contract C7; every call is policy-checked against OPA and audited (C1/C2).
+platform-side clones holding the GIT_TOKEN, plus `POST`/`DELETE
+/admin/sandboxes` (runner only) to register and retire a run's sandbox
+address. Bearer auth per contract C7; every call is policy-checked against
+OPA and audited (C1/C2) — the admin routes included, which is why the
+registration write lives behind the gateway rather than in the orchestrator.
 
 Run with: uvicorn --factory gateway.app:create_app
 """
@@ -25,6 +27,7 @@ from gateway.config import GatewaySettings
 from gateway.identity import Identity, authenticate, token_map
 from gateway.opa import OpaClient
 from gateway.service import GatewayService, PolicyDenied
+from registry import AuditStore, SandboxRegistrations, open_registry
 
 
 class BearerAuthMiddleware:
@@ -49,17 +52,32 @@ class BearerAuthMiddleware:
 class RegisterSandboxRequest(BaseModel):
     run_id: str
     url: str
+    namespace: str | None = None
+    job_name: str | None = None
+
+
+class UnregisterSandboxRequest(BaseModel):
+    run_id: str
 
 
 def create_app(
     settings: GatewaySettings | None = None,
     http_client: httpx.AsyncClient | None = None,
+    sandboxes: SandboxRegistrations | None = None,
+    audit: AuditStore | None = None,
 ) -> Starlette:
     settings = settings or GatewaySettings()
     http_client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=630.0))
     tokens = token_map(settings)
     opa = OpaClient(settings.opa_url, http_client)
-    service = GatewayService(settings, opa, http_client)
+    # Sandbox registrations and audit events live in the registry since plan
+    # step 8; every service migrates at startup under an advisory lock. The
+    # accessors are injectable so tests need no database.
+    if sandboxes is None or audit is None:
+        registry = open_registry()
+        sandboxes = sandboxes or SandboxRegistrations(registry)
+        audit = audit or AuditStore(registry)
+    service = GatewayService(settings, opa, http_client, sandboxes, audit)
 
     mcp = FastMCP(
         "poseidon-gateway",
@@ -147,7 +165,24 @@ def create_app(
         except ValidationError as exc:
             return JSONResponse({"detail": exc.errors(include_url=False)}, status_code=422)
         try:
-            await service.register_run(identity, body.run_id, body.url)
+            await service.register_run(
+                identity, body.run_id, body.url, body.namespace, body.job_name
+            )
+        except PolicyDenied as exc:
+            return JSONResponse({"detail": str(exc), "rule": exc.rule}, status_code=403)
+        return JSONResponse({"ok": True})
+
+    @mcp.custom_route("/admin/sandboxes", methods=["DELETE"])
+    async def admin_sandboxes_delete(request: Request) -> Response:
+        identity = authenticate(request.headers.get("authorization"), tokens)
+        if identity is None:  # unreachable behind the middleware
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        try:
+            body = UnregisterSandboxRequest.model_validate(await request.json())
+        except ValidationError as exc:
+            return JSONResponse({"detail": exc.errors(include_url=False)}, status_code=422)
+        try:
+            await service.unregister_run(identity, body.run_id)
         except PolicyDenied as exc:
             return JSONResponse({"detail": str(exc), "rule": exc.rule}, status_code=403)
         return JSONResponse({"ok": True})

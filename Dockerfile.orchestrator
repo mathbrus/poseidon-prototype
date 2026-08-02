@@ -16,6 +16,7 @@ COPY packages/gateway/pyproject.toml packages/gateway/
 COPY packages/sandbox/pyproject.toml packages/sandbox/
 COPY packages/orchestrator/pyproject.toml packages/orchestrator/
 COPY packages/mockllm/pyproject.toml packages/mockllm/
+COPY packages/registry/pyproject.toml packages/registry/
 COPY packages/schema/pyproject.toml packages/schema/
 RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package orchestrator \
       -o /tmp/requirements.txt \
@@ -23,9 +24,10 @@ RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package orches
     && rm /tmp/requirements.txt
 
 COPY packages/common packages/common
+COPY packages/registry packages/registry
 COPY packages/sandbox packages/sandbox
 COPY packages/orchestrator packages/orchestrator
 RUN pip install --no-cache-dir --no-deps \
-      ./packages/common ./packages/sandbox ./packages/orchestrator
+      ./packages/common ./packages/registry ./packages/sandbox ./packages/orchestrator
 
 CMD ["python", "-m", "orchestrator.worker"]

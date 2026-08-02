@@ -72,9 +72,6 @@ orchestrator:
     memory: 1Gi
     disk: 2Gi
     deadlineSeconds: 3600
-  runs:
-    storage: 1Gi
-    storageClassName: null
 
 # Sandbox egress proxy (plan step 5). The allowlist is static per-phase
 # config — empty means zero egress, exactly the PoC posture; the compiler
@@ -86,9 +83,6 @@ egressProxy:
     tag: latest
     pullPolicy: IfNotPresent
   allowedHosts: []
-  audit:
-    storage: 1Gi
-    storageClassName: null
 
 postgres:
   image:
@@ -96,8 +90,8 @@ postgres:
     tag: "16.6"
     pullPolicy: IfNotPresent
   # Superuser for the whole instance: Temporal's schema tool creates its own
-  # databases with it, and the registry (step 8) will get its database here
-  # too.
+  # databases with it, and the registry (step 8) keeps its `registry` schema
+  # in the default database of the same name.
   user: poseidon
   storage: 5Gi
   # null = the cluster's default StorageClass.
@@ -115,12 +109,6 @@ gateway:
     type: ClusterIP
     # Set (with type NodePort) to give the host-side runner a stable port.
     nodePort: null
-  audit:
-    # The audit JSONL moves onto a PVC mounted by the gateway (sequencing
-    # choice 1: JSONL on a PVC at M1, registry Postgres at step 8).
-    storage: 1Gi
-    # null = the cluster's default StorageClass ("standard" on kind).
-    storageClassName: null
 
 agent:
   service:

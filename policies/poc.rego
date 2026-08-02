@@ -45,9 +45,10 @@ allow_rules contains "repo_archive_runner" if {
 	input.role == "runner"
 }
 
-# Registering a sandbox address (gateway admin endpoint) is reserved for the runner.
+# Registering and retiring a sandbox address (gateway admin endpoints) is
+# reserved for the runner.
 allow_rules contains "admin_sandboxes_runner" if {
-	input.tool == "/admin/sandboxes"
+	input.tool in {"/admin/sandboxes", "/admin/sandboxes.delete"}
 	input.role == "runner"
 }
 
