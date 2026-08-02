@@ -10,6 +10,7 @@ dependencies = [
     "sandbox",
     "orchestrator",
     "mockllm",
+    "schema",
 ]
 
 [dependency-groups]
@@ -40,3 +41,4 @@ gateway = { workspace = true }
 sandbox = { workspace = true }
 orchestrator = { workspace = true }
 mockllm = { workspace = true }
+schema = { workspace = true }

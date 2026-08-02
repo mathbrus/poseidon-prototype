@@ -32,7 +32,7 @@ jobs:
       # Per package: the suites share fixture module names (conftest.py),
       # which collide in a single rootdir-wide collection.
       - run: |
-          for package in common gateway agent sandbox orchestrator mockllm; do
+          for package in common gateway agent sandbox orchestrator mockllm schema; do
             echo "::group::$package"
             uv run pytest "packages/$package" -q
             echo "::endgroup::"

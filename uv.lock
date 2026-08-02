@@ -17,6 +17,7 @@ members = [
     "orchestrator",
     "poseidon",
     "sandbox",
+    "schema",
 ]
 
 [[package]]
@@ -1270,6 +1271,7 @@ dependencies = [
     { name = "mockllm" },
     { name = "orchestrator" },
     { name = "sandbox" },
+    { name = "schema" },
 ]
 
 [package.dev-dependencies]
@@ -1287,6 +1289,7 @@ requires-dist = [
     { name = "mockllm", editable = "packages/mockllm" },
     { name = "orchestrator", editable = "packages/orchestrator" },
     { name = "sandbox", editable = "packages/sandbox" },
+    { name = "schema", editable = "packages/schema" },
 ]
 
 [package.metadata.requires-dev]
@@ -1849,6 +1852,21 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["toolchain"]
+
+[[package]]
+name = "schema"
+version = "0.1.0"
+source = { editable = "packages/schema" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.20" },
+    { name = "pyyaml", specifier = ">=6" },
+]
 
 [[package]]
 name = "shellingham"

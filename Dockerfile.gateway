@@ -21,6 +21,7 @@ COPY packages/gateway/pyproject.toml packages/gateway/
 COPY packages/sandbox/pyproject.toml packages/sandbox/
 COPY packages/orchestrator/pyproject.toml packages/orchestrator/
 COPY packages/mockllm/pyproject.toml packages/mockllm/
+COPY packages/schema/pyproject.toml packages/schema/
 RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package gateway \
       -o /tmp/requirements.txt \
     && pip install --no-cache-dir -r /tmp/requirements.txt \

@@ -427,6 +427,26 @@ company; compiled per-role bundles and workload-identity JWTs replace
 **Done when:** `hello-saas.yaml` validates; representative invalid documents
 fail with actionable errors.
 
+> **Status (2026-08-02): done** — `packages/schema`: JSON Schema for the
+> eight sections (`blueprint.py`, every object `additionalProperties:
+> false` so typos are errors, not ignored lines), the versioned catalogs
+> (`catalog.py`, `CATALOG_VERSION = v1`), the tool vocabulary
+> (`tools.py` — includes tools that land at step 15, so later steps extend
+> backends rather than redefine names), and `validate.py`, which reports
+> every problem in one pass with a document path and the allowed values.
+> `examples/hello-saas.yaml` is the bridge profile (PM 1, transitional
+> `backend-engineer` 1 marked TRANSITIONAL, `analyst` 0, both crews,
+> `review.gates.merge = human_approval`); 32 tests.
+>
+> Keep an eye on: the schema deliberately does **not** enforce the lean
+> roster — `analyst`-at-count-0 is structural, but rejecting standing
+> executors is the compiler's error at step 19, or the bridge blueprint
+> could not compile (sequencing choice 7). `git.merge_pr` is refused to
+> every company role here (O-1 A) — the compiler need not re-check it.
+> `test_lean_roster_profile_validates` pins that the post-firing-diff
+> document still validates. Catalog cross-checks skip malformed values and
+> leave those to the schema pass, so the two never double-report.
+
 ### Step 8 — `packages/registry`: Postgres models + API; runs and registrations move in
 
 **Depends on:** step 3 (orchestrator writes runs); parallel with step 7.
