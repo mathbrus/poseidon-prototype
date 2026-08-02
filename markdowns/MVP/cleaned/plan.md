@@ -171,6 +171,18 @@ env var.
 against the kind cluster.
 *Done when:* E1 is green on kind.
 
+> **Status (2026-08-01): done, all four slices** — chart under
+> `deploy/helm/poseidon/`, kind bootstrap under `deploy/kind/`, E1 suite in
+> `tests/e2e_kind/` (marker `e2e_kind`). Keep an eye on: the company
+> namespace is chart-hardcoded until the operator (step 10); NetworkPolicy
+> enforcement depends on the bootstrap-installed Calico (kind's default CNI
+> enforces nothing); the gateway/agent NodePorts ride kind
+> extraPortMappings fixed at cluster creation; audit JSONL sits on the
+> gateway PVC until step 8. Since 2026-08-02 e2e runs use the deterministic
+> mock LLM by default (`packages/mockllm` impersonating llm-proxy;
+> `REAL_LLM=1` restores the paid brain) — new e2e scenarios need a script in
+> its brain, not a provider key.
+
 ### Step 2 — Self-hosted Temporal on the same Helm path
 
 **Depends on:** step 1.
@@ -185,6 +197,14 @@ against the kind cluster.
 
 **Done when:** a smoke-test worker connects, runs a trivial workflow, and the
 workflow history survives a Temporal pod restart.
+
+> **Status (2026-08-01): done** — official Temporal chart, version pinned in
+> `deploy/kind/kind-up.sh` (`TEMPORAL_CHART_VERSION`), values in
+> `deploy/helm/temporal-values.yaml`, persisted in the poseidon chart's
+> Postgres (StatefulSet, superuser `poseidon`). Keep an eye on: the schema
+> hook jobs assume Postgres is Ready before the temporal release installs
+> (kind-up orders this); the same instance is earmarked to host the registry
+> database at step 8.
 
 ### Step 3 — `packages/runner` → `packages/orchestrator`: durable implement workflow
 
@@ -223,6 +243,14 @@ workflow history survives a Temporal pod restart.
 the worker pod mid-`implement` and restarting it resumes or compensates the
 workflow with no leaked sandbox and an honest terminal run record.
 
+> **Status (2026-08-02): done** — E1 doubles as the kill-the-worker proof
+> (the suite kills the worker pod mid-run). Keep an eye on: the Dockerfiles
+> still `pip install` latest deps while the host follows `uv.lock` —
+> `orchestrator/clients.py` carries mcp version-compat shims until the
+> lockfile-pinned builds land at step 6; run manifests live on a
+> ReadWriteOnce PVC (hence the worker Deployment's Recreate strategy) until
+> the registry replaces them at step 8.
+
 ### Step 4 — Sandbox contract v2 + `k8s_jobs` backend
 
 **Depends on:** step 1. Parallel with steps 2–3; integrates with step 3's
@@ -254,6 +282,19 @@ workflow with no leaked sandbox and an honest terminal run record.
 **Done when:** provision/destroy round-trips on kind; `sandbox.*` calls proxy
 through the gateway to the Job's toolserver; a runaway workload is killed by
 the caps/deadline (this is part of the §4.6 exit criteria).
+
+> **Status (2026-08-02): done** — E1 plus `tests/e2e_kind/test_sandbox_k8s.py`
+> (round-trip + deadline kill) green on kind. Keep an eye on: the worker
+> Role needs **both** `create` and `get` on `pods/exec` — the Python
+> client's exec is a WebSocket GET handshake, unlike kubectl's POST; the
+> workspace tar rides that exec API with `head -c <n>` standing in for EOF
+> (the ws client cannot half-close stdin); `SandboxPolicy` values are
+> hand-authored until step 12, and `SandboxPolicy.env` is the reserved §2b
+> seam for step 5's per-run proxy credential; the Docker backend and its
+> tests stay in-tree only for step 6 to delete. Operational scar: removing a
+> Docker network the kind node had joined orphaned the kubelet's registered
+> node IP (apiserver→kubelet wedged; fixed by restarting the node
+> container) — only relevant to clusters created before this step.
 
 ### Step 5 — Egress proxy for sandboxes
 
