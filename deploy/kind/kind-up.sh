@@ -50,17 +50,50 @@ kubectl -n kube-system rollout status deployment/calico-kube-controllers --timeo
 kubectl wait --for=condition=Ready node --all --timeout=300s
 
 echo "==> images"
-docker build -f Dockerfile.gateway -t poseidon-gateway .
-docker build -f Dockerfile.agent -t poseidon-agent .
-docker build -f Dockerfile.orchestrator -t poseidon-orchestrator .
-docker build -f Dockerfile.sandbox -t "$SANDBOX_IMAGE" .
-docker build -f Dockerfile.egressproxy -t poseidon-egress-proxy .
+# Content-addressed tag over everything that lands in an image. This is what
+# makes a code change reach the cluster: with a fixed `:latest` tag, `kind
+# load` replaces the image in the node but helm renders an identical pod
+# template, so nothing restarts and pods keep executing the code they
+# started with — silently, for as long as you let them. A tag that moves
+# with the content changes the template, which forces the rollout; an
+# unchanged tree yields the same tag and stays a no-op, so this script
+# remains idempotent.
+BUILD_TAG=${BUILD_TAG:-$(
+  find packages Dockerfile.* pyproject.toml uv.lock -type f \
+    -not -path '*/__pycache__/*' -not -name '*.pyc' -print0 \
+    | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
+)}
+echo "    build tag: $BUILD_TAG"
+
+docker build -q -f Dockerfile.gateway -t "poseidon-gateway:$BUILD_TAG" . >/dev/null
+docker build -q -f Dockerfile.agent -t "poseidon-agent:$BUILD_TAG" . >/dev/null
+docker build -q -f Dockerfile.orchestrator -t "poseidon-orchestrator:$BUILD_TAG" . >/dev/null
+docker build -q -f Dockerfile.sandbox -t "$SANDBOX_IMAGE:$BUILD_TAG" . >/dev/null
+docker build -q -f Dockerfile.egressproxy -t "poseidon-egress-proxy:$BUILD_TAG" . >/dev/null
 # The sandbox image is side-loaded too: sandboxes are Kubernetes Jobs in the
 # company namespace since the k8s_jobs backend (plan step 4).
-IMAGES=(poseidon-gateway poseidon-agent poseidon-orchestrator "$SANDBOX_IMAGE" poseidon-egress-proxy)
+IMAGES=(
+  "poseidon-gateway:$BUILD_TAG"
+  "poseidon-agent:$BUILD_TAG"
+  "poseidon-orchestrator:$BUILD_TAG"
+  "$SANDBOX_IMAGE:$BUILD_TAG"
+  "poseidon-egress-proxy:$BUILD_TAG"
+)
+IMAGE_VALUES=(
+  --set "images.gateway.tag=$BUILD_TAG"
+  --set "images.agent.tag=$BUILD_TAG"
+  --set "images.orchestrator.tag=$BUILD_TAG"
+  --set "egressProxy.image.tag=$BUILD_TAG"
+  # Sandbox Jobs are built by the worker from this value, not by helm, so
+  # the tag has to ride the image reference itself.
+  --set "orchestrator.sandbox.image=$SANDBOX_IMAGE:$BUILD_TAG"
+)
 if [ "$REAL_LLM" != "1" ]; then
-  docker build -f Dockerfile.mockllm -t poseidon-mockllm .
-  IMAGES+=(poseidon-mockllm)
+  docker build -q -f Dockerfile.mockllm -t "poseidon-mockllm:$BUILD_TAG" . >/dev/null
+  IMAGES+=("poseidon-mockllm:$BUILD_TAG")
+  # Only in mock mode: with REAL_LLM=1 the llm-proxy image is upstream
+  # LiteLLM at its own pinned tag.
+  IMAGE_VALUES+=(--set "images.llmProxy.tag=$BUILD_TAG")
 fi
 kind load docker-image "${IMAGES[@]}" --name "$CLUSTER_NAME"
 
@@ -92,6 +125,7 @@ helm upgrade --install poseidon deploy/helm/poseidon \
   -f deploy/helm/poseidon/values-kind.yaml \
   -f "$SECRETS_FILE" \
   "${MOCK_VALUES[@]}" \
+  "${IMAGE_VALUES[@]}" \
   --set-file opa.policies.poc=policies/poc.rego
 
 echo "==> rollout"
@@ -117,6 +151,23 @@ for deploy in temporal-frontend temporal-history temporal-matching temporal-work
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
 done
 kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeout=300s
+
+echo "==> image check"
+# Assert every poseidon pod actually runs this build. Without it, a template
+# that forgets the tag value puts stale code back in the cluster and the
+# only symptom is a test failing for a bug you already fixed.
+stale=$(
+  kubectl get pods -A \
+    -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name} {range .spec.containers[*]}{.image} {end}{"\n"}{end}' \
+    | grep -E '(^|[ /])poseidon-[a-z-]*:' \
+    | grep -v ":$BUILD_TAG" || true
+)
+if [ -n "$stale" ]; then
+  echo "error: pods not running build $BUILD_TAG:" >&2
+  echo "$stale" >&2
+  exit 1
+fi
+echo "    all poseidon pods run $BUILD_TAG"
 
 echo "==> smoke"
 # No unauthenticated gateway route exists; 401 proves the server is up.

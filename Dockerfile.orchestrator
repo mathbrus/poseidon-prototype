@@ -1,18 +1,30 @@
 # Orchestrator worker image: workflows, activities and the Temporal worker.
-# Credential posture: the orchestrator bearer token arrives via env at
-# deploy time — no GIT_TOKEN, no provider keys, ever. The docker SDK is
-# only here for the transitional Docker sandbox backend (gone at step 6).
+# Credential posture: the orchestrator bearer token and the egress-proxy
+# HMAC key arrive via env at deploy time — no GIT_TOKEN, no provider keys,
+# ever. Lockfile-pinned build (plan step 6): deps from uv.lock via
+# `uv export`.
 # Build from the repo root: docker build -f Dockerfile.orchestrator .
 FROM python:3.12-slim
 
-COPY packages/common /opt/poseidon/packages/common
-COPY packages/sandbox /opt/poseidon/packages/sandbox
-COPY packages/orchestrator /opt/poseidon/packages/orchestrator
-RUN pip install --no-cache-dir \
-    /opt/poseidon/packages/common \
-    /opt/poseidon/packages/sandbox \
-    /opt/poseidon/packages/orchestrator
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 
 WORKDIR /opt/poseidon
+COPY pyproject.toml uv.lock ./
+COPY packages/common/pyproject.toml packages/common/
+COPY packages/agent/pyproject.toml packages/agent/
+COPY packages/gateway/pyproject.toml packages/gateway/
+COPY packages/sandbox/pyproject.toml packages/sandbox/
+COPY packages/orchestrator/pyproject.toml packages/orchestrator/
+COPY packages/mockllm/pyproject.toml packages/mockllm/
+RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package orchestrator \
+      -o /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
+COPY packages/common packages/common
+COPY packages/sandbox packages/sandbox
+COPY packages/orchestrator packages/orchestrator
+RUN pip install --no-cache-dir --no-deps \
+      ./packages/common ./packages/sandbox ./packages/orchestrator
 
 CMD ["python", "-m", "orchestrator.worker"]

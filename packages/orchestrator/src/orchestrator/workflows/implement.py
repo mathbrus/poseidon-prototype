@@ -22,26 +22,58 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
-# Steps are bounded per activity, not per workflow: a workflow-level
-# execution timeout would hard-kill without running compensation.
-STEP_TIMEOUT = timedelta(seconds=300)
 STEP_RETRY = RetryPolicy(maximum_attempts=3, backoff_coefficient=2.0)
 # The agent works for as long as one attempt allows; heartbeats (one per
 # poll) detect a dead worker fast, and the unbounded retry re-attaches to
 # the running agent (dispatch answers 409 → poll). schedule_to_close caps
 # the whole thing.
-DISPATCH_TIMEOUT = timedelta(hours=1)
-DISPATCH_SCHEDULE_TO_CLOSE = timedelta(hours=2)
-DISPATCH_HEARTBEAT = timedelta(seconds=60)
 DISPATCH_RETRY = RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=0)
-TEARDOWN_TIMEOUT = timedelta(seconds=300)
 TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
+
+
+@dataclass
+class Timeouts:
+    """Per-activity bounds, carried in the workflow input.
+
+    Steps are bounded per activity, not per workflow: a workflow-level
+    execution timeout would hard-kill without running compensation.
+
+    They ride the input rather than module constants because the sizing
+    depends on the *brain* behind the run, which only the client knows: a
+    real LLM legitimately takes minutes per step, while the deterministic
+    mock answers in milliseconds — and against the mock those generous
+    bounds turn a fail-fast bug into a quarter hour of waiting on retries.
+    Workflow code cannot read the environment (Temporal's sandbox), and
+    input is deterministic on replay, so this is the seam.
+    """
+
+    create_run_s: int = 30
+    step_s: int = 300
+    dispatch_s: int = 3600
+    dispatch_schedule_to_close_s: int = 7200
+    dispatch_heartbeat_s: int = 60
+    teardown_s: int = 300
+
+
+# Sized for the deterministic mock brain (packages/mockllm): every bound is
+# far above what the mock needs, and far below the patience a paid brain
+# deserves — so a wedged activity surfaces in seconds, not minutes.
+FAST_TIMEOUTS = Timeouts(
+    create_run_s=15,
+    step_s=60,
+    dispatch_s=300,
+    dispatch_schedule_to_close_s=600,
+    dispatch_heartbeat_s=30,
+    teardown_s=60,
+)
 
 
 @dataclass
 class ImplementInput:
     run_id: str
     task_text: str
+    # None keeps the generous real-brain defaults (and old histories replay).
+    timeouts: Timeouts | None = None
 
 
 def workflow_id(run_id: str) -> str:
@@ -53,6 +85,7 @@ def workflow_id(run_id: str) -> str:
 class ImplementWorkflow:
     @workflow.run
     async def run(self, input: ImplementInput) -> dict[str, Any]:
+        timeouts = input.timeouts or Timeouts()
         handle: dict[str, Any] | None = None
         result: dict[str, Any] | None = None
         error: str | None = None
@@ -61,27 +94,29 @@ class ImplementWorkflow:
             await workflow.execute_activity(
                 "create_run",
                 args=[input.run_id, input.task_text],
-                start_to_close_timeout=timedelta(seconds=30),
+                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
                 retry_policy=STEP_RETRY,
             )
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id],
-                start_to_close_timeout=STEP_TIMEOUT,
+                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
             handle = await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, workspace_tar],
-                start_to_close_timeout=STEP_TIMEOUT,
+                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
             result = await workflow.execute_activity(
                 "dispatch_work",
                 args=[input.run_id, input.task_text],
-                start_to_close_timeout=DISPATCH_TIMEOUT,
-                schedule_to_close_timeout=DISPATCH_SCHEDULE_TO_CLOSE,
-                heartbeat_timeout=DISPATCH_HEARTBEAT,
+                start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
+                schedule_to_close_timeout=timedelta(
+                    seconds=timeouts.dispatch_schedule_to_close_s
+                ),
+                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
                 retry_policy=DISPATCH_RETRY,
             )
         except asyncio.CancelledError:
@@ -95,7 +130,7 @@ class ImplementWorkflow:
         record = await workflow.execute_activity(
             "teardown",
             args=[input.run_id, handle, result, error],
-            start_to_close_timeout=TEARDOWN_TIMEOUT,
+            start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
             retry_policy=TEARDOWN_RETRY,
         )
         if cancelled:

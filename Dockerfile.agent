@@ -1,15 +1,27 @@
 # Backend-engineer agent image: credential-free by construction (E3) — the
-# only secret it ever receives at runtime is AGENT_BEARER_TOKEN, via compose.
+# only secret it ever receives at runtime is AGENT_BEARER_TOKEN.
+# Lockfile-pinned build (plan step 6): deps from uv.lock via `uv export`.
 # Build from the repo root: docker build -f Dockerfile.agent .
 FROM python:3.12-slim
 
-COPY packages/common /opt/poseidon/packages/common
-COPY packages/agent /opt/poseidon/packages/agent
-RUN pip install --no-cache-dir \
-    /opt/poseidon/packages/common \
-    /opt/poseidon/packages/agent
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 
 WORKDIR /opt/poseidon
+COPY pyproject.toml uv.lock ./
+COPY packages/common/pyproject.toml packages/common/
+COPY packages/agent/pyproject.toml packages/agent/
+COPY packages/gateway/pyproject.toml packages/gateway/
+COPY packages/sandbox/pyproject.toml packages/sandbox/
+COPY packages/orchestrator/pyproject.toml packages/orchestrator/
+COPY packages/mockllm/pyproject.toml packages/mockllm/
+RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package agent \
+      -o /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
+COPY packages/common packages/common
+COPY packages/agent packages/agent
+RUN pip install --no-cache-dir --no-deps ./packages/common ./packages/agent
 
 EXPOSE 8000
 CMD ["uvicorn", "--factory", "agent.app:create_app", "--host", "0.0.0.0", "--port", "8000"]

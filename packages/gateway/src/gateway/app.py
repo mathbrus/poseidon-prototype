@@ -118,8 +118,10 @@ def create_app(
         )
 
     @mcp.tool(name="repo.archive")
-    async def repo_archive(repo: str, ref: str, ctx: Context) -> dict[str, Any]:
-        return await service.archive_repo(identity_of(ctx), repo, ref)
+    async def repo_archive(
+        run_id: str, repo: str, ref: str, ctx: Context
+    ) -> dict[str, Any]:
+        return await service.archive_repo(identity_of(ctx), run_id, repo, ref)
 
     @mcp.tool(name="git.open_pr")
     async def git_open_pr(

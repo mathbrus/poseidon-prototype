@@ -17,7 +17,11 @@ from temporalio.client import Client, WorkflowExecutionStatus
 
 from common.ids import new_run_id
 from orchestrator.config import TemporalSettings
-from orchestrator.workflows.implement import ImplementInput, workflow_id
+from orchestrator.workflows.implement import (
+    FAST_TIMEOUTS,
+    ImplementInput,
+    workflow_id,
+)
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -33,6 +37,12 @@ def run(
     task_file: Path,
     run_id: str = typer.Option(None, help="Run id (generated when omitted)"),
     detach: bool = typer.Option(False, help="Start the workflow and exit"),
+    fast_timeouts: bool = typer.Option(
+        False,
+        "--fast-timeouts",
+        help="Short per-activity bounds, sized for the mock brain "
+        "(a wedged step then fails in seconds instead of minutes)",
+    ),
 ) -> None:
     """Start an implement run for the task described in TASK_FILE."""
     settings = TemporalSettings()
@@ -43,7 +53,11 @@ def run(
         client = await _client(settings)
         handle = await client.start_workflow(
             "implement",
-            ImplementInput(run_id=run_id, task_text=task_text),
+            ImplementInput(
+                run_id=run_id,
+                task_text=task_text,
+                timeouts=FAST_TIMEOUTS if fast_timeouts else None,
+            ),
             id=workflow_id(run_id),
             task_queue=settings.task_queue,
         )

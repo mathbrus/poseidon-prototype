@@ -58,7 +58,8 @@ async def open_pr(app, token, *, branch, bundle_b64, repo):
 async def test_runner_archives_repo_stripped_of_remotes(app, target_repo, tmp_path, audit_path):
     async with mcp_session(app, RUNNER_TOKEN) as session:
         result = await session.call_tool(
-            "repo.archive", {"repo": str(target_repo), "ref": "main"}
+            "repo.archive",
+            {"run_id": RUN_ID, "repo": str(target_repo), "ref": "main"},
         )
 
     raw = base64.b64decode(tool_payload(result)["archive_b64"])
@@ -77,12 +78,16 @@ async def test_runner_archives_repo_stripped_of_remotes(app, target_repo, tmp_pa
     assert event["tool"] == "repo.archive" and event["role"] == "runner"
     assert event["decision"] == "allow" and event["rule"] == "repo_archive_runner"
     assert event["backend_status"] == "ok"
+    # Attributable like every other step — the E4 story has no hole at the
+    # workspace fetch.
+    assert event["run_id"] == RUN_ID
 
 
 async def test_agent_token_cannot_archive(app, target_repo, audit_path):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(
-            "repo.archive", {"repo": str(target_repo), "ref": "main"}
+            "repo.archive",
+            {"run_id": RUN_ID, "repo": str(target_repo), "ref": "main"},
         )
 
     assert result.isError

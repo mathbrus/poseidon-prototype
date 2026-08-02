@@ -1,10 +1,11 @@
-# Poseidon PoC CI (S10): unit tests, policy tests, image builds, and the
-# secret-inspection gate that proves invariant #1 by inspection — no
-# *_TOKEN/*_KEY other than AGENT_BEARER_TOKEN may reach the agent or sandbox,
-# whether via the compose service env or baked into the image.
+# Poseidon CI (plan step 6): unit tests, policy tests, lockfile-pinned image
+# builds, and the secret-inspection gate that proves invariant #1 by
+# inspection — no *_TOKEN/*_KEY other than AGENT_BEARER_TOKEN may be baked
+# into the agent or sandbox images.
 #
-# The E2E suite needs a real GitHub repo, a real LLM key and a Docker host
-# running the full stack, so it is a separate manually-dispatched job.
+# The kind e2e suite (E1–E4 + kill-the-worker) opens real PRs on a
+# disposable repo, so it stays manually dispatched. It spends no LLM tokens:
+# the cluster deploys the deterministic mock brain by default.
 
 name: ci
 
@@ -15,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       run_e2e:
-        description: "Run the E2E suite (needs E2E_* repository secrets)"
+        description: "Run the kind e2e suite (needs the E2E_* repository secrets)"
         type: boolean
         default: false
 
@@ -28,7 +29,14 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
-      - run: uv run pytest
+      # Per package: the suites share fixture module names (conftest.py),
+      # which collide in a single rootdir-wide collection.
+      - run: |
+          for package in common gateway agent sandbox orchestrator mockllm; do
+            echo "::group::$package"
+            uv run pytest "packages/$package" -q
+            echo "::endgroup::"
+          done
 
   opa:
     runs-on: ubuntu-latest
@@ -40,30 +48,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
       - name: Build images
         run: |
-          docker build -f Dockerfile.gateway      -t poseidon-gateway .
-          docker build -f Dockerfile.agent        -t poseidon-agent .
-          docker build -f Dockerfile.sandbox      -t poseidon-sandbox .
-          docker build -f Dockerfile.orchestrator -t poseidon-orchestrator .
+          for image in gateway agent sandbox orchestrator egressproxy mockllm; do
+            docker build -f "Dockerfile.$image" -t "poseidon-$image" .
+          done
 
-      - name: "Secret-inspection gate: compose service env"
-        working-directory: deploy/compose
+      - name: "Lockfile pinning: images resolve the locked versions"
         run: |
-          # Synthetic secrets: the gate checks where variables land, not values.
-          sed 's/=.*/=ci-placeholder/' .env.example > .env
-          # Secret-shaped variables actually set on the agent service (a null
-          # value means "unset in the container" and is what the compose file
-          # uses to strip the base image's GPG_KEY).
-          leaked=$(docker compose config --format json \
-            | jq -r '.services.agent.environment
-                     | to_entries[]
-                     | select(.value != null)
-                     | select(.key | test("_(TOKEN|KEY)$"))
-                     | .key' \
-            | grep -v '^AGENT_BEARER_TOKEN$' || true)
-          if [ -n "$leaked" ]; then
-            echo "secret-shaped variables reach the agent service: $leaked" >&2
+          # `uv export` in the build means an image can only carry what
+          # uv.lock resolves; spot-check the dependency that bit us at step 3.
+          locked=$(python -c "
+          import tomllib, pathlib
+          lock = tomllib.loads(pathlib.Path('uv.lock').read_text())
+          print(next(p['version'] for p in lock['package'] if p['name'] == 'mcp'))
+          ")
+          in_image=$(docker run --rm poseidon-orchestrator \
+            python -c "import importlib.metadata as m; print(m.version('mcp'))")
+          if [ "$locked" != "$in_image" ]; then
+            echo "image resolved mcp $in_image, uv.lock pins $locked" >&2
             exit 1
           fi
 
@@ -83,10 +89,10 @@ jobs:
             fi
           done
 
-  e2e:
-    # Manual and optional: opens real PRs on a disposable repo and spends
-    # real LLM tokens. Requires the E2E_GIT_TOKEN / E2E_LLM_API_KEY /
-    # E2E_TARGET_REPO / E2E_MODEL repository secrets.
+  e2e-kind:
+    # Manual and optional: brings up a kind cluster and opens real PRs on a
+    # disposable repo. No LLM spend — the stack deploys the mock brain.
+    # Requires the E2E_GIT_TOKEN / E2E_TARGET_REPO repository secrets.
     if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
     runs-on: ubuntu-latest
     steps:
@@ -95,23 +101,25 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
-      - name: Build sandbox image and bring the stack up
-        working-directory: deploy/compose
+      - uses: helm/kind-action@v1
+        with:
+          install_only: true
+      - name: Bring the cluster up
         env:
           GIT_TOKEN: ${{ secrets.E2E_GIT_TOKEN }}
-          LLM_API_KEY: ${{ secrets.E2E_LLM_API_KEY }}
           TARGET_REPO: ${{ secrets.E2E_TARGET_REPO }}
-          MODEL: ${{ secrets.E2E_MODEL }}
         run: |
-          sed -e "s|^GIT_TOKEN=.*|GIT_TOKEN=${GIT_TOKEN}|" \
-              -e "s|^LLM_API_KEY=.*|LLM_API_KEY=${LLM_API_KEY}|" \
-              -e "s|^TARGET_REPO=.*|TARGET_REPO=${TARGET_REPO}|" \
-              -e "s|^MODEL=.*|MODEL=${MODEL}|" \
-              .env.example > .env
-          docker build -f ../../Dockerfile.sandbox -t poseidon-sandbox ../..
-          docker compose up -d --build --wait
-      - run: uv run pytest tests/e2e -m e2e -v
-      - name: Tear the stack down
+          install -m 600 /dev/null deploy/kind/.env
+          cat >> deploy/kind/.env <<EOF
+          GIT_TOKEN=${GIT_TOKEN}
+          TARGET_REPO=${TARGET_REPO}
+          BASE_REF=main
+          MAX_ITERATIONS=10
+          MCP_GATEWAY_URL=http://127.0.0.1:8080
+          AGENT_URL=http://127.0.0.1:8000
+          EOF
+          deploy/kind/kind-up.sh
+      - run: uv run pytest tests/e2e_kind -m e2e_kind -v
+      - name: Tear the cluster down
         if: always()
-        working-directory: deploy/compose
-        run: docker compose down -v
+        run: deploy/kind/kind-down.sh

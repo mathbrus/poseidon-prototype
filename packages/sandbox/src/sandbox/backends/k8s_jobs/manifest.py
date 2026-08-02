@@ -28,7 +28,10 @@ def build_job(run_id: str, policy: SandboxPolicy) -> dict:
         "memory": policy.memory,
         "ephemeral-storage": policy.disk,
     }
-    env = {"WORKSPACE_DIR": policy.workspace_dir, **policy.env}
+    # python:3.12-slim bakes GPG_KEY (a public release-signing key
+    # fingerprint) into the image; blank it so no token-shaped value exists
+    # in a company-namespace pod env at all (E3), as the agent does.
+    env = {"GPG_KEY": "", "WORKSPACE_DIR": policy.workspace_dir, **policy.env}
     return {
         "apiVersion": "batch/v1",
         "kind": "Job",

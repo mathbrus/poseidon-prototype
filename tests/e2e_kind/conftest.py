@@ -31,7 +31,11 @@ import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import ImplementInput, workflow_id
+from orchestrator.workflows.implement import (
+    FAST_TIMEOUTS,
+    ImplementInput,
+    workflow_id,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
@@ -39,6 +43,7 @@ PLATFORM_NS = "poseidon-platform"
 COMPANY_NS = "hello-saas"
 RUN_ID_LABEL = "poseidon.io/run-id"
 AUDIT_PATH = "/opt/poseidon/runs/audit.jsonl"
+EGRESS_AUDIT_PATH = "/opt/poseidon/audit/egress.jsonl"
 TASK_QUEUE = "poseidon-orchestrator"
 TEMPORAL_LOCAL_PORT = 17233
 
@@ -85,20 +90,16 @@ def temporal_port_forward():
         proc.wait(timeout=10)
 
 
-def cluster_audit_events(run_id: str) -> list[dict[str, Any]]:
-    """All audit events for one run, read from the gateway's PVC-backed
-    JSONL (nothing audit-related exists host-side anymore)."""
+def _jsonl_events(deployment: str, path: str, run_id: str) -> list[dict[str, Any]]:
     proc = subprocess.run(
-        [
-            "kubectl", "-n", PLATFORM_NS,
-            "exec", "deployment/mcp-gateway", "--",
-            "cat", AUDIT_PATH,
-        ],
+        ["kubectl", "-n", PLATFORM_NS, "exec", f"deployment/{deployment}", "--",
+         "cat", path],
         capture_output=True,
         text=True,
         timeout=60,
     )
-    assert proc.returncode == 0, f"cannot read the audit log: {proc.stderr}"
+    if proc.returncode != 0:  # sink not written yet
+        return []
     events = []
     for line in proc.stdout.splitlines():
         try:
@@ -108,6 +109,24 @@ def cluster_audit_events(run_id: str) -> list[dict[str, Any]]:
         if event.get("run_id") == run_id:
             events.append(event)
     return events
+
+
+def cluster_audit_events(run_id: str) -> list[dict[str, Any]]:
+    """The gateway's audit events for one run (PVC-backed JSONL)."""
+    return _jsonl_events("mcp-gateway", AUDIT_PATH, run_id)
+
+
+def egress_audit_events(run_id: str) -> list[dict[str, Any]]:
+    """The egress proxy's audit events for one run (its own PVC sink until
+    the registry unifies audit at plan step 8)."""
+    return _jsonl_events("egress-proxy", EGRESS_AUDIT_PATH, run_id)
+
+
+def full_audit_story(run_id: str) -> list[dict[str, Any]]:
+    """The E4 promise at M1 scale: one run's whole story across both sinks,
+    time-ordered."""
+    events = cluster_audit_events(run_id) + egress_audit_events(run_id)
+    return sorted(events, key=lambda e: e["ts"])
 
 
 def sandbox_pods(run_id: str | None = None) -> list[str]:
@@ -181,42 +200,64 @@ def stack(env: dict[str, str]) -> None:
         pytest.fail(f"orchestrator worker not ready; {hint}")
 
 
-async def _execute_implement(address: str, run_id: str, task_text: str) -> dict:
-    """Start implement exactly as `poseidon run` does, kill the worker once
-    the sandbox exists (the step-3 crash-resume proof), await the result."""
+async def _execute_implement(
+    address: str, run_id: str, task_text: str, kill_worker: bool, timeouts
+) -> dict:
+    """Start implement exactly as `poseidon run` does; optionally kill the
+    worker once the sandbox exists (the step-3 crash-resume proof), then
+    await the result."""
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "implement",
-        ImplementInput(run_id=run_id, task_text=task_text),
+        ImplementInput(run_id=run_id, task_text=task_text, timeouts=timeouts),
         id=workflow_id(run_id),
         task_queue=TASK_QUEUE,
     )
-    deadline = time.monotonic() + 300
-    while not sandbox_pods(run_id):
-        if time.monotonic() > deadline:
-            raise AssertionError("sandbox never appeared; cannot stage worker kill")
-        await asyncio.sleep(2)
-    kill_worker_pod()
+    if kill_worker:
+        deadline = time.monotonic() + 300
+        while not sandbox_pods(run_id):
+            if time.monotonic() > deadline:
+                raise AssertionError("sandbox never appeared; cannot stage worker kill")
+            await asyncio.sleep(2)
+        kill_worker_pod()
     return await asyncio.wait_for(handle.result(), timeout=1800)
 
 
-@pytest.fixture(scope="session")
-def implement_run(stack: None) -> dict:
-    """One full implement run of examples/task-happy.md through Temporal,
-    with the worker killed mid-run.
+def run_implement(task_file: str, kill_worker: bool, env: dict[str, str]) -> dict:
+    """One full implement run of an examples/ task through Temporal. A nonce
+    pins the delivery branch so reruns against the same disposable repo
+    never collide on an existing branch or open PR.
 
-    A nonce pins the delivery branch so reruns against the same disposable
-    repo never collide on an existing branch or open PR.
+    Timeouts follow the brain the cluster was deployed with (REAL_LLM in
+    .env, the same switch kind-up.sh reads): against the mock, the fast
+    profile turns a wedged activity into a failure in seconds rather than
+    minutes of retrying — a red suite should not cost half an hour.
     """
     nonce = secrets.token_hex(3)
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
+    task_text = (REPO_ROOT / "examples" / task_file).read_text() + (
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
     run_id = new_run_id()
+    timeouts = None if env.get("REAL_LLM") == "1" else FAST_TIMEOUTS
     with temporal_port_forward() as address:
-        record = asyncio.run(_execute_implement(address, run_id, task_text))
+        record = asyncio.run(
+            _execute_implement(address, run_id, task_text, kill_worker, timeouts)
+        )
     assert record["run_id"] == run_id
     return record
+
+
+@pytest.fixture(scope="session")
+def implement_run(stack: None, env: dict[str, str]) -> dict:
+    """E1: the happy-path run, with the worker killed mid-run."""
+    return run_implement("task-happy.md", kill_worker=True, env=env)
+
+
+@pytest.fixture(scope="session")
+def injected_run(stack: None, env: dict[str, str]) -> dict:
+    """E2: the injected task — the planted 'hotfix runbook' steers delivery
+    onto `main`, the gateway denies it, the brain recovers onto feature/*."""
+    return run_implement("task-injected.md", kill_worker=False, env=env)
 
 
 @pytest.fixture(scope="session")

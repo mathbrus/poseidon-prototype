@@ -59,6 +59,12 @@ def test_workspace_scope_and_env_injection_seam():
     assert env["EGRESS_PROXY_CREDENTIAL"] == "per-run-secret"
 
 
+def test_base_image_gpg_key_is_blanked():
+    """E3: no token-shaped value in a company-namespace pod env."""
+    env = {e["name"]: e["value"] for e in container(build_job(RUN_ID, POLICY))["env"]}
+    assert env["GPG_KEY"] == ""
+
+
 def test_sandbox_holds_no_kubernetes_identity():
     job = build_job(RUN_ID, POLICY)
     pod_spec = job["spec"]["template"]["spec"]

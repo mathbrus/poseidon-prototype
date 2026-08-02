@@ -6,6 +6,11 @@
 # The company namespace is hardcoded until the operator exists (plan step 10).
 companyNamespace: hello-saas
 
+# Image tags default to `latest` only so the chart installs standalone;
+# deploy/kind/kind-up.sh overrides every one of them with a content-addressed
+# tag, which is what forces a rollout when code changes (a fixed tag renders
+# an identical pod template, so pods keep running the code they started
+# with even after `kind load` replaces the image).
 images:
   gateway:
     repository: poseidon-gateway

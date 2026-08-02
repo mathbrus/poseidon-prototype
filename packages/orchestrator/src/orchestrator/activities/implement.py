@@ -59,7 +59,7 @@ class ImplementActivities:
             self._settings.mcp_gateway_url, self._settings.orchestrator_bearer_token
         ) as gateway:
             workspace_tar = await gateway.fetch_workspace(
-                self._settings.target_repo, self._settings.base_ref
+                run_id, self._settings.target_repo, self._settings.base_ref
             )
         self._log.bind(run_id=run_id).info(
             "workspace fetched", extra={"bytes": len(workspace_tar)}

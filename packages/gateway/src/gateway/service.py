@@ -130,8 +130,13 @@ class GatewayService:
 
     # -- git tools ----------------------------------------------------------
 
-    async def archive_repo(self, identity: Identity, repo: str, ref: str) -> Any:
-        args = {"repo": repo, "ref": ref}
+    async def archive_repo(
+        self, identity: Identity, run_id: str, repo: str, ref: str
+    ) -> Any:
+        # run_id rides the args so the workspace fetch is attributable like
+        # every other step: without it this event is the one hole in "the
+        # whole story for run X" (E4).
+        args = {"run_id": run_id, "repo": repo, "ref": ref}
         return await self.call(
             identity, "repo.archive", args, lambda: self._git.archive(repo, ref)
         )

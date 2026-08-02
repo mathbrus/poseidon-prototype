@@ -1,8 +1,7 @@
 """SandboxBackend contract v2 — frozen contract C5 (overview §4.6, §5.3).
 
 The narrow seam behind which sandbox runtimes are swapped: `k8s_jobs` is the
-MVP default; OpenShell implements the same contract on the evaluation track;
-the transitional Docker backend is deleted with Compose at plan step 6.
+MVP default; OpenShell implements the same contract on the evaluation track.
 
 `provision` gains a compiled policy argument. Until the compiler emits the
 infrastructure policy IR (plan step 12), `SandboxPolicy` values are
@@ -49,8 +48,6 @@ class SandboxHandle(BaseModel):
     namespace: str | None = None
     job_name: str | None = None
     pod_name: str | None = None
-    # Transitional Docker backend only — deleted with it at plan step 6.
-    container_id: str | None = None
 
 
 class SandboxBackend(Protocol):

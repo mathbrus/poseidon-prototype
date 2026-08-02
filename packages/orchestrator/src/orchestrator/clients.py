@@ -3,6 +3,7 @@ token) and the agent's C6 HTTP API. Thin by design — process-level retries,
 timeouts and cancellation belong to the workflow, not here."""
 
 import base64
+import contextlib
 import json
 from contextlib import AsyncExitStack
 from typing import Any
@@ -37,34 +38,53 @@ class GatewayClient:
         self._session: ClientSession | None = None
 
     async def __aenter__(self) -> "GatewayClient":
-        self._http = await self._stack.enter_async_context(
-            httpx.AsyncClient(
-                headers={"Authorization": f"Bearer {self._token}"},
-                timeout=httpx.Timeout(30.0, read=660.0),
+        try:
+            self._http = await self._stack.enter_async_context(
+                httpx.AsyncClient(
+                    headers={"Authorization": f"Bearer {self._token}"},
+                    timeout=httpx.Timeout(30.0, read=660.0),
+                )
             )
-        )
-        # 2-tuple (mcp >= 1.16) or 3-tuple (older) — take the two streams.
-        transport = await self._stack.enter_async_context(
-            streamable_http_client(self._base + "/mcp", http_client=self._http)
-        )
-        read, write = transport[0], transport[1]
-        self._session = await self._stack.enter_async_context(ClientSession(read, write))
-        await self._session.initialize()
+            # Locked mcp yields (read, write, get_session_id); the session id
+            # is the server's, and nothing here needs it.
+            read, write, _get_session_id = await self._stack.enter_async_context(
+                streamable_http_client(self._base + "/mcp", http_client=self._http)
+            )
+            self._session = await self._stack.enter_async_context(
+                ClientSession(read, write)
+            )
+            await self._session.initialize()
+        except Exception as exc:
+            # Unwind in the task that opened the stack. Left to the garbage
+            # collector instead, the transport's async generator is finalized
+            # on some other task and anyio raises "attempted to exit cancel
+            # scope in a different task", which buries the real error and
+            # leaves the caller hanging until its activity timeout.
+            await self._close()
+            raise GatewayError(f"gateway connection failed: {exc}") from exc
         return self
 
     async def __aexit__(self, *exc_info: Any) -> None:
-        await self._stack.aclose()
+        await self._close()
+
+    async def _close(self) -> None:
+        # Teardown errors must never mask the outcome the caller is
+        # reporting — a half-open transport is the process's problem, not
+        # the run's.
+        with contextlib.suppress(Exception):
+            await self._stack.aclose()
         self._http = None
         self._session = None
 
-    async def fetch_workspace(self, repo: str, ref: str) -> bytes:
+    async def fetch_workspace(self, run_id: str, repo: str, ref: str) -> bytes:
         assert self._session is not None, "use `async with GatewayClient(...)`"
-        result = await self._session.call_tool("repo.archive", {"repo": repo, "ref": ref})
+        result = await self._session.call_tool(
+            "repo.archive", {"run_id": run_id, "repo": repo, "ref": ref}
+        )
         text = "".join(
             block.text for block in result.content if getattr(block, "text", None)
         )
-        # isError (mcp < 1.16) / is_error (newer).
-        if getattr(result, "is_error", None) or getattr(result, "isError", None):
+        if result.isError:
             raise GatewayError(text or "repo.archive failed")
         return base64.b64decode(json.loads(text)["archive_b64"])
 

@@ -364,6 +364,30 @@ resolves the same locked `mcp`).
 **Done when:** the suite is green on kind in CI and Compose plus the Docker
 backend are gone from the tree.
 
+> **Status (2026-08-02): done** — E1–E4 + kill-the-worker green on kind
+> (21 tests, ~100s, free on the mock brain): `test_happy_path` (E1),
+> `test_injection` (E2 — main denied, recovery on feature/*),
+> `test_containment` + `test_egress` (E3), `test_audit_story` (E4). Deleted:
+> `deploy/compose/`, the Docker backend and its tests, the mcp compat shims,
+> the `docker` dependency, the `docker`/`e2e` pytest markers. Images build
+> from `uv.lock` via `uv export`; CI runs unit per package, OPA, image
+> builds, a lockfile-pinning check and the secret gate, with a
+> workflow_dispatch kind e2e job.
+>
+> Keep an eye on: **image tags are content-addressed** (`kind-up.sh` hashes
+> packages/Dockerfiles/lock and passes the tag to helm) — a fixed `:latest`
+> renders an identical pod template, so `kind load` silently leaves pods on
+> old code; that cost hours here, and the `==> image check` step now fails
+> the bootstrap if any pod runs another build. Activity timeouts ride the
+> workflow input (`Timeouts`/`FAST_TIMEOUTS`; workflow code cannot read env
+> under Temporal's sandbox) and the e2e harness picks the fast profile
+> unless `REAL_LLM=1` — a red suite costs minutes, not half an hour.
+> `repo.archive` now carries `run_id` so the workspace fetch is
+> attributable; every Dockerfile copies all six workspace pyprojects, so
+> editing one busts the dependency layer of all six images (slow rebuilds —
+> worth revisiting). E4 still reads two JSONL sinks (gateway + egress
+> proxy); step 8 unifies them in Postgres.
+
 ---
 
 ## 4. Phase 2 — M2: the declarative company

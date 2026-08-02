@@ -10,7 +10,6 @@ secret) and injected via `SandboxPolicy.env`.
 """
 
 import io
-import json
 import subprocess
 import tarfile
 import time
@@ -23,10 +22,9 @@ from sandbox.backends.k8s_jobs import K8sJobsBackend
 from sandbox.contract import SandboxPolicy
 from sandbox.egressproxy.credentials import sandbox_proxy_env
 
-from .conftest import COMPANY_NS, PLATFORM_NS
+from .conftest import COMPANY_NS, PLATFORM_NS, egress_audit_events
 
 PROXY_URL = f"http://egress-proxy.{PLATFORM_NS}.svc.cluster.local:3128"
-EGRESS_AUDIT_PATH = "/opt/poseidon/audit/egress.jsonl"
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "test",
@@ -71,25 +69,6 @@ def workspace_tar(tmp_path: Path) -> bytes:
     return buf.getvalue()
 
 
-def egress_events(run_id: str) -> list[dict]:
-    proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "exec", "deployment/egress-proxy", "--",
-         "cat", EGRESS_AUDIT_PATH],
-        capture_output=True, text=True, timeout=60,
-    )
-    if proc.returncode != 0:  # no events written yet
-        return []
-    events = []
-    for line in proc.stdout.splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if event.get("run_id") == run_id:
-            events.append(event)
-    return events
-
-
 def test_egress_containment(egress_key: str, workspace_tar: bytes):
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()
@@ -114,7 +93,7 @@ def test_egress_containment(egress_key: str, workspace_tar: bytes):
         deadline = time.monotonic() + 30
         denies = []
         while time.monotonic() < deadline:
-            denies = [e for e in egress_events(run_id) if e["decision"] == "deny"]
+            denies = [e for e in egress_audit_events(run_id) if e["decision"] == "deny"]
             if denies:
                 break
             time.sleep(1)
@@ -129,7 +108,7 @@ def test_egress_containment(egress_key: str, workspace_tar: bytes):
             ["pip", "install", "--no-cache-dir", "--quiet", "six"],
         )
         assert exit_code == 0, output
-        allows = [e for e in egress_events(run_id) if e["decision"] == "allow"]
+        allows = [e for e in egress_audit_events(run_id) if e["decision"] == "allow"]
         assert allows, "pip install left no allow events"
 
         # NetworkPolicy backstop: bypassing the proxy is silently dropped.
