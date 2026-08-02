@@ -49,6 +49,42 @@ def test_scope_for_a_role_nobody_uses_is_dead_config(blueprint):
     assert any("analyst" in p and "never apply" in p for p in problems_of(blueprint))
 
 
+def test_unknown_role_template_is_a_compile_error(blueprint):
+    """compile_blueprint accepts unvalidated dicts; an unknown template must
+    be a CompileError problem, not a KeyError halfway through emission."""
+    blueprint["departments"]["roles"]["pm"]["template"] = "boss"
+    assert any("role catalog" in p for p in problems_of(blueprint))
+
+
+def test_unknown_crew_name_is_a_compile_error(blueprint):
+    blueprint["crews"]["hotfix-swat"] = blueprint["crews"].pop("feature-review")
+    assert any("crews.hotfix-swat" in p for p in problems_of(blueprint))
+
+
+def test_spawn_authority_cannot_be_widened(blueprint):
+    """The backend-engineer template grants no spawn authority; a blueprint
+    granting it anyway is an error, not a silent drop — a workflow might
+    depend on the grant."""
+    blueprint["departments"]["roles"]["backend-engineer"]["may_spawn"] = {
+        "crew": ["feature-delivery"]
+    }
+    (problem,) = [p for p in problems_of(blueprint) if "spawn authority" in p]
+    assert "backend-engineer" in problem
+
+
+def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
+    planner = blueprint["crews"]["feature-delivery"]["members"]["planner"]
+    planner["tools"].append("sandbox.write_file")
+    assert any("never widens" in p for p in problems_of(blueprint))
+
+
+def test_invalid_branch_pattern_fails_at_compile(blueprint):
+    """A malformed allowed_pattern would otherwise surface as an OPA
+    bundle-load failure long after apply."""
+    blueprint["policies"]["branch_protection"]["allowed_pattern"] = "feature/("
+    assert any("allowed_pattern" in p for p in problems_of(blueprint))
+
+
 def test_may_spawn_must_name_a_declared_crew(blueprint):
     blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append("feature-review")
     del blueprint["crews"]["feature-review"]

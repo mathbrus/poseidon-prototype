@@ -24,3 +24,11 @@ bound_to_run if {
 	input.run_id != ""
 	input.run_binding_verified == true
 }
+
+# Declared empty here so the entrypoint is safe for every blueprint: a
+# document configuring no deny-producing policies would otherwise emit a
+# bundle OPA refuses to load (`deny_rules` unsafe). Partial sets merge
+# across files and an always-false rule contributes nothing.
+allow_rules contains "declared_nowhere" if { false }
+
+deny_rules contains "declared_nowhere" if { false }

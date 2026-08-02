@@ -25,11 +25,15 @@ class RegistrySnapshot:
 
     instances: tuple[InstanceSnapshot, ...] = field(default_factory=tuple)
 
-    def instance_for(self, company: str, hire: str) -> InstanceSnapshot | None:
-        for instance in self.instances:
-            if instance.company == company and instance.hire == hire:
-                return instance
-        return None
+    def instances_for(self, company: str, hire: str) -> tuple[InstanceSnapshot, ...]:
+        """Every live instance of a hire, in snapshot order — one hire can
+        have several (count > 1), each keeping its own agent_id across
+        applies."""
+        return tuple(
+            instance
+            for instance in self.instances
+            if instance.company == company and instance.hire == hire
+        )
 
 
 EMPTY = RegistrySnapshot()

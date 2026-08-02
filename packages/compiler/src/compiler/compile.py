@@ -31,9 +31,18 @@ from compiler.snapshot import EMPTY, RegistrySnapshot
 
 # What the orchestrator's own identity may call. Not blueprint-configurable:
 # a company that could grant itself the platform lifecycle would be able to
-# merge its own pull requests (O-1 A).
+# merge its own pull requests (O-1 A). The two /admin entries are the
+# gateway's admin routes, policed under their path as the tool name
+# (poc.rego does the same) — both must be here or sandbox registration and
+# teardown die at the step-12 cutover.
 PLATFORM_SCOPE = sorted(
-    {*PLATFORM_TOOLS, *REPO_TOOLS, "sandbox.run_tests", "/admin/sandboxes"}
+    {
+        *PLATFORM_TOOLS,
+        *REPO_TOOLS,
+        "sandbox.run_tests",
+        "/admin/sandboxes",
+        "/admin/sandboxes.delete",
+    }
 )
 
 DEFAULT_VERIFY_RETRIES = 2
@@ -49,7 +58,7 @@ def compile_blueprint(
     roles = role_catalog or ROLE_TEMPLATES
     crews_catalog = crew_catalog or CREW_TEMPLATES
 
-    problems = check(blueprint)
+    problems = check(blueprint, roles, crews_catalog)
     if problems:
         raise CompileError(problems)
 
@@ -103,13 +112,28 @@ def _instances(
         count = role.get("count", 0)
         template = roles[role["template"]]
         # The blueprint narrows the template, never widens it: a scope the
-        # catalog does not grant cannot be granted by naming it here.
+        # catalog does not grant cannot be granted by naming it here. The
+        # same holds for spawn authority — checks.py errors on a widening
+        # attempt; the intersection is the belt under that brace.
         declared = set((scopes.get(role["template"]) or {}).get("allow") or template.tools)
         tools = tuple(sorted(declared & set(template.tools)))
-        may_spawn = tuple(sorted((role.get("may_spawn") or {}).get("crew") or []))
-        for index in range(count):
-            existing = snapshot.instance_for(company, hire)
-            agent_id = existing.agent_id if existing else f"{hire}-{index + 1}"
+        may_spawn = tuple(
+            sorted(
+                set((role.get("may_spawn") or {}).get("crew") or [])
+                & set(template.may_spawn)
+            )
+        )
+        # Existing ids are reused in order so an apply is stable; minted ids
+        # skip anything already taken — a count change must never produce
+        # two instances sharing an agent_id (the diff keys on it).
+        agent_ids = [i.agent_id for i in snapshot.instances_for(company, hire)][:count]
+        serial = 0
+        while len(agent_ids) < count:
+            serial += 1
+            candidate = f"{hire}-{serial}"
+            if candidate not in agent_ids:
+                agent_ids.append(candidate)
+        for agent_id in agent_ids:
             instances.append(
                 AgentInstanceCR(
                     agent_id=agent_id,
@@ -143,12 +167,19 @@ def _crew_members(
                 needs_sandbox = (
                     catalog_member.needs_sandbox if catalog_member else True
                 )
+            # Narrowed against the catalog member like standing tools are
+            # narrowed against the role template: a widening blueprint is a
+            # checks.py error, and even past that, nothing wider than the
+            # catalog's allow-list may reach a compiled bundle.
+            declared = set(member.get("tools") or [])
+            if catalog_member is not None:
+                declared &= set(catalog_member.tools)
             members.append(
                 CrewMemberSpec(
                     crew=crew_name,
                     member=member_name,
                     role_template=member["role_template"],
-                    tools=tuple(sorted(member.get("tools") or [])),
+                    tools=tuple(sorted(declared)),
                     needs_sandbox=bool(needs_sandbox),
                     budget_inheritance=crew.get("budget_inheritance", "run"),
                 )

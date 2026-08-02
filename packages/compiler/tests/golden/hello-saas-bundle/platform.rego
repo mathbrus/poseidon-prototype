@@ -16,6 +16,14 @@ allow_rules contains "platform__admin_sandboxes" if {
 # The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
 # merge that only the workflow may perform after the human gate (O-1 A).
+allow_rules contains "platform__admin_sandboxes_delete" if {
+	input.lifecycle == "platform"
+	input.tool == "/admin/sandboxes.delete"
+}
+
+# The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
+# workspace fetch, sandbox registration, the platform verify gate, and the
+# merge that only the workflow may perform after the human gate (O-1 A).
 allow_rules contains "platform_git_merge_pr" if {
 	input.lifecycle == "platform"
 	input.tool == "git.merge_pr"

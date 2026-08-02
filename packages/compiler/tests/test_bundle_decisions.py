@@ -195,3 +195,103 @@ def test_only_the_platform_may_merge(decide):
 def test_unknown_tool_is_denied_by_default(decide):
     decision = decide(**standing("pm", tool="issues.purge", args={}))
     assert decision == {"allow": False, "rule": "default_deny"}
+
+
+def test_platform_may_retire_a_sandbox_registration(decide):
+    """Both gateway admin routes are in PLATFORM_SCOPE — the DELETE was
+    missing, which would have killed teardown at the step-12 cutover."""
+    for tool in ("/admin/sandboxes", "/admin/sandboxes.delete"):
+        assert decide(lifecycle="platform", tool=tool, run_id="run-1",
+                      args={})["allow"] is True, tool
+
+
+def test_open_pr_without_paths_is_denied(decide):
+    """Path rules fail closed: a git.open_pr whose input carries no
+    args.paths cannot be checked against them, so it is denied (the
+    gateway's bundle-apply always supplies the paths)."""
+    decision = decide(
+        **ephemeral("feature-delivery", "executor", "backend-engineer",
+                    tool="git.open_pr", args={"branch": "feature/x"})
+    )
+    assert decision == {"allow": False, "rule": "git_open_pr_paths_missing"}
+
+
+# -- emitter edge cases (fresh bundles, not the module fixture) -------------
+
+
+def _eval_bundle(tmp_path_factory, blueprint, name, input_fields) -> dict:
+    runner = _runner()
+    if runner is None:
+        pytest.skip("neither the opa binary nor docker is available")
+    plan = compile_blueprint(blueprint)
+    bundle = tmp_path_factory.mktemp(name)
+    for file_name, body in plan.bundle.files.items():
+        (bundle / file_name).write_text(body)
+    proc = runner(str(bundle), json.dumps(input_fields))
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_bundle_without_policies_still_loads(tmp_path_factory, blueprint):
+    """`policies` is optional; a blueprint without it used to emit a bundle
+    OPA refused to load (`deny_rules` unsafe var) — the entrypoint now
+    declares both rule sets."""
+    del blueprint["policies"]
+    decision = _eval_bundle(
+        tmp_path_factory, blueprint, "no-policies",
+        standing("pm", tool="issues.purge", args={}),
+    )
+    assert decision == {"allow": False, "rule": "default_deny"}
+
+
+def test_pattern_with_a_backtick_cannot_inject_policy(tmp_path_factory, blueprint):
+    """The allowed_pattern is emitted as a JSON-escaped string; a backtick
+    used to terminate the raw literal and splice text into the bundle."""
+    blueprint["policies"]["branch_protection"]["allowed_pattern"] = "^feature/`x.*"
+    decision = _eval_bundle(
+        tmp_path_factory, blueprint, "backtick-pattern",
+        ephemeral("feature-delivery", "executor", "backend-engineer",
+                  tool="git.open_pr",
+                  args={"branch": "feature/nope", "paths": ["a.py"]}),
+    )
+    assert decision == {"allow": False, "rule": "git_open_pr_branch_pattern"}
+
+
+def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
+    """`protected: [Main]` must deny `main`: branches are lowercased at emit
+    time to match the lowercased input."""
+    blueprint["policies"]["branch_protection"] = {"protected": ["Main"]}
+    decision = _eval_bundle(
+        tmp_path_factory, blueprint, "uppercase-protected",
+        ephemeral("feature-delivery", "executor", "backend-engineer",
+                  tool="git.open_pr", args={"branch": "main", "paths": ["a.py"]}),
+    )
+    assert decision == {"allow": False, "rule": "git_open_pr_protected_branch"}
+
+
+def test_crew_rule_compares_the_raw_member_name():
+    """`run_participants.crew_role` stores the member name as written; only
+    rule *names* are slugged. A slugged comparison silently disabled every
+    rule of a hyphenated member."""
+    from compiler.plan import CrewMemberSpec
+    from compiler.rego import build_bundle
+
+    files = build_bundle(
+        company="c",
+        instances=[],
+        crew_members=[
+            CrewMemberSpec(
+                crew="feature-review",
+                member="code-reviewer",
+                role_template="sdet",
+                tools=("git.read",),
+                needs_sandbox=True,
+                budget_inheritance="run",
+            )
+        ],
+        policies={},
+        platform_tools=[],
+    )
+    body = files["crew_feature_review_code_reviewer.rego"]
+    assert 'input.crew_role == "code-reviewer"' in body
+    assert "crew_feature_review_code_reviewer_git_read" in body

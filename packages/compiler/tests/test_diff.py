@@ -27,9 +27,9 @@ def live(*hires: tuple[str, str, str]) -> RegistrySnapshot:
 
 def test_first_apply_creates_the_whole_roster(blueprint):
     diff = diff_plan(compile_blueprint(blueprint), EMPTY)
-    assert {(c.hire, c.action) for c in diff.changes} == {
-        ("pm", "create"),
-        ("backend-engineer", "create"),
+    assert {(c.agent_id, c.action) for c in diff.changes} == {
+        ("pm-1", "create"),
+        ("backend-engineer-1", "create"),
     }
 
 
@@ -51,7 +51,7 @@ def test_a_small_edit_shows_a_minimal_diff(blueprint):
     diff = diff_plan(compile_blueprint(blueprint, snapshot=snapshot), snapshot)
     assert len(diff.changes) == 1
     (change,) = diff.changes
-    assert change.hire == "pm" and change.action == "update"
+    assert change.agent_id == "pm-1" and change.action == "update"
     assert change.details == ("model_tier standard -> frontier",)
 
 
@@ -62,7 +62,25 @@ def test_the_firing_diff_is_a_deletion(lean):
         ("pm", "pm", "standard"), ("backend-engineer", "backend-engineer", "frontier")
     )
     diff = diff_plan(compile_blueprint(lean, snapshot=snapshot), snapshot)
-    assert [(c.hire, c.action) for c in diff.changes] == [("backend-engineer", "delete")]
+    assert [(c.agent_id, c.action) for c in diff.changes] == [
+        ("backend-engineer-1", "delete")
+    ]
+
+
+def test_count_growth_is_distinct_creates(blueprint):
+    """count > 1 mints one agent_id per instance and previews the growth —
+    a hire-keyed diff used to collapse it into 'no changes'."""
+    snapshot = live(
+        ("pm", "pm", "standard"), ("backend-engineer", "backend-engineer", "frontier")
+    )
+    blueprint["departments"]["roles"]["pm"]["count"] = 3
+    plan = compile_blueprint(blueprint, snapshot=snapshot)
+    pm_ids = [i.agent_id for i in plan.instances if i.hire == "pm"]
+    assert len(pm_ids) == len(set(pm_ids)) == 3
+    assert pm_ids[0] == "pm-1"  # the live instance keeps its id
+    diff = diff_plan(plan, snapshot)
+    creates = {c.agent_id for c in diff.changes if c.action == "create"}
+    assert creates == set(pm_ids[1:])
 
 
 def test_existing_agent_ids_are_preserved(blueprint):

@@ -14,7 +14,9 @@ from compiler.snapshot import RegistrySnapshot
 
 @dataclass
 class InstanceChange:
-    hire: str
+    # Keyed by agent_id, not hire: with count > 1 a hire is several
+    # instances, and a count change must show up as creates/deletes.
+    agent_id: str
     action: str  # create | update | delete
     details: tuple[str, ...] = ()
 
@@ -37,7 +39,7 @@ class PlanDiff:
             lines = [f"{self.company}: {len(self.changes)} change(s)"]
             for change in self.changes:
                 mark = {"create": "+", "update": "~", "delete": "-"}[change.action]
-                lines.append(f"  {mark} {change.hire}")
+                lines.append(f"  {mark} {change.agent_id}")
                 lines.extend(f"      {detail}" for detail in change.details)
             head = "\n".join(lines)
         return (
@@ -55,18 +57,20 @@ def diff_plan(plan: DeploymentPlan, snapshot: RegistrySnapshot) -> PlanDiff:
         projected_monthly_usd=sum(plan.budgets.per_role_monthly_usd.values()),
     )
 
-    planned = {instance.hire: instance for instance in plan.instances}
+    planned = {instance.agent_id: instance for instance in plan.instances}
     live = {
-        instance.hire: instance
+        instance.agent_id: instance
         for instance in snapshot.instances
         if instance.company == company
     }
 
-    for hire, instance in planned.items():
-        existing = live.get(hire)
+    for agent_id, instance in planned.items():
+        existing = live.get(agent_id)
         if existing is None:
             result.changes.append(
-                InstanceChange(hire, "create", (f"template {instance.role_template}",))
+                InstanceChange(
+                    agent_id, "create", (f"template {instance.role_template}",)
+                )
             )
             continue
         details = []
@@ -77,15 +81,17 @@ def diff_plan(plan: DeploymentPlan, snapshot: RegistrySnapshot) -> PlanDiff:
         if existing.model_tier != instance.model_tier:
             details.append(f"model_tier {existing.model_tier} -> {instance.model_tier}")
         if details:
-            result.changes.append(InstanceChange(hire, "update", tuple(details)))
+            result.changes.append(InstanceChange(agent_id, "update", tuple(details)))
 
-    for hire in live:
-        if hire not in planned:
+    for agent_id in live:
+        if agent_id not in planned:
             # The firing half of hire/fire-as-diff (plan step 19 exercises
             # it deliberately); the operator drains before removing.
-            result.changes.append(InstanceChange(hire, "delete", ("no longer hired",)))
+            result.changes.append(
+                InstanceChange(agent_id, "delete", ("no longer hired",))
+            )
 
-    result.changes.sort(key=lambda c: (c.action, c.hire))
+    result.changes.sort(key=lambda c: (c.action, c.agent_id))
     return result
 
 

@@ -582,6 +582,30 @@ the compiler provably performs no I/O beyond its inputs.
 > compiler.regolden` — never from a test run. Still deferred to step 19:
 > the strict spawner-only error (the bridge blueprint must compile until
 > the firing diff); still absent by design: any child-⊆-parent check.
+>
+> Review pass (2026-08-02), bundle correctness: the decision entrypoint
+> declares `allow_rules`/`deny_rules` (a blueprint with no deny-producing
+> policies used to emit a bundle OPA refused to load — unsafe var, invisible
+> to every hello-saas-shaped test); `allowed_pattern` is emitted
+> JSON-escaped and regex-validated at compile (a backtick used to inject
+> policy text); crew rules compare the **raw** member name (the slugged
+> comparison silently disabled every rule of a hyphenated member);
+> protected branches are lowercased at emit; path rules fail closed when
+> `args.paths` is absent; `/admin/sandboxes.delete` joined `PLATFORM_SCOPE`
+> (poc.rego allows both routes — without it, teardown dies at the step-12
+> cutover). Governance: crew-member tools and `may_spawn` now narrow their
+> catalog contracts like standing tools (widening is a compile error);
+> `count > 1` mints distinct agent ids and the diff keys on `agent_id`;
+> `check()` honours the injected catalogs and unknown templates are
+> CompileErrors, not KeyErrors. The premature spawner-only error block is
+> gone (it contradicted its own "not fatal" comment; step 19 lands it
+> whole). Run-binding membership moved to `schema.tools.RUN_SCOPED` —
+> whether `git.open_pr` should also require a verified binding is an open
+> question for steps 12/16. Accepted deviation, now recorded: the Rego
+> templates live as Python literals in `rego.py`, not `policies/` files —
+> loading templates from disk would break the purity the tests prove;
+> `policies/poc.rego` is untouched and dies at step 12. 93 tests
+> (compiler + schema).
 
 ### Step 10 — CRDs + `packages/operator`
 

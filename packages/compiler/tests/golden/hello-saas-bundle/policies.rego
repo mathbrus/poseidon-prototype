@@ -10,12 +10,17 @@ deny_paths := [".github/workflows/"]
 
 deny_rules contains "git_open_pr_protected_branch" if {
 	input.tool == "git.open_pr"
-	lower(input.args.branch) in {b | some b in protected_branches}
+	lower(input.args.branch) in protected_branches
 }
 
 deny_rules contains "git_open_pr_branch_pattern" if {
 	input.tool == "git.open_pr"
-	not regex.match(`^feature/[a-z0-9-]+$`, input.args.branch)
+	not regex.match("^feature/[a-z0-9-]+$", input.args.branch)
+}
+
+deny_rules contains "git_open_pr_paths_missing" if {
+	input.tool == "git.open_pr"
+	not input.args.paths
 }
 
 deny_rules contains "git_open_pr_denied_paths" if {
@@ -30,5 +35,5 @@ deny_rules contains "git_open_pr_path_ownership_0" if {
 	some path in object.get(input, ["args", "paths"], [])
 	some owned in ["tests/"]
 	startswith(path, owned)
-	not input.role in {r | some r in ["backend-engineer", "sdet"]}
+	not input.role in ["backend-engineer", "sdet"]
 }

@@ -18,6 +18,15 @@ def test_plan_matches_the_golden_file(blueprint):
     assert plan == expected
 
 
+def test_bundle_matches_the_golden_files(blueprint):
+    """The golden bundle directory is the reviewable form of the emitted
+    Rego; this is what ties it to the emitter (it is read by nothing else)."""
+    plan = compile_blueprint(blueprint)
+    bundle_dir = GOLDEN / "hello-saas-bundle"
+    on_disk = {p.name: p.read_text() for p in bundle_dir.glob("*.rego")}
+    assert on_disk == plan.bundle.files
+
+
 def test_compilation_is_deterministic(blueprint):
     """Same inputs, byte-identical plan: the diff at preview is only
     meaningful if nothing wobbles between runs."""

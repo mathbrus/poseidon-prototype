@@ -41,3 +41,10 @@ KNOWN_TOOLS = frozenset(
 # Tools no company role may declare: the platform identity holds them, and a
 # blueprint that could grant them would make the merge gate optional.
 PLATFORM_ONLY = frozenset(PLATFORM_TOOLS)
+
+# Tools whose compiled rules additionally require a verified run binding in
+# the decision input (§5.1) — a role allow-list without run binding reopens
+# cross-run tool use, the protection `data.runs.assignments` used to give.
+# A property of the tool, not a name prefix: whether `git.open_pr` joins
+# this set is a step 12/16 decision (see the step 9 status note).
+RUN_SCOPED = frozenset(SANDBOX_TOOLS)
