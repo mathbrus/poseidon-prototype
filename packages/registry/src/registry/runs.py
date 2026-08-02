@@ -130,7 +130,8 @@ class Runs:
             (run_id, status, pr_url, iterations, error),
         )
         record = self.get(run_id)
-        assert record is not None  # just written
+        if record is None:  # just written — only a vanished database gets here
+            raise RuntimeError(f"run {run_id} missing immediately after finish()")
         return record
 
     def get(self, run_id: str) -> RunRecord | None:

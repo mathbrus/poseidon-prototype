@@ -1,7 +1,5 @@
 """Gateway settings: the C7 tokens it needs plus gateway-internal knobs."""
 
-from pathlib import Path
-
 from pydantic_settings import BaseSettings
 
 

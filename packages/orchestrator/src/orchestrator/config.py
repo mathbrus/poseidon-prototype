@@ -7,7 +7,6 @@ the orchestrator bearer token; GIT_TOKEN and provider keys never appear
 here by design.
 """
 
-from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
@@ -42,7 +41,6 @@ class WorkerSettings(TemporalSettings):
     # injection entirely (pre-proxy clusters keep zero egress).
     egress_proxy_url: str = ""
     egress_proxy_key: str = ""
-    runs_dir: Path = Path("runs")
     poll_interval_s: float = 2
 
     def sandbox_policy(self, run_id: str) -> SandboxPolicy:

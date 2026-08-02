@@ -62,11 +62,14 @@ class Registry:
         at startup, in any order, concurrently."""
         ddl = resources.files("registry").joinpath("schema.sql").read_text()
         with self.connection() as conn:
-            conn.execute("SELECT pg_advisory_lock(%s)", (_MIGRATION_LOCK,))
-            try:
+            # Transaction-scoped lock, not session-scoped: a failing DDL
+            # aborts the transaction, and a session lock taken inside it
+            # would survive the rollback on this pooled connection while
+            # the unlock call could no longer run — wedging every other
+            # service's migrate() until the pool recycles.
+            with conn.transaction():
+                conn.execute("SELECT pg_advisory_xact_lock(%s)", (_MIGRATION_LOCK,))
                 conn.execute(ddl)
-            finally:
-                conn.execute("SELECT pg_advisory_unlock(%s)", (_MIGRATION_LOCK,))
         self._log.info("registry schema ready")
 
     def close(self) -> None:

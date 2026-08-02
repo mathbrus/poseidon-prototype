@@ -89,37 +89,41 @@ def temporal_port_forward():
         proc.wait(timeout=10)
 
 
+def _psql_json(query: str, run_id: str, default: str) -> Any:
+    """Run a run_id-parameterized query through psql variable binding
+    (`:'run_id'` in the query text; never string interpolation, even for
+    generated ids) and parse the JSON result. Read through psql so the
+    suite needs nothing on the host but kubectl."""
+    proc = subprocess.run(
+        ["kubectl", "-n", PLATFORM_NS, "exec", "-i", "statefulset/postgres", "--",
+         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At",
+         "-v", f"run_id={run_id}", "-f", "-"],
+        input=query, capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, f"psql failed: {proc.stderr}"
+    return json.loads(proc.stdout.strip() or default)
+
+
 def audit_story(run_id: str) -> list[dict[str, Any]]:
     """The whole story for one run, from the registry (plan step 8 retired
-    the two JSONL sinks). Read through psql so the suite needs nothing on
-    the host but kubectl."""
-    query = (
+    the two JSONL sinks)."""
+    return _psql_json(
         "SELECT COALESCE(json_agg(e ORDER BY e.ts, e.id), '[]'::json) FROM ("
-        "SELECT * FROM registry.audit_events WHERE run_id = '" + run_id + "'"
-        ") e"
+        "SELECT * FROM registry.audit_events WHERE run_id = :'run_id'"
+        ") e",
+        run_id,
+        default="[]",
     )
-    proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "exec", "statefulset/postgres", "--",
-         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At", "-c", query],
-        capture_output=True, text=True, timeout=60,
-    )
-    assert proc.returncode == 0, f"cannot query the audit store: {proc.stderr}"
-    return json.loads(proc.stdout.strip() or "[]")
 
 
 def run_record(run_id: str) -> dict[str, Any] | None:
     """The registry's own view of a run — what survives a worker restart."""
-    query = (
+    return _psql_json(
         "SELECT COALESCE(row_to_json(r), 'null'::json) FROM registry.runs r "
-        "WHERE run_id = '" + run_id + "'"
+        "WHERE run_id = :'run_id'",
+        run_id,
+        default="null",
     )
-    proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "exec", "statefulset/postgres", "--",
-         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At", "-c", query],
-        capture_output=True, text=True, timeout=60,
-    )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout.strip() or "null")
 
 
 def restart_gateway() -> None:

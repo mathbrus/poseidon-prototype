@@ -72,11 +72,15 @@ def create_app(
     opa = OpaClient(settings.opa_url, http_client)
     # Sandbox registrations and audit events live in the registry since plan
     # step 8; every service migrates at startup under an advisory lock. The
-    # accessors are injectable so tests need no database.
-    if sandboxes is None or audit is None:
+    # accessors are injectable so tests need no database — both or neither:
+    # injecting one would still open a real pool for the other.
+    registry = None
+    if sandboxes is None and audit is None:
         registry = open_registry()
-        sandboxes = sandboxes or SandboxRegistrations(registry)
-        audit = audit or AuditStore(registry)
+        sandboxes = SandboxRegistrations(registry)
+        audit = AuditStore(registry)
+    elif sandboxes is None or audit is None:
+        raise ValueError("inject both sandboxes and audit, or neither")
     service = GatewayService(settings, opa, http_client, sandboxes, audit)
 
     mcp = FastMCP(
@@ -189,6 +193,8 @@ def create_app(
 
     app = mcp.streamable_http_app()
     app.add_middleware(BearerAuthMiddleware, tokens=tokens)
+    if registry is not None:
+        app.add_event_handler("shutdown", registry.close)
     # Exposed for tests (session-manager lifespan) and introspection.
     app.state.fastmcp = mcp
     app.state.service = service

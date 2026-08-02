@@ -5,6 +5,7 @@ which builds the C2 policy input, queries OPA, emits a C1 audit event, and
 only on allow executes the backend action.
 """
 
+import asyncio
 import hashlib
 import json
 import time
@@ -70,18 +71,24 @@ class GatewayService:
         self._audit_store = audit
 
     # -- sandbox registry -------------------------------------------------
+    # Registry accessors are synchronous psycopg; every use goes through
+    # to_thread so a slow or absent Postgres cannot stall the event loop
+    # (the pool blocks up to CONNECT_TIMEOUT_S — long enough to fail the
+    # liveness probe if it ran on the loop).
 
-    def register_sandbox(
+    async def register_sandbox(
         self,
         run_id: str,
         url: str,
         namespace: str | None = None,
         job_name: str | None = None,
     ) -> None:
-        self._sandboxes.register(run_id, url.rstrip("/"), namespace, job_name)
+        await asyncio.to_thread(
+            self._sandboxes.register, run_id, url.rstrip("/"), namespace, job_name
+        )
 
-    def sandbox_url(self, run_id: str) -> str | None:
-        return self._sandboxes.url_for(run_id)
+    async def sandbox_url(self, run_id: str) -> str | None:
+        return await asyncio.to_thread(self._sandboxes.url_for, run_id)
 
     # -- enforcement pipeline ---------------------------------------------
 
@@ -106,21 +113,21 @@ class GatewayService:
         decision = await self._opa.decide(policy_input)
 
         if not decision.allow:
-            self._audit(identity, tool, args, run_id, "deny", decision.rule, started, None)
+            await self._audit(identity, tool, args, run_id, "deny", decision.rule, started, None)
             raise PolicyDenied(decision.rule)
 
         try:
             result = await backend()
         except Exception:
-            self._audit(identity, tool, args, run_id, "allow", decision.rule, started, "error")
+            await self._audit(identity, tool, args, run_id, "allow", decision.rule, started, "error")
             raise
-        self._audit(identity, tool, args, run_id, "allow", decision.rule, started, "ok")
+        await self._audit(identity, tool, args, run_id, "allow", decision.rule, started, "ok")
         return result
 
     async def proxy_sandbox(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         """Forward an allowed sandbox.* call to the run's registered tool server."""
         run_id = str(args["run_id"])
-        base_url = self.sandbox_url(run_id)
+        base_url = await self.sandbox_url(run_id)
         if base_url is None:
             raise BackendError(f"no sandbox registered for run_id {run_id!r}")
         payload = {k: v for k, v in args.items() if k != "run_id"}
@@ -140,7 +147,7 @@ class GatewayService:
         """Admin action: register a sandbox and push the run assignment to OPA."""
 
         async def backend() -> None:
-            self.register_sandbox(run_id, url, namespace, job_name)
+            await self.register_sandbox(run_id, url, namespace, job_name)
             await self._opa.assign_run(AGENT_ID, run_id)
 
         await self.call(
@@ -153,7 +160,7 @@ class GatewayService:
         replaces `data.runs.assignments` with registry-enriched input."""
 
         async def backend() -> None:
-            self._sandboxes.terminate(run_id)
+            await asyncio.to_thread(self._sandboxes.terminate, run_id)
 
         await self.call(
             identity, "/admin/sandboxes.delete", {"run_id": run_id}, backend
@@ -218,7 +225,7 @@ class GatewayService:
 
     # -- audit --------------------------------------------------------------
 
-    def _audit(
+    async def _audit(
         self,
         identity: Identity,
         tool: str,
@@ -241,5 +248,5 @@ class GatewayService:
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=backend_status,
         )
-        self._audit_store.append(event)
+        await asyncio.to_thread(self._audit_store.append, event)
         self._log.info("audit", extra=event.model_dump())

@@ -118,7 +118,7 @@ class EgressProxy:
 
         run_id, rule = self._authenticate(headers)
         if rule is not None:
-            self._audit(run_id, host, port, "deny", rule, started, None)
+            await self._audit(run_id, host, port, "deny", rule, started, None)
             self._respond(
                 writer,
                 "407 Proxy Authentication Required",
@@ -126,7 +126,7 @@ class EgressProxy:
             )
             return
         if not self._allowed(run_id, host):
-            self._audit(run_id, host, port, "deny", "egress_not_allowlisted", started, None)
+            await self._audit(run_id, host, port, "deny", "egress_not_allowlisted", started, None)
             self._respond(writer, "403 Forbidden")
             return
 
@@ -135,11 +135,11 @@ class EgressProxy:
                 asyncio.open_connection(host, port), timeout=CONNECT_TIMEOUT_S
             )
         except (OSError, TimeoutError) as exc:
-            self._audit(run_id, host, port, "allow", "egress_allowlisted", started, "error")
+            await self._audit(run_id, host, port, "allow", "egress_allowlisted", started, "error")
             self._log.info("upstream connect failed", extra={"host": host, "error": str(exc)})
             self._respond(writer, "502 Bad Gateway")
             return
-        self._audit(run_id, host, port, "allow", "egress_allowlisted", started, "ok")
+        await self._audit(run_id, host, port, "allow", "egress_allowlisted", started, "ok")
 
         try:
             if method == "CONNECT":
@@ -237,7 +237,7 @@ class EgressProxy:
             + body
         )
 
-    def _audit(
+    async def _audit(
         self,
         run_id: str,
         host: str,
@@ -259,7 +259,9 @@ class EgressProxy:
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=backend_status,
         )
-        self._audit_store.append(event)
+        # The store is synchronous psycopg; keep it off the event loop or a
+        # slow Postgres stalls every tunnel and the /healthz probe with it.
+        await asyncio.to_thread(self._audit_store.append, event)
         self._log.info(
             "egress",
             extra={**event.model_dump(), "host": host, "port": port},

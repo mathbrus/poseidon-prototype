@@ -3,7 +3,6 @@ against fakes. Sequencing, compensation and durability are workflow
 concerns, proven live by the kind E1 suite (worker-kill included)."""
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -41,13 +40,12 @@ class FakeBackend:
 
 
 @pytest.fixture
-def settings(tmp_path: Path, monkeypatch) -> WorkerSettings:
+def settings(monkeypatch) -> WorkerSettings:
     return WorkerSettings(
         orchestrator_bearer_token="orchestrator-token",
         mcp_gateway_url="http://gateway.test:8080",
         agent_url="http://agent.test:8000",
         target_repo="github.com/example/repo",
-        runs_dir=tmp_path / "runs",
         poll_interval_s=0.01,
     )
 

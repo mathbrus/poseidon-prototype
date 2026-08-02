@@ -507,6 +507,18 @@ restart mid-run; the audit story for a run is queryable from Postgres by
 > converts a *spurious* anyio `CancelledError` (connection failure inside a
 > task group) into `GatewayError` via `Task.cancelling()`, or compensation
 > dies instead of finalizing the run.
+>
+> Review pass (2026-08-02): the migration lock is transaction-scoped
+> (`pg_advisory_xact_lock`) — the session-scoped version leaked the lock on
+> a failed DDL and wedged every service's startup until the pool recycled.
+> The two async services (gateway, egress proxy) run all registry calls
+> through `asyncio.to_thread`, matching the orchestrator activities: with a
+> 30s pool timeout, sync psycopg on the event loop turned a Postgres blip
+> into stalled `/healthz` probes and kubelet restarts. The in-memory doubles
+> now mirror the real accessors' behaviour (upserting `start`, no-op
+> `record_artifacts` on a missing row, the same ten-column `story`
+> projection, `recent`) — a double with friendlier failure modes hides the
+> bugs it exists to catch.
 
 ### Step 9 — `packages/compiler`
 
