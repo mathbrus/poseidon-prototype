@@ -12,6 +12,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 from sandbox.contract import SandboxPolicy
+from sandbox.egressproxy.credentials import sandbox_proxy_env
 
 
 class TemporalSettings(BaseSettings):
@@ -36,14 +37,23 @@ class WorkerSettings(TemporalSettings):
     sandbox_memory: str = "1Gi"
     sandbox_disk: str = "2Gi"
     sandbox_deadline_s: int = 3600
+    # Egress attribution (§2b): the proxy URL as sandboxes reach it and the
+    # shared HMAC key for per-run credentials. Both empty disables the env
+    # injection entirely (pre-proxy clusters keep zero egress).
+    egress_proxy_url: str = ""
+    egress_proxy_key: str = ""
     runs_dir: Path = Path("runs")
     poll_interval_s: float = 2
 
-    def sandbox_policy(self) -> SandboxPolicy:
+    def sandbox_policy(self, run_id: str) -> SandboxPolicy:
+        env: dict[str, str] = {}
+        if self.egress_proxy_url and self.egress_proxy_key:
+            env = sandbox_proxy_env(self.egress_proxy_url, self.egress_proxy_key, run_id)
         return SandboxPolicy(
             image=self.sandbox_image,
             cpu=self.sandbox_cpu,
             memory=self.sandbox_memory,
             disk=self.sandbox_disk,
             deadline_s=self.sandbox_deadline_s,
+            env=env,
         )

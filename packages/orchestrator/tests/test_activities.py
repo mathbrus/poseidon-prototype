@@ -86,10 +86,22 @@ JOB_HANDLE = {
 
 
 def test_settings_build_the_hand_authored_sandbox_policy(settings):
-    policy = settings.sandbox_policy()
+    policy = settings.sandbox_policy(RUN_ID)
     assert policy.image == "poseidon-sandbox"
     assert policy.deadline_s == 3600
     assert policy.egress_allow == []
+    assert policy.env == {}  # no proxy configured -> nothing injected
+
+
+def test_settings_inject_per_run_proxy_credentials_when_configured(settings):
+    settings.egress_proxy_url = "http://egress-proxy.platform:3128"
+    settings.egress_proxy_key = "test-key"
+    env = settings.sandbox_policy(RUN_ID).env
+    assert env["HTTPS_PROXY"].startswith(f"http://{RUN_ID}:")
+    assert env["HTTPS_PROXY"].endswith("@egress-proxy.platform:3128")
+    # Distinct runs get distinct credentials — that is the attribution.
+    other = settings.sandbox_policy("run-other").env
+    assert other["HTTPS_PROXY"] != env["HTTPS_PROXY"]
 
 
 def test_teardown_destroys_and_finalizes_done(activities, settings, backend):

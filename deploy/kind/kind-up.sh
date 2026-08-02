@@ -54,9 +54,10 @@ docker build -f Dockerfile.gateway -t poseidon-gateway .
 docker build -f Dockerfile.agent -t poseidon-agent .
 docker build -f Dockerfile.orchestrator -t poseidon-orchestrator .
 docker build -f Dockerfile.sandbox -t "$SANDBOX_IMAGE" .
+docker build -f Dockerfile.egressproxy -t poseidon-egress-proxy .
 # The sandbox image is side-loaded too: sandboxes are Kubernetes Jobs in the
 # company namespace since the k8s_jobs backend (plan step 4).
-IMAGES=(poseidon-gateway poseidon-agent poseidon-orchestrator "$SANDBOX_IMAGE")
+IMAGES=(poseidon-gateway poseidon-agent poseidon-orchestrator "$SANDBOX_IMAGE" poseidon-egress-proxy)
 if [ "$REAL_LLM" != "1" ]; then
   docker build -f Dockerfile.mockllm -t poseidon-mockllm .
   IMAGES+=(poseidon-mockllm)
@@ -75,6 +76,7 @@ secrets:
   agentBearerToken: "${AGENT_BEARER_TOKEN:?AGENT_BEARER_TOKEN missing from $ENV_FILE}"
   runnerBearerToken: "${RUNNER_BEARER_TOKEN:?RUNNER_BEARER_TOKEN missing from $ENV_FILE}"
   postgresPassword: "${POSTGRES_PASSWORD:-poseidon-dev-postgres}"
+  egressProxyKey: "${EGRESS_PROXY_KEY:-poseidon-dev-egress-key}"
 run:
   model: "${MODEL:?MODEL missing from $ENV_FILE}"
   targetRepo: "${TARGET_REPO:?TARGET_REPO missing from $ENV_FILE}"
@@ -93,7 +95,7 @@ helm upgrade --install poseidon deploy/helm/poseidon \
   --set-file opa.policies.poc=policies/poc.rego
 
 echo "==> rollout"
-for deploy in opa llm-proxy mcp-gateway; do
+for deploy in opa llm-proxy mcp-gateway egress-proxy; do
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=300s
 done
 kubectl -n "$PLATFORM_NS" rollout status statefulset/postgres --timeout=300s

@@ -72,7 +72,7 @@ class ImplementActivities:
             self._backend.provision,
             run_id,
             workspace_tar,
-            self._settings.sandbox_policy(),
+            self._settings.sandbox_policy(run_id),
         )
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.orchestrator_bearer_token

@@ -318,6 +318,22 @@ the caps/deadline (this is part of the §4.6 exit criteria).
 blocked and a correlated deny event lands in the audit sink; an allowlisted
 `pip install` succeeds.
 
+> **Status (2026-08-02): done** — owned asyncio CONNECT/HTTP proxy in
+> `packages/sandbox/src/sandbox/egressproxy/`; per-run credential is
+> self-authenticating (username `run_id`, password HMAC(key, run_id) — no
+> registration state, proxy-restart safe); `tests/e2e_kind/test_egress.py`
+> proves deny+audit correlation, allowlisted `pip install six`, and the
+> NetworkPolicy backstop. Keep an eye on: proxy denies land in the proxy's
+> **own** PVC JSONL (`egress-proxy` pod, `/opt/poseidon/audit/egress.jsonl`)
+> — E4 at step 6 must read two sinks until step 8 unifies them in Postgres;
+> allowlist matching is exact-host (no wildcards) and kind allows the two
+> PyPI hosts while the production default stays empty; never name an env var
+> `EGRESS_PROXY_PORT`-style in the proxy's namespace — Kubernetes service
+> links shadow `<SERVICE>_PORT` with `tcp://ip:port` (bit us; listen port is
+> `EGRESS_LISTEN_PORT` and the pod sets `enableServiceLinks: false`);
+> `SandboxPolicy.egress_allow` stays unused until the compiler feeds both
+> the proxy and the policy record at step 12.
+
 ### Step 6 — M1 acceptance suite + deletions
 
 **Depends on:** steps 3, 4, 5.

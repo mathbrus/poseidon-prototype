@@ -72,6 +72,15 @@ spec:
               value: {{ .Values.orchestrator.sandbox.disk | quote }}
             - name: SANDBOX_DEADLINE_S
               value: {{ .Values.orchestrator.sandbox.deadlineSeconds | quote }}
+            # Egress attribution (§2b): the proxy URL as sandboxes resolve
+            # it, and the shared key to mint their per-run credentials.
+            - name: EGRESS_PROXY_URL
+              value: http://egress-proxy.{{ .Release.Namespace }}.svc.cluster.local:3128
+            - name: EGRESS_PROXY_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: egress-proxy-key
+                  key: EGRESS_PROXY_KEY
             - name: RUNS_DIR
               value: /opt/poseidon/runs
           volumeMounts:

@@ -6,9 +6,10 @@
 #   company namespace: default deny (ingress+egress) for every pod;
 #     agent egress only to mcp-gateway, llm-proxy and cluster DNS;
 #     agent ingress only for the host-side runner's dispatch/status calls;
-#     sandbox Jobs (plan step 4): ingress from the gateway only, zero
-#     egress until the egress proxy lands (step 5) — the workspace tar
-#     arrives over the exec API, not the pod network.
+#     sandbox Jobs (plan step 4/5): ingress from the gateway only; egress
+#     only to the egress proxy and cluster DNS — the proxy enforces the
+#     audited allowlist, this policy stays the silent backstop beneath it.
+#     The workspace tar arrives over the exec API, not the pod network.
 #   platform namespace: gateway egress restricted to OPA, DNS, the sandbox
 #     toolservers in the company namespace, and non-cluster addresses (the
 #     external git host).
@@ -100,8 +101,10 @@ spec:
         - port: 8000
 ---
 # Sandbox Jobs: the toolserver answers the gateway and nobody else; egress
-# stays empty (deny-all) until the egress proxy (plan step 5). Hand-authored
-# here until the compiler emits it from the infra IR (step 12).
+# reaches only the audited proxy (plus DNS to resolve it) — every other
+# destination is silently dropped here as the backstop beneath the proxy's
+# audited denies. Hand-authored until the compiler emits it from the infra
+# IR (step 12).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -124,6 +127,52 @@ spec:
               app: mcp-gateway
       ports:
         - port: 8000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app: egress-proxy
+      ports:
+        - port: 3128
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+---
+# The egress proxy answers sandboxes and nobody else (the kubelet's probes
+# bypass NetworkPolicy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy-ingress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: egress-proxy
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.companyNamespace }}
+          podSelector:
+            matchLabels:
+              app: poseidon-sandbox
+      ports:
+        - port: 3128
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

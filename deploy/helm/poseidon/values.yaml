@@ -45,6 +45,9 @@ secrets:
   runnerBearerToken: runner-token-placeholder
   # Cluster-internal only (Postgres never leaves the platform namespace).
   postgresPassword: postgres-password-placeholder
+  # Shared HMAC key for per-run egress credentials (§2b): egress-proxy and
+  # the orchestrator worker only; sandboxes see only their derived credential.
+  egressProxyKey: egress-proxy-key-placeholder
 
 # Run configuration (the C7 subset the in-cluster services need).
 run:
@@ -65,6 +68,20 @@ orchestrator:
     disk: 2Gi
     deadlineSeconds: 3600
   runs:
+    storage: 1Gi
+    storageClassName: null
+
+# Sandbox egress proxy (plan step 5). The allowlist is static per-phase
+# config — empty means zero egress, exactly the PoC posture; the compiler
+# emits it from the blueprint at step 12. Deny/allow audit events carry the
+# per-run credential attribution.
+egressProxy:
+  image:
+    repository: poseidon-egress-proxy
+    tag: latest
+    pullPolicy: IfNotPresent
+  allowedHosts: []
+  audit:
     storage: 1Gi
     storageClassName: null
 
