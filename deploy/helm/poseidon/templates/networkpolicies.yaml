@@ -5,11 +5,13 @@
 #
 #   company namespace: default deny (ingress+egress) for every pod;
 #     agent egress only to mcp-gateway, llm-proxy and cluster DNS;
-#     agent ingress only for the host-side runner's dispatch/status calls.
-#   platform namespace: gateway egress restricted to OPA, DNS and
-#     non-cluster addresses (the external git host — and, transitionally,
-#     the Docker-hosted sandboxes, which sit outside the cluster CIDRs
-#     until the k8s_jobs backend lands at step 4).
+#     agent ingress only for the host-side runner's dispatch/status calls;
+#     sandbox Jobs (plan step 4): ingress from the gateway only, zero
+#     egress until the egress proxy lands (step 5) — the workspace tar
+#     arrives over the exec API, not the pod network.
+#   platform namespace: gateway egress restricted to OPA, DNS, the sandbox
+#     toolservers in the company namespace, and non-cluster addresses (the
+#     external git host).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -97,6 +99,32 @@ spec:
       ports:
         - port: 8000
 ---
+# Sandbox Jobs: the toolserver answers the gateway and nobody else; egress
+# stays empty (deny-all) until the egress proxy (plan step 5). Hand-authored
+# here until the compiler emits it from the infra IR (step 12).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-isolation
+  namespace: {{ .Values.companyNamespace }}
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: poseidon-sandbox
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app: mcp-gateway
+      ports:
+        - port: 8000
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -115,6 +143,16 @@ spec:
               app: opa
       ports:
         - port: 8181
+    # The sandbox.* proxy path: gateway -> toolserver pods (plan step 4).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.companyNamespace }}
+          podSelector:
+            matchLabels:
+              app: poseidon-sandbox
+      ports:
+        - port: 8000
     - to:
         - namespaceSelector:
             matchLabels:
@@ -127,9 +165,9 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # Everything outside the cluster: the external git host and the
-    # transitional Docker-hosted sandboxes. Pods and services are explicitly
-    # excluded so "external" never quietly includes them.
+    # Everything outside the cluster: the external git host. Pods and
+    # services are explicitly excluded so "external" never quietly
+    # includes them.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0

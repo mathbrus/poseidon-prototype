@@ -55,13 +55,15 @@ run:
 
 orchestrator:
   temporalAddress: temporal-frontend:7233
-  sandboxImage: poseidon-sandbox
-  # The transitional host-side Docker sandbox network (plan step 4 replaces
-  # it with the k8s_jobs backend).
-  sandboxNetwork: poseidon-kind-sandboxnet
-  # Host path of the Docker socket as seen from the node — on kind, a
-  # kind-config extraMount. null disables the mount (post-step-4 clusters).
-  dockerSocketHostPath: /var/run/host-docker.sock
+  # Hand-authored SandboxPolicy values for the k8s_jobs backend (plan step 4,
+  # sequencing choice 2): one Job per run in the company namespace, capped
+  # and deadlined. Replaced by the compiler-emitted infra IR at step 12.
+  sandbox:
+    image: poseidon-sandbox
+    cpu: "1"
+    memory: 1Gi
+    disk: 2Gi
+    deadlineSeconds: 3600
   runs:
     storage: 1Gi
     storageClassName: null

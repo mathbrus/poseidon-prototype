@@ -69,7 +69,10 @@ class ImplementActivities:
     @activity.defn(name="provision_sandbox")
     async def provision_sandbox(self, run_id: str, workspace_tar: bytes) -> dict[str, Any]:
         handle = await asyncio.to_thread(
-            self._backend.provision, run_id, workspace_tar
+            self._backend.provision,
+            run_id,
+            workspace_tar,
+            self._settings.sandbox_policy(),
         )
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.orchestrator_bearer_token

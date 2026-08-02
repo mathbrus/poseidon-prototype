@@ -7,7 +7,7 @@ resumes the workflow, nothing leaks, and the terminal run record is honest.
 
 import re
 
-from .conftest import cluster_audit_events, sandbox_containers
+from .conftest import cluster_audit_events, sandbox_pods
 
 
 def test_run_completes_with_pr(implement_run: dict) -> None:
@@ -17,7 +17,7 @@ def test_run_completes_with_pr(implement_run: dict) -> None:
 
 
 def test_no_leaked_sandbox(implement_run: dict) -> None:
-    assert sandbox_containers(implement_run["run_id"]) == []
+    assert sandbox_pods(implement_run["run_id"]) == []
 
 
 def test_audit_story_on_cluster(implement_run: dict) -> None:

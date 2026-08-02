@@ -1,8 +1,7 @@
 # The orchestrator worker (plan step 3): drives implement through Temporal.
 # Credentials: the orchestrator bearer token only — no GIT_TOKEN, no
-# provider keys. The Docker socket mount exists solely for the transitional
-# Docker sandbox backend and leaves with it (plan steps 4/6); on kind the
-# socket reaches the node via a kind-config extraMount.
+# provider keys. Its ServiceAccount carries the bounded sandbox-provisioner
+# Role (orchestrator-rbac.yaml) for the k8s_jobs backend (plan step 4).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -38,6 +37,7 @@ spec:
         app: orchestrator-worker
         {{- include "poseidon.labels" . | nindent 8 }}
     spec:
+      serviceAccountName: orchestrator-worker
       containers:
         - name: worker
           image: "{{ .Values.images.orchestrator.repository }}:{{ .Values.images.orchestrator.tag }}"
@@ -60,26 +60,24 @@ spec:
               value: {{ .Values.run.targetRepo | quote }}
             - name: BASE_REF
               value: {{ .Values.run.baseRef | quote }}
+            - name: SANDBOX_NAMESPACE
+              value: {{ .Values.companyNamespace | quote }}
             - name: SANDBOX_IMAGE
-              value: {{ .Values.orchestrator.sandboxImage | quote }}
-            - name: SANDBOX_NETWORK
-              value: {{ .Values.orchestrator.sandboxNetwork | quote }}
+              value: {{ .Values.orchestrator.sandbox.image | quote }}
+            - name: SANDBOX_CPU
+              value: {{ .Values.orchestrator.sandbox.cpu | quote }}
+            - name: SANDBOX_MEMORY
+              value: {{ .Values.orchestrator.sandbox.memory | quote }}
+            - name: SANDBOX_DISK
+              value: {{ .Values.orchestrator.sandbox.disk | quote }}
+            - name: SANDBOX_DEADLINE_S
+              value: {{ .Values.orchestrator.sandbox.deadlineSeconds | quote }}
             - name: RUNS_DIR
               value: /opt/poseidon/runs
           volumeMounts:
             - name: runs
               mountPath: /opt/poseidon/runs
-            {{- if .Values.orchestrator.dockerSocketHostPath }}
-            - name: docker-sock
-              mountPath: /var/run/docker.sock
-            {{- end }}
       volumes:
         - name: runs
           persistentVolumeClaim:
             claimName: orchestrator-runs
-        {{- if .Values.orchestrator.dockerSocketHostPath }}
-        - name: docker-sock
-          hostPath:
-            path: {{ .Values.orchestrator.dockerSocketHostPath }}
-            type: Socket
-        {{- end }}

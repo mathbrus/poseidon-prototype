@@ -1,4 +1,5 @@
-"""Docker implementation of the SandboxBackend contract (C5).
+"""Docker implementation of the SandboxBackend contract (C5) — transitional,
+deleted with Compose at plan step 6; `k8s_jobs` is the default since step 4.
 
 Spawns one container per run from the prebaked sandbox image (see
 Dockerfile.sandbox) on the zero-egress sandbox network, unpacks the workspace
@@ -7,6 +8,10 @@ the tool server's /bundle endpoint later reads from `.poseidon-base`. The
 handle carries the container's IP on that network, reachable by any peer
 with a route onto it (the Compose gateway, or a kind node connected to the
 network by the bootstrap).
+
+Of the contract-v2 SandboxPolicy this backend honors only the image; caps,
+deadline and egress allowlist are k8s_jobs concerns and this backend dies
+before they ever carry real values.
 """
 
 import time
@@ -15,7 +20,7 @@ import docker
 import docker.errors
 
 from common.telemetry import get_logger
-from sandbox.contract import SandboxHandle
+from sandbox.contract import SandboxHandle, SandboxPolicy
 
 DEFAULT_IMAGE = "poseidon-sandbox"
 DEFAULT_NETWORK = "sandboxnet"
@@ -51,8 +56,11 @@ class DockerBackend:
         self._network = network
         self._log = get_logger("sandbox.backends.docker")
 
-    def provision(self, run_id: str, workspace_tar: bytes) -> SandboxHandle:
+    def provision(
+        self, run_id: str, workspace_tar: bytes, policy: SandboxPolicy
+    ) -> SandboxHandle:
         name = f"poseidon-sbx-{run_id}"
+        image = policy.image or self._image
         # Retry-safe under the durable orchestrator: a crashed earlier
         # attempt may have left a container with this name (one provision
         # per run, so it can only be our own remnant) — remove it first.
@@ -62,7 +70,7 @@ class DockerBackend:
         except docker.errors.NotFound:
             pass
         container = self._client.containers.create(
-            self._image,
+            image,
             name=name,
             network=self._network,
             labels={"poseidon.run_id": run_id},

@@ -11,27 +11,33 @@ import pytest
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.manifest import read_manifest
-from sandbox.contract import SandboxHandle
+from sandbox.contract import SandboxHandle, SandboxPolicy
 
 RUN_ID = "run-test-0001"
 
 
 class FakeBackend:
     def __init__(self) -> None:
-        self.provisioned: list[str] = []
+        self.provisioned: list[tuple[str, SandboxPolicy]] = []
         self.destroyed: list[str] = []
         self.destroy_error: Exception | None = None
 
-    def provision(self, run_id: str, workspace_tar: bytes) -> SandboxHandle:
-        self.provisioned.append(run_id)
+    def provision(
+        self, run_id: str, workspace_tar: bytes, policy: SandboxPolicy
+    ) -> SandboxHandle:
+        self.provisioned.append((run_id, policy))
         return SandboxHandle(
-            run_id=run_id, container_id="cid-1", url="http://10.0.0.9:8000"
+            run_id=run_id,
+            url="http://192.168.0.9:8000",
+            namespace="hello-saas",
+            job_name="poseidon-sbx-run-test-0001",
+            pod_name="poseidon-sbx-run-test-0001-abcde",
         )
 
     def destroy(self, handle: SandboxHandle) -> None:
         if self.destroy_error is not None:
             raise self.destroy_error
-        self.destroyed.append(handle.container_id)
+        self.destroyed.append(handle.job_name)
 
 
 @pytest.fixture
@@ -70,12 +76,27 @@ def test_create_run_is_retry_safe(activities, settings):
     assert read_manifest(settings.runs_dir, RUN_ID).task == "attempt two"
 
 
+JOB_HANDLE = {
+    "run_id": RUN_ID,
+    "url": "http://192.168.0.9:8000",
+    "namespace": "hello-saas",
+    "job_name": "poseidon-sbx-run-test-0001",
+    "pod_name": "poseidon-sbx-run-test-0001-abcde",
+}
+
+
+def test_settings_build_the_hand_authored_sandbox_policy(settings):
+    policy = settings.sandbox_policy()
+    assert policy.image == "poseidon-sandbox"
+    assert policy.deadline_s == 3600
+    assert policy.egress_allow == []
+
+
 def test_teardown_destroys_and_finalizes_done(activities, settings, backend):
     asyncio.run(activities.create_run(RUN_ID, "task"))
-    handle = {"run_id": RUN_ID, "container_id": "cid-1", "url": "http://x:8000"}
     result = {"status": "done", "pr_url": "https://pr", "iterations": 3, "error": None}
-    record = asyncio.run(activities.teardown(RUN_ID, handle, result, None))
-    assert backend.destroyed == ["cid-1"]
+    record = asyncio.run(activities.teardown(RUN_ID, dict(JOB_HANDLE), result, None))
+    assert backend.destroyed == [JOB_HANDLE["job_name"]]
     assert record["status"] == "done"
     assert record["pr_url"] == "https://pr"
     assert record["iterations"] == 3
@@ -86,9 +107,10 @@ def test_teardown_destroys_and_finalizes_done(activities, settings, backend):
 
 def test_teardown_records_error_and_still_destroys(activities, settings, backend):
     asyncio.run(activities.create_run(RUN_ID, "task"))
-    handle = {"run_id": RUN_ID, "container_id": "cid-1", "url": "http://x:8000"}
-    record = asyncio.run(activities.teardown(RUN_ID, handle, None, "dispatch_work: boom"))
-    assert backend.destroyed == ["cid-1"]
+    record = asyncio.run(
+        activities.teardown(RUN_ID, dict(JOB_HANDLE), None, "dispatch_work: boom")
+    )
+    assert backend.destroyed == [JOB_HANDLE["job_name"]]
     assert record["status"] == "failed"
     assert record["error"] == "dispatch_work: boom"
 
@@ -102,11 +124,12 @@ def test_teardown_without_sandbox_finalizes_failed(activities, settings, backend
 
 def test_teardown_surfaces_destroy_failure_as_error(activities, settings, backend):
     asyncio.run(activities.create_run(RUN_ID, "task"))
-    backend.destroy_error = RuntimeError("daemon gone")
-    handle = {"run_id": RUN_ID, "container_id": "cid-1", "url": "http://x:8000"}
-    record = asyncio.run(activities.teardown(RUN_ID, handle, {"status": "done"}, None))
+    backend.destroy_error = RuntimeError("apiserver gone")
+    record = asyncio.run(
+        activities.teardown(RUN_ID, dict(JOB_HANDLE), {"status": "done"}, None)
+    )
     assert record["status"] == "failed"
-    assert "daemon gone" in record["error"]
+    assert "apiserver gone" in record["error"]
 
 
 def test_teardown_reconstructs_missing_manifest(activities, settings, backend):

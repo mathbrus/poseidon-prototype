@@ -4,9 +4,9 @@ workflow and its activities, runs until terminated.
     python -m orchestrator.worker
 
 Deployed in the platform namespace. Credentials: the orchestrator bearer
-token only (env) — no GIT_TOKEN, no provider keys. The Docker-socket
-dependency of the transitional Docker sandbox backend disappears with the
-k8s_jobs backend (plan step 4).
+token only (env) — no GIT_TOKEN, no provider keys. Sandboxes are Kubernetes
+Jobs in the company namespace (plan step 4); the worker's ServiceAccount
+carries the matching bounded Role, its only Kubernetes-API surface.
 """
 
 import asyncio
@@ -20,15 +20,13 @@ from common.telemetry import get_logger
 from orchestrator.activities import ImplementActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows import ImplementWorkflow
-from sandbox.backends.docker import DockerBackend
+from sandbox.backends.k8s_jobs import K8sJobsBackend
 
 
 async def main() -> None:
     settings = WorkerSettings()
     log = get_logger("orchestrator.worker")
-    backend = DockerBackend(
-        image=settings.sandbox_image, network=settings.sandbox_network
-    )
+    backend = K8sJobsBackend(namespace=settings.sandbox_namespace)
     activities = ImplementActivities(settings, backend)
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping

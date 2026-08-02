@@ -1,0 +1,49 @@
+# The orchestrator worker's Kubernetes surface for the k8s_jobs sandbox
+# backend (plan step 4) — deliberately bounded, and a review artifact per
+# the overview §3 TCB stance: Jobs and pods in the company namespace only.
+# pods/exec exists solely for workspace delivery and provisioning probes
+# (the tar rides the exec API, so the sandbox NetworkPolicy needs no
+# ingress exception beyond the gateway). Step 16c widens this surface for
+# crew pods; nothing here may touch the platform namespace.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orchestrator-worker
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sandbox-provisioner
+  namespace: {{ .Values.companyNamespace }}
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    # Both verbs are needed: kubectl exec POSTs (create), but the Python
+    # client's exec is a WebSocket GET handshake (get).
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sandbox-provisioner
+  namespace: {{ .Values.companyNamespace }}
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sandbox-provisioner
+subjects:
+  - kind: ServiceAccount
+    name: orchestrator-worker
+    namespace: {{ .Release.Namespace }}

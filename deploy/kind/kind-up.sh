@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Poseidon M1 kind bootstrap (plan step 1a/1b): create the cluster, install
 # Calico (kind's default CNI does not enforce NetworkPolicy), build and
-# side-load the images, bridge the transitional Docker sandbox network into
-# the cluster, and install the Helm chart. Idempotent — safe to re-run for
-# image or chart updates.
+# side-load the images, and install the Helm chart. Idempotent — safe to
+# re-run for image or chart updates.
 #
 # Usage: deploy/kind/kind-up.sh   (needs deploy/kind/.env, see .env.example)
 set -euo pipefail
@@ -27,7 +26,6 @@ set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
-SANDBOX_NETWORK=${SANDBOX_NETWORK:-poseidon-kind-sandboxnet}
 SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 
 echo "==> cluster"
@@ -49,21 +47,10 @@ docker build -f Dockerfile.gateway -t poseidon-gateway .
 docker build -f Dockerfile.agent -t poseidon-agent .
 docker build -f Dockerfile.orchestrator -t poseidon-orchestrator .
 docker build -f Dockerfile.sandbox -t "$SANDBOX_IMAGE" .
-# The sandbox image is not loaded: sandboxes stay host-side Docker containers
-# until the k8s_jobs backend (plan step 4).
-kind load docker-image poseidon-gateway poseidon-agent poseidon-orchestrator --name "$CLUSTER_NAME"
-
-echo "==> transitional sandbox network"
-# Internal (no route out — the sandbox keeps zero egress, E3); the kind node
-# joins it so gateway pods can reach sandbox toolservers by container IP.
-if ! docker network inspect "$SANDBOX_NETWORK" >/dev/null 2>&1; then
-  docker network create --internal "$SANDBOX_NETWORK"
-fi
-if ! docker network inspect "$SANDBOX_NETWORK" \
-    --format '{{range .Containers}}{{.Name}} {{end}}' \
-    | grep -qw "${CLUSTER_NAME}-control-plane"; then
-  docker network connect "$SANDBOX_NETWORK" "${CLUSTER_NAME}-control-plane"
-fi
+# The sandbox image is side-loaded too: sandboxes are Kubernetes Jobs in the
+# company namespace since the k8s_jobs backend (plan step 4).
+kind load docker-image poseidon-gateway poseidon-agent poseidon-orchestrator \
+  "$SANDBOX_IMAGE" --name "$CLUSTER_NAME"
 
 echo "==> helm install"
 # Secrets ride a private temp values file, not --set, to keep tokens off the

@@ -19,6 +19,7 @@ import pytest
 docker = pytest.importorskip("docker")
 
 from sandbox.backends.docker import DockerBackend  # noqa: E402
+from sandbox.contract import SandboxPolicy  # noqa: E402
 
 pytestmark = pytest.mark.docker
 
@@ -107,7 +108,7 @@ def wait_ready(url: str, timeout_s: float = 30) -> None:
 
 def test_provision_serve_destroy(docker_client, sandbox_image, network, workspace, workspace_tar):
     backend = DockerBackend(image=sandbox_image, network=network, client=docker_client)
-    handle = backend.provision(RUN_ID, workspace_tar)
+    handle = backend.provision(RUN_ID, workspace_tar, SandboxPolicy(image=sandbox_image))
     try:
         assert handle.run_id == RUN_ID
         # The handle carries the container's IP on the sandbox network — the
@@ -140,7 +141,9 @@ def test_provision_serve_destroy(docker_client, sandbox_image, network, workspac
 
 def test_destroy_is_idempotent(docker_client, sandbox_image, network, workspace_tar):
     backend = DockerBackend(image=sandbox_image, network=network, client=docker_client)
-    handle = backend.provision(RUN_ID + "-idem", workspace_tar)
+    handle = backend.provision(
+        RUN_ID + "-idem", workspace_tar, SandboxPolicy(image=sandbox_image)
+    )
     backend.destroy(handle)
     backend.destroy(handle)  # second call must not raise
 
@@ -156,7 +159,9 @@ def test_provision_failure_removes_container(docker_client, sandbox_image, netwo
 
     backend = DockerBackend(image=sandbox_image, network=network, client=docker_client)
     with pytest.raises(RuntimeError, match="workspace preparation failed"):
-        backend.provision(RUN_ID + "-fail", workspace_tar=buf.getvalue())
+        backend.provision(
+            RUN_ID + "-fail", buf.getvalue(), SandboxPolicy(image=sandbox_image)
+        )
 
     leaked = docker_client.containers.list(
         all=True, filters={"name": f"poseidon-sbx-{RUN_ID}-fail"}

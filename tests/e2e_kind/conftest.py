@@ -35,6 +35,8 @@ from orchestrator.workflows.implement import ImplementInput, workflow_id
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
 PLATFORM_NS = "poseidon-platform"
+COMPANY_NS = "hello-saas"
+RUN_ID_LABEL = "poseidon.io/run-id"
 AUDIT_PATH = "/opt/poseidon/runs/audit.jsonl"
 TASK_QUEUE = "poseidon-orchestrator"
 TEMPORAL_LOCAL_PORT = 17233
@@ -107,17 +109,28 @@ def cluster_audit_events(run_id: str) -> list[dict[str, Any]]:
     return events
 
 
-def sandbox_containers(run_id: str | None = None) -> list[str]:
-    """Names of live sandbox containers, optionally for one run."""
-    label = f"poseidon.run_id={run_id}" if run_id else "poseidon.run_id"
+def sandbox_pods(run_id: str | None = None) -> list[str]:
+    """Names of live (non-terminated) sandbox pods, optionally for one run.
+    Sandboxes are Jobs in the company namespace since plan step 4."""
+    selector = f"{RUN_ID_LABEL}={run_id}" if run_id else RUN_ID_LABEL
     proc = subprocess.run(
-        ["docker", "ps", "--filter", f"label={label}", "--format", "{{.Names}}"],
+        [
+            "kubectl", "-n", COMPANY_NS,
+            "get", "pods", "-l", selector,
+            "-o", "jsonpath={range .items[*]}{.metadata.name} {.status.phase}{'\\n'}{end}",
+        ],
         capture_output=True,
         text=True,
         timeout=30,
     )
     assert proc.returncode == 0, proc.stderr
-    return [name for name in proc.stdout.splitlines() if name]
+    return [
+        name
+        for line in proc.stdout.splitlines()
+        if line.strip()
+        for name, _, phase in [line.partition(" ")]
+        if phase.strip() not in ("Succeeded", "Failed")
+    ]
 
 
 def kill_worker_pod() -> None:
@@ -178,7 +191,7 @@ async def _execute_implement(address: str, run_id: str, task_text: str) -> dict:
         task_queue=TASK_QUEUE,
     )
     deadline = time.monotonic() + 300
-    while not sandbox_containers(run_id):
+    while not sandbox_pods(run_id):
         if time.monotonic() > deadline:
             raise AssertionError("sandbox never appeared; cannot stage worker kill")
         await asyncio.sleep(2)
