@@ -18,6 +18,7 @@ COPY packages/orchestrator/pyproject.toml packages/orchestrator/
 COPY packages/mockllm/pyproject.toml packages/mockllm/
 COPY packages/registry/pyproject.toml packages/registry/
 COPY packages/compiler/pyproject.toml packages/compiler/
+COPY packages/operator/pyproject.toml packages/operator/
 COPY packages/schema/pyproject.toml packages/schema/
 RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package orchestrator \
       -o /tmp/requirements.txt \

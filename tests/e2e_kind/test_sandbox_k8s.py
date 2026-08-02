@@ -22,7 +22,7 @@ from sandbox.backends.k8s_jobs import K8sJobsBackend
 from sandbox.backends.k8s_jobs.manifest import job_name
 from sandbox.contract import SandboxPolicy
 
-from .conftest import COMPANY_NS, sandbox_pods
+from .conftest import COMPANY_NS, sandbox_image, sandbox_pods
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "test",
@@ -62,7 +62,7 @@ def backend(stack: None) -> K8sJobsBackend:
 
 
 def policy(**overrides) -> SandboxPolicy:
-    values = {"image": "poseidon-sandbox", "cpu": "500m", "memory": "512Mi"}
+    values = {"image": sandbox_image(), "cpu": "500m", "memory": "512Mi"}
     values.update(overrides)
     return SandboxPolicy(**values)
 

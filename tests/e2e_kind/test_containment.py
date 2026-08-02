@@ -29,7 +29,7 @@ sys.exit(0 if reachable == (want == "reachable") else 1)
 
 def _agent_pod() -> str:
     proc = subprocess.run(
-        ["kubectl", "-n", COMPANY_NS, "get", "pod", "-l", "app=agent",
+        ["kubectl", "-n", COMPANY_NS, "get", "pod", "-l", "poseidon.dev/kind=standing-agent",
          "-o", "jsonpath={.items[0].metadata.name}"],
         capture_output=True, text=True, timeout=30, check=True,
     )

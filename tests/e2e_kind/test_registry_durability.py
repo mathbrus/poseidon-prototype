@@ -26,6 +26,7 @@ from .conftest import (
     audit_story,
     restart_gateway,
     run_record,
+    sandbox_image,
 )
 
 GIT_ENV = {
@@ -79,7 +80,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
     handle = backend.provision(
         run_id,
         workspace_tar,
-        SandboxPolicy(image="poseidon-sandbox", cpu="500m", memory="512Mi"),
+        SandboxPolicy(image=sandbox_image(), cpu="500m", memory="512Mi"),
     )
 
     async def register() -> None:

@@ -70,6 +70,7 @@ docker build -q -f Dockerfile.agent -t "poseidon-agent:$BUILD_TAG" . >/dev/null
 docker build -q -f Dockerfile.orchestrator -t "poseidon-orchestrator:$BUILD_TAG" . >/dev/null
 docker build -q -f Dockerfile.sandbox -t "$SANDBOX_IMAGE:$BUILD_TAG" . >/dev/null
 docker build -q -f Dockerfile.egressproxy -t "poseidon-egress-proxy:$BUILD_TAG" . >/dev/null
+docker build -q -f Dockerfile.operator -t "poseidon-operator:$BUILD_TAG" . >/dev/null
 # The sandbox image is side-loaded too: sandboxes are Kubernetes Jobs in the
 # company namespace since the k8s_jobs backend (plan step 4).
 IMAGES=(
@@ -78,12 +79,14 @@ IMAGES=(
   "poseidon-orchestrator:$BUILD_TAG"
   "$SANDBOX_IMAGE:$BUILD_TAG"
   "poseidon-egress-proxy:$BUILD_TAG"
+  "poseidon-operator:$BUILD_TAG"
 )
 IMAGE_VALUES=(
   --set "images.gateway.tag=$BUILD_TAG"
   --set "images.agent.tag=$BUILD_TAG"
   --set "images.orchestrator.tag=$BUILD_TAG"
   --set "egressProxy.image.tag=$BUILD_TAG"
+  --set "images.operator.tag=$BUILD_TAG"
   # Sandbox Jobs are built by the worker from this value, not by helm, so
   # the tag has to ride the image reference itself.
   --set "orchestrator.sandbox.image=$SANDBOX_IMAGE:$BUILD_TAG"
@@ -96,6 +99,11 @@ if [ "$REAL_LLM" != "1" ]; then
   IMAGE_VALUES+=(--set "images.llmProxy.tag=$BUILD_TAG")
 fi
 kind load docker-image "${IMAGES[@]}" --name "$CLUSTER_NAME"
+
+echo "==> crds"
+# CRDs are cluster-scoped and outlive any release: applied directly rather
+# than templated, so a `helm uninstall` cannot take a company's schema with it.
+kubectl apply -f crds/
 
 echo "==> helm install"
 # Secrets ride a private temp values file, not --set, to keep tokens off the
@@ -129,11 +137,12 @@ helm upgrade --install poseidon deploy/helm/poseidon \
   --set-file opa.policies.poc=policies/poc.rego
 
 echo "==> rollout"
-for deploy in opa llm-proxy mcp-gateway egress-proxy; do
+# Postgres first: every service migrates the registry schema at startup and
+# the bundle server / operator need it reachable before they are useful.
+kubectl -n "$PLATFORM_NS" rollout status statefulset/postgres --timeout=300s
+for deploy in opa llm-proxy mcp-gateway egress-proxy bundle-server poseidon-operator; do
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=300s
 done
-kubectl -n "$PLATFORM_NS" rollout status statefulset/postgres --timeout=300s
-kubectl -n "$COMPANY_NS" rollout status deployment/agent --timeout=300s
 
 echo "==> temporal (chart $TEMPORAL_CHART_VERSION)"
 # Version-pinned, same values path for kind and real clusters (plan step 2).
@@ -151,6 +160,25 @@ for deploy in temporal-frontend temporal-history temporal-matching temporal-work
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
 done
 kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeout=300s
+
+echo "==> apply the blueprint"
+# The company is declarative from here: compile + submit CRs, and the
+# operator converges the namespace, its policies and the standing roster.
+# A port-forward lets apply read the live registry, so the diff it prints is
+# the real one rather than "everything is new".
+kubectl -n "$PLATFORM_NS" port-forward svc/postgres 15432:5432 >/dev/null 2>&1 &
+PGPF=$!
+trap 'rm -f "$SECRETS_FILE"; kill $PGPF 2>/dev/null || true' EXIT
+for _ in $(seq 30); do
+  (exec 3<>/dev/tcp/127.0.0.1/15432) 2>/dev/null && break
+  sleep 1
+done
+REGISTRY_DSN="postgresql://${POSTGRES_USER:-poseidon}:${POSTGRES_PASSWORD:-poseidon-dev-postgres}@127.0.0.1:15432/${POSTGRES_USER:-poseidon}" \
+  uv run poseidon blueprint apply examples/hello-saas.yaml --yes
+kill $PGPF 2>/dev/null || true
+for hire in pm backend-engineer; do
+  kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
+done
 
 echo "==> image check"
 # Assert every poseidon pod actually runs this build. Without it, a template
@@ -183,6 +211,7 @@ if [ "$code" != "401" ]; then
   echo "error: gateway answered $code, expected 401 without a token" >&2
   exit 1
 fi
-curl -fs "${AGENT_URL:-http://127.0.0.1:8000}/openapi.json" >/dev/null
+# Standing agents have no NodePort since step 10: they are reached in-cluster
+# by the orchestrator, and the operator gives each hire its own Service.
 
-echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}, agent ${AGENT_URL:-http://127.0.0.1:8000}"
+echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}"

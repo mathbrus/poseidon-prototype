@@ -1,9 +1,0 @@
-# The company namespace, hardcoded to hello-saas until the operator creates
-# namespaces from Company CRs (plan step 10).
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ .Values.companyNamespace }}
-  labels:
-    {{- include "poseidon.labels" . | nindent 4 }}
-    poseidon.dev/role: company

@@ -126,6 +126,23 @@ def run_record(run_id: str) -> dict[str, Any] | None:
     )
 
 
+def sandbox_image() -> str:
+    """The content-addressed sandbox image this cluster actually carries,
+    read from the worker deployment. Never hardcode `poseidon-sandbox`: the
+    bare name means `:latest`, which only ever existed on clusters that
+    predate content-addressed tags — a fresh cluster has no such image and
+    the pod dies in ImagePullBackOff (the step-6 stale-`:latest` trap)."""
+    proc = subprocess.run(
+        ["kubectl", "-n", PLATFORM_NS, "get", "deployment/orchestrator-worker",
+         "-o", 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="SANDBOX_IMAGE")].value}'],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    image = proc.stdout.strip()
+    assert image, "orchestrator-worker carries no SANDBOX_IMAGE env"
+    return image
+
+
 def restart_gateway() -> None:
     """Delete the gateway pod and wait for its replacement to be Ready —
     the step-8 done-when: a run's sandbox registration must survive it."""

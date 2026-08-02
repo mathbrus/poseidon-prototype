@@ -7,7 +7,7 @@ set -euo pipefail
 PLATFORM_NS=${PLATFORM_NS:-poseidon-platform}
 COMPANY_NS=${COMPANY_NS:-hello-saas}
 
-AGENT_POD=$(kubectl -n "$COMPANY_NS" get pod -l app=agent \
+AGENT_POD=$(kubectl -n "$COMPANY_NS" get pod -l poseidon.dev/kind=standing-agent \
   -o jsonpath='{.items[0].metadata.name}')
 echo "==> probing from $COMPANY_NS/$AGENT_POD"
 

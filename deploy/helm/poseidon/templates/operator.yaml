@@ -1,0 +1,178 @@
+# The operator (plan step 10) and the OPA bundle server.
+#
+# The operator owns standing structure: namespace-per-company, the
+# NetworkPolicy envelope, standing agent Deployments, and persisting
+# compiled bundles. It never creates ephemeral agents and never runs a
+# process (§3 ownership matrix), which is why its RBAC stops where it does.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: poseidon-operator
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: poseidon-operator
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+rules:
+  # The CRs it reconciles.
+  - apiGroups: ["poseidon.dev"]
+    resources: ["companies", "agentinstances", "companies/status", "agentinstances/status"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  # Company namespaces and the envelope inside them.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # The orchestrator's bounded sandbox-provisioner Role/RoleBinding in each
+  # company namespace. escalate/bind exist so the operator can grant
+  # jobs/pods/exec to the worker *without holding those permissions itself*
+  # — the ownership matrix stays intact: the operator still cannot touch a
+  # pod. The narrow, auditable alternative to widening the operator's own
+  # surface.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete", "escalate", "bind"]
+  # Standing agents. Note what is absent: no pods (ephemeral crew members
+  # are the orchestrator's, inside a run), no exec, no jobs.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # Syncing the agent's bearer token into company namespaces —
+  # transitional, and gone with the static tokens at plan step 12.
+  # get/patch are scoped to the token secrets; create cannot be
+  # resourceName-scoped by Kubernetes semantics and stays bare.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "patch"]
+    resourceNames: ["bearer-tokens", "agent-bearer-token"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  # kopf's own bookkeeping.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: poseidon-operator
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: poseidon-operator
+subjects:
+  - kind: ServiceAccount
+    name: poseidon-operator
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: poseidon-operator
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: poseidon-operator
+  template:
+    metadata:
+      labels:
+        app: poseidon-operator
+        {{- include "poseidon.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: poseidon-operator
+      enableServiceLinks: false
+      containers:
+        - name: operator
+          image: "{{ .Values.images.operator.repository }}:{{ .Values.images.operator.tag }}"
+          imagePullPolicy: {{ .Values.images.operator.pullPolicy }}
+          command: ["kopf", "run", "-m", "poseidon_operator.reconcile", "--all-namespaces", "--liveness", "http://0.0.0.0:8080/healthz"]
+          env:
+            - name: PLATFORM_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: AGENT_IMAGE
+              value: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+            - name: MODEL
+              value: {{ .Values.run.model | quote }}
+            - name: TARGET_REPO
+              value: {{ .Values.run.targetRepo | quote }}
+            - name: MAX_ITERATIONS
+              value: {{ .Values.run.maxIterations | quote }}
+            - name: REGISTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: registry-credentials
+                  key: REGISTRY_DSN
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8080}
+            initialDelaySeconds: 15
+---
+# The bundle server: OPA polls it, nothing pushes to OPA (§2b).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bundle-server
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bundle-server
+  template:
+    metadata:
+      labels:
+        app: bundle-server
+        {{- include "poseidon.labels" . | nindent 8 }}
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      containers:
+        - name: bundle-server
+          image: "{{ .Values.images.operator.repository }}:{{ .Values.images.operator.tag }}"
+          imagePullPolicy: {{ .Values.images.operator.pullPolicy }}
+          command: ["python", "-m", "poseidon_operator.bundleserver"]
+          ports:
+            - containerPort: 8081
+          env:
+            - name: REGISTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: registry-credentials
+                  key: REGISTRY_DSN
+          readinessProbe:
+            httpGet: {path: /healthz, port: 8081}
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8081}
+            initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bundle-server
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: bundle-server
+  ports:
+    - port: 8081
+      targetPort: 8081

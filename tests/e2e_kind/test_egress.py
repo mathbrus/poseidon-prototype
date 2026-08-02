@@ -22,7 +22,7 @@ from sandbox.backends.k8s_jobs import K8sJobsBackend
 from sandbox.contract import SandboxPolicy
 from sandbox.egressproxy.credentials import sandbox_proxy_env
 
-from .conftest import COMPANY_NS, PLATFORM_NS, audit_story
+from .conftest import COMPANY_NS, PLATFORM_NS, audit_story, sandbox_image
 
 PROXY_URL = f"http://egress-proxy.{PLATFORM_NS}.svc.cluster.local:3128"
 
@@ -73,7 +73,7 @@ def test_egress_containment(egress_key: str, workspace_tar: bytes):
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()
     policy = SandboxPolicy(
-        image="poseidon-sandbox",
+        image=sandbox_image(),
         cpu="500m",
         memory="512Mi",
         env=sandbox_proxy_env(PROXY_URL, egress_key, run_id),

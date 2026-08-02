@@ -1,9 +1,12 @@
-# Poseidon M1 values. The release is installed into the platform namespace
-# (`helm install -n poseidon-platform --create-namespace`); the chart creates
-# the company namespace itself. Defaults here are cluster-agnostic; kind
-# overrides live in values-kind.yaml.
+# Poseidon values. The release is installed into the platform namespace
+# (`helm install -n poseidon-platform --create-namespace`); company
+# namespaces are the operator's, created from Company CRs (plan step 10).
+# Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
 
-# The company namespace is hardcoded until the operator exists (plan step 10).
+# The bootstrap company's namespace — platform-side wiring only: the worker's
+# AGENT_URL/SANDBOX_NAMESPACE, the platform NetworkPolicies that select the
+# company namespace, and the OPA bundle config key. Goes per-company at
+# steps 12/16; the namespace itself is operator-created either way.
 companyNamespace: hello-saas
 
 # Image tags default to `latest` only so the chart installs standalone;
@@ -34,6 +37,10 @@ images:
     pullPolicy: IfNotPresent
   orchestrator:
     repository: poseidon-orchestrator
+    tag: latest
+    pullPolicy: IfNotPresent
+  operator:
+    repository: poseidon-operator
     tag: latest
     pullPolicy: IfNotPresent
 
@@ -108,11 +115,6 @@ gateway:
   service:
     type: ClusterIP
     # Set (with type NodePort) to give the host-side runner a stable port.
-    nodePort: null
-
-agent:
-  service:
-    type: ClusterIP
     nodePort: null
 
 networkPolicies:

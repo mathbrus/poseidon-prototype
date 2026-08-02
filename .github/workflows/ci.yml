@@ -48,7 +48,7 @@ jobs:
       # Per package: the suites share fixture module names (conftest.py),
       # which collide in a single rootdir-wide collection.
       - run: |
-          for package in common gateway agent sandbox orchestrator mockllm schema registry compiler; do
+          for package in common gateway agent sandbox orchestrator mockllm schema registry compiler operator; do
             echo "::group::$package"
             uv run pytest "packages/$package" -q
             echo "::endgroup::"
@@ -79,7 +79,7 @@ jobs:
           python-version: "3.12"
       - name: Build images
         run: |
-          for image in gateway agent sandbox orchestrator egressproxy mockllm; do
+          for image in gateway agent sandbox orchestrator egressproxy mockllm operator; do
             docker build -f "Dockerfile.$image" -t "poseidon-$image" .
           done
 
@@ -142,7 +142,6 @@ jobs:
           BASE_REF=main
           MAX_ITERATIONS=10
           MCP_GATEWAY_URL=http://127.0.0.1:8080
-          AGENT_URL=http://127.0.0.1:8000
           EOF
           deploy/kind/kind-up.sh
       - run: uv run pytest tests/e2e_kind -m e2e_kind -v

@@ -1,0 +1,179 @@
+"""kopf handlers: converge Company and AgentInstance CRs.
+
+The operator owns standing structure and nothing else. It creates
+namespaces, the NetworkPolicy envelope, the orchestrator's bounded
+sandbox-provisioner RBAC, standing agent Deployments, and it persists
+compiled bundles for the bundle server to publish. It never creates
+ephemeral agents (the orchestrator's fulfill activities do, inside a run),
+never runs a workflow, and never mints a credential.
+
+Reconciliation is idempotent by construction: every object is sent whole
+and upserted (see `kube.Cluster`), so a restart, a resync or a repeated
+apply converges to the same state rather than accumulating.
+"""
+
+from typing import Any
+
+import kopf
+
+from common.telemetry import get_logger
+from poseidon_operator import resources
+from poseidon_operator.kube import Cluster
+from registry import open_registry
+from registry.bundles import AgentInstances, Companies, PolicyBundles
+
+_log = get_logger("operator")
+_registry = None
+_the_cluster = None
+
+
+def _cluster() -> Cluster:
+    global _the_cluster
+    if _the_cluster is None:
+        _the_cluster = Cluster()
+    return _the_cluster
+
+
+def _db():
+    global _registry
+    if _registry is None:
+        _registry = open_registry()
+    return _registry
+
+
+@kopf.on.startup()
+def configure(settings: kopf.OperatorSettings, **_: Any) -> None:
+    """Keep kopf's bookkeeping in annotations. The CRDs declare structural
+    status schemas (only phase/bundleRevision/message survive pruning), so
+    the default status-based progress storage would be silently dropped by
+    the API server and warn about patch inconsistencies on every event."""
+    settings.persistence.progress_storage = kopf.AnnotationsProgressStorage(
+        prefix="poseidon.dev"
+    )
+    settings.persistence.diffbase_storage = kopf.AnnotationsDiffBaseStorage(
+        prefix="poseidon.dev", key="last-handled-configuration"
+    )
+
+
+# -- Company ---------------------------------------------------------------
+
+
+@kopf.on.create("poseidon.dev", "v1", "companies")
+@kopf.on.update("poseidon.dev", "v1", "companies")
+@kopf.on.resume("poseidon.dev", "v1", "companies")
+def reconcile_company(
+    spec: dict[str, Any], name: str, patch: kopf.Patch, **_: Any
+) -> None:
+    cluster = _cluster()
+    company_ns = spec["namespace"]
+
+    cluster.upsert_namespace(resources.namespace(company_ns))
+    for policy in (
+        resources.default_deny(company_ns),
+        resources.agent_egress(company_ns),
+        resources.agent_ingress(company_ns),
+        resources.sandbox_isolation(company_ns),
+    ):
+        cluster.upsert_network_policy(company_ns, policy)
+
+    # The orchestrator's bounded sandbox surface rides the namespace: the
+    # namespace is operator-created, so the Role in it must be too (the
+    # operator's ClusterRole holds escalate/bind for exactly this — it still
+    # cannot touch a pod itself).
+    cluster.upsert_role(company_ns, resources.sandbox_provisioner_role(company_ns))
+    cluster.upsert_role_binding(
+        company_ns, resources.sandbox_provisioner_binding(company_ns)
+    )
+
+    _sync_agent_secret(cluster, company_ns)
+
+    revision = ""
+    bundle = spec.get("policyBundle") or {}
+    if bundle:
+        # Persist, do not push: OPA polls the bundle server for this
+        # revision (§2b). Nothing installs policy into a running OPA.
+        revision = PolicyBundles(_db()).put(name, dict(bundle))
+        _log.info("policy bundle stored", extra={"company": name, "revision": revision})
+
+    Companies(_db()).upsert(
+        name, {k: v for k, v in spec.items() if k != "policyBundle"}
+    )
+
+    # Explicit status writes: kopf handler return values land under
+    # status.<handler_id>, which the structural schema prunes.
+    patch.status["phase"] = "converged"
+    patch.status["bundleRevision"] = revision
+
+
+@kopf.on.delete("poseidon.dev", "v1", "companies")
+def teardown_company(spec: dict[str, Any], name: str, **_: Any) -> None:
+    """Teardown revokes: the namespace goes, and the bundle stops being
+    served, so a caller still holding an identity finds no rule to match.
+    Registry rows are swept at the company level — correct even if the
+    operator missed individual instance-delete events."""
+    PolicyBundles(_db()).delete(name)
+    AgentInstances(_db()).delete_for_company(name)
+    Companies(_db()).delete(name)
+    _cluster().delete_namespace(spec["namespace"])
+    _log.info("company torn down", extra={"company": name})
+
+
+# -- AgentInstance ---------------------------------------------------------
+
+
+@kopf.on.create("poseidon.dev", "v1", "agentinstances")
+@kopf.on.update("poseidon.dev", "v1", "agentinstances")
+@kopf.on.resume("poseidon.dev", "v1", "agentinstances")
+def reconcile_instance(
+    spec: dict[str, Any], namespace: str, name: str, patch: kopf.Patch, **_: Any
+) -> None:
+    cluster = _cluster()
+    cluster.upsert_deployment(namespace, resources.agent_deployment(spec, namespace))
+    cluster.upsert_service(namespace, resources.agent_service(spec, namespace))
+
+    AgentInstances(_db()).upsert(
+        agent_id=spec["agentId"],
+        company=spec["company"],
+        hire=spec["hire"],
+        role_template=spec["roleTemplate"],
+        model_tier=spec.get("modelTier", ""),
+    )
+    _log.info("instance converged", extra={"agent_id": spec["agentId"]})
+    patch.status["phase"] = "ready"
+
+
+@kopf.on.delete("poseidon.dev", "v1", "agentinstances")
+def teardown_instance(spec: dict[str, Any], namespace: str, **_: Any) -> None:
+    """The firing half of hire/fire-as-diff (plan step 19 exercises it)."""
+    cluster = _cluster()
+    cluster.delete_deployment(namespace, spec["hire"])
+    cluster.delete_service(namespace, spec["hire"])
+    AgentInstances(_db()).delete(spec["agentId"])
+    _log.info("instance removed", extra={"agent_id": spec["agentId"]})
+
+
+# -- helpers ---------------------------------------------------------------
+
+
+def _sync_agent_secret(cluster: Cluster, company_ns: str) -> None:
+    """Copy the agent's bearer token into the company namespace.
+
+    Transitional: static bearer tokens are the PoC identity placeholder and
+    leave at plan step 12, when the agent authenticates with a projected
+    service-account token instead and this sync disappears with them.
+    """
+    data = cluster.read_secret_data(resources.platform_namespace(), "bearer-tokens")
+    cluster.upsert_secret(
+        company_ns,
+        {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": "agent-bearer-token",
+                "namespace": company_ns,
+                "labels": resources.LABELS,
+            },
+            "type": "Opaque",
+            "data": {"AGENT_BEARER_TOKEN": data["AGENT_BEARER_TOKEN"]},
+        },
+    )

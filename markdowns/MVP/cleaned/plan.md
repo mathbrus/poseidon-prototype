@@ -637,6 +637,44 @@ blueprint edit (e.g. change the PM's model tier or a tool scope) converges
 with no manual steps; deleting the company removes the namespace and revokes
 policy, verified by a failed post-teardown gateway call.
 
+> **Status (2026-08-02): done** — CRDs in `crds/` (applied by kind-up, not
+> helm-templated, so uninstall cannot take a company's schema with it), kopf
+> operator + OPA bundle server in `packages/operator` (one image, two entry
+> points), `poseidon blueprint apply` = compile + submit CRs, lifecycle e2e
+> in `tests/e2e_kind/test_operator_lifecycle.py` (apply converges; a PM
+> model-tier edit rolls the pod; delete removes the namespace, 404s the
+> bundle, and a restarted OPA activates nothing while poc.rego still
+> answers). Company namespaces are **fully operator-owned**, including the
+> `sandbox-provisioner` Role/RoleBinding — helm's bootstrap namespace and
+> the company half of `orchestrator-rbac.yaml` are gone; the operator's
+> ClusterRole holds rbac `escalate`/`bind` for exactly that grant (the
+> narrow alternative to giving the operator pods/exec — it still cannot
+> touch a pod). Bundle roots are **derived from the packed files' `package`
+> declarations** (`poseidon/authz`), never hardcoded: a `poseidon` root
+> would erase the file-loaded `poseidon.poc` on the first poll and kill
+> every gateway decision. kopf bookkeeping lives in annotations and status
+> is written via `patch.status` (the structural status schemas prune
+> handler-return dicts). `crs.submit` waits (bounded) for the operator to
+> create the namespace before submitting instances.
+>
+> Keep an eye on / deliberately deferred: **identity is still the shared
+> static bearer token** the operator syncs into each company namespace —
+> both standing pods map to one gateway identity until steps 11/12;
+> `spec.infra`/`workflows`/`budgets`/`crewMembers` ride the Company CR
+> **unreconciled** (consumed at steps 12, 14, 16 — the sandbox-isolation
+> NetworkPolicy is still hand-authored in `resources.py` until the infra IR
+> wires through at step 12); the post-teardown **gateway** denial is
+> claimable only at step 12 (the gateway queries `poseidon/poc`, and a
+> running OPA keeps its last bundle on 404 — revocation is proven at the
+> bundle server and across an OPA restart); all companies compile to
+> `package poseidon.authz`, so two live companies would give OPA
+> overlapping bundle roots — per-company package prefixes are a step-12
+> compiler change; `MODEL` env still comes from cluster config while
+> `MODEL_TIER`/`TOOLS` ride the pod template (tier→model resolution is the
+> LLM gateway's at step 14); the bundle server is unauthenticated inside
+> the platform namespace (company pods cannot reach it; revisit with
+> workload identity at step 11).
+
 ### Step 11 — Workload identity: JWTs verified at the gateway
 
 **Depends on:** step 1. Parallel with steps 9–10.

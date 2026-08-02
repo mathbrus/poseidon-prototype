@@ -1,7 +1,30 @@
-# OPA, fed the canonical policies/ directory via a ConfigMap populated at
-# install time (--set-file opa.policies.<name>=policies/<name>.rego) so the
-# repo stays the single source of truth. Compiled bundles replace this at
-# plan step 12.
+# OPA. Two sources during the M2 overlap:
+#   - the hand-authored policies/ directory via a ConfigMap (retires at
+#     plan step 12, with poc.rego);
+#   - compiled bundles, which OPA *polls* from the bundle server (§2b) —
+#     never pushed, so an OPA restart re-fetches the current revision
+#     instead of running on whatever it last held.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-config
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    services:
+      bundles:
+        url: http://bundle-server:8081
+    bundles:
+      # Keyed and pathed by company *name* (which equals the namespace for
+      # the bootstrap company) — the bundle server keys by company.
+      {{ .Values.companyNamespace }}:
+        service: bundles
+        resource: bundles/{{ .Values.companyNamespace }}/bundle.tar.gz
+        polling:
+          min_delay_seconds: 5
+          max_delay_seconds: 15
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -46,6 +69,8 @@ spec:
             - --server
             - --addr
             - 0.0.0.0:8181
+            - --config-file
+            - /config/config.yaml
             {{- range $name, $_ := .Values.opa.policies }}
             - /policies/{{ $name }}.rego
             {{- end }}
@@ -54,6 +79,9 @@ spec:
           volumeMounts:
             - name: policies
               mountPath: /policies
+              readOnly: true
+            - name: config
+              mountPath: /config
               readOnly: true
           readinessProbe:
             httpGet:
@@ -69,6 +97,9 @@ spec:
         - name: policies
           configMap:
             name: opa-policies
+        - name: config
+          configMap:
+            name: opa-config
 ---
 apiVersion: v1
 kind: Service

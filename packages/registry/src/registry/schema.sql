@@ -9,7 +9,7 @@
 --
 -- Write ownership (enforced by which accessor a service imports, and by the
 -- fact that each table has exactly one writer):
---   operator      -> companies, agent_instances          (plan step 10)
+--   operator      -> companies, agent_instances, policy_bundles
 --   orchestrator  -> runs, run_participants, crew_requests
 --   gateway       -> sandbox_registrations, audit_events
 --   egress proxy  -> audit_events
@@ -111,6 +111,17 @@ CREATE TABLE IF NOT EXISTS registry.crew_requests (
     created_at    timestamptz NOT NULL DEFAULT now(),
     expires_at    timestamptz,
     fulfilled_at  timestamptz
+);
+
+-- Compiled policy bundles (§2b): the operator persists them here and the
+-- bundle server hands them to OPA over the standard bundle API, which OPA
+-- polls. Storing them makes gateway and OPA restarts safe — nothing has to
+-- be re-pushed, and the revision says exactly which blueprint is live.
+CREATE TABLE IF NOT EXISTS registry.policy_bundles (
+    company    text PRIMARY KEY,
+    revision   text NOT NULL,
+    tarball    bytea NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- The audit store (sequencing choice 1: JSONL retires here). Schema stays

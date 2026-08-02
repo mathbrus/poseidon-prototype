@@ -17,6 +17,7 @@ members = [
     "mockllm",
     "orchestrator",
     "poseidon",
+    "poseidon-operator",
     "registry",
     "sandbox",
     "schema",
@@ -407,15 +408,11 @@ name = "compiler"
 version = "0.1.0"
 source = { editable = "packages/compiler" }
 dependencies = [
-    { name = "common" },
     { name = "schema" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "common", editable = "packages/common" },
-    { name = "schema", editable = "packages/schema" },
-]
+requires-dist = [{ name = "schema", editable = "packages/schema" }]
 
 [[package]]
 name = "cryptography"
@@ -678,6 +675,15 @@ wheels = [
 ]
 
 [[package]]
+name = "iso8601"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/f3/ef59cee614d5e0accf6fd0cbba025b93b272e626ca89fb70a3e9187c5d15/iso8601-2.1.0.tar.gz", hash = "sha256:6b1d3829ee8921c4301998c909f7829fa9ed3cbdac0d3b16af2d743aed1ba8df", size = 6522, upload-time = "2023-10-03T00:25:39.317Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6c/0c/f37b6a241f0759b7653ffa7213889d89ad49a2b76eb2ddf3b57b2738c347/iso8601-2.1.0-py3-none-any.whl", hash = "sha256:aac4145c4dcb66ad8b648a02830f5e2ff6c24af20f4f482689be402db2429242", size = 7545, upload-time = "2023-10-03T00:25:32.304Z" },
+]
+
+[[package]]
 name = "jiter"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -791,6 +797,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa6d1095e7cc5569bebf04342ee146178e2d36600708b/jsonschema_specifications-2025.9.1.tar.gz", hash = "sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d", size = 32855, upload-time = "2025-09-08T01:34:59.186Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
+]
+
+[[package]]
+name = "kopf"
+version = "1.44.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "click" },
+    { name = "iso8601" },
+    { name = "jsonpatch" },
+    { name = "python-json-logger" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/82/21/9cf76b5946186f8c5075794daf535031c0e3a15494e7aad62daa71a12992/kopf-1.44.6.tar.gz", hash = "sha256:39c32d172394f0a891c19bfa2382c0e4bab783a63fdd1f0d9209aa043856127a", size = 1255087, upload-time = "2026-06-03T13:01:50.706Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/77/3ec5f44d6dc73aa9b709d261a9b6849f1cc5eb2e65ca26db43e4efc02125/kopf-1.44.6-py3-none-any.whl", hash = "sha256:793b6a403be5fe389365172b117a8e1385a5d18eb80fdb1dfe0f50e9c7d7862d", size = 222717, upload-time = "2026-06-03T13:01:49.15Z" },
 ]
 
 [[package]]
@@ -1296,6 +1319,7 @@ dependencies = [
     { name = "gateway" },
     { name = "mockllm" },
     { name = "orchestrator" },
+    { name = "poseidon-operator" },
     { name = "registry" },
     { name = "sandbox" },
     { name = "schema" },
@@ -1316,6 +1340,7 @@ requires-dist = [
     { name = "gateway", editable = "packages/gateway" },
     { name = "mockllm", editable = "packages/mockllm" },
     { name = "orchestrator", editable = "packages/orchestrator" },
+    { name = "poseidon-operator", editable = "packages/operator" },
     { name = "registry", editable = "packages/registry" },
     { name = "sandbox", editable = "packages/sandbox" },
     { name = "schema", editable = "packages/schema" },
@@ -1326,6 +1351,29 @@ dev = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8" },
     { name = "temporalio", specifier = ">=1.31.0" },
+]
+
+[[package]]
+name = "poseidon-operator"
+version = "0.1.0"
+source = { editable = "packages/operator" }
+dependencies = [
+    { name = "common" },
+    { name = "fastapi" },
+    { name = "kopf" },
+    { name = "kubernetes" },
+    { name = "registry" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "common", editable = "packages/common" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "kopf", specifier = ">=1.37" },
+    { name = "kubernetes", specifier = ">=31" },
+    { name = "registry", editable = "packages/registry" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [[package]]
@@ -1681,6 +1729,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/ed/0301aeeac3e5353ef3d94b6ec08bbcabd04a72018415dcb29e588514bba8/python_dotenv-1.2.2.tar.gz", hash = "sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3", size = 50135, upload-time = "2026-03-01T16:00:26.196Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/d7/1959b9648791274998a9c3526f6d0ec8fd2233e4d4acce81bbae76b44b2a/python_dotenv-1.2.2-py3-none-any.whl", hash = "sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a", size = 22101, upload-time = "2026-03-01T16:00:25.09Z" },
+]
+
+[[package]]
+name = "python-json-logger"
+version = "4.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f7/ff/3cc9165fd44106973cd7ac9facb674a65ed853494592541d339bdc9a30eb/python_json_logger-4.1.0.tar.gz", hash = "sha256:b396b9e3ed782b09ff9d6e4f1683d46c83ad0d35d2e407c09a9ebbf038f88195", size = 17573, upload-time = "2026-03-29T04:39:56.805Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/27/be/0631a861af4d1c875f096c07d34e9a63639560a717130e7a87cbc82b7e3f/python_json_logger-4.1.0-py3-none-any.whl", hash = "sha256:132994765cf75bf44554be9aa49b06ef2345d23661a96720262716438141b6b2", size = 15021, upload-time = "2026-03-29T04:39:55.266Z" },
 ]
 
 [[package]]

@@ -174,3 +174,36 @@ def test_unattributable_attempts_are_still_recorded(registry: Registry):
         )
     )
     assert len(audit.story("run-does-not-exist")) == 1
+
+
+# -- the operator-owned tables (plan step 10) -------------------------------
+
+
+def test_policy_bundle_round_trips_and_revokes(registry: Registry):
+    from registry.bundles import PolicyBundles
+
+    bundles = PolicyBundles(registry)
+    revision = bundles.put("test-corp", {"authz.rego": "package poseidon.authz\n"})
+    stored = bundles.get("test-corp")
+    assert stored is not None and stored.revision == revision
+    assert stored.tarball  # the bytea comes back as bytes
+
+    bundles.delete("test-corp")
+    assert bundles.get("test-corp") is None
+
+
+def test_company_rows_and_instance_sweep(registry: Registry):
+    from registry.bundles import AgentInstances, Companies
+
+    companies, instances = Companies(registry), AgentInstances(registry)
+    companies.upsert("test-corp", {"namespace": "test-corp", "mission": "m"})
+    instances.upsert("tc-pm-1", "test-corp", "pm", "pm", "standard")
+    instances.upsert("other-1", "other-corp", "pm", "pm", "standard")
+    assert [r["agent_id"] for r in instances.for_company("test-corp")] == ["tc-pm-1"]
+
+    # The teardown sweep: company-scoped, other companies untouched.
+    instances.delete_for_company("test-corp")
+    companies.delete("test-corp")
+    assert instances.for_company("test-corp") == []
+    assert [r["agent_id"] for r in instances.for_company("other-corp")] == ["other-1"]
+    instances.delete_for_company("other-corp")

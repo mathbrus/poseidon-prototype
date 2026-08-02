@@ -43,10 +43,20 @@ def _snapshot(live: bool) -> RegistrySnapshot:
         return EMPTY
     from registry import open_registry
 
-    rows = open_registry(migrate=False).query(
-        "SELECT agent_id, company, hire, role_template, model_tier, status"
-        " FROM registry.agent_instances"
-    )
+    try:
+        rows = open_registry(migrate=False).query(
+            "SELECT agent_id, company, hire, role_template, model_tier, status"
+            " FROM registry.agent_instances"
+        )
+    except Exception as exc:
+        # Say so rather than printing a confident "everything is new": the
+        # CRs still apply correctly (agent ids are derived, and instances
+        # absent from the plan are deleted by name), but the diff is blind.
+        typer.echo(
+            f"warning: registry unreachable ({exc}); diffing against nothing",
+            err=True,
+        )
+        return EMPTY
     return RegistrySnapshot(
         instances=tuple(InstanceSnapshot(**row) for row in rows)
     )
@@ -64,6 +74,10 @@ def compile(
     plan = _compile(_load(blueprint), _snapshot(live))
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
+        # Clear stale rule files first (like compiler.regolden does): after a
+        # firing diff, a leftover role_*.rego would silently widen the bundle.
+        for stale in out.glob("*.rego"):
+            stale.unlink()
         for name, body in plan.bundle.files.items():
             (out / name).write_text(body)
         typer.echo(f"wrote {len(plan.bundle.files)} bundle files to {out}", err=True)
@@ -79,3 +93,27 @@ def preview(
     snapshot = _snapshot(live)
     plan = _compile(_load(blueprint), snapshot)
     typer.echo(diff_plan(plan, snapshot).as_text())
+
+
+@app.command()
+def apply(
+    blueprint: Path,
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the diff confirmation"),
+) -> None:
+    """Compile BLUEPRINT and submit the CRs. The operator converges them.
+
+    Apply is exactly compile + submit: the compiler stays pure and the
+    operator remains the only thing that mutates a cluster, so "the
+    blueprint is the source of truth" is structural rather than a promise.
+    """
+    snapshot = _snapshot(live=True)
+    plan = _compile(_load(blueprint), snapshot)
+    diff = diff_plan(plan, snapshot)
+    typer.echo(diff.as_text(), err=True)
+    if not yes and not diff.empty:
+        typer.confirm("apply?", abort=True)
+
+    from orchestrator.cli.crs import submit
+
+    created, updated = submit(plan)
+    typer.echo(f"applied {plan.company.name}: {created} created, {updated} updated")

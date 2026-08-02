@@ -9,11 +9,6 @@ gateway:
     type: NodePort
     nodePort: 30080
 
-agent:
-  service:
-    type: NodePort
-    nodePort: 30800
-
 # On kind the allowlist admits the PyPI hosts so the step-5 allow path
 # (`pip install` from a sandbox) is exercisable; production defaults stay
 # empty (zero egress).

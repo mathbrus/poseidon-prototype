@@ -11,6 +11,7 @@ registration write lives behind the gateway rather than in the orchestrator.
 Run with: uvicorn --factory gateway.app:create_app
 """
 
+import contextlib
 from typing import Any
 
 import httpx
@@ -194,7 +195,19 @@ def create_app(
     app = mcp.streamable_http_app()
     app.add_middleware(BearerAuthMiddleware, tokens=tokens)
     if registry is not None:
-        app.add_event_handler("shutdown", registry.close)
+        # Close the self-opened pool on shutdown by wrapping the session
+        # manager's lifespan (this Starlette has no on_shutdown events API).
+        inner_lifespan = app.router.lifespan_context
+
+        @contextlib.asynccontextmanager
+        async def lifespan_with_registry(started_app):
+            async with inner_lifespan(started_app):
+                try:
+                    yield
+                finally:
+                    registry.close()
+
+        app.router.lifespan_context = lifespan_with_registry
     # Exposed for tests (session-manager lifespan) and introspection.
     app.state.fastmcp = mcp
     app.state.service = service

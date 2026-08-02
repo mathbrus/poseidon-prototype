@@ -32,7 +32,7 @@ spec:
             - name: MCP_GATEWAY_URL
               value: http://mcp-gateway:8080
             - name: AGENT_URL
-              value: http://agent.{{ .Values.companyNamespace }}.svc.cluster.local:8000
+              value: http://backend-engineer.{{ .Values.companyNamespace }}.svc.cluster.local:8000
             - name: ORCHESTRATOR_BEARER_TOKEN
               valueFrom:
                 secretKeyRef:
