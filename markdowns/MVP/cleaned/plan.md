@@ -538,6 +538,31 @@ to start early).
 golden-file tests; preview shows a minimal diff for a small blueprint edit;
 the compiler provably performs no I/O beyond its inputs.
 
+> **Status (2026-08-02): done** — `packages/compiler`: pure
+> `compile_blueprint(blueprint, catalogs, snapshot) -> DeploymentPlan`
+> emitting Company/AgentInstance CRs, per-role and per-crew-member Rego,
+> the infra IR + projections, crew artifacts, budgets and gate config.
+> `poseidon blueprint compile|preview` (impure parts — YAML, registry
+> snapshot, writing the bundle — live in the CLI; apply stays step 10's).
+> 43 tests: golden plan + bundle, checks, diff, purity, and **13 decisions
+> evaluated by real OPA** (PM denied executor tools, planner read-only,
+> executor denied on `main`, sandbox tools denied without a verified run
+> binding, cross-company denied, merge platform-only).
+>
+> Keep an eye on: **§5.1 needed a documented refinement.** `role` carries
+> the catalog template, but `feature-delivery`'s planner and executor both
+> run `backend-engineer` — template + lifecycle cannot tell them apart, so
+> the planner would inherit `git.open_pr`. Bundles therefore key ephemeral
+> rules on `crew_template` + `crew_role`, which `run_participants` already
+> stores; step 12's gateway enrichment must inject both. Sandbox rules also
+> require `run_binding_verified` in the input — a role allow-list without
+> run binding reopens cross-run tool use, the protection `data.runs.
+> assignments` used to give. `PLATFORM_SCOPE` is compiler-owned, not
+> blueprint-configurable. Golden files regenerate only via `python -m
+> compiler.regolden` — never from a test run. Still deferred to step 19:
+> the strict spawner-only error (the bridge blueprint must compile until
+> the firing diff); still absent by design: any child-⊆-parent check.
+
 ### Step 10 — CRDs + `packages/operator`
 
 **Depends on:** step 9 (consumes its CRs); step 8 (writes instance status).

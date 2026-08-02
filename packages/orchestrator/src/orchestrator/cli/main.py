@@ -16,6 +16,7 @@ import typer
 from temporalio.client import Client, WorkflowExecutionStatus
 
 from common.ids import new_run_id
+from orchestrator.cli.blueprint import app as blueprint_app
 from orchestrator.config import TemporalSettings
 from orchestrator.workflows.implement import (
     FAST_TIMEOUTS,
@@ -24,6 +25,7 @@ from orchestrator.workflows.implement import (
 )
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
+app.add_typer(blueprint_app, name="blueprint")
 
 
 async def _client(settings: TemporalSettings) -> Client:

@@ -12,6 +12,7 @@ dependencies = [
     "mockllm",
     "schema",
     "registry",
+    "compiler",
 ]
 
 [dependency-groups]
@@ -44,3 +45,4 @@ orchestrator = { workspace = true }
 mockllm = { workspace = true }
 schema = { workspace = true }
 registry = { workspace = true }
+compiler = { workspace = true }

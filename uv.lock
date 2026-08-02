@@ -12,6 +12,7 @@ resolution-markers = [
 members = [
     "agent",
     "common",
+    "compiler",
     "gateway",
     "mockllm",
     "orchestrator",
@@ -399,6 +400,21 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2" },
     { name = "pydantic-settings", specifier = ">=2" },
     { name = "python-ulid", specifier = ">=2" },
+]
+
+[[package]]
+name = "compiler"
+version = "0.1.0"
+source = { editable = "packages/compiler" }
+dependencies = [
+    { name = "common" },
+    { name = "schema" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "common", editable = "packages/common" },
+    { name = "schema", editable = "packages/schema" },
 ]
 
 [[package]]
@@ -1136,10 +1152,12 @@ version = "0.1.0"
 source = { editable = "packages/orchestrator" }
 dependencies = [
     { name = "common" },
+    { name = "compiler" },
     { name = "httpx" },
     { name = "mcp" },
     { name = "registry" },
     { name = "sandbox" },
+    { name = "schema" },
     { name = "temporalio" },
     { name = "typer" },
 ]
@@ -1147,10 +1165,12 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "common", editable = "packages/common" },
+    { name = "compiler", editable = "packages/compiler" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
     { name = "registry", editable = "packages/registry" },
     { name = "sandbox", editable = "packages/sandbox" },
+    { name = "schema", editable = "packages/schema" },
     { name = "temporalio", specifier = ">=1.31" },
     { name = "typer", specifier = ">=0.12" },
 ]
@@ -1272,6 +1292,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "agent" },
     { name = "common" },
+    { name = "compiler" },
     { name = "gateway" },
     { name = "mockllm" },
     { name = "orchestrator" },
@@ -1291,6 +1312,7 @@ dev = [
 requires-dist = [
     { name = "agent", editable = "packages/agent" },
     { name = "common", editable = "packages/common" },
+    { name = "compiler", editable = "packages/compiler" },
     { name = "gateway", editable = "packages/gateway" },
     { name = "mockllm", editable = "packages/mockllm" },
     { name = "orchestrator", editable = "packages/orchestrator" },
