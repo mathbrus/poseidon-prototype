@@ -2,8 +2,9 @@
 
 These tests run against the kind cluster brought up by
 `deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
-GIT_TOKEN, LLM_API_KEY and a disposable TARGET_REPO. They open real pull
-requests on that repo.
+GIT_TOKEN and a disposable TARGET_REPO. They open real pull requests on
+that repo. The LLM is the deterministic mock by default (free); only a
+cluster deployed with REAL_LLM=1 spends provider tokens.
 
 Since plan step 3, runs go through Temporal: the suite starts the implement
 workflow as a thin client (exactly what `poseidon run` does), and the

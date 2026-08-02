@@ -9,6 +9,7 @@ dependencies = [
     "gateway",
     "sandbox",
     "orchestrator",
+    "mockllm",
 ]
 
 [dependency-groups]
@@ -28,7 +29,7 @@ members = ["packages/*"]
 markers = [
     "docker: integration tests needing a Docker daemon (run with -m docker)",
     "e2e: end-to-end tests needing the live compose stack, a real repo and a real LLM key (run with -m e2e)",
-    "e2e_kind: end-to-end tests needing the live kind cluster, a real repo and a real LLM key (run with -m e2e_kind)",
+    "e2e_kind: end-to-end tests needing the live kind cluster and a real (disposable) repo; the LLM is mocked unless the cluster was deployed with REAL_LLM=1 (run with -m e2e_kind)",
 ]
 # Excluded by default; an explicit `-m docker` / `-m e2e` / `-m e2e_kind` on
 # the command line overrides this.
@@ -40,3 +41,4 @@ agent = { workspace = true }
 gateway = { workspace = true }
 sandbox = { workspace = true }
 orchestrator = { workspace = true }
+mockllm = { workspace = true }

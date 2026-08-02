@@ -27,6 +27,13 @@ set -a
 source "$ENV_FILE"
 set +a
 SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
+# The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
+# real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
+REAL_LLM=${REAL_LLM:-0}
+if [ "$REAL_LLM" != "1" ]; then
+  LLM_API_KEY=${LLM_API_KEY:-mock-unused}
+  MODEL=mock-brain
+fi
 
 echo "==> cluster"
 if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
@@ -49,8 +56,12 @@ docker build -f Dockerfile.orchestrator -t poseidon-orchestrator .
 docker build -f Dockerfile.sandbox -t "$SANDBOX_IMAGE" .
 # The sandbox image is side-loaded too: sandboxes are Kubernetes Jobs in the
 # company namespace since the k8s_jobs backend (plan step 4).
-kind load docker-image poseidon-gateway poseidon-agent poseidon-orchestrator \
-  "$SANDBOX_IMAGE" --name "$CLUSTER_NAME"
+IMAGES=(poseidon-gateway poseidon-agent poseidon-orchestrator "$SANDBOX_IMAGE")
+if [ "$REAL_LLM" != "1" ]; then
+  docker build -f Dockerfile.mockllm -t poseidon-mockllm .
+  IMAGES+=(poseidon-mockllm)
+fi
+kind load docker-image "${IMAGES[@]}" --name "$CLUSTER_NAME"
 
 echo "==> helm install"
 # Secrets ride a private temp values file, not --set, to keep tokens off the
@@ -70,10 +81,15 @@ run:
   baseRef: "${BASE_REF:-main}"
   maxIterations: ${MAX_ITERATIONS:-10}
 EOF
+MOCK_VALUES=()
+if [ "$REAL_LLM" != "1" ]; then
+  MOCK_VALUES=(-f deploy/helm/poseidon/values-mockllm.yaml)
+fi
 helm upgrade --install poseidon deploy/helm/poseidon \
   --namespace "$PLATFORM_NS" --create-namespace \
   -f deploy/helm/poseidon/values-kind.yaml \
   -f "$SECRETS_FILE" \
+  "${MOCK_VALUES[@]}" \
   --set-file opa.policies.poc=policies/poc.rego
 
 echo "==> rollout"

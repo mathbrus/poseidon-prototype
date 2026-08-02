@@ -13,6 +13,7 @@ members = [
     "agent",
     "common",
     "gateway",
+    "mockllm",
     "orchestrator",
     "poseidon-poc",
     "sandbox",
@@ -970,6 +971,37 @@ wheels = [
 ]
 
 [[package]]
+name = "mockllm"
+version = "0.1.0"
+source = { editable = "packages/mockllm" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "agent" },
+    { name = "httpx" },
+    { name = "openai" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "agent", editable = "packages/agent" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "openai", specifier = ">=1.40" },
+    { name = "pytest", specifier = ">=8" },
+]
+
+[[package]]
 name = "multidict"
 version = "6.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1249,6 +1281,7 @@ dependencies = [
     { name = "agent" },
     { name = "common" },
     { name = "gateway" },
+    { name = "mockllm" },
     { name = "orchestrator" },
     { name = "sandbox" },
 ]
@@ -1265,6 +1298,7 @@ requires-dist = [
     { name = "agent", editable = "packages/agent" },
     { name = "common", editable = "packages/common" },
     { name = "gateway", editable = "packages/gateway" },
+    { name = "mockllm", editable = "packages/mockllm" },
     { name = "orchestrator", editable = "packages/orchestrator" },
     { name = "sandbox", editable = "packages/sandbox" },
 ]
