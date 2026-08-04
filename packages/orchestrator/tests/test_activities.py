@@ -288,3 +288,54 @@ def test_dispatch_work_raises_when_agent_lost_the_run(activities, monkeypatch):
     _patch_agent(monkeypatch, transport)
     with pytest.raises(AgentRunLost):
         asyncio.run(activities.dispatch_work(RUN_ID, "task"))
+
+
+def test_teardown_revokes_participants_on_every_terminal_path(
+    settings, backend, runs, companies
+):
+    """16b: the binding rows die with the run — on success, on failure, and
+    with no sandbox handle at all (at 16d mint precedes provision)."""
+    from orchestrator.activities.crew import CrewActivities
+    from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
+
+    participants = InMemoryRunParticipants()
+    audit = InMemoryAuditStore()
+    crew = CrewActivities(settings, participants, audit)
+    activities = ImplementActivities(settings, backend, runs, companies, crew)
+
+    participants.add("feature-delivery-executor-" + RUN_ID, RUN_ID, "pm-1",
+                     "feature-delivery", "executor")
+    record = asyncio.run(activities.teardown(RUN_ID, None, None, "early failure"))
+    assert record["status"] == "failed"
+    assert participants.active("feature-delivery-executor-" + RUN_ID) is None
+    assert [e.tool for e in audit.events] == ["lifecycle.revoke"]
+
+    # Success path, with a handle: sweep still runs first.
+    participants.add("feature-delivery-planner-" + RUN_ID, RUN_ID, "pm-1",
+                     "feature-delivery", "planner")
+    record = asyncio.run(activities.teardown(
+        RUN_ID, dict(JOB_HANDLE), {"status": "done", "pr_url": "https://pr"}, None
+    ))
+    assert record["status"] == "done"
+    assert participants.active("feature-delivery-planner-" + RUN_ID) is None
+
+
+def test_revoke_failure_is_loud_but_not_masking(
+    settings, backend, runs, companies
+):
+    """A failed sweep surfaces in the run record; the sandbox is still
+    destroyed and the run still finalizes."""
+
+    class BrokenCrew:
+        async def revoke_participants(self, run_id: str):
+            raise RuntimeError("registry unreachable")
+
+    activities = ImplementActivities(
+        settings, backend, runs, companies, BrokenCrew()
+    )
+    record = asyncio.run(activities.teardown(
+        RUN_ID, dict(JOB_HANDLE), {"status": "done"}, None
+    ))
+    assert backend.destroyed == [JOB_HANDLE["job_name"]]
+    assert record["status"] == "failed"
+    assert "participant revoke failed" in record["error"]

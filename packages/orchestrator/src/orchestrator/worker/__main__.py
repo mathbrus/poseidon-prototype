@@ -32,11 +32,11 @@ async def main() -> None:
     # Every service migrates at startup under an advisory lock, so the
     # worker needs no ordering guarantee against the other writers.
     registry = open_registry()
-    activities = ImplementActivities(
-        settings, backend, Runs(registry), Companies(registry)
-    )
     crew_activities = CrewActivities(
         settings, RunParticipants(registry), AuditStore(registry)
+    )
+    activities = ImplementActivities(
+        settings, backend, Runs(registry), Companies(registry), crew_activities
     )
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping

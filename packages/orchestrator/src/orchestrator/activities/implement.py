@@ -12,14 +12,17 @@ Retry safety, per activity:
                         activity falls through to polling; if the agent
                         lost the run (restart), the poll raises and the
                         retry re-dispatches from scratch.
-    teardown          — destroy is idempotent; the run row is finalized
-                        with an upsert.
+    teardown          — destroy is idempotent; the participants sweep and
+                        the run row finalization are upserts.
 """
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from temporalio import activity
+
+if TYPE_CHECKING:
+    from orchestrator.activities.crew import CrewActivities
 
 from common.telemetry import get_logger
 from compiler.infra import DEFAULT_IMAGE
@@ -43,6 +46,7 @@ class ImplementActivities:
         backend: SandboxBackend,
         runs: Runs,
         companies: Companies,
+        crew: "CrewActivities | None" = None,
     ) -> None:
         self._settings = settings
         self._backend = backend
@@ -50,6 +54,10 @@ class ImplementActivities:
         # Read-only: the applied blueprint's infra IR is the SandboxPolicy
         # source (plan step 12, closing sequencing choice 2).
         self._companies = companies
+        # The 16a revoke, called directly (same process) from teardown so
+        # run-binding termination rides the one compensation anchor that
+        # runs on every terminal path (plan step 16b).
+        self._crew = crew
         self._log = get_logger("orchestrator.activities")
 
     @activity.defn(name="create_run")
@@ -148,10 +156,24 @@ class ImplementActivities:
         result: dict[str, Any] | None,
         error: str | None,
     ) -> dict[str, Any]:
-        """Compensation + finalization: destroy the sandbox (when one was
-        provisioned), retire its registration, and write the honest terminal
-        run record, which is also the workflow's result."""
+        """Compensation + finalization: revoke the run's ephemeral
+        identities (plan step 16b — the binding rows die on every terminal
+        path, before the token TTLs would), destroy the sandbox (when one
+        was provisioned), retire its registration, and write the honest
+        terminal run record, which is also the workflow's result."""
         log = self._log.bind(run_id=run_id)
+        # Handle-independent on purpose: at 16d mint precedes provision, so
+        # participants can exist even when no sandbox ever did.
+        if self._crew is not None:
+            try:
+                swept = await self._crew.revoke_participants(run_id)
+                if swept:
+                    log.info("participants revoked", extra={"agent_ids": swept})
+            except Exception as exc:
+                # A stale binding row is a governance problem, not a run
+                # failure — but never a silent one.
+                log.info("participant revoke failed", extra={"error": str(exc)})
+                error = error or f"teardown: participant revoke failed: {exc}"
         if handle is not None:
             try:
                 await asyncio.to_thread(

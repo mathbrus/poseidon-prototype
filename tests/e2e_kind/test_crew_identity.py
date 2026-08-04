@@ -1,7 +1,9 @@
-"""Step 16a done-when, on the live cluster: a minted ephemeral identity
-calls the gateway successfully, and the same call after its participants
+"""Steps 16a + 16b done-when, on the live cluster: a minted ephemeral
+identity calls the gateway successfully; a foreign `run_id` claim from the
+same *live* identity is policy-denied; the same call after its participants
 row is terminated is denied *before* the token's TTL expires — revocation
-is the registry write, not the clock.
+is the registry write, not the clock; and OPA demonstrably receives the
+binding as input, never as pushed data.
 
 The real fulfill machinery runs here: the actual `CrewActivities` mint and
 revoke against the cluster's registry (port-forwarded) with the cluster's
@@ -126,6 +128,14 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
             assert "denied by policy" not in text, text
             assert "no sandbox registered" in text
 
+            # A foreign run_id claim from a *live* participant (16b): authn
+            # passes — the row is alive — but the enrichment binds the
+            # identity to exactly one run, so policy fails it closed.
+            foreign = _call(env, token, "sandbox.list_dir",
+                            {"run_id": "run-not-mine", "path": "."})
+            assert foreign.isError
+            assert "default_deny" in foreign.content[0].text
+
             # Revocation = row termination (§2b), long before TTL.
             swept = asyncio.run(crew.revoke_participants(run_id))
             assert minted["agent_id"] in swept
@@ -171,3 +181,39 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,))
             registry.execute(
                 "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+
+
+def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
+    """The 16b done-when's third clause, against the running OPA: there is
+    no pushed run data anywhere (the PoC's data.runs.assignments successor
+    is the enriched *input*), and the same live bundle flips the executor's
+    decision on the input flag alone."""
+    from .test_operator_lifecycle import port_forward
+
+    with port_forward("opa", 18183, 8181) as base:
+        # Nothing was ever pushed: the old assignments document does not
+        # exist, and nothing else lives outside the served bundles.
+        pushed = httpx.get(f"{base}/v1/data/runs", timeout=10).json()
+        assert "result" not in pushed or not pushed["result"], (
+            f"OPA carries pushed run data: {pushed}"
+        )
+
+        executor = {
+            "company": "hello-saas", "agent_id": "feature-delivery-executor-x",
+            "lifecycle": "ephemeral", "parent_agent_id": "pm-1",
+            "role": "backend-engineer", "crew_template": "feature-delivery",
+            "crew_role": "executor", "run_id": "run-16b", "workflow": "implement",
+            "tool": "sandbox.exec", "args": {},
+        }
+        bound = httpx.post(
+            f"{base}/v1/data/poseidon/authz/hello_saas/decision",
+            json={"input": {**executor, "run_binding_verified": True}},
+            timeout=10,
+        ).json()["result"]
+        unbound = httpx.post(
+            f"{base}/v1/data/poseidon/authz/hello_saas/decision",
+            json={"input": {**executor, "run_binding_verified": False}},
+            timeout=10,
+        ).json()["result"]
+        assert bound["allow"] is True
+        assert unbound == {"allow": False, "rule": "default_deny"}

@@ -1090,6 +1090,30 @@ automatically.
 foreign `run_id` claim is denied; OPA demonstrably receives the binding as
 input, never as pushed data.
 
+> **Status (2026-08-04): done** — most of this slice was banked by earlier
+> steps by design (16a creates rows with full parentage; the step-12
+> enrichment reads them; the bundles have served the crew rules since step
+> 10); what landed here is the missing lifecycle half and the proofs. The
+> implement teardown activity now sweeps the run's participants via the
+> 16a revoke (called in-process, so termination rides the one compensation
+> anchor that runs on success, failure, cancel and worker death) —
+> handle-independent, because at 16d mint precedes provision, so
+> participants can exist when no sandbox ever did; a failed sweep folds
+> into the run record's error rather than masking or vanishing. E2e
+> (`test_crew_identity.py`, now the 16a+16b suite): the bound executor is
+> allowed; the same *live* identity claiming a foreign `run_id` passes
+> authn and is policy-denied (`default_deny` — the enrichment binds it to
+> exactly one run); the stale claim (terminated row) is the 16a 401; and
+> against the running OPA, `/v1/data/runs` holds nothing (no pushed data
+> anywhere — `assign_run` died at step 12) while the same live bundle
+> flips the executor's decision on `run_binding_verified` alone.
+>
+> Keep an eye on: the workflow-level observation of the sweep during a
+> *real* crewed run waits for 16d (nothing mints participants inside
+> implement yet); the revoke inside teardown is a direct method call, not
+> a separate Temporal activity — one compensation anchor, one retry
+> policy.
+
 **Step 16c — ephemeral runtime provisioner.** *Depends on: 4.* The
 orchestrator worker gains a bounded Kubernetes client for crew pods — a new
 trust and RBAC surface that must be designed, not improvised (overview §3
