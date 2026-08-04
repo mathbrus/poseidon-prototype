@@ -25,6 +25,7 @@ from gateway.config import GatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
+    InMemoryCrewRequests,
     InMemoryRunParticipants,
     InMemoryRuns,
     InMemorySandboxRegistrations,
@@ -34,6 +35,8 @@ from mcp.client.streamable_http import streamable_http_client
 
 AGENT_TOKEN = "agent-secret"
 RUNNER_TOKEN = "runner-secret"
+PM_TOKEN = "pm-secret"
+JWT_KEY = "unit-test-platform-key"
 GIT_TOKEN = "git-platform-secret"
 OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
@@ -50,12 +53,13 @@ PLATFORM_DECISION = "/v1/data/poseidon/platform/decision"
 
 
 class FakeReviewer:
-    """TokenReview double: the two test tokens resolve to the same
+    """TokenReview double: the test tokens resolve to the same
     ServiceAccounts the kind cluster would report."""
 
     accounts = {
         AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
         RUNNER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
+        PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
     }
 
     async def review(self, token: str, audience: str) -> ServiceAccount | None:
@@ -111,6 +115,28 @@ class Backends:
         if (
             policy_input.get("lifecycle") == "standing"
             and policy_input.get("company") == COMPANY
+            and policy_input.get("role") == "pm"
+        ):
+            if tool in ("issues.create", "issues.read", "issues.update",
+                        "issues.comment"):
+                return {"allow": True, "rule": f"role_pm_{tool}"}
+            if tool == "crew.request" and args.get("crew_template") in (
+                "feature-delivery", "feature-review",
+            ):
+                return {"allow": True, "rule": "role_pm_crew_request"}
+            return {"allow": False, "rule": "default_deny"}
+        if (
+            policy_input.get("lifecycle") == "ephemeral"
+            and policy_input.get("company") == COMPANY
+            and policy_input.get("crew_template") == "feature-review"
+            and policy_input.get("crew_role") == "reviewer"
+        ):
+            if tool in ("git.read", "git.comment", "issues.comment"):
+                return {"allow": True, "rule": f"crew_feature_review_reviewer_{tool}"}
+            return {"allow": False, "rule": "default_deny"}
+        if (
+            policy_input.get("lifecycle") == "standing"
+            and policy_input.get("company") == COMPANY
             and policy_input.get("role") == "backend-engineer"
         ):
             if tool.startswith("sandbox.") and policy_input.get("run_binding_verified"):
@@ -149,11 +175,57 @@ class Backends:
         if request.url.host == "github.test":
             if self.github_error is not None:
                 return httpx.Response(self.github_error, json={"message": "github boom"})
+            payload = json.loads(request.content) if request.content else {}
             self.github_calls.append(
-                (request.url.path, json.loads(request.content), dict(request.headers))
+                (request.url.path, payload, dict(request.headers))
             )
-            return httpx.Response(201, json={"html_url": PR_URL})
+            return self._github(request, payload)
         return httpx.Response(502, text=f"unexpected host {request.url.host}")
+
+    @staticmethod
+    def _github(request: httpx.Request, payload: dict) -> httpx.Response:
+        """Canned GitHub REST answers for the step-15 surface."""
+        path, method = request.url.path, request.method
+
+        def issue(number: int = 7, **overrides) -> dict:
+            return {
+                "number": number, "title": "an issue", "state": "open",
+                "body": "details", "html_url": f"https://github.test/i/{number}",
+                **overrides,
+            }
+
+        if method == "POST" and path.endswith("/pulls"):
+            return httpx.Response(201, json={"html_url": PR_URL})
+        if method == "POST" and path.endswith("/comments"):
+            return httpx.Response(201, json={"html_url": "https://github.test/c/1"})
+        if method == "POST" and path.endswith("/issues"):
+            return httpx.Response(
+                201, json=issue(title=payload.get("title", ""),
+                                body=payload.get("body", ""))
+            )
+        if method == "PATCH" and "/issues/" in path:
+            return httpx.Response(200, json=issue(**payload))
+        if method == "GET" and path.endswith("/issues"):
+            # The listing includes a PR-shaped item the backlog must drop.
+            return httpx.Response(200, json=[
+                issue(), issue(number=8, pull_request={"url": "x"}),
+            ])
+        if method == "GET" and "/issues/" in path:
+            return httpx.Response(200, json=issue())
+        if method == "GET" and path.endswith("/files"):
+            return httpx.Response(200, json=[
+                {"filename": "app.py", "additions": 3, "deletions": 1,
+                 "patch": "@@ -1 +1,3 @@"},
+            ])
+        if method == "GET" and "/pulls/" in path:
+            return httpx.Response(200, json={
+                "number": 5, "title": "a pr", "state": "open", "body": "",
+                "html_url": PR_URL, "merged": False,
+                "head": {"ref": "feature/x"}, "base": {"ref": "main"},
+            })
+        if method == "PUT" and path.endswith("/merge"):
+            return httpx.Response(200, json={"merged": True, "sha": "abc123"})
+        return httpx.Response(404, json={"message": f"unstubbed {method} {path}"})
 
 
 @pytest.fixture
@@ -180,17 +252,21 @@ def settings() -> GatewaySettings:
         git_token=GIT_TOKEN,
         base_ref="main",
         github_api_url=GITHUB_API_URL,
+        platform_jwt_key=JWT_KEY,
     )
 
 
 @pytest.fixture
 def instances() -> InMemoryAgentInstances:
     """The registry rows workload identity maps ServiceAccounts through —
-    seeded with the standing engineer the AGENT_TOKEN resolves to."""
+    seeded with the standing hires the test tokens resolve to."""
     store = InMemoryAgentInstances()
     store.upsert(
         AGENT_ID, COMPANY, "backend-engineer", "backend-engineer",
         "frontier", namespace=COMPANY_NS,
+    )
+    store.upsert(
+        "pm-1", COMPANY, "pm", "pm", "standard", namespace=COMPANY_NS,
     )
     return store
 
@@ -201,12 +277,18 @@ def participants() -> InMemoryRunParticipants:
 
 
 @pytest.fixture
+def crew_requests() -> InMemoryCrewRequests:
+    return InMemoryCrewRequests()
+
+
+@pytest.fixture
 async def app(
     settings: GatewaySettings,
     backends: Backends,
     audit: InMemoryAuditStore,
     instances: InMemoryAgentInstances,
     participants: InMemoryRunParticipants,
+    crew_requests: InMemoryCrewRequests,
 ):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
     application = create_app(
@@ -217,6 +299,7 @@ async def app(
         instances=instances,
         participants=participants,
         runs=InMemoryRuns(),
+        crew_requests=crew_requests,
         token_reviewer=FakeReviewer(),
     )
     async with application.state.fastmcp.session_manager.run():

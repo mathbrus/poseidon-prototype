@@ -162,23 +162,132 @@ class GitBackend:
             "origin",
             f"{INCOMING_REF}:refs/heads/{prepared.branch}",
         )
-        headers = {"Accept": "application/vnd.github+json"}
-        if self._settings.git_token:
-            headers["Authorization"] = f"Bearer {self._settings.git_token}"
-        resp = await self._http.post(
-            f"{self._settings.github_api_url.rstrip('/')}/repos/{repo_slug(repo)}/pulls",
+        data = await self._github(
+            "POST",
+            f"/repos/{repo_slug(repo)}/pulls",
             json={
                 "title": title,
                 "body": body,
                 "head": prepared.branch,
                 "base": self._settings.base_ref,
             },
+        )
+        pr_url = data["html_url"]
+        self._log.info("pr opened", extra={"branch": prepared.branch, "pr_url": pr_url})
+        return {"pr_url": pr_url}
+
+    # -- GitHub REST (plan step 15: issues.*, git.read/comment/merge_pr) ------
+
+    async def _github(
+        self, method: str, path: str, json: dict[str, Any] | None = None
+    ) -> Any:
+        headers = {"Accept": "application/vnd.github+json"}
+        if self._settings.git_token:
+            headers["Authorization"] = f"Bearer {self._settings.git_token}"
+        resp = await self._http.request(
+            method,
+            f"{self._settings.github_api_url.rstrip('/')}{path}",
+            json=json,
             headers=headers,
         )
         if resp.status_code not in (200, 201):
             raise GitBackendError(
-                self._redact(f"GitHub PR creation failed: {resp.status_code} {resp.text}")
+                self._redact(f"GitHub {method} {path} failed:"
+                             f" {resp.status_code} {resp.text}")
             )
-        pr_url = resp.json()["html_url"]
-        self._log.info("pr opened", extra={"branch": prepared.branch, "pr_url": pr_url})
-        return {"pr_url": pr_url}
+        return resp.json()
+
+    @staticmethod
+    def _issue_view(issue: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "number": issue["number"],
+            "title": issue.get("title", ""),
+            "state": issue.get("state", ""),
+            "body": issue.get("body") or "",
+            "url": issue.get("html_url", ""),
+        }
+
+    async def create_issue(self, repo: str, title: str, body: str) -> dict[str, Any]:
+        issue = await self._github(
+            "POST", f"/repos/{repo_slug(repo)}/issues",
+            json={"title": title, "body": body},
+        )
+        return self._issue_view(issue)
+
+    async def read_issues(self, repo: str, number: int | None) -> dict[str, Any]:
+        """One issue by number, or the open backlog — the PM's cross-run
+        state is this list plus the runs history (overview §4.5)."""
+        slug = repo_slug(repo)
+        if number is not None:
+            return {"issues": [self._issue_view(
+                await self._github("GET", f"/repos/{slug}/issues/{number}")
+            )]}
+        listing = await self._github("GET", f"/repos/{slug}/issues?state=open")
+        # The issues API returns PRs too; the backlog is issues only.
+        return {"issues": [
+            self._issue_view(i) for i in listing if "pull_request" not in i
+        ]}
+
+    async def update_issue(
+        self,
+        repo: str,
+        number: int,
+        title: str | None = None,
+        body: str | None = None,
+        state: str | None = None,
+    ) -> dict[str, Any]:
+        fields = {
+            k: v
+            for k, v in (("title", title), ("body", body), ("state", state))
+            if v is not None
+        }
+        if not fields:
+            raise GitBackendError("issues.update: nothing to update")
+        issue = await self._github(
+            "PATCH", f"/repos/{repo_slug(repo)}/issues/{number}", json=fields
+        )
+        return self._issue_view(issue)
+
+    async def comment_issue(self, repo: str, number: int, body: str) -> dict[str, Any]:
+        """One endpoint serves both `issues.comment` and `git.comment` —
+        GitHub PR conversations are issue comments."""
+        comment = await self._github(
+            "POST", f"/repos/{repo_slug(repo)}/issues/{number}/comments",
+            json={"body": body},
+        )
+        return {"url": comment.get("html_url", "")}
+
+    async def read_pr(self, repo: str, number: int) -> dict[str, Any]:
+        """PR metadata + changed files — what a reviewer reads (§6.3)."""
+        slug = repo_slug(repo)
+        pr = await self._github("GET", f"/repos/{slug}/pulls/{number}")
+        files = await self._github("GET", f"/repos/{slug}/pulls/{number}/files")
+        return {
+            "number": pr["number"],
+            "title": pr.get("title", ""),
+            "state": pr.get("state", ""),
+            "body": pr.get("body") or "",
+            "url": pr.get("html_url", ""),
+            "head": (pr.get("head") or {}).get("ref", ""),
+            "base": (pr.get("base") or {}).get("ref", ""),
+            "merged": bool(pr.get("merged")),
+            "files": [
+                {
+                    "path": f.get("filename", ""),
+                    "additions": f.get("additions", 0),
+                    "deletions": f.get("deletions", 0),
+                    "patch": f.get("patch", ""),
+                }
+                for f in files
+            ],
+        }
+
+    async def merge_pr(
+        self, repo: str, number: int, method: str = "merge"
+    ) -> dict[str, Any]:
+        result = await self._github(
+            "PUT", f"/repos/{repo_slug(repo)}/pulls/{number}/merge",
+            json={"merge_method": method},
+        )
+        self._log.info("pr merged", extra={"repo": repo_slug(repo), "number": number})
+        return {"merged": bool(result.get("merged")), "sha": result.get("sha", "")}

@@ -341,3 +341,31 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
         assert ledger.spent_for_run("run-unmetered") == 0.0
     finally:
         registry.execute("DELETE FROM registry.budget_ledger WHERE run_id = %s", (RUN_ID,))
+
+
+def test_crew_request_is_idempotent_and_expiring(registry: Registry):
+    """§4.4 rule 3 + §6.4: same {conductor, crew, run} lands on one row;
+    while recorded a retry refreshes it; once fulfilled it is untouched —
+    a retry must not resurrect consumed intent."""
+    from registry.crews import CrewRequests
+
+    Runs(registry).start(RUN_ID, "task")
+    requests = CrewRequests(registry)
+    first = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it")
+    try:
+        assert first["status"] == "recorded"
+        assert first["expires_at"] is not None
+
+        again = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it now")
+        assert again["id"] == first["id"]
+        assert again["reason"] == "ship it now"
+
+        registry.execute(
+            "UPDATE registry.crew_requests SET status='fulfilled',"
+            " fulfilled_at=now() WHERE id = %s", (first["id"],))
+        after = requests.record("pm-1", "feature-delivery", RUN_ID, "retry")
+        assert after["status"] == "fulfilled"
+        assert after["reason"] == "ship it now"  # untouched
+    finally:
+        registry.execute(
+            "DELETE FROM registry.crew_requests WHERE id = %s", (first["id"],))

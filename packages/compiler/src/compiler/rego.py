@@ -128,11 +128,30 @@ def _run_binding(tool: str) -> str:
     return "\tbound_to_run\n" if tool in RUN_SCOPED else ""
 
 
+def _role_extra(tool: str, may_spawn: tuple[str, ...]) -> str:
+    """Per-tool guards beyond the plain allow. `crew.request` narrows the
+    requested template to the conductor's may_spawn list (plan step 15):
+    spawn intent outside it is a rule deny before anything is recorded.
+    Concurrency caps and budget headroom join at step 16d."""
+    if tool == "crew.request":
+        return (
+            f"\tinput.args.crew_template in {json.dumps(sorted(may_spawn))}\n"
+            + _run_binding(tool)
+        )
+    return _run_binding(tool)
+
+
 def _decision_file(package: str) -> str:
     return HEADER + _DECISION.format(package=package)
 
 
-def _role_file(company: str, hire: str, template: str, tools: list[str]) -> str:
+def _role_file(
+    company: str,
+    hire: str,
+    template: str,
+    tools: list[str],
+    may_spawn: tuple[str, ...] = (),
+) -> str:
     body = "".join(
         _ROLE_RULE.format(
             hire=_slug(hire),
@@ -140,7 +159,7 @@ def _role_file(company: str, hire: str, template: str, tools: list[str]) -> str:
             company=company,
             tool=tool,
             tool_slug=_slug(tool),
-            extra=_run_binding(tool),
+            extra=_role_extra(tool, may_spawn),
         )
         for tool in sorted(tools)
     )
@@ -261,7 +280,11 @@ def build_bundle(
     files = {"authz.rego": _decision_file(company_package(company))}
     for instance in instances:
         files[f"role_{_slug(instance.hire)}.rego"] = _role_file(
-            company, instance.hire, instance.role_template, list(instance.tools)
+            company,
+            instance.hire,
+            instance.role_template,
+            list(instance.tools),
+            tuple(instance.may_spawn),
         )
     for member in crew_members:
         name = f"crew_{_slug(member.crew)}_{_slug(member.member)}.rego"

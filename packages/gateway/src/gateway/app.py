@@ -34,6 +34,7 @@ from gateway.opa import OpaClient
 from gateway.service import GatewayService, PolicyDenied
 from registry import (
     AuditStore,
+    CrewRequests,
     RunParticipants,
     Runs,
     SandboxRegistrations,
@@ -86,6 +87,7 @@ def create_app(
     instances: AgentInstances | None = None,
     participants: RunParticipants | None = None,
     runs: Runs | None = None,
+    crew_requests: CrewRequests | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
     settings = settings or GatewaySettings()
@@ -96,7 +98,7 @@ def create_app(
     # reads for decision-input enrichment since step 12). Injectable so
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.
-    accessors = (sandboxes, audit, instances, participants, runs)
+    accessors = (sandboxes, audit, instances, participants, runs, crew_requests)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -105,9 +107,12 @@ def create_app(
         instances = AgentInstances(registry)
         participants = RunParticipants(registry)
         runs = Runs(registry)
+        crew_requests = CrewRequests(registry)
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
-    service = GatewayService(settings, opa, http_client, sandboxes, audit, runs)
+    service = GatewayService(
+        settings, opa, http_client, sandboxes, audit, runs, crew_requests
+    )
     authenticator = Authenticator(
         settings,
         audit,
@@ -192,6 +197,66 @@ def create_app(
     ) -> dict[str, Any]:
         return await service.open_pr(
             identity_of(ctx), run_id, repo, branch, title, body, bundle_b64
+        )
+
+    # -- plan step 15: issues, review, merge, crew intent -------------------
+
+    @mcp.tool(name="issues.create")
+    async def issues_create(
+        run_id: str, repo: str, title: str, body: str, ctx: Context
+    ) -> dict[str, Any]:
+        return await service.issues_create(identity_of(ctx), run_id, repo, title, body)
+
+    @mcp.tool(name="issues.read")
+    async def issues_read(
+        run_id: str, repo: str, ctx: Context, number: int | None = None
+    ) -> dict[str, Any]:
+        return await service.issues_read(identity_of(ctx), run_id, repo, number)
+
+    @mcp.tool(name="issues.update")
+    async def issues_update(
+        run_id: str,
+        repo: str,
+        number: int,
+        ctx: Context,
+        title: str | None = None,
+        body: str | None = None,
+        state: str | None = None,
+    ) -> dict[str, Any]:
+        return await service.issues_update(
+            identity_of(ctx), run_id, repo, number, title, body, state
+        )
+
+    @mcp.tool(name="issues.comment")
+    async def issues_comment(
+        run_id: str, repo: str, number: int, body: str, ctx: Context
+    ) -> dict[str, Any]:
+        return await service.issues_comment(identity_of(ctx), run_id, repo, number, body)
+
+    @mcp.tool(name="git.read")
+    async def git_read(run_id: str, repo: str, number: int, ctx: Context) -> dict[str, Any]:
+        return await service.git_read(identity_of(ctx), run_id, repo, number)
+
+    @mcp.tool(name="git.comment")
+    async def git_comment(
+        run_id: str, repo: str, number: int, body: str, ctx: Context
+    ) -> dict[str, Any]:
+        return await service.git_comment(identity_of(ctx), run_id, repo, number, body)
+
+    @mcp.tool(name="git.merge_pr")
+    async def git_merge_pr(
+        run_id: str, repo: str, number: int, ctx: Context, method: str = "merge"
+    ) -> dict[str, Any]:
+        return await service.git_merge_pr(
+            identity_of(ctx), run_id, repo, number, method
+        )
+
+    @mcp.tool(name="crew.request")
+    async def crew_request(
+        run_id: str, crew_template: str, reason: str, ctx: Context
+    ) -> dict[str, Any]:
+        return await service.request_crew(
+            identity_of(ctx), run_id, crew_template, reason
         )
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])

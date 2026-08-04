@@ -53,6 +53,35 @@ class InMemoryAuditStore:
         ]
 
 
+class InMemoryCrewRequests:
+    """Recorded spawn intent (plan step 15): idempotent by derived id,
+    refresh-while-recorded, untouched once fulfilled."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def record(self, conductor: str, crew_template: str, run_id: str,
+               reason: str, ttl_s: int = 3600) -> dict[str, Any]:
+        from registry.crews import request_id
+
+        rid = request_id(conductor, crew_template, run_id)
+        existing = self.rows.get(rid)
+        if existing is None:
+            self.rows[rid] = {
+                "id": rid, "run_id": run_id, "conductor": conductor,
+                "crew_template": crew_template, "reason": reason,
+                "status": "recorded", "created_at": "2026-01-01T00:00:00+00:00",
+                "expires_at": "2026-01-01T01:00:00+00:00", "fulfilled_at": None,
+            }
+        elif existing["status"] == "recorded":
+            existing["reason"] = reason
+        return dict(self.rows[rid])
+
+    def get(self, rid: str) -> dict[str, Any] | None:
+        row = self.rows.get(rid)
+        return dict(row) if row else None
+
+
 class InMemoryBudgetLedger:
     """The LLM gateway's meter (plan step 14): recorded entries and the
     per-run SUM the hard-stop compares against."""

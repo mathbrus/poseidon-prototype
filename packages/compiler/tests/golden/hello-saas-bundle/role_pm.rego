@@ -11,6 +11,7 @@ allow_rules contains "role_pm_crew_request" if {
 	input.company == "hello-saas"
 	input.role == "pm"
 	input.tool == "crew.request"
+	input.args.crew_template in ["feature-delivery", "feature-review"]
 }
 
 # pm: standing hire of the pm template.

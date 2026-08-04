@@ -89,7 +89,10 @@ def standing(role: str, **extra) -> dict:
 
 
 def test_pm_may_request_a_crew(decide):
-    assert decide(**standing("pm", tool="crew.request", args={}))["allow"] is True
+    decision = decide(**standing("pm", tool="crew.request",
+                                 args={"crew_template": "feature-review",
+                                       "reason": "review PR"}))
+    assert decision["allow"] is True
 
 
 def test_pm_cannot_call_executor_tools(decide):
@@ -308,3 +311,21 @@ def test_crew_rule_compares_the_raw_member_name():
     body = files["crew_feature_review_code_reviewer.rego"]
     assert 'input.crew_role == "code-reviewer"' in body
     assert "crew_feature_review_code_reviewer_git_read" in body
+
+
+def test_crew_request_is_narrowed_to_may_spawn(decide):
+    """Plan step 15: the compiled crew.request rule requires the requested
+    template to be in the conductor's may_spawn list — spawn intent outside
+    it never even records."""
+    allowed = decide(**standing("pm", tool="crew.request",
+                                args={"crew_template": "feature-delivery",
+                                      "reason": "ticket"}))
+    assert allowed["allow"] is True
+
+    outside = decide(**standing("pm", tool="crew.request",
+                                args={"crew_template": "shadow-ops",
+                                      "reason": "hm"}))
+    assert outside == {"allow": False, "rule": "default_deny"}
+
+    absent = decide(**standing("pm", tool="crew.request", args={}))
+    assert absent["allow"] is False

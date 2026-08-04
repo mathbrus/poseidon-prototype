@@ -990,6 +990,44 @@ templates from step 9 are extended here).
 (audited) for every other role; `git.merge_pr` is provably restricted to the
 platform lifecycle.
 
+> **Status (2026-08-04): done** — the §4.7 surface grew by eight tools,
+> every one through the same pipeline (authn → enrichment → compiled
+> decision → audit → backend). `issues.create/read/update/comment` and the
+> review pair (`git.read` = PR metadata + changed files, `git.comment` =
+> PR conversation) are new GitHub REST methods on the existing git backend
+> — same host, same platform `GIT_TOKEN`, redacted errors; `issues.read`
+> without a number returns the open backlog (PRs filtered out — the PM's
+> cross-run state per §4.5). `git.merge_pr` exists and the platform bundle
+> alone allows it (O-1 A). `crew.request` records an idempotent, expiring
+> `crew_requests` row under the **conductor** identity (id derives from
+> {conductor, crew_template, run_id}; a recorded row refreshes on retry, a
+> fulfilled one is never resurrected; the gateway joins the orchestrator
+> as the table's writers — §4.4 rule 3's "same row, same policy"). The
+> compiled `crew.request` rule now additionally narrows
+> `args.crew_template` to the conductor's `may_spawn` list — spawn intent
+> outside it is a rule deny before anything records; concurrency caps and
+> budget headroom stay at 16d as planned. No new Rego templates were
+> needed beyond that: the catalog fixed the tool vocabulary at step 7, so
+> the per-role and per-crew-member bundles have covered these names since
+> step 9 (PM: issues.* + crew.request; reviewer: git.read/git.comment/
+> issues.comment + sandbox reads; platform: merge + admin).
+>
+> Proven: 46 gateway unit tests (issue lifecycle as the PM; engineer/
+> reviewer/PM cross-denials audited; merge platform-only with both company
+> roles denied; crew intent recorded idempotently, nothing recorded on a
+> rule deny) and the live governance e2e (installed-bundle decisions for
+> the new tools incl. the may_spawn narrowing and the ephemeral reviewer;
+> PM records real crew intent through the gateway; `git.merge_pr` passes
+> policy for the orchestrator — backend 404 on a nonexistent PR, nothing
+> merged — and is rule-denied for pm and engineer).
+>
+> Keep an eye on: fulfillment consumes `crew_requests` at step 16d
+> (`status='recorded'` + unexpired is the contract); `issues.*` targets
+> the blueprint's repo via the `repo` argument — the PM runtime (step 17)
+> must pass its TARGET_REPO; `git.comment` and `issues.comment` share the
+> GitHub endpoint (PR conversations are issue comments) but remain
+> distinct tools to policy.
+
 ### Step 16 — Ephemeral crews: fulfillment machinery (four contract-first slices)
 
 Previously one step — the densest and least engineered in the plan relative

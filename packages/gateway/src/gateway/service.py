@@ -70,6 +70,7 @@ class GatewayService:
         sandboxes: SandboxRegistrations,
         audit: AuditStore,
         runs: Runs,
+        crew_requests: Any = None,
         git_backend: GitBackend | None = None,
     ) -> None:
         self._settings = settings
@@ -84,6 +85,9 @@ class GatewayService:
         self._audit_store = audit
         # Read-only: the run row supplies the §5.1 `workflow` field.
         self._runs = runs
+        # Written on the crew.request tool path (§4.4 rule 3: the tool and
+        # the step-18/19 workflow path record the same row).
+        self._crew_requests = crew_requests
 
     # -- sandbox registry -------------------------------------------------
     # Registry accessors are synchronous psycopg; every use goes through
@@ -308,6 +312,99 @@ class GatewayService:
             )
         finally:
             prepared.cleanup()
+
+    # -- issues + review + merge (plan step 15) ---------------------------
+
+    async def issues_create(
+        self, identity: Identity, run_id: str, repo: str, title: str, body: str
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "title": title, "body": body}
+        return await self.call(
+            identity, "issues.create", args,
+            lambda: self._git.create_issue(repo, title, body),
+        )
+
+    async def issues_read(
+        self, identity: Identity, run_id: str, repo: str, number: int | None
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "number": number}
+        return await self.call(
+            identity, "issues.read", args, lambda: self._git.read_issues(repo, number)
+        )
+
+    async def issues_update(
+        self,
+        identity: Identity,
+        run_id: str,
+        repo: str,
+        number: int,
+        title: str | None,
+        body: str | None,
+        state: str | None,
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "number": number,
+                "title": title, "body": body, "state": state}
+        return await self.call(
+            identity, "issues.update", args,
+            lambda: self._git.update_issue(repo, number, title, body, state),
+        )
+
+    async def issues_comment(
+        self, identity: Identity, run_id: str, repo: str, number: int, body: str
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "number": number, "body": body}
+        return await self.call(
+            identity, "issues.comment", args,
+            lambda: self._git.comment_issue(repo, number, body),
+        )
+
+    async def git_read(
+        self, identity: Identity, run_id: str, repo: str, number: int
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "number": number}
+        return await self.call(
+            identity, "git.read", args, lambda: self._git.read_pr(repo, number)
+        )
+
+    async def git_comment(
+        self, identity: Identity, run_id: str, repo: str, number: int, body: str
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "number": number, "body": body}
+        return await self.call(
+            identity, "git.comment", args,
+            lambda: self._git.comment_issue(repo, number, body),
+        )
+
+    async def git_merge_pr(
+        self, identity: Identity, run_id: str, repo: str, number: int, method: str
+    ) -> Any:
+        """O-1 A: policy restricts this to the platform lifecycle — the
+        orchestrator calls it after the human gate (step 20 wires the gate)."""
+        args = {"run_id": run_id, "repo": repo, "number": number, "method": method}
+        return await self.call(
+            identity, "git.merge_pr", args,
+            lambda: self._git.merge_pr(repo, number, method),
+        )
+
+    async def request_crew(
+        self, identity: Identity, run_id: str, crew_template: str, reason: str
+    ) -> Any:
+        """Record spawn intent under the conductor identity (§4.4 rule 3).
+        An allowed request is authorization + intent, never fulfillment —
+        that is step 16d's. The compiled rule already narrows the template
+        to the conductor's may_spawn list."""
+        args = {"run_id": run_id, "crew_template": crew_template, "reason": reason}
+
+        async def backend() -> Any:
+            return await asyncio.to_thread(
+                self._crew_requests.record,
+                identity.agent_id,
+                crew_template,
+                run_id,
+                reason,
+            )
+
+        return await self.call(identity, "crew.request", args, backend)
 
     # -- audit --------------------------------------------------------------
 

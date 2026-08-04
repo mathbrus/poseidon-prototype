@@ -10,6 +10,7 @@ each table has exactly one writer.
 """
 
 from registry.audit import AuditStore
+from registry.crews import CrewRequests
 from registry.db import Registry, dsn, open_registry
 from registry.ledger import BudgetLedger
 from registry.participants import RunParticipants
@@ -19,6 +20,7 @@ from registry.sandboxes import SandboxRegistration, SandboxRegistrations
 __all__ = [
     "AuditStore",
     "BudgetLedger",
+    "CrewRequests",
     "Registry",
     "RunParticipants",
     "RunRecord",

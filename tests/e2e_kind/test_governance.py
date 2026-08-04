@@ -21,7 +21,7 @@ from typing import Any
 
 import httpx
 
-from .conftest import COMPANY_NS, PLATFORM_NS
+from .conftest import COMPANY_NS, PLATFORM_NS, _psql_json
 from .test_operator_lifecycle import port_forward
 from .test_registry_durability import projected_token
 
@@ -208,3 +208,96 @@ def test_denies_are_in_the_audit_story(stack: None) -> None:
     )
     assert proc.returncode == 0, proc.stderr
     assert int(proc.stdout.strip()) >= 1
+
+
+# -- the step-15 tool surface, live ------------------------------------------
+
+
+def test_installed_bundle_covers_the_new_tools(stack: None) -> None:
+    """Per-role scoping for the grown surface (§4.7): PM owns issues + crew
+    intent, the reviewer owns the review tools, nobody else does — and
+    crew.request is narrowed to the conductor's may_spawn list."""
+    with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
+        assert _decide(base, COMPANY_DECISION,
+                       standing("pm", "issues.create"))["allow"] is True
+        assert _decide(base, COMPANY_DECISION,
+                       standing("backend-engineer", "issues.create"))["allow"] is False
+
+        ok = _decide(base, COMPANY_DECISION,
+                     standing("pm", "crew.request",
+                              args={"crew_template": "feature-delivery",
+                                    "reason": "r"}))
+        assert ok["allow"] is True
+        outside = _decide(base, COMPANY_DECISION,
+                          standing("pm", "crew.request",
+                                   args={"crew_template": "shadow-ops"}))
+        assert outside["allow"] is False
+
+        reviewer = {
+            "company": "hello-saas", "agent_id": "reviewer-01X",
+            "lifecycle": "ephemeral", "parent_agent_id": "pm-1",
+            "role": "sdet", "crew_template": "feature-review",
+            "crew_role": "reviewer", "run_id": "run-gov", "workflow": "review",
+            "tool": "git.read", "args": {}, "run_binding_verified": True,
+        }
+        assert _decide(base, COMPANY_DECISION, reviewer)["allow"] is True
+        assert _decide(base, COMPANY_DECISION,
+                       {**reviewer, "tool": "git.merge_pr"})["allow"] is False
+
+
+def test_pm_records_crew_intent_at_the_gateway(stack: None, env: dict) -> None:
+    """The one spawn model (§4.4 rule 3), tool path: the PM's projected
+    identity records an idempotent, expiring crew_requests row — intent,
+    never fulfillment (that is step 16d)."""
+    token = projected_token(COMPANY_NS, "pm-1")
+    run_id = f"run-gov-crew-{int(time.time())}"
+
+    first = _call(env, token, "crew.request",
+                  {"run_id": run_id, "crew_template": "feature-delivery",
+                   "reason": "governance e2e"})
+    assert not first.isError, first.content
+    import json as _json
+
+    recorded = _json.loads(first.content[0].text)
+    assert recorded["status"] == "recorded"
+    assert recorded["conductor"] == "pm-1"
+
+    again = _call(env, token, "crew.request",
+                  {"run_id": run_id, "crew_template": "feature-delivery",
+                   "reason": "governance e2e retried"})
+    assert _json.loads(again.content[0].text)["id"] == recorded["id"]
+
+    rows = _psql_json(
+        "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
+        "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
+        ") c",
+        run_id, default="[]",
+    )
+    assert len(rows) == 1 and rows[0]["status"] == "recorded"
+    assert rows[0]["expires_at"] is not None
+
+    denied = _call(env, token, "crew.request",
+                   {"run_id": run_id, "crew_template": "shadow-ops",
+                    "reason": "hm"})
+    assert denied.isError and "default_deny" in denied.content[0].text
+
+
+def test_merge_is_platform_only_at_the_gateway(stack: None, env: dict) -> None:
+    """`git.merge_pr` provably restricted to the platform lifecycle: the
+    orchestrator's call passes policy (the backend 404s on a PR that does
+    not exist — nothing merged), while company roles are rule-denied."""
+    target = env.get("TARGET_REPO", "")
+    orchestrator = projected_token(PLATFORM_NS, "orchestrator-worker")
+    allowed = _call(env, orchestrator, "git.merge_pr",
+                    {"run_id": "run-gov", "repo": target, "number": 999999})
+    assert allowed.isError  # backend: no such PR
+    text = allowed.content[0].text
+    assert "denied by policy" not in text
+    assert "404" in text or "GitHub" in text
+
+    for account, namespace in (("pm-1", COMPANY_NS),
+                               ("backend-engineer-1", COMPANY_NS)):
+        token = projected_token(namespace, account)
+        denied = _call(env, token, "git.merge_pr",
+                       {"run_id": "run-gov", "repo": target, "number": 999999})
+        assert denied.isError and "default_deny" in denied.content[0].text, account

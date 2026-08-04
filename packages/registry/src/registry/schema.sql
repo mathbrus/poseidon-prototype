@@ -10,7 +10,9 @@
 -- Write ownership (enforced by which accessor a service imports, and by the
 -- fact that each table has exactly one writer):
 --   operator      -> companies, agent_instances, policy_bundles
---   orchestrator  -> runs, run_participants, crew_requests
+--   orchestrator  -> runs, run_participants; crew_requests together with
+--                    the gateway (§4.4 rule 3: the crew.request tool and
+--                    the workflow path record the same row)
 --   gateway       -> sandbox_registrations, audit_events
 --   egress proxy  -> audit_events
 --   LLM gateway   -> budget_ledger                       (plan step 14)
