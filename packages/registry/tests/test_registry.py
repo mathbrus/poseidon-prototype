@@ -23,6 +23,10 @@ def event(**overrides) -> AuditEvent:
         "rule": "sandbox_assigned_run",
         "latency_ms": 3,
         "backend_status": "ok",
+        "source": "gateway",
+        "company": "hello-saas",
+        "lifecycle": "standing",
+        "workflow": "implement",
     }
     fields.update(overrides)
     return AuditEvent(**fields)
@@ -141,15 +145,17 @@ def test_story_is_one_run_in_order(registry: Registry):
     assert [e["tool"] for e in story] == ["repo.archive", "sandbox.exec"]
 
 
-def test_story_spans_sources(registry: Registry):
-    """E4 at M1 scale: the gateway's decisions and the egress proxy's denies
-    answer one query, which is the whole reason the JSONL files retired."""
+def test_story_spans_all_four_sources(registry: Registry):
+    """The step-13 done-when at the contract level: gateway, sandbox-infra,
+    llm-gateway and process-gate events for one run answer a single
+    `run_id`-correlated query, v2 attribution included (§5.2)."""
     audit = AuditStore(registry)
     audit.append(event(tool="sandbox.exec", ts="2026-01-01T00:00:01+00:00"))
     audit.append(
         event(
             agent_id="egress-proxy",
-            role="sandbox-infra",
+            role="",
+            source="sandbox-infra",
             tool="sandbox.egress",
             decision="deny",
             rule="egress_not_allowlisted",
@@ -157,8 +163,34 @@ def test_story_spans_sources(registry: Registry):
             ts="2026-01-01T00:00:02+00:00",
         )
     )
-    roles = [e["role"] for e in audit.story(RUN_ID)]
-    assert roles == ["backend-engineer", "sandbox-infra"]
+    audit.append(
+        event(
+            agent_id="backend-engineer-1",
+            source="llm-gateway",
+            tool="llm.complete",
+            lifecycle="standing",
+            ts="2026-01-01T00:00:03+00:00",
+        )
+    )
+    audit.append(
+        event(
+            agent_id="orchestrator",
+            role="platform",
+            lifecycle="platform",
+            source="process-gate",
+            tool="gate.merge",
+            rule="gate_approved",
+            ts="2026-01-01T00:00:04+00:00",
+        )
+    )
+
+    story = audit.story(RUN_ID)
+    assert [e["source"] for e in story] == [
+        "gateway", "sandbox-infra", "llm-gateway", "process-gate",
+    ]
+    assert all(e["run_id"] == RUN_ID for e in story)
+    assert story[0]["company"] == "hello-saas"
+    assert story[0]["workflow"] == "implement"
 
 
 def test_unattributable_attempts_are_still_recorded(registry: Registry):

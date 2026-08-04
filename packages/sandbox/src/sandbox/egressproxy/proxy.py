@@ -13,10 +13,10 @@ closing sequencing choice 2): each request's run resolves through its live
 sandbox registration to the company whose applied blueprint names the
 allowed hosts. No applied blueprint, no live registration — zero egress.
 
-Audit events are v1-shaped (`agent_id=egress-proxy`, `role=sandbox-infra`,
-`tool=sandbox.egress`) and land in the registry `audit_events` table
-alongside the gateway's, so one `run_id` query returns the whole story;
-step 13 upgrades them onto the multi-source v2 contract.
+Audit events ride the v2 ingestion contract (plan step 13):
+`source=sandbox-infra`, `tool=sandbox.egress`, `agent_id=egress-proxy` —
+they land in the registry `audit_events` table alongside the gateway's, so
+one `run_id` query returns the whole story.
 """
 
 import asyncio
@@ -290,13 +290,16 @@ class EgressProxy:
             ts=datetime.now(timezone.utc).isoformat(),
             run_id=run_id,
             agent_id="egress-proxy",
-            role="sandbox-infra",
+            # v2 (§5.2): the enforcement point is the `source` field now —
+            # role carried it only while the schema had nowhere else to.
+            role="",
             tool="sandbox.egress",
             args_digest=_digest({"host": host, "port": port}),
             decision=decision,
             rule=rule,
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=backend_status,
+            source="sandbox-infra",
         )
         # The store is synchronous psycopg; keep it off the event loop or a
         # slow Postgres stalls every tunnel and the /healthz probe with it.

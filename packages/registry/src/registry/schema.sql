@@ -130,23 +130,35 @@ CREATE TABLE IF NOT EXISTS registry.policy_bundles (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- The audit store (sequencing choice 1: JSONL retires here). Schema stays
--- v1 at this step; v2 adds company/lifecycle/parent/workflow/source at plan
--- step 13. No foreign key on run_id on purpose: an event whose run_id is a
--- *claim* that failed verification — an unattributable egress attempt, a
--- stale run binding — is exactly the event worth keeping.
+-- The audit store (sequencing choice 1: JSONL retires here), schema v2
+-- since plan step 13 (§5.2): the v1 fields plus company/lifecycle/parent/
+-- workflow and an explicit source — one ingestion contract for every
+-- enforcement point. No foreign key on run_id on purpose: an event whose
+-- run_id is a *claim* that failed verification — an unattributable egress
+-- attempt, a stale run binding — is exactly the event worth keeping.
 CREATE TABLE IF NOT EXISTS registry.audit_events (
-    id             bigserial PRIMARY KEY,
-    ts             timestamptz NOT NULL,
-    run_id         text NOT NULL DEFAULT '',
-    agent_id       text NOT NULL,
-    role           text NOT NULL,
-    tool           text NOT NULL,
-    args_digest    text NOT NULL,
-    decision       text NOT NULL,
-    rule           text,
-    latency_ms     integer NOT NULL DEFAULT 0,
-    backend_status text
+    id              bigserial PRIMARY KEY,
+    ts              timestamptz NOT NULL,
+    run_id          text NOT NULL DEFAULT '',
+    agent_id        text NOT NULL,
+    role            text NOT NULL,
+    tool            text NOT NULL,
+    args_digest     text NOT NULL,
+    decision        text NOT NULL,
+    rule            text,
+    latency_ms      integer NOT NULL DEFAULT 0,
+    backend_status  text,
+    source          text NOT NULL DEFAULT 'gateway',
+    company         text NOT NULL DEFAULT '',
+    lifecycle       text NOT NULL DEFAULT '',
+    parent_agent_id text NOT NULL DEFAULT '',
+    workflow        text NOT NULL DEFAULT ''
 );
+-- Databases migrated before plan step 13 predate the v2 columns.
+ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS source          text NOT NULL DEFAULT 'gateway';
+ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS company         text NOT NULL DEFAULT '';
+ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS lifecycle       text NOT NULL DEFAULT '';
+ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS parent_agent_id text NOT NULL DEFAULT '';
+ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS workflow        text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS audit_events_run_id_ts_idx
     ON registry.audit_events (run_id, ts);

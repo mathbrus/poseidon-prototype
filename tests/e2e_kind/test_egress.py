@@ -127,7 +127,7 @@ def test_egress_containment(env: dict, egress_key: str, workspace_tar: bytes):
             time.sleep(1)
         assert denies, "no correlated deny event in the registry audit store"
         assert denies[0]["rule"] == "egress_not_allowlisted"
-        assert denies[0]["role"] == "sandbox-infra"
+        assert denies[0]["source"] == "sandbox-infra"
 
         # Allowlisted path: pip install through the proxy succeeds (the
         # proxy env vars are baked into the container environment).

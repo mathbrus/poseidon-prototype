@@ -268,6 +268,9 @@ class Authenticator:
             rule=rule,
             latency_ms=0,
             backend_status=None,
+            # v2 (§5.2): an authn reject is the gateway speaking about a
+            # credential that mapped to nothing — no company, no lifecycle.
+            source="gateway",
         )
         await asyncio.to_thread(self._audit.append, event)
         self._log.info("authentication rejected", extra=event.model_dump())

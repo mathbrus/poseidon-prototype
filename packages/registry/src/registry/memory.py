@@ -40,6 +40,11 @@ class InMemoryAuditStore:
                 "rule": e.rule,
                 "latency_ms": e.latency_ms,
                 "backend_status": e.backend_status,
+                "source": e.source,
+                "company": e.company,
+                "lifecycle": e.lifecycle,
+                "parent_agent_id": e.parent_agent_id,
+                "workflow": e.workflow,
             }
             for e in sorted(
                 (e for e in self.events if e.run_id == run_id),

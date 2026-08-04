@@ -83,15 +83,37 @@ class Gate:
         return self._outcome
 
 
-def gate_audit_event(outcome: GateOutcome, workflow_id: str) -> dict[str, Any]:
-    """Stub for `source=process-gate` audit events (§5.2): shapes the event
-    and logs it. Real emission onto the audit ingestion contract is plan
-    step 13; gate outcomes become first-class audit events at step 20."""
+def gate_audit_event(
+    outcome: GateOutcome, workflow_id: str, run_id: str = ""
+) -> dict[str, Any]:
+    """A `source=process-gate` event in the v2 ingestion shape (§5.2, plan
+    step 13). Shaped here, written by an *activity* at step 20 — workflow
+    code cannot touch the registry (Temporal sandbox), and gate outcomes
+    become first-class audit events only when a real gate is wired. The
+    `workflow` field carries the workflow id, which maps back to run_id
+    (§5.5) even when the gate fires without one in hand."""
+    import hashlib
+    import json
+
+    payload = {"gate": outcome.gate, "outcome": outcome.kind}
     event = {
+        "ts": workflow.now().isoformat(),
+        "run_id": run_id,
+        "agent_id": "orchestrator",
+        "role": "platform",
+        "tool": f"gate.{outcome.gate}",
+        "args_digest": hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "decision": "allow" if outcome.kind == "approved" else "deny",
+        "rule": f"gate_{outcome.kind}",
+        "latency_ms": 0,
+        "backend_status": None,
         "source": "process-gate",
-        "gate": outcome.gate,
-        "outcome": outcome.kind,
-        "workflow_id": workflow_id,
+        "company": "",
+        "lifecycle": "platform",
+        "parent_agent_id": "",
+        "workflow": workflow_id,
     }
     workflow.logger.info("process-gate outcome (audit stub): %s", event)
     return event

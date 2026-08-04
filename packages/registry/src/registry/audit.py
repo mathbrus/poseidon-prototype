@@ -1,9 +1,10 @@
-"""`audit_events` — written by the gateway and the egress proxy.
+"""`audit_events` — the one ingestion contract for every audit source.
 
-The sink the JSONL files retire into (sequencing choice 1). Its whole point
-is the E4 query: one `run_id`, one ordered story, every source. Schema stays
-v1 here; plan step 13 adds `company`, `lifecycle`, `parent_agent_id`,
-`workflow` and an explicit `source`.
+The sink the JSONL files retired into (sequencing choice 1), schema v2
+since plan step 13 (§5.2). Its whole point is the E4 query: one `run_id`,
+one ordered story, every source — gateway, sandbox-infra, and (as their
+steps land) llm-gateway and process-gate all write this table through this
+accessor and nothing else.
 """
 
 from typing import Any
@@ -21,8 +22,10 @@ class AuditStore:
             """
             INSERT INTO registry.audit_events
                 (ts, run_id, agent_id, role, tool, args_digest,
-                 decision, rule, latency_ms, backend_status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 decision, rule, latency_ms, backend_status,
+                 source, company, lifecycle, parent_agent_id, workflow)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s)
             """,
             (
                 event.ts,
@@ -35,6 +38,11 @@ class AuditStore:
                 event.rule,
                 event.latency_ms,
                 event.backend_status,
+                event.source,
+                event.company,
+                event.lifecycle,
+                event.parent_agent_id,
+                event.workflow,
             ),
         )
 
@@ -44,7 +52,8 @@ class AuditStore:
         return self._db.query(
             """
             SELECT ts, run_id, agent_id, role, tool, args_digest,
-                   decision, rule, latency_ms, backend_status
+                   decision, rule, latency_ms, backend_status,
+                   source, company, lifecycle, parent_agent_id, workflow
               FROM registry.audit_events
              WHERE run_id = %s
              ORDER BY ts, id

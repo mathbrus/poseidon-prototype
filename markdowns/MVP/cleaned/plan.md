@@ -858,6 +858,36 @@ gate, metered budgets, and one consolidated audit story.
 **Done when:** a seeded run shows gateway, sandbox-infra, process-gate, and
 llm-gateway events in a single `run_id`-correlated query.
 
+> **Status (2026-08-04): done** — `AuditEvent` v2 in `packages/common`
+> (§5.2): the v1 fields plus `company`, `lifecycle`, `parent_agent_id`,
+> `workflow`, and a required `source` from the closed
+> `{gateway, llm-gateway, sandbox-infra, process-gate}` vocabulary (a
+> typo'd producer fails validation, not queries). One ingestion contract:
+> the registry `audit_events` table gained the five columns (idempotent
+> ALTERs for existing databases) and `AuditStore.append/story` carry them.
+> The MCP gateway emits v2 from the step-12 pipeline — company/lifecycle/
+> parentage from the verified identity, `workflow` from the run row the
+> enrichment already reads; authn rejects are v2 with empty attribution
+> (the credential mapped to nothing). The egress proxy's events moved onto
+> the contract: `source=sandbox-infra`, and `role` (which carried the
+> source only because v1 had nowhere else to put it) is now empty. The
+> process-gate stub (`gates.gate_audit_event`) shapes the full v2 event —
+> deterministic ts via `workflow.now()`, the workflow id riding the
+> `workflow` field per §5.5 — with the actual write left to the step-18/20
+> activities, since workflow code cannot touch the registry. E2e:
+> `test_audit_story.py` proves the done-when — a real run's gateway events
+> plus seeded llm-gateway/process-gate/sandbox-infra events (through the
+> same table and columns; their producers land at steps 14 and 18–20)
+> answer one `run_id` query, and the real gateway events carry
+> company/lifecycle/workflow.
+>
+> Keep an eye on: step 14's LLM gateway and step 18–20's gate activities
+> must construct `AuditEvent` with their `source` — the field is required,
+> so forgetting is a compile-time-ish failure, not silent misattribution;
+> `role` no longer identifies the egress proxy (filter on `source`);
+> events written by pre-v2 pods against a migrated database default to
+> `source='gateway'` — only an issue mid-upgrade, gone once pods roll.
+
 ### Step 14 — `packages/gateway-llm`: LLM gateway with metering and budgets
 
 **Depends on:** steps 8 (ledger), 11 (identity). Parallel with step 13.

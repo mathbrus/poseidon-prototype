@@ -127,6 +127,7 @@ class GatewayService:
                 "ephemeral_parentage_missing", started, None,
             )
             raise PolicyDenied("ephemeral_parentage_missing")
+        workflow = policy_input["workflow"]
         path = (
             PLATFORM_DECISION_PATH
             if identity.lifecycle == LIFECYCLE_PLATFORM
@@ -135,15 +136,24 @@ class GatewayService:
         decision = await self._opa.decide(policy_input, path)
 
         if not decision.allow:
-            await self._audit(identity, tool, args, run_id, "deny", decision.rule, started, None)
+            await self._audit(
+                identity, tool, args, run_id, "deny", decision.rule, started,
+                None, workflow,
+            )
             raise PolicyDenied(decision.rule)
 
         try:
             result = await backend()
         except Exception:
-            await self._audit(identity, tool, args, run_id, "allow", decision.rule, started, "error")
+            await self._audit(
+                identity, tool, args, run_id, "allow", decision.rule, started,
+                "error", workflow,
+            )
             raise
-        await self._audit(identity, tool, args, run_id, "allow", decision.rule, started, "ok")
+        await self._audit(
+            identity, tool, args, run_id, "allow", decision.rule, started,
+            "ok", workflow,
+        )
         return result
 
     async def _decision_input(
@@ -311,6 +321,7 @@ class GatewayService:
         rule: str | None,
         started: float,
         backend_status: str | None,
+        workflow: str = "",
     ) -> None:
         event = AuditEvent(
             ts=datetime.now(timezone.utc).isoformat(),
@@ -323,6 +334,12 @@ class GatewayService:
             rule=rule,
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=backend_status,
+            # v2 (§5.2): the caller's verified attribution rides every event.
+            source="gateway",
+            company=identity.company or "",
+            lifecycle=identity.lifecycle,
+            parent_agent_id=identity.parent_agent_id or "",
+            workflow=workflow,
         )
         await asyncio.to_thread(self._audit_store.append, event)
         self._log.info("audit", extra=event.model_dump())
