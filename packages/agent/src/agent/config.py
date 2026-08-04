@@ -14,6 +14,10 @@ class AgentSettings(BaseSettings):
     mcp_gateway_url: str
     llm_proxy_url: str
     model: str
+    # Which role this brain host serves (the operator sets it from the
+    # instance spec). `pm` dispatches run the PM loop (plan step 17);
+    # everything else runs the engineer graph.
+    role_template: str = "backend-engineer"
     # The pod's identity, one of two shapes: standing hires mount a
     # kubelet-rotated projected token file (plan step 11); ephemeral crew
     # brains receive their minted short-TTL §2b token as GATEWAY_TOKEN at

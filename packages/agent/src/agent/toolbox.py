@@ -42,6 +42,37 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "required": ["cmd"],
     },
+    # -- PM tools (plan step 17): tickets and crew intent, nothing else --
+    "create_issue": {
+        "description": (
+            "File a ticket on the target repository's issue tracker. Use one "
+            "ticket per well-scoped piece of work."
+        ),
+        "parameters": {
+            "title": {"type": "string", "description": "Short, specific ticket title."},
+            "body": {"type": "string", "description": "The scoped work: context, acceptance criteria."},
+        },
+        "required": ["title", "body"],
+    },
+    "read_issues": {
+        "description": "Read the open ticket backlog (or one ticket by number).",
+        "parameters": {
+            "number": {"type": "number", "description": "Optional issue number; omit for the open backlog."},
+        },
+        "required": [],
+    },
+    "request_crew": {
+        "description": (
+            "Request an ephemeral crew to carry out scoped work. This records "
+            "intent for the platform to fulfill — it does not start anything "
+            "by itself."
+        ),
+        "parameters": {
+            "crew_template": {"type": "string", "description": "Crew template name, e.g. feature-delivery."},
+            "reason": {"type": "string", "description": "Why, referencing the ticket(s)."},
+        },
+        "required": ["crew_template", "reason"],
+    },
     "open_pr": {
         "description": (
             "Deliver the finished work: bundle the given branch and open a pull "
@@ -59,6 +90,7 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
 
 ACT_TOOLS = ["list_dir", "read_file", "write_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
+PM_TOOLS = ["create_issue", "read_issues", "request_crew"]
 
 
 def tool_specs(names: list[str]) -> list[dict[str, Any]]:
@@ -143,6 +175,24 @@ class Toolbox:
                         "body": args["body"],
                         "bundle_b64": bundle["bundle_b64"],
                     },
+                )
+            case "create_issue":
+                return await self._gateway.call(
+                    "issues.create",
+                    {"run_id": run_id, "repo": self._settings.target_repo,
+                     "title": args["title"], "body": args["body"]},
+                )
+            case "read_issues":
+                return await self._gateway.call(
+                    "issues.read",
+                    {"run_id": run_id, "repo": self._settings.target_repo,
+                     "number": args.get("number")},
+                )
+            case "request_crew":
+                return await self._gateway.call(
+                    "crew.request",
+                    {"run_id": run_id, "crew_template": args["crew_template"],
+                     "reason": args["reason"]},
                 )
             case _:
                 raise ToolCallError(f"unknown tool: {call.name}")

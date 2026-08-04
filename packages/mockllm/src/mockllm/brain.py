@@ -131,11 +131,43 @@ def _write_files() -> MockCompletion:
     )
 
 
+def _system_text(messages: list[dict[str, Any]]) -> str:
+    for message in messages:
+        if message.get("role") == "system":
+            return str(message.get("content") or "")
+    return ""
+
+
+def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
+    """The PM's scripted dispatch (plan step 17): file one ticket for the
+    goal, record the delivery-crew request, then summarize."""
+    goal = _task_text(messages).removeprefix("Goal:").strip().splitlines()
+    title = (goal[0] if goal else "scoped work")[:80]
+    if _made_calls(messages, "create_issue") == 0:
+        return _calls(MockToolCall("create_issue", {
+            "title": f"Implement: {title}",
+            "body": "Scoped from the intake goal.\n\nAcceptance: the "
+                    "delivery crew's PR implements the goal with tests.",
+        }))
+    if _made_calls(messages, "request_crew") == 0:
+        return _calls(MockToolCall("request_crew", {
+            "crew_template": "feature-delivery",
+            "reason": "Implement the ticket just filed.",
+        }))
+    return _text(
+        "Filed one ticket for the goal and requested the feature-delivery "
+        "crew to implement it."
+    )
+
+
 def next_completion(
     messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
 ) -> MockCompletion:
     task_text = _task_text(messages)
     offered = _offered(tools)
+
+    if "product manager" in _system_text(messages):  # the PM loop (step 17)
+        return _pm_completion(messages)
 
     if not offered:  # plan: the graph passes no tools
         # A real planner's brief carries the delivery constraints it was

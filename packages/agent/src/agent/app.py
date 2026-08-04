@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from agent.config import AgentSettings
-from agent.graph import RunResult, run_plan, run_task
+from agent.graph import RunResult, run_plan, run_pm, run_task
 from common.telemetry import get_logger
 
 TaskRunner = Callable[[str, str], Awaitable[RunResult]]
@@ -41,6 +41,8 @@ class TaskStatus(BaseModel):
     iterations: int = 0
     error: str | None = None
     brief: str | None = None
+    ticket_urls: list[str] = []
+    crew_request_id: str | None = None
 
 
 def create_app(
@@ -58,6 +60,10 @@ def create_app(
 
     if task_runner is None:
         async def task_runner(run_id: str, task_text: str) -> RunResult:
+            # Role-template-driven (plan step 17): the PM instance scopes
+            # and delegates; every other template implements.
+            if _settings().role_template == "pm":
+                return await run_pm(_settings(), run_id, task_text)
             return await run_task(_settings(), run_id, task_text)
 
     if plan_runner is None:
@@ -91,6 +97,8 @@ def create_app(
             iterations=result.iterations,
             error=result.error,
             brief=result.brief,
+            ticket_urls=result.ticket_urls,
+            crew_request_id=result.crew_request_id,
         )
         run_log.info("task finished", extra=tasks[run_id].model_dump())
 

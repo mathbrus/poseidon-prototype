@@ -45,7 +45,8 @@ async def test_task_lifecycle_running_then_done():
         resp = await http.get(f"/task/{RUN_ID}")
         assert resp.json() == {
             "status": "running", "pr_url": None, "iterations": 0,
-            "error": None, "brief": None,
+            "error": None, "brief": None, "ticket_urls": [],
+            "crew_request_id": None,
         }
 
         release.set()
@@ -57,6 +58,8 @@ async def test_task_lifecycle_running_then_done():
         "iterations": 2,
         "error": None,
         "brief": None,
+        "ticket_urls": [],
+        "crew_request_id": None,
     }
     assert seen == [(RUN_ID, "do it")]
 

@@ -1261,6 +1261,35 @@ allow-list is denied at the gateway.
 to a dispatch and files a ticket; a PM attempt at `sandbox.exec` or
 `git.open_pr` is denied at the gateway and audited.
 
+> **Status (2026-08-04): done** — role-template-driven on the existing
+> `packages/agent` host: the app's default task runner routes by
+> `ROLE_TEMPLATE` (which the operator has set on the pod since step 10) —
+> `pm` dispatches run `run_pm`, everything else the engineer graph, over
+> the same C6 HTTP surface any workflow dispatches. `run_pm` is a bounded
+> tool loop (not the implement graph): the PM's toolbox slice is exactly
+> `create_issue`/`read_issues`/`request_crew` mapped onto
+> `issues.*`/`crew.request`; `prompts/pm.md` states the no-private-memory
+> contract in the prompt itself (the backlog + run history are the only
+> cross-run state, both re-readable through governed tools); a gateway
+> deny surfaces to the model as a tool error, never a crash — refusal is
+> policy's, not the prompt's. `RunResult`/`TaskStatus` grew
+> `ticket_urls` + `crew_request_id` — what step 18's intake links to the
+> run record (§6.1). The mock brain gained a scripted PM (keyed on the
+> prompt): ticket → crew request → summary, so PM e2e stays free. E2e
+> (`test_pm.py`): the operator-deployed PM instance responds to a real
+> dispatch, files a real GitHub issue on the disposable repo, records a
+> `crew_requests` row under `pm-1`, and every decision in the story is
+> `agent_id=pm-1, lifecycle=standing, allow`; the denial half of the
+> done-when was already live in the governance suite (PM `sandbox.exec`
+> denied+audited at the gateway; `git.open_pr` denied in the installed
+> bundle) and stays there.
+>
+> Keep an eye on: step 18's intake dispatches the PM with a run it
+> creates (the e2e plays that role today); the PM's `run_id` is pure
+> attribution — none of its tools are run-scoped; the brain-host log line
+> still says `agent_id=backend-engineer-1` cosmetically (telemetry only —
+> real attribution is the gateway's TokenReview mapping).
+
 ### Step 18 — `intake` workflow
 
 **Depends on:** steps 17, 14 (budget reservation), 15 (`issues.*`).

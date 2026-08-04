@@ -32,6 +32,9 @@ from agent.toolbox import (
 from common.telemetry import get_logger
 
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "system.md"
+PM_PROMPT_PATH = Path(__file__).parent / "prompts" / "pm.md"
+# The PM's whole dispatch is a handful of tool calls; the cap is a backstop.
+PM_STEP_CAP = 10
 # LLM steps allowed within one act cycle before tests are forced to run.
 ACT_STEP_CAP = 20
 _OUTPUT_CLIP = 4000
@@ -55,6 +58,10 @@ class RunResult(BaseModel):
     # Planner mode (plan step 16d): the §4.4 task brief the executor's
     # dispatch carries verbatim.
     brief: str | None = None
+    # PM runtime (plan step 17): the tickets it filed and the crew intent
+    # it recorded — what an intake run links to the run record (§6.1).
+    ticket_urls: list[str] = []
+    crew_request_id: str | None = None
 
 
 def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
@@ -303,3 +310,67 @@ async def run_plan(
         if not brief:
             return RunResult(error="planner produced an empty brief")
         return RunResult(brief=brief)
+
+
+async def run_pm(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
+    """The PM runtime (plan step 17): scope a goal, file tickets, record
+    crew intent — through governed tools only. Deliberately not the
+    engineer's graph: no sandbox, no delivery, and no private memory —
+    the backlog and the run history are the PM's only cross-run state
+    (overview §4.5). Executor-tool refusal is the gateway's job, not this
+    prompt's; a deny surfaces here as a tool error the model sees.
+    """
+    from agent.toolbox import PM_TOOLS
+
+    log = get_logger("agent.pm")
+    token = settings.resolve_gateway_token()
+    llm = OpenAICompatibleLLM(
+        settings.llm_proxy_url, settings.model, token=token, run_id=run_id
+    )
+    system_prompt = PM_PROMPT_PATH.read_text().format(
+        target_repo=settings.target_repo
+    )
+    ticket_urls: list[str] = []
+    crew_request_id: str | None = None
+
+    async with McpGateway(settings.mcp_gateway_url, token) as gateway:
+        toolbox = Toolbox(gateway, settings, run_id)
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Goal:\n{task_text}"},
+        ]
+        for _ in range(PM_STEP_CAP):
+            completion = await llm.complete(messages, tools=tool_specs(PM_TOOLS))
+            messages.append(assistant_message(completion))
+            if not completion.tool_calls:
+                break
+            for call in completion.tool_calls:
+                if call.name not in PM_TOOLS:
+                    messages.append(tool_result_message(
+                        call, f"ERROR: tool {call.name} is not available"
+                    ))
+                    continue
+                try:
+                    result = await toolbox.execute(call)
+                except ToolCallError as exc:
+                    log.info("pm tool call failed",
+                             extra={"tool": call.name, "error": str(exc)})
+                    messages.append(tool_result_message(call, f"ERROR: {exc}"))
+                    continue
+                messages.append(tool_result_message(call, result))
+                if call.name == "create_issue" and result.get("url"):
+                    ticket_urls.append(result["url"])
+                if call.name == "request_crew" and result.get("id"):
+                    crew_request_id = result["id"]
+        else:
+            return RunResult(
+                error=f"PM did not finish within {PM_STEP_CAP} steps",
+                ticket_urls=ticket_urls,
+                crew_request_id=crew_request_id,
+            )
+
+    if not ticket_urls:
+        return RunResult(error="PM filed no ticket for the goal")
+    log.info("pm finished", extra={"tickets": ticket_urls,
+                                   "crew_request": crew_request_id})
+    return RunResult(ticket_urls=ticket_urls, crew_request_id=crew_request_id)
