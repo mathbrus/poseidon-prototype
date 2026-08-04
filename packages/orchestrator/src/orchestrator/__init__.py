@@ -9,6 +9,7 @@ Layout:
                 audit-event stub) — nothing wired into implement at M1
     worker/     the worker process (Deployment in the platform namespace)
 
-The worker holds no GIT_TOKEN and no provider keys; its only credential is
-the orchestrator bearer token (successor of the runner token).
+The worker holds no GIT_TOKEN and no provider keys; its gateway identity
+is a projected service-account token (plan step 11), audience-scoped to
+the gateway and rotated by the kubelet.
 """

@@ -118,6 +118,7 @@ secrets:
   runnerBearerToken: "${RUNNER_BEARER_TOKEN:?RUNNER_BEARER_TOKEN missing from $ENV_FILE}"
   postgresPassword: "${POSTGRES_PASSWORD:-poseidon-dev-postgres}"
   egressProxyKey: "${EGRESS_PROXY_KEY:-poseidon-dev-egress-key}"
+  platformJwtKey: "${PLATFORM_JWT_KEY:-poseidon-dev-platform-jwt-key}"
 run:
   model: "${MODEL:?MODEL missing from $ENV_FILE}"
   targetRepo: "${TARGET_REPO:?TARGET_REPO missing from $ENV_FILE}"

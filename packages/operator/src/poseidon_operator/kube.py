@@ -111,24 +111,22 @@ class Cluster:
                 self._core.create_namespaced_service, body, namespace=namespace
             )
 
-    def upsert_secret(self, namespace: str, body: dict[str, Any]) -> None:
+    def upsert_service_account(self, namespace: str, body: dict[str, Any]) -> None:
         name = body["metadata"]["name"]
         if self._exists(
-            self._core.read_namespaced_secret, name=name, namespace=namespace
+            self._core.read_namespaced_service_account, name=name, namespace=namespace
         ):
             self._apply(
-                self._core.patch_namespaced_secret, body,
+                self._core.patch_namespaced_service_account, body,
                 name=name, namespace=namespace,
             )
         else:
             self._apply(
-                self._core.create_namespaced_secret, body, namespace=namespace
+                self._core.create_namespaced_service_account, body,
+                namespace=namespace,
             )
 
-    # -- reads and deletes ----------------------------------------------------
-
-    def read_secret_data(self, namespace: str, name: str) -> dict[str, str]:
-        return self._core.read_namespaced_secret(name, namespace).data
+    # -- deletes --------------------------------------------------------------
 
     def delete_namespace(self, name: str) -> None:
         self._tolerate_404(self._core.delete_namespace, name)
@@ -141,6 +139,11 @@ class Cluster:
     def delete_service(self, namespace: str, name: str) -> None:
         self._tolerate_404(
             self._core.delete_namespaced_service, name, namespace=namespace
+        )
+
+    def delete_service_account(self, namespace: str, name: str) -> None:
+        self._tolerate_404(
+            self._core.delete_namespaced_service_account, name, namespace=namespace
         )
 
     # -- plumbing -------------------------------------------------------------

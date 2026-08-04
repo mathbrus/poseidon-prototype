@@ -62,27 +62,43 @@ def test_sandbox_answers_the_gateway_and_reaches_only_the_proxy():
     assert egress_targets == {"egress-proxy", "kube-dns"}
 
 
-def test_agent_deployment_carries_no_literal_credential():
-    """E3 by construction: the only secret-shaped value is a secretKeyRef,
-    and GPG_KEY (baked into the base image) is blanked."""
+def test_agent_deployment_carries_no_credential_env_at_all():
+    """E3 by construction since plan step 11: identity is the projected
+    token file, so no token-shaped env var exists — not even a secretKeyRef.
+    GPG_KEY (baked into the base image) is blanked."""
     container = resources.agent_deployment(SPEC, "hello-saas")["spec"]["template"][
         "spec"
     ]["containers"][0]
     env = {e["name"]: e for e in container["env"]}
-    assert env["AGENT_BEARER_TOKEN"].get("value") is None
-    assert env["AGENT_BEARER_TOKEN"]["valueFrom"]["secretKeyRef"]["name"] == (
-        "agent-bearer-token"
-    )
+    assert "AGENT_BEARER_TOKEN" not in env
     assert env["GPG_KEY"]["value"] == ""
     for name, entry in env.items():
         if name.endswith("_TOKEN") or name.endswith("_KEY"):
             assert not entry.get("value"), name
+        assert "valueFrom" not in entry, name
 
 
-def test_agent_pod_holds_no_kubernetes_identity():
+def test_agent_pod_identity_is_the_audience_scoped_projected_token():
+    """The pod runs as its instance's ServiceAccount and mounts one
+    projected token, audience-scoped to the gateway; the API-server token
+    stays unmounted, so the pod holds no cluster identity."""
     pod = resources.agent_deployment(SPEC, "hello-saas")["spec"]["template"]["spec"]
     assert pod["automountServiceAccountToken"] is False
     assert pod["enableServiceLinks"] is False
+    assert pod["serviceAccountName"] == "pm-1"
+    (volume,) = pod["volumes"]
+    (source,) = volume["projected"]["sources"]
+    assert source["serviceAccountToken"]["audience"] == resources.TOKEN_AUDIENCE
+    (mount,) = pod["containers"][0]["volumeMounts"]
+    assert mount["name"] == volume["name"] and mount["readOnly"] is True
+    env = {e["name"]: e.get("value") for e in pod["containers"][0]["env"]}
+    assert env["GATEWAY_TOKEN_FILE"] == f"{resources.TOKEN_MOUNT_DIR}/token"
+
+
+def test_agent_service_account_is_named_by_agent_id():
+    account = resources.agent_service_account(SPEC, "hello-saas")
+    assert account["metadata"]["name"] == "pm-1"
+    assert account["metadata"]["namespace"] == "hello-saas"
 
 
 def test_standing_agents_are_labelled_for_the_netpol_selector():

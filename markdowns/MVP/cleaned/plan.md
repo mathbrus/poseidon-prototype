@@ -699,6 +699,43 @@ policy, verified by a failed post-teardown gateway call.
 **Done when:** all callers authenticate with projected tokens on kind; a
 token from the wrong service account or namespace is rejected and audited.
 
+> **Status (2026-08-04): done** — gateway `authn.py`: one `Authenticator`
+> resolving static token → platform JWT → Kubernetes TokenReview (the
+> gateway's SA is bound to `system:auth-delegator`). Standing agents run as
+> per-instance operator-created ServiceAccounts (name = `agent_id`) and
+> mount an audience-scoped projected token (`poseidon-gateway`, kubelet-
+> rotated); the gateway maps `system:serviceaccount:<ns>:<agent_id>` via
+> the registry's `agent_instances` row — which now records `namespace`, so
+> a same-named SA anywhere else is `authn_namespace_mismatch`. The
+> orchestrator SA maps to the platform lifecycle (PoC `runner` names until
+> step 12 renames the policy surface). Both in-cluster callers lost their
+> token env vars entirely (`GATEWAY_TOKEN_FILE` instead), the operator's
+> bearer-token sync and its secrets RBAC are gone, and instance teardown
+> deletes the SA — firing revokes the identity. §2b ephemeral half:
+> `common.platformjwt` (HS256, alg pinned, platform key in a new
+> `platform-jwt-key` secret) verified at the gateway as signature +
+> audience + expiry **and** a live `run_participants` row (accessor landed;
+> 16a adds mint/revoke on top). Every rejected token is audited under an
+> `authn_*` rule; bare 401s without a credential are not. E2e:
+> `tests/e2e_kind/test_workload_identity.py` (env is structurally
+> token-free; orchestrator + agent-pod projected tokens accepted; wrong
+> SA / wrong namespace / wrong audience rejected **and** visible in
+> `audit_events`).
+>
+> Keep an eye on: static tokens are verify-only now — the gateway still
+> accepts them (host-side tests use the runner token) until step 12 deletes
+> map, settings and secret; TokenReview successes are cached 60s
+> (`authn_cache_ttl_s`), so SA deletion can take up to that to bite —
+> ephemeral revocation does *not* ride this cache (participants row checked
+> every call); the gateway NetworkPolicy gained an any-address egress rule
+> pinned to ports 443/6443 because TokenReview traffic is DNAT'd to the
+> API-server *endpoint* before policy evaluation; the operator patches
+> Deployments with strategic merge, and env lists merge by name — a removed
+> env var survives a patch, so converging existing clusters onto this step
+> needs a company re-apply (delete + apply), not just a helm upgrade;
+> `TOKEN_AUDIENCE` in `operator/resources.py` must stay equal to the
+> gateway's `token_audience` setting.
+
 ### Step 12 — Compiled policy live: decision input v2, governance regression, cutover
 
 **Depends on:** steps 9, 10, 11.

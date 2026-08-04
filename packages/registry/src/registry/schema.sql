@@ -31,10 +31,16 @@ CREATE TABLE IF NOT EXISTS registry.agent_instances (
     hire          text NOT NULL,
     role_template text NOT NULL,
     model_tier    text,
+    -- The company namespace the instance's pod (and ServiceAccount) live
+    -- in. Workload identity (plan step 11) verifies a caller's projected
+    -- token against this: same SA name in any other namespace is rejected.
+    namespace     text,
     status        text NOT NULL DEFAULT 'pending',
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
+-- Databases migrated before plan step 11 predate the column.
+ALTER TABLE registry.agent_instances ADD COLUMN IF NOT EXISTS namespace text;
 
 -- Runs: replaces runs/<id>/manifest.json. The workflow id is the §5.5
 -- mapping; artifacts (tickets, PR) are recorded against the run.

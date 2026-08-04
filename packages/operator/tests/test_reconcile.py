@@ -16,9 +16,6 @@ from poseidon_operator import reconcile
 class FakeCluster:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
-        self.secrets = {
-            ("poseidon-platform", "bearer-tokens"): {"AGENT_BEARER_TOKEN": "dG9rZW4="}
-        }
 
     def __getattr__(self, method: str):
         if method.startswith("upsert_") or method.startswith("delete_"):
@@ -27,9 +24,6 @@ class FakeCluster:
                 self.calls.append((method, *args[:-1], name))
             return record
         raise AttributeError(method)
-
-    def read_secret_data(self, namespace: str, name: str) -> dict[str, str]:
-        return self.secrets[(namespace, name)]
 
     def named(self, method: str) -> list[tuple]:
         return [call[1:] for call in self.calls if call[0] == method]
@@ -53,8 +47,12 @@ class FakeInstances:
     def __init__(self) -> None:
         self.rows: dict[str, dict] = {}
 
-    def upsert(self, agent_id, company, hire, role_template, model_tier, status="ready"):
-        self.rows[agent_id] = {"company": company, "hire": hire, "status": status}
+    def upsert(self, agent_id, company, hire, role_template, model_tier,
+               namespace=None, status="ready"):
+        self.rows[agent_id] = {
+            "company": company, "hire": hire, "namespace": namespace,
+            "status": status,
+        }
 
     def delete(self, agent_id: str) -> None:
         self.rows.pop(agent_id, None)
@@ -122,7 +120,8 @@ def test_company_reconcile_converges_the_envelope(cluster, stores):
     # namespace — the operator creates it, the worker uses it.
     assert cluster.named("upsert_role") == [("hello-saas", "sandbox-provisioner")]
     assert cluster.named("upsert_role_binding") == [("hello-saas", "sandbox-provisioner")]
-    assert cluster.named("upsert_secret") == [("hello-saas", "agent-bearer-token")]
+    # No secret sync: identity is the projected token since plan step 11.
+    assert cluster.named("upsert_secret") == []
 
     assert "hello-saas" in bundles.stored
     # The registry row records what was applied, minus the bundle (which
@@ -173,9 +172,13 @@ def test_instance_reconcile_deploys_and_registers(cluster, stores):
     reconcile.reconcile_instance(
         spec=INSTANCE_SPEC, namespace="hello-saas", name="pm", patch=patch
     )
+    # The workload identity precedes the pod that runs as it (plan step 11).
+    assert cluster.named("upsert_service_account") == [("hello-saas", "pm-1")]
     assert cluster.named("upsert_deployment") == [("hello-saas", "pm")]
     assert cluster.named("upsert_service") == [("hello-saas", "pm")]
     assert instances.rows["pm-1"]["status"] == "ready"
+    # What the gateway checks a token's namespace against.
+    assert instances.rows["pm-1"]["namespace"] == "hello-saas"
     assert patch.status["phase"] == "ready"
 
 
@@ -185,6 +188,8 @@ def test_instance_teardown_removes_everything(cluster, stores):
     reconcile.teardown_instance(spec=INSTANCE_SPEC, namespace="hello-saas")
     assert cluster.named("delete_deployment") == [("hello-saas", "pm")]
     assert cluster.named("delete_service") == [("hello-saas", "pm")]
+    # Firing revokes: the SA's deletion kills its projected tokens.
+    assert cluster.named("delete_service_account") == [("hello-saas", "pm-1")]
     assert instances.rows == {}
 
 

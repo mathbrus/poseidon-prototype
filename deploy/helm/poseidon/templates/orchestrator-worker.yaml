@@ -1,9 +1,11 @@
 # The orchestrator worker (plan step 3): drives implement through Temporal.
-# Credentials: the orchestrator bearer token, the egress-proxy HMAC key and
-# the registry DSN — no GIT_TOKEN, no provider keys. Its ServiceAccount
-# carries the bounded sandbox-provisioner Role (orchestrator-rbac.yaml) for
-# the k8s_jobs backend (plan step 4). Run records live in the registry since
-# step 8, so the runs PVC (and its Recreate strategy) are gone.
+# Credentials: the egress-proxy HMAC key and the registry DSN — no
+# GIT_TOKEN, no provider keys. Its gateway identity is a projected
+# service-account token (plan step 11), audience-scoped to the gateway and
+# rotated by the kubelet; the same ServiceAccount carries the bounded
+# sandbox-provisioner Role (orchestrator-rbac.yaml) for the k8s_jobs
+# backend (plan step 4). Run records live in the registry since step 8, so
+# the runs PVC (and its Recreate strategy) are gone.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -22,10 +24,25 @@ spec:
         {{- include "poseidon.labels" . | nindent 8 }}
     spec:
       serviceAccountName: orchestrator-worker
+      volumes:
+        # Audience-scoped gateway identity (plan step 11) — distinct from
+        # the automounted API-server token the k8s_jobs backend uses; this
+        # one is useless at the API server and the API one at the gateway.
+        - name: gateway-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: poseidon-gateway
+                  expirationSeconds: 3600
+                  path: token
       containers:
         - name: worker
           image: "{{ .Values.images.orchestrator.repository }}:{{ .Values.images.orchestrator.tag }}"
           imagePullPolicy: {{ .Values.images.orchestrator.pullPolicy }}
+          volumeMounts:
+            - name: gateway-identity
+              mountPath: /var/run/poseidon/identity
+              readOnly: true
           env:
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.orchestrator.temporalAddress | quote }}
@@ -33,13 +50,8 @@ spec:
               value: http://mcp-gateway:8080
             - name: AGENT_URL
               value: http://backend-engineer.{{ .Values.companyNamespace }}.svc.cluster.local:8000
-            - name: ORCHESTRATOR_BEARER_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: bearer-tokens
-                  # Successor of the runner token: same identity at the
-                  # gateway until workload JWTs land (plan step 12).
-                  key: RUNNER_BEARER_TOKEN
+            - name: GATEWAY_TOKEN_FILE
+              value: /var/run/poseidon/identity/token
             - name: TARGET_REPO
               value: {{ .Values.run.targetRepo | quote }}
             - name: BASE_REF

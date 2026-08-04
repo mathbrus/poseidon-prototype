@@ -156,23 +156,38 @@ class AgentInstances:
         hire: str,
         role_template: str,
         model_tier: str,
+        namespace: str | None = None,
         status: str = "ready",
     ) -> None:
         self._db.execute(
             """
             INSERT INTO registry.agent_instances
-                (agent_id, company, hire, role_template, model_tier, status, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, now())
+                (agent_id, company, hire, role_template, model_tier, namespace,
+                 status, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, now())
             ON CONFLICT (agent_id) DO UPDATE SET
                 company = EXCLUDED.company,
                 hire = EXCLUDED.hire,
                 role_template = EXCLUDED.role_template,
                 model_tier = EXCLUDED.model_tier,
+                namespace = EXCLUDED.namespace,
                 status = EXCLUDED.status,
                 updated_at = now()
             """,
-            (agent_id, company, hire, role_template, model_tier, status),
+            (agent_id, company, hire, role_template, model_tier, namespace, status),
         )
+
+    def get(self, agent_id: str) -> dict | None:
+        """One standing instance — the gateway's read for workload identity
+        (plan step 11): a projected token's ServiceAccount name resolves
+        here, and its namespace must match the recorded one."""
+        rows = self._db.query(
+            "SELECT agent_id, company, hire, role_template, model_tier,"
+            " namespace, status"
+            " FROM registry.agent_instances WHERE agent_id = %s",
+            (agent_id,),
+        )
+        return rows[0] if rows else None
 
     def delete(self, agent_id: str) -> None:
         self._db.execute(
@@ -188,7 +203,8 @@ class AgentInstances:
 
     def for_company(self, company: str) -> list[dict]:
         return self._db.query(
-            "SELECT agent_id, company, hire, role_template, model_tier, status"
+            "SELECT agent_id, company, hire, role_template, model_tier,"
+            " namespace, status"
             " FROM registry.agent_instances WHERE company = %s ORDER BY hire",
             (company,),
         )

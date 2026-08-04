@@ -62,9 +62,10 @@ def test_agent_reaches_only_the_gateways(stack: None, url: str, want: str) -> No
 
 
 def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
-    """Same rule as the CI image gate: nothing *_TOKEN/*_KEY except the
-    agent's own AGENT_BEARER_TOKEN; GPG_KEY only if blanked (the chart
-    empties the python base image's baked-in value)."""
+    """Same rule as the CI image gate: nothing *_TOKEN/*_KEY at all since
+    plan step 11 (the agent's credential is a projected token file, not an
+    env var); GPG_KEY only if blanked (the chart empties the python base
+    image's baked-in value)."""
     pods = subprocess.run(
         ["kubectl", "-n", COMPANY_NS, "get", "pods",
          "--field-selector=status.phase=Running",
@@ -85,7 +86,6 @@ def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
             if "=" in line
             for name in [line.split("=", 1)[0]]
             if (name.endswith("_TOKEN") or name.endswith("_KEY"))
-            and name != "AGENT_BEARER_TOKEN"
             and line != "GPG_KEY="
         ]
         assert not leaked, f"credential-shaped env vars in {pod}: {leaked}"

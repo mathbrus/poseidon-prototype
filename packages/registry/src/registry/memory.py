@@ -75,6 +75,70 @@ class InMemorySandboxRegistrations:
             self.rows[run_id]["terminated"] = True
 
 
+class InMemoryAgentInstances:
+    """The gateway's read side of `agent_instances` (workload identity,
+    plan step 11) plus the operator's upsert, same row shape as Postgres."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def upsert(
+        self,
+        agent_id: str,
+        company: str,
+        hire: str,
+        role_template: str,
+        model_tier: str,
+        namespace: str | None = None,
+        status: str = "ready",
+    ) -> None:
+        self.rows[agent_id] = {
+            "agent_id": agent_id,
+            "company": company,
+            "hire": hire,
+            "role_template": role_template,
+            "model_tier": model_tier,
+            "namespace": namespace,
+            "status": status,
+        }
+
+    def get(self, agent_id: str) -> dict[str, Any] | None:
+        return self.rows.get(agent_id)
+
+
+class InMemoryRunParticipants:
+    """Live ephemeral identities; `active` goes dark on termination — the
+    behaviour the revocation-before-TTL criterion rides on."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def add(
+        self,
+        agent_id: str,
+        run_id: str,
+        parent_agent_id: str,
+        crew_template: str,
+        role: str,
+    ) -> None:
+        self.rows[agent_id] = {
+            "agent_id": agent_id,
+            "run_id": run_id,
+            "parent_agent_id": parent_agent_id,
+            "crew_template": crew_template,
+            "role": role,
+            "status": "active",
+        }
+
+    def terminate(self, agent_id: str) -> None:
+        if agent_id in self.rows:
+            self.rows[agent_id]["status"] = "terminated"
+
+    def active(self, agent_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(agent_id)
+        return row if row is not None and row["status"] == "active" else None
+
+
 class InMemoryRuns:
     def __init__(self) -> None:
         self.rows: dict[str, RunRecord] = {}

@@ -1,6 +1,7 @@
-"""Activity-side clients: the gateway (MCP + admin endpoint, orchestrator
-token) and the agent's C6 HTTP API. Thin by design — process-level retries,
-timeouts and cancellation belong to the workflow, not here."""
+"""Activity-side clients: the gateway (MCP + admin endpoint, the worker's
+projected identity token) and the agent's C6 HTTP API. Thin by design —
+process-level retries, timeouts and cancellation belong to the workflow,
+not here."""
 
 import asyncio
 import base64
@@ -43,7 +44,8 @@ class AgentRunLost(AgentError):
 
 class GatewayClient:
     """MCP session for `repo.archive` plus the non-MCP admin registration,
-    both authenticated with the orchestrator bearer token."""
+    both authenticated with the token the caller passes (the worker's
+    projected service-account token since plan step 11)."""
 
     def __init__(self, url: str, bearer_token: str) -> None:
         self._base = url.rstrip("/")

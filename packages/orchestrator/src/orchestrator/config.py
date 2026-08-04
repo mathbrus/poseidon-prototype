@@ -8,6 +8,8 @@ here by design.
 """
 
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings
 
 from sandbox.contract import SandboxPolicy
@@ -21,7 +23,12 @@ class TemporalSettings(BaseSettings):
 
 
 class WorkerSettings(TemporalSettings):
-    orchestrator_bearer_token: str
+    # Gateway credential (plan step 11): the projected service-account
+    # token the kubelet mounts and rotates. Read per client construction —
+    # clients live one activity, far shorter than the token's remaining
+    # validity. The static token is the pre-step-11 fallback, deleted at 12.
+    gateway_token_file: str = ""
+    orchestrator_bearer_token: str = ""
     mcp_gateway_url: str
     agent_url: str
     target_repo: str
@@ -42,6 +49,16 @@ class WorkerSettings(TemporalSettings):
     egress_proxy_url: str = ""
     egress_proxy_key: str = ""
     poll_interval_s: float = 2
+
+    def gateway_token(self) -> str:
+        if self.gateway_token_file:
+            return Path(self.gateway_token_file).read_text().strip()
+        if self.orchestrator_bearer_token:
+            return self.orchestrator_bearer_token
+        raise RuntimeError(
+            "no gateway credential: set GATEWAY_TOKEN_FILE (projected token) "
+            "or ORCHESTRATOR_BEARER_TOKEN (static, pre-step-11)"
+        )
 
     def sandbox_policy(self, run_id: str) -> SandboxPolicy:
         env: dict[str, str] = {}

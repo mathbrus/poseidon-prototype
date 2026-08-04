@@ -2,6 +2,32 @@
 # registrations live in the registry since plan step 8 — the PVC that
 # carried the audit JSONL is gone, and with it the reason this Deployment
 # could not roll normally.
+#
+# Workload identity (plan step 11): the gateway verifies callers' projected
+# service-account tokens through the TokenReview API, which needs its own
+# ServiceAccount bound to system:auth-delegator.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp-gateway
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: poseidon-mcp-gateway-auth-delegator
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: mcp-gateway
+    namespace: {{ .Release.Namespace }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,6 +45,7 @@ spec:
         app: mcp-gateway
         {{- include "poseidon.labels" . | nindent 8 }}
     spec:
+      serviceAccountName: mcp-gateway
       containers:
         - name: mcp-gateway
           image: "{{ .Values.images.gateway.repository }}:{{ .Values.images.gateway.tag }}"
@@ -45,6 +72,16 @@ spec:
               value: {{ .Values.run.baseRef | quote }}
             - name: OPA_URL
               value: http://opa:8181
+            # Workload identity (plan step 11): where the orchestrator's
+            # ServiceAccount lives, and the §2b key for verifying
+            # platform-signed ephemeral JWTs (minted from step 16a).
+            - name: PLATFORM_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: PLATFORM_JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: platform-jwt-key
+                  key: PLATFORM_JWT_KEY
             - name: REGISTRY_DSN
               valueFrom:
                 secretKeyRef:

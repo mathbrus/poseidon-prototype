@@ -207,3 +207,48 @@ def test_company_rows_and_instance_sweep(registry: Registry):
     assert instances.for_company("test-corp") == []
     assert [r["agent_id"] for r in instances.for_company("other-corp")] == ["other-1"]
     instances.delete_for_company("other-corp")
+
+
+# -- workload identity reads (plan step 11) --------------------------------
+
+
+def test_agent_instance_lookup_carries_namespace(registry: Registry):
+    from registry.bundles import AgentInstances
+
+    instances = AgentInstances(registry)
+    instances.upsert(
+        "backend-engineer-1", "hello-saas", "backend-engineer",
+        "backend-engineer", "standard", namespace="hello-saas",
+    )
+    try:
+        row = instances.get("backend-engineer-1")
+        assert row["namespace"] == "hello-saas"
+        assert row["role_template"] == "backend-engineer"
+        assert instances.get("nobody") is None
+    finally:
+        instances.delete("backend-engineer-1")
+
+
+def test_participant_active_goes_dark_on_termination(registry: Registry):
+    """Revocation-before-TTL rides on this row disappearing from `active`."""
+    from registry.participants import RunParticipants
+
+    Runs(registry).start(RUN_ID, "task")
+    registry.execute(
+        """
+        INSERT INTO registry.run_participants
+            (agent_id, run_id, parent_agent_id, crew_template, role)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        ("executor-01X", RUN_ID, "pm-1", "feature-delivery", "backend-engineer"),
+    )
+    participants = RunParticipants(registry)
+    assert participants.active("executor-01X")["run_id"] == RUN_ID
+
+    registry.execute(
+        "UPDATE registry.run_participants"
+        " SET status = 'terminated', terminated_at = now()"
+        " WHERE agent_id = %s",
+        ("executor-01X",),
+    )
+    assert participants.active("executor-01X") is None

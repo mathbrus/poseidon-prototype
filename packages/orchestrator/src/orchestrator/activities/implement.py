@@ -55,7 +55,7 @@ class ImplementActivities:
     @activity.defn(name="fetch_workspace")
     async def fetch_workspace(self, run_id: str) -> bytes:
         async with GatewayClient(
-            self._settings.mcp_gateway_url, self._settings.orchestrator_bearer_token
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             workspace_tar = await gateway.fetch_workspace(
                 run_id, self._settings.target_repo, self._settings.base_ref
@@ -74,7 +74,7 @@ class ImplementActivities:
             self._settings.sandbox_policy(run_id),
         )
         async with GatewayClient(
-            self._settings.mcp_gateway_url, self._settings.orchestrator_bearer_token
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             await gateway.register_sandbox(
                 run_id, handle.url, handle.namespace, handle.job_name
@@ -123,7 +123,7 @@ class ImplementActivities:
             try:
                 async with GatewayClient(
                     self._settings.mcp_gateway_url,
-                    self._settings.orchestrator_bearer_token,
+                    self._settings.gateway_token(),
                 ) as gateway:
                     await gateway.unregister_sandbox(run_id)
             except Exception as exc:

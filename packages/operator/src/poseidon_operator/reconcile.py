@@ -85,8 +85,6 @@ def reconcile_company(
         company_ns, resources.sandbox_provisioner_binding(company_ns)
     )
 
-    _sync_agent_secret(cluster, company_ns)
-
     revision = ""
     bundle = spec.get("policyBundle") or {}
     if bundle:
@@ -128,6 +126,12 @@ def reconcile_instance(
     spec: dict[str, Any], namespace: str, name: str, patch: kopf.Patch, **_: Any
 ) -> None:
     cluster = _cluster()
+    # The ServiceAccount precedes the Deployment that runs as it; its name
+    # (the agent_id) plus the namespace recorded below are what the gateway
+    # verifies a projected token against (plan step 11).
+    cluster.upsert_service_account(
+        namespace, resources.agent_service_account(spec, namespace)
+    )
     cluster.upsert_deployment(namespace, resources.agent_deployment(spec, namespace))
     cluster.upsert_service(namespace, resources.agent_service(spec, namespace))
 
@@ -137,6 +141,7 @@ def reconcile_instance(
         hire=spec["hire"],
         role_template=spec["roleTemplate"],
         model_tier=spec.get("modelTier", ""),
+        namespace=namespace,
     )
     _log.info("instance converged", extra={"agent_id": spec["agentId"]})
     patch.status["phase"] = "ready"
@@ -144,36 +149,14 @@ def reconcile_instance(
 
 @kopf.on.delete("poseidon.dev", "v1", "agentinstances")
 def teardown_instance(spec: dict[str, Any], namespace: str, **_: Any) -> None:
-    """The firing half of hire/fire-as-diff (plan step 19 exercises it)."""
+    """The firing half of hire/fire-as-diff (plan step 19 exercises it).
+    Deleting the ServiceAccount revokes the instance's workload identity:
+    the API server refuses TokenReview for tokens of an SA that no longer
+    exists, so a fired agent's projected token dies with it (bounded by the
+    gateway's authn cache TTL)."""
     cluster = _cluster()
     cluster.delete_deployment(namespace, spec["hire"])
     cluster.delete_service(namespace, spec["hire"])
+    cluster.delete_service_account(namespace, spec["agentId"])
     AgentInstances(_db()).delete(spec["agentId"])
     _log.info("instance removed", extra={"agent_id": spec["agentId"]})
-
-
-# -- helpers ---------------------------------------------------------------
-
-
-def _sync_agent_secret(cluster: Cluster, company_ns: str) -> None:
-    """Copy the agent's bearer token into the company namespace.
-
-    Transitional: static bearer tokens are the PoC identity placeholder and
-    leave at plan step 12, when the agent authenticates with a projected
-    service-account token instead and this sync disappears with them.
-    """
-    data = cluster.read_secret_data(resources.platform_namespace(), "bearer-tokens")
-    cluster.upsert_secret(
-        company_ns,
-        {
-            "apiVersion": "v1",
-            "kind": "Secret",
-            "metadata": {
-                "name": "agent-bearer-token",
-                "namespace": company_ns,
-                "labels": resources.LABELS,
-            },
-            "type": "Opaque",
-            "data": {"AGENT_BEARER_TOKEN": data["AGENT_BEARER_TOKEN"]},
-        },
-    )

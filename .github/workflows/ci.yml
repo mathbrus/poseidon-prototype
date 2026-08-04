@@ -1,6 +1,6 @@
 # Poseidon CI (plan step 6): unit tests, policy tests, lockfile-pinned image
 # builds, and the secret-inspection gate that proves invariant #1 by
-# inspection — no *_TOKEN/*_KEY other than AGENT_BEARER_TOKEN may be baked
+# inspection — no *_TOKEN/*_KEY may be baked
 # into the agent or sandbox images.
 #
 # The kind e2e suite (E1–E4 + kill-the-worker) opens real PRs on a
@@ -108,7 +108,7 @@ jobs:
             leaked=$( (docker history --no-trunc --format '{{.CreatedBy}}' "$image"; \
                        docker inspect --format '{{join .Config.Env "\n"}}' "$image") \
               | grep -oE '[A-Za-z_]*_(TOKEN|KEY)=' | sort -u \
-              | grep -vE '^(AGENT_BEARER_TOKEN|GPG_KEY)=$' || true)
+              | grep -vE '^GPG_KEY=$' || true)
             if [ -n "$leaked" ]; then
               echo "secret-shaped variables baked into $image: $leaked" >&2
               exit 1

@@ -4,9 +4,12 @@ Contract C3, full surface: six sandbox tools proxied to the run's registered
 tool server, the two git tools (`repo.archive`, `git.open_pr`) backed by
 platform-side clones holding the GIT_TOKEN, plus `POST`/`DELETE
 /admin/sandboxes` (runner only) to register and retire a run's sandbox
-address. Bearer auth per contract C7; every call is policy-checked against
-OPA and audited (C1/C2) — the admin routes included, which is why the
-registration write lives behind the gateway rather than in the orchestrator.
+address. Authentication is workload identity since plan step 11 (projected
+service-account tokens via TokenReview, platform-signed ephemeral JWTs)
+plus the static C7 tokens until the step-12 cutover; every call is
+policy-checked against OPA and audited (C1/C2) — the admin routes included,
+which is why the registration write lives behind the gateway rather than in
+the orchestrator.
 
 Run with: uvicorn --factory gateway.app:create_app
 """
@@ -24,29 +27,42 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from gateway.authn import Authenticator, Reviewer, default_reviewer
 from gateway.config import GatewaySettings
-from gateway.identity import Identity, authenticate, token_map
+from gateway.identity import Identity, token_map
 from gateway.opa import OpaClient
 from gateway.service import GatewayService, PolicyDenied
-from registry import AuditStore, SandboxRegistrations, open_registry
+from registry import (
+    AuditStore,
+    RunParticipants,
+    SandboxRegistrations,
+    open_registry,
+)
+from registry.bundles import AgentInstances
 
 
-class BearerAuthMiddleware:
-    """Reject any HTTP request whose bearer token maps to no known identity."""
+class AuthMiddleware:
+    """Authenticate every HTTP request once (static token, platform JWT or
+    Kubernetes TokenReview — plan step 11) and stash the identity in the
+    request state; rejected tokens are audited by the authenticator."""
 
-    def __init__(self, app: ASGIApp, tokens: dict[str, Identity]) -> None:
+    def __init__(self, app: ASGIApp, authenticator: Authenticator) -> None:
         self.app = app
-        self.tokens = tokens
+        self.authenticator = authenticator
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         authorization = Headers(scope=scope).get("authorization")
-        if authenticate(authorization, self.tokens) is None:
+        identity = await self.authenticator.authenticate(
+            authorization, scope.get("path", "")
+        )
+        if identity is None:
             response = JSONResponse({"detail": "unauthorized"}, status_code=401)
             await response(scope, receive, send)
             return
+        scope.setdefault("state", {})["identity"] = identity
         await self.app(scope, receive, send)
 
 
@@ -66,23 +82,36 @@ def create_app(
     http_client: httpx.AsyncClient | None = None,
     sandboxes: SandboxRegistrations | None = None,
     audit: AuditStore | None = None,
+    instances: AgentInstances | None = None,
+    participants: RunParticipants | None = None,
+    token_reviewer: Reviewer | None = None,
 ) -> Starlette:
     settings = settings or GatewaySettings()
     http_client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=630.0))
-    tokens = token_map(settings)
     opa = OpaClient(settings.opa_url, http_client)
-    # Sandbox registrations and audit events live in the registry since plan
-    # step 8; every service migrates at startup under an advisory lock. The
-    # accessors are injectable so tests need no database — both or neither:
-    # injecting one would still open a real pool for the other.
+    # Registry accessors (sandbox registrations, audit events since step 8;
+    # instance and participant reads for workload identity since step 11).
+    # Injectable so tests need no database — all four or none: injecting a
+    # subset would still open a real pool for the rest.
+    accessors = (sandboxes, audit, instances, participants)
     registry = None
-    if sandboxes is None and audit is None:
+    if all(a is None for a in accessors):
         registry = open_registry()
         sandboxes = SandboxRegistrations(registry)
         audit = AuditStore(registry)
-    elif sandboxes is None or audit is None:
-        raise ValueError("inject both sandboxes and audit, or neither")
+        instances = AgentInstances(registry)
+        participants = RunParticipants(registry)
+    elif any(a is None for a in accessors):
+        raise ValueError("inject all registry accessors, or none")
     service = GatewayService(settings, opa, http_client, sandboxes, audit)
+    authenticator = Authenticator(
+        settings,
+        token_map(settings),
+        audit,
+        instances,
+        participants,
+        reviewer=token_reviewer or default_reviewer(settings),
+    )
 
     mcp = FastMCP(
         "poseidon-gateway",
@@ -94,8 +123,10 @@ def create_app(
     )
 
     def identity_of(ctx: Context) -> Identity:
-        request = ctx.request_context.request
-        identity = authenticate(request.headers.get("authorization"), tokens)
+        # Authenticated once by the middleware; the identity rides the
+        # request state (re-verifying here would re-run a TokenReview per
+        # tool call for nothing).
+        identity = getattr(ctx.request_context.request.state, "identity", None)
         if identity is None:  # unreachable behind the middleware
             raise PermissionError("unauthorized")
         return identity
@@ -162,7 +193,7 @@ def create_app(
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])
     async def admin_sandboxes(request: Request) -> Response:
-        identity = authenticate(request.headers.get("authorization"), tokens)
+        identity = getattr(request.state, "identity", None)
         if identity is None:  # unreachable behind the middleware
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
         try:
@@ -179,7 +210,7 @@ def create_app(
 
     @mcp.custom_route("/admin/sandboxes", methods=["DELETE"])
     async def admin_sandboxes_delete(request: Request) -> Response:
-        identity = authenticate(request.headers.get("authorization"), tokens)
+        identity = getattr(request.state, "identity", None)
         if identity is None:  # unreachable behind the middleware
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
         try:
@@ -193,7 +224,7 @@ def create_app(
         return JSONResponse({"ok": True})
 
     app = mcp.streamable_http_app()
-    app.add_middleware(BearerAuthMiddleware, tokens=tokens)
+    app.add_middleware(AuthMiddleware, authenticator=authenticator)
     if registry is not None:
         # Close the self-opened pool on shutdown by wrapping the session
         # manager's lifespan (this Starlette has no on_shutdown events API).

@@ -15,7 +15,12 @@ import pytest
 
 from gateway.app import create_app
 from gateway.config import GatewaySettings
-from registry.memory import InMemoryAuditStore, InMemorySandboxRegistrations
+from registry.memory import (
+    InMemoryAgentInstances,
+    InMemoryAuditStore,
+    InMemoryRunParticipants,
+    InMemorySandboxRegistrations,
+)
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -137,13 +142,31 @@ def settings() -> GatewaySettings:
 
 
 @pytest.fixture
-async def app(settings: GatewaySettings, backends: Backends, audit: InMemoryAuditStore):
+def instances() -> InMemoryAgentInstances:
+    return InMemoryAgentInstances()
+
+
+@pytest.fixture
+def participants() -> InMemoryRunParticipants:
+    return InMemoryRunParticipants()
+
+
+@pytest.fixture
+async def app(
+    settings: GatewaySettings,
+    backends: Backends,
+    audit: InMemoryAuditStore,
+    instances: InMemoryAgentInstances,
+    participants: InMemoryRunParticipants,
+):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
     application = create_app(
         settings,
         stub_client,
         sandboxes=InMemorySandboxRegistrations(),
         audit=audit,
+        instances=instances,
+        participants=participants,
     )
     async with application.state.fastmcp.session_manager.run():
         yield application

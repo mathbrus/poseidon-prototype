@@ -12,6 +12,12 @@ from typing import Any
 
 AGENT_PORT = 8000
 LABELS = {"app.kubernetes.io/part-of": "poseidon", "app.kubernetes.io/managed-by": "poseidon-operator"}
+# Workload identity (plan step 11): every standing agent runs as its own
+# ServiceAccount, named by its agent_id, and authenticates to the MCP
+# gateway with a kubelet-rotated projected token scoped to this audience.
+# Must match the gateway's `token_audience` setting.
+TOKEN_AUDIENCE = "poseidon-gateway"
+TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
 
 
 def platform_namespace() -> str:
@@ -238,12 +244,30 @@ def sandbox_provisioner_binding(company_ns: str) -> dict[str, Any]:
     }
 
 
+def agent_service_account(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
+    """The instance's own identity (plan step 11). The name is the
+    agent_id: the gateway resolves `system:serviceaccount:<ns>:<agent_id>`
+    against the registry's `agent_instances` row and requires the namespace
+    to match — a same-named ServiceAccount anywhere else verifies fine at
+    the API server and still maps to nothing."""
+    return {
+        "apiVersion": "v1",
+        "kind": "ServiceAccount",
+        "metadata": {
+            "name": spec["agentId"],
+            "namespace": company_ns,
+            "labels": {**LABELS, "poseidon.dev/company": spec["company"]},
+        },
+    }
+
+
 def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
     """A standing agent Deployment, reconciled from an AgentInstance.
 
-    The spec carries no credential: the agent's bearer token comes from the
-    company-namespace secret the operator syncs, and the whole thing is
-    replaced by a projected identity token at plan step 11/12.
+    The spec carries no credential: the pod's only identity is the
+    audience-scoped projected token the kubelet mounts and rotates (plan
+    step 11). No API-server token is mounted (automount stays off), and no
+    token-shaped env var exists in the pod at all (E3).
     """
     hire = spec["hire"]
     env = os.environ
@@ -267,8 +291,28 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
             "template": {
                 "metadata": {"labels": labels},
                 "spec": {
+                    "serviceAccountName": spec["agentId"],
+                    # The projected volume below is the pod's only token:
+                    # audience-scoped to the gateway, useless at the API
+                    # server. Automount stays off.
                     "automountServiceAccountToken": False,
                     "enableServiceLinks": False,
+                    "volumes": [
+                        {
+                            "name": "gateway-identity",
+                            "projected": {
+                                "sources": [
+                                    {
+                                        "serviceAccountToken": {
+                                            "audience": TOKEN_AUDIENCE,
+                                            "expirationSeconds": 3600,
+                                            "path": "token",
+                                        }
+                                    }
+                                ]
+                            },
+                        }
+                    ],
                     "containers": [
                         {
                             "name": "agent",
@@ -295,14 +339,19 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                                 {"name": "TARGET_REPO", "value": env.get("TARGET_REPO", "")},
                                 {"name": "MAX_ITERATIONS",
                                  "value": env.get("MAX_ITERATIONS", "10")},
-                                {"name": "AGENT_BEARER_TOKEN",
-                                 "valueFrom": {"secretKeyRef": {
-                                     "name": "agent-bearer-token",
-                                     "key": "AGENT_BEARER_TOKEN"}}},
+                                {"name": "GATEWAY_TOKEN_FILE",
+                                 "value": f"{TOKEN_MOUNT_DIR}/token"},
                                 # The python base image bakes this in; blank
                                 # it so no token-shaped value exists in a
                                 # company pod at all (E3).
                                 {"name": "GPG_KEY", "value": ""},
+                            ],
+                            "volumeMounts": [
+                                {
+                                    "name": "gateway-identity",
+                                    "mountPath": TOKEN_MOUNT_DIR,
+                                    "readOnly": True,
+                                }
                             ],
                             "readinessProbe": {
                                 "httpGet": {"path": "/openapi.json", "port": AGENT_PORT},

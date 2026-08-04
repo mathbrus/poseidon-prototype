@@ -83,6 +83,18 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
+    # The API server, for TokenReview (workload identity, plan step 11).
+    # By address, not selector: the endpoint may sit outside any namespace
+    # (kind: the node's IP:6443; managed clusters: an external VIP:443),
+    # and kube-proxy DNATs the service VIP before policy is evaluated, so
+    # the rule must admit the *endpoint* address. Ports are pinned so this
+    # never widens general egress.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+        - port: 6443
     # Everything outside the cluster: the external git host. Pods and
     # services are explicitly excluded so "external" never quietly
     # includes them.
