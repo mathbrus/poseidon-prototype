@@ -50,6 +50,12 @@ spec:
                 policyBundle:
                   type: object
                   additionalProperties: {type: string}
+                # The platform scope's own bundle (plan step 12): compiler-
+                # owned, company-independent, served under the reserved
+                # "platform" key. Identical from every apply.
+                platformBundle:
+                  type: object
+                  additionalProperties: {type: string}
                 # Infra IR projections (§5.4).
                 infra:
                   type: object

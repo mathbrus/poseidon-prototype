@@ -17,19 +17,23 @@ import pytest
 
 from compiler import compile_blueprint
 
-QUERY = "data.poseidon.authz.decision"
+# Per-company packages since plan step 12; the platform scope lives in its
+# own bundle. Both are loaded together here — their packages (and therefore
+# bundle roots) are disjoint by construction.
+COMPANY_QUERY = "data.poseidon.authz.hello_saas.decision"
+PLATFORM_QUERY = "data.poseidon.platform.decision"
 
 
 def _runner():
     if shutil.which("opa"):
-        return lambda bundle, stdin: subprocess.run(
-            ["opa", "eval", "-d", bundle, "-f", "raw", "-I", QUERY],
+        return lambda bundle, stdin, query: subprocess.run(
+            ["opa", "eval", "-d", bundle, "-f", "raw", "-I", query],
             input=stdin, capture_output=True, text=True, timeout=60,
         )
     if shutil.which("docker"):
-        return lambda bundle, stdin: subprocess.run(
+        return lambda bundle, stdin, query: subprocess.run(
             ["docker", "run", "--rm", "-i", "-v", f"{bundle}:/b:ro",
-             "openpolicyagent/opa", "eval", "-d", "/b", "-f", "raw", "-I", QUERY],
+             "openpolicyagent/opa", "eval", "-d", "/b", "-f", "raw", "-I", query],
             input=stdin, capture_output=True, text=True, timeout=120,
         )
     return None
@@ -47,11 +51,11 @@ def decide(tmp_path_factory, request):
     blueprint = yaml.safe_load(HELLO_SAAS.read_text())
     plan = compile_blueprint(blueprint)
     bundle = tmp_path_factory.mktemp("bundle")
-    for name, body in plan.bundle.files.items():
+    for name, body in {**plan.bundle.files, **plan.platform_bundle.files}.items():
         (bundle / name).write_text(body)
 
-    def run(**input_fields) -> dict:
-        proc = runner(str(bundle), json.dumps(input_fields))
+    def run(_query: str = COMPANY_QUERY, **input_fields) -> dict:
+        proc = runner(str(bundle), json.dumps(input_fields), _query)
         assert proc.returncode == 0, proc.stderr
         return json.loads(proc.stdout)
 
@@ -183,9 +187,10 @@ def test_another_company_cannot_borrow_our_rules(decide):
 
 def test_only_the_platform_may_merge(decide):
     """O-1 A: the workflow merges under its own identity after the human
-    gate; no company role can reach the tool at all."""
-    assert decide(lifecycle="platform", tool="git.merge_pr", run_id="run-1",
-                  args={})["allow"] is True
+    gate — via its own decision path; no company role can reach the tool in
+    the company package at all."""
+    assert decide(PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr",
+                  run_id="run-1", args={})["allow"] is True
     assert decide(
         **ephemeral("feature-delivery", "executor", "backend-engineer",
                     tool="git.merge_pr", args={})
@@ -201,8 +206,17 @@ def test_platform_may_retire_a_sandbox_registration(decide):
     """Both gateway admin routes are in PLATFORM_SCOPE — the DELETE was
     missing, which would have killed teardown at the step-12 cutover."""
     for tool in ("/admin/sandboxes", "/admin/sandboxes.delete"):
-        assert decide(lifecycle="platform", tool=tool, run_id="run-1",
-                      args={})["allow"] is True, tool
+        assert decide(PLATFORM_QUERY, lifecycle="platform", tool=tool,
+                      run_id="run-1", args={})["allow"] is True, tool
+
+
+def test_company_lifecycles_find_nothing_in_the_platform_package(decide):
+    """The platform package carries only platform rules: a standing or
+    ephemeral caller routed there by mistake still gets default-deny."""
+    assert decide(
+        PLATFORM_QUERY, **standing("backend-engineer", tool="sandbox.exec",
+                                   run_binding_verified=True, args={})
+    ) == {"allow": False, "rule": "default_deny"}
 
 
 def test_open_pr_without_paths_is_denied(decide):
@@ -227,7 +241,7 @@ def _eval_bundle(tmp_path_factory, blueprint, name, input_fields) -> dict:
     bundle = tmp_path_factory.mktemp(name)
     for file_name, body in plan.bundle.files.items():
         (bundle / file_name).write_text(body)
-    proc = runner(str(bundle), json.dumps(input_fields))
+    proc = runner(str(bundle), json.dumps(input_fields), COMPANY_QUERY)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
@@ -290,7 +304,6 @@ def test_crew_rule_compares_the_raw_member_name():
             )
         ],
         policies={},
-        platform_tools=[],
     )
     body = files["crew_feature_review_code_reviewer.rego"]
     assert 'input.crew_role == "code-reviewer"' in body

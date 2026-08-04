@@ -53,6 +53,23 @@ def test_agent_ingress_admits_only_the_orchestrator():
 
 def test_sandbox_answers_the_gateway_and_reaches_only_the_proxy():
     spec = resources.sandbox_isolation("hello-saas")["spec"]
+    _assert_sandbox_envelope(spec)
+
+
+def test_sandbox_isolation_projects_the_infra_ir():
+    """Since plan step 12 the envelope comes from the compiled projection;
+    the compiler's standard emission must produce the same envelope as the
+    defaults (a CR predating the wiring converges identically)."""
+    projected = resources.sandbox_isolation(
+        "hello-saas",
+        {"sandbox_ingress_from": ["mcp-gateway"],
+         "sandbox_egress_to": ["egress-proxy", "kube-dns"]},
+    )
+    assert projected == resources.sandbox_isolation("hello-saas")
+    _assert_sandbox_envelope(projected["spec"])
+
+
+def _assert_sandbox_envelope(spec):
     assert spec["ingress"][0]["from"][0]["podSelector"]["matchLabels"]["app"] == "mcp-gateway"
     egress_targets = {
         rule["to"][0]["podSelector"]["matchLabels"].get("app")

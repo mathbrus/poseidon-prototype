@@ -60,6 +60,7 @@ class InMemorySandboxRegistrations:
         job_name: str | None = None,
     ) -> None:
         self.rows[run_id] = {
+            "run_id": run_id,
             "url": url,
             "namespace": namespace,
             "job_name": job_name,
@@ -67,12 +68,41 @@ class InMemorySandboxRegistrations:
         }
 
     def url_for(self, run_id: str) -> str | None:
+        row = self.active(run_id)
+        return row["url"] if row else None
+
+    def active(self, run_id: str) -> dict[str, Any] | None:
         row = self.rows.get(run_id)
-        return None if row is None or row["terminated"] else row["url"]
+        if row is None or row["terminated"]:
+            return None
+        return {k: row[k] for k in ("run_id", "url", "namespace", "job_name")}
 
     def terminate(self, run_id: str) -> None:
         if run_id in self.rows:
             self.rows[run_id]["terminated"] = True
+
+
+class InMemoryCompanies:
+    """The operator's writes and the read side the worker and egress proxy
+    grew at plan step 12 (infra IR consumption)."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def upsert(self, name: str, spec: dict[str, Any]) -> None:
+        self.rows[name] = dict(spec)
+
+    def get(self, name: str) -> dict[str, Any] | None:
+        return self.rows.get(name)
+
+    def by_namespace(self, namespace: str) -> dict[str, Any] | None:
+        for spec in self.rows.values():
+            if spec.get("namespace") == namespace:
+                return spec
+        return None
+
+    def delete(self, name: str) -> None:
+        self.rows.pop(name, None)
 
 
 class InMemoryAgentInstances:

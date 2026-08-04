@@ -39,6 +39,7 @@ def check(
     roles = role_catalog or ROLE_TEMPLATES
     crews = crew_catalog or CREW_TEMPLATES
     problems: list[str] = []
+    problems += _company_name(blueprint)
     problems += _role_templates(blueprint, roles)
     problems += _workflow_conductors(blueprint)
     problems += _tool_scopes(blueprint)
@@ -48,6 +49,16 @@ def check(
     problems += _policy_patterns(blueprint)
     problems += _budget_coverage(blueprint)
     return problems
+
+
+def _company_name(blueprint: dict[str, Any]) -> list[str]:
+    """`platform` is the bundle key and Rego package the orchestrator's own
+    scope lives under (plan step 12) — a company by that name would collide
+    with it at the bundle server and shadow the platform decision path."""
+    name = (blueprint.get("company") or {}).get("name")
+    if name == "platform":
+        return ["company.name: 'platform' is reserved for the platform policy bundle"]
+    return []
 
 
 def _hires(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:

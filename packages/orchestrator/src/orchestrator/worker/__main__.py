@@ -21,6 +21,7 @@ from orchestrator.activities import ImplementActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows import ImplementWorkflow
 from registry import Runs, open_registry
+from registry.bundles import Companies
 from sandbox.backends.k8s_jobs import K8sJobsBackend
 
 
@@ -31,7 +32,9 @@ async def main() -> None:
     # Every service migrates at startup under an advisory lock, so the
     # worker needs no ordering guarantee against the other writers.
     registry = open_registry()
-    activities = ImplementActivities(settings, backend, Runs(registry))
+    activities = ImplementActivities(
+        settings, backend, Runs(registry), Companies(registry)
+    )
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping
     # kubelet crash-loop backoff. The namespace check matters: pollers

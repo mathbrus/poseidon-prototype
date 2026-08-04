@@ -127,11 +127,58 @@ def agent_ingress(company_ns: str) -> dict[str, Any]:
     }
 
 
-def sandbox_isolation(company_ns: str) -> dict[str, Any]:
-    """The sandbox envelope, from the infra IR (§5.4): answer the gateway,
-    reach only the audited proxy. NetworkPolicy is the silent backstop
-    beneath the proxy's audited denies."""
-    platform = platform_namespace()
+def _peer_rule(name: str) -> dict[str, Any]:
+    """One IR peer name -> the NetworkPolicy rule that admits exactly it.
+    The vocabulary is the §5.4 projection's: platform services by app label,
+    cluster DNS by its kube-system label."""
+    if name == "kube-dns":
+        return {
+            "to": [
+                {
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+                    },
+                    "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+                }
+            ],
+            "ports": [
+                {"port": 53, "protocol": "UDP"},
+                {"port": 53, "protocol": "TCP"},
+            ],
+        }
+    ports = {"mcp-gateway": AGENT_PORT, "egress-proxy": 3128}
+    return {
+        "to": [
+            {
+                "namespaceSelector": {
+                    "matchLabels": {
+                        "kubernetes.io/metadata.name": platform_namespace()
+                    }
+                },
+                "podSelector": {"matchLabels": {"app": name}},
+            }
+        ],
+        "ports": [{"port": ports.get(name, AGENT_PORT)}],
+    }
+
+
+def sandbox_isolation(
+    company_ns: str, projection: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """The sandbox envelope, projected from the compiled infra IR (§5.4,
+    wired at plan step 12): answer the gateway, reach only the audited
+    proxy. NetworkPolicy is the silent backstop beneath the proxy's audited
+    denies. The defaults equal what the compiler emits for every blueprint
+    today, so a CR predating the IR wiring converges identically."""
+    projection = projection or {}
+    ingress_from = list(projection.get("sandbox_ingress_from") or ["mcp-gateway"])
+    egress_to = list(
+        projection.get("sandbox_egress_to") or ["egress-proxy", "kube-dns"]
+    )
+    ingress = [
+        {"from": rule["to"], "ports": rule["ports"]}
+        for rule in (_peer_rule(name) for name in ingress_from)
+    ]
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "NetworkPolicy",
@@ -143,46 +190,8 @@ def sandbox_isolation(company_ns: str) -> dict[str, Any]:
         "spec": {
             "podSelector": {"matchLabels": {"app": "poseidon-sandbox"}},
             "policyTypes": ["Ingress", "Egress"],
-            "ingress": [
-                {
-                    "from": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": platform}
-                            },
-                            "podSelector": {"matchLabels": {"app": "mcp-gateway"}},
-                        }
-                    ],
-                    "ports": [{"port": AGENT_PORT}],
-                }
-            ],
-            "egress": [
-                {
-                    "to": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": platform}
-                            },
-                            "podSelector": {"matchLabels": {"app": "egress-proxy"}},
-                        }
-                    ],
-                    "ports": [{"port": 3128}],
-                },
-                {
-                    "to": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
-                            },
-                            "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
-                        }
-                    ],
-                    "ports": [
-                        {"port": 53, "protocol": "UDP"},
-                        {"port": 53, "protocol": "TCP"},
-                    ],
-                },
-            ],
+            "ingress": ingress,
+            "egress": [_peer_rule(name) for name in egress_to],
         },
     }
 

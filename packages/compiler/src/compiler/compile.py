@@ -26,15 +26,14 @@ from compiler.plan import (
     RegoBundle,
     WorkflowConfig,
 )
-from compiler.rego import build_bundle
+from compiler.rego import build_bundle, build_platform_bundle
 from compiler.snapshot import EMPTY, RegistrySnapshot
 
 # What the orchestrator's own identity may call. Not blueprint-configurable:
 # a company that could grant itself the platform lifecycle would be able to
 # merge its own pull requests (O-1 A). The two /admin entries are the
-# gateway's admin routes, policed under their path as the tool name
-# (poc.rego does the same) — both must be here or sandbox registration and
-# teardown die at the step-12 cutover.
+# gateway's admin routes, policed under their path as the tool name —
+# both must be here or sandbox registration and teardown die.
 PLATFORM_SCOPE = sorted(
     {
         *PLATFORM_TOOLS,
@@ -84,7 +83,6 @@ def compile_blueprint(
             instances=list(instances),
             crew_members=list(crew_members),
             policies=blueprint.get("policies") or {},
-            platform_tools=PLATFORM_SCOPE,
         )
     )
     return DeploymentPlan(
@@ -95,6 +93,7 @@ def compile_blueprint(
         budgets=budgets,
         infra=infra,
         bundle=bundle,
+        platform_bundle=RegoBundle(files=build_platform_bundle(PLATFORM_SCOPE)),
     )
 
 

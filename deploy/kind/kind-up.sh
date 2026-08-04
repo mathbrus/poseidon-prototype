@@ -114,8 +114,6 @@ cat > "$SECRETS_FILE" <<EOF
 secrets:
   gitToken: "${GIT_TOKEN:?GIT_TOKEN missing from $ENV_FILE}"
   llmApiKey: "${LLM_API_KEY:?LLM_API_KEY missing from $ENV_FILE}"
-  agentBearerToken: "${AGENT_BEARER_TOKEN:?AGENT_BEARER_TOKEN missing from $ENV_FILE}"
-  runnerBearerToken: "${RUNNER_BEARER_TOKEN:?RUNNER_BEARER_TOKEN missing from $ENV_FILE}"
   postgresPassword: "${POSTGRES_PASSWORD:-poseidon-dev-postgres}"
   egressProxyKey: "${EGRESS_PROXY_KEY:-poseidon-dev-egress-key}"
   platformJwtKey: "${PLATFORM_JWT_KEY:-poseidon-dev-platform-jwt-key}"
@@ -134,8 +132,7 @@ helm upgrade --install poseidon deploy/helm/poseidon \
   -f deploy/helm/poseidon/values-kind.yaml \
   -f "$SECRETS_FILE" \
   "${MOCK_VALUES[@]}" \
-  "${IMAGE_VALUES[@]}" \
-  --set-file opa.policies.poc=policies/poc.rego
+  "${IMAGE_VALUES[@]}"
 
 echo "==> rollout"
 # Postgres first: every service migrates the registry schema at startup and

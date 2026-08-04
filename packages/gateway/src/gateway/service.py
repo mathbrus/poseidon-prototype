@@ -1,8 +1,16 @@
 """Gateway enforcement pipeline: policy input -> OPA -> audit -> backend.
 
 Every call (MCP tool or admin endpoint) goes through `GatewayService.call`,
-which builds the C2 policy input, queries OPA, emits a C1 audit event, and
-only on allow executes the backend action.
+which builds the §5.1 decision input — enriched with the verified run
+binding from the registry (plan step 12) — queries the caller's compiled
+decision path, emits a C1 audit event, and only on allow executes the
+backend action.
+
+Run-binding enrichment is the successor of the PoC's `data.runs.assignments`
+pushes: the gateway resolves the claimed run against the registry (live
+sandbox registration, its namespace, the run row) and injects
+`run_binding_verified` into the *input*. Policy never reads pushed data, so
+OPA stays a pure function of bundle + input (§2b).
 """
 
 import asyncio
@@ -19,9 +27,13 @@ from common.audit import AuditEvent
 from common.telemetry import get_logger
 from gateway.config import GatewaySettings
 from gateway.git_backend import GitBackend
-from gateway.identity import AGENT_ID, Identity
-from gateway.opa import OpaClient
-from registry import AuditStore, SandboxRegistrations
+from gateway.identity import (
+    LIFECYCLE_EPHEMERAL,
+    LIFECYCLE_PLATFORM,
+    Identity,
+)
+from gateway.opa import PLATFORM_DECISION_PATH, OpaClient, company_decision_path
+from registry import AuditStore, Runs, SandboxRegistrations
 
 # tool name -> sandbox tool-server route (contract C4)
 SANDBOX_ROUTES = {
@@ -57,6 +69,7 @@ class GatewayService:
         http_client: httpx.AsyncClient,
         sandboxes: SandboxRegistrations,
         audit: AuditStore,
+        runs: Runs,
         git_backend: GitBackend | None = None,
     ) -> None:
         self._settings = settings
@@ -69,6 +82,8 @@ class GatewayService:
         # process restarted (resolution row 16).
         self._sandboxes = sandboxes
         self._audit_store = audit
+        # Read-only: the run row supplies the §5.1 `workflow` field.
+        self._runs = runs
 
     # -- sandbox registry -------------------------------------------------
     # Registry accessors are synchronous psycopg; every use goes through
@@ -103,14 +118,21 @@ class GatewayService:
         run_id = str(args.get("run_id", ""))
         started = time.monotonic()
 
-        policy_input = {
-            "agent_id": identity.agent_id,
-            "role": identity.role,
-            "run_id": run_id,
-            "tool": tool,
-            "args": args,
-        }
-        decision = await self._opa.decide(policy_input)
+        policy_input = await self._decision_input(identity, tool, args, run_id)
+        if policy_input is None:
+            # Parentage is mandatory for ephemeral callers (§5.1) — an
+            # identity missing it never reaches policy.
+            await self._audit(
+                identity, tool, args, run_id, "deny",
+                "ephemeral_parentage_missing", started, None,
+            )
+            raise PolicyDenied("ephemeral_parentage_missing")
+        path = (
+            PLATFORM_DECISION_PATH
+            if identity.lifecycle == LIFECYCLE_PLATFORM
+            else company_decision_path(identity.company or "")
+        )
+        decision = await self._opa.decide(policy_input, path)
 
         if not decision.allow:
             await self._audit(identity, tool, args, run_id, "deny", decision.rule, started, None)
@@ -123,6 +145,61 @@ class GatewayService:
             raise
         await self._audit(identity, tool, args, run_id, "allow", decision.rule, started, "ok")
         return result
+
+    async def _decision_input(
+        self, identity: Identity, tool: str, args: dict[str, Any], run_id: str
+    ) -> dict[str, Any] | None:
+        """The §5.1 decision input, run binding verified against the registry.
+
+        Wrong, stale or revoked `run_id` claims resolve to
+        `run_binding_verified: false`, and every run-scoped compiled rule
+        requires the flag — so they fail closed at the policy layer, exactly
+        where `data.runs.assignments` used to catch them.
+        """
+        registration = run_row = None
+        if run_id:
+            def read():
+                return self._sandboxes.active(run_id), self._runs.get(run_id)
+
+            registration, run_row = await asyncio.to_thread(read)
+
+        if identity.lifecycle == LIFECYCLE_EPHEMERAL:
+            # The participants row bound this identity to exactly one run.
+            verified = identity.run_id == run_id and bool(run_id)
+        elif identity.lifecycle == LIFECYCLE_PLATFORM:
+            verified = registration is not None
+        else:
+            # Standing callers: the run's sandbox must live in the caller's
+            # own namespace — a live registration of another company is a
+            # cross-tenant claim, not a binding.
+            verified = (
+                registration is not None
+                and identity.namespace is not None
+                and registration["namespace"] == identity.namespace
+            )
+
+        policy_input = {
+            "company": identity.company or "",
+            "agent_id": identity.agent_id,
+            "lifecycle": identity.lifecycle,
+            "parent_agent_id": identity.parent_agent_id or "",
+            "role": identity.role,
+            "run_id": run_id,
+            "workflow": run_row.workflow if run_row else "",
+            "tool": tool,
+            "args": args,
+            "run_binding_verified": verified,
+        }
+        if identity.lifecycle == LIFECYCLE_EPHEMERAL:
+            if not (
+                identity.parent_agent_id
+                and identity.crew_template
+                and identity.crew_role
+            ):
+                return None
+            policy_input["crew_template"] = identity.crew_template
+            policy_input["crew_role"] = identity.crew_role
+        return policy_input
 
     async def proxy_sandbox(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         """Forward an allowed sandbox.* call to the run's registered tool server."""
@@ -144,20 +221,19 @@ class GatewayService:
         namespace: str | None = None,
         job_name: str | None = None,
     ) -> None:
-        """Admin action: register a sandbox and push the run assignment to OPA."""
+        """Admin action: register a sandbox. The registration row *is* the
+        run binding — nothing is pushed to OPA (§2b)."""
 
         async def backend() -> None:
             await self.register_sandbox(run_id, url, namespace, job_name)
-            await self._opa.assign_run(AGENT_ID, run_id)
 
         await self.call(
             identity, "/admin/sandboxes", {"run_id": run_id, "url": url}, backend
         )
 
     async def unregister_run(self, identity: Identity, run_id: str) -> None:
-        """Admin action: retire a registration at teardown. The OPA run
-        assignment stays until the compiled-policy cutover (plan step 12)
-        replaces `data.runs.assignments` with registry-enriched input."""
+        """Admin action: retire a registration at teardown — from here the
+        run binding is stale and every run-scoped call for it fails closed."""
 
         async def backend() -> None:
             await asyncio.to_thread(self._sandboxes.terminate, run_id)

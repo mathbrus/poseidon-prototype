@@ -92,7 +92,15 @@ def stores(monkeypatch) -> tuple[FakeBundleStore, FakeInstances, FakeCompanies]:
 COMPANY_SPEC = {
     "namespace": "hello-saas",
     "mission": "ship it",
-    "policyBundle": {"authz.rego": "package poseidon.authz\n"},
+    "policyBundle": {"authz.rego": "package poseidon.authz.hello_saas\n"},
+    "platformBundle": {"platform.rego": "package poseidon.platform\n"},
+    "infra": {
+        "network_policy": {
+            "namespace": "hello-saas",
+            "sandbox_ingress_from": ["mcp-gateway"],
+            "sandbox_egress_to": ["egress-proxy", "kube-dns"],
+        }
+    },
     "workflows": [],
     "budgets": {},
 }
@@ -124,6 +132,9 @@ def test_company_reconcile_converges_the_envelope(cluster, stores):
     assert cluster.named("upsert_secret") == []
 
     assert "hello-saas" in bundles.stored
+    # The platform scope rides every apply under its reserved key (§2b);
+    # identical content, so re-applies never churn the revision.
+    assert "platform" in bundles.stored
     # The registry row records what was applied, minus the bundle (which
     # lives in policy_bundles under its own revision).
     assert "policyBundle" not in companies.rows["hello-saas"]
@@ -139,12 +150,12 @@ def test_company_reconcile_is_idempotent(cluster, stores):
     assert cluster.calls == first + first  # same intents, no accumulation
 
 
-def test_company_without_a_bundle_stores_nothing(cluster, stores):
+def test_company_without_a_bundle_stores_no_company_bundle(cluster, stores):
     bundles, _instances, _companies = stores
     spec = {**COMPANY_SPEC, "policyBundle": {}}
     patch = kopf.Patch()
     reconcile.reconcile_company(spec=spec, name="hello-saas", patch=patch)
-    assert bundles.stored == {}
+    assert "hello-saas" not in bundles.stored
     assert patch.status["bundleRevision"] == ""
 
 
@@ -159,6 +170,8 @@ def test_company_teardown_revokes_and_sweeps(cluster, stores):
     reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
 
     assert bundles.deleted == ["hello-saas"]
+    # The platform bundle is the platform's, not the company's.
+    assert "platform" in bundles.stored
     assert cluster.named("delete_namespace") == [("hello-saas",)]
     assert "hello-saas" not in companies.rows
     # Swept at the company level — correct even if the operator missed

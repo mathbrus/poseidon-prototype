@@ -6,9 +6,13 @@ attempts to bypass the proxy.
 
 The sandbox is provisioned exactly as the orchestrator does it: the per-run
 proxy credential is minted with the shared key (read from the cluster
-secret) and injected via `SandboxPolicy.env`.
+secret) and injected via `SandboxPolicy.env`, and the sandbox is registered
+at the gateway — since plan step 12 the proxy's allowlist resolves per run
+through that registration to the applied blueprint's IR projection, so an
+unregistered run has zero egress.
 """
 
+import asyncio
 import io
 import subprocess
 import tarfile
@@ -69,7 +73,30 @@ def workspace_tar(tmp_path: Path) -> bytes:
     return buf.getvalue()
 
 
-def test_egress_containment(egress_key: str, workspace_tar: bytes):
+def _admin(env: dict, action: str, run_id: str, handle=None) -> None:
+    """Register/retire the run's sandbox as the orchestrator would — the
+    registration is both the gateway's run binding and the egress proxy's
+    path to the blueprint allowlist."""
+    from orchestrator.clients import GatewayClient
+
+    from .test_registry_durability import projected_token
+
+    token = projected_token(PLATFORM_NS, "orchestrator-worker")
+    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
+
+    async def run() -> None:
+        async with GatewayClient(gateway_url, token) as gateway:
+            if action == "register":
+                await gateway.register_sandbox(
+                    run_id, handle.url, handle.namespace, handle.job_name
+                )
+            else:
+                await gateway.unregister_sandbox(run_id)
+
+    asyncio.run(run())
+
+
+def test_egress_containment(env: dict, egress_key: str, workspace_tar: bytes):
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()
     policy = SandboxPolicy(
@@ -79,6 +106,7 @@ def test_egress_containment(egress_key: str, workspace_tar: bytes):
         env=sandbox_proxy_env(PROXY_URL, egress_key, run_id),
     )
     handle = backend.provision(run_id, workspace_tar, policy)
+    _admin(env, "register", run_id, handle)
     try:
         # Non-allowlisted host: blocked at the proxy (403 on the tunnel).
         exit_code, output = backend._exec(
@@ -118,5 +146,21 @@ def test_egress_containment(egress_key: str, workspace_tar: bytes):
              "import socket; s=socket.socket(); s.settimeout(5); s.connect(('1.1.1.1', 443))"],
         )
         assert exit_code != 0
+
+        # Retiring the registration revokes egress entirely: the proxy
+        # resolves the run to nothing (within its short cache TTL).
+        _admin(env, "unregister", run_id)
+        deadline = time.monotonic() + 30
+        while True:
+            exit_code, output = backend._exec(
+                handle.pod_name,
+                ["python", "-c",
+                 "import urllib.request; urllib.request.urlopen("
+                 "'https://pypi.org', timeout=15)"],
+            )
+            if exit_code != 0 and "403" in output:
+                break
+            assert time.monotonic() < deadline, "egress survived unregistration"
+            time.sleep(2)
     finally:
         backend.destroy(handle)

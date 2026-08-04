@@ -1,17 +1,13 @@
-"""Step 10 done-when: the declarative company lifecycle on kind.
+"""Step 10 done-when — and, since the step-12 cutover, the full revocation
+claim: the declarative company lifecycle on kind.
 
 apply converges a live company (namespace, RBAC, roster, served bundle);
 a blueprint edit converges as a rollout with no manual steps; deleting the
-Company revokes — namespace gone, bundle 404, and a restarted OPA activates
-nothing for the company.
-
-On the last point, deliberately: a *running* OPA keeps its last activated
-bundle when the server starts answering 404 (that is OPA's documented
-failure behaviour), and the gateway still queries the hand-authored
-`poseidon/poc` package until the step-12 cutover. So "a previously working
-gateway call now fails" is claimable only at step 12; at step 10 revocation
-is proven at the delivery layer (404) and across an OPA restart — which is
-exactly the §2b restart-safety property the polling contract exists for.
+Company revokes — namespace gone, bundle 404, a restarted OPA activates
+nothing for the company, and a credential that worked before the teardown
+is refused at the gateway afterwards (the post-teardown denial that was
+deliberately unclaimable at step 10, when the gateway still queried the
+file-loaded poc.rego).
 
 The module finalizer always re-applies `examples/hello-saas.yaml` and waits
 for convergence, so the rest of the suite finds a healthy company whether
@@ -143,10 +139,10 @@ def test_apply_converges_the_company(stack: None):
             assert ".manifest" in tar.getnames()
 
 
-def test_opa_activated_the_bundle_and_poc_survived(stack: None):
-    """The two-source overlap (M2): the compiled bundle is live *and* the
-    file-loaded poc.rego still answers — the bundle's roots must not cover
-    `poseidon/poc`, or activation erases it and every gateway decision dies."""
+def test_opa_activated_both_bundles(stack: None):
+    """Compiled bundles are the only served policy (step 12): the company
+    bundle under its own package, the platform bundle under the reserved
+    key — disjoint roots, both active, default-deny entrypoints."""
     revision = bundle_revision_from_cr()
     with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
         deadline = time.monotonic() + 120  # OPA polls every 5-15s
@@ -165,13 +161,15 @@ def test_opa_activated_the_bundle_and_poc_survived(stack: None):
             )
             time.sleep(3)
 
-        compiled = httpx.get(f"{base}/v1/data/poseidon/authz/decision", timeout=10).json()
-        assert compiled.get("result") == {"allow": False, "rule": "default_deny"}
-
-        poc = httpx.post(
-            f"{base}/v1/data/poseidon/poc/decision", json={"input": {}}, timeout=10
+        company = httpx.get(
+            f"{base}/v1/data/poseidon/authz/hello_saas/decision", timeout=10
         ).json()
-        assert "result" in poc, "poc.rego was erased by bundle activation"
+        assert company.get("result") == {"allow": False, "rule": "default_deny"}
+
+        platform = httpx.get(
+            f"{base}/v1/data/poseidon/platform/decision", timeout=10
+        ).json()
+        assert platform.get("result") == {"allow": False, "rule": "default_deny"}
 
 
 # -- (b) a blueprint edit converges --------------------------------------------
@@ -205,7 +203,19 @@ def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
 # -- (c) delete revokes ---------------------------------------------------------
 
 
-def test_company_delete_revokes(stack: None):
+def test_company_delete_revokes(stack: None, env: dict):
+    # A credential that provably works before the teardown: the standing
+    # engineer's projected token, exercised through the gateway (the deny
+    # is policy answering — authenticated, no binding for this run id).
+    from .test_registry_durability import projected_token
+
+    agent_token = projected_token(COMPANY_NS, "backend-engineer-1")
+    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
+    before = httpx.get(f"{gateway_url}/mcp",
+                       headers={"Authorization": f"Bearer {agent_token}"},
+                       timeout=10)
+    assert before.status_code != 401, "the pre-teardown credential must work"
+
     kubectl("delete", "company", COMPANY_NS, "--timeout=120s", timeout=150)
     kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s",
             timeout=200)
@@ -215,19 +225,37 @@ def test_company_delete_revokes(stack: None):
         resp = httpx.get(f"{base}/bundles/{COMPANY_NS}/bundle.tar.gz", timeout=30)
         assert resp.status_code == 404
 
-    # And across an OPA restart: a fresh OPA re-polls, gets the 404, and
-    # activates nothing for the company — while the file-loaded poc.rego
-    # (the policy the gateway queries until step 12) still answers.
+    # Across an OPA restart: a fresh OPA re-polls, gets the 404, and
+    # activates nothing for the company — the platform bundle (which is
+    # the platform's, not the company's) is still served.
     kubectl("-n", PLATFORM_NS, "delete", "pod", "-l", "app=opa", "--wait=true",
             timeout=120)
     kubectl("-n", PLATFORM_NS, "rollout", "status", "deployment/opa",
             "--timeout=180s", timeout=200)
     with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
-        compiled = httpx.get(f"{base}/v1/data/poseidon/authz/decision", timeout=10).json()
-        assert "result" not in compiled, "compiled policy survived teardown"
-        poc = httpx.post(
-            f"{base}/v1/data/poseidon/poc/decision", json={"input": {}}, timeout=10
+        compiled = httpx.get(
+            f"{base}/v1/data/poseidon/authz/hello_saas/decision", timeout=10
         ).json()
-        assert "result" in poc
+        assert "result" not in compiled, "compiled policy survived teardown"
+        platform = httpx.get(
+            f"{base}/v1/data/poseidon/platform/decision", timeout=10
+        ).json()
+        assert "result" in platform
+
+    # And at the gateway (claimable since step 12): the fired agent's
+    # ServiceAccount and instance row died with the namespace, so the
+    # pre-teardown token is refused once the gateway's short authn cache
+    # (60s) drains — a failed post-teardown call, per the step-10 done-when.
+    deadline = time.monotonic() + 120
+    while True:
+        after = httpx.get(f"{gateway_url}/mcp",
+                          headers={"Authorization": f"Bearer {agent_token}"},
+                          timeout=10)
+        if after.status_code == 401:
+            break
+        assert time.monotonic() < deadline, (
+            f"pre-teardown credential still accepted ({after.status_code})"
+        )
+        time.sleep(5)
     # The module finalizer re-applies and waits, so the rest of the suite
     # finds a healthy company.

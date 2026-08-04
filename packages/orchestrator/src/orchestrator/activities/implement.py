@@ -22,10 +22,12 @@ from typing import Any
 from temporalio import activity
 
 from common.telemetry import get_logger
+from compiler.infra import DEFAULT_IMAGE
 from orchestrator.clients import AgentClient, GatewayClient
 from orchestrator.config import WorkerSettings
 from registry import Runs
-from sandbox.contract import SandboxBackend, SandboxHandle
+from registry.bundles import Companies
+from sandbox.contract import SandboxBackend, SandboxHandle, SandboxPolicy
 
 
 def _heartbeat() -> None:
@@ -36,11 +38,18 @@ def _heartbeat() -> None:
 
 class ImplementActivities:
     def __init__(
-        self, settings: WorkerSettings, backend: SandboxBackend, runs: Runs
+        self,
+        settings: WorkerSettings,
+        backend: SandboxBackend,
+        runs: Runs,
+        companies: Companies,
     ) -> None:
         self._settings = settings
         self._backend = backend
         self._runs = runs
+        # Read-only: the applied blueprint's infra IR is the SandboxPolicy
+        # source (plan step 12, closing sequencing choice 2).
+        self._companies = companies
         self._log = get_logger("orchestrator.activities")
 
     @activity.defn(name="create_run")
@@ -48,9 +57,41 @@ class ImplementActivities:
         from orchestrator.workflows.implement import workflow_id
 
         await asyncio.to_thread(
-            self._runs.start, run_id, task_text, "implement", workflow_id(run_id)
+            self._runs.start,
+            run_id,
+            task_text,
+            "implement",
+            workflow_id(run_id),
+            self._settings.company,
         )
         self._log.bind(run_id=run_id).info("run created")
+
+    def _sandbox_policy(self, run_id: str) -> SandboxPolicy:
+        """The compiled SandboxPolicy: the applied blueprint's infra IR plus
+        the per-run egress credential (§2b) and the deploy-time resolution
+        of the logical toolchain image. No applied blueprint means no
+        policy — provisioning without one would resurrect hand-authored
+        values the compiler exists to replace."""
+        spec = self._companies.get(self._settings.company)
+        sandbox_ir = ((spec or {}).get("infra") or {}).get("sandbox")
+        if not sandbox_ir:
+            raise RuntimeError(
+                f"no applied blueprint for company {self._settings.company!r}"
+                " — provision_sandbox has no compiled SandboxPolicy source"
+            )
+        image = sandbox_ir.get("image") or DEFAULT_IMAGE
+        if image == DEFAULT_IMAGE:
+            image = self._settings.sandbox_image
+        return SandboxPolicy(
+            image=image,
+            workspace_dir=sandbox_ir.get("workspace_dir", "/workspace"),
+            cpu=sandbox_ir["cpu"],
+            memory=sandbox_ir["memory"],
+            disk=sandbox_ir["disk"],
+            deadline_s=int(sandbox_ir["deadline_s"]),
+            egress_allow=list(sandbox_ir.get("egress_allow") or []),
+            env=self._settings.sandbox_proxy_env(run_id),
+        )
 
     @activity.defn(name="fetch_workspace")
     async def fetch_workspace(self, run_id: str) -> bytes:
@@ -67,12 +108,12 @@ class ImplementActivities:
 
     @activity.defn(name="provision_sandbox")
     async def provision_sandbox(self, run_id: str, workspace_tar: bytes) -> dict[str, Any]:
-        handle = await asyncio.to_thread(
-            self._backend.provision,
-            run_id,
-            workspace_tar,
-            self._settings.sandbox_policy(run_id),
-        )
+        def provision():
+            return self._backend.provision(
+                run_id, workspace_tar, self._sandbox_policy(run_id)
+            )
+
+        handle = await asyncio.to_thread(provision)
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:

@@ -4,10 +4,6 @@ from pydantic_settings import BaseSettings
 
 
 class GatewaySettings(BaseSettings):
-    # PoC static identity placeholders — verified alongside workload JWTs
-    # since plan step 11, deleted at the step-12 cutover.
-    agent_bearer_token: str
-    runner_bearer_token: str
     opa_url: str = "http://opa:8181"
     # Git backend (C7: GIT_TOKEN/BASE_REF live in the gateway only).
     git_token: str | None = None

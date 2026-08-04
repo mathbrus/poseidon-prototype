@@ -62,8 +62,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
-      - name: Hand-authored policy (retires at plan step 12)
-        run: docker run --rm -v "$PWD/policies:/policies:ro" openpolicyagent/opa test /policies -v
       - name: Compiled bundle parses
         run: |
           uv run poseidon blueprint compile examples/hello-saas.yaml \

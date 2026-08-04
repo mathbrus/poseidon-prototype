@@ -53,13 +53,16 @@ def workspace_tar(tmp_path: Path) -> bytes:
     return buf.getvalue()
 
 
-def bearer_token(key: str) -> str:
+def projected_token(namespace: str, service_account: str) -> str:
+    """Workload identity (plan steps 11/12): mint the same kind of
+    audience-scoped projected token the kubelet mounts, for the real
+    ServiceAccounts — the static bearer tokens are gone."""
     proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "get", "secret", "bearer-tokens",
-         "-o", "go-template={{index .data \"" + key + "\" | base64decode}}"],
+        ["kubectl", "-n", namespace, "create", "token", service_account,
+         "--audience=poseidon-gateway", "--duration=10m"],
         capture_output=True, text=True, timeout=60, check=True,
     )
-    return proc.stdout
+    return proc.stdout.strip()
 
 
 def test_sandbox_registration_survives_a_gateway_restart(
@@ -70,11 +73,11 @@ def test_sandbox_registration_survives_a_gateway_restart(
     from orchestrator.clients import GatewayClient
 
     gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
-    # Registration is the orchestrator's (runner) admin action; `sandbox.*`
-    # belongs to the engineer for its assigned run — two identities, exactly
+    # Registration is the orchestrator's platform admin action; `sandbox.*`
+    # belongs to the engineer for its bound run — two identities, exactly
     # as in a real run.
-    runner_token = bearer_token("RUNNER_BEARER_TOKEN")
-    agent_token = bearer_token("AGENT_BEARER_TOKEN")
+    runner_token = projected_token(PLATFORM_NS, "orchestrator-worker")
+    agent_token = projected_token(COMPANY_NS, "backend-engineer-1")
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()
     handle = backend.provision(

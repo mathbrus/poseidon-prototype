@@ -3,13 +3,13 @@
 Contract C3, full surface: six sandbox tools proxied to the run's registered
 tool server, the two git tools (`repo.archive`, `git.open_pr`) backed by
 platform-side clones holding the GIT_TOKEN, plus `POST`/`DELETE
-/admin/sandboxes` (runner only) to register and retire a run's sandbox
-address. Authentication is workload identity since plan step 11 (projected
-service-account tokens via TokenReview, platform-signed ephemeral JWTs)
-plus the static C7 tokens until the step-12 cutover; every call is
-policy-checked against OPA and audited (C1/C2) — the admin routes included,
-which is why the registration write lives behind the gateway rather than in
-the orchestrator.
+/admin/sandboxes` (platform lifecycle only) to register and retire a run's
+sandbox address. Authentication is workload identity (projected
+service-account tokens via TokenReview, platform-signed ephemeral JWTs —
+plan step 11; the static PoC tokens died at the step-12 cutover); every
+call is policy-checked against the caller's compiled decision path and
+audited (C1/C2) — the admin routes included, which is why the registration
+write lives behind the gateway rather than in the orchestrator.
 
 Run with: uvicorn --factory gateway.app:create_app
 """
@@ -29,12 +29,13 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from gateway.authn import Authenticator, Reviewer, default_reviewer
 from gateway.config import GatewaySettings
-from gateway.identity import Identity, token_map
+from gateway.identity import Identity
 from gateway.opa import OpaClient
 from gateway.service import GatewayService, PolicyDenied
 from registry import (
     AuditStore,
     RunParticipants,
+    Runs,
     SandboxRegistrations,
     open_registry,
 )
@@ -42,9 +43,9 @@ from registry.bundles import AgentInstances
 
 
 class AuthMiddleware:
-    """Authenticate every HTTP request once (static token, platform JWT or
-    Kubernetes TokenReview — plan step 11) and stash the identity in the
-    request state; rejected tokens are audited by the authenticator."""
+    """Authenticate every HTTP request once (platform JWT or Kubernetes
+    TokenReview — plan step 11) and stash the identity in the request
+    state; rejected tokens are audited by the authenticator."""
 
     def __init__(self, app: ASGIApp, authenticator: Authenticator) -> None:
         self.app = app
@@ -84,16 +85,18 @@ def create_app(
     audit: AuditStore | None = None,
     instances: AgentInstances | None = None,
     participants: RunParticipants | None = None,
+    runs: Runs | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
     settings = settings or GatewaySettings()
     http_client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=630.0))
     opa = OpaClient(settings.opa_url, http_client)
     # Registry accessors (sandbox registrations, audit events since step 8;
-    # instance and participant reads for workload identity since step 11).
-    # Injectable so tests need no database — all four or none: injecting a
-    # subset would still open a real pool for the rest.
-    accessors = (sandboxes, audit, instances, participants)
+    # instance/participant reads for workload identity since step 11; run
+    # reads for decision-input enrichment since step 12). Injectable so
+    # tests need no database — all or none: injecting a subset would still
+    # open a real pool for the rest.
+    accessors = (sandboxes, audit, instances, participants, runs)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -101,12 +104,12 @@ def create_app(
         audit = AuditStore(registry)
         instances = AgentInstances(registry)
         participants = RunParticipants(registry)
+        runs = Runs(registry)
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
-    service = GatewayService(settings, opa, http_client, sandboxes, audit)
+    service = GatewayService(settings, opa, http_client, sandboxes, audit, runs)
     authenticator = Authenticator(
         settings,
-        token_map(settings),
         audit,
         instances,
         participants,

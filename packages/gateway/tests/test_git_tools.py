@@ -55,7 +55,7 @@ async def open_pr(app, token, *, branch, bundle_b64, repo):
 # --- repo.archive -------------------------------------------------------------
 
 
-async def test_runner_archives_repo_stripped_of_remotes(app, target_repo, tmp_path, audit):
+async def test_platform_archives_repo_stripped_of_remotes(app, target_repo, tmp_path, audit):
     async with mcp_session(app, RUNNER_TOKEN) as session:
         result = await session.call_tool(
             "repo.archive",
@@ -75,8 +75,8 @@ async def test_runner_archives_repo_stripped_of_remotes(app, target_repo, tmp_pa
     assert git("remote", cwd=extracted).strip() == ""
 
     event = audit_events(audit)[-1]
-    assert event["tool"] == "repo.archive" and event["role"] == "runner"
-    assert event["decision"] == "allow" and event["rule"] == "repo_archive_runner"
+    assert event["tool"] == "repo.archive" and event["role"] == "platform"
+    assert event["decision"] == "allow" and event["rule"] == "platform_repo.archive"
     assert event["backend_status"] == "ok"
     # Attributable like every other step — the E4 story has no hole at the
     # workspace fetch.
@@ -126,7 +126,8 @@ async def test_feature_branch_pr_is_pushed_and_opened(
 
     event = audit_events(audit)[-1]
     assert event["tool"] == "git.open_pr" and event["run_id"] == RUN_ID
-    assert event["decision"] == "allow" and event["rule"] == "git_open_pr_feature_branch"
+    assert event["decision"] == "allow"
+    assert event["rule"] == "role_backend_engineer_git_open_pr"
     assert event["backend_status"] == "ok"
 
 
@@ -179,10 +180,10 @@ async def test_pr_touching_workflows_is_denied(app, backends, target_repo, tmp_p
     )
 
     assert result.isError
-    assert "git_open_pr_workflow_paths" in result.content[0].text
+    assert "git_open_pr_denied_paths" in result.content[0].text
     assert "refs/heads/feature/sneaky-ci" not in refs(target_repo)
     assert backends.github_calls == []
-    assert audit_events(audit)[-1]["rule"] == "git_open_pr_workflow_paths"
+    assert audit_events(audit)[-1]["rule"] == "git_open_pr_denied_paths"
 
 
 # --- git.open_pr: bundle tampering -------------------------------------------------
@@ -201,10 +202,12 @@ async def test_tampered_bundle_errors_and_is_audited(
     assert "refs/heads/feature/ok" not in refs(target_repo)
     assert backends.github_calls == []
 
-    # The attempt is audited: policy allowed the call, the backend failed on it.
+    # The attempt is audited — and denied: a bundle that fails verification
+    # yields no changed paths, and the compiled path rules fail closed
+    # without them (git_open_pr_paths_missing). Nothing left the gateway.
     event = audit_events(audit)[-1]
     assert event["tool"] == "git.open_pr" and event["run_id"] == RUN_ID
-    assert event["decision"] == "allow" and event["backend_status"] == "error"
+    assert event["decision"] == "deny" and event["rule"] == "git_open_pr_paths_missing"
 
 
 async def test_garbage_bundle_errors_and_is_audited(app, backends, target_repo, audit):
@@ -215,4 +218,4 @@ async def test_garbage_bundle_errors_and_is_audited(app, backends, target_repo, 
     assert result.isError
     assert backends.github_calls == []
     event = audit_events(audit)[-1]
-    assert event["decision"] == "allow" and event["backend_status"] == "error"
+    assert event["decision"] == "deny" and event["rule"] == "git_open_pr_paths_missing"

@@ -2,9 +2,11 @@
 
 Split in two: `TemporalSettings` is all a Temporal client needs (the CLI —
 every field has a default suitable for a port-forwarded kind cluster);
-`WorkerSettings` adds what activities need. The worker's only credential is
-the orchestrator bearer token; GIT_TOKEN and provider keys never appear
-here by design.
+`WorkerSettings` adds what activities need. The worker's gateway credential
+is its projected service-account token (plan step 11); GIT_TOKEN and
+provider keys never appear here by design. SandboxPolicy values come from
+the applied blueprint's infra IR in the registry (plan step 12) — only the
+egress-proxy attribution env and the logical-image resolution live here.
 """
 
 
@@ -12,7 +14,6 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
-from sandbox.contract import SandboxPolicy
 from sandbox.egressproxy.credentials import sandbox_proxy_env
 
 
@@ -28,24 +29,23 @@ class WorkerSettings(TemporalSettings):
     # clients live one activity, far shorter than the token's remaining
     # validity. The static token is the pre-step-11 fallback, deleted at 12.
     gateway_token_file: str = ""
-    orchestrator_bearer_token: str = ""
     mcp_gateway_url: str
     agent_url: str
     target_repo: str
     base_ref: str = "main"
-    # Where sandbox Jobs run: the company namespace (hardcoded like the rest
-    # of the company wiring until the operator exists, plan step 10).
+    # The bootstrap company this worker executes runs for, and its
+    # namespace (where sandbox Jobs land). Single-company wiring like
+    # AGENT_URL; goes per-run at plan step 16.
+    company: str = "hello-saas"
     sandbox_namespace: str = "hello-saas"
-    # Hand-authored SandboxPolicy values (sequencing choice 2) — replaced by
-    # the compiler-emitted infra IR at plan step 12.
+    # Deploy-time resolution of the infra IR's *logical* toolchain image
+    # (plan step 12): a blueprint says `poseidon-sandbox`; only the
+    # deployment knows the content-addressed reference the cluster actually
+    # carries. Any other image the IR names passes through untouched.
     sandbox_image: str = "poseidon-sandbox"
-    sandbox_cpu: str = "1"
-    sandbox_memory: str = "1Gi"
-    sandbox_disk: str = "2Gi"
-    sandbox_deadline_s: int = 3600
     # Egress attribution (§2b): the proxy URL as sandboxes reach it and the
     # shared HMAC key for per-run credentials. Both empty disables the env
-    # injection entirely (pre-proxy clusters keep zero egress).
+    # injection entirely (proxy-less clusters keep zero egress).
     egress_proxy_url: str = ""
     egress_proxy_key: str = ""
     poll_interval_s: float = 2
@@ -53,22 +53,12 @@ class WorkerSettings(TemporalSettings):
     def gateway_token(self) -> str:
         if self.gateway_token_file:
             return Path(self.gateway_token_file).read_text().strip()
-        if self.orchestrator_bearer_token:
-            return self.orchestrator_bearer_token
         raise RuntimeError(
-            "no gateway credential: set GATEWAY_TOKEN_FILE (projected token) "
-            "or ORCHESTRATOR_BEARER_TOKEN (static, pre-step-11)"
+            "no gateway credential: set GATEWAY_TOKEN_FILE to the projected "
+            "service-account token path"
         )
 
-    def sandbox_policy(self, run_id: str) -> SandboxPolicy:
-        env: dict[str, str] = {}
+    def sandbox_proxy_env(self, run_id: str) -> dict[str, str]:
         if self.egress_proxy_url and self.egress_proxy_key:
-            env = sandbox_proxy_env(self.egress_proxy_url, self.egress_proxy_key, run_id)
-        return SandboxPolicy(
-            image=self.sandbox_image,
-            cpu=self.sandbox_cpu,
-            memory=self.sandbox_memory,
-            disk=self.sandbox_disk,
-            deadline_s=self.sandbox_deadline_s,
-            env=env,
-        )
+            return sandbox_proxy_env(self.egress_proxy_url, self.egress_proxy_key, run_id)
+        return {}

@@ -58,16 +58,6 @@ spec:
                 secretKeyRef:
                   name: git-credentials
                   key: GIT_TOKEN
-            - name: AGENT_BEARER_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: bearer-tokens
-                  key: AGENT_BEARER_TOKEN
-            - name: RUNNER_BEARER_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: bearer-tokens
-                  key: RUNNER_BEARER_TOKEN
             - name: BASE_REF
               value: {{ .Values.run.baseRef | quote }}
             - name: OPA_URL

@@ -51,14 +51,23 @@ class SandboxRegistrations:
         """The address a `sandbox.*` call proxies to. Terminated rows return
         nothing: a call against a torn-down sandbox must fail, not reach
         whatever now answers at that address."""
+        row = self.active(run_id)
+        return row["url"] if row else None
+
+    def active(self, run_id: str) -> dict | None:
+        """The live registration, namespace included — what the gateway's
+        run-binding enrichment (plan step 12) and the egress proxy's
+        allowlist resolution key on. Stale or terminated rows return None,
+        which is exactly what makes a stale `run_id` claim fail closed."""
         rows = self._db.query(
             """
-            SELECT url FROM registry.sandbox_registrations
+            SELECT run_id, url, namespace, job_name
+              FROM registry.sandbox_registrations
              WHERE run_id = %s AND terminated_at IS NULL
             """,
             (run_id,),
         )
-        return rows[0]["url"] if rows else None
+        return rows[0] if rows else None
 
     def terminate(self, run_id: str) -> None:
         self._db.execute(

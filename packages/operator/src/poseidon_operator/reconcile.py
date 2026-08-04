@@ -72,7 +72,11 @@ def reconcile_company(
         resources.default_deny(company_ns),
         resources.agent_egress(company_ns),
         resources.agent_ingress(company_ns),
-        resources.sandbox_isolation(company_ns),
+        # The sandbox envelope comes from the compiled infra IR (§5.4,
+        # wired at plan step 12) — hand-authoring a projection is a bug.
+        resources.sandbox_isolation(
+            company_ns, (spec.get("infra") or {}).get("network_policy")
+        ),
     ):
         cluster.upsert_network_policy(company_ns, policy)
 
@@ -92,6 +96,12 @@ def reconcile_company(
         # revision (§2b). Nothing installs policy into a running OPA.
         revision = PolicyBundles(_db()).put(name, dict(bundle))
         _log.info("policy bundle stored", extra={"company": name, "revision": revision})
+    platform_bundle = spec.get("platformBundle") or {}
+    if platform_bundle:
+        # Reserved key, never a company name (the compiler refuses one).
+        # Content-addressed revision: identical from every apply, so this
+        # is a no-op except on a compiler upgrade.
+        PolicyBundles(_db()).put("platform", dict(platform_bundle))
 
     Companies(_db()).upsert(
         name, {k: v for k, v in spec.items() if k != "policyBundle"}
@@ -107,8 +117,9 @@ def reconcile_company(
 def teardown_company(spec: dict[str, Any], name: str, **_: Any) -> None:
     """Teardown revokes: the namespace goes, and the bundle stops being
     served, so a caller still holding an identity finds no rule to match.
-    Registry rows are swept at the company level — correct even if the
-    operator missed individual instance-delete events."""
+    The platform bundle stays — it belongs to the platform, not to any
+    company. Registry rows are swept at the company level — correct even if
+    the operator missed individual instance-delete events."""
     PolicyBundles(_db()).delete(name)
     AgentInstances(_db()).delete_for_company(name)
     Companies(_db()).delete(name)

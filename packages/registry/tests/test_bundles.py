@@ -17,10 +17,10 @@ def manifest_of(tarball: bytes) -> dict:
 
 def test_roots_come_from_the_package_declarations():
     """OPA bundle activation erases everything under the roots that the
-    bundle does not supply. The compiled bundle's package is
-    `poseidon.authz`; a root any wider (the old hardcoded `poseidon`) would
-    delete the file-loaded `poseidon.poc` on the first poll and take every
-    gateway decision with it."""
+    bundle does not supply. Company packages are per-company and the
+    platform package is its own bundle; a root any wider (the old hardcoded
+    `poseidon`) would erase whatever another bundle owns on the first
+    poll and take every gateway decision with it."""
     tarball, _revision = pack(
         {
             "authz.rego": "package poseidon.authz\n\nimport rego.v1\n",

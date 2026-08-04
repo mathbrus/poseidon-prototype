@@ -119,6 +119,10 @@ class DeploymentPlan:
     budgets: BudgetRegistration
     infra: InfraIR
     bundle: RegoBundle
+    # The orchestrator's compiler-owned scope, its own bundle (plan step 12):
+    # per-company packages keep company roots disjoint, and the platform
+    # rules — identical from every blueprint — live under poseidon.platform.
+    platform_bundle: RegoBundle
 
     def as_dict(self) -> dict[str, Any]:
         """Deterministic and JSON-shaped. The diff and the golden tests both
@@ -134,6 +138,9 @@ class DeploymentPlan:
                 "budgets": asdict(self.budgets),
                 "infra": asdict(self.infra),
                 "bundle": {"files": dict(sorted(self.bundle.files.items()))},
+                "platform_bundle": {
+                    "files": dict(sorted(self.platform_bundle.files.items()))
+                },
             }
         )
 

@@ -15,7 +15,6 @@ import pytest
 from common import platformjwt
 from gateway.authn import Authenticator, ServiceAccount
 from gateway.config import GatewaySettings
-from gateway.identity import token_map
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
@@ -50,8 +49,6 @@ class FakeReviewer:
 @pytest.fixture
 def authn_settings() -> GatewaySettings:
     return GatewaySettings(
-        agent_bearer_token=AGENT_TOKEN,
-        runner_bearer_token=RUNNER_TOKEN,
         platform_namespace=PLATFORM_NS,
         platform_jwt_key=JWT_KEY,
         token_audience=AUD,
@@ -94,7 +91,6 @@ def reviewer() -> FakeReviewer:
 def authenticator(authn_settings, audit, instances, participants, reviewer):
     return Authenticator(
         authn_settings,
-        token_map(authn_settings),
         audit,
         instances,
         participants,
@@ -113,7 +109,8 @@ async def test_orchestrator_token_maps_to_platform_lifecycle(authenticator):
     identity = await authenticator.authenticate("Bearer sa-orchestrator", "/mcp")
     assert identity is not None
     assert identity.lifecycle == "platform"
-    assert identity.role == "runner"
+    assert identity.agent_id == "orchestrator"
+    assert identity.role == "platform"
 
 
 async def test_standing_agent_token_maps_through_the_registry(authenticator):
@@ -123,6 +120,7 @@ async def test_standing_agent_token_maps_through_the_registry(authenticator):
     assert identity.role == "backend-engineer"
     assert identity.company == COMPANY_NS
     assert identity.lifecycle == "standing"
+    assert identity.namespace == COMPANY_NS
 
 
 async def test_unknown_service_account_is_rejected_and_audited(authenticator, audit):
@@ -158,18 +156,9 @@ async def test_token_review_is_cached(authenticator, reviewer):
     assert len(reviewer.calls) == 1
 
 
-async def test_static_tokens_still_work(authenticator, reviewer):
-    """The PoC placeholders survive until the step-12 cutover."""
-    agent = await authenticator.authenticate(f"Bearer {AGENT_TOKEN}", "/mcp")
-    runner = await authenticator.authenticate(f"Bearer {RUNNER_TOKEN}", "/mcp")
-    assert agent.agent_id == "backend-engineer-1" and agent.lifecycle == "standing"
-    assert runner.role == "runner" and runner.lifecycle == "platform"
-    assert reviewer.calls == []  # never reached the API server
-
-
 async def test_no_reviewer_fails_closed(authn_settings, audit, instances, participants):
     lone = Authenticator(
-        authn_settings, {}, audit, instances, participants, reviewer=None
+        authn_settings, audit, instances, participants, reviewer=None
     )
     assert await lone.authenticate("Bearer sa-agent", "/mcp") is None
     assert rules(audit) == ["authn_unknown_token"]
@@ -193,12 +182,19 @@ def mint(_key: str = JWT_KEY, _ttl: int = 600, **overrides) -> str:
 
 async def test_ephemeral_jwt_with_live_row_is_accepted(authenticator, participants):
     participants.add("executor-01X", RUN_ID, "pm-1", "feature-delivery",
-                     "backend-engineer")
+                     "executor")
     identity = await authenticator.authenticate(f"Bearer {mint()}", "/mcp")
     assert identity is not None
     assert identity.lifecycle == "ephemeral"
     assert identity.agent_id == "executor-01X"
     assert identity.company == COMPANY_NS
+    # The §5.1 refinement: role stays the catalog template (the claim);
+    # the crew coordinates and parentage come from the live row.
+    assert identity.role == "backend-engineer"
+    assert identity.crew_template == "feature-delivery"
+    assert identity.crew_role == "executor"
+    assert identity.parent_agent_id == "pm-1"
+    assert identity.run_id == RUN_ID
 
 
 async def test_ephemeral_jwt_without_row_is_rejected(authenticator, audit):
@@ -243,7 +239,7 @@ async def test_platform_jwt_path_disabled_without_key(
     authn_settings, audit, instances, participants, reviewer
 ):
     no_key = authn_settings.model_copy(update={"platform_jwt_key": ""})
-    lone = Authenticator(no_key, {}, audit, instances, participants, reviewer=reviewer)
+    lone = Authenticator(no_key, audit, instances, participants, reviewer=reviewer)
     assert await lone.authenticate(f"Bearer {mint()}", "/mcp") is None
     assert rules(audit) == ["authn_platform_jwt_disabled"]
 

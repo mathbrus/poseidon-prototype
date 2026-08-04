@@ -771,6 +771,66 @@ settings and their Helm plumbing (resolution row 14).
 **Done when:** the governance suite is green against policy compiled from
 `hello-saas.yaml`; static tokens and `poc.rego` are gone from the tree.
 
+> **Status (2026-08-04): done** — the cutover. Gateway decision input is
+> the §5.1 shape (`company, agent_id, lifecycle, parent_agent_id, role,
+> run_id, workflow, tool, args`) plus `run_binding_verified` and, for
+> ephemeral callers, `crew_template`/`crew_role` (mandatory — missing
+> parentage is denied before OPA). Run-binding enrichment replaces
+> `data.runs.assignments`: ephemeral = the caller's own participants row
+> binds it to exactly one run; standing = a live `sandbox_registrations`
+> row **in the caller's namespace**; platform = a live registration.
+> Wrong, stale (terminated) or cross-company `run_id` claims all resolve
+> to `run_binding_verified: false` and fail closed on the compiled rules.
+> `OpaClient.assign_run` is gone; a missing decision document is a deny
+> (`no_policy_installed`), which is what makes post-teardown gateway
+> denial real.
+>
+> Bundles split per §2b: company bundles compile to `package
+> poseidon.authz.<slug>` (disjoint OPA roots — two companies can coexist),
+> the compiler-owned platform scope to its own `poseidon.platform` bundle
+> under the reserved key `platform` (the compiler refuses a company by
+> that name), persisted by the operator from a new `platformBundle` CR
+> field and polled by OPA alongside the company bundle. The gateway routes
+> platform-lifecycle callers to `poseidon/platform/decision`, everyone
+> else to their company's path; the orchestrator identity renamed
+> `runner/runner` → `orchestrator/platform`. Infra IR wired: the worker
+> builds `SandboxPolicy` from the applied blueprint's `infra.sandbox`
+> (registry `companies` row; the IR's logical `poseidon-sandbox` image
+> resolves through deploy-time `SANDBOX_IMAGE`, everything else — cpu,
+> memory, disk, deadline, workspace, egress — comes from the blueprint,
+> and a missing applied blueprint fails provision closed); the egress
+> proxy resolves its allowlist per run (registration → company by
+> namespace → `egress_proxy_allowlist`, 10s cache — unregistering a run
+> revokes its egress); the operator projects `sandbox-isolation` from
+> `spec.infra.network_policy`. Deleted: `policies/` (poc.rego + tests),
+> the `identity.py` token map, gateway bearer settings, the
+> `bearer-tokens` secret and all its helm/kind-up/.env plumbing, the CI
+> hand-authored-policy job, `common/config.py` (unused PoC settings).
+> Host-side e2e mints projected tokens via `kubectl create token`.
+>
+> Governance regression: `tests/e2e_kind/test_governance.py` queries the
+> *installed* bundles directly (role scoping incl. "PM cannot call
+> executor tools", branch protection, deny-paths, path-ownership, run
+> binding, cross-company tenancy, platform-only merge) and drives real
+> projected-token calls through the whole pipeline (PM denied + audited;
+> register → allow → unregister → deny). E2-class injection deny+recovery
+> runs through the transitional standing engineer in test_injection.py,
+> now against compiled policy. test_operator_lifecycle claims the
+> post-teardown gateway denial (pre-minted token refused after company
+> delete) and pins that the platform bundle survives a company teardown.
+>
+> Keep an eye on: OPA's Deployment carries a `poseidon.dev/opa-config-rev`
+> annotation — bump it whenever the bundle config *shape* changes, or
+> running OPA pods keep their old config; the gateway's `_company_slug`
+> (opa.py) must stay equal to the compiler's `company_slug`; a bundle that
+> fails verification at `git.open_pr` is now audited as a policy **deny**
+> (`git_open_pr_paths_missing` — path rules fail closed without paths),
+> no longer allow+backend-error; the OPA helm config still enumerates
+> company bundle entries from `companyNamespace` (per-company config
+> generation is a step-16 concern with the second company); the egress
+> proxy imports read-only accessors of gateway-owned tables — ownership
+> stays "one writer per table", readers are free.
+
 ---
 
 ## 5. Phase 3 — M3: the multi-role SDLC

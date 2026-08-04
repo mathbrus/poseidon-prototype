@@ -9,10 +9,27 @@ import pytest
 
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
-from registry.memory import InMemoryRuns
+from registry.memory import InMemoryCompanies, InMemoryRuns
 from sandbox.contract import SandboxHandle, SandboxPolicy
 
 RUN_ID = "run-test-0001"
+
+# What an applied hello-saas blueprint records (the Company CR spec's infra
+# section) — the SandboxPolicy source since plan step 12.
+APPLIED_SPEC = {
+    "namespace": "hello-saas",
+    "infra": {
+        "sandbox": {
+            "image": "poseidon-sandbox",
+            "workspace_dir": "/workspace",
+            "cpu": "1",
+            "memory": "1Gi",
+            "disk": "2Gi",
+            "deadline_s": 3600,
+            "egress_allow": ["pypi.org"],
+        }
+    },
+}
 
 
 class FakeBackend:
@@ -40,12 +57,15 @@ class FakeBackend:
 
 
 @pytest.fixture
-def settings(monkeypatch) -> WorkerSettings:
+def settings(tmp_path) -> WorkerSettings:
+    token_file = tmp_path / "token"
+    token_file.write_text("projected-token")
     return WorkerSettings(
-        orchestrator_bearer_token="orchestrator-token",
+        gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
         agent_url="http://agent.test:8000",
         target_repo="github.com/example/repo",
+        sandbox_image="poseidon-sandbox:abc123",
         poll_interval_s=0.01,
     )
 
@@ -61,10 +81,20 @@ def runs() -> InMemoryRuns:
 
 
 @pytest.fixture
+def companies() -> InMemoryCompanies:
+    store = InMemoryCompanies()
+    store.upsert("hello-saas", APPLIED_SPEC)
+    return store
+
+
+@pytest.fixture
 def activities(
-    settings: WorkerSettings, backend: FakeBackend, runs: InMemoryRuns
+    settings: WorkerSettings,
+    backend: FakeBackend,
+    runs: InMemoryRuns,
+    companies: InMemoryCompanies,
 ) -> ImplementActivities:
-    return ImplementActivities(settings, backend, runs)
+    return ImplementActivities(settings, backend, runs, companies)
 
 
 def test_create_run_opens_a_running_row(activities, runs):
@@ -92,23 +122,48 @@ JOB_HANDLE = {
 }
 
 
-def test_settings_build_the_hand_authored_sandbox_policy(settings):
-    policy = settings.sandbox_policy(RUN_ID)
-    assert policy.image == "poseidon-sandbox"
+def test_sandbox_policy_comes_from_the_applied_blueprint(activities):
+    """Plan step 12 (sequencing choice 2 closed): the infra IR in the
+    registry is the SandboxPolicy source; the logical default image resolves
+    to the deploy-time reference the cluster actually carries."""
+    policy = activities._sandbox_policy(RUN_ID)
+    assert policy.image == "poseidon-sandbox:abc123"
     assert policy.deadline_s == 3600
-    assert policy.egress_allow == []
+    assert policy.egress_allow == ["pypi.org"]
     assert policy.env == {}  # no proxy configured -> nothing injected
 
 
-def test_settings_inject_per_run_proxy_credentials_when_configured(settings):
+def test_custom_toolchain_image_passes_through(activities, companies):
+    spec = dict(APPLIED_SPEC)
+    spec["infra"] = {"sandbox": {**APPLIED_SPEC["infra"]["sandbox"],
+                                 "image": "python:3.12-slim"}}
+    companies.upsert("hello-saas", spec)
+    assert activities._sandbox_policy(RUN_ID).image == "python:3.12-slim"
+
+
+def test_provision_without_an_applied_blueprint_fails_closed(
+    settings, backend, runs
+):
+    lone = ImplementActivities(settings, backend, runs, InMemoryCompanies())
+    with pytest.raises(RuntimeError, match="no applied blueprint"):
+        lone._sandbox_policy(RUN_ID)
+    assert backend.provisioned == []
+
+
+def test_sandbox_policy_injects_per_run_proxy_credentials(activities, settings):
     settings.egress_proxy_url = "http://egress-proxy.platform:3128"
     settings.egress_proxy_key = "test-key"
-    env = settings.sandbox_policy(RUN_ID).env
+    env = activities._sandbox_policy(RUN_ID).env
     assert env["HTTPS_PROXY"].startswith(f"http://{RUN_ID}:")
     assert env["HTTPS_PROXY"].endswith("@egress-proxy.platform:3128")
     # Distinct runs get distinct credentials — that is the attribution.
-    other = settings.sandbox_policy("run-other").env
+    other = activities._sandbox_policy("run-other").env
     assert other["HTTPS_PROXY"] != env["HTTPS_PROXY"]
+
+
+def test_create_run_records_the_company(activities, runs):
+    asyncio.run(activities.create_run(RUN_ID, "task"))
+    assert runs.get(RUN_ID).company == "hello-saas"
 
 
 def test_teardown_destroys_and_finalizes_done(activities, settings, backend, runs):

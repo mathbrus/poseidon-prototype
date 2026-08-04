@@ -24,7 +24,7 @@ def test_bundle_matches_the_golden_files(blueprint):
     plan = compile_blueprint(blueprint)
     bundle_dir = GOLDEN / "hello-saas-bundle"
     on_disk = {p.name: p.read_text() for p in bundle_dir.glob("*.rego")}
-    assert on_disk == plan.bundle.files
+    assert on_disk == {**plan.bundle.files, **plan.platform_bundle.files}
 
 
 def test_compilation_is_deterministic(blueprint):

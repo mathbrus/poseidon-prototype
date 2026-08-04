@@ -68,7 +68,13 @@ async def _with_stack(tmp_path: Path, scenario):
     audit = InMemoryAuditStore()
     upstream = await asyncio.start_server(_upstream, "127.0.0.1", 0)
     upstream_port = upstream.sockets[0].getsockname()[1]
-    proxy = EgressProxy(key=KEY, allow_hosts=["127.0.0.1"], audit=audit, port=0)
+    # A per-run resolver (plan step 12): RUN_ID's company allows the local
+    # upstream; any other run resolves to zero egress.
+    class OneRunAllowlist:
+        def hosts_for(self, run_id: str) -> set[str]:
+            return {"127.0.0.1"} if run_id == RUN_ID else set()
+
+    proxy = EgressProxy(key=KEY, allowlist=OneRunAllowlist(), audit=audit, port=0)
     server = await proxy.start()
     proxy_port = server.sockets[0].getsockname()[1]
     try:
@@ -173,3 +179,31 @@ def test_healthz_answers_without_credentials(tmp_path):
         assert stack.events() == []  # probes are not audit noise
 
     asyncio.run(_with_stack(tmp_path, scenario))
+
+
+def test_registry_allowlist_resolves_run_to_company_projection():
+    """run -> live registration -> company by namespace -> the blueprint's
+    egress_proxy_allowlist; no registration or no blueprint means zero
+    egress, and termination revokes within the cache TTL."""
+    from registry.memory import InMemoryCompanies, InMemorySandboxRegistrations
+    from sandbox.egressproxy.proxy import RegistryAllowlist
+
+    sandboxes = InMemorySandboxRegistrations()
+    companies = InMemoryCompanies()
+    companies.upsert(
+        "hello-saas",
+        {"namespace": "hello-saas",
+         "infra": {"egress_proxy_allowlist": ["PyPI.org", " files.pythonhosted.org "]}},
+    )
+    allowlist = RegistryAllowlist(sandboxes, companies, ttl_s=0)
+
+    assert allowlist.hosts_for(RUN_ID) == set()  # no registration yet
+
+    sandboxes.register(RUN_ID, "http://10.0.0.9:8000", "hello-saas", "sbx")
+    assert allowlist.hosts_for(RUN_ID) == {"pypi.org", "files.pythonhosted.org"}
+
+    sandboxes.terminate(RUN_ID)
+    assert allowlist.hosts_for(RUN_ID) == set()
+
+    sandboxes.register("run-other", "http://10.0.0.10:8000", "nowhere-ns", "sbx2")
+    assert allowlist.hosts_for("run-other") == set()  # no applied blueprint

@@ -27,10 +27,10 @@ def _roots(files: dict[str, str]) -> list[str]:
 
     Activation erases everything under the roots that the bundle does not
     supply, so the roots must cover exactly what the bundle contains — a
-    root any wider would delete policy loaded from elsewhere (the
-    file-loaded `poseidon.poc` lives until plan step 12, and a hardcoded
-    `poseidon` root would erase it on the first poll). Deriving keeps this
-    file and the compiler's package name from ever drifting apart.
+    root any wider would delete policy another bundle owns (company
+    packages are per-company and the platform package is its own bundle
+    precisely so the roots stay disjoint). Deriving keeps this file and the
+    compiler's package names from ever drifting apart.
     """
     roots = set()
     for name, body in files.items():
@@ -138,6 +138,25 @@ class Companies:
             """,
             (name, Jsonb(spec)),
         )
+
+    def get(self, name: str) -> dict[str, Any] | None:
+        """The applied spec (the Company CR spec minus the bundle) — what the
+        orchestrator's provision reads the infra IR from (plan step 12)."""
+        rows = self._db.query(
+            "SELECT blueprint FROM registry.companies WHERE name = %s", (name,)
+        )
+        return rows[0]["blueprint"] if rows else None
+
+    def by_namespace(self, namespace: str) -> dict[str, Any] | None:
+        """Resolve a company namespace back to its applied spec — the egress
+        proxy's path from a run's sandbox namespace to the blueprint's
+        allowlist projection."""
+        rows = self._db.query(
+            "SELECT blueprint FROM registry.companies"
+            " WHERE blueprint->>'namespace' = %s",
+            (namespace,),
+        )
+        return rows[0]["blueprint"] if rows else None
 
     def delete(self, name: str) -> None:
         self._db.execute("DELETE FROM registry.companies WHERE name = %s", (name,))

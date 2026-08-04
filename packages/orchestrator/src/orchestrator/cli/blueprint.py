@@ -78,9 +78,10 @@ def compile(
         # firing diff, a leftover role_*.rego would silently widen the bundle.
         for stale in out.glob("*.rego"):
             stale.unlink()
-        for name, body in plan.bundle.files.items():
+        files = {**plan.bundle.files, **plan.platform_bundle.files}
+        for name, body in files.items():
             (out / name).write_text(body)
-        typer.echo(f"wrote {len(plan.bundle.files)} bundle files to {out}", err=True)
+        typer.echo(f"wrote {len(files)} bundle files to {out}", err=True)
     typer.echo(json.dumps(plan.as_dict(), indent=2, sort_keys=True))
 
 

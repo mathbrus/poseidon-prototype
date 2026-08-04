@@ -28,9 +28,12 @@ def main() -> None:
     bundle_dir.mkdir(exist_ok=True)
     for stale in bundle_dir.glob("*.rego"):
         stale.unlink()
-    for name, body in plan.bundle.files.items():
+    # Both bundles side by side — their packages are disjoint, and the
+    # platform bundle is as much a review artifact as the company one.
+    files = {**plan.bundle.files, **plan.platform_bundle.files}
+    for name, body in files.items():
         (bundle_dir / name).write_text(body)
-    print(f"wrote {GOLDEN}/hello-saas.plan.json and {len(plan.bundle.files)} rego files")
+    print(f"wrote {GOLDEN}/hello-saas.plan.json and {len(files)} rego files")
 
 
 if __name__ == "__main__":

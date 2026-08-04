@@ -4,8 +4,9 @@
 
 Configured by env (all set by the Helm chart):
     EGRESS_PROXY_KEY     shared HMAC key for per-run credentials (required)
-    EGRESS_ALLOW_HOSTS   comma-separated host allowlist; empty = zero egress
-    REGISTRY_DSN         Postgres DSN for the audit_events table
+    REGISTRY_DSN         Postgres DSN — audit_events plus the per-run
+                         allowlist resolution (run -> registration ->
+                         company blueprint, plan step 12)
     EGRESS_LISTEN_PORT   listen port (default 3128) — deliberately NOT
                          EGRESS_PROXY_PORT, which Kubernetes service links
                          shadow with `tcp://<ip>:3128` for every pod in the
@@ -15,15 +16,18 @@ Configured by env (all set by the Helm chart):
 import asyncio
 import os
 
-from registry import AuditStore, open_registry
-from sandbox.egressproxy.proxy import DEFAULT_PORT, EgressProxy
+from registry import AuditStore, SandboxRegistrations, open_registry
+from registry.bundles import Companies
+from sandbox.egressproxy.proxy import DEFAULT_PORT, EgressProxy, RegistryAllowlist
 
 
 async def main() -> None:
     registry = open_registry()
     proxy = EgressProxy(
         key=os.environ["EGRESS_PROXY_KEY"],
-        allow_hosts=os.environ.get("EGRESS_ALLOW_HOSTS", "").split(","),
+        allowlist=RegistryAllowlist(
+            SandboxRegistrations(registry), Companies(registry)
+        ),
         audit=AuditStore(registry),
         port=int(os.environ.get("EGRESS_LISTEN_PORT", DEFAULT_PORT)),
     )

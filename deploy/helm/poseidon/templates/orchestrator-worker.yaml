@@ -56,18 +56,15 @@ spec:
               value: {{ .Values.run.targetRepo | quote }}
             - name: BASE_REF
               value: {{ .Values.run.baseRef | quote }}
+            - name: COMPANY
+              value: {{ .Values.companyNamespace | quote }}
             - name: SANDBOX_NAMESPACE
               value: {{ .Values.companyNamespace | quote }}
+            # Deploy-time resolution of the infra IR's logical toolchain
+            # image (content-addressed on kind); every other SandboxPolicy
+            # value comes from the applied blueprint (plan step 12).
             - name: SANDBOX_IMAGE
               value: {{ .Values.orchestrator.sandbox.image | quote }}
-            - name: SANDBOX_CPU
-              value: {{ .Values.orchestrator.sandbox.cpu | quote }}
-            - name: SANDBOX_MEMORY
-              value: {{ .Values.orchestrator.sandbox.memory | quote }}
-            - name: SANDBOX_DISK
-              value: {{ .Values.orchestrator.sandbox.disk | quote }}
-            - name: SANDBOX_DEADLINE_S
-              value: {{ .Values.orchestrator.sandbox.deadlineSeconds | quote }}
             # Egress attribution (§2b): the proxy URL as sandboxes resolve
             # it, and the shared key to mint their per-run credentials.
             - name: EGRESS_PROXY_URL

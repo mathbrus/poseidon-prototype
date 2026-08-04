@@ -9,13 +9,9 @@ gateway:
     type: NodePort
     nodePort: 30080
 
-# On kind the allowlist admits the PyPI hosts so the step-5 allow path
-# (`pip install` from a sandbox) is exercisable; production defaults stay
-# empty (zero egress).
-egressProxy:
-  allowedHosts:
-    - pypi.org
-    - files.pythonhosted.org
+# The egress allowlist comes from the applied blueprint since plan step 12
+# (hello-saas admits the PyPI hosts, so the `pip install` allow path stays
+# exercisable) — no static host config here anymore.
 
 networkPolicies:
   # kind-config.yaml pins podSubnet to Calico's default pool; the service

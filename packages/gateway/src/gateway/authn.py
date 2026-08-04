@@ -2,7 +2,6 @@
 
 One `Authenticator` resolves a bearer credential to an `Identity`:
 
-  static PoC token  -> the C7 map                      (deleted at step 12)
   platform JWT      -> §2b ephemeral contract: HS256 signature + audience +
                        expiry AND a live `run_participants` row, so a
                        registry row termination revokes before TTL expiry
@@ -37,8 +36,8 @@ from gateway.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
     LIFECYCLE_STANDING,
-    RUNNER_ID,
-    RUNNER_ROLE,
+    ORCHESTRATOR_ID,
+    PLATFORM_ROLE,
     Identity,
     bearer_token,
 )
@@ -132,14 +131,12 @@ class Authenticator:
     def __init__(
         self,
         settings: GatewaySettings,
-        static_tokens: dict[str, Identity],
         audit: Any,
         instances: Any,
         participants: Any,
         reviewer: Reviewer | None = None,
     ) -> None:
         self._settings = settings
-        self._static = static_tokens
         self._audit = audit
         self._instances = instances
         self._participants = participants
@@ -155,10 +152,6 @@ class Authenticator:
             # No credential presented (probes, scanners) — a 401 with no
             # audit event; only rejected *tokens* are governance signals.
             return None
-
-        identity = self._static.get(token)
-        if identity is not None:
-            return identity
 
         if platformjwt.issuer_of(token) == platformjwt.ISSUER:
             return await self._verify_platform_jwt(token, path)
@@ -183,11 +176,18 @@ class Authenticator:
         if row is None or row["run_id"] != claims.get("run_id"):
             await self._reject(path, "authn_no_live_participant", agent_id or "unknown")
             return None
+        # §5.1: `role` carries the catalog template (the minted claim);
+        # the row carries the crew coordinates and parentage — the pair the
+        # compiled crew rules key on (crew_template + crew_role).
         return Identity(
             agent_id=agent_id,
-            role=str(claims.get("role", row["role"])),
+            role=str(claims.get("role", "")),
             company=claims.get("company"),
             lifecycle=LIFECYCLE_EPHEMERAL,
+            run_id=row["run_id"],
+            parent_agent_id=row["parent_agent_id"],
+            crew_template=row["crew_template"],
+            crew_role=row["role"],
         )
 
     # -- projected service-account tokens ----------------------------------
@@ -232,10 +232,12 @@ class Authenticator:
             and account.name == settings.orchestrator_service_account
         ):
             # The orchestrator's privileged identity (§4.9: platform
-            # lifecycle). agent_id/role stay the PoC names until the
-            # step-12 cutover renames the policy surface with them.
+            # lifecycle); policy keys on the lifecycle via the platform
+            # decision path.
             return Identity(
-                agent_id=RUNNER_ID, role=RUNNER_ROLE, lifecycle=LIFECYCLE_PLATFORM
+                agent_id=ORCHESTRATOR_ID,
+                role=PLATFORM_ROLE,
+                lifecycle=LIFECYCLE_PLATFORM,
             )
         row = await asyncio.to_thread(self._instances.get, account.name)
         if row is None:
@@ -249,6 +251,7 @@ class Authenticator:
             role=row["role_template"],
             company=row["company"],
             lifecycle=LIFECYCLE_STANDING,
+            namespace=row.get("namespace"),
         )
 
     # -- audited rejection --------------------------------------------------

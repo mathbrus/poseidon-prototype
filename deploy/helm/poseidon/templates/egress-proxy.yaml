@@ -35,8 +35,9 @@ spec:
                 secretKeyRef:
                   name: egress-proxy-key
                   key: EGRESS_PROXY_KEY
-            - name: EGRESS_ALLOW_HOSTS
-              value: {{ join "," .Values.egressProxy.allowedHosts | quote }}
+            # The allowlist is the applied blueprint's IR projection since
+            # plan step 12 — resolved per run through the registry, no
+            # static host config.
             - name: REGISTRY_DSN
               valueFrom:
                 secretKeyRef:

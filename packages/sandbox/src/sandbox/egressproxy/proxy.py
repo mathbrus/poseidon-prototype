@@ -8,9 +8,10 @@ because the audit contract *is* the point: NetworkPolicy drops packets
 silently and stays the backstop beneath this; the proxy is what makes
 "egress attempt blocked and visible in the audit store" mechanically true.
 
-The allowlist is static config in this phase (empty = zero egress); the
-compiler emits it per blueprint at plan step 12 — `_allowed` keeps the
-per-run signature so that swap changes configuration, not shape.
+The allowlist is the blueprint's compiled IR projection (plan step 12,
+closing sequencing choice 2): each request's run resolves through its live
+sandbox registration to the company whose applied blueprint names the
+allowed hosts. No applied blueprint, no live registration — zero egress.
 
 Audit events are v1-shaped (`agent_id=egress-proxy`, `role=sandbox-infra`,
 `tool=sandbox.egress`) and land in the registry `audit_events` table
@@ -25,6 +26,7 @@ import hashlib
 import json
 import time
 from datetime import datetime, timezone
+from typing import Protocol
 from urllib.parse import urlsplit
 
 from common.audit import AuditEvent
@@ -39,6 +41,45 @@ CONNECT_TIMEOUT_S = 10
 _HOP_HEADERS = ("proxy-authorization:", "proxy-connection:", "connection:")
 
 
+class Allowlist(Protocol):
+    def hosts_for(self, run_id: str) -> set[str]:
+        """The hosts this run may reach. Synchronous (registry reads);
+        callers run it off the event loop."""
+        ...
+
+
+class RegistryAllowlist:
+    """run_id -> live sandbox registration -> company (by namespace) ->
+    the blueprint's `egress_proxy_allowlist` projection. Read-only registry
+    access; briefly cached so a chatty `pip install` costs two queries, not
+    two per connection."""
+
+    def __init__(self, sandboxes, companies, ttl_s: float = 10.0) -> None:
+        self._sandboxes = sandboxes
+        self._companies = companies
+        self._ttl = ttl_s
+        self._cache: dict[str, tuple[set[str], float]] = {}
+
+    def hosts_for(self, run_id: str) -> set[str]:
+        cached = self._cache.get(run_id)
+        if cached is not None and cached[1] > time.monotonic():
+            return cached[0]
+        hosts: set[str] = set()
+        registration = self._sandboxes.active(run_id)
+        if registration is not None and registration.get("namespace"):
+            spec = self._companies.by_namespace(registration["namespace"]) or {}
+            hosts = {
+                h.strip().lower()
+                for h in (spec.get("infra") or {}).get("egress_proxy_allowlist") or []
+                if h.strip()
+            }
+        self._cache = {
+            k: v for k, v in self._cache.items() if v[1] > time.monotonic()
+        }
+        self._cache[run_id] = (hosts, time.monotonic() + self._ttl)
+        return hosts
+
+
 def _digest(payload: dict) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode()).hexdigest()
@@ -48,22 +89,19 @@ class EgressProxy:
     def __init__(
         self,
         key: str,
-        allow_hosts: list[str],
+        allowlist: Allowlist,
         audit: AuditStore,
         port: int = DEFAULT_PORT,
     ) -> None:
         self._key = key
-        self._allow = {h.strip().lower() for h in allow_hosts if h.strip()}
+        self._allowlist = allowlist
         self._audit_store = audit
         self._port = port
         self._log = get_logger("sandbox.egressproxy")
 
     async def start(self) -> asyncio.Server:
         server = await asyncio.start_server(self._handle, "0.0.0.0", self._port)
-        self._log.info(
-            "egress proxy listening",
-            extra={"port": self._port, "allow_hosts": sorted(self._allow)},
-        )
+        self._log.info("egress proxy listening", extra={"port": self._port})
         return server
 
     # -- request handling --------------------------------------------------
@@ -125,7 +163,7 @@ class EgressProxy:
                 extra_headers='Proxy-Authenticate: Basic realm="poseidon-egress"',
             )
             return
-        if not self._allowed(run_id, host):
+        if not await self._allowed(run_id, host):
             await self._audit(run_id, host, port, "deny", "egress_not_allowlisted", started, None)
             self._respond(writer, "403 Forbidden")
             return
@@ -170,9 +208,10 @@ class EgressProxy:
             return run_id, "egress_bad_credential"
         return run_id, None
 
-    def _allowed(self, run_id: str, host: str) -> bool:
-        # Static in this phase; the per-run signature is the step-12 seam.
-        return host.lower() in self._allow
+    async def _allowed(self, run_id: str, host: str) -> bool:
+        # Registry reads are synchronous psycopg; keep them off the loop.
+        hosts = await asyncio.to_thread(self._allowlist.hosts_for, run_id)
+        return host.lower() in hosts
 
     @staticmethod
     def _rewrite(method: str, target: str, header_lines: list[str]) -> bytes:

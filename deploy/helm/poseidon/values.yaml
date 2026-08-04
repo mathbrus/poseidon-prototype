@@ -45,16 +45,13 @@ images:
     pullPolicy: IfNotPresent
 
 # Secrets layout (plan step 1a): GIT_TOKEN mountable only into the gateway,
-# LLM_API_KEY only into LiteLLM — both live in the platform namespace. The
-# static bearer tokens are the PoC identity placeholders (deleted at step 12):
-# the gateway holds both, the agent (company namespace) only its own.
-# Placeholders keep `helm install` self-contained; real values come from the
-# bootstrap script (kind) or a values override (real cluster).
+# LLM_API_KEY only into LiteLLM — both live in the platform namespace.
+# Caller identity is workload tokens since plan steps 11/12 (no static
+# bearer tokens anywhere). Placeholders keep `helm install` self-contained;
+# real values come from the bootstrap script (kind) or a values override.
 secrets:
   gitToken: ghp_replace-with-repo-scoped-pat
   llmApiKey: sk-replace-with-provider-key
-  agentBearerToken: agent-token-placeholder
-  runnerBearerToken: runner-token-placeholder
   # Cluster-internal only (Postgres never leaves the platform namespace).
   postgresPassword: postgres-password-placeholder
   # Shared HMAC key for per-run egress credentials (§2b): egress-proxy and
@@ -73,26 +70,21 @@ run:
 
 orchestrator:
   temporalAddress: temporal-frontend:7233
-  # Hand-authored SandboxPolicy values for the k8s_jobs backend (plan step 4,
-  # sequencing choice 2): one Job per run in the company namespace, capped
-  # and deadlined. Replaced by the compiler-emitted infra IR at step 12.
+  # SandboxPolicy values come from the applied blueprint's infra IR since
+  # plan step 12; the deployment supplies only the resolution of the IR's
+  # logical toolchain image (content-addressed on kind).
   sandbox:
     image: poseidon-sandbox
-    cpu: "1"
-    memory: 1Gi
-    disk: 2Gi
-    deadlineSeconds: 3600
 
-# Sandbox egress proxy (plan step 5). The allowlist is static per-phase
-# config — empty means zero egress, exactly the PoC posture; the compiler
-# emits it from the blueprint at step 12. Deny/allow audit events carry the
-# per-run credential attribution.
+# Sandbox egress proxy (plan step 5). The allowlist is the applied
+# blueprint's compiled IR projection (plan step 12), resolved per run via
+# the registry — a run without an applied blueprint has zero egress.
+# Deny/allow audit events carry the per-run credential attribution.
 egressProxy:
   image:
     repository: poseidon-egress-proxy
     tag: latest
     pullPolicy: IfNotPresent
-  allowedHosts: []
 
 postgres:
   image:
@@ -106,13 +98,6 @@ postgres:
   storage: 5Gi
   # null = the cluster's default StorageClass.
   storageClassName: null
-
-opa:
-  # Rego files served to OPA, keyed by basename (".rego" is appended).
-  # Populated at install time from the canonical policies/ directory:
-  #   --set-file opa.policies.poc=policies/poc.rego
-  # so the repo keeps a single source of truth for policy.
-  policies: {}
 
 gateway:
   service:

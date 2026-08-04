@@ -252,3 +252,32 @@ def test_participant_active_goes_dark_on_termination(registry: Registry):
         ("executor-01X",),
     )
     assert participants.active("executor-01X") is None
+
+
+def test_sandbox_registration_active_row(registry: Registry):
+    """The run-binding read (plan step 12): live row with namespace, gone
+    once terminated — a stale run_id claim must resolve to nothing."""
+    boxes = SandboxRegistrations(registry)
+    boxes.register(RUN_ID, "http://10.0.0.5:8000", "hello-saas", "sbx-x")
+    row = boxes.active(RUN_ID)
+    assert row["namespace"] == "hello-saas"
+    assert row["url"] == "http://10.0.0.5:8000"
+
+    boxes.terminate(RUN_ID)
+    assert boxes.active(RUN_ID) is None
+    assert boxes.url_for(RUN_ID) is None
+
+
+def test_company_spec_reads(registry: Registry):
+    from registry.bundles import Companies
+
+    companies = Companies(registry)
+    companies.upsert("hello-saas", {"namespace": "hello-saas",
+                                    "infra": {"sandbox": {"cpu": "1"}}})
+    try:
+        assert companies.get("hello-saas")["infra"]["sandbox"]["cpu"] == "1"
+        assert companies.by_namespace("hello-saas")["namespace"] == "hello-saas"
+        assert companies.get("nobody") is None
+        assert companies.by_namespace("nowhere") is None
+    finally:
+        companies.delete("hello-saas")
