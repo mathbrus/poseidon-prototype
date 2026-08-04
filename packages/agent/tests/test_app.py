@@ -46,7 +46,7 @@ async def test_task_lifecycle_running_then_done():
         assert resp.json() == {
             "status": "running", "pr_url": None, "iterations": 0,
             "error": None, "brief": None, "ticket_urls": [],
-            "crew_request_id": None,
+            "crew_request_id": None, "comment_urls": [],
         }
 
         release.set()
@@ -60,6 +60,7 @@ async def test_task_lifecycle_running_then_done():
         "brief": None,
         "ticket_urls": [],
         "crew_request_id": None,
+        "comment_urls": [],
     }
     assert seen == [(RUN_ID, "do it")]
 

@@ -12,6 +12,7 @@ Three pieces:
                       real ingestion contract lands at plan step 13
 """
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal
@@ -56,10 +57,14 @@ class Gate:
         self,
         timeout: timedelta,
         escalate_after: timedelta | None = None,
+        on_escalate: Callable[[], Awaitable[None]] | None = None,
     ) -> GateOutcome:
         """Park until resolved or timed out. The timer/escalation primitive:
         when `escalate_after` elapses first, an `escalated` outcome is
-        emitted to the audit stub and the wait continues to the deadline."""
+        emitted to the audit stub — and to `on_escalate` when the caller
+        passes one (plan step 20: the review workflow records it as a real
+        `process-gate` audit event through an activity) — and the wait
+        continues to the deadline."""
         remaining = timeout
         if escalate_after is not None and escalate_after < timeout:
             try:
@@ -71,6 +76,8 @@ class Gate:
                     GateOutcome(gate=self.name, kind="escalated"),
                     workflow_id=workflow.info().workflow_id,
                 )
+                if on_escalate is not None:
+                    await on_escalate()
                 remaining = timeout - escalate_after
         if self._outcome is None:
             try:

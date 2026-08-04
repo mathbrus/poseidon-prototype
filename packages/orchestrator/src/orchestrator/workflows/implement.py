@@ -79,6 +79,10 @@ class Timeouts:
     # How long a budget pause waits for the `budget` signal before giving
     # up (escalation fires at half of it).
     budget_gate_s: int = 3600
+    # How long the review workflow's merge gate waits for a human verdict
+    # (§6.3; escalation fires at half of it). Humans deserve a working day,
+    # not an activity-sized bound — this is a durable workflow timer.
+    merge_gate_s: int = 86400
 
 
 # Sized for the deterministic mock brain (packages/mockllm): every bound is
@@ -94,6 +98,9 @@ FAST_TIMEOUTS = Timeouts(
     verify_s=120,
     teardown_s=60,
     budget_gate_s=90,
+    # Long enough for the e2e to watch the park, see the half-way
+    # escalation land in the audit store, and still approve in time.
+    merge_gate_s=60,
 )
 
 

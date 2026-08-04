@@ -39,6 +39,10 @@ PLATFORM_SCOPE = sorted(
         *PLATFORM_TOOLS,
         *REPO_TOOLS,
         "sandbox.run_tests",
+        # The review workflow resolves the PR's head ref before provisioning
+        # the review sandbox from it (§6.3, O-4) — a read, but the
+        # platform's own, like repo.archive.
+        "git.read",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",
     }

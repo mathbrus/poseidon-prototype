@@ -6,6 +6,7 @@ import pytest
 from agent.graph import run_graph
 from agent.toolbox import ACT_TOOLS, DELIVER_TOOLS
 from conftest import (
+    COMMENT_URL,
     PR_URL,
     RUN_ID,
     TESTS_FAIL,
@@ -100,6 +101,78 @@ async def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
     assert open_pr_args["branch"] == "feature/greet"
     # The bundle came from sandbox.git_bundle; the model never saw the base64.
     assert open_pr_args["bundle_b64"] == "YnVuZGxl"
+
+
+async def test_review_dispatch_reads_runs_and_comments(settings, gateway):
+    """The reviewer (mode=review, plan step 20): read the diff, execute
+    the suite, post findings — no write tools on the surface."""
+    from agent.graph import run_review
+    from agent.toolbox import REVIEWER_TOOLS
+    import agent.graph as graph_module
+
+    llm = ScriptedLLM(
+        [
+            calls(tc("read_pr", number=41)),
+            calls(tc("run_tests")),
+            calls(tc("comment_pr", number=41,
+                     body="Suite green in the review sandbox; no findings.")),
+            says("Findings posted."),
+        ]
+    )
+
+    class FakeGatewayCtx:
+        async def __aenter__(self):
+            return gateway
+        async def __aexit__(self, *exc):
+            return False
+
+    original_llm = graph_module.OpenAICompatibleLLM
+    original_gw = graph_module.McpGateway
+    graph_module.OpenAICompatibleLLM = lambda *a, **k: llm
+    graph_module.McpGateway = lambda *a, **k: FakeGatewayCtx()
+    try:
+        result = await run_review(
+            settings, RUN_ID, "Review pull request #41 (url): Add greet"
+        )
+    finally:
+        graph_module.OpenAICompatibleLLM = original_llm
+        graph_module.McpGateway = original_gw
+
+    assert result.error is None
+    assert result.comment_urls == [COMMENT_URL]
+    assert gateway.tools_called() == [
+        "git.read", "sandbox.run_tests", "git.comment",
+    ]
+    # Every offered toolset is the reviewer's — read-and-judge only.
+    for _, tools in llm.requests:
+        assert tool_names(tools) == REVIEWER_TOOLS
+    assert "write_file" not in REVIEWER_TOOLS and "open_pr" not in REVIEWER_TOOLS
+
+
+async def test_review_without_findings_fails_the_dispatch(settings, gateway):
+    from agent.graph import run_review
+    import agent.graph as graph_module
+
+    llm = ScriptedLLM([says("Looks fine, nothing to say.")])
+
+    class FakeGatewayCtx:
+        async def __aenter__(self):
+            return gateway
+        async def __aexit__(self, *exc):
+            return False
+
+    original_llm = graph_module.OpenAICompatibleLLM
+    original_gw = graph_module.McpGateway
+    graph_module.OpenAICompatibleLLM = lambda *a, **k: llm
+    graph_module.McpGateway = lambda *a, **k: FakeGatewayCtx()
+    try:
+        result = await run_review(settings, RUN_ID, "Review pull request #41")
+    finally:
+        graph_module.OpenAICompatibleLLM = original_llm
+        graph_module.McpGateway = original_gw
+
+    assert result.error == "reviewer posted no findings"
+    assert result.comment_urls == []
 
 
 async def test_prompt_and_toolsets_per_phase(settings, gateway):

@@ -159,12 +159,15 @@ class ImplementActivities:
         )
 
     @activity.defn(name="fetch_workspace")
-    async def fetch_workspace(self, run_id: str) -> bytes:
+    async def fetch_workspace(self, run_id: str, ref: str | None = None) -> bytes:
+        """Archive the target repo at `ref` — the configured base ref by
+        default; the review workflow passes the PR head ref instead (O-4:
+        the review sandbox is a full sandbox from the PR ref)."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             workspace_tar = await gateway.fetch_workspace(
-                run_id, self._settings.target_repo, self._settings.base_ref
+                run_id, self._settings.target_repo, ref or self._settings.base_ref
             )
         self._log.bind(run_id=run_id).info(
             "workspace fetched", extra={"bytes": len(workspace_tar)}

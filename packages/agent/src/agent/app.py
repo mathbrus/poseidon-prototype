@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from agent.config import AgentSettings
-from agent.graph import RunResult, run_deliver, run_plan, run_pm, run_task
+from agent.graph import RunResult, run_deliver, run_plan, run_pm, run_review, run_task
 from common.telemetry import get_logger
 
 TaskRunner = Callable[[str, str], Awaitable[RunResult]]
@@ -29,7 +29,7 @@ TaskRunner = Callable[[str, str], Awaitable[RunResult]]
 class TaskRequest(BaseModel):
     run_id: str
     task_text: str
-    mode: Literal["implement", "plan", "deliver"] = "implement"
+    mode: Literal["implement", "plan", "deliver", "review"] = "implement"
     # The dispatching workflow may hand this task its own identity — the
     # planner's minted token when the planner borrows the executor's pod.
     gateway_token: str | None = None
@@ -43,6 +43,7 @@ class TaskStatus(BaseModel):
     brief: str | None = None
     ticket_urls: list[str] = []
     crew_request_id: str | None = None
+    comment_urls: list[str] = []
 
 
 def create_app(
@@ -75,6 +76,9 @@ def create_app(
     async def deliver_runner(run_id: str, task_text: str) -> RunResult:
         return await run_deliver(_settings(), run_id, task_text)
 
+    async def review_runner(run_id: str, task_text: str) -> RunResult:
+        return await run_review(_settings(), run_id, task_text)
+
     log = get_logger("agent", agent_id="backend-engineer-1")
     app = FastAPI(title="poseidon-agent")
     tasks: dict[str, TaskStatus] = {}
@@ -90,6 +94,8 @@ def create_app(
                 )
             elif request.mode == "deliver":
                 result = await deliver_runner(run_id, request.task_text)
+            elif request.mode == "review":
+                result = await review_runner(run_id, request.task_text)
             else:
                 result = await task_runner(run_id, request.task_text)
         except Exception as exc:
@@ -104,6 +110,7 @@ def create_app(
             brief=result.brief,
             ticket_urls=result.ticket_urls,
             crew_request_id=result.crew_request_id,
+            comment_urls=result.comment_urls,
         )
         run_log.info("task finished", extra=tasks[run_id].model_dump())
 

@@ -243,7 +243,9 @@ class CrewActivities:
         orchestrator-fixed graph IS the planner->executor handoff; there is
         no free-form crew chat (§4.4 rule 6).
 
-        spec: {run_id, company, crew_template, conductor, task_text}.
+        spec: {run_id, company, crew_template, conductor, task_text,
+        workflow?}. `workflow` names the calling workflow in the recorded
+        decision input (implement by default; review since plan step 20).
         Retry-safe end to end: consume is idempotent for this run, minting
         revives deterministic identities, provisioning replaces remnants.
         """
@@ -265,6 +267,7 @@ class CrewActivities:
             await self._authorize_recording(
                 run_id, spec["company"], conductor,
                 spec.get("conductor_role", "pm"), crew_template,
+                spec.get("workflow", "implement"),
             )
             await asyncio.to_thread(
                 self._crew_requests.record,
@@ -361,6 +364,7 @@ class CrewActivities:
         conductor: str,
         conductor_role: str,
         crew_template: str,
+        workflow: str = "implement",
     ) -> None:
         """Evaluate the conductor-shaped crew.request decision against the
         live compiled bundle — the §4.4 "same policy" clause, literally:
@@ -385,7 +389,7 @@ class CrewActivities:
             "parent_agent_id": "",
             "role": conductor_role,
             "run_id": run_id,
-            "workflow": "implement",
+            "workflow": workflow,
             "tool": "crew.request",
             "args": {"crew_template": crew_template},
             "run_binding_verified": False,

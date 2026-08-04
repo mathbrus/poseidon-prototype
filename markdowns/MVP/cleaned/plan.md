@@ -1471,6 +1471,62 @@ findings posted, gate parked, API approval, gateway merge — every step
 correlated by `run_id` in one audit story (MVP exit criterion 3); timer
 escalation observable when no one approves.
 
+> **Status (2026-08-04): done** — the review workflow is the §6.3 arc:
+> `create_review_run` → `check_budget` → `review_config` (crew, conductor
+> instance and the merge-gate signal from the applied blueprint's
+> `workflows.review.gates`, fail-closed like implement's) → `read_pr`
+> (`git.read` under the platform identity — added to `PLATFORM_SCOPE`,
+> goldens regenerated — because the platform must resolve the PR's head
+> ref) → `fetch_workspace` at that head ref (O-4: a full sandbox from the
+> PR ref; the activity grew an optional `ref` arg, implement's call
+> unchanged) → `provision_sandbox` (verbatim reuse) → `fulfill_crew` for
+> `feature-review` with `record_under_authority` and `workflow: "review"`
+> (§4.4 rule 3 — process-initiated is the same recorded `crew_requests`
+> row and the same audited compiled `crew.request` decision under pm-1;
+> `_authorize_recording` now names the calling workflow in the §5.1
+> input) → reviewer dispatch (`mode="review"`, budget-pause aware) →
+> merge gate → approve: `merge_pr` (a gateway-audited `git.merge_pr`
+> under the platform identity, O-1 A) / reject or timeout: honest failure
+> with findings already posted (the findings-loop/close refinement stays
+> deferred, §6.4) → `teardown` (verbatim reuse: participant revoke, crew
+> pod + sandbox destroy, honest terminal record; `pr_url` links the
+> reviewed PR). The reviewer runtime: agent `mode="review"` (`run_review`)
+> loops over `REVIEWER_TOOLS` — `list_dir`/`read_file`/`exec`/`run_tests`/
+> `read_pr`/`comment_pr`, no writes, no `open_pr`, mirroring the compiled
+> sdet scope — collects `comment_urls` (new on RunResult/TaskStatus), and
+> a dispatch that posts no findings is a failed review both agent-side and
+> workflow-side. The merge gate is the Gate spine, finally wired: parks on
+> the `merge` signal exactly when the blueprint configures `gates.merge`
+> (config comes from the compiled plan, §9; a gate-free blueprint ends the
+> run *without* merging — auto-merge is never implicit), the park is the
+> API-visible `paused-merge_gate` state, and `Gate.wait` grew an
+> `on_escalate` hook so the half-deadline escalation and the verdict are
+> both real `source=process-gate` audit events (`record_gate_outcome`
+> activity: `gate.merge`, `gate_escalated`/`gate_approved`/…, carrying the
+> workflow id that maps to `run_id`). Timeouts grew `merge_gate_s` (86400
+> real / 60 fast). CLI: `poseidon review <pr_number>` starts it;
+> `poseidon signal`/`status` gained `--workflow` (ids are
+> `{workflow}-{run_id}` across all three families). One trap found before
+> it bit: merging into the disposable test repo's `main` would have made
+> every later mock delivery an empty diff (`git.open_pr` with no commits)
+> because the mock's file content was byte-identical across runs — the
+> mock now stamps `slugify.py` with the run's delivery branch, so repeated
+> suites survive their own merges. Proven live in `test_review_gate.py`:
+> a module-scoped chain runs its OWN intake → implement → review (never
+> the shared session fixtures — this module merges its PR), watches the
+> park via the `state` query, waits for the `gate_escalated` row to land
+> in the audit store before approving (the §6.4 escalation path proves
+> itself on every run), then asserts: PR really merged on GitHub; findings
+> comment really on the PR by the ephemeral reviewer (gateway events:
+> `git.read` + `sandbox.run_tests` + `git.comment`, lifecycle ephemeral,
+> parent pm-1, workflow review); the `crew_requests` row fulfilled under
+> pm-1 with the audited `lifecycle.record_request`; gate events in order
+> (escalated deny → approved allow); `git.merge_pr` gateway-audited under
+> the platform lifecycle strictly after the approval in the story; and one
+> `run_id` query spanning gateway + llm-gateway + process-lifecycle +
+> process-gate with the full mint→fulfill→revoke lifecycle. Suite: 62 e2e
+> green on kind in ~10 min, free on the mock brain.
+
 ---
 
 ## 6. Phase 4 — M4: the flexible brain (overlaps Phase 3)

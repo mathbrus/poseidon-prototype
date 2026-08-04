@@ -73,6 +73,33 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
         },
         "required": ["crew_template", "reason"],
     },
+    # -- reviewer tools (plan step 20): read the PR, judge, comment --
+    "read_pr": {
+        "description": (
+            "Read a pull request: metadata plus the changed files with "
+            "their patches."
+        ),
+        "parameters": {
+            "number": {"type": "number", "description": "Pull request number."},
+        },
+        "required": ["number"],
+    },
+    "comment_pr": {
+        "description": (
+            "Post a review comment on the pull request — your findings, "
+            "in one comment."
+        ),
+        "parameters": {
+            "number": {"type": "number", "description": "Pull request number."},
+            "body": {"type": "string", "description": "The findings: what you checked, what you found."},
+        },
+        "required": ["number", "body"],
+    },
+    "run_tests": {
+        "description": "Run the repository's test suite in your sandbox.",
+        "parameters": {},
+        "required": [],
+    },
     "open_pr": {
         "description": (
             "Deliver the finished work: bundle the given branch and open a pull "
@@ -91,6 +118,9 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
 ACT_TOOLS = ["list_dir", "read_file", "write_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
 PM_TOOLS = ["create_issue", "read_issues", "request_crew"]
+# The reviewer (plan step 20): reads and executes, writes nothing but the
+# findings comment — mirroring the sdet crew member's compiled scope.
+REVIEWER_TOOLS = ["list_dir", "read_file", "exec", "run_tests", "read_pr", "comment_pr"]
 
 
 def tool_specs(names: list[str]) -> list[dict[str, Any]]:
@@ -188,6 +218,20 @@ class Toolbox:
                     {"run_id": run_id, "repo": self._settings.target_repo,
                      "number": args.get("number")},
                 )
+            case "read_pr":
+                return await self._gateway.call(
+                    "git.read",
+                    {"run_id": run_id, "repo": self._settings.target_repo,
+                     "number": int(args["number"])},
+                )
+            case "comment_pr":
+                return await self._gateway.call(
+                    "git.comment",
+                    {"run_id": run_id, "repo": self._settings.target_repo,
+                     "number": int(args["number"]), "body": args["body"]},
+                )
+            case "run_tests":
+                return await self.run_tests()
             case "request_crew":
                 return await self._gateway.call(
                     "crew.request",

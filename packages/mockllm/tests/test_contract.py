@@ -86,6 +86,15 @@ class FakeGateway:
                         "denied by policy rule: git_open_pr_branch_pattern"
                     )
                 return {"pr_url": PR_URL}
+            case "git.read":
+                return {"number": args["number"], "title": "Add slugify",
+                        "state": "open", "url": PR_URL,
+                        "head": "feature/slugify-c0ffee", "base": "main",
+                        "merged": False,
+                        "files": [{"path": "slugify.py", "additions": 4,
+                                   "deletions": 0, "patch": "+..."}]}
+            case "git.comment":
+                return {"url": f"{PR_URL}#issuecomment-1"}
             case _:
                 raise ToolCallError(f"denied by policy rule: default_deny ({tool})")
 
@@ -221,3 +230,50 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch():
     assert (asyncio.run(gateway.call("sandbox.run_tests", {})))["exit_code"] == 0
     delivered = deliver_through_mock(gateway, task_text, "run-mock-e3")
     assert delivered.pr_url == PR_URL
+
+
+def test_review_dispatch_reads_executes_and_posts_findings():
+    """The reviewer's script (plan step 20, §6.3): read the PR diff, run
+    the suite in the review sandbox, post exactly one findings comment —
+    driven by the production run_review against the mock brain, with the
+    same task-text shape orchestrator.workflows.review.review_task composes."""
+    import agent.graph as graph_module
+    from agent.graph import run_review
+
+    task_text = (
+        f"Review pull request #41 ({PR_URL}): Add slugify utility\n\n"
+        "Read the diff with the read_pr tool, run the test suite in your"
+        " sandbox, and post your findings on the pull request as a single"
+        " comment_pr call."
+    )
+    gateway = FakeGateway()
+    llm = mock_llm()
+
+    class FakeGatewayCtx:
+        async def __aenter__(self):
+            return gateway
+        async def __aexit__(self, *exc):
+            return False
+
+    original_llm = graph_module.OpenAICompatibleLLM
+    original_gw = graph_module.McpGateway
+    graph_module.OpenAICompatibleLLM = lambda *a, **k: llm
+    graph_module.McpGateway = lambda *a, **k: FakeGatewayCtx()
+
+    async def go():
+        try:
+            return await run_review(settings(), "run-mock-review", task_text)
+        finally:
+            graph_module.OpenAICompatibleLLM = original_llm
+            graph_module.McpGateway = original_gw
+
+    result = asyncio.run(go())
+    assert result.error is None
+    assert result.comment_urls == [f"{PR_URL}#issuecomment-1"]
+    tools = [tool for tool, _ in gateway.calls]
+    assert tools == ["git.read", "sandbox.run_tests", "git.comment"]
+    read_args = gateway.calls[0][1]
+    assert read_args["number"] == 41
+    comment_args = gateway.calls[-1][1]
+    assert comment_args["number"] == 41
+    assert "test suite" in comment_args["body"]

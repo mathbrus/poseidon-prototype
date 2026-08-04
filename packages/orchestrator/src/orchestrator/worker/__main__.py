@@ -17,10 +17,15 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from common.telemetry import get_logger
-from orchestrator.activities import CrewActivities, ImplementActivities, IntakeActivities
+from orchestrator.activities import (
+    CrewActivities,
+    ImplementActivities,
+    IntakeActivities,
+    ReviewActivities,
+)
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import CrewPodProvisioner
-from orchestrator.workflows import ImplementWorkflow, IntakeWorkflow
+from orchestrator.workflows import ImplementWorkflow, IntakeWorkflow, ReviewWorkflow
 from registry import (
     AuditStore,
     BudgetLedger,
@@ -56,6 +61,10 @@ async def main() -> None:
     intake_activities = IntakeActivities(
         settings, Runs(registry), Companies(registry), BudgetLedger(registry)
     )
+    review_activities = ReviewActivities(
+        settings, Runs(registry), Companies(registry),
+        AgentInstances(registry), AuditStore(registry),
+    )
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping
     # kubelet crash-loop backoff. The namespace check matters: pollers
@@ -82,11 +91,12 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=settings.task_queue,
-        workflows=[ImplementWorkflow, IntakeWorkflow],
+        workflows=[ImplementWorkflow, IntakeWorkflow, ReviewWorkflow],
         activities=[
             *activities.all(),
             *crew_activities.all(),
             *intake_activities.all(),
+            *review_activities.all(),
         ],
     )
     log.info(

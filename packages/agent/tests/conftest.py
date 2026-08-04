@@ -14,6 +14,7 @@ from agent.llm import Completion, ToolCall
 
 RUN_ID = "run-01TESTULID"
 PR_URL = "https://github.test/example/target/pull/7"
+COMMENT_URL = "https://github.test/example/target/pull/7#issuecomment-1"
 FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 
 _ids = count(1)
@@ -78,6 +79,20 @@ class FakeGateway:
                 return dict(self.default_test_result)
             case "sandbox.git_bundle":
                 return {"bundle_b64": "YnVuZGxl", "base_ref": "main"}
+            case "git.read":
+                return {
+                    "number": args["number"],
+                    "title": "Add greet",
+                    "state": "open",
+                    "url": PR_URL,
+                    "head": "feature/greet",
+                    "base": "main",
+                    "merged": False,
+                    "files": [{"path": "src/hello.py", "additions": 2,
+                               "deletions": 0, "patch": "+def greet..."}],
+                }
+            case "git.comment":
+                return {"url": COMMENT_URL}
             case "git.open_pr":
                 branch = args["branch"]
                 if branch.lower() in {"main", "master"}:

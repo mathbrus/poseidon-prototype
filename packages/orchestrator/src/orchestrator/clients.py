@@ -115,20 +115,41 @@ class GatewayClient:
             raise GatewayError(text or "repo.archive failed")
         return base64.b64decode(json.loads(text)["archive_b64"])
 
-    async def run_tests(self, run_id: str) -> dict[str, Any]:
-        """The platform verify gate (plan step 19, sequencing choice 4):
-        `sandbox.run_tests` under the orchestrator's own identity — the
-        gate of record after the brain's completion claim."""
+    async def _tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         assert self._session is not None, "use `async with GatewayClient(...)`"
-        result = await self._session.call_tool(
-            "sandbox.run_tests", {"run_id": run_id}
-        )
+        result = await self._session.call_tool(name, args)
         text = "".join(
             block.text for block in result.content if getattr(block, "text", None)
         )
         if result.isError:
-            raise GatewayError(text or "sandbox.run_tests failed")
+            raise GatewayError(text or f"{name} failed")
         return json.loads(text)
+
+    async def run_tests(self, run_id: str) -> dict[str, Any]:
+        """The platform verify gate (plan step 19, sequencing choice 4):
+        `sandbox.run_tests` under the orchestrator's own identity — the
+        gate of record after the brain's completion claim."""
+        return await self._tool("sandbox.run_tests", {"run_id": run_id})
+
+    async def read_pr(self, run_id: str, repo: str, number: int) -> dict[str, Any]:
+        """PR metadata (head ref included) for the review workflow — how
+        the platform resolves the ref the review sandbox is provisioned
+        from (plan step 20, O-4)."""
+        return await self._tool(
+            "git.read", {"run_id": run_id, "repo": repo, "number": number}
+        )
+
+    async def merge_pr(
+        self, run_id: str, repo: str, number: int, method: str = "merge"
+    ) -> dict[str, Any]:
+        """The post-gate merge (O-1 A): only ever called by the review
+        workflow after the human merge gate approved, under the
+        orchestrator's platform identity — policy restricts `git.merge_pr`
+        to exactly that identity."""
+        return await self._tool(
+            "git.merge_pr",
+            {"run_id": run_id, "repo": repo, "number": number, "method": method},
+        )
 
     async def register_sandbox(
         self,

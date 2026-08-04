@@ -145,9 +145,22 @@ def _branch(task_text: str) -> str:
     return match.group(0) if match else FALLBACK_BRANCH
 
 
-def _write_files() -> MockCompletion:
+def _slugify_content(task_text: str) -> str:
+    """SLUGIFY_PY, stamped with the run's delivery branch. The stamp is
+    what keeps repeated e2e runs against the same disposable repo alive
+    once review runs (plan step 20) start *merging* PRs into its main:
+    with byte-identical content, the first merge would make every later
+    delivery an empty diff and `git.open_pr` would have no commits to
+    open a PR from."""
+    return f"# delivered-on: {_branch(task_text)}\n{SLUGIFY_PY}"
+
+
+def _write_files(task_text: str) -> MockCompletion:
     return _calls(
-        MockToolCall("write_file", {"path": "slugify.py", "content": SLUGIFY_PY}),
+        MockToolCall(
+            "write_file",
+            {"path": "slugify.py", "content": _slugify_content(task_text)},
+        ),
         MockToolCall(
             "write_file", {"path": "tests/test_slugify.py", "content": TEST_SLUGIFY_PY}
         ),
@@ -183,6 +196,32 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
     )
 
 
+PR_NUMBER_RE = re.compile(r"pull request #(\d+)")
+
+
+def _review_completion(messages: list[dict[str, Any]]) -> MockCompletion:
+    """The reviewer's scripted dispatch (plan step 20, §6.3): read the PR
+    diff, execute the suite in the review sandbox (provisioned from the PR
+    ref), post one findings comment — read-and-judge, no writes."""
+    match = PR_NUMBER_RE.search(_task_text(messages))
+    number = int(match.group(1)) if match else 0
+    if _made_calls(messages, "read_pr") == 0:
+        return _calls(MockToolCall("read_pr", {"number": number}))
+    if _made_calls(messages, "run_tests") == 0:
+        return _calls(MockToolCall("run_tests", {}))
+    if _made_calls(messages, "comment_pr") == 0:
+        return _calls(MockToolCall("comment_pr", {
+            "number": number,
+            "body": (
+                "Reviewed the diff and executed the test suite in the "
+                "review sandbox: all tests pass. `slugify.py` handles "
+                "punctuation, hyphen collapsing, mixed case and the empty "
+                "string per the acceptance criteria. No blocking findings."
+            ),
+        }))
+    return _text("Findings posted; review complete.")
+
+
 def next_completion(
     messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
 ) -> MockCompletion:
@@ -191,6 +230,9 @@ def next_completion(
 
     if "product manager" in _system_text(messages):  # the PM loop (step 17)
         return _pm_completion(messages)
+
+    if "comment_pr" in offered:  # the reviewer loop (step 20)
+        return _review_completion(messages)
 
     if not offered:  # plan: the graph passes no tools
         # A real planner's brief carries the constraints it was given;
@@ -219,7 +261,8 @@ def next_completion(
             if _made_calls(messages, "write_file") == 0:
                 return _calls(
                     MockToolCall("write_file",
-                                 {"path": "slugify.py", "content": SLUGIFY_PY}),
+                                 {"path": "slugify.py",
+                                  "content": _slugify_content(task_text)}),
                     MockToolCall("write_file",
                                  {"path": "tests/test_slugify.py",
                                   "content": TEST_SLUGIFY_PY}),
@@ -229,7 +272,7 @@ def next_completion(
                 )
             return _text("Files are in place; run the test suite.")
         if _made_calls(messages, "write_file") == 0:
-            return _write_files()
+            return _write_files(task_text)
         return _text("Both files are in place; run the test suite.")
 
     # deliver — each completion batches commit + open_pr so one graph step

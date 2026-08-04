@@ -355,6 +355,20 @@ def test_workflow_path_records_under_conductor_authority(
     assert event.lifecycle == "standing" and event.agent_id == "pm-1"
 
 
+def test_recording_names_the_calling_workflow(fulfill_world, monkeypatch):
+    """The review workflow records under the same authority with its own
+    name in the §5.1 input (plan step 20) — implement stays the default."""
+    import orchestrator.activities.crew as module
+
+    crew, _, _, _, _ = fulfill_world
+    opa = FakeOpa({"allow": True, "rule": "role_pm_crew_request"})
+    monkeypatch.setattr(module, "httpx", opa)
+
+    asyncio.run(crew.fulfill_crew({**_fulfill_spec(), "workflow": "review"}))
+    (_, payload), = opa.calls
+    assert payload["input"]["workflow"] == "review"
+
+
 def test_workflow_path_denied_by_the_compiled_decision(
     fulfill_world, monkeypatch
 ):

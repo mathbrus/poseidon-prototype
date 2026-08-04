@@ -67,6 +67,9 @@ class RunResult(BaseModel):
     # it recorded — what an intake run links to the run record (§6.1).
     ticket_urls: list[str] = []
     crew_request_id: str | None = None
+    # Reviewer mode (plan step 20): the findings comment(s) it posted —
+    # the review workflow refuses to reach the merge gate without one.
+    comment_urls: list[str] = []
 
 
 def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
@@ -341,6 +344,68 @@ async def run_pm(settings: AgentSettings, run_id: str, task_text: str) -> RunRes
     log.info("pm finished", extra={"tickets": ticket_urls,
                                    "crew_request": crew_request_id})
     return RunResult(ticket_urls=ticket_urls, crew_request_id=crew_request_id)
+
+
+async def run_review(
+    settings: AgentSettings, run_id: str, task_text: str
+) -> RunResult:
+    """The ephemeral reviewer's dispatch (§6.3, plan step 20): read the
+    diff via git.read, execute the suite in the run's sandbox (provisioned
+    from the PR ref — O-4), post findings via git.comment. Read-and-judge
+    only: the tool surface has no write_file and no open_pr, and the
+    compiled sdet scope enforces the same at the gateway. The loop ends
+    when the model stops calling tools; the workflow treats a dispatch
+    with no posted findings as a failed review."""
+    from agent.toolbox import REVIEWER_TOOLS
+
+    log = get_logger("agent.review")
+    token = settings.resolve_gateway_token()
+    llm = OpenAICompatibleLLM(
+        settings.llm_proxy_url, settings.model, token=token, run_id=run_id
+    )
+    system_prompt = SYSTEM_PROMPT_PATH.read_text().format(
+        target_repo=settings.target_repo
+    )
+    comment_urls: list[str] = []
+    async with McpGateway(settings.mcp_gateway_url, token) as gateway:
+        toolbox = Toolbox(gateway, settings, run_id)
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Task:\n{task_text}"},
+        ]
+        for step in range(settings.max_iterations * 2):
+            completion = await llm.complete(
+                messages, tools=tool_specs(REVIEWER_TOOLS)
+            )
+            messages.append(assistant_message(completion))
+            if not completion.tool_calls:
+                break
+            for call in completion.tool_calls:
+                if call.name not in REVIEWER_TOOLS:
+                    messages.append(tool_result_message(
+                        call, f"ERROR: tool {call.name} is not available"
+                    ))
+                    continue
+                try:
+                    result = await toolbox.execute(call)
+                except ToolCallError as exc:
+                    log.info("review tool call failed",
+                             extra={"tool": call.name, "error": str(exc)})
+                    messages.append(tool_result_message(call, f"ERROR: {exc}"))
+                    continue
+                messages.append(tool_result_message(call, result))
+                if call.name == "comment_pr" and result.get("url"):
+                    comment_urls.append(result["url"])
+        else:
+            return RunResult(
+                error=f"reviewer did not finish within"
+                      f" {settings.max_iterations * 2} steps",
+                comment_urls=comment_urls,
+            )
+    if not comment_urls:
+        return RunResult(error="reviewer posted no findings")
+    log.info("review finished", extra={"comments": comment_urls})
+    return RunResult(comment_urls=comment_urls)
 
 
 async def run_deliver(
