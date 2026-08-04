@@ -30,12 +30,11 @@ class WorkerSettings(TemporalSettings):
     # validity. The static token is the pre-step-11 fallback, deleted at 12.
     gateway_token_file: str = ""
     mcp_gateway_url: str
-    agent_url: str
     target_repo: str
     base_ref: str = "main"
     # The bootstrap company this worker executes runs for, and its
-    # namespace (where sandbox Jobs land). Single-company wiring like
-    # AGENT_URL; goes per-run at plan step 16.
+    # namespace (where sandbox Jobs land). Single-company wiring; goes
+    # per-run at a later step.
     company: str = "hello-saas"
     sandbox_namespace: str = "hello-saas"
     # Deploy-time resolution of the infra IR's *logical* toolchain image
@@ -59,8 +58,12 @@ class WorkerSettings(TemporalSettings):
     agent_image: str = ""
     platform_namespace: str = "poseidon-platform"
     # The standing PM's dispatch address (plan step 18: intake dispatches
-    # the conductor exactly as implement dispatches an executor).
+    # the conductor; implement dispatches ephemeral executors at their
+    # crew-pod URLs — there is no standing executor address anymore).
     pm_url: str = ""
+    # The workflow-recorded crew-request path (plan step 19) evaluates the
+    # same compiled decision the crew.request tool faces, directly at OPA.
+    opa_url: str = "http://opa:8181"
     model: str = "mock-brain"
     max_iterations: int = 10
     poll_interval_s: float = 2

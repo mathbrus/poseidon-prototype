@@ -20,7 +20,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from agent.config import AgentSettings
-from agent.graph import RunResult, run_plan, run_pm, run_task
+from agent.graph import RunResult, run_deliver, run_plan, run_pm, run_task
 from common.telemetry import get_logger
 
 TaskRunner = Callable[[str, str], Awaitable[RunResult]]
@@ -29,7 +29,7 @@ TaskRunner = Callable[[str, str], Awaitable[RunResult]]
 class TaskRequest(BaseModel):
     run_id: str
     task_text: str
-    mode: Literal["implement", "plan"] = "implement"
+    mode: Literal["implement", "plan", "deliver"] = "implement"
     # The dispatching workflow may hand this task its own identity — the
     # planner's minted token when the planner borrows the executor's pod.
     gateway_token: str | None = None
@@ -72,6 +72,9 @@ def create_app(
         ) -> RunResult:
             return await run_plan(_settings(), run_id, task_text, gateway_token)
 
+    async def deliver_runner(run_id: str, task_text: str) -> RunResult:
+        return await run_deliver(_settings(), run_id, task_text)
+
     log = get_logger("agent", agent_id="backend-engineer-1")
     app = FastAPI(title="poseidon-agent")
     tasks: dict[str, TaskStatus] = {}
@@ -85,6 +88,8 @@ def create_app(
                 result = await plan_runner(
                     run_id, request.task_text, request.gateway_token
                 )
+            elif request.mode == "deliver":
+                result = await deliver_runner(run_id, request.task_text)
             else:
                 result = await task_runner(run_id, request.task_text)
         except Exception as exc:

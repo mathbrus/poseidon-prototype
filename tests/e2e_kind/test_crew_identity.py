@@ -89,7 +89,6 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
         settings = WorkerSettings(
             gateway_token_file=str(token_file),
             mcp_gateway_url=gateway_url,
-            agent_url="http://unused.test:8000",
             target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
             platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
             ephemeral_ttl_s=900,  # revocation must beat this by a mile

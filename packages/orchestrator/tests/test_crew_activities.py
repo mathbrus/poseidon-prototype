@@ -33,7 +33,6 @@ def settings(tmp_path) -> WorkerSettings:
     return WorkerSettings(
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        agent_url="http://agent.test:8000",
         target_repo="github.com/example/repo",
         platform_jwt_key=KEY,
         ephemeral_ttl_s=600,

@@ -8,10 +8,12 @@ Retry safety, per activity:
     fetch_workspace   — read-only; safe.
     provision_sandbox — the backend pre-removes a same-name remnant of a
                         crashed earlier attempt; registration upserts.
-    dispatch_work     — the agent answers 409 to a re-dispatch and the
+    implement_config  — read-only; safe.
+    dispatch_executor — the agent answers 409 to a re-dispatch and the
                         activity falls through to polling; if the agent
                         lost the run (restart), the poll raises and the
                         retry re-dispatches from scratch.
+    platform_verify   — read-only against the sandbox; safe.
     teardown          — destroy is idempotent; the participants sweep and
                         the run row finalization are upserts.
 """
@@ -29,7 +31,7 @@ from compiler.infra import DEFAULT_IMAGE
 from orchestrator.clients import AgentClient, GatewayClient
 from orchestrator.config import WorkerSettings
 from registry import Runs
-from registry.bundles import Companies
+from registry.bundles import AgentInstances, Companies
 from sandbox.contract import SandboxBackend, SandboxHandle, SandboxPolicy
 
 
@@ -47,13 +49,18 @@ class ImplementActivities:
         runs: Runs,
         companies: Companies,
         crew: "CrewActivities | None" = None,
+        instances: AgentInstances | None = None,
     ) -> None:
         self._settings = settings
         self._backend = backend
         self._runs = runs
         # Read-only: the applied blueprint's infra IR is the SandboxPolicy
-        # source (plan step 12, closing sequencing choice 2).
+        # source (plan step 12, closing sequencing choice 2), and its
+        # workflow config directs the step-19 crew-only flow.
         self._companies = companies
+        # Read-only: hire name -> standing instance (the conductor id the
+        # crew request is recorded under).
+        self._instances = instances
         # The 16a revoke, called directly (same process) from teardown so
         # run-binding termination rides the one compensation anchor that
         # runs on every terminal path (plan step 16b).
@@ -73,6 +80,56 @@ class ImplementActivities:
             self._settings.company,
         )
         self._log.bind(run_id=run_id).info("run created")
+
+    @activity.defn(name="implement_config")
+    async def implement_config(self) -> dict[str, Any]:
+        """The workflow's shape, from the applied blueprint (§6.2): which
+        crew implements, which standing conductor's authority the crew
+        request is recorded under, and how many verify-red re-dispatches
+        the run gets. Fail-closed: no applied blueprint, no enabled
+        implement workflow, no crew, or no standing conductor instance
+        each refuse the run before anything is provisioned."""
+        def read() -> dict[str, Any]:
+            spec = self._companies.get(self._settings.company) or {}
+            config = next(
+                (w for w in spec.get("workflows") or []
+                 if w.get("name") == "implement"),
+                None,
+            )
+            if config is None or not config.get("enabled", False):
+                raise RuntimeError(
+                    f"company {self._settings.company!r} has no enabled"
+                    " implement workflow in its applied blueprint"
+                )
+            crew_template = config.get("crew")
+            if not crew_template:
+                raise RuntimeError(
+                    "implement workflow binds no crew — execution is"
+                    " ephemeral crews (§4.2); the compiler should have"
+                    " refused this blueprint"
+                )
+            conductor_hire = config["conductor"]
+            instance = None
+            if self._instances is not None:
+                instance = next(
+                    (i for i in self._instances.for_company(self._settings.company)
+                     if i.get("hire") == conductor_hire),
+                    None,
+                )
+            if instance is None:
+                raise RuntimeError(
+                    f"no standing instance for conductor hire"
+                    f" {conductor_hire!r} — is the company converged?"
+                )
+            return {
+                "company": self._settings.company,
+                "crew_template": crew_template,
+                "conductor": instance["agent_id"],
+                "conductor_role": instance["role_template"],
+                "max_verify_retries": int(config.get("max_verify_retries") or 0),
+            }
+
+        return await asyncio.to_thread(read)
 
     def _sandbox_policy(self, run_id: str) -> SandboxPolicy:
         """The compiled SandboxPolicy: the applied blueprint's infra IR plus
@@ -131,22 +188,46 @@ class ImplementActivities:
         self._log.bind(run_id=run_id).info("sandbox ready", extra={"url": handle.url})
         return handle.model_dump()
 
-    @activity.defn(name="dispatch_work")
-    async def dispatch_work(self, run_id: str, task_text: str) -> dict[str, Any]:
-        """Dispatch the agent and poll until it reaches a terminal state,
-        heartbeating every poll. The PoC runner's `agent_timeout_s` poll
-        loop becomes the activity's start-to-close + heartbeat timeouts."""
-        async with AgentClient(self._settings.agent_url) as agent:
-            await agent.dispatch(run_id, task_text)
+    @activity.defn(name="dispatch_executor")
+    async def dispatch_executor(
+        self, run_id: str, task_text: str, url: str, mode: str = "implement"
+    ) -> dict[str, Any]:
+        """Dispatch the ephemeral executor on its crew pod and poll until it
+        reaches a terminal state, heartbeating every poll. The pod's own
+        GATEWAY_TOKEN (injected at provision, 16c) is the credential — no
+        token rides this call or the workflow history. mode="implement"
+        works to a completion claim; mode="deliver" is the separate,
+        workflow-directed delivery dispatch (sequencing choice 8), only
+        ever issued after the platform verify gate is green."""
+        async with AgentClient(url) as agent:
+            await agent.dispatch(run_id, task_text, mode=mode)
             while True:
                 _heartbeat()
                 status = await agent.status(run_id)
                 if status["status"] != "running":
                     self._log.bind(run_id=run_id).info(
-                        "agent finished", extra={"agent_status": status}
+                        "agent finished",
+                        extra={"agent_status": status, "mode": mode},
                     )
                     return status
                 await asyncio.sleep(self._settings.poll_interval_s)
+
+    @activity.defn(name="platform_verify")
+    async def platform_verify(self, run_id: str) -> dict[str, Any]:
+        """The gate of record (§4.2, sequencing choice 4): the platform
+        runs the sandbox's test suite under the orchestrator's own
+        identity. The executor's claim is advisory; this result is what
+        delivery hangs on."""
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            result = await gateway.run_tests(run_id)
+        passed = result.get("exit_code") == 0
+        output = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".strip()
+        self._log.bind(run_id=run_id).info(
+            "platform verify", extra={"passed": passed}
+        )
+        return {"passed": passed, "output": output[-4000:]}
 
     @activity.defn(name="teardown")
     async def teardown(
@@ -219,6 +300,8 @@ class ImplementActivities:
             self.create_run,
             self.fetch_workspace,
             self.provision_sandbox,
-            self.dispatch_work,
+            self.implement_config,
+            self.dispatch_executor,
+            self.platform_verify,
             self.teardown,
         ]

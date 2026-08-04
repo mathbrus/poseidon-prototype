@@ -36,14 +36,14 @@ def test_hello_saas_validates():
     assert load_blueprint(HELLO_SAAS)["company"]["name"] == "hello-saas"
 
 
-def test_hello_saas_is_the_bridge_profile(blueprint):
-    """The transitional engineer is present and marked for deletion at plan
-    step 19; the analyst placeholder is hired at zero."""
+def test_hello_saas_is_the_lean_profile(blueprint):
+    """Since the firing diff (plan step 19): the PM is the only standing
+    hire; the analyst placeholder documents growth at count 0; no standing
+    executor exists in the document at all."""
     roles = blueprint["departments"]["roles"]
     assert roles["pm"]["count"] == 1
-    assert roles["backend-engineer"]["count"] == 1
     assert roles["analyst"]["count"] == 0
-    assert "TRANSITIONAL" in HELLO_SAAS.read_text()
+    assert "backend-engineer" not in roles
 
 
 def test_pm_holds_no_executor_tools(blueprint):
@@ -211,9 +211,12 @@ def test_crew_member_tools_may_narrow_the_catalog(blueprint):
 
 
 def test_lean_roster_profile_validates(blueprint):
-    """Step 19's firing diff removes the transitional engineer; the result
-    must remain a valid document (the stricter compile error that rejects
-    standing executors lands in the compiler, not here)."""
-    lean = copy.deepcopy(blueprint)
-    del lean["departments"]["roles"]["backend-engineer"]
-    assert validate_blueprint(lean) is lean
+    """The checked-in document IS the lean profile now; the compile error
+    that rejects standing executors lives in the compiler, not here — a
+    bridge-shaped document still *validates* structurally."""
+    assert validate_blueprint(blueprint) is blueprint
+    bridge = copy.deepcopy(blueprint)
+    bridge["departments"]["roles"]["backend-engineer"] = {
+        "template": "backend-engineer", "count": 1,
+    }
+    assert validate_blueprint(bridge) is bridge

@@ -4,7 +4,7 @@
 # Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
 
 # The bootstrap company's namespace — platform-side wiring only: the worker's
-# AGENT_URL/SANDBOX_NAMESPACE, the platform NetworkPolicies that select the
+# PM_URL/SANDBOX_NAMESPACE, the platform NetworkPolicies that select the
 # company namespace, and the OPA bundle config key. Goes per-company at
 # steps 12/16; the namespace itself is operator-created either way.
 companyNamespace: hello-saas

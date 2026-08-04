@@ -8,22 +8,54 @@ query: the gateway and the egress proxy both write the registry
 from .conftest import audit_story
 
 
+def _executor_id(run_id: str) -> str:
+    from orchestrator.identity import ephemeral_agent_id
+
+    return ephemeral_agent_id("feature-delivery", "executor", run_id)
+
+
 def test_story_covers_the_whole_run(implement_run: dict) -> None:
     story = audit_story(implement_run["run_id"])
     assert story, "no audit events for the run"
 
     tools = {e["tool"] for e in story}
-    # The run's arc: sandbox registered, workspace fetched, files written,
-    # tests run, work committed, bundle pulled, PR opened.
+    # The run's arc since step 19: sandbox registered, workspace fetched,
+    # the crew stood up (request recorded under the conductor's authority,
+    # members minted, the executor's pod provisioned, fulfillment), files
+    # written, tests run, work committed, bundle pulled, PR opened, and the
+    # crew revoked at teardown.
     assert {
         "/admin/sandboxes",
         "repo.archive",
+        "lifecycle.record_request",
+        "lifecycle.mint",
+        "lifecycle.provision_pod",
+        "lifecycle.fulfill",
         "sandbox.write_file",
         "sandbox.exec",
         "sandbox.run_tests",
         "sandbox.git_bundle",
         "git.open_pr",
+        "lifecycle.revoke",
     } <= tools, f"story is missing steps: {sorted(tools)}"
+
+
+def test_delivery_never_precedes_the_platform_verify(implement_run: dict) -> None:
+    """The step-19 gate of record, in the story's own ordering: the
+    platform's green sandbox.run_tests (the orchestrator's platform
+    lifecycle) comes before the PR ever opens — delivery is released by
+    the gate, not by the executor's claim."""
+    story = audit_story(implement_run["run_id"])
+    platform_verifies = [
+        i for i, e in enumerate(story)
+        if e["tool"] == "sandbox.run_tests" and e["lifecycle"] == "platform"
+    ]
+    assert platform_verifies, "no platform-identity verify in the story"
+    pr_opens = [i for i, e in enumerate(story) if e["tool"] == "git.open_pr"]
+    assert pr_opens, "no delivery in the story"
+    assert min(platform_verifies) < min(pr_opens), (
+        "delivery happened before the platform verify gate"
+    )
 
 
 def test_every_event_is_attributed_and_decided(implement_run: dict) -> None:
@@ -71,23 +103,22 @@ def _seed_event(run_id: str, source: str, agent_id: str, tool: str,
     assert proc.returncode == 0, proc.stderr
 
 
-def test_one_query_spans_all_four_sources(implement_run: dict) -> None:
-    """The step-13 done-when: a run whose story contains gateway,
-    sandbox-infra, process-gate and llm-gateway events answers ONE
-    run_id-correlated query. The gateway events are the real run's; the
-    other three sources are seeded through the same ingestion contract
-    (their producers land at steps 14 and 18-20)."""
+def test_one_query_spans_all_five_sources(implement_run: dict) -> None:
+    """The step-13 done-when, grown with the run's real producers: one
+    run_id-correlated query returns every source's events."""
     run_id = implement_run["run_id"]
-    _seed_event(run_id, "llm-gateway", "backend-engineer-1",
-                "llm.complete", "allow", "budget_headroom")
     _seed_event(run_id, "process-gate", "orchestrator",
                 "gate.merge", "allow", "gate_approved")
     _seed_event(run_id, "sandbox-infra", "egress-proxy",
                 "sandbox.egress", "deny", "egress_not_allowlisted")
 
     story = audit_story(run_id)
+    # gateway, llm-gateway and process-lifecycle events are the real run's
+    # (steps 12/14/16); the remaining two sources are seeded through the
+    # same ingestion contract (their producers land at step 20).
     assert {e["source"] for e in story} == {
-        "gateway", "llm-gateway", "process-gate", "sandbox-infra",
+        "gateway", "llm-gateway", "process-lifecycle",
+        "process-gate", "sandbox-infra",
     }
     assert all(e["run_id"] == run_id for e in story)
 
@@ -95,14 +126,15 @@ def test_one_query_spans_all_four_sources(implement_run: dict) -> None:
 def test_gateway_events_carry_v2_attribution(implement_run: dict) -> None:
     """Since step 13 the real pipeline emits v2: every gateway event names
     its source, and company-caller events carry company + lifecycle."""
-    story = [e for e in audit_story(implement_run["run_id"])
-             if e["source"] == "gateway"]
+    run_id = implement_run["run_id"]
+    story = [e for e in audit_story(run_id) if e["source"] == "gateway"]
     assert story
     for event in story:
         assert event["lifecycle"] in ("standing", "ephemeral", "platform")
-    engineer_events = [e for e in story if e["agent_id"] == "backend-engineer-1"]
-    assert engineer_events
-    for event in engineer_events:
+    executor_events = [e for e in story if e["agent_id"] == _executor_id(run_id)]
+    assert executor_events
+    for event in executor_events:
         assert event["company"] == "hello-saas"
-        assert event["lifecycle"] == "standing"
+        assert event["lifecycle"] == "ephemeral"
+        assert event["parent_agent_id"] == "pm-1"
         assert event["workflow"] == "implement"

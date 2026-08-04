@@ -1,13 +1,12 @@
-# hello-saas — the MVP design-partner company, in its **bridge profile**
-# (plan sequencing choice 6).
+# hello-saas — the MVP design-partner company, in its **lean-roster
+# profile** (plan step 19: the firing diff landed).
 #
-# The end-state roster is the PM alone: delivery and review run as ephemeral
-# crews under the PM's conductor authority. Until crew fulfillment lands
-# (plan step 16/19), this blueprint also hires a transitional standing
-# `backend-engineer` so `implement` stays dispatchable and the step-12
-# governance regression has a principal that may call `git.open_pr`. Step 19
-# deletes that entry with a blueprint diff — the live hire/fire demo — and
-# the strict lean-roster compile error lands with it.
+# The standing roster is the PM alone: delivery and review run as ephemeral
+# crews under the PM's conductor authority. The transitional standing
+# `backend-engineer` that bridged M2->M3 (sequencing choice 6) was removed
+# by exactly the blueprint diff this comment describes — the live
+# hire/fire-as-diff demo — and the strict lean-roster compile error now
+# refuses any standing executor count.
 apiVersion: poseidon.dev/v1
 
 company:
@@ -41,12 +40,6 @@ departments:
       may_spawn:
         crew: [feature-delivery, feature-review]
         max_concurrent: 2
-    # TRANSITIONAL (deleted at plan step 19): runs the PoC brain so implement
-    # keeps its standing-executor shape until the crew path is green.
-    backend-engineer:
-      template: backend-engineer
-      count: 1
-      model_tier: frontier
     # Documents the future standing-monitor growth path; count 0 produces no
     # instance and exercises no tools.
     analyst:
@@ -101,15 +94,6 @@ tools:
       - issues.update
       - issues.comment
       - crew.request
-  backend-engineer:
-    allow:
-      - sandbox.read_file
-      - sandbox.write_file
-      - sandbox.list_dir
-      - sandbox.exec
-      - sandbox.run_tests
-      - sandbox.git_bundle
-      - git.open_pr
   sdet:
     allow:
       - sandbox.read_file
@@ -165,5 +149,3 @@ budgets:
   per_role_monthly:
     pm:
       usd: 50
-    backend-engineer:
-      usd: 200

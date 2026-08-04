@@ -25,6 +25,8 @@ from typing import Any
 
 from temporalio import activity
 
+import httpx
+
 from common.audit import AuditEvent
 from common.telemetry import get_logger
 from orchestrator.clients import AgentClient
@@ -49,6 +51,7 @@ class CrewActivities:
         provisioner: CrewPodProvisioner | None = None,
         crew_requests: Any = None,
         companies: Any = None,
+        ledger: Any = None,
     ) -> None:
         self._settings = settings
         self._participants = participants
@@ -58,6 +61,9 @@ class CrewActivities:
         # applied blueprint the crew's member specs come from.
         self._crew_requests = crew_requests
         self._companies = companies
+        # Read-only, for the workflow-recorded crew request (step 19): the
+        # budget-headroom half of the §5.1 enrichment.
+        self._ledger = ledger
         self._log = get_logger("orchestrator.crew")
 
     @activity.defn(name="mint_participant")
@@ -250,6 +256,26 @@ class CrewActivities:
         consumed = await asyncio.to_thread(
             self._crew_requests.consume, rid, run_id
         )
+        if consumed is None and spec.get("record_under_authority"):
+            # The workflow path (§4.4 rule 3): record the request under the
+            # conductor's authority — same row, same policy. "Same policy"
+            # is literal: the recording is allowed only if the compiled
+            # decision the crew.request *tool* faces allows it, evaluated
+            # against the same bundle with the same enriched input.
+            await self._authorize_recording(
+                run_id, spec["company"], conductor,
+                spec.get("conductor_role", "pm"), crew_template,
+            )
+            await asyncio.to_thread(
+                self._crew_requests.record,
+                conductor,
+                crew_template,
+                run_id,
+                spec.get("reason", "workflow-recorded under conductor authority"),
+            )
+            consumed = await asyncio.to_thread(
+                self._crew_requests.consume, rid, run_id
+            )
         if consumed is None:
             # No recorded, unexpired intent for this run: fulfillment does
             # not improvise authority (§4.4 rule 3; expired requests orphan
@@ -328,6 +354,75 @@ class CrewActivities:
             "members": sorted(minted),
         }
 
+    async def _authorize_recording(
+        self,
+        run_id: str,
+        company: str,
+        conductor: str,
+        conductor_role: str,
+        crew_template: str,
+    ) -> None:
+        """Evaluate the conductor-shaped crew.request decision against the
+        live compiled bundle — the §4.4 "same policy" clause, literally:
+        may_spawn narrowing, the concurrency cap and budget headroom all
+        bind exactly as at the gateway's crew.request tool. The decision is
+        audited either way; a deny refuses the recording."""
+        def enrich() -> tuple[int, bool]:
+            spawns = self._participants.active_spawn_count(conductor)
+            spec = (self._companies.get(company) or {})
+            cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
+            headroom = True
+            if cap > 0 and self._ledger is not None:
+                headroom = self._ledger.spent_for_run(run_id) < cap
+            return spawns, headroom
+
+        spawns, headroom = await asyncio.to_thread(enrich)
+        slug = company.replace(".", "_").replace("-", "_").replace("/", "_")
+        decision_input = {
+            "company": company,
+            "agent_id": conductor,
+            "lifecycle": "standing",
+            "parent_agent_id": "",
+            "role": conductor_role,
+            "run_id": run_id,
+            "workflow": "implement",
+            "tool": "crew.request",
+            "args": {"crew_template": crew_template},
+            "run_binding_verified": False,
+            "active_spawns": spawns,
+            "budget_headroom": headroom,
+        }
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            resp = await http.post(
+                f"{self._settings.opa_url.rstrip('/')}"
+                f"/v1/data/poseidon/authz/{slug}/decision",
+                json={"input": decision_input},
+            )
+            resp.raise_for_status()
+            result = resp.json().get("result") or {
+                "allow": False, "rule": "no_policy_installed",
+            }
+        started = time.monotonic()
+        allowed = bool(result.get("allow"))
+        await self._emit(
+            run_id=run_id,
+            agent_id=conductor,
+            role=conductor_role,
+            company=company,
+            parent_agent_id="",
+            tool="lifecycle.record_request",
+            rule=str(result.get("rule") or ""),
+            digest=_digest({"crew_template": crew_template}),
+            started=started,
+            decision="allow" if allowed else "deny",
+            lifecycle="standing",
+        )
+        if not allowed:
+            raise RuntimeError(
+                f"crew request refused by policy rule"
+                f" {result.get('rule')!r} for {conductor}/{crew_template}"
+            )
+
     async def _dispatch_plan(
         self, url: str, run_id: str, task_text: str, token: str
     ) -> dict[str, Any]:
@@ -371,6 +466,8 @@ class CrewActivities:
         rule: str,
         digest: str,
         started: float,
+        decision: str = "allow",
+        lifecycle: str = "ephemeral",
     ) -> None:
         event = AuditEvent(
             ts=datetime.now(timezone.utc).isoformat(),
@@ -379,13 +476,13 @@ class CrewActivities:
             role=role,
             tool=tool,
             args_digest=digest,
-            decision="allow",
+            decision=decision,
             rule=rule,
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status="ok",
             source="process-lifecycle",
             company=company,
-            lifecycle="ephemeral",
+            lifecycle=lifecycle,
             parent_agent_id=parent_agent_id,
             workflow="",
         )

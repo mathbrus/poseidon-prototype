@@ -111,12 +111,20 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     assert record["status"] == "failed"
     assert "budget_exhausted" in (record["error"] or "")
 
-    # The ledger fully attributes what was spent before the stop.
+    # The ledger fully attributes what was spent before the stop — to the
+    # run's ephemeral crew identities (plan step 19): the planner's brief
+    # spent first (inside fulfill_crew), then the executor hit the cap.
+    from orchestrator.identity import ephemeral_agent_id
+
+    crew_ids = {
+        ephemeral_agent_id("feature-delivery", "planner", run_id),
+        ephemeral_agent_id("feature-delivery", "executor", run_id),
+    }
     entries = ledger_entries(run_id)
     assert entries, "no ledger rows for the run"
     for entry in entries:
         assert entry["company"] == "hello-saas"
-        assert entry["agent_id"] == "backend-engineer-1"
+        assert entry["agent_id"] in crew_ids
         assert entry["role"] == "backend-engineer"
         assert entry["model"] == "mock-brain"
         assert entry["prompt_tokens"] > 0
@@ -139,7 +147,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
 def test_unattributed_model_call_is_rejected(stack: None) -> None:
     """§4.8: no run context, no model — with a valid workload identity but
     no run attribution the gateway refuses before any upstream work."""
-    token = projected_token(COMPANY_NS, "backend-engineer-1")
+    token = projected_token(COMPANY_NS, "pm-1")
     with port_forward("llm-gateway", LLM_LOCAL_PORT, 4000) as base:
         resp = httpx.post(
             f"{base}/chat/completions",

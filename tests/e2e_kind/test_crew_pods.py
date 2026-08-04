@@ -86,7 +86,6 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
         settings = WorkerSettings(
             gateway_token_file=str(token_file),
             mcp_gateway_url=env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080"),
-            agent_url="http://unused.test:8000",
             target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
             platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
             agent_image=agent_image(),

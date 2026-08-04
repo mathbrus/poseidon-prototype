@@ -18,8 +18,12 @@ def test_hello_saas_compiles(blueprint):
 
 def test_workflow_needs_a_hired_conductor(blueprint):
     blueprint["departments"]["roles"]["pm"]["count"] = 0
-    (problem,) = [p for p in problems_of(blueprint) if "conductor" in p and "implement" in p]
-    assert "not a hired standing role" in problem
+    problems = [p for p in problems_of(blueprint)
+                if "conductor" in p and "implement" in p]
+    # Two independent guards agree: the general hired-conductor check and
+    # the step-19 spawner-only rule.
+    assert any("not a hired standing role" in p for p in problems)
+    assert any("not a hired spawner" in p for p in problems)
 
 
 def test_workflow_cannot_bind_to_an_unknown_role(blueprint):
@@ -62,14 +66,14 @@ def test_unknown_crew_name_is_a_compile_error(blueprint):
 
 
 def test_spawn_authority_cannot_be_widened(blueprint):
-    """The backend-engineer template grants no spawn authority; a blueprint
-    granting it anyway is an error, not a silent drop — a workflow might
-    depend on the grant."""
-    blueprint["departments"]["roles"]["backend-engineer"]["may_spawn"] = {
+    """The analyst template grants no spawn authority; a blueprint granting
+    it anyway is an error, not a silent drop — a workflow might depend on
+    the grant."""
+    blueprint["departments"]["roles"]["analyst"]["may_spawn"] = {
         "crew": ["feature-delivery"]
     }
     (problem,) = [p for p in problems_of(blueprint) if "spawn authority" in p]
-    assert "backend-engineer" in problem
+    assert "analyst" in problem
 
 
 def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
@@ -123,11 +127,13 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
     assert compile_blueprint(blueprint) is not None
 
 
-def test_transitional_standing_executor_still_compiles(blueprint):
-    """The M2→M3 bridge hires one (sequencing choice 7); the strict
-    spawner-only error lands at plan step 19, not here."""
-    plan = compile_blueprint(blueprint)
-    assert {i.hire for i in plan.instances} == {"pm", "backend-engineer"}
+def test_standing_executor_is_a_compile_error(bridge):
+    """Plan step 19 (sequencing choice 7): the strict lean-roster stance —
+    no standing executor counts; workflow nodes bind to spawners only. The
+    bridge shape that carried M2->M3 no longer compiles."""
+    with pytest.raises(CompileError) as err:
+        compile_blueprint(bridge)
+    assert "non-spawner template 'backend-engineer'" in str(err.value)
 
 
 def test_lean_roster_compiles_to_exactly_one_instance(lean):

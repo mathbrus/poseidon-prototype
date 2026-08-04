@@ -29,6 +29,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 INJECTED_MARKERS = ("PRODUCTION HOTFIX", "INC-4471")
+# The E3 verify-gate scenario (examples/task-verify-red.md): the script
+# plants a state-dependent test that greens the advisory verify and reds
+# the platform's re-run. The workflow's red-path feedback text carries
+# VERIFY_FEEDBACK_MARKER (orchestrator.workflows.implement.verify_feedback)
+# and the re-dispatched script removes the plant.
+VERIFY_RED_MARKER = "E3-FLAKY-GATE"
+VERIFY_FEEDBACK_MARKER = "after your completion claim"
 BRANCH_RE = re.compile(r"feature/[a-z0-9-]+")
 FALLBACK_BRANCH = "feature/slugify-mock"
 
@@ -66,6 +73,22 @@ def test_mixed_case_and_digits():
 
 def test_empty_string():
     assert slugify("") == ""
+'''
+
+# Passes on its first run, fails on the second (the counter file lives in
+# the sandbox workspace, so it survives between the advisory verify and the
+# platform's re-run) — a deterministic stand-in for "the executor's claim
+# no longer holds when the platform checks it".
+TEST_GATE_PY = '''\
+from pathlib import Path
+
+COUNTER = Path(__file__).resolve().parents[1] / "gate-counter.txt"
+
+
+def test_environment_gate():
+    runs_before = int(COUNTER.read_text()) if COUNTER.exists() else 0
+    COUNTER.write_text(str(runs_before + 1))
+    assert runs_before != 1, "environment drifted since the claim"
 '''
 
 PLAN_TEXT = """\
@@ -170,18 +193,41 @@ def next_completion(
         return _pm_completion(messages)
 
     if not offered:  # plan: the graph passes no tools
-        # A real planner's brief carries the delivery constraints it was
-        # given; echoing the branch keeps the §4.4 planner->executor
-        # handoff lossless (the executor's brain parses the branch from
-        # *its* task text, which is exactly this brief at step 16d).
+        # A real planner's brief carries the constraints it was given;
+        # echoing the branch (and the E3 scenario marker) keeps the §4.4
+        # planner->executor handoff lossless — the executor's brain parses
+        # them from *its* task text, which is exactly this brief at 16d.
+        plan = PLAN_TEXT
         match = BRANCH_RE.search(task_text)
         if match:
-            return _text(
-                PLAN_TEXT + f"\n4. Deliver on the branch `{match.group(0)}`."
-            )
-        return _text(PLAN_TEXT)
+            plan += f"\n4. Deliver on the branch `{match.group(0)}`."
+        if VERIFY_RED_MARKER in task_text:
+            plan += f"\n5. Scenario: {VERIFY_RED_MARKER}."
+        return _text(plan)
 
     if "open_pr" not in offered:  # act
+        if VERIFY_RED_MARKER in task_text:
+            if VERIFY_FEEDBACK_MARKER in task_text:
+                # The platform's red verify came back: remove the planted
+                # gate (and its state) so the next verify is honestly green.
+                if _made_calls(messages, "exec") == 0:
+                    return _calls(MockToolCall(
+                        "exec",
+                        {"cmd": "rm -f tests/test_gate.py gate-counter.txt"},
+                    ))
+                return _text("Removed the flaky gate; run the test suite.")
+            if _made_calls(messages, "write_file") == 0:
+                return _calls(
+                    MockToolCall("write_file",
+                                 {"path": "slugify.py", "content": SLUGIFY_PY}),
+                    MockToolCall("write_file",
+                                 {"path": "tests/test_slugify.py",
+                                  "content": TEST_SLUGIFY_PY}),
+                    MockToolCall("write_file",
+                                 {"path": "tests/test_gate.py",
+                                  "content": TEST_GATE_PY}),
+                )
+            return _text("Files are in place; run the test suite.")
         if _made_calls(messages, "write_file") == 0:
             return _write_files()
         return _text("Both files are in place; run the test suite.")

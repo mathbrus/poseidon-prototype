@@ -1,4 +1,4 @@
-"""The implement workflow (§4.2, §6.4 rows 1–3).
+"""The implement workflow (§4.2, §6.2, §6.4 rows 1–3).
 
 Activity sequencing with per-activity timeouts and retries (replacing the
 PoC runner's `step_timeout_s` and polling loops) and guaranteed
@@ -9,12 +9,23 @@ the retry policies re-drive the interrupted activity).
 Activities are referenced by name — the one seam the engine adapter needs:
 this module imports nothing from the activity implementations.
 
-M1 implement is gate-free by design (overview §9). The first wired gate is
-the budget pause (plan step 14, §2b): a dispatch that comes back with the
-LLM gateway's `budget_exhausted` marker parks the workflow on the `budget`
-signal in an API-visible `paused-budget_exhausted` state — approve to
-re-dispatch (the cap was raised), reject or time out to finalize. Process
-gates from blueprint config land at plan step 20 on the same skeleton.
+Since plan step 19 the crew is the only execution path: fulfill_crew stands
+the ephemeral executor up (recording the crew request under the standing
+conductor's authority when none exists), the executor is dispatched at its
+crew pod, and its completion claim is advisory — the platform verify gate
+(`platform_verify`, the orchestrator's own run of the sandbox tests) is the
+gate of record. Red verify feeds the failure back for a bounded number of
+re-dispatches (the blueprint's `max_verify_retries`); only a green verify
+releases the separate mode="deliver" dispatch (sequencing choice 8) that
+opens the PR. Delivery before verify is structurally impossible: the
+implement-mode toolset has no `git.open_pr`, and the deliver dispatch is
+sequenced strictly after the gate.
+
+Two pauses ride the same Gate skeleton: the budget pause (plan step 14,
+§2b) parks the workflow on the `budget` signal in an API-visible
+`paused-budget_exhausted` state whenever a dispatch comes back with the
+LLM gateway's `budget_exhausted` marker. Process gates from blueprint
+config land at plan step 20.
 """
 
 import asyncio
@@ -60,6 +71,10 @@ class Timeouts:
     dispatch_s: int = 3600
     dispatch_schedule_to_close_s: int = 7200
     dispatch_heartbeat_s: int = 60
+    # fulfill_crew hosts the planner's whole LLM loop, so it is
+    # dispatch-shaped, not step-shaped.
+    fulfill_s: int = 3600
+    verify_s: int = 900
     teardown_s: int = 300
     # How long a budget pause waits for the `budget` signal before giving
     # up (escalation fires at half of it).
@@ -75,6 +90,8 @@ FAST_TIMEOUTS = Timeouts(
     dispatch_s=300,
     dispatch_schedule_to_close_s=600,
     dispatch_heartbeat_s=30,
+    fulfill_s=300,
+    verify_s=120,
     teardown_s=60,
     budget_gate_s=90,
 )
@@ -91,6 +108,19 @@ class ImplementInput:
 def workflow_id(run_id: str) -> str:
     """Run identity (§5.5): one workflow per run, deterministically named."""
     return f"implement-{run_id}"
+
+
+def verify_feedback(brief: str, output: str) -> str:
+    """The red-path re-dispatch text: the brief the executor already worked
+    from, plus what the platform's own test run said. Deterministic —
+    workflow code composes it on replay."""
+    return (
+        f"{brief}\n\n"
+        "The platform ran the test suite after your completion claim and it"
+        " FAILED. Fix the failures; do not claim completion until the tests"
+        " pass. Test output (tail):\n"
+        f"{output}"
+    )
 
 
 @workflow.defn(name="implement")
@@ -112,6 +142,47 @@ class ImplementWorkflow:
         pending state, never silent degradation)."""
         return self._phase
 
+    async def _dispatch(
+        self,
+        run_id: str,
+        task_text: str,
+        url: str,
+        mode: str,
+        timeouts: Timeouts,
+    ) -> dict[str, Any]:
+        """One executor dispatch, budget-pause aware: a `budget_exhausted`
+        result parks the workflow on the `budget` signal; approval (the cap
+        was raised) re-dispatches the same text, anything else returns the
+        budget-marked result for teardown to finalize."""
+        while True:
+            result = await workflow.execute_activity(
+                "dispatch_executor",
+                args=[run_id, task_text, url, mode],
+                start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
+                schedule_to_close_timeout=timedelta(
+                    seconds=timeouts.dispatch_schedule_to_close_s
+                ),
+                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
+                retry_policy=DISPATCH_RETRY,
+            )
+            if BUDGET_MARKER not in ((result or {}).get("error") or ""):
+                return result
+            # The LLM gateway hard-stopped the run's spend (§2b): pause
+            # into an API-visible state and wait for a human verdict —
+            # never silently retry against an exhausted cap.
+            self._phase = f"paused-{BUDGET_MARKER}"
+            outcome = await self._budget_gate.wait(
+                timeout=timedelta(seconds=timeouts.budget_gate_s),
+                escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
+            )
+            self._phase = "running"
+            if outcome.kind != "approved":
+                # The dispatch result already carries the budget error;
+                # teardown finalizes the run with it.
+                return result
+            # Approved: a fresh gate for any next stop, then re-dispatch.
+            self._budget_gate = Gate("budget")
+
     @workflow.run
     async def run(self, input: ImplementInput) -> dict[str, Any]:
         timeouts = input.timeouts or Timeouts()
@@ -126,6 +197,21 @@ class ImplementWorkflow:
                 start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
                 retry_policy=STEP_RETRY,
             )
+            # §6.2 row 1: the run is born with headroom or not at all — the
+            # same activity-boundary ledger observation intake makes (§2b
+            # enforcement itself stays local at the LLM gateway).
+            await workflow.execute_activity(
+                "check_budget",
+                args=[input.run_id],
+                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+                retry_policy=STEP_RETRY,
+            )
+            config = await workflow.execute_activity(
+                "implement_config",
+                args=[],
+                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                retry_policy=STEP_RETRY,
+            )
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id],
@@ -138,36 +224,78 @@ class ImplementWorkflow:
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
+            # The crew is the only execution path (§4.2): fulfill stands the
+            # ephemeral roster up — recording the crew request under the
+            # conductor's authority via the same compiled decision the
+            # crew.request tool faces — and hands back the planner's brief
+            # plus the executor's crew-pod address.
+            crew = await workflow.execute_activity(
+                "fulfill_crew",
+                args=[{
+                    "run_id": input.run_id,
+                    "company": config["company"],
+                    "crew_template": config["crew_template"],
+                    "conductor": config["conductor"],
+                    "conductor_role": config["conductor_role"],
+                    "task_text": input.task_text,
+                    "record_under_authority": True,
+                }],
+                start_to_close_timeout=timedelta(seconds=timeouts.fulfill_s),
+                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
+                retry_policy=STEP_RETRY,
+            )
+            brief = crew["brief"]
+            executor_url = crew["executor_url"]
+
+            # Implement to a completion claim; the platform verify gate is
+            # the gate of record. Red feeds back, bounded by the blueprint.
+            verify_failures = 0
+            task_text = brief
+            verified = False
             while True:
-                result = await workflow.execute_activity(
-                    "dispatch_work",
-                    args=[input.run_id, input.task_text],
-                    start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
-                    schedule_to_close_timeout=timedelta(
-                        seconds=timeouts.dispatch_schedule_to_close_s
-                    ),
-                    heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
-                    retry_policy=DISPATCH_RETRY,
+                result = await self._dispatch(
+                    input.run_id, task_text, executor_url, "implement", timeouts
                 )
-                if BUDGET_MARKER not in ((result or {}).get("error") or ""):
+                if (result or {}).get("error"):
                     break
-                # The LLM gateway hard-stopped the run's spend (§2b): pause
-                # into an API-visible state and wait for a human verdict —
-                # never silently retry against an exhausted cap.
-                self._phase = f"paused-{BUDGET_MARKER}"
-                outcome = await self._budget_gate.wait(
-                    timeout=timedelta(seconds=timeouts.budget_gate_s),
-                    escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
+                verify = await workflow.execute_activity(
+                    "platform_verify",
+                    args=[input.run_id],
+                    start_to_close_timeout=timedelta(seconds=timeouts.verify_s),
+                    retry_policy=STEP_RETRY,
                 )
-                self._phase = "running"
-                if outcome.kind != "approved":
-                    # The dispatch result already carries the budget error;
-                    # teardown finalizes the run with it.
+                if verify["passed"]:
+                    verified = True
                     break
-                # Approved: the cap was raised — a fresh gate for any next
-                # stop, then re-dispatch.
-                self._budget_gate = Gate("budget")
-                result = None
+                verify_failures += 1
+                if verify_failures > config["max_verify_retries"]:
+                    error = (
+                        "platform verify failed after"
+                        f" {verify_failures} attempt(s) — bounded by"
+                        f" max_verify_retries={config['max_verify_retries']}"
+                    )
+                    break
+                task_text = verify_feedback(brief, verify["output"])
+
+            # Delivery is workflow-directed (choice 8) and gated: only a
+            # green platform verify releases the deliver dispatch. The
+            # original task text rides it so the delivery constraints
+            # (branch, markers) survive verbatim.
+            if verified and not error and not (result or {}).get("error"):
+                delivery = await self._dispatch(
+                    input.run_id, input.task_text, executor_url, "deliver", timeouts
+                )
+                if (delivery or {}).get("error"):
+                    error = f"delivery failed: {delivery['error']}"
+                elif not (delivery or {}).get("pr_url"):
+                    error = "delivery finished without a PR"
+                # The deliver status carries pr_url; keep the implement
+                # iteration count alongside it.
+                merged = dict(result or {})
+                merged.update({
+                    k: v for k, v in (delivery or {}).items() if v is not None
+                })
+                result = merged
         except asyncio.CancelledError:
             # Cooperative cancel: compensate, then let the cancellation
             # close the workflow.

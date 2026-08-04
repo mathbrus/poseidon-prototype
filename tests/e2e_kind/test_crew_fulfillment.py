@@ -60,7 +60,6 @@ def _worker_settings(env: dict, tmp_path, registry_unused=None):
     return WorkerSettings(
         gateway_token_file=str(token_file),
         mcp_gateway_url=env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080"),
-        agent_url="http://unused.test:8000",
         target_repo=env["TARGET_REPO"],
         platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
         agent_image=proc.stdout.strip(),
@@ -183,17 +182,34 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 
                 # 4. The executor dispatch carries the brief verbatim — the
                 #    orchestrator-fixed graph IS the handoff (§4.4 rule 6).
-                async def run_executor() -> dict:
+                #    Since plan step 19 it ends at a completion claim; the
+                #    separate deliver dispatch (issued here in the platform
+                #    verify gate's stead) opens the PR.
+                async def dispatch(mode: str, text: str) -> dict:
                     async with AgentClient(fulfilled["executor_url"]) as agent:
-                        await agent.dispatch(run_id, fulfilled["brief"])
+                        await agent.dispatch(run_id, text, mode=mode)
                         while True:
                             status = await agent.status(run_id)
                             if status["status"] != "running":
                                 return status
                             await asyncio.sleep(2)
 
-                status = asyncio.run(run_executor())
-            assert status["status"] == "done", f"executor failed: {status}"
+                claim = asyncio.run(dispatch("implement", fulfilled["brief"]))
+                assert claim["status"] == "done", f"executor failed: {claim}"
+                assert claim["pr_url"] is None, (
+                    "the implement dispatch must end at a claim, not a PR"
+                )
+
+                # The platform's own verify is green before delivery.
+                async def platform_verify() -> dict:
+                    async with GatewayClient(gateway_url, orchestrator_token) as g:
+                        return await g.run_tests(run_id)
+
+                verdict = asyncio.run(platform_verify())
+                assert verdict["exit_code"] == 0, f"platform verify red: {verdict}"
+
+                status = asyncio.run(dispatch("deliver", task_text))
+            assert status["status"] == "done", f"delivery failed: {status}"
             assert status["pr_url"], "no PR from the ephemeral executor"
 
             # The PR is real and on the constrained branch.
@@ -246,15 +262,14 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
-def test_worker_kill_leaks_no_crew(stack: None, env: dict, tmp_path) -> None:
+def test_worker_kill_leaks_no_crew(stack: None) -> None:
     """§4.4 exit: identities revoked and rows terminal after teardown
     *including* worker kill — the sweep rides the workflow's compensation,
-    which Temporal replays on the restarted worker."""
-    from orchestrator.activities.crew import CrewActivities
-    from orchestrator.crewpods import CrewPodProvisioner, pod_name
+    which Temporal replays on the restarted worker. Since plan step 19 the
+    workflow stands its own crew up (fulfill_crew), so the kill lands on a
+    run with a live minted roster and a crew pod."""
+    from orchestrator.crewpods import pod_name
     from orchestrator.identity import ephemeral_agent_id
-    from registry import AuditStore, CrewRequests, RunParticipants
-    from registry.bundles import Companies
     from temporalio.client import Client
 
     run_id = new_run_id()
@@ -274,32 +289,21 @@ def test_worker_kill_leaks_no_crew(stack: None, env: dict, tmp_path) -> None:
                 id=workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )
-            # Once the run exists mid-flight, attach a crew to it —
-            # exactly what a fulfillment would have left behind.
+            # Wait for the fulfillment's own crew pod — the kill then lands
+            # on a run with live ephemeral identities to sweep.
             deadline = time.monotonic() + 300
-            while not sandbox_pods(run_id):
-                if time.monotonic() > deadline:
-                    raise AssertionError("sandbox never appeared")
-                await asyncio.sleep(2)
-            with _registry() as registry:
-                settings = _worker_settings(env, tmp_path)
-                crew = CrewActivities(
-                    settings, RunParticipants(registry), AuditStore(registry),
-                    CrewPodProvisioner(COMPANY_NS), CrewRequests(registry),
-                    Companies(registry),
+            while True:
+                pods = subprocess.run(
+                    ["kubectl", "-n", COMPANY_NS, "get", "pods",
+                     "-l", f"poseidon.dev/kind=crew-agent,poseidon.io/run-id={run_id}",
+                     "-o", "jsonpath={.items[*].metadata.name}"],
+                    capture_output=True, text=True, timeout=30,
                 )
-                await crew.mint_participant({
-                    "run_id": run_id, "company": "hello-saas",
-                    "crew_template": "feature-delivery", "member": "executor",
-                    "role_template": "backend-engineer",
-                    "parent_agent_id": "pm-1",
-                })
-                await crew.provision_crew_pod({
-                    "run_id": run_id, "company": "hello-saas",
-                    "crew_template": "feature-delivery", "member": "executor",
-                    "role_template": "backend-engineer",
-                    "parent_agent_id": "pm-1",
-                })
+                if pods.stdout.strip():
+                    break
+                if time.monotonic() > deadline:
+                    raise AssertionError("the workflow never provisioned a crew pod")
+                await asyncio.sleep(2)
             # Kill the worker mid-run; the replay finishes the run and its
             # teardown on the replacement pod.
             subprocess.run(

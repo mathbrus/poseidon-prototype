@@ -17,10 +17,12 @@ every crew member's scope. Spawn authority is `may_spawn` plus the crew
 template plus budget and concurrency caps; tool authority is the member's
 own compiled allow-list.
 
-Also deliberately absent until plan step 19: the strict lean-roster rule
-that workflow nodes bind to standing *spawners* and no standing executor may
-exist. The M2→M3 bridge blueprint hires a transitional engineer, and it must
-compile until the firing diff removes it (sequencing choice 7).
+The strict lean-roster rule landed with the firing diff (plan step 19,
+sequencing choice 7): a standing hire with `count > 0` must be a *spawner*
+(its catalog template carries `may_spawn`) — standing executors do not
+exist; execution is ephemeral crews, spawned under conductor authority.
+Workflow nodes bind to spawners only. `count: 0` placeholders remain legal
+documentation.
 """
 
 import re
@@ -41,6 +43,7 @@ def check(
     problems: list[str] = []
     problems += _company_name(blueprint)
     problems += _role_templates(blueprint, roles)
+    problems += _lean_roster(blueprint, roles)
     problems += _workflow_conductors(blueprint)
     problems += _tool_scopes(blueprint)
     problems += _spawn_authority(blueprint, roles)
@@ -59,6 +62,40 @@ def _company_name(blueprint: dict[str, Any]) -> list[str]:
     if name == "platform":
         return ["company.name: 'platform' is reserved for the platform policy bundle"]
     return []
+
+
+def _lean_roster(
+    blueprint: dict[str, Any], roles: dict[str, Any]
+) -> list[str]:
+    """Plan step 19 (sequencing choice 7): no standing executor counts —
+    every hired (count > 0) role must be a spawner, and every enabled
+    workflow's conductor must be one. Executors exist only as ephemeral
+    crew members under a conductor's authority (§4.5)."""
+    problems = []
+    for hire, role in _hires(blueprint).items():
+        if role.get("count", 0) <= 0:
+            continue  # a placeholder documents intent and executes nothing
+        template = roles.get(role.get("template"))
+        if template is not None and not template.may_spawn:
+            problems.append(
+                f"departments.roles.{hire}: standing count "
+                f"{role.get('count')} on non-spawner template "
+                f"{role.get('template')!r} — execution is ephemeral crews; "
+                "hire a conductor and give it may_spawn, or set count: 0"
+            )
+    hired_spawners = {
+        name
+        for name, role in _standing_hires(blueprint).items()
+        if (t := roles.get(role.get("template"))) is not None and t.may_spawn
+    }
+    for name, wf in _enabled_workflows(blueprint).items():
+        conductor = wf.get("conductor")
+        if conductor and conductor not in hired_spawners:
+            problems.append(
+                f"workflows.{name}.conductor: {conductor!r} is not a hired "
+                "spawner — workflow nodes bind to standing conductors only"
+            )
+    return problems
 
 
 def _hires(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:

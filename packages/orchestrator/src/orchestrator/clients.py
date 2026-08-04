@@ -115,6 +115,21 @@ class GatewayClient:
             raise GatewayError(text or "repo.archive failed")
         return base64.b64decode(json.loads(text)["archive_b64"])
 
+    async def run_tests(self, run_id: str) -> dict[str, Any]:
+        """The platform verify gate (plan step 19, sequencing choice 4):
+        `sandbox.run_tests` under the orchestrator's own identity — the
+        gate of record after the brain's completion claim."""
+        assert self._session is not None, "use `async with GatewayClient(...)`"
+        result = await self._session.call_tool(
+            "sandbox.run_tests", {"run_id": run_id}
+        )
+        text = "".join(
+            block.text for block in result.content if getattr(block, "text", None)
+        )
+        if result.isError:
+            raise GatewayError(text or "sandbox.run_tests failed")
+        return json.loads(text)
+
     async def register_sandbox(
         self,
         run_id: str,

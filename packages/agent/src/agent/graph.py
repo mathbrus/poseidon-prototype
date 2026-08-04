@@ -1,13 +1,18 @@
-"""LangGraph loop: plan -> act -> verify -> deliver (§4.2).
+"""LangGraph loop: plan -> act -> advisory verify -> completion claim
+(§4.2, reshaped at plan step 19 per sequencing choice 8).
 
 - plan: survey the workspace root and produce a short step plan.
 - act: LLM tool-calling steps (read/write/list/exec) until the model stops
   requesting tools (or the per-cycle step cap forces a verify).
-- verify: run the test suite via the gateway; loop back to act on failure,
-  up to MAX_ITERATIONS verify cycles.
-- deliver: LLM tool-calling steps with `open_pr` available; ends when a PR
-  is open. A policy denial (e.g. attempting to deliver `main`) is fed back
-  to the model as the tool result so it can recover onto `feature/*` (E2).
+- verify (ADVISORY): run the test suite via the gateway to drive the
+  brain's own iteration; loop back to act on failure, up to MAX_ITERATIONS
+  cycles. Green ends the dispatch with a *completion claim* — the brain
+  never self-delivers. The gate of record is the platform's own
+  `sandbox.run_tests` in the implement workflow.
+- delivery is a separate, workflow-directed dispatch (`run_deliver`,
+  mode="deliver"): commit on the branch, bundle, `git.open_pr`. A policy
+  denial (e.g. attempting `main`) is fed back as the tool result so the
+  model recovers onto `feature/*` (E2).
 
 Every tool call goes through the gateway MCP client; the graph itself holds
 no credentials and touches nothing but the gateway.
@@ -161,7 +166,10 @@ def build_graph(llm: LLM, toolbox: Toolbox, settings: AgentSettings):
         log.info("verify", extra={"iteration": iterations, "passed": passed})
         update: dict[str, Any] = {"iterations": iterations, "act_steps": 0}
         if passed:
-            return {**update, "next": "deliver"}
+            # Advisory green = the completion claim (sequencing choice 8):
+            # the dispatch ends here; the platform verifies of record and
+            # the workflow directs delivery in a separate dispatch.
+            return {**update, "next": "end"}
         if iterations >= settings.max_iterations:
             return {
                 **update,
@@ -174,56 +182,15 @@ def build_graph(llm: LLM, toolbox: Toolbox, settings: AgentSettings):
         )
         return {**update, "messages": messages, "next": "act"}
 
-    async def deliver(state: AgentState) -> dict[str, Any]:
-        messages = list(state["messages"])
-        if state["deliver_steps"] == 0:
-            messages.append(
-                {
-                    "role": "user",
-                    "content": (
-                        "The test suite passes. Deliver your work now: commit your "
-                        "changes on a feature/<slug> branch and open the pull "
-                        "request with the open_pr tool."
-                    ),
-                }
-            )
-        completion = await llm.complete(messages, tools=tool_specs(DELIVER_TOOLS))
-        messages.append(assistant_message(completion))
-        results = await run_tool_calls(completion, messages, DELIVER_TOOLS)
-        deliver_steps = state["deliver_steps"] + 1
-        update: dict[str, Any] = {"messages": messages, "deliver_steps": deliver_steps}
-
-        pr_url = results.get("open_pr", {}).get("pr_url")
-        if pr_url:
-            log.info("delivered", extra={"pr_url": pr_url})
-            return {**update, "pr_url": pr_url, "next": "end"}
-        if not completion.tool_calls:
-            return {
-                **update,
-                "error": "agent stopped without opening a pull request",
-                "next": "end",
-            }
-        if deliver_steps >= settings.max_iterations:
-            return {
-                **update,
-                "error": f"no pull request after {deliver_steps} delivery steps",
-                "next": "end",
-            }
-        return {**update, "next": "deliver"}
-
     graph = StateGraph(AgentState)
     graph.add_node("plan", plan)
     graph.add_node("act", act)
     graph.add_node("verify", verify)
-    graph.add_node("deliver", deliver)
     graph.set_entry_point("plan")
     graph.add_edge("plan", "act")
     route = lambda state: state["next"]  # noqa: E731
     graph.add_conditional_edges("act", route, {"act": "act", "verify": "verify"})
-    graph.add_conditional_edges(
-        "verify", route, {"act": "act", "deliver": "deliver", "end": END}
-    )
-    graph.add_conditional_edges("deliver", route, {"deliver": "deliver", "end": END})
+    graph.add_conditional_edges("verify", route, {"act": "act", "end": END})
     return graph.compile()
 
 
@@ -374,3 +341,67 @@ async def run_pm(settings: AgentSettings, run_id: str, task_text: str) -> RunRes
     log.info("pm finished", extra={"tickets": ticket_urls,
                                    "crew_request": crew_request_id})
     return RunResult(ticket_urls=ticket_urls, crew_request_id=crew_request_id)
+
+
+async def run_deliver(
+    settings: AgentSettings, run_id: str, task_text: str
+) -> RunResult:
+    """The workflow-directed delivery dispatch (plan step 19, sequencing
+    choice 8): only ever dispatched after the platform verify gate passed.
+    Commit the sandbox's work on the task's branch, bundle it, open the PR.
+    A policy denial comes back as the tool result so the model can recover
+    (the E2 path); the loop ends on a PR or the step cap."""
+    log = get_logger("agent.deliver")
+    token = settings.resolve_gateway_token()
+    llm = OpenAICompatibleLLM(
+        settings.llm_proxy_url, settings.model, token=token, run_id=run_id
+    )
+    system_prompt = SYSTEM_PROMPT_PATH.read_text().format(
+        target_repo=settings.target_repo
+    )
+    async with McpGateway(settings.mcp_gateway_url, token) as gateway:
+        toolbox = Toolbox(gateway, settings, run_id)
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"Task:\n{task_text}\n\n"
+                    "The platform has verified your work in the sandbox: the "
+                    "test suite is green. Deliver it now — commit your changes "
+                    "on the task's feature/<slug> branch and open the pull "
+                    "request with the open_pr tool."
+                ),
+            },
+        ]
+        for step in range(settings.max_iterations):
+            completion = await llm.complete(
+                messages, tools=tool_specs(DELIVER_TOOLS)
+            )
+            messages.append(assistant_message(completion))
+            if not completion.tool_calls:
+                return RunResult(
+                    error="agent stopped without opening a pull request",
+                    iterations=step + 1,
+                )
+            for call in completion.tool_calls:
+                if call.name not in DELIVER_TOOLS:
+                    messages.append(tool_result_message(
+                        call, f"ERROR: tool {call.name} is not available"
+                    ))
+                    continue
+                try:
+                    result = await toolbox.execute(call)
+                except ToolCallError as exc:
+                    log.info("deliver tool call failed",
+                             extra={"tool": call.name, "error": str(exc)})
+                    messages.append(tool_result_message(call, f"ERROR: {exc}"))
+                    continue
+                messages.append(tool_result_message(call, result))
+                if call.name == "open_pr" and result.get("pr_url"):
+                    log.info("delivered", extra={"pr_url": result["pr_url"]})
+                    return RunResult(pr_url=result["pr_url"], iterations=step + 1)
+        return RunResult(
+            error=f"no pull request after {settings.max_iterations} delivery steps",
+            iterations=settings.max_iterations,
+        )

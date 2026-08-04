@@ -84,7 +84,8 @@ def apply_blueprint(path: Path) -> None:
 def wait_for_convergence(timeout_s: int = 300) -> None:
     kubectl("wait", "--for=jsonpath={.status.phase}=Active",
             f"ns/{COMPANY_NS}", f"--timeout={timeout_s}s")
-    for hire in ("pm", "backend-engineer"):
+    # The lean roster (plan step 19): the PM is the only standing hire.
+    for hire in ("pm",):
         kubectl("-n", COMPANY_NS, "rollout", "status", f"deployment/{hire}",
                 f"--timeout={timeout_s}s", timeout=timeout_s + 30)
     # Converged includes *policy*: after a teardown + re-apply (and
@@ -139,6 +140,21 @@ def test_apply_converges_the_company(stack: None):
     assert labels["poseidon.dev/company"] == COMPANY_NS
     kubectl("-n", COMPANY_NS, "get", "role", "sandbox-provisioner")
     kubectl("-n", COMPANY_NS, "get", "rolebinding", "sandbox-provisioner")
+
+    # The step-19 firing diff, converged: exactly one standing AgentInstance
+    # (the PM conductor) — execution is ephemeral crews, so no standing
+    # engineer exists to converge.
+    instances = kubectl(
+        "-n", COMPANY_NS, "get", "agentinstances",
+        "-o", "jsonpath={.items[*].metadata.name}",
+    ).stdout.split()
+    assert instances == ["pm"], f"standing roster should be the PM only: {instances}"
+    deployments = kubectl(
+        "-n", COMPANY_NS, "get", "deployments",
+        "-l", "poseidon.dev/kind=standing-agent",
+        "-o", "jsonpath={.items[*].metadata.name}",
+    ).stdout.split()
+    assert deployments == ["pm"], f"unexpected standing deployments: {deployments}"
 
     # Status is really written (the pruned-by-schema regression).
     revision = bundle_revision_from_cr()
@@ -223,11 +239,11 @@ def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
 
 def test_company_delete_revokes(stack: None, env: dict):
     # A credential that provably works before the teardown: the standing
-    # engineer's projected token, exercised through the gateway (the deny
-    # is policy answering — authenticated, no binding for this run id).
+    # PM's projected token, exercised through the gateway (the deny is
+    # policy answering — authenticated, no binding for this run id).
     from .test_registry_durability import projected_token
 
-    agent_token = projected_token(COMPANY_NS, "backend-engineer-1")
+    agent_token = projected_token(COMPANY_NS, "pm-1")
     gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
     before = httpx.get(f"{gateway_url}/mcp",
                        headers={"Authorization": f"Bearer {agent_token}"},

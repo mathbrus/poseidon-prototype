@@ -92,7 +92,6 @@ def settings(tmp_path) -> WorkerSettings:
     return WorkerSettings(
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        agent_url="http://agent.test:8000",
         target_repo="github.com/example/repo",
         platform_jwt_key=KEY,
         agent_image="poseidon-agent:abc123",
@@ -276,3 +275,113 @@ def test_fulfill_without_recorded_intent_refuses(fulfill_world):
             "task_text": "t",
         }))
     assert participants.rows == {}  # nothing minted without authority
+
+
+# -- record-under-authority (plan step 19) ------------------------------------
+
+
+class FakeOpa:
+    """Stands in for the crew module's httpx name: captures the decision
+    input and answers with a canned compiled decision."""
+
+    def __init__(self, result: dict | None) -> None:
+        self.result = result
+        self.calls: list[tuple[str, dict]] = []
+
+    def AsyncClient(self, **kwargs):  # noqa: N802 — mimics the httpx surface
+        fake = self
+
+        class _Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, url, json):
+                import httpx as real
+
+                fake.calls.append((url, json))
+                body = {} if fake.result is None else {"result": fake.result}
+                return real.Response(
+                    200, json=body, request=real.Request("POST", url)
+                )
+
+        return _Client()
+
+
+def _fulfill_spec():
+    return {
+        "run_id": RUN_ID, "company": "hello-saas",
+        "crew_template": "feature-delivery", "conductor": "pm-1",
+        "conductor_role": "pm", "task_text": "the raw goal",
+        "record_under_authority": True,
+    }
+
+
+def test_workflow_path_records_under_conductor_authority(
+    fulfill_world, monkeypatch
+):
+    """No recorded request + record_under_authority: the same compiled
+    crew.request decision is evaluated at OPA under the conductor's §5.1
+    input, the recording is audited, and fulfillment proceeds."""
+    import orchestrator.activities.crew as module
+
+    crew, participants, audit, requests, _ = fulfill_world
+    opa = FakeOpa({"allow": True, "rule": "role_pm_crew_request"})
+    monkeypatch.setattr(module, "httpx", opa)
+
+    result = asyncio.run(crew.fulfill_crew(_fulfill_spec()))
+    assert result["brief"] == "1. do the thing"
+
+    # The decision went to the company's compiled package with the
+    # enriched conductor input — not to some hand-rolled check.
+    (url, payload), = opa.calls
+    assert url.endswith("/v1/data/poseidon/authz/hello_saas/decision")
+    decision_input = payload["input"]
+    assert decision_input["agent_id"] == "pm-1"
+    assert decision_input["lifecycle"] == "standing"
+    assert decision_input["tool"] == "crew.request"
+    assert decision_input["args"] == {"crew_template": "feature-delivery"}
+    assert decision_input["active_spawns"] == 0
+    assert decision_input["budget_headroom"] is True
+
+    # The same row the tool path writes, now fulfilled.
+    row = requests.rows[list(requests.rows)[0]]
+    assert row["conductor"] == "pm-1" and row["status"] == "fulfilled"
+
+    event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
+    assert event.decision == "allow" and event.rule == "role_pm_crew_request"
+    assert event.lifecycle == "standing" and event.agent_id == "pm-1"
+
+
+def test_workflow_path_denied_by_the_compiled_decision(
+    fulfill_world, monkeypatch
+):
+    import orchestrator.activities.crew as module
+
+    crew, participants, audit, requests, _ = fulfill_world
+    opa = FakeOpa({"allow": False, "rule": "crew_request_not_in_may_spawn"})
+    monkeypatch.setattr(module, "httpx", opa)
+
+    with pytest.raises(RuntimeError, match="crew_request_not_in_may_spawn"):
+        asyncio.run(crew.fulfill_crew(_fulfill_spec()))
+    assert participants.rows == {}  # nothing minted on a deny
+    assert requests.rows == {}      # and nothing recorded
+    event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
+    assert event.decision == "deny"
+
+
+def test_workflow_path_with_no_policy_installed_fails_closed(
+    fulfill_world, monkeypatch
+):
+    """An empty OPA answer (no compiled bundle active) must refuse, not
+    improvise."""
+    import orchestrator.activities.crew as module
+
+    crew, participants, _, _, _ = fulfill_world
+    monkeypatch.setattr(module, "httpx", FakeOpa(None))
+
+    with pytest.raises(RuntimeError, match="no_policy_installed"):
+        asyncio.run(crew.fulfill_crew(_fulfill_spec()))
+    assert participants.rows == {}

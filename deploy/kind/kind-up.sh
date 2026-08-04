@@ -177,7 +177,9 @@ done
 REGISTRY_DSN="postgresql://${POSTGRES_USER:-poseidon}:${POSTGRES_PASSWORD:-poseidon-dev-postgres}@127.0.0.1:15432/${POSTGRES_USER:-poseidon}" \
   uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 kill $PGPF 2>/dev/null || true
-for hire in pm backend-engineer; do
+# Lean roster (plan step 19): the PM is the only standing hire; execution
+# is ephemeral crews.
+for hire in pm; do
   kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
 done
 

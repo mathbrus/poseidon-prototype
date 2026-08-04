@@ -25,7 +25,6 @@ def settings(tmp_path) -> WorkerSettings:
     return WorkerSettings(
         gateway_token_file=str(token),
         mcp_gateway_url="http://gateway.test:8080",
-        agent_url="http://engineer.test:8000",
         pm_url="http://pm.test:8000",
         target_repo="github.com/example/repo",
         poll_interval_s=0.01,

@@ -16,8 +16,17 @@ def blueprint() -> dict:
 
 @pytest.fixture
 def lean(blueprint: dict) -> dict:
-    """The post-firing-diff roster (plan step 19): PM only."""
-    lean = copy.deepcopy(blueprint)
-    del lean["departments"]["roles"]["backend-engineer"]
-    del lean["budgets"]["per_role_monthly"]["backend-engineer"]
-    return lean
+    """The lean roster IS the checked-in blueprint since the firing diff
+    landed (plan step 19)."""
+    return blueprint
+
+
+@pytest.fixture
+def bridge(blueprint: dict) -> dict:
+    """The retired M2->M3 bridge shape — a standing executor — kept only to
+    prove the strict lean-roster error refuses it now."""
+    bridge = copy.deepcopy(blueprint)
+    bridge["departments"]["roles"]["backend-engineer"] = {
+        "template": "backend-engineer", "count": 1, "model_tier": "frontier",
+    }
+    return bridge

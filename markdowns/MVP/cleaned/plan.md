@@ -1390,6 +1390,55 @@ cannot happen before platform verify passes; the verify red-path loops and
 is bounded; teardown is clean under worker kill; `hello-saas` converges to
 exactly one standing `AgentInstance` after the firing diff.
 
+> **Status (2026-08-04): done** — the implement workflow is the §6.2 table:
+> `create_run` → `check_budget` (the same activity-boundary ledger
+> observation intake makes) → `implement_config` (crew, conductor instance
+> and `max_verify_retries` from the applied blueprint + standing roster,
+> fail-closed on all of them) → `fetch_workspace` → `provision_sandbox` →
+> `fulfill_crew` → executor dispatch at the crew pod → `platform_verify`
+> loop → deliver dispatch → `teardown`. `fulfill_crew` grew the §4.4 rule-3
+> workflow path: with no recorded intent it records the request under the
+> conductor's authority by evaluating the *same compiled decision* the
+> `crew.request` tool faces — the conductor-shaped §5.1 input (enriched
+> with `active_spawns` + `budget_headroom`) POSTed to OPA's company
+> decision path (`WorkerSettings.opa_url`), audited allow-or-deny as
+> `lifecycle.record_request`, deny refuses fulfillment with nothing minted.
+> The gate of record is `platform_verify` — `GatewayClient.run_tests`
+> (`sandbox.run_tests`, already in `PLATFORM_SCOPE`) under the
+> orchestrator's platform identity after the executor's completion claim;
+> the brain's own verify is advisory (green → the dispatch ends with
+> `pr_url=None`; the deliver node left the graph). Red verifies feed
+> `verify_feedback` (the brief + the platform's test output) back for at
+> most `max_verify_retries` re-dispatches; only green releases the separate
+> `mode="deliver"` dispatch (`run_deliver`: commit → bundle → `open_pr`,
+> denials fed back — E2 recovery now lives in this dispatch), which carries
+> the *original* task text so delivery constraints survive the planner
+> handoff verbatim. Both dispatch modes share the budget-pause helper.
+> `AGENT_URL` is gone (settings, worker env, helm); executors are
+> dispatched only at the crew-pod URL fulfillment returns. The firing diff:
+> `hello-saas.yaml` lost the standing `backend-engineer` (entry, tool
+> scope, monthly budget) and compiles under the new strict `_lean_roster()`
+> check (standing count > 0 on a non-spawner template = error; workflow
+> conductors must be hired spawners); the operator-lifecycle e2e asserts
+> exactly one standing AgentInstance ("pm") and one standing deployment;
+> the governance e2e decides through the ephemeral executor input shape and
+> proves the firing (a standing `backend-engineer` input → `default_deny`).
+> E3 (the dishonest-claim path) is deterministic: the mock brain's
+> `task-verify-red.md` scenario plants a state-dependent test that greens
+> the advisory verify and reds the platform's re-run — rehearsed off-cluster
+> in the mockllm contract suite, proven live in `test_verify_gate.py`
+> (two platform verifies in the story, red then green, delivery strictly
+> after the last one, teardown clean). §4.4-lossless-handoff note: the mock
+> planner echoes the scenario marker into its brief exactly like the branch
+> constraint — a brief that drops task constraints breaks the executor, and
+> that is a planner-contract property, not a mock quirk. E2E fallout swept
+> the fired engineer everywhere (kind-up rollout waits, workload identity,
+> budgets → ephemeral planner/executor ledger attribution, audit story →
+> five real sources + delivery-after-verify ordering, registry durability →
+> minted ephemeral executor as the surviving caller). Suite: 56 e2e green
+> on kind in ~8.5 min (three full crewed runs: E1 with worker-kill, E2
+> injected, E3 verify-red), free on the mock brain.
+
 ### Step 20 — `review` workflow + HITL merge gate
 
 **Depends on:** steps 16, 15, 13; decisions O-1 (recommendation: A) and O-4

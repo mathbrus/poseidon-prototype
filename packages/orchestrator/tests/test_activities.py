@@ -63,7 +63,6 @@ def settings(tmp_path) -> WorkerSettings:
     return WorkerSettings(
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        agent_url="http://agent.test:8000",
         target_repo="github.com/example/repo",
         sandbox_image="poseidon-sandbox:abc123",
         poll_interval_s=0.01,
@@ -182,11 +181,11 @@ def test_teardown_destroys_and_finalizes_done(activities, settings, backend, run
 def test_teardown_records_error_and_still_destroys(activities, settings, backend):
     asyncio.run(activities.create_run(RUN_ID, "task"))
     record = asyncio.run(
-        activities.teardown(RUN_ID, dict(JOB_HANDLE), None, "dispatch_work: boom")
+        activities.teardown(RUN_ID, dict(JOB_HANDLE), None, "dispatch_executor: boom")
     )
     assert backend.destroyed == [JOB_HANDLE["job_name"]]
     assert record["status"] == "failed"
-    assert record["error"] == "dispatch_work: boom"
+    assert record["error"] == "dispatch_executor: boom"
 
 
 def test_teardown_without_sandbox_finalizes_failed(activities, settings, backend):
@@ -252,7 +251,10 @@ def _patch_agent(monkeypatch, transport: FakeAgentTransport) -> None:
     monkeypatch.setattr(clients.AgentClient, "__init__", patched)
 
 
-def test_dispatch_work_polls_to_terminal(activities, monkeypatch):
+CREW_POD_URL = "http://10.0.0.7:8000"
+
+
+def test_dispatch_executor_polls_to_terminal(activities, monkeypatch):
     transport = FakeAgentTransport(
         dispatch_codes=[202],
         statuses=[
@@ -261,12 +263,14 @@ def test_dispatch_work_polls_to_terminal(activities, monkeypatch):
         ],
     )
     _patch_agent(monkeypatch, transport)
-    status = asyncio.run(activities.dispatch_work(RUN_ID, "task"))
+    status = asyncio.run(
+        activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL)
+    )
     assert status["status"] == "done"
     assert status["pr_url"] == "https://pr"
 
 
-def test_dispatch_work_tolerates_conflict_and_reattaches(activities, monkeypatch):
+def test_dispatch_executor_tolerates_conflict_and_reattaches(activities, monkeypatch):
     """A retry after worker death re-dispatches, gets 409, and polls the
     already-running agent to completion."""
     transport = FakeAgentTransport(
@@ -274,12 +278,14 @@ def test_dispatch_work_tolerates_conflict_and_reattaches(activities, monkeypatch
         statuses=[{"status": "done", "pr_url": None, "iterations": 1, "error": "red"}],
     )
     _patch_agent(monkeypatch, transport)
-    status = asyncio.run(activities.dispatch_work(RUN_ID, "task"))
+    status = asyncio.run(
+        activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL)
+    )
     assert transport.dispatches == 1
     assert status["error"] == "red"
 
 
-def test_dispatch_work_raises_when_agent_lost_the_run(activities, monkeypatch):
+def test_dispatch_executor_raises_when_agent_lost_the_run(activities, monkeypatch):
     from orchestrator.clients import AgentRunLost
 
     transport = FakeAgentTransport(
@@ -287,7 +293,91 @@ def test_dispatch_work_raises_when_agent_lost_the_run(activities, monkeypatch):
     )
     _patch_agent(monkeypatch, transport)
     with pytest.raises(AgentRunLost):
-        asyncio.run(activities.dispatch_work(RUN_ID, "task"))
+        asyncio.run(activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL))
+
+
+# -- implement_config (plan step 19) ------------------------------------------
+
+WORKFLOWS_SPEC = {
+    **APPLIED_SPEC,
+    "workflows": [
+        {"name": "implement", "enabled": True, "conductor": "pm",
+         "crew": "feature-delivery", "max_verify_retries": 2},
+        {"name": "intake", "enabled": True, "conductor": "pm", "crew": None},
+    ],
+}
+
+
+class FakeInstances:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def for_company(self, company):
+        return [r for r in self.rows if r["company"] == company]
+
+
+PM_ROW = {"agent_id": "pm-1", "company": "hello-saas", "hire": "pm",
+          "role_template": "pm"}
+
+
+def _config_activities(settings, backend, runs, spec, instances):
+    companies = InMemoryCompanies()
+    if spec is not None:
+        companies.upsert("hello-saas", spec)
+    return ImplementActivities(
+        settings, backend, runs, companies, None, instances
+    )
+
+
+def test_implement_config_resolves_crew_and_conductor(settings, backend, runs):
+    activities = _config_activities(
+        settings, backend, runs, WORKFLOWS_SPEC, FakeInstances([PM_ROW])
+    )
+    config = asyncio.run(activities.implement_config())
+    assert config == {
+        "company": "hello-saas",
+        "crew_template": "feature-delivery",
+        "conductor": "pm-1",
+        "conductor_role": "pm",
+        "max_verify_retries": 2,
+    }
+
+
+def test_implement_config_fails_closed_without_a_blueprint(settings, backend, runs):
+    activities = _config_activities(
+        settings, backend, runs, None, FakeInstances([PM_ROW])
+    )
+    with pytest.raises(RuntimeError, match="no enabled"):
+        asyncio.run(activities.implement_config())
+
+
+def test_implement_config_fails_closed_without_a_conductor_instance(
+    settings, backend, runs
+):
+    """The blueprint names a conductor hire, but no standing instance has
+    converged for it — refuse before anything is provisioned."""
+    activities = _config_activities(
+        settings, backend, runs, WORKFLOWS_SPEC, FakeInstances([])
+    )
+    with pytest.raises(RuntimeError, match="no standing instance"):
+        asyncio.run(activities.implement_config())
+
+
+def test_platform_verify_maps_exit_code(activities, monkeypatch):
+    """The gate of record: green is exit_code 0 from the platform's own
+    sandbox.run_tests call, anything else is red with the output kept."""
+    import orchestrator.activities.implement as module
+
+    class FakeGateway:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def run_tests(self, run_id):
+            return {"exit_code": 1, "stdout": "1 failed", "stderr": ""}
+
+    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    verdict = asyncio.run(activities.platform_verify(RUN_ID))
+    assert verdict == {"passed": False, "output": "1 failed"}
 
 
 def test_teardown_revokes_participants_on_every_terminal_path(

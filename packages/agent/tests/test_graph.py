@@ -28,12 +28,38 @@ def tool_names(specs: list[dict] | None) -> list[str]:
 # --- happy path ---------------------------------------------------------------
 
 
-async def test_happy_path_reaches_deliver_and_reports_pr(settings, gateway):
+async def test_happy_path_ends_in_a_completion_claim(settings, gateway):
+    """Sequencing choice 8 (plan step 19): the implement dispatch ends at
+    the advisory-green completion claim — no PR, no deliver tools, ever."""
     llm = ScriptedLLM(
         [
-            says("Plan: 1. write greet 2. write test 3. run tests 4. deliver"),
+            says("Plan: 1. write greet 2. write test 3. run tests"),
             calls(tc("write_file", path="src/hello.py", content="def greet(n): ...")),
             says("Implementation done, ready for the test suite."),
+        ]
+    )
+
+    result = await run_graph(llm, gateway, settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert result.pr_url is None  # the brain never self-delivers
+    assert result.iterations == 1
+    assert llm.script == []
+    assert gateway.tools_called() == [
+        "sandbox.list_dir",
+        "sandbox.write_file",
+        "sandbox.run_tests",
+    ]
+    assert all(args["run_id"] == RUN_ID for _, args in gateway.calls)
+
+
+async def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
+    """The workflow-directed delivery (mode=deliver): commit, bundle, PR."""
+    from agent.graph import run_deliver
+    import agent.graph as graph_module
+
+    llm = ScriptedLLM(
+        [
             calls(
                 tc(
                     "exec",
@@ -41,31 +67,34 @@ async def test_happy_path_reaches_deliver_and_reports_pr(settings, gateway):
                         "git checkout -b feature/greet && git add -A && "
                         "git -c user.name=a -c user.email=a@p commit -m 'add greet'"
                     ),
-                )
+                ),
+                tc("open_pr", branch="feature/greet", title="Add greet",
+                   body="Adds greet()."),
             ),
-            calls(tc("open_pr", branch="feature/greet", title="Add greet", body="Adds greet().")),
         ]
     )
 
-    result = await run_graph(llm, gateway, settings, RUN_ID, TASK)
+    class FakeGatewayCtx:
+        async def __aenter__(self):
+            return gateway
+        async def __aexit__(self, *exc):
+            return False
+
+    original_llm = graph_module.OpenAICompatibleLLM
+    original_gw = graph_module.McpGateway
+    graph_module.OpenAICompatibleLLM = lambda *a, **k: llm
+    graph_module.McpGateway = lambda *a, **k: FakeGatewayCtx()
+    try:
+        result = await run_deliver(settings, RUN_ID, TASK)
+    finally:
+        graph_module.OpenAICompatibleLLM = original_llm
+        graph_module.McpGateway = original_gw
 
     assert result.pr_url == PR_URL
     assert result.error is None
-    assert result.iterations == 1
-    assert llm.script == []
-
-    # Full gateway trace: survey, edit, tests, commit, bundle, PR.
     assert gateway.tools_called() == [
-        "sandbox.list_dir",
-        "sandbox.write_file",
-        "sandbox.run_tests",
-        "sandbox.exec",
-        "sandbox.git_bundle",
-        "git.open_pr",
+        "sandbox.exec", "sandbox.git_bundle", "git.open_pr",
     ]
-    # Every call carries the run_id (§4.2).
-    assert all(args["run_id"] == RUN_ID for _, args in gateway.calls)
-
     open_pr_args = gateway.calls[-1][1]
     assert open_pr_args["repo"] == settings.target_repo
     assert open_pr_args["branch"] == "feature/greet"
@@ -74,13 +103,10 @@ async def test_happy_path_reaches_deliver_and_reports_pr(settings, gateway):
 
 
 async def test_prompt_and_toolsets_per_phase(settings, gateway):
-    llm = ScriptedLLM(
-        [
-            says("plan"),
-            says("nothing to do"),
-            calls(tc("open_pr", branch="feature/x", title="t", body="b")),
-        ]
-    )
+    """The implement dispatch never offers delivery tools (choice 8):
+    plan has none, act has the read/write set, and the graph ends at the
+    claim — open_pr exists only in the separate deliver dispatch."""
+    llm = ScriptedLLM([says("plan"), says("nothing to do")])
 
     await run_graph(llm, gateway, settings, RUN_ID, TASK)
 
@@ -93,11 +119,8 @@ async def test_prompt_and_toolsets_per_phase(settings, gateway):
     assert "README.md" in plan_messages[1]["content"]  # workspace survey
 
     _, act_tools = llm.requests[1]
-    assert tool_names(act_tools) == ACT_TOOLS  # no open_pr while iterating
-
-    deliver_messages, deliver_tools = llm.requests[2]
-    assert tool_names(deliver_tools) == DELIVER_TOOLS
-    assert "open the pull request" in deliver_messages[-1]["content"]
+    assert tool_names(act_tools) == ACT_TOOLS  # no open_pr, ever, here
+    assert len(llm.requests) == 2
 
 
 # --- verify loop and iteration cap ---------------------------------------------
@@ -126,11 +149,36 @@ async def test_failing_tests_loop_back_with_report_until_iteration_cap(settings,
 # --- deny path (E2 recovery) ----------------------------------------------------
 
 
+def _deliver(settings, gateway, llm):
+    import agent.graph as graph_module
+    from agent.graph import run_deliver
+
+    class FakeGatewayCtx:
+        async def __aenter__(self):
+            return gateway
+        async def __aexit__(self, *exc):
+            return False
+
+    original_llm = graph_module.OpenAICompatibleLLM
+    original_gw = graph_module.McpGateway
+    graph_module.OpenAICompatibleLLM = lambda *a, **k: llm
+    graph_module.McpGateway = lambda *a, **k: FakeGatewayCtx()
+
+    async def go():
+        try:
+            return await run_deliver(settings, RUN_ID, TASK)
+        finally:
+            graph_module.OpenAICompatibleLLM = original_llm
+            graph_module.McpGateway = original_gw
+
+    return go()
+
+
 async def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(settings, gateway):
+    """E2 in the deliver dispatch: the deny (with the rule name) feeds back
+    and the model recovers onto feature/*."""
     llm = ScriptedLLM(
         [
-            says("plan"),
-            says("done"),
             # Injected-task behaviour: try to deliver straight to main.
             calls(tc("open_pr", branch="main", title="t", body="b")),
             # After seeing the denial, comply with policy.
@@ -138,7 +186,7 @@ async def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(setting
         ]
     )
 
-    result = await run_graph(llm, gateway, settings, RUN_ID, TASK)
+    result = await _deliver(settings, gateway, llm)
 
     assert result.pr_url == PR_URL
     assert result.error is None
@@ -146,7 +194,6 @@ async def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(setting
     pr_attempts = [args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"]
     assert pr_attempts == ["main", "feature/greet"]
 
-    # The deny (with the rule name) was fed back to the model as a tool result.
     retry_messages, _ = llm.requests[-1]
     denial = retry_messages[-1]
     assert denial["role"] == "tool"
@@ -155,9 +202,9 @@ async def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(setting
 
 
 async def test_deliver_without_pr_fails_the_run(settings, gateway):
-    llm = ScriptedLLM([says("plan"), says("done"), says("I refuse to open a PR.")])
+    llm = ScriptedLLM([says("I refuse to open a PR.")])
 
-    result = await run_graph(llm, gateway, settings, RUN_ID, TASK)
+    result = await _deliver(settings, gateway, llm)
 
     assert result.pr_url is None
     assert result.error == "agent stopped without opening a pull request"
