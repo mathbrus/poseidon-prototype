@@ -17,11 +17,18 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from common.telemetry import get_logger
-from orchestrator.activities import CrewActivities, ImplementActivities
+from orchestrator.activities import CrewActivities, ImplementActivities, IntakeActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import CrewPodProvisioner
-from orchestrator.workflows import ImplementWorkflow
-from registry import AuditStore, CrewRequests, RunParticipants, Runs, open_registry
+from orchestrator.workflows import ImplementWorkflow, IntakeWorkflow
+from registry import (
+    AuditStore,
+    BudgetLedger,
+    CrewRequests,
+    RunParticipants,
+    Runs,
+    open_registry,
+)
 from registry.bundles import Companies
 from sandbox.backends.k8s_jobs import K8sJobsBackend
 
@@ -43,6 +50,9 @@ async def main() -> None:
     )
     activities = ImplementActivities(
         settings, backend, Runs(registry), Companies(registry), crew_activities
+    )
+    intake_activities = IntakeActivities(
+        settings, Runs(registry), Companies(registry), BudgetLedger(registry)
     )
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping
@@ -70,8 +80,12 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=settings.task_queue,
-        workflows=[ImplementWorkflow],
-        activities=[*activities.all(), *crew_activities.all()],
+        workflows=[ImplementWorkflow, IntakeWorkflow],
+        activities=[
+            *activities.all(),
+            *crew_activities.all(),
+            *intake_activities.all(),
+        ],
     )
     log.info(
         "worker started",

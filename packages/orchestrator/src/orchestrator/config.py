@@ -58,6 +58,9 @@ class WorkerSettings(TemporalSettings):
     # sandbox image), and the platform namespace for gateway FQDNs.
     agent_image: str = ""
     platform_namespace: str = "poseidon-platform"
+    # The standing PM's dispatch address (plan step 18: intake dispatches
+    # the conductor exactly as implement dispatches an executor).
+    pm_url: str = ""
     model: str = "mock-brain"
     max_iterations: int = 10
     poll_interval_s: float = 2

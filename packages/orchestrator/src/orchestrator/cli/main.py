@@ -38,6 +38,11 @@ async def _client(settings: TemporalSettings) -> Client:
 def run(
     task_file: Path,
     run_id: str = typer.Option(None, help="Run id (generated when omitted)"),
+    workflow: str = typer.Option(
+        "implement",
+        help="Which workflow to start: implement (a task for the engineer)"
+        " or intake (a goal for the PM to scope, plan step 18)",
+    ),
     detach: bool = typer.Option(False, help="Start the workflow and exit"),
     fast_timeouts: bool = typer.Option(
         False,
@@ -46,21 +51,33 @@ def run(
         "(a wedged step then fails in seconds instead of minutes)",
     ),
 ) -> None:
-    """Start an implement run for the task described in TASK_FILE."""
+    """Start a run for the task or goal described in TASK_FILE."""
+    from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
+
     settings = TemporalSettings()
     task_text = task_file.read_text()
     run_id = run_id or new_run_id()
+    timeouts = FAST_TIMEOUTS if fast_timeouts else None
+    if workflow == "intake":
+        started_input: object = IntakeInput(
+            run_id=run_id, goal_text=task_text, timeouts=timeouts
+        )
+        wf_id = intake_workflow_id(run_id)
+    elif workflow == "implement":
+        started_input = ImplementInput(
+            run_id=run_id, task_text=task_text, timeouts=timeouts
+        )
+        wf_id = workflow_id(run_id)
+    else:
+        typer.echo(f"unknown workflow {workflow!r}", err=True)
+        raise typer.Exit(2)
 
     async def _run() -> dict | None:
         client = await _client(settings)
         handle = await client.start_workflow(
-            "implement",
-            ImplementInput(
-                run_id=run_id,
-                task_text=task_text,
-                timeouts=FAST_TIMEOUTS if fast_timeouts else None,
-            ),
-            id=workflow_id(run_id),
+            workflow,
+            started_input,
+            id=wf_id,
             task_queue=settings.task_queue,
         )
         typer.echo(f"started {handle.id} (run_id {run_id})", err=True)

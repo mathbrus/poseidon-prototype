@@ -50,6 +50,9 @@ spec:
               value: http://mcp-gateway:8080
             - name: AGENT_URL
               value: http://backend-engineer.{{ .Values.companyNamespace }}.svc.cluster.local:8000
+            # The standing conductor's dispatch address (plan step 18).
+            - name: PM_URL
+              value: http://pm.{{ .Values.companyNamespace }}.svc.cluster.local:8000
             - name: GATEWAY_TOKEN_FILE
               value: /var/run/poseidon/identity/token
             - name: TARGET_REPO

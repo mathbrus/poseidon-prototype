@@ -1311,6 +1311,33 @@ to a dispatch and files a ticket; a PM attempt at `sandbox.exec` or
 row under the PM's authority; the `runs` row links the tickets; the PM's
 tool calls appear in the audit story under the run's `run_id`.
 
+> **Status (2026-08-04): done** — `workflows/intake.py`:
+> `create_intake_run → check_budget → [gate slot] → dispatch_pm →
+> finalize_intake`, started by `poseidon run --workflow intake <goal
+> file>` (`intake-<run_id>` per §5.5). The activities stay thin
+> (`activities/intake.py`): `check_budget` is the §2b activity-boundary
+> headroom observation arriving — a run born exhausted fails before any
+> dispatch, while enforcement stays local at the LLM gateway;
+> `dispatch_pm` drives the standing PM (worker env `PM_URL`) and the PM
+> does the scoping itself through governed tools (tickets via `issues.*`,
+> the `crew.request` under its own conductor authority — the recorded,
+> expiring intake→implement handoff); `finalize_intake` links
+> `ticket_urls` into the runs row. The gate slot exists and reads the
+> applied blueprint's `workflows.intake.gates` — `none` (hello-saas)
+> skips it; `human_approval` parks on the `intake` signal with the
+> standard escalation timer; nothing is hardcoded. The workflow carries
+> the same `state` query as implement. E2e (`test_intake.py`): a goal in
+> → done run with `workflow=intake`, a real linked GitHub issue, a
+> `recorded` unexpired `crew_requests` row under `pm-1`, and every
+> gateway event in the story is `pm-1/standing/workflow=intake`.
+>
+> Keep an eye on: intake's `workflow` audit field works because the runs
+> row is created *before* the PM dispatch (the gateway enrichment reads
+> it); step 19's implement consumes the recorded request when started
+> from this handoff and records its own when started directly; the
+> injected-conductor red-team test (step 23) enters through this goal
+> text.
+
 ### Step 19 — `implement` workflow reshaped: crew fulfillment + platform verify gate + the firing diff
 
 **Depends on:** steps 16, 3 — and deliberately **not** step 17 or 18: the

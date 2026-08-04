@@ -87,6 +87,24 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
     for hire in ("pm", "backend-engineer"):
         kubectl("-n", COMPANY_NS, "rollout", "status", f"deployment/{hire}",
                 f"--timeout={timeout_s}s", timeout=timeout_s + 30)
+    # Converged includes *policy*: after a teardown + re-apply (and
+    # possibly an OPA restart), OPA needs a poll cycle (5-15s) to activate
+    # the company bundle. Tests that run right after a finalizer re-apply
+    # otherwise land in a no_policy_installed window — a real flake that
+    # bit both test_pm and the crew suite.
+    with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
+        deadline = time.monotonic() + 120
+        while True:
+            decision = httpx.get(
+                f"{base}/v1/data/poseidon/authz/hello_saas/decision",
+                timeout=10,
+            ).json()
+            if "result" in decision:
+                return
+            assert time.monotonic() < deadline, (
+                "OPA never activated the re-applied company bundle"
+            )
+            time.sleep(3)
 
 
 def bundle_revision_from_cr() -> str:
