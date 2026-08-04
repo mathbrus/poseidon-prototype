@@ -27,7 +27,7 @@ from common.audit import AuditEvent
 from common.telemetry import get_logger
 from gateway.config import GatewaySettings
 from gateway.git_backend import GitBackend
-from gateway.identity import (
+from common.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
     Identity,

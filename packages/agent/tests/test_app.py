@@ -108,3 +108,44 @@ async def test_duplicate_run_id_is_409():
 
     assert first.status_code == 202
     assert second.status_code == 409
+
+
+async def test_terminal_run_restarts_on_redispatch():
+    """409 is for runs in flight (crash-resume re-attach); a terminal run
+    re-dispatched restarts — the budget-pause resume path (plan step 14)
+    would otherwise poll the stale failure forever."""
+    attempts: list[str] = []
+
+    async def runner(run_id: str, task_text: str) -> RunResult:
+        attempts.append(task_text)
+        if len(attempts) == 1:
+            return RunResult(error="budget_exhausted: cap reached")
+        return RunResult(pr_url="https://github.test/pull/2", iterations=1)
+
+    async with client(create_app(task_runner=runner)) as http:
+        first = await http.post("/task", json={"run_id": RUN_ID, "task_text": "one"})
+        assert first.status_code == 202
+        status = await poll_until_terminal(http, RUN_ID)
+        assert "budget_exhausted" in status["error"]
+
+        again = await http.post("/task", json={"run_id": RUN_ID, "task_text": "two"})
+        assert again.status_code == 202
+        status = await poll_until_terminal(http, RUN_ID)
+
+    assert status["status"] == "done"
+    assert attempts == ["one", "two"]
+
+
+async def test_running_run_still_answers_409():
+    release = asyncio.Event()
+
+    async def runner(run_id: str, task_text: str) -> RunResult:
+        await release.wait()
+        return RunResult()
+
+    async with client(create_app(task_runner=runner)) as http:
+        await http.post("/task", json={"run_id": RUN_ID, "task_text": "one"})
+        conflict = await http.post("/task", json={"run_id": RUN_ID, "task_text": "again"})
+        assert conflict.status_code == 409
+        release.set()
+        await poll_until_terminal(http, RUN_ID)

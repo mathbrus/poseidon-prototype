@@ -1,4 +1,6 @@
-"""Workload identity verification (plan step 11, overview §4.9).
+"""Workload identity verification (plan step 11, overview §4.9), shared by
+both gateways — the MCP gateway and the LLM gateway verify the same
+credentials against the same registry state (§2b).
 
 One `Authenticator` resolves a bearer credential to an `Identity`:
 
@@ -27,12 +29,11 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 
 import httpx
+from pydantic_settings import BaseSettings
 
 from common import platformjwt
 from common.audit import AuditEvent
-from common.telemetry import get_logger
-from gateway.config import GatewaySettings
-from gateway.identity import (
+from common.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
     LIFECYCLE_STANDING,
@@ -41,9 +42,32 @@ from gateway.identity import (
     Identity,
     bearer_token,
 )
+from common.telemetry import get_logger
 
 TOKENREVIEW_PATH = "/apis/authentication.k8s.io/v1/tokenreviews"
 _EMPTY_DIGEST = hashlib.sha256(b"{}").hexdigest()
+
+
+class WorkloadAuthnSettings(BaseSettings):
+    """The verification knobs both gateways share; each gateway's settings
+    class inherits this so one env layout configures them identically."""
+
+    platform_namespace: str = "poseidon-platform"
+    orchestrator_service_account: str = "orchestrator-worker"
+    token_audience: str = "poseidon-gateway"
+    # Empty disables the ephemeral-JWT path (nothing mints these until plan
+    # step 16a; the verify seam is live since step 11).
+    platform_jwt_key: str = ""
+    # Empty means "derive from the in-cluster environment"; unit tests leave
+    # all three alone and inject a reviewer instead.
+    kube_api_url: str = ""
+    kube_token_file: str = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    kube_ca_file: str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    # Successful TokenReviews are cached this long, so the API server sees
+    # one review per caller per minute, not one per call. Revoking a
+    # ServiceAccount takes up to this long to bite; ephemeral revocation
+    # does not ride this cache (the participants row is checked every call).
+    authn_cache_ttl_s: float = 60.0
 
 
 @dataclass(frozen=True)
@@ -77,7 +101,7 @@ class KubeTokenReviewer:
         self._http = http_client or httpx.AsyncClient(
             base_url=api_url, verify=ca_file, timeout=10.0
         )
-        self._log = get_logger("gateway.authn")
+        self._log = get_logger("workload.authn")
 
     async def review(self, token: str, audience: str) -> ServiceAccount | None:
         own_token = await asyncio.to_thread(
@@ -110,7 +134,7 @@ class KubeTokenReviewer:
         return ServiceAccount(namespace=namespace, name=name)
 
 
-def default_reviewer(settings: GatewaySettings) -> KubeTokenReviewer | None:
+def default_reviewer(settings: WorkloadAuthnSettings) -> KubeTokenReviewer | None:
     """The in-cluster reviewer, or None outside a cluster (unit tests)."""
     api_url = settings.kube_api_url
     if not api_url:
@@ -130,7 +154,7 @@ class Authenticator:
 
     def __init__(
         self,
-        settings: GatewaySettings,
+        settings: WorkloadAuthnSettings,
         audit: Any,
         instances: Any,
         participants: Any,
@@ -141,7 +165,7 @@ class Authenticator:
         self._instances = instances
         self._participants = participants
         self._reviewer = reviewer
-        self._log = get_logger("gateway.authn")
+        self._log = get_logger("workload.authn")
         # token digest -> (identity, monotonic deadline); TokenReview
         # successes only. Bounded: expired entries are swept on insert.
         self._cache: dict[str, tuple[Identity, float]] = {}

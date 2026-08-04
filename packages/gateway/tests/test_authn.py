@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from common import platformjwt
-from gateway.authn import Authenticator, ServiceAccount
+from common.authn import Authenticator, ServiceAccount
 from gateway.config import GatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
@@ -248,7 +248,7 @@ async def test_platform_jwt_path_disabled_without_key(
 
 
 async def test_kube_token_reviewer_speaks_tokenreview(tmp_path):
-    from gateway.authn import KubeTokenReviewer
+    from common.authn import KubeTokenReviewer
 
     own = tmp_path / "token"
     own.write_text("gateway-own-token\n")
@@ -282,7 +282,7 @@ async def test_kube_token_reviewer_speaks_tokenreview(tmp_path):
 async def test_kube_token_reviewer_ignores_non_service_accounts(tmp_path):
     """A human kubeconfig user authenticates fine at the API server but is
     not a workload; the gateway must not map it to anything."""
-    from gateway.authn import KubeTokenReviewer
+    from common.authn import KubeTokenReviewer
 
     own = tmp_path / "token"
     own.write_text("t")

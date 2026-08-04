@@ -43,6 +43,10 @@ images:
     repository: poseidon-operator
     tag: latest
     pullPolicy: IfNotPresent
+  gatewayLlm:
+    repository: poseidon-gateway-llm
+    tag: latest
+    pullPolicy: IfNotPresent
 
 # Secrets layout (plan step 1a): GIT_TOKEN mountable only into the gateway,
 # LLM_API_KEY only into LiteLLM — both live in the platform namespace.
@@ -75,6 +79,17 @@ orchestrator:
   # logical toolchain image (content-addressed on kind).
   sandbox:
     image: poseidon-sandbox
+
+# The LLM gateway (plan step 14): tier -> model resolution and the flat
+# MVP price per 1K tokens the ledger accrues at. The blueprint names
+# tiers; only the deployment knows the concrete models. In mock mode every
+# tier resolves to the mock brain via values-mockllm.yaml.
+llmGateway:
+  tierModels:
+    frontier: gpt-4o
+    standard: gpt-4o-mini
+    small: gpt-4o-mini
+  pricePer1kTokens: "0.002"
 
 # Sandbox egress proxy (plan step 5). The allowlist is the applied
 # blueprint's compiled IR projection (plan step 12), resolved per run via

@@ -71,6 +71,7 @@ docker build -q -f Dockerfile.orchestrator -t "poseidon-orchestrator:$BUILD_TAG"
 docker build -q -f Dockerfile.sandbox -t "$SANDBOX_IMAGE:$BUILD_TAG" . >/dev/null
 docker build -q -f Dockerfile.egressproxy -t "poseidon-egress-proxy:$BUILD_TAG" . >/dev/null
 docker build -q -f Dockerfile.operator -t "poseidon-operator:$BUILD_TAG" . >/dev/null
+docker build -q -f Dockerfile.gatewayllm -t "poseidon-gateway-llm:$BUILD_TAG" . >/dev/null
 # The sandbox image is side-loaded too: sandboxes are Kubernetes Jobs in the
 # company namespace since the k8s_jobs backend (plan step 4).
 IMAGES=(
@@ -80,6 +81,7 @@ IMAGES=(
   "$SANDBOX_IMAGE:$BUILD_TAG"
   "poseidon-egress-proxy:$BUILD_TAG"
   "poseidon-operator:$BUILD_TAG"
+  "poseidon-gateway-llm:$BUILD_TAG"
 )
 IMAGE_VALUES=(
   --set "images.gateway.tag=$BUILD_TAG"
@@ -87,6 +89,7 @@ IMAGE_VALUES=(
   --set "images.orchestrator.tag=$BUILD_TAG"
   --set "egressProxy.image.tag=$BUILD_TAG"
   --set "images.operator.tag=$BUILD_TAG"
+  --set "images.gatewayLlm.tag=$BUILD_TAG"
   # Sandbox Jobs are built by the worker from this value, not by helm, so
   # the tag has to ride the image reference itself.
   --set "orchestrator.sandbox.image=$SANDBOX_IMAGE:$BUILD_TAG"
@@ -138,7 +141,7 @@ echo "==> rollout"
 # Postgres first: every service migrates the registry schema at startup and
 # the bundle server / operator need it reachable before they are useful.
 kubectl -n "$PLATFORM_NS" rollout status statefulset/postgres --timeout=300s
-for deploy in opa llm-proxy mcp-gateway egress-proxy bundle-server poseidon-operator; do
+for deploy in opa llm-proxy llm-gateway mcp-gateway egress-proxy bundle-server poseidon-operator; do
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=300s
 done
 

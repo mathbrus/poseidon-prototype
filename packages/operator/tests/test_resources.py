@@ -42,7 +42,9 @@ def test_agent_egress_reaches_only_the_two_gateways_and_dns():
         or rule["to"][0]["podSelector"]["matchLabels"].get("k8s-app")
         for rule in egress
     }
-    assert targets == {"mcp-gateway", "llm-proxy", "kube-dns"}
+    # Since plan step 14 the model route is the metered llm-gateway; the
+    # llm-proxy behind it is sealed to everyone but that gateway.
+    assert targets == {"mcp-gateway", "llm-gateway", "kube-dns"}
 
 
 def test_agent_ingress_admits_only_the_orchestrator():

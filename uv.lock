@@ -14,6 +14,7 @@ members = [
     "common",
     "compiler",
     "gateway",
+    "gateway-llm",
     "mockllm",
     "orchestrator",
     "poseidon",
@@ -391,6 +392,7 @@ name = "common"
 version = "0.1.0"
 source = { editable = "packages/common" }
 dependencies = [
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-ulid" },
@@ -398,6 +400,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pydantic-settings", specifier = ">=2" },
     { name = "python-ulid", specifier = ">=2" },
@@ -607,6 +610,27 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.12" },
     { name = "registry", editable = "packages/registry" },
     { name = "starlette", specifier = ">=0.40" },
+    { name = "uvicorn", specifier = ">=0.30" },
+]
+
+[[package]]
+name = "gateway-llm"
+version = "0.2.0"
+source = { editable = "packages/gateway-llm" }
+dependencies = [
+    { name = "common" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "registry" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "common", editable = "packages/common" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "registry", editable = "packages/registry" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 
@@ -1317,6 +1341,7 @@ dependencies = [
     { name = "common" },
     { name = "compiler" },
     { name = "gateway" },
+    { name = "gateway-llm" },
     { name = "mockllm" },
     { name = "orchestrator" },
     { name = "poseidon-operator" },
@@ -1338,6 +1363,7 @@ requires-dist = [
     { name = "common", editable = "packages/common" },
     { name = "compiler", editable = "packages/compiler" },
     { name = "gateway", editable = "packages/gateway" },
+    { name = "gateway-llm", editable = "packages/gateway-llm" },
     { name = "mockllm", editable = "packages/mockllm" },
     { name = "orchestrator", editable = "packages/orchestrator" },
     { name = "poseidon-operator", editable = "packages/operator" },

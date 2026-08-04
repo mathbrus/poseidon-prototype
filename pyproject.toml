@@ -14,6 +14,7 @@ dependencies = [
     "registry",
     "compiler",
     "poseidon-operator",
+    "gateway-llm",
 ]
 
 [dependency-groups]
@@ -48,3 +49,4 @@ schema = { workspace = true }
 registry = { workspace = true }
 compiler = { workspace = true }
 poseidon-operator = { workspace = true }
+gateway-llm = { workspace = true }

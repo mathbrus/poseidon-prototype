@@ -49,8 +49,12 @@ def _probe(pod: str, url: str, want: str) -> bool:
     ("url", "want"),
     [
         (f"http://mcp-gateway.{PLATFORM_NS}.svc.cluster.local:8080/mcp", "reachable"),
-        (f"http://llm-proxy.{PLATFORM_NS}.svc.cluster.local:4000/health/liveliness",
+        (f"http://llm-gateway.{PLATFORM_NS}.svc.cluster.local:4000/healthz",
          "reachable"),
+        # The llm-proxy (provider keys) is sealed behind the metered
+        # gateway since plan step 14 — an agent must not reach it.
+        (f"http://llm-proxy.{PLATFORM_NS}.svc.cluster.local:4000/health/liveliness",
+         "blocked"),
         (f"http://opa.{PLATFORM_NS}.svc.cluster.local:8181/health", "blocked"),
         (f"http://egress-proxy.{PLATFORM_NS}.svc.cluster.local:3128/healthz", "blocked"),
         ("http://1.1.1.1", "blocked"),

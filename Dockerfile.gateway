@@ -18,6 +18,7 @@ COPY pyproject.toml uv.lock ./
 COPY packages/common/pyproject.toml packages/common/
 COPY packages/agent/pyproject.toml packages/agent/
 COPY packages/gateway/pyproject.toml packages/gateway/
+COPY packages/gateway-llm/pyproject.toml packages/gateway-llm/
 COPY packages/sandbox/pyproject.toml packages/sandbox/
 COPY packages/orchestrator/pyproject.toml packages/orchestrator/
 COPY packages/mockllm/pyproject.toml packages/mockllm/

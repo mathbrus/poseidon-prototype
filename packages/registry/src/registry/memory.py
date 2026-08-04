@@ -53,6 +53,30 @@ class InMemoryAuditStore:
         ]
 
 
+class InMemoryBudgetLedger:
+    """The LLM gateway's meter (plan step 14): recorded entries and the
+    per-run SUM the hard-stop compares against."""
+
+    def __init__(self) -> None:
+        self.entries: list[dict[str, Any]] = []
+
+    def record(self, *, company: str, run_id: str, agent_id: str,
+               parent_agent_id: str, role: str, model: str,
+               prompt_tokens: int, completion_tokens: int, usd: float) -> None:
+        self.entries.append({
+            "company": company, "run_id": run_id, "agent_id": agent_id,
+            "parent_agent_id": parent_agent_id, "role": role, "model": model,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens, "usd": usd,
+        })
+
+    def spent_for_run(self, run_id: str) -> float:
+        return float(sum(e["usd"] for e in self.entries if e["run_id"] == run_id))
+
+    def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        return [dict(e) for e in self.entries if e["run_id"] == run_id]
+
+
 class InMemorySandboxRegistrations:
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}

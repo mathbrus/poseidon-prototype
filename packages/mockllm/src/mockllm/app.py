@@ -26,7 +26,24 @@ class ChatRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
 
 
-def _response(model: str, completion: MockCompletion) -> dict[str, Any]:
+def _usage(messages: list[dict[str, Any]], message: dict[str, Any]) -> dict[str, int]:
+    """Deterministic token estimate (~4 chars/token): nonzero so the LLM
+    gateway's metering and budget hard-stop (plan step 14) have real usage
+    to account, stable so e2e assertions can rely on it."""
+    prompt = sum(len(str(m.get("content") or "")) for m in messages) // 4 + 1
+    completion = len(str(message.get("content") or "")) // 4 + 1
+    for call in message.get("tool_calls") or []:
+        completion += len(call["function"]["arguments"]) // 4
+    return {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": prompt + completion,
+    }
+
+
+def _response(
+    model: str, messages: list[dict[str, Any]], completion: MockCompletion
+) -> dict[str, Any]:
     message: dict[str, Any] = {"role": "assistant", "content": completion.content}
     if completion.tool_calls:
         message["tool_calls"] = [
@@ -49,7 +66,7 @@ def _response(model: str, completion: MockCompletion) -> dict[str, Any]:
                 "finish_reason": "tool_calls" if completion.tool_calls else "stop",
             }
         ],
-        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        "usage": _usage(messages, message),
     }
 
 
@@ -63,7 +80,11 @@ def create_app() -> FastAPI:
     @app.post("/chat/completions")
     @app.post("/v1/chat/completions")
     def chat(request: ChatRequest) -> dict[str, Any]:
-        return _response(request.model, next_completion(request.messages, request.tools))
+        return _response(
+            request.model,
+            request.messages,
+            next_completion(request.messages, request.tools),
+        )
 
     return app
 

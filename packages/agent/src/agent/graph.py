@@ -248,6 +248,9 @@ async def run_graph(
 
 async def run_task(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
     """Entry point used by the FastAPI app: real LLM proxy + real gateway."""
-    llm = OpenAICompatibleLLM(settings.llm_proxy_url, settings.model)
+    llm = OpenAICompatibleLLM(
+        settings.llm_proxy_url, settings.model,
+        token=settings.gateway_token(), run_id=run_id,
+    )
     async with McpGateway(settings.mcp_gateway_url, settings.gateway_token()) as gateway:
         return await run_graph(llm, gateway, settings, run_id, task_text)

@@ -313,3 +313,31 @@ def test_company_spec_reads(registry: Registry):
         assert companies.by_namespace("nowhere") is None
     finally:
         companies.delete("hello-saas")
+
+
+def test_budget_ledger_attributes_and_sums(registry: Registry):
+    """One ledger with dimensions (§4.8): every entry fully attributed,
+    the per-run SUM is what the LLM gateway's hard-stop compares against."""
+    from registry.ledger import BudgetLedger
+
+    ledger = BudgetLedger(registry)
+    Runs(registry).start(RUN_ID, "task")
+    ledger.record(
+        company="hello-saas", run_id=RUN_ID, agent_id="backend-engineer-1",
+        parent_agent_id="", role="backend-engineer", model="mock-brain",
+        prompt_tokens=100, completion_tokens=50, usd=0.0003,
+    )
+    ledger.record(
+        company="hello-saas", run_id=RUN_ID, agent_id="executor-01X",
+        parent_agent_id="pm-1", role="backend-engineer", model="mock-brain",
+        prompt_tokens=10, completion_tokens=5, usd=0.0001,
+    )
+    registry.execute("DELETE FROM registry.budget_ledger WHERE run_id != %s", (RUN_ID,))
+    try:
+        assert abs(ledger.spent_for_run(RUN_ID) - 0.0004) < 1e-9
+        entries = ledger.entries_for_run(RUN_ID)
+        assert [e["agent_id"] for e in entries] == ["backend-engineer-1", "executor-01X"]
+        assert entries[1]["parent_agent_id"] == "pm-1"
+        assert ledger.spent_for_run("run-unmetered") == 0.0
+    finally:
+        registry.execute("DELETE FROM registry.budget_ledger WHERE run_id = %s", (RUN_ID,))

@@ -918,6 +918,48 @@ hard-stops mid-way, the workflow is visibly paused-escalated, the ledger
 fully attributes the spend, and budget events appear in the audit story
 (§4.8 exit criteria).
 
+> **Status (2026-08-04): done** — `packages/gateway-llm`: a FastAPI service
+> in front of the model upstream. Pipeline per call: workload authn (the
+> shared `common.authn` — `identity.py`/`authn.py` moved out of the gateway
+> package because §2b says *both* gateways verify the same credentials;
+> `WorkloadAuthnSettings` is the shared env shape) → mandatory run
+> attribution (`X-Poseidon-Run-Id` naming a known run of the caller's
+> company; ephemeral callers only their own bound run; anonymous
+> passthrough is gone) → per-run budget headroom from the applied
+> blueprint vs the `budget_ledger` SUM (exhausted → 429 with a
+> distinguishable `budget_exhausted` code + audited deny, `source=
+> llm-gateway`, never silent) → model-tier routing (the caller's
+> `agent_instances.model_tier` → cluster-config `TIER_MODELS`; the
+> request's own model field is overridden) → forward upstream → meter
+> (usage → ledger row under {company, run_id, agent, parent, role,
+> model}) + audited allow. One deviation, recorded: "LiteLLM embedded"
+> became "LiteLLM sealed behind" — the llm-proxy (holding the provider
+> keys, or the mock) accepts ingress only from `llm-gateway` by
+> NetworkPolicy, and agents' egress + `LLM_PROXY_URL` now point at the
+> metered gateway; consolidation into one process would change no
+> contract. §2b hard-stop observation: the brain surfaces
+> `BudgetExhausted` (the agent restarts a *terminal* run on re-dispatch —
+> 409 stays for in-flight crash-resume), and the implement workflow parks
+> in an API-visible `paused-budget_exhausted` state (`state` query) on the
+> gates skeleton's first wired gate, resolved by `poseidon signal <run>
+> budget --approved/--no-approved` — approve re-dispatches, reject or
+> gate timeout finalizes with the budget error. No Temporal client in the
+> LLM gateway. Registry grew the `BudgetLedger` accessor (LLM gateway is
+> the writer). The mock brain now returns deterministic nonzero usage so
+> metering has something real to account. E2e `test_budgets.py`: a
+> blueprint edit shrinks the cap, the run hard-stops mid-way, pauses,
+> is rejected, finalizes failed with the marker; ledger rows fully
+> attributed; `budget_headroom` allows + `budget_exhausted` deny in the
+> one audit story; unattributed and unauthenticated calls rejected.
+>
+> Keep an eye on: activity-boundary ledger headroom checks are still step
+> 19's (the §2b contract names them there); tier→model maps live in
+> values (`llmGateway.tierModels`; mock overlay maps every tier to
+> `mock-brain`); pricing is a flat `PRICE_PER_1K_TOKENS` — per-model
+> tables are V1; the agent's `model` request field is now advisory only;
+> per-role monthly caps (`per_role_monthly_usd`) are recorded but not yet
+> enforced — no exit criterion demands them before V1.
+
 ### Step 15 — Gateway tool surface growth
 
 **Depends on:** step 12 (new tools need compiled policy coverage; the Rego

@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 from gateway.app import create_app
-from gateway.authn import ServiceAccount
+from common.authn import ServiceAccount
 from gateway.config import GatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,

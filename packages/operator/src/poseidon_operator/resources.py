@@ -75,7 +75,10 @@ def agent_egress(company_ns: str) -> dict[str, Any]:
                             "namespaceSelector": {
                                 "matchLabels": {"kubernetes.io/metadata.name": platform}
                             },
-                            "podSelector": {"matchLabels": {"app": "llm-proxy"}},
+                            # The metered LLM gateway (plan step 14) — the
+                            # llm-proxy behind it is sealed to everyone
+                            # but that gateway.
+                            "podSelector": {"matchLabels": {"app": "llm-gateway"}},
                         }
                     ],
                     "ports": [{"port": 4000}],
@@ -332,7 +335,7 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                                 {"name": "MCP_GATEWAY_URL",
                                  "value": f"http://mcp-gateway.{platform_namespace()}.svc.cluster.local:8080"},
                                 {"name": "LLM_PROXY_URL",
-                                 "value": f"http://llm-proxy.{platform_namespace()}.svc.cluster.local:4000"},
+                                 "value": f"http://llm-gateway.{platform_namespace()}.svc.cluster.local:4000"},
                                 # The spec's tier and tool scope ride the pod
                                 # template so an AgentInstance edit converges
                                 # as a rollout. MODEL itself stays cluster

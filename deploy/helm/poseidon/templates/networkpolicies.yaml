@@ -34,6 +34,29 @@ spec:
       ports:
         - port: 3128
 ---
+# The llm-proxy (provider keys) answers the LLM gateway and nobody else —
+# what makes the metered, audited gateway the only route to a model
+# ("anonymous passthrough is removed", plan step 14). Kubelet probes
+# bypass NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-proxy-ingress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: llm-proxy
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: llm-gateway
+      ports:
+        - port: 4000
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

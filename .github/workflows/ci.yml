@@ -48,7 +48,7 @@ jobs:
       # Per package: the suites share fixture module names (conftest.py),
       # which collide in a single rootdir-wide collection.
       - run: |
-          for package in common gateway agent sandbox orchestrator mockllm schema registry compiler operator; do
+          for package in common gateway gateway-llm agent sandbox orchestrator mockllm schema registry compiler operator; do
             echo "::group::$package"
             uv run pytest "packages/$package" -q
             echo "::endgroup::"
@@ -77,7 +77,7 @@ jobs:
           python-version: "3.12"
       - name: Build images
         run: |
-          for image in gateway agent sandbox orchestrator egressproxy mockllm operator; do
+          for image in gateway gatewayllm agent sandbox orchestrator egressproxy mockllm operator; do
             docker build -f "Dockerfile.$image" -t "poseidon-$image" .
           done
 

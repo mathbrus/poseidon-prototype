@@ -65,8 +65,14 @@ def create_app(
 
     @app.post("/task", status_code=202)
     async def submit_task(request: TaskRequest) -> TaskStatus:
-        if request.run_id in tasks:
-            raise HTTPException(status_code=409, detail=f"run {request.run_id} already exists")
+        existing = tasks.get(request.run_id)
+        if existing is not None and existing.status == "running":
+            # Crash-resume semantics: the workflow's retry re-attaches to
+            # the run already in flight.
+            raise HTTPException(status_code=409, detail=f"run {request.run_id} already running")
+        # A terminal run re-dispatched is a restart — the budget-pause
+        # resume (plan step 14): the workflow re-dispatches after the cap
+        # was raised, and polling the stale failure would loop forever.
         log.bind(run_id=request.run_id).info("task accepted")
         tasks[request.run_id] = TaskStatus(status="running")
         task = asyncio.create_task(execute(request.run_id, request.task_text))

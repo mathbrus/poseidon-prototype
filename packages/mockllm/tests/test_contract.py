@@ -63,7 +63,10 @@ class FakeGateway:
 
 def mock_llm() -> OpenAICompatibleLLM:
     """The production LLM client, transported in-process into the mock app."""
-    llm = OpenAICompatibleLLM("http://mockllm.test", "mock-brain")
+    llm = OpenAICompatibleLLM(
+        "http://mockllm.test", "mock-brain",
+        token="test-token", run_id="run-mock",
+    )
     llm._client = AsyncOpenAI(
         base_url="http://mockllm.test",
         api_key="poseidon-agent",

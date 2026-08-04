@@ -5,10 +5,11 @@ plus what the verifier learned on the way: the standing caller's namespace
 (for run-binding enrichment), and the ephemeral caller's run binding and
 crew coordinates from its live `run_participants` row.
 
-Produced exclusively by `gateway.authn` from a workload credential: a
+Produced exclusively by `common.authn` from a workload credential: a
 projected Kubernetes service-account token (standing agents, the
-orchestrator) or a platform-signed ephemeral JWT (§2b). The PoC static
-bearer tokens died at the step-12 cutover.
+orchestrator) or a platform-signed ephemeral JWT (§2b). Shared by both
+gateways — the MCP gateway and the LLM gateway verify the same identities
+(§2b). The PoC static bearer tokens died at the step-12 cutover.
 """
 
 from pydantic import BaseModel
