@@ -1047,6 +1047,38 @@ events.
 *Done when:* a minted identity calls the gateway successfully; the same call
 after row termination is denied **before** TTL expiry.
 
+> **Status (2026-08-04): done** — the fulfill half of the frozen §2b
+> contract, on the verify seam landed at steps 11/12.
+> `orchestrator/identity.py`: deterministic ephemeral agent ids
+> (`{crew}-{member}-{run_id}` — a mint retried after a worker death
+> revives the same participants row instead of leaking a second identity)
+> and `mint_ephemeral` signing the §5.1 claims on `common.platformjwt`
+> (`role` = the catalog template; the crew coordinates come from the live
+> row at verification). `activities/crew.py`: `mint_participant` (row +
+> token, registered on the worker) and `revoke_participants` (the per-run
+> terminal sweep — `RunParticipants.terminate_for_run` returns who it
+> swept, one audit event each). Both emit `source=process-lifecycle`
+> events (`lifecycle.mint`/`lifecycle.revoke`) — the Source vocabulary
+> grew its fifth member for exactly this. `RunParticipants` gained the
+> write path (upsert-revive add, terminate, per-run sweep); the worker
+> mounts `PLATFORM_JWT_KEY` (helm) and `ephemeral_ttl_s` defaults to 900s
+> — short by design, but the row termination is the real revocation.
+> E2e (`test_crew_identity.py`): the real activities run against the
+> cluster's registry with the cluster's key — the minted executor
+> authenticates at the real gateway, its compiled crew rule answers
+> (policy allow, backend "no sandbox registered"), the revoke kills the
+> still-cryptographically-valid token immediately (401,
+> `authn_no_live_participant` audited), and mint/revoke/call/deny are one
+> `run_id` story.
+>
+> Keep an eye on: `mint_participant` returns the token to its caller —
+> when 16d wires it into the workflow, the token must reach the crew pod
+> via provision-time env injection (16c), never via workflow history
+> (histories persist); the deterministic agent_id means one identity per
+> {crew, member, run} — re-minting after revocation revives it, which is
+> the retry semantics 16d's compensation relies on; nothing calls these
+> activities yet (16d orchestrates).
+
 **Step 16b — run-binding install and teardown.** *Depends on: 8, 12.*
 `run_participants` lifecycle: created at fulfill with full parentage,
 terminated on every terminal path. Nothing here compiles or installs policy

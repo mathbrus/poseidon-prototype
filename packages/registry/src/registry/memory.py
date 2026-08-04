@@ -209,6 +209,7 @@ class InMemoryRunParticipants:
         crew_template: str,
         role: str,
     ) -> None:
+        # Upsert like the real accessor: a retried mint revives the row.
         self.rows[agent_id] = {
             "agent_id": agent_id,
             "run_id": run_id,
@@ -219,8 +220,19 @@ class InMemoryRunParticipants:
         }
 
     def terminate(self, agent_id: str) -> None:
-        if agent_id in self.rows:
+        row = self.rows.get(agent_id)
+        if row is not None and row["status"] == "active":
+            row["status"] = "terminated"
+
+    def terminate_for_run(self, run_id: str) -> list[str]:
+        swept = [
+            agent_id
+            for agent_id, row in self.rows.items()
+            if row["run_id"] == run_id and row["status"] == "active"
+        ]
+        for agent_id in swept:
             self.rows[agent_id]["status"] = "terminated"
+        return swept
 
     def active(self, agent_id: str) -> dict[str, Any] | None:
         row = self.rows.get(agent_id)

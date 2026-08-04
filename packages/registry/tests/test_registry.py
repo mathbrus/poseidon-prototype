@@ -369,3 +369,35 @@ def test_crew_request_is_idempotent_and_expiring(registry: Registry):
     finally:
         registry.execute(
             "DELETE FROM registry.crew_requests WHERE id = %s", (first["id"],))
+
+
+def test_participant_mint_is_retry_safe_and_sweepable(registry: Registry):
+    """16a contract: a retried mint (same deterministic agent_id) revives
+    the same row; the per-run sweep revokes every live participant at once
+    and reports who it swept."""
+    from registry.participants import RunParticipants
+
+    Runs(registry).start(RUN_ID, "task")
+    participants = RunParticipants(registry)
+    try:
+        participants.add("feature-delivery-executor-x", RUN_ID, "pm-1",
+                         "feature-delivery", "executor")
+        participants.terminate("feature-delivery-executor-x")
+        assert participants.active("feature-delivery-executor-x") is None
+
+        # The retry lands on the same row and revives it.
+        participants.add("feature-delivery-executor-x", RUN_ID, "pm-1",
+                         "feature-delivery", "executor")
+        assert participants.active("feature-delivery-executor-x") is not None
+
+        participants.add("feature-delivery-planner-x", RUN_ID, "pm-1",
+                         "feature-delivery", "planner")
+        swept = participants.terminate_for_run(RUN_ID)
+        assert sorted(swept) == [
+            "feature-delivery-executor-x", "feature-delivery-planner-x",
+        ]
+        assert participants.active("feature-delivery-planner-x") is None
+        assert participants.terminate_for_run(RUN_ID) == []  # idempotent
+    finally:
+        registry.execute(
+            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,))

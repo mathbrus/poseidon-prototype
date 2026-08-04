@@ -8,14 +8,18 @@ shape and one `run_id` query returns the whole story across sources
 
 Sources: the MCP gateway emits from step 12's pipeline; the egress proxy's
 allows/denies ride the same contract (`sandbox-infra`); the LLM gateway
-joins at plan step 14 and process gates at steps 18–20.
+joined at plan step 14; `process-lifecycle` is the orchestrator's fulfill
+machinery (identity mint/revoke at step 16a, crew-pod provisioning at
+16c); process gates emit at steps 18–20.
 """
 
 from typing import Literal
 
 from pydantic import BaseModel
 
-Source = Literal["gateway", "llm-gateway", "sandbox-infra", "process-gate"]
+Source = Literal[
+    "gateway", "llm-gateway", "sandbox-infra", "process-gate", "process-lifecycle"
+]
 
 
 class AuditEvent(BaseModel):

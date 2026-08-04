@@ -48,6 +48,11 @@ class WorkerSettings(TemporalSettings):
     # injection entirely (proxy-less clusters keep zero egress).
     egress_proxy_url: str = ""
     egress_proxy_key: str = ""
+    # The §2b platform signing key (plan step 16a): the orchestrator's
+    # fulfill activities mint short-TTL ephemeral JWTs with it; both
+    # gateways verify. Empty disables minting, never verification.
+    platform_jwt_key: str = ""
+    ephemeral_ttl_s: int = 900
     poll_interval_s: float = 2
 
     def gateway_token(self) -> str:
