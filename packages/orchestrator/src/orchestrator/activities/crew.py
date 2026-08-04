@@ -27,10 +27,12 @@ from temporalio import activity
 
 from common.audit import AuditEvent
 from common.telemetry import get_logger
+from orchestrator.clients import AgentClient
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import CrewPodProvisioner
 from orchestrator.identity import ephemeral_agent_id, mint_ephemeral
 from registry import AuditStore, RunParticipants
+from registry.crews import request_id
 
 
 def _digest(payload: dict[str, Any]) -> str:
@@ -45,11 +47,17 @@ class CrewActivities:
         participants: RunParticipants,
         audit: AuditStore,
         provisioner: CrewPodProvisioner | None = None,
+        crew_requests: Any = None,
+        companies: Any = None,
     ) -> None:
         self._settings = settings
         self._participants = participants
         self._audit = audit
         self._provisioner = provisioner
+        # Fulfillment (16d): the recorded intent it consumes, and the
+        # applied blueprint the crew's member specs come from.
+        self._crew_requests = crew_requests
+        self._companies = companies
         self._log = get_logger("orchestrator.crew")
 
     @activity.defn(name="mint_participant")
@@ -198,7 +206,11 @@ class CrewActivities:
     @activity.defn(name="destroy_crew_pods")
     async def destroy_crew_pods(self, run_id: str) -> list[str]:
         """Delete the run's crew pods — by the {run_id, kind} label
-        selector only (the 16c bound). Idempotent; audited per pod."""
+        selector only (the 16c bound). Idempotent; audited per pod. With no
+        provisioner configured nothing could ever have been provisioned, so
+        compensation is honestly a no-op."""
+        if self._provisioner is None:
+            return []
         started = time.monotonic()
         provisioner = self._require_provisioner()
         deleted = await asyncio.to_thread(provisioner.destroy, run_id)
@@ -215,6 +227,120 @@ class CrewActivities:
                 started=started,
             )
         return deleted
+
+    @activity.defn(name="fulfill_crew")
+    async def fulfill_crew(self, spec: dict[str, Any]) -> dict[str, Any]:
+        """The 16d composition: consume the recorded request -> mint every
+        member (16a) -> pod for the acting member (16c, token injected at
+        provision) -> dispatch the planner on that brain host under its own
+        identity -> hand back the brief for the executor dispatch. The
+        orchestrator-fixed graph IS the planner->executor handoff; there is
+        no free-form crew chat (§4.4 rule 6).
+
+        spec: {run_id, company, crew_template, conductor, task_text}.
+        Retry-safe end to end: consume is idempotent for this run, minting
+        revives deterministic identities, provisioning replaces remnants.
+        """
+        run_id = spec["run_id"]
+        crew_template = spec["crew_template"]
+        conductor = spec["conductor"]
+        started = time.monotonic()
+
+        rid = request_id(conductor, crew_template, run_id)
+        consumed = await asyncio.to_thread(
+            self._crew_requests.consume, rid, run_id
+        )
+        if consumed is None:
+            # No recorded, unexpired intent for this run: fulfillment does
+            # not improvise authority (§4.4 rule 3; expired requests orphan
+            # nothing, §6.4).
+            raise RuntimeError(
+                f"no recorded crew request for {conductor}/{crew_template}"
+                f" on run {run_id} — record intent before fulfilling"
+            )
+
+        blueprint = await asyncio.to_thread(
+            self._companies.get, spec["company"]
+        ) or {}
+        members = [
+            m for m in blueprint.get("crewMembers") or []
+            if m.get("crew") == crew_template
+        ]
+        if not members:
+            raise RuntimeError(
+                f"applied blueprint defines no members for crew {crew_template!r}"
+            )
+
+        minted: dict[str, dict[str, Any]] = {}
+        pod: dict[str, Any] | None = None
+        pod_member: dict[str, Any] | None = None
+        for member in members:
+            member_spec = {
+                "run_id": run_id,
+                "company": spec["company"],
+                "crew_template": crew_template,
+                "member": member["member"],
+                "role_template": member["role_template"],
+                "parent_agent_id": conductor,
+            }
+            minted[member["member"]] = await self.mint_participant(member_spec)
+            if member.get("needs_sandbox") and pod is None:
+                pod = await self.provision_crew_pod(member_spec)
+                pod_member = member
+        if pod is None or pod_member is None:
+            raise RuntimeError(
+                f"crew {crew_template!r} has no pod-hosting member"
+            )
+
+        # The planner (a no-pod member, §4.4) borrows the acting member's
+        # brain host, under its own identity: its gateway calls carry the
+        # planner's minted token, so its compiled read-only scope binds.
+        brief = spec["task_text"]
+        planner = next(
+            (m for m in members if not m.get("needs_sandbox")), None
+        )
+        if planner is not None:
+            plan_run = await self._dispatch_plan(
+                pod["url"], run_id, spec["task_text"],
+                minted[planner["member"]]["token"],
+            )
+            if plan_run.get("error"):
+                raise RuntimeError(f"planner failed: {plan_run['error']}")
+            brief = plan_run.get("brief") or spec["task_text"]
+
+        await self._emit(
+            run_id=run_id,
+            agent_id=pod["agent_id"],
+            role=pod_member["role_template"],
+            company=spec["company"],
+            parent_agent_id=conductor,
+            tool="lifecycle.fulfill",
+            rule="crew_fulfilled",
+            digest=_digest({"crew_template": crew_template,
+                            "request_id": rid}),
+            started=started,
+        )
+        return {
+            "request_id": rid,
+            "brief": brief,
+            "executor_agent_id": pod["agent_id"],
+            "executor_url": pod["url"],
+            "members": sorted(minted),
+        }
+
+    async def _dispatch_plan(
+        self, url: str, run_id: str, task_text: str, token: str
+    ) -> dict[str, Any]:
+        async with AgentClient(url) as agent:
+            await agent.dispatch(run_id, task_text, mode="plan",
+                                 gateway_token=token)
+            while True:
+                if activity.in_activity():
+                    activity.heartbeat()
+                status = await agent.status(run_id)
+                if status["status"] != "running":
+                    return status
+                await asyncio.sleep(self._settings.poll_interval_s)
 
     def _require_provisioner(self) -> CrewPodProvisioner:
         if self._provisioner is None:
@@ -272,4 +398,5 @@ class CrewActivities:
             self.revoke_participants,
             self.provision_crew_pod,
             self.destroy_crew_pods,
+            self.fulfill_crew,
         ]

@@ -21,7 +21,7 @@ from orchestrator.activities import CrewActivities, ImplementActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import CrewPodProvisioner
 from orchestrator.workflows import ImplementWorkflow
-from registry import AuditStore, RunParticipants, Runs, open_registry
+from registry import AuditStore, CrewRequests, RunParticipants, Runs, open_registry
 from registry.bundles import Companies
 from sandbox.backends.k8s_jobs import K8sJobsBackend
 
@@ -38,6 +38,8 @@ async def main() -> None:
         RunParticipants(registry),
         AuditStore(registry),
         CrewPodProvisioner(settings.sandbox_namespace),
+        CrewRequests(registry),
+        Companies(registry),
     )
     activities = ImplementActivities(
         settings, backend, Runs(registry), Companies(registry), crew_activities

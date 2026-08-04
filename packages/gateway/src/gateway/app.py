@@ -34,13 +34,14 @@ from gateway.opa import OpaClient
 from gateway.service import GatewayService, PolicyDenied
 from registry import (
     AuditStore,
+    BudgetLedger,
     CrewRequests,
     RunParticipants,
     Runs,
     SandboxRegistrations,
     open_registry,
 )
-from registry.bundles import AgentInstances
+from registry.bundles import AgentInstances, Companies
 
 
 class AuthMiddleware:
@@ -88,6 +89,8 @@ def create_app(
     participants: RunParticipants | None = None,
     runs: Runs | None = None,
     crew_requests: CrewRequests | None = None,
+    ledger: BudgetLedger | None = None,
+    companies: Companies | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
     settings = settings or GatewaySettings()
@@ -98,7 +101,10 @@ def create_app(
     # reads for decision-input enrichment since step 12). Injectable so
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.
-    accessors = (sandboxes, audit, instances, participants, runs, crew_requests)
+    accessors = (
+        sandboxes, audit, instances, participants, runs, crew_requests,
+        ledger, companies,
+    )
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -108,10 +114,13 @@ def create_app(
         participants = RunParticipants(registry)
         runs = Runs(registry)
         crew_requests = CrewRequests(registry)
+        ledger = BudgetLedger(registry)
+        companies = Companies(registry)
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
     service = GatewayService(
-        settings, opa, http_client, sandboxes, audit, runs, crew_requests
+        settings, opa, http_client, sandboxes, audit, runs, crew_requests,
+        participants, ledger, companies,
     )
     authenticator = Authenticator(
         settings,

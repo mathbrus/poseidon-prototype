@@ -1193,6 +1193,50 @@ after teardown *including* worker kill; an unauthorized or over-cap crew
 request is denied by rule and audited; a member calling outside its compiled
 allow-list is denied at the gateway.
 
+> **Status (2026-08-04): done** — the composition of the three landed
+> contracts. Policy: the compiled `crew.request` surface completes —
+> per-conductor-instance `crew_request_over_cap` (keyed on `agent_id` +
+> `input.active_spawns` vs `max_concurrent_spawns`) and company-wide
+> `crew_request_no_budget` deny rules, both first-class governance events;
+> the gateway enriches crew.request inputs with the conductor's live
+> spawn count (`RunParticipants.active_spawn_count` — distinct {run, crew}
+> pairs) and the run's budget headroom (cap vs ledger) — riding the input,
+> never pushed (§2b). No ⊆-parent check anywhere, as designed. Fulfill:
+> `CrewActivities.fulfill_crew` consumes the recorded request
+> (`CrewRequests.consume` — recorded+unexpired→fulfilled, idempotent for
+> the fulfilling run; no recorded intent → refuse, nothing minted, §6.4)
+> → mints every member from the applied blueprint's `crewMembers` → pod
+> for the acting member (16c) → dispatches the planner **on the executor's
+> brain host under the planner's own minted token** (the agent C6 API
+> gained `mode=plan` + per-dispatch `gateway_token`; `run_plan` surveys
+> read-only and produces the brief; the mock brain's plan now echoes
+> delivery constraints so the handoff is lossless) → returns the brief for
+> the executor dispatch. The orchestrator-fixed graph is exactly the
+> planner→executor handoff — no free-form crew chat (§4.4 rule 6).
+> Teardown now destroys crew pods alongside revoking participants (both
+> tolerant, loud-not-masking); `AgentClient` grew mode/token dispatch.
+>
+> Proven live (`test_crew_fulfillment.py`): PM records intent through the
+> gateway (policy-faced) → fulfill → the brief carries the delivery
+> constraint → the **ephemeral executor implements and opens a real PR**
+> on the constrained branch, with `lifecycle=ephemeral` and
+> `parent_agent_id=pm-1` on every gateway decision (planner's reads
+> included); the read-only planner calling `sandbox.write_file` is denied;
+> revoke+destroy leave the token dead and the pod gone. The worker-kill
+> test attaches a crew to a live implement run, kills the worker, and the
+> replayed teardown sweeps rows to terminal and pods to gone —
+> kill-worker leaks nothing. Over-cap and no-budget denies are unit- and
+> bundle-proven (real OPA) and audited at the gateway.
+>
+> Keep an eye on: fulfill is **consume-only** — the workflow-recorded
+> request path ("or record under the PM's authority") is step 19's, as
+> its build list says; the drain-default abort (§6.4 conductor drained
+> mid-crew) becomes exercisable at 19 when implement owns fulfillment;
+> the planner borrows the executor's pod — if a crew ever defines no
+> pod-hosting member, fulfill refuses; `active_spawns` counts distinct
+> {run, crew} pairs, so re-requesting the same crew for the same run is
+> not double-counted.
+
 ### Step 17 — PM standing agent runtime
 
 **Depends on:** steps 10 (operator deploys standing instances), 15

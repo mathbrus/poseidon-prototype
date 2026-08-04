@@ -202,3 +202,41 @@ async def test_engineer_cannot_request_crews(app, crew_requests):
         )
     assert result.isError
     assert crew_requests.rows == {}
+
+
+async def test_over_cap_crew_request_is_denied_and_audited(
+    app, participants, crew_requests, audit
+):
+    """16d: the conductor's live spawn count rides the decision input and
+    the compiled cap denies by rule — a first-class governance event."""
+    participants.add("fd-planner-a", "run-a", "pm-1", "feature-delivery", "planner")
+    participants.add("fr-reviewer-b", "run-b", "pm-1", "feature-review", "reviewer")
+
+    async with mcp_session(app, PM_TOKEN) as session:
+        result = await session.call_tool(
+            "crew.request",
+            {"run_id": RUN_ID, "crew_template": "feature-delivery",
+             "reason": "a third crew"},
+        )
+    assert result.isError
+    assert "crew_request_over_cap" in result.content[0].text
+    assert crew_requests.rows == {}  # nothing recorded on a rule deny
+    event = audit_events(audit)[-1]
+    assert event["decision"] == "deny" and event["rule"] == "crew_request_over_cap"
+
+
+async def test_exhausted_budget_denies_crew_request(
+    app, ledger, crew_requests, audit
+):
+    ledger.record(company="hello-saas", run_id=RUN_ID, agent_id="backend-engineer-1",
+                  parent_agent_id="", role="backend-engineer", model="mock-brain",
+                  prompt_tokens=1, completion_tokens=1, usd=5.0)
+    async with mcp_session(app, PM_TOKEN) as session:
+        result = await session.call_tool(
+            "crew.request",
+            {"run_id": RUN_ID, "crew_template": "feature-delivery", "reason": "r"},
+        )
+    assert result.isError
+    assert "crew_request_no_budget" in result.content[0].text
+    assert crew_requests.rows == {}
+    assert audit_events(audit)[-1]["rule"] == "crew_request_no_budget"

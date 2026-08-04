@@ -25,6 +25,8 @@ from gateway.config import GatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
+    InMemoryBudgetLedger,
+    InMemoryCompanies,
     InMemoryCrewRequests,
     InMemoryRunParticipants,
     InMemoryRuns,
@@ -123,6 +125,12 @@ class Backends:
             if tool == "crew.request" and args.get("crew_template") in (
                 "feature-delivery", "feature-review",
             ):
+                # The compiled cap and budget denies (step 16d), reading
+                # the enriched input exactly like the real bundle.
+                if policy_input.get("active_spawns", 0) >= 2:
+                    return {"allow": False, "rule": "crew_request_over_cap"}
+                if policy_input.get("budget_headroom") is False:
+                    return {"allow": False, "rule": "crew_request_no_budget"}
                 return {"allow": True, "rule": "role_pm_crew_request"}
             return {"allow": False, "rule": "default_deny"}
         if (
@@ -282,6 +290,21 @@ def crew_requests() -> InMemoryCrewRequests:
 
 
 @pytest.fixture
+def ledger() -> InMemoryBudgetLedger:
+    return InMemoryBudgetLedger()
+
+
+@pytest.fixture
+def companies() -> InMemoryCompanies:
+    store = InMemoryCompanies()
+    store.upsert(COMPANY, {
+        "namespace": COMPANY_NS,
+        "budgets": {"per_run_usd": 5.0, "per_role_monthly_usd": {}},
+    })
+    return store
+
+
+@pytest.fixture
 async def app(
     settings: GatewaySettings,
     backends: Backends,
@@ -289,6 +312,8 @@ async def app(
     instances: InMemoryAgentInstances,
     participants: InMemoryRunParticipants,
     crew_requests: InMemoryCrewRequests,
+    ledger: InMemoryBudgetLedger,
+    companies: InMemoryCompanies,
 ):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
     application = create_app(
@@ -300,6 +325,8 @@ async def app(
         participants=participants,
         runs=InMemoryRuns(),
         crew_requests=crew_requests,
+        ledger=ledger,
+        companies=companies,
         token_reviewer=FakeReviewer(),
     )
     async with application.state.fastmcp.session_manager.run():

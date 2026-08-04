@@ -81,6 +81,18 @@ class InMemoryCrewRequests:
         row = self.rows.get(rid)
         return dict(row) if row else None
 
+    def consume(self, rid: str, run_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(rid)
+        if row is None:
+            return None
+        if row["status"] == "recorded" and row["run_id"] == run_id:
+            row["status"] = "fulfilled"
+            row["fulfilled_at"] = "2026-01-01T00:30:00+00:00"
+            return dict(row)
+        if row["status"] == "fulfilled" and row["run_id"] == run_id:
+            return dict(row)  # the retry after a crash mid-fulfill
+        return None
+
 
 class InMemoryBudgetLedger:
     """The LLM gateway's meter (plan step 14): recorded entries and the
@@ -233,6 +245,14 @@ class InMemoryRunParticipants:
         for agent_id in swept:
             self.rows[agent_id]["status"] = "terminated"
         return swept
+
+    def active_spawn_count(self, parent_agent_id: str) -> int:
+        return len({
+            (row["run_id"], row["crew_template"])
+            for row in self.rows.values()
+            if row["parent_agent_id"] == parent_agent_id
+            and row["status"] == "active"
+        })
 
     def active(self, agent_id: str) -> dict[str, Any] | None:
         row = self.rows.get(agent_id)

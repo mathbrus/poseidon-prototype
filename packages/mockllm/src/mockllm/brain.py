@@ -138,6 +138,15 @@ def next_completion(
     offered = _offered(tools)
 
     if not offered:  # plan: the graph passes no tools
+        # A real planner's brief carries the delivery constraints it was
+        # given; echoing the branch keeps the §4.4 planner->executor
+        # handoff lossless (the executor's brain parses the branch from
+        # *its* task text, which is exactly this brief at step 16d).
+        match = BRANCH_RE.search(task_text)
+        if match:
+            return _text(
+                PLAN_TEXT + f"\n4. Deliver on the branch `{match.group(0)}`."
+            )
         return _text(PLAN_TEXT)
 
     if "open_pr" not in offered:  # act

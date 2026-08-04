@@ -100,6 +100,30 @@ allow_rules contains "crew_{crew_slug}_{member_slug}_{tool_slug}" if {{
 {extra}}}
 '''
 
+# §4.4 rule 3 / §4.5 rule 5, compiled at step 16d: spawn authority is
+# bounded by the conductor's concurrency cap and the run's budget headroom
+# — both riding the enriched *input* (the gateway counts live spawns and
+# checks the ledger; no OPA data pushes). Note what is absent: any
+# child-⊆-parent scope check.
+_OVER_CAP_RULE = '''
+# {agent_id}: at most {cap} concurrent crews (spawn denials are
+# first-class governance events, §4.5 threat model).
+deny_rules contains "crew_request_over_cap" if {{
+	input.tool == "crew.request"
+	input.agent_id == "{agent_id}"
+	input.active_spawns >= {cap}
+}}
+'''
+
+_NO_BUDGET_RULE = '''
+# No spawn against an exhausted run budget — headroom is verified by the
+# gateway against the ledger and rides the input.
+deny_rules contains "crew_request_no_budget" if {
+	input.tool == "crew.request"
+	input.budget_headroom == false
+}
+'''
+
 _PLATFORM = '''
 # The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
@@ -151,6 +175,8 @@ def _role_file(
     template: str,
     tools: list[str],
     may_spawn: tuple[str, ...] = (),
+    agent_ids: tuple[str, ...] = (),
+    max_concurrent_spawns: int | None = None,
 ) -> str:
     body = "".join(
         _ROLE_RULE.format(
@@ -163,6 +189,11 @@ def _role_file(
         )
         for tool in sorted(tools)
     )
+    if max_concurrent_spawns and "crew.request" in tools:
+        for agent_id in agent_ids:
+            body += _OVER_CAP_RULE.format(
+                agent_id=agent_id, cap=int(max_concurrent_spawns)
+            )
     return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
 
 
@@ -277,14 +308,22 @@ def build_bundle(
     """The company bundle: per-role and per-crew-member files, plus the
     company's decision entrypoint and the blueprint's policy rules — all
     under the company's own package."""
-    files = {"authz.rego": _decision_file(company_package(company))}
+    files = {
+        "authz.rego": _decision_file(company_package(company)) + _NO_BUDGET_RULE
+    }
+    by_hire: dict[str, list[Any]] = {}
     for instance in instances:
-        files[f"role_{_slug(instance.hire)}.rego"] = _role_file(
+        by_hire.setdefault(instance.hire, []).append(instance)
+    for hire, hire_instances in by_hire.items():
+        first = hire_instances[0]
+        files[f"role_{_slug(hire)}.rego"] = _role_file(
             company,
-            instance.hire,
-            instance.role_template,
-            list(instance.tools),
-            tuple(instance.may_spawn),
+            hire,
+            first.role_template,
+            list(first.tools),
+            tuple(first.may_spawn),
+            tuple(i.agent_id for i in hire_instances),
+            first.max_concurrent_spawns,
         )
     for member in crew_members:
         name = f"crew_{_slug(member.crew)}_{_slug(member.member)}.rego"

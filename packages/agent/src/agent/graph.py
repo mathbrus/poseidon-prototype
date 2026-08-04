@@ -52,6 +52,9 @@ class RunResult(BaseModel):
     pr_url: str | None = None
     iterations: int = 0
     error: str | None = None
+    # Planner mode (plan step 16d): the §4.4 task brief the executor's
+    # dispatch carries verbatim.
+    brief: str | None = None
 
 
 def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
@@ -254,3 +257,49 @@ async def run_task(settings: AgentSettings, run_id: str, task_text: str) -> RunR
     )
     async with McpGateway(settings.mcp_gateway_url, settings.resolve_gateway_token()) as gateway:
         return await run_graph(llm, gateway, settings, run_id, task_text)
+
+
+async def run_plan(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    gateway_token: str | None = None,
+) -> RunResult:
+    """Planner mode (§4.4 planner contract, plan step 16d): survey the
+    run's sandbox read-only, produce the task brief, write nothing. The
+    planner is LLM-only — it borrows this brain host for the dispatch and
+    calls the gateway under its *own* identity (the per-dispatch token),
+    so its compiled read-only scope is what policy enforces."""
+    token = gateway_token or settings.resolve_gateway_token()
+    llm = OpenAICompatibleLLM(
+        settings.llm_proxy_url, settings.model, token=token, run_id=run_id
+    )
+    system_prompt = SYSTEM_PROMPT_PATH.read_text().format(
+        target_repo=settings.target_repo
+    )
+    async with McpGateway(settings.mcp_gateway_url, token) as gateway:
+        toolbox = Toolbox(gateway, settings, run_id)
+        survey = await toolbox.execute(
+            ToolCall(id="plan-survey", name="list_dir", arguments={"path": "."})
+        )
+        entries = ", ".join(
+            f"{e['name']}{'/' if e['type'] == 'dir' else ''}"
+            for e in survey["entries"]
+        )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"Task:\n{task_text}\n\n"
+                    f"Workspace root entries: {entries}\n\n"
+                    "Write a short numbered plan for completing this task, "
+                    "then carry it out."
+                ),
+            },
+        ]
+        completion = await llm.complete(messages)
+        brief = (completion.content or "").strip()
+        if not brief:
+            return RunResult(error="planner produced an empty brief")
+        return RunResult(brief=brief)

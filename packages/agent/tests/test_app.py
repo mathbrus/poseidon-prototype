@@ -44,7 +44,8 @@ async def test_task_lifecycle_running_then_done():
 
         resp = await http.get(f"/task/{RUN_ID}")
         assert resp.json() == {
-            "status": "running", "pr_url": None, "iterations": 0, "error": None,
+            "status": "running", "pr_url": None, "iterations": 0,
+            "error": None, "brief": None,
         }
 
         release.set()
@@ -55,6 +56,7 @@ async def test_task_lifecycle_running_then_done():
         "pr_url": "https://github.test/pull/1",
         "iterations": 2,
         "error": None,
+        "brief": None,
     }
     assert seen == [(RUN_ID, "do it")]
 
@@ -149,3 +151,27 @@ async def test_running_run_still_answers_409():
         assert conflict.status_code == 409
         release.set()
         await poll_until_terminal(http, RUN_ID)
+
+
+async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
+    seen: list[tuple[str, str, str | None]] = []
+
+    async def planner(run_id: str, task_text: str, token: str | None) -> RunResult:
+        seen.append((run_id, task_text, token))
+        return RunResult(brief="1. read\n2. brief")
+
+    async def never(run_id: str, task_text: str) -> RunResult:
+        raise AssertionError("implement runner must not run in plan mode")
+
+    async with client(create_app(task_runner=never, plan_runner=planner)) as http:
+        resp = await http.post("/task", json={
+            "run_id": RUN_ID, "task_text": "scope it",
+            "mode": "plan", "gateway_token": "planner-jwt",
+        })
+        assert resp.status_code == 202
+        status = await poll_until_terminal(http, RUN_ID)
+
+    assert status["status"] == "done"
+    assert status["brief"] == "1. read\n2. brief"
+    # The per-dispatch token is how the planner acts as itself (§4.4).
+    assert seen == [(RUN_ID, "scope it", "planner-jwt")]

@@ -162,13 +162,23 @@ class AgentClient:
     async def __aexit__(self, *exc_info: Any) -> None:
         await self._http.aclose()
 
-    async def dispatch(self, run_id: str, task_text: str) -> None:
+    async def dispatch(
+        self,
+        run_id: str,
+        task_text: str,
+        mode: str = "implement",
+        gateway_token: str | None = None,
+    ) -> None:
         """Idempotent under retry: 409 means the agent already has the run
         (a previous attempt dispatched it before the worker died) — the
-        caller proceeds to polling either way."""
-        resp = await self._http.post(
-            "/task", json={"run_id": run_id, "task_text": task_text}
-        )
+        caller proceeds to polling either way. Mode `plan` runs the
+        read-only planner (step 16d); the optional token is the planner's
+        own minted identity when it borrows the executor's brain host."""
+        payload: dict[str, Any] = {"run_id": run_id, "task_text": task_text,
+                                   "mode": mode}
+        if gateway_token is not None:
+            payload["gateway_token"] = gateway_token
+        resp = await self._http.post("/task", json=payload)
         if resp.status_code not in (202, 409):
             raise AgentError(f"task dispatch failed: {resp.status_code} {resp.text}")
 

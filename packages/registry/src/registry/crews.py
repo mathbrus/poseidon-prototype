@@ -58,6 +58,34 @@ class CrewRequests:
         assert row is not None
         return row
 
+    def consume(self, rid: str, run_id: str) -> dict[str, Any] | None:
+        """Fulfillment's claim on a recorded request (plan step 16d):
+        recorded + unexpired -> fulfilled, atomically. Idempotent for the
+        retrying activity: a request this run already fulfilled is handed
+        back; anything else — expired, foreign, absent — is None, and
+        fulfillment must not proceed (no orphan identities, §6.4)."""
+        rows = self._db.query(
+            """
+            UPDATE registry.crew_requests
+               SET status = 'fulfilled', fulfilled_at = now()
+             WHERE id = %s AND status = 'recorded'
+               AND (expires_at IS NULL OR expires_at > now())
+               AND run_id = %s
+            RETURNING id
+            """,
+            (rid, run_id),
+        )
+        if rows:
+            return self.get(rid)
+        existing = self.get(rid)
+        if (
+            existing is not None
+            and existing["status"] == "fulfilled"
+            and existing["run_id"] == run_id
+        ):
+            return existing  # the retry after a crash mid-fulfill
+        return None
+
     def get(self, rid: str) -> dict[str, Any] | None:
         rows = self._db.query(
             "SELECT id, run_id, conductor, crew_template, reason, status,"

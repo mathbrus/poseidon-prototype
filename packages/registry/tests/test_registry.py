@@ -401,3 +401,36 @@ def test_participant_mint_is_retry_safe_and_sweepable(registry: Registry):
     finally:
         registry.execute(
             "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,))
+
+
+def test_crew_request_consume_and_spawn_count(registry: Registry):
+    """16d: consume claims a recorded, unexpired request exactly once (the
+    fulfilling run may re-claim its own after a crash); the spawn count is
+    distinct live {run, crew} pairs per conductor."""
+    from registry.crews import CrewRequests
+    from registry.participants import RunParticipants
+
+    Runs(registry).start(RUN_ID, "task")
+    requests = CrewRequests(registry)
+    participants = RunParticipants(registry)
+    recorded = requests.record("pm-1", "feature-delivery", RUN_ID, "go")
+    try:
+        consumed = requests.consume(recorded["id"], RUN_ID)
+        assert consumed["status"] == "fulfilled"
+        # Idempotent for the same run; a foreign run gets nothing.
+        assert requests.consume(recorded["id"], RUN_ID) is not None
+        assert requests.consume(recorded["id"], "run-other") is None
+        assert requests.consume("crq-missing", RUN_ID) is None
+
+        participants.add("fd-planner-1", RUN_ID, "pm-1", "feature-delivery", "planner")
+        participants.add("fd-executor-1", RUN_ID, "pm-1", "feature-delivery", "executor")
+        assert participants.active_spawn_count("pm-1") == 1  # one crew, two members
+        participants.add("fr-reviewer-1", RUN_ID, "pm-1", "feature-review", "reviewer")
+        assert participants.active_spawn_count("pm-1") == 2
+        participants.terminate_for_run(RUN_ID)
+        assert participants.active_spawn_count("pm-1") == 0
+    finally:
+        registry.execute("DELETE FROM registry.crew_requests WHERE id = %s",
+                         (recorded["id"],))
+        registry.execute("DELETE FROM registry.run_participants WHERE run_id = %s",
+                         (RUN_ID,))

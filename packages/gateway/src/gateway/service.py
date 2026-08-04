@@ -71,6 +71,9 @@ class GatewayService:
         audit: AuditStore,
         runs: Runs,
         crew_requests: Any = None,
+        participants: Any = None,
+        ledger: Any = None,
+        companies: Any = None,
         git_backend: GitBackend | None = None,
     ) -> None:
         self._settings = settings
@@ -88,6 +91,13 @@ class GatewayService:
         # Written on the crew.request tool path (§4.4 rule 3: the tool and
         # the step-18/19 workflow path record the same row).
         self._crew_requests = crew_requests
+        # Read-only, for the crew.request enrichment (plan step 16d): the
+        # conductor's live spawn count and the run's budget headroom ride
+        # the decision input — the compiled caps read them there, never
+        # from pushed data (§2b).
+        self._participants = participants
+        self._ledger = ledger
+        self._companies = companies
 
     # -- sandbox registry -------------------------------------------------
     # Registry accessors are synchronous psycopg; every use goes through
@@ -213,6 +223,17 @@ class GatewayService:
                 return None
             policy_input["crew_template"] = identity.crew_template
             policy_input["crew_role"] = identity.crew_role
+        if tool == "crew.request":
+            def spawn_state() -> tuple[int, bool]:
+                spawns = self._participants.active_spawn_count(identity.agent_id)
+                spec = self._companies.get(identity.company or "") or {}
+                cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
+                headroom = cap <= 0 or self._ledger.spent_for_run(run_id) < cap
+                return spawns, headroom
+
+            spawns, headroom = await asyncio.to_thread(spawn_state)
+            policy_input["active_spawns"] = spawns
+            policy_input["budget_headroom"] = headroom
         return policy_input
 
     async def proxy_sandbox(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:

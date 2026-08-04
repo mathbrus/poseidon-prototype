@@ -329,3 +329,25 @@ def test_crew_request_is_narrowed_to_may_spawn(decide):
 
     absent = decide(**standing("pm", tool="crew.request", args={}))
     assert absent["allow"] is False
+
+
+def test_crew_request_concurrency_cap_denies_by_rule(decide):
+    """16d: the PM's max_concurrent (2 in hello-saas) is a compiled deny
+    keyed on the instance — a first-class governance event, not a
+    default-deny shrug. The count rides the enriched input."""
+    under = decide(**standing("pm", tool="crew.request",
+                              args={"crew_template": "feature-delivery"}),
+                   agent_id="pm-1", active_spawns=1, budget_headroom=True)
+    assert under["allow"] is True
+
+    over = decide(**standing("pm", tool="crew.request",
+                             args={"crew_template": "feature-delivery"}),
+                  agent_id="pm-1", active_spawns=2, budget_headroom=True)
+    assert over == {"allow": False, "rule": "crew_request_over_cap"}
+
+
+def test_crew_request_without_budget_headroom_is_denied(decide):
+    decision = decide(**standing("pm", tool="crew.request",
+                                 args={"crew_template": "feature-delivery"}),
+                      agent_id="pm-1", active_spawns=0, budget_headroom=False)
+    assert decision == {"allow": False, "rule": "crew_request_no_budget"}

@@ -75,6 +75,19 @@ class RunParticipants:
         )
         return [row["agent_id"] for row in rows]
 
+    def active_spawn_count(self, parent_agent_id: str) -> int:
+        """How many crews the conductor is running right now — distinct
+        {run, crew} pairs with live members. What the gateway injects as
+        `active_spawns` for the compiled concurrency cap (plan step 16d)."""
+        rows = self._db.query(
+            "SELECT COUNT(DISTINCT (run_id, crew_template)) AS spawns"
+            " FROM registry.run_participants"
+            " WHERE parent_agent_id = %s AND status = 'active'"
+            "   AND terminated_at IS NULL",
+            (parent_agent_id,),
+        )
+        return int(rows[0]["spawns"])
+
     def active(self, agent_id: str) -> dict[str, Any] | None:
         """The live row for an ephemeral identity — None once terminated,
         which is exactly when its token must stop working."""

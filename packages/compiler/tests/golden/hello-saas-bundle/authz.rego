@@ -32,3 +32,10 @@ bound_to_run if {
 allow_rules contains "declared_nowhere" if { false }
 
 deny_rules contains "declared_nowhere" if { false }
+
+# No spawn against an exhausted run budget — headroom is verified by the
+# gateway against the ledger and rides the input.
+deny_rules contains "crew_request_no_budget" if {
+	input.tool == "crew.request"
+	input.budget_headroom == false
+}
