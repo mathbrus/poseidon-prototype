@@ -42,20 +42,31 @@ class Cluster:
             self._apply(self._core.create_namespace, body)
 
     def upsert_network_policy(self, namespace: str, body: dict[str, Any]) -> None:
+        """Replace, never merge-patch: a policy's selector shape can change
+        (matchLabels -> matchExpressions at step 16c), and a merge would
+        keep both — an impossible AND that silently deselects every pod
+        the policy was meant to cover."""
         name = body["metadata"]["name"]
-        if self._exists(
-            self._networking.read_namespaced_network_policy,
-            name=name, namespace=namespace,
-        ):
-            self._apply(
-                self._networking.patch_namespaced_network_policy, body,
-                name=name, namespace=namespace,
+        try:
+            existing = self._networking.read_namespaced_network_policy(
+                name, namespace
             )
-        else:
+        except k8s.exceptions.ApiException as exc:
+            if exc.status != 404:
+                raise
             self._apply(
                 self._networking.create_namespaced_network_policy, body,
                 namespace=namespace,
             )
+            return
+        body = dict(body)
+        body["metadata"] = {
+            **body["metadata"],
+            "resourceVersion": existing.metadata.resource_version,
+        }
+        self._networking.replace_namespaced_network_policy(
+            name, namespace, body, field_manager=FIELD_MANAGER
+        )
 
     def upsert_role(self, namespace: str, body: dict[str, Any]) -> None:
         name = body["metadata"]["name"]

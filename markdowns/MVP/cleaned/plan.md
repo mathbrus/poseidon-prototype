@@ -1127,6 +1127,46 @@ the gateway. Provisioner actions emit `process-lifecycle` audit events.
 *Done when:* a crew pod round-trips on kind; RBAC provably denies pod
 creation in the platform namespace and deletion of anything unlabeled.
 
+> **Status (2026-08-04): done** — `orchestrator/crewpods.py`: a pure pod
+> manifest (agent image as the brain host, `crew-agent` + `run_id` labels,
+> no API-server token, no service links, GPG blanked, capped resources,
+> readiness on the brain's HTTP surface) and a bounded
+> `CrewPodProvisioner` — create waits for Ready, destroy goes through the
+> `{run_id, kind=crew-agent}` label selector and nothing else. The Role
+> (operator-reconciled, company namespaces only) gained pods
+> create/delete with the review-artifact rationale in place; RBAC bounds
+> resource+namespace, the selector discipline lives in code and is proven
+> live. `CrewActivities` gained `provision_crew_pod` (re-mints the §2b
+> token and injects it as the pod's `GATEWAY_TOKEN` env at provision time
+> — the 16a obligation: the credential never rides workflow history) and
+> `destroy_crew_pods`, both audited as `process-lifecycle`
+> (`lifecycle.provision_pod`/`destroy_pod`). The operator's agent
+> envelope (gateways-only egress, orchestrator-only ingress) now selects
+> kind ∈ {standing-agent, crew-agent}, so a crew pod is contained the
+> moment it exists — and `upsert_network_policy` became replace-based,
+> because a merge patch would have kept the old `matchLabels` alongside
+> the new `matchExpressions` as an impossible AND. The agent settings'
+> credential sources are now file (standing, kubelet-rotated) or
+> `GATEWAY_TOKEN` env (ephemeral, minted+revocable); the E3 env scans
+> exempt exactly that variable on exactly `crew-agent` pods, with the
+> §4.9 rationale (no per-run Kubernetes SAs, so no file mount to rotate —
+> the token IS the pod, run-scoped and registry-revocable). Planner: no
+> pod, per the §4.4 LLM-only contract. E2e (`test_crew_pods.py`): worker
+> RBAC probed against the live API server (pods in company ns yes,
+> platform ns no, deployments/services no); a real crew pod round-trips
+> Ready with the real agent image, is contained (llm-gateway/mcp-gateway
+> reachable, OPA and the internet blocked), destroy sweeps it while an
+> unlabeled decoy in the same namespace survives, twice-destroy is a
+> no-op, and provision/destroy are in the run's story.
+>
+> Keep an eye on: crew pods carry `GATEWAY_TOKEN` env — the containment
+> scans (e2e + check-netpol.sh) exempt it only for `crew-agent`-labeled
+> pods; the worker resolves gateway FQDNs from `PLATFORM_NAMESPACE` and
+> runs crew pods on `AGENT_IMAGE` (content-addressed via kind-up);
+> `restartPolicy: Never` — a crashed brain host surfaces to the workflow
+> rather than silently restarting; 16d owns wiring dispatch to the pod's
+> URL and the teardown call of `destroy_crew_pods`.
+
 **Step 16d — fulfill orchestration.** *Depends on: 16a, 16b, 16c, 15, 3.*
 - OPA policy for `crew.request`: `may_spawn` against the conductor identity,
   concurrency caps, budget headroom (§4.4 rule 3, §4.5 rule 5 — **no**

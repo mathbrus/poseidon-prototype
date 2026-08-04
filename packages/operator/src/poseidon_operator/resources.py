@@ -45,8 +45,23 @@ def default_deny(company_ns: str) -> dict[str, Any]:
     }
 
 
+def _agent_kinds_selector() -> dict[str, Any]:
+    """Standing hires and ephemeral crew brains share the agent envelope
+    (gateways-only egress, orchestrator-only ingress) — selected by kind,
+    so a crew pod (step 16c) is contained the moment it exists."""
+    return {
+        "matchExpressions": [
+            {
+                "key": "poseidon.dev/kind",
+                "operator": "In",
+                "values": ["standing-agent", "crew-agent"],
+            }
+        ]
+    }
+
+
 def agent_egress(company_ns: str) -> dict[str, Any]:
-    """Standing agents reach the two gateways and cluster DNS. Nothing else
+    """Agents reach the two gateways and cluster DNS. Nothing else
     — an agent with a route to the internet is an agent that can exfiltrate
     without passing a policy check."""
     platform = platform_namespace()
@@ -55,7 +70,7 @@ def agent_egress(company_ns: str) -> dict[str, Any]:
         "kind": "NetworkPolicy",
         "metadata": {"name": "agent-egress", "namespace": company_ns, "labels": LABELS},
         "spec": {
-            "podSelector": {"matchLabels": {"poseidon.dev/kind": "standing-agent"}},
+            "podSelector": _agent_kinds_selector(),
             "policyTypes": ["Egress"],
             "egress": [
                 {
@@ -103,13 +118,13 @@ def agent_egress(company_ns: str) -> dict[str, Any]:
 
 
 def agent_ingress(company_ns: str) -> dict[str, Any]:
-    """Only the orchestrator dispatches into a standing agent."""
+    """Only the orchestrator dispatches into an agent — standing or crew."""
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "NetworkPolicy",
         "metadata": {"name": "agent-ingress", "namespace": company_ns, "labels": LABELS},
         "spec": {
-            "podSelector": {"matchLabels": {"poseidon.dev/kind": "standing-agent"}},
+            "podSelector": _agent_kinds_selector(),
             "policyTypes": ["Ingress"],
             "ingress": [
                 {
@@ -200,12 +215,17 @@ def sandbox_isolation(
 
 
 def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
-    """The orchestrator worker's Kubernetes surface for the k8s_jobs sandbox
-    backend (plan step 4) — deliberately bounded, and a review artifact per
-    the overview §3 TCB stance: Jobs and pods in the company namespace only.
-    pods/exec exists solely for workspace delivery and provisioning probes.
-    Operator-reconciled since step 10, because the namespace it lives in is
-    operator-created; step 16c widens this surface for crew pods."""
+    """The orchestrator worker's Kubernetes surface — deliberately bounded,
+    and a review artifact per the overview §3 TCB stance. Two consumers:
+    the k8s_jobs sandbox backend (plan step 4: Jobs + pod reads + exec for
+    workspace delivery) and the crew-pod provisioner (plan step 16c: pod
+    create/delete for the ephemeral executor's brain host). Company
+    namespaces only — the Role is namespaced and operator-reconciled, so
+    the worker can create no pod in the platform namespace; the
+    run_id+kind label-selector discipline on deletes lives in
+    `orchestrator.crewpods` (RBAC cannot express selectors), proven by the
+    16c e2e. Never Deployments, Services or CRs: standing structure stays
+    operator-owned."""
     return {
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "Role",
@@ -220,7 +240,12 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
                 "resources": ["jobs"],
                 "verbs": ["create", "get", "list", "delete"],
             },
-            {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list"]},
+            {
+                "apiGroups": [""],
+                "resources": ["pods"],
+                # create/delete joined at step 16c for crew pods.
+                "verbs": ["create", "get", "list", "delete"],
+            },
             {
                 "apiGroups": [""],
                 "resources": ["pods/exec"],

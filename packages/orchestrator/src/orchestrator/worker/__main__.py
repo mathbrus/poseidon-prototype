@@ -19,6 +19,7 @@ from temporalio.worker import Worker
 from common.telemetry import get_logger
 from orchestrator.activities import CrewActivities, ImplementActivities
 from orchestrator.config import WorkerSettings
+from orchestrator.crewpods import CrewPodProvisioner
 from orchestrator.workflows import ImplementWorkflow
 from registry import AuditStore, RunParticipants, Runs, open_registry
 from registry.bundles import Companies
@@ -33,7 +34,10 @@ async def main() -> None:
     # worker needs no ordering guarantee against the other writers.
     registry = open_registry()
     crew_activities = CrewActivities(
-        settings, RunParticipants(registry), AuditStore(registry)
+        settings,
+        RunParticipants(registry),
+        AuditStore(registry),
+        CrewPodProvisioner(settings.sandbox_namespace),
     )
     activities = ImplementActivities(
         settings, backend, Runs(registry), Companies(registry), crew_activities

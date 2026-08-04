@@ -14,21 +14,24 @@ class AgentSettings(BaseSettings):
     mcp_gateway_url: str
     llm_proxy_url: str
     model: str
-    # Projected identity token (plan step 11); the static bearer token is
-    # the pre-step-11 fallback and is deleted at the step-12 cutover.
+    # The pod's identity, one of two shapes: standing hires mount a
+    # kubelet-rotated projected token file (plan step 11); ephemeral crew
+    # brains receive their minted short-TTL §2b token as GATEWAY_TOKEN at
+    # provision time (plan step 16c) — env, not file, because it is minted
+    # per run and revoked by registry row, never rotated.
     gateway_token_file: str = ""
-    agent_bearer_token: str = ""
+    gateway_token: str = ""
     target_repo: str
     max_iterations: int = 10
 
-    def gateway_token(self) -> str:
-        # Read per task dispatch: the kubelet rotates the file, and a task
-        # never outlives the freshly read token's validity window.
+    def resolve_gateway_token(self) -> str:
+        # File first: the kubelet keeps it fresh; a task never outlives the
+        # freshly read token's validity window.
         if self.gateway_token_file:
             return Path(self.gateway_token_file).read_text().strip()
-        if self.agent_bearer_token:
-            return self.agent_bearer_token
+        if self.gateway_token:
+            return self.gateway_token
         raise RuntimeError(
             "no gateway credential: set GATEWAY_TOKEN_FILE (projected token) "
-            "or AGENT_BEARER_TOKEN (static, pre-step-11)"
+            "or GATEWAY_TOKEN (minted ephemeral identity)"
         )

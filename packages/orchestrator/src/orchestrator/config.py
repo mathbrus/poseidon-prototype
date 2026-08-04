@@ -53,6 +53,13 @@ class WorkerSettings(TemporalSettings):
     # gateways verify. Empty disables minting, never verification.
     platform_jwt_key: str = ""
     ephemeral_ttl_s: int = 900
+    # Crew-pod provisioning (plan step 16c): the agent image the ephemeral
+    # executor's brain host runs (content-addressed on kind, like the
+    # sandbox image), and the platform namespace for gateway FQDNs.
+    agent_image: str = ""
+    platform_namespace: str = "poseidon-platform"
+    model: str = "mock-brain"
+    max_iterations: int = 10
     poll_interval_s: float = 2
 
     def gateway_token(self) -> str:

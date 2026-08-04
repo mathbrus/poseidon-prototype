@@ -66,18 +66,24 @@ def test_agent_reaches_only_the_gateways(stack: None, url: str, want: str) -> No
 
 
 def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
-    """Same rule as the CI image gate: nothing *_TOKEN/*_KEY at all since
-    plan step 11 (the agent's credential is a projected token file, not an
-    env var); GPG_KEY only if blanked (the chart empties the python base
-    image's baked-in value)."""
-    pods = subprocess.run(
+    """Same rule as the CI image gate: nothing *_TOKEN/*_KEY since plan
+    step 11 (a standing agent's credential is a projected token file, not
+    an env var); GPG_KEY only if blanked (the chart empties the python
+    base image's baked-in value). One deliberate exception (step 16c):
+    crew pods carry their minted short-TTL ephemeral identity as
+    GATEWAY_TOKEN — that token IS the pod (run-scoped, registry-revocable
+    before TTL), not a platform secret, and §4.9 forbids the per-run
+    Kubernetes service accounts a file mount would need."""
+    listing = subprocess.run(
         ["kubectl", "-n", COMPANY_NS, "get", "pods",
          "--field-selector=status.phase=Running",
-         "-o", "jsonpath={.items[*].metadata.name}"],
+         "-o", ("jsonpath={range .items[*]}{.metadata.name}"
+                "|{.metadata.labels.poseidon\\.dev/kind}{'\\n'}{end}")],
         capture_output=True, text=True, timeout=30, check=True,
-    ).stdout.split()
-    assert pods
-    for pod in pods:
+    ).stdout.splitlines()
+    assert listing
+    for line in listing:
+        pod, _, kind = line.partition("|")
         env = subprocess.run(
             ["kubectl", "-n", COMPANY_NS, "exec", pod, "--", "printenv"],
             capture_output=True, text=True, timeout=60,
@@ -91,5 +97,6 @@ def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
             for name in [line.split("=", 1)[0]]
             if (name.endswith("_TOKEN") or name.endswith("_KEY"))
             and line != "GPG_KEY="
+            and not (name == "GATEWAY_TOKEN" and kind == "crew-agent")
         ]
         assert not leaked, f"credential-shaped env vars in {pod}: {leaked}"

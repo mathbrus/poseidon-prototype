@@ -1,15 +1,19 @@
-"""Crew fulfillment activities — the 16a slice: identity mint and revoke.
+"""Crew fulfillment activities — the 16a and 16c slices.
 
-Mint writes the `run_participants` binding row (the §2b contract's fulfill
-half; the gateways' verify half has been live since steps 11/12) and signs
-the short-TTL platform JWT. Revoke terminates rows — the write that kills
-the identity's tokens before their TTL. Both emit `process-lifecycle`
-audit events onto the step-13 ingestion contract, so a run's story shows
-who was minted and revoked, when, under whose authority.
+16a: mint writes the `run_participants` binding row (the §2b contract's
+fulfill half; the gateways' verify half has been live since steps 11/12)
+and signs the short-TTL platform JWT; revoke terminates rows — the write
+that kills the identity's tokens before their TTL.
 
-Step 16d composes these with binding checks, the pod provisioner (16c) and
-dispatch into the fulfill orchestration; nothing here creates a pod or
-dispatches work.
+16c: provision creates the ephemeral executor's brain-host pod through the
+bounded `CrewPodProvisioner` — the minted token is injected into the pod
+env *here*, at provision time, so it never rides workflow history — and
+destroy deletes by the run+kind label selector.
+
+Everything emits `process-lifecycle` audit events onto the step-13
+ingestion contract, so a run's story shows who was minted, provisioned,
+revoked and destroyed, when, under whose authority. Step 16d composes
+these into the fulfill orchestration; nothing here dispatches work.
 """
 
 import asyncio
@@ -24,6 +28,7 @@ from temporalio import activity
 from common.audit import AuditEvent
 from common.telemetry import get_logger
 from orchestrator.config import WorkerSettings
+from orchestrator.crewpods import CrewPodProvisioner
 from orchestrator.identity import ephemeral_agent_id, mint_ephemeral
 from registry import AuditStore, RunParticipants
 
@@ -39,10 +44,12 @@ class CrewActivities:
         settings: WorkerSettings,
         participants: RunParticipants,
         audit: AuditStore,
+        provisioner: CrewPodProvisioner | None = None,
     ) -> None:
         self._settings = settings
         self._participants = participants
         self._audit = audit
+        self._provisioner = provisioner
         self._log = get_logger("orchestrator.crew")
 
     @activity.defn(name="mint_participant")
@@ -119,6 +126,104 @@ class CrewActivities:
         )
         return swept
 
+    @activity.defn(name="provision_crew_pod")
+    async def provision_crew_pod(self, spec: dict[str, Any]) -> dict[str, Any]:
+        """Create the crew member's brain-host pod (16c), minting a fresh
+        token into its env — provision-time injection is what keeps the
+        §2b credential out of workflow history.
+
+        spec: {run_id, company, crew_template, member, role_template,
+        parent_agent_id}. The participants row must already exist (16a's
+        mint activity); re-minting here revives it, so a retry after a
+        crash converges.
+        """
+        started = time.monotonic()
+        provisioner = self._require_provisioner()
+        agent_id = ephemeral_agent_id(
+            spec["crew_template"], spec["member"], spec["run_id"]
+        )
+        minted = mint_ephemeral(
+            self._require_key(),
+            agent_id=agent_id,
+            company=spec["company"],
+            role_template=spec["role_template"],
+            run_id=spec["run_id"],
+            parent_agent_id=spec["parent_agent_id"],
+            ttl_s=self._settings.ephemeral_ttl_s,
+        )
+        await asyncio.to_thread(
+            self._participants.add,
+            agent_id,
+            spec["run_id"],
+            spec["parent_agent_id"],
+            spec["crew_template"],
+            spec["member"],
+        )
+        platform = self._settings.platform_namespace
+        env = {
+            "MCP_GATEWAY_URL":
+                f"http://mcp-gateway.{platform}.svc.cluster.local:8080",
+            "LLM_PROXY_URL":
+                f"http://llm-gateway.{platform}.svc.cluster.local:4000",
+            "MODEL": self._settings.model,
+            "TARGET_REPO": self._settings.target_repo,
+            "MAX_ITERATIONS": str(self._settings.max_iterations),
+            "GATEWAY_TOKEN": minted.token,
+        }
+        handle = await asyncio.to_thread(
+            lambda: provisioner.provision(
+                agent_id=agent_id,
+                run_id=spec["run_id"],
+                company=spec["company"],
+                agent_image=self._settings.agent_image,
+                env=env,
+            )
+        )
+        await self._emit(
+            run_id=spec["run_id"],
+            agent_id=agent_id,
+            role=spec["role_template"],
+            company=spec["company"],
+            parent_agent_id=spec["parent_agent_id"],
+            tool="lifecycle.provision_pod",
+            rule="crew_pod_provisioned",
+            digest=_digest({k: v for k, v in spec.items()}),
+            started=started,
+        )
+        self._log.bind(run_id=spec["run_id"]).info(
+            "crew pod provisioned", extra={"agent_id": agent_id, "url": handle.url}
+        )
+        return {"agent_id": agent_id, "pod_name": handle.pod_name, "url": handle.url}
+
+    @activity.defn(name="destroy_crew_pods")
+    async def destroy_crew_pods(self, run_id: str) -> list[str]:
+        """Delete the run's crew pods — by the {run_id, kind} label
+        selector only (the 16c bound). Idempotent; audited per pod."""
+        started = time.monotonic()
+        provisioner = self._require_provisioner()
+        deleted = await asyncio.to_thread(provisioner.destroy, run_id)
+        for name in deleted:
+            await self._emit(
+                run_id=run_id,
+                agent_id=name,
+                role="",
+                company="",
+                parent_agent_id="",
+                tool="lifecycle.destroy_pod",
+                rule="crew_pod_destroyed",
+                digest=_digest({"run_id": run_id}),
+                started=started,
+            )
+        return deleted
+
+    def _require_provisioner(self) -> CrewPodProvisioner:
+        if self._provisioner is None:
+            raise RuntimeError(
+                "no crew-pod provisioner configured — the worker constructs"
+                " one for the company namespace"
+            )
+        return self._provisioner
+
     def _require_key(self) -> str:
         key = self._settings.platform_jwt_key
         if not key:
@@ -162,4 +267,9 @@ class CrewActivities:
         self._log.info("audit", extra=event.model_dump())
 
     def all(self) -> list[Any]:
-        return [self.mint_participant, self.revoke_participants]
+        return [
+            self.mint_participant,
+            self.revoke_participants,
+            self.provision_crew_pod,
+            self.destroy_crew_pods,
+        ]

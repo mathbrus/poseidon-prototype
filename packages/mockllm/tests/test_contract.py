@@ -80,7 +80,7 @@ def settings() -> AgentSettings:
         mcp_gateway_url="http://gateway.test:8080",
         llm_proxy_url="http://mockllm.test",
         model="mock-brain",
-        agent_bearer_token="agent-secret",
+        gateway_token="agent-secret",
         target_repo="example/target",
         max_iterations=3,
     )

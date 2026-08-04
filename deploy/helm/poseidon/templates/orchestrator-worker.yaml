@@ -65,6 +65,16 @@ spec:
             # value comes from the applied blueprint (plan step 12).
             - name: SANDBOX_IMAGE
               value: {{ .Values.orchestrator.sandbox.image | quote }}
+            # Crew pods (plan step 16c) run the agent image; the worker
+            # resolves gateway FQDNs from the platform namespace.
+            - name: AGENT_IMAGE
+              value: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+            - name: PLATFORM_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: MODEL
+              value: {{ .Values.run.model | quote }}
+            - name: MAX_ITERATIONS
+              value: {{ .Values.run.maxIterations | quote }}
             # Egress attribution (§2b): the proxy URL as sandboxes resolve
             # it, and the shared key to mint their per-run credentials.
             - name: EGRESS_PROXY_URL

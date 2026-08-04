@@ -43,14 +43,19 @@ probe "http://1.1.1.1" blocked
 probe "http://api.github.com" blocked
 
 echo "==> scanning $COMPANY_NS pod envs for credential-shaped variables"
-# Same rule as the CI secret-inspection gate: nothing *_TOKEN/*_KEY at all
-# since plan step 11 (the agent's credential is a projected token file);
-# GPG_KEY only if blanked (the chart empties the python base image's
-# baked-in value).
+# Same rule as the CI secret-inspection gate: nothing *_TOKEN/*_KEY since
+# plan step 11 (a standing agent's credential is a projected token file);
+# GPG_KEY only if blanked. Crew pods (step 16c) carry their minted
+# ephemeral identity as GATEWAY_TOKEN — run-scoped and registry-revocable,
+# deliberately exempt.
 for pod in $(kubectl -n "$COMPANY_NS" get pods -o jsonpath='{.items[*].metadata.name}'); do
+  kind=$(kubectl -n "$COMPANY_NS" get pod "$pod" \
+    -o jsonpath='{.metadata.labels.poseidon\.dev/kind}')
+  exempt='^GPG_KEY=$'
+  if [ "$kind" = "crew-agent" ]; then exempt='^GPG_KEY=$|^GATEWAY_TOKEN='; fi
   leaked=$(kubectl -n "$COMPANY_NS" exec "$pod" -- printenv \
     | grep -E '^[A-Za-z_]*_(TOKEN|KEY)=' \
-    | grep -v '^GPG_KEY=$' || true)
+    | grep -vE "$exempt" || true)
   if [ -n "$leaked" ]; then
     echo "    FAIL: credential-shaped env vars in $pod:" >&2
     echo "$leaked" | sed 's/=.*/=…/' >&2

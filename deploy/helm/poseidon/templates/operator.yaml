@@ -28,7 +28,10 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
-    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+    # `update` since step 16c: policy selectors are replaced whole, never
+    # merge-patched (a merge would AND old matchLabels with new
+    # matchExpressions and silently deselect everything).
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # The orchestrator's bounded sandbox-provisioner Role/RoleBinding in each
   # company namespace. escalate/bind exist so the operator can grant
   # jobs/pods/exec to the worker *without holding those permissions itself*
