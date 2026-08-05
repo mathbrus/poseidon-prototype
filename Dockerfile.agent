@@ -29,5 +29,8 @@ COPY packages/common packages/common
 COPY packages/agent packages/agent
 RUN pip install --no-cache-dir --no-deps ./packages/common ./packages/agent
 
+# The SDK is env-gated quiet: no banner, no Laminar telemetry (LMNR_* absent).
+ENV OPENHANDS_SUPPRESS_BANNER=1
+
 EXPOSE 8000
 CMD ["uvicorn", "--factory", "agent.app:create_app", "--host", "0.0.0.0", "--port", "8000"]

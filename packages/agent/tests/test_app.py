@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from agent.app import create_app
-from agent.graph import RunResult
+from agent.brain import RunResult
 
 pytestmark = pytest.mark.anyio
 

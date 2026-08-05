@@ -1,59 +1,79 @@
-"""The free e2e rehearsal: the real agent graph (`agent.graph.run_graph`)
-driven by the real OpenAI client wiring against the mock server over an
-in-process ASGI transport — proving the whole wire contract (routes,
-response shape, tool-call JSON) without a cluster or a paid token.
+"""The free e2e rehearsal (plan step 22): the real brain host
+(`agent.brain`) driven over real HTTP against the mock server — proving the
+whole wire contract (routes, response shape, tool-call JSON, the SDK's
+litellm transport) without a cluster or a paid token.
 
 The gateway double mirrors the real policy behaviour the same way
 packages/agent/tests/conftest.py does: `main` delivery raises the
-`git_open_pr_protected_branch` denial, feature branches succeed.
+`git_open_pr_protected_branch` denial, feature branches succeed. The mock
+server runs on a loopback port because the SDK's LLM transport is litellm —
+a real HTTP client, not an injectable ASGI transport.
 """
 
 import asyncio
 import re
+import socket
+import threading
+import time
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import httpx
-from openai import AsyncOpenAI
+import pytest
+import uvicorn
 
+import agent.brain as brain
+from agent.brain import (
+    deliver_dispatch,
+    implement_dispatch,
+    plan_dispatch,
+    review_dispatch,
+)
 from agent.config import AgentSettings
 from agent.gateway_client import ToolCallError
-from agent.graph import run_graph
-from agent.llm import OpenAICompatibleLLM
 from mockllm.app import create_app
-
-
-def deliver_through_mock(gateway, task_text: str, run_id: str):
-    """Drive the workflow-directed deliver dispatch (plan step 19) with the
-    production run_deliver against the mock brain and a fake gateway."""
-    import agent.graph as graph_module
-    from agent.graph import run_deliver
-
-    llm = mock_llm()
-
-    class FakeGatewayCtx:
-        async def __aenter__(self):
-            return gateway
-        async def __aexit__(self, *exc):
-            return False
-
-    original_llm = graph_module.OpenAICompatibleLLM
-    original_gw = graph_module.McpGateway
-    graph_module.OpenAICompatibleLLM = lambda *a, **k: llm
-    graph_module.McpGateway = lambda *a, **k: FakeGatewayCtx()
-
-    async def go():
-        try:
-            return await run_deliver(settings(), run_id, task_text)
-        finally:
-            graph_module.OpenAICompatibleLLM = original_llm
-            graph_module.McpGateway = original_gw
-
-    return asyncio.run(go())
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PR_URL = "https://github.test/example/target/pull/7"
 FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
+
+
+@pytest.fixture(scope="module")
+def mock_llm_url():
+    """The mock brain served over real HTTP on a loopback port."""
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    server = uvicorn.Server(
+        uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning")
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            httpx.get(f"{base}/health/liveliness", timeout=1)
+            break
+        except httpx.HTTPError:
+            assert time.monotonic() < deadline, "mock server never came up"
+            time.sleep(0.05)
+    yield base
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+def settings(llm_url: str) -> AgentSettings:
+    return AgentSettings(
+        mcp_gateway_url="http://gateway.test:8080",
+        llm_proxy_url=llm_url,
+        model="mock-brain",
+        gateway_token="agent-secret",
+        target_repo="example/target",
+        max_iterations=3,
+    )
 
 
 class FakeGateway:
@@ -99,70 +119,84 @@ class FakeGateway:
                 raise ToolCallError(f"denied by policy rule: default_deny ({tool})")
 
 
-def mock_llm() -> OpenAICompatibleLLM:
-    """The production LLM client, transported in-process into the mock app."""
-    llm = OpenAICompatibleLLM(
-        "http://mockllm.test", "mock-brain",
-        token="test-token", run_id="run-mock",
-    )
-    llm._client = AsyncOpenAI(
-        base_url="http://mockllm.test",
-        api_key="poseidon-agent",
-        http_client=httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app())),
-    )
-    return llm
+class FakeBridge:
+    def __init__(self, gateway: FakeGateway) -> None:
+        self._gateway = gateway
+
+    def __enter__(self) -> "FakeBridge":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        pass
+
+    def call(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        return asyncio.run(self._gateway.call(tool, args))
 
 
-def settings() -> AgentSettings:
-    return AgentSettings(
-        mcp_gateway_url="http://gateway.test:8080",
-        llm_proxy_url="http://mockllm.test",
-        model="mock-brain",
-        gateway_token="agent-secret",
-        target_repo="example/target",
-        max_iterations=3,
-    )
+def bridged(gateway: FakeGateway):
+    return patch.object(brain, "GatewayBridge", lambda url, token: FakeBridge(gateway))
 
 
-def test_happy_task_claims_then_delivers_on_the_feature_branch():
+def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
     """The two-phase shape (plan step 19): the implement dispatch ends at
     the completion claim with the files in place; the separate deliver
     dispatch opens the PR on the constrained branch."""
     task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
         "\n\nDeliver your work on the branch `feature/slugify-c0ffee`.\n"
     )
+    cfg = settings(mock_llm_url)
     gateway = FakeGateway()
-    claim = asyncio.run(
-        run_graph(mock_llm(), gateway, settings(), "run-mock-e1", task_text)
-    )
+    with bridged(gateway):
+        claim = implement_dispatch(cfg, "run-mock-e1", task_text)
     assert claim.error is None
     assert claim.pr_url is None  # the brain never self-delivers
     assert set(gateway.files) == {"slugify.py", "tests/test_slugify.py"}
     assert not any(tool == "git.open_pr" for tool, _ in gateway.calls)
 
-    delivered = deliver_through_mock(gateway, task_text, "run-mock-e1")
+    with bridged(gateway):
+        delivered = deliver_dispatch(cfg, "run-mock-e1", task_text)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
     assert [o["branch"] for o in opened] == ["feature/slugify-c0ffee"]
 
 
-def test_injected_task_is_denied_on_main_and_recovers():
+def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
     """E2 through the deliver dispatch: the planted runbook steers the
     delivery onto main, the policy double denies, the script recovers."""
     task_text = (REPO_ROOT / "examples" / "task-injected.md").read_text()
+    cfg = settings(mock_llm_url)
     gateway = FakeGateway()
-    claim = asyncio.run(
-        run_graph(mock_llm(), gateway, settings(), "run-mock-e2", task_text)
-    )
+    with bridged(gateway):
+        claim = implement_dispatch(cfg, "run-mock-e2", task_text)
     assert claim.error is None and claim.pr_url is None
 
-    delivered = deliver_through_mock(gateway, task_text, "run-mock-e2")
+    with bridged(gateway):
+        delivered = deliver_dispatch(cfg, "run-mock-e2", task_text)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
-    opened = [args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"]
+    opened = [args["branch"] for tool, args in gateway.calls
+              if tool == "git.open_pr"]
     assert opened[0] == "main"  # attempted, denied by the policy double
     assert FEATURE_BRANCH_RE.match(opened[1])  # recovered
+
+
+def test_planner_brief_echoes_branch_and_scenario_markers(mock_llm_url):
+    """§4.4 lossless handoff: the brief REPLACES the task text for the
+    executor, so the mock planner must echo the branch line (and E3
+    marker) into it."""
+    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
+        "\n\nDeliver your work on the branch `feature/slugify-brief1`.\n"
+    )
+    cfg = settings(mock_llm_url)
+    gateway = FakeGateway()
+    with bridged(gateway):
+        result = plan_dispatch(cfg, "run-mock-plan", task_text,
+                               gateway_token="minted-planner")
+    assert result.error is None
+    assert "feature/slugify-brief1" in result.brief
+    # The planner surveyed read-only — no writes, no tests, no delivery.
+    assert [tool for tool, _ in gateway.calls] == ["sandbox.list_dir"]
 
 
 class GatedFakeGateway(FakeGateway):
@@ -191,7 +225,7 @@ class GatedFakeGateway(FakeGateway):
         return await super().call(tool, args)
 
 
-def test_verify_red_scenario_recovers_on_the_feedback_dispatch():
+def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     """The E3 arc, rehearsed off-cluster: the first implement dispatch
     claims green (advisory verify = the suite's first run) while the
     platform's re-run goes red; the workflow's feedback re-dispatch removes
@@ -199,11 +233,11 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch():
     task_text = (REPO_ROOT / "examples" / "task-verify-red.md").read_text() + (
         "\n\nDeliver your work on the branch `feature/slugify-e3gate`.\n"
     )
+    cfg = settings(mock_llm_url)
     gateway = GatedFakeGateway()
 
-    claim = asyncio.run(
-        run_graph(mock_llm(), gateway, settings(), "run-mock-e3", task_text)
-    )
+    with bridged(gateway):
+        claim = implement_dispatch(cfg, "run-mock-e3", task_text)
     assert claim.error is None and claim.pr_url is None
     assert "tests/test_gate.py" in gateway.files
 
@@ -220,54 +254,34 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch():
         " FAILED. Fix the failures; do not claim completion until the tests"
         " pass. Test output (tail):\n1 failed"
     )
-    reclaim = asyncio.run(
-        run_graph(mock_llm(), gateway, settings(), "run-mock-e3", feedback)
-    )
+    with bridged(gateway):
+        reclaim = implement_dispatch(cfg, "run-mock-e3", feedback)
     assert reclaim.error is None
     assert "tests/test_gate.py" not in gateway.files
 
     # The platform's re-verify is green; only now is delivery dispatched.
     assert (asyncio.run(gateway.call("sandbox.run_tests", {})))["exit_code"] == 0
-    delivered = deliver_through_mock(gateway, task_text, "run-mock-e3")
+    with bridged(gateway):
+        delivered = deliver_dispatch(cfg, "run-mock-e3", task_text)
     assert delivered.pr_url == PR_URL
 
 
-def test_review_dispatch_reads_executes_and_posts_findings():
+def test_review_dispatch_reads_executes_and_posts_findings(mock_llm_url):
     """The reviewer's script (plan step 20, §6.3): read the PR diff, run
     the suite in the review sandbox, post exactly one findings comment —
-    driven by the production run_review against the mock brain, with the
-    same task-text shape orchestrator.workflows.review.review_task composes."""
-    import agent.graph as graph_module
-    from agent.graph import run_review
-
+    driven by the production review_dispatch against the mock brain, with
+    the same task-text shape orchestrator.workflows.review.review_task
+    composes."""
     task_text = (
         f"Review pull request #41 ({PR_URL}): Add slugify utility\n\n"
         "Read the diff with the read_pr tool, run the test suite in your"
         " sandbox, and post your findings on the pull request as a single"
         " comment_pr call."
     )
+    cfg = settings(mock_llm_url)
     gateway = FakeGateway()
-    llm = mock_llm()
-
-    class FakeGatewayCtx:
-        async def __aenter__(self):
-            return gateway
-        async def __aexit__(self, *exc):
-            return False
-
-    original_llm = graph_module.OpenAICompatibleLLM
-    original_gw = graph_module.McpGateway
-    graph_module.OpenAICompatibleLLM = lambda *a, **k: llm
-    graph_module.McpGateway = lambda *a, **k: FakeGatewayCtx()
-
-    async def go():
-        try:
-            return await run_review(settings(), "run-mock-review", task_text)
-        finally:
-            graph_module.OpenAICompatibleLLM = original_llm
-            graph_module.McpGateway = original_gw
-
-    result = asyncio.run(go())
+    with bridged(gateway):
+        result = review_dispatch(cfg, "run-mock-review", task_text)
     assert result.error is None
     assert result.comment_urls == [f"{PR_URL}#issuecomment-1"]
     tools = [tool for tool, _ in gateway.calls]

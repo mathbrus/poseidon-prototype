@@ -19,8 +19,9 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from agent import brain
+from agent.brain import RunResult
 from agent.config import AgentSettings
-from agent.graph import RunResult, run_deliver, run_plan, run_pm, run_review, run_task
 from common.telemetry import get_logger
 
 TaskRunner = Callable[[str, str], Awaitable[RunResult]]
@@ -59,25 +60,37 @@ def create_app(
             settings = AgentSettings()
         return settings
 
+    # The brain host's mode runners are synchronous (the SDK conversation
+    # loop is blocking); each dispatch runs on a worker thread.
     if task_runner is None:
         async def task_runner(run_id: str, task_text: str) -> RunResult:
             # Role-template-driven (plan step 17): the PM instance scopes
             # and delegates; every other template implements.
             if _settings().role_template == "pm":
-                return await run_pm(_settings(), run_id, task_text)
-            return await run_task(_settings(), run_id, task_text)
+                return await asyncio.to_thread(
+                    brain.pm_dispatch, _settings(), run_id, task_text
+                )
+            return await asyncio.to_thread(
+                brain.implement_dispatch, _settings(), run_id, task_text
+            )
 
     if plan_runner is None:
         async def plan_runner(
             run_id: str, task_text: str, gateway_token: str | None
         ) -> RunResult:
-            return await run_plan(_settings(), run_id, task_text, gateway_token)
+            return await asyncio.to_thread(
+                brain.plan_dispatch, _settings(), run_id, task_text, gateway_token
+            )
 
     async def deliver_runner(run_id: str, task_text: str) -> RunResult:
-        return await run_deliver(_settings(), run_id, task_text)
+        return await asyncio.to_thread(
+            brain.deliver_dispatch, _settings(), run_id, task_text
+        )
 
     async def review_runner(run_id: str, task_text: str) -> RunResult:
-        return await run_review(_settings(), run_id, task_text)
+        return await asyncio.to_thread(
+            brain.review_dispatch, _settings(), run_id, task_text
+        )
 
     log = get_logger("agent", agent_id="backend-engineer-1")
     app = FastAPI(title="poseidon-agent")

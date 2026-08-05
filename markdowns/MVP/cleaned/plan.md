@@ -1611,6 +1611,59 @@ no dual maintenance (§4.3).
 framework-initiated action outside its tool scope is denied at the gateway
 and audited; the PoC graph is gone.
 
+> **Status (2026-08-05): done** — `packages/agent` is the brain host:
+> `brain.py` (the OpenHands SDK as a library — per-mode `Conversation`s
+> over per-phase Hands surfaces, host-driven ADVISORY verify between
+> conversation turns, the planner as a single `LLM.completion`, and a
+> `GatewayBridge` giving the SDK's sync executors a facade over the async
+> MCP client) + `hands.py` (the Hands adapter: gateway-mapped
+> `ToolDefinition`s with `run_id`/`target_repo` injected at call time and
+> in no schema, the `open_pr` git_bundle→git.open_pr composite keeping
+> base64 out of model context, denials returned as ERROR observations —
+> E2 recovery — and `ToolRecords` capturing pr_url/tickets/crew-request/
+> comments so results never come from parsing the transcript). C6
+> `app.py` unchanged (sync runners via to_thread). **Deleted:** graph.py,
+> llm.py, toolbox.py, test_graph.py; deps langgraph+openai →
+> `openhands-sdk==1.40.0` (pinned, per O-2). Boundaries held by
+> construction: `openhands-tools` never installed, TaskToolSet never
+> registered, workspace is an inert tempdir, `num_retries=1` (the budget
+> 429 surfaces immediately, marker intact inside ConversationRunError),
+> condenser attached but sized beyond the mock's short conversations,
+> implement's tool list has no open_pr. SDK facts pinned by probe before
+> writing code: plain-text responses FINISH a conversation (the mock's
+> terminal texts work unchanged); message content is a list of blocks
+> (mock got `_content_text`); tool resolution is LAZY on a worker thread
+> (per-dispatch context is a module global, safe under the C6 409 guard);
+> a ToolDefinition's model-facing name derives from its CLASS name — a
+> `name=` kwarg is silently ignored (per-tool classes are generated so
+> names match); unoffered tools feed back as error results with the loop
+> alive. Mock brain: control-tools filtered from `offered`, implement
+> merges plan+act into one completion, deliver finishes once a tool
+> message carries `pr_url`. **The trap that cost a cluster run:** the MCP
+> streamable-http client's anyio cancel scopes are task-bound — a bridge
+> that enters the session in one scheduled coroutine and exits it in
+> another corrupts them, so EVERY dispatch did its work then crashed at
+> teardown; the session must live inside one long-lived task on the
+> bridge loop (calls stay per-call coroutines). `test_bridge.py` now
+> drives the real bridge against a real MCP server so this class of bug
+> dies off-cluster. **Pre-existing race, surfaced and left recorded, not
+> fixed:** with dispatches crashing, a retrying `fulfill_crew` attempt
+> re-minted the planner 3 s AFTER teardown's revoke sweep — the
+> `run_participants` row leaked `active`, pm-1's spawn cap filled, and
+> every later `crew.request` denied `crew_request_over_cap` (which
+> poisoned an entire subsequent suite run: over-cap → fulfill refuses →
+> implement activities time out). Mint needs a terminal-run guard
+> (candidate for step 23/25 hardening); recovery is terminating the
+> leaked rows. Proof: 24 agent unit tests (incl. bridge), 12 mockllm
+> (contract suite now rehearses E1/E2/E3 + planner brief + review through
+> the REAL brain runners over REAL HTTP to the mock server), and the full
+> parity suite: **62 e2e green on kind in ~15.5 min**, free on the mock —
+> E2's out-of-scope denial audited at the gateway included. Keep an eye
+> on: SDK upgrades only by deliberate re-pin gated on this suite; the
+> agent image is markedly fatter (litellm/lmnr/tree-sitter ride along);
+> `LMNR_*` stays out of pod env and `OPENHANDS_SUPPRESS_BANNER=1` rides
+> the Dockerfile.
+
 ### Step 23 — Red-team suite against the live sandbox backend
 
 **Depends on:** step 6 (live `k8s_jobs` backend); the injected-conductor

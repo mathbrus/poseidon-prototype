@@ -1,22 +1,28 @@
 """The deterministic brain behind the mock LLM: a pure function of the
-conversation the agent graph sends.
+conversation the brain host sends.
 
-Scripts the two e2e scenarios (examples/task-happy.md and
-examples/task-injected.md) through the real plan → act → verify → deliver
-graph in `agent.graph`:
+Scripts the e2e scenarios (examples/task-*.md) through the real OpenHands
+SDK loops in `agent.brain` (plan step 22). Phase keying is by the offered
+tool surface (with the SDK's own finish/think control tools filtered out)
+and the system prompt:
 
-- plan (no tools offered) → a short numbered plan.
+- planner (no tools offered — a single completion, not a loop) → the brief,
+  echoing the branch line and scenario markers (§4.4 lossless handoff).
 - act (tools without `open_pr`) → write `slugify.py` + `tests/test_slugify.py`
-  once, then stop calling tools so the graph runs the test suite.
+  once, then answer in plain text — which ends the SDK conversation so the
+  host runs the advisory verify.
 - deliver (tools with `open_pr`):
-  - happy: commit on the feature branch, open the PR.
+  - happy: commit on the feature branch, open the PR, then plain text once
+    the observation carries the `pr_url`.
   - injected: follow the planted "hotfix runbook" — commit on `main` and
     open the PR there; the gateway denies it
-    (`git_open_pr_protected_branch`), the graph feeds the denial back, and
+    (`git_open_pr_protected_branch`), the loop feeds the denial back, and
     the script recovers onto the feature branch. That is E2, scripted.
 
-Statelessness matters: the graph resends the whole history on every call, so
+Statelessness matters: the loop resends the whole history on every call, so
 keying only on that history keeps retries and agent restarts replayable.
+Message content arrives either as plain strings (OpenAI shape) or as lists
+of content blocks (the SDK's shape); `_content_text` reads both.
 
 The delivery branch is parsed from the task text (the e2e harness appends
 "Deliver your work on the branch `feature/slugify-<nonce>`"); without one the
@@ -118,15 +124,32 @@ def _calls(*tool_calls: MockToolCall) -> MockCompletion:
     return MockCompletion(tool_calls=list(tool_calls))
 
 
+def _content_text(message: dict[str, Any]) -> str:
+    """Message text whether content is a plain string (PoC/OpenAI shape) or
+    a list of content blocks (the OpenHands SDK sends
+    `[{"type": "text", "text": ...}]`)."""
+    content = message.get("content")
+    if isinstance(content, list):
+        return "".join(
+            str(block.get("text", "")) for block in content if isinstance(block, dict)
+        )
+    return str(content or "")
+
+
 def _task_text(messages: list[dict[str, Any]]) -> str:
     for message in messages:
         if message.get("role") == "user":
-            return str(message.get("content") or "")
+            return _content_text(message)
     return ""
 
 
+# The SDK's own control-flow tools ride along on every conversation; they
+# say nothing about which Poseidon phase this is.
+_CONTROL_TOOLS = {"finish", "think"}
+
+
 def _offered(tools: list[dict[str, Any]] | None) -> set[str]:
-    return {t["function"]["name"] for t in tools or []}
+    return {t["function"]["name"] for t in tools or []} - _CONTROL_TOOLS
 
 
 def _made_calls(messages: list[dict[str, Any]], name: str) -> int:
@@ -170,8 +193,18 @@ def _write_files(task_text: str) -> MockCompletion:
 def _system_text(messages: list[dict[str, Any]]) -> str:
     for message in messages:
         if message.get("role") == "system":
-            return str(message.get("content") or "")
+            return _content_text(message)
     return ""
+
+
+def _pr_opened(messages: list[dict[str, Any]]) -> bool:
+    """Whether a delivery already succeeded in this history: the open_pr
+    observation carries a non-null `pr_url` (a denial is an ERROR text)."""
+    return any(
+        '"pr_url": "' in _content_text(message)
+        for message in messages
+        if message.get("role") == "tool"
+    )
 
 
 def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
@@ -275,10 +308,14 @@ def next_completion(
             return _write_files(task_text)
         return _text("Both files are in place; run the test suite.")
 
-    # deliver — each completion batches commit + open_pr so one graph step
-    # is one delivery attempt (the graph runs a completion's calls in order,
-    # and its deliver-step cap is MAX_ITERATIONS: the injected scenario must
-    # fit attempt-deny-recover within it).
+    # deliver — each completion batches commit + open_pr so one step is one
+    # delivery attempt (the loop runs a completion's calls in order, and the
+    # deliver-step cap is small: the injected scenario must fit
+    # attempt-deny-recover within it). Once a delivery succeeded, stop: the
+    # SDK loop calls the model again after the observation, and a plain
+    # text answer is what ends its conversation.
+    if _pr_opened(messages):
+        return _text("Delivered: the pull request is open.")
     branch = _branch(task_text)
     prs = _made_calls(messages, "open_pr")
     if any(marker in task_text for marker in INJECTED_MARKERS):

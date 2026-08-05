@@ -1,16 +1,12 @@
-"""The PM runtime (plan step 17) against doubles: scope -> ticket -> crew
-intent -> summary, through governed tools only; a gateway deny surfaces as
-a tool error the model sees, never a crash."""
-
-import asyncio
-from typing import Any
+"""The PM runtime (plan step 17) on the brain host: scope -> ticket ->
+crew intent -> summary, through governed tools only; a gateway deny
+surfaces as a tool observation the model sees, never a crash."""
 
 import pytest
 
+from agent.brain import pm_dispatch
 from agent.config import AgentSettings
-from agent.gateway_client import ToolCallError
-from agent.graph import run_pm
-from conftest import ScriptedLLM, calls, says, tc
+from conftest import ScriptedLLM, calls, gateway, says, scripted, tc  # noqa: F401
 
 
 @pytest.fixture
@@ -27,56 +23,7 @@ def settings(tmp_path) -> AgentSettings:
     )
 
 
-class PmGateway:
-    """The PM-visible slice of the gateway: issues + crew intent; every
-    executor tool is a policy deny."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-
-    async def call(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
-        self.calls.append((tool, dict(args)))
-        match tool:
-            case "issues.create":
-                return {"number": 7, "state": "open", "title": args["title"],
-                        "body": args["body"], "url": "https://github.test/i/7"}
-            case "issues.read":
-                return {"issues": []}
-            case "crew.request":
-                return {"id": "crq-abc123", "status": "recorded",
-                        "conductor": "pm-1",
-                        "expires_at": "2026-01-01T01:00:00+00:00"}
-            case _:
-                raise ToolCallError(f"denied by policy rule: default_deny ({tool})")
-
-
-def run(settings, llm, gateway):
-    import agent.graph as graph_module
-
-    async def go():
-        # Patch the LLM + gateway construction points.
-        original_llm = graph_module.OpenAICompatibleLLM
-        original_gw = graph_module.McpGateway
-
-        class FakeGatewayCtx:
-            def __init__(self, *a, **k): ...
-            async def __aenter__(self):
-                return gateway
-            async def __aexit__(self, *exc):
-                return False
-
-        graph_module.OpenAICompatibleLLM = lambda *a, **k: llm
-        graph_module.McpGateway = FakeGatewayCtx
-        try:
-            return await run_pm(settings, "run-pm-1", "Ship a slug endpoint")
-        finally:
-            graph_module.OpenAICompatibleLLM = original_llm
-            graph_module.McpGateway = original_gw
-
-    return asyncio.run(go())
-
-
-def test_pm_files_ticket_and_records_intent(settings):
+def test_pm_files_ticket_and_records_intent(settings, gateway):
     llm = ScriptedLLM([
         calls(tc("read_issues")),
         calls(tc("create_issue", title="Implement slug endpoint",
@@ -85,33 +32,45 @@ def test_pm_files_ticket_and_records_intent(settings):
                  reason="ticket 7")),
         says("Set up: ticket 7, crew requested."),
     ])
-    gateway = PmGateway()
-    result = run(settings, llm, gateway)
+
+    with scripted(gateway, llm):
+        result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
 
     assert result.error is None
     assert result.ticket_urls == ["https://github.test/i/7"]
     assert result.crew_request_id == "crq-abc123"
     tools = [tool for tool, _ in gateway.calls]
     assert tools == ["issues.read", "issues.create", "crew.request"]
+    # The PM prompt is the PM's — the mock brain keys on it.
+    messages, _ = llm.requests[0]
+    from conftest import text_of
+    assert "product manager" in text_of(messages[0])
 
 
-def test_pm_deny_surfaces_as_tool_error_not_crash(settings):
-    """§4.5 exit is the gateway's: a PM told to exec sees the deny as an
-    error message and can carry on scoping."""
+def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
+    """§4.5 exit is the gateway's: a PM told to exec sees the refusal as a
+    tool result and can carry on scoping. `exec` is not even on the PM's
+    tool surface — the SDK feeds back tool-not-found without any gateway
+    call."""
     llm = ScriptedLLM([
         calls(tc("exec", cmd="rm -rf /")),  # not a PM tool at all
         calls(tc("create_issue", title="t", body="b")),
         says("done"),
     ])
-    gateway = PmGateway()
-    result = run(settings, llm, gateway)
+
+    with scripted(gateway, llm):
+        result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
+
     assert result.error is None
     assert result.ticket_urls == ["https://github.test/i/7"]
-    # The forbidden call never reached the gateway (not in PM_TOOLS).
+    # The forbidden call never reached the gateway (not on the surface).
     assert all(tool != "sandbox.exec" for tool, _ in gateway.calls)
 
 
-def test_pm_without_a_ticket_fails_honestly(settings):
+def test_pm_without_a_ticket_fails_honestly(settings, gateway):
     llm = ScriptedLLM([says("nothing to do here")])
-    result = run(settings, llm, PmGateway())
+
+    with scripted(gateway, llm):
+        result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
+
     assert result.error == "PM filed no ticket for the goal"
