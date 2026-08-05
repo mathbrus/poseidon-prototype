@@ -462,10 +462,12 @@ gated behind that dispatch before the reshaped implement workflow can claim
 the verify gate — otherwise the brain can deliver before the gate of record
 ever runs.
 
-**Concrete framework choice: [open]** (O-2). OpenHands Agent SDK is the
-leading candidate; the choice is made after a short adoption spike, not by
-default. The PoC LangGraph agent is kept as the regression brain until the
-new brain passes the same exit tests, then deleted (no dual maintenance).
+**Concrete framework choice: [decided]** (O-2, step-21 spike, 2026-08-05):
+the **OpenHands Agent SDK** (`openhands-sdk`, MIT), adopted as a library
+behind Poseidon contracts and version-pinned; decision record with evidence
+in `step21-brain-spike.md`. The PoC LangGraph agent is kept as the
+regression brain until the new brain passes the same exit tests, then
+deleted (no dual maintenance).
 
 **Sequencing guard [decided]:** do not adopt the new brain and a new sandbox
 runtime (OpenShell) in the same slice — stacked integration risk. Hands→Law
@@ -1235,15 +1237,22 @@ approval becomes the single named exception to the defense-in-depth claim
 (§2), acceptable at MVP's trust level, but this is a security-posture call
 that needs explicit sign-off precisely because it is a sole-ownership
 exception, not an oversight.
-- **O-2 — Which brain framework?** OpenHands Agent SDK is the named
-candidate; decide after a bounded spike. Criteria: tools cleanly resolvable
-to gateway MCP; no mandatory ownership of workspace/session lifecycle;
-context machinery (condensers/skills) usable headless; license and pace of
-change.
-- **O-3 — Hands tool-surface width.** Does the adapter map the brain onto the
-existing six `sandbox.*` tools, or does the sandbox toolserver grow richer
-primitives (patch-apply, search) for fidelity? Decide during the O-2 spike;
-affects toolserver scope.
+- **O-2 — Which brain framework? [decided 2026-08-05, step 21]** The
+OpenHands Agent SDK (`openhands-sdk`, MIT), version-pinned. All four
+criteria verified hands-on (headless custom-tool-only loop proven against a
+scripted LLM; default tool surface is control-flow only; workspace optional;
+condensers/skills are plain library objects); the fast release cadence is
+the accepted risk, mitigated by the exact pin with upgrades gated on the
+step-22 parity suite. Peer (Claude Agent SDK) rejected on model lock-in
+(breaks the OpenAI-shaped llm-gateway and the mock-brain e2e economy),
+subprocess shape, and pre-1.0 churn. Record: `step21-brain-spike.md`.
+- **O-3 — Hands tool-surface width. [decided 2026-08-05, step 21]** A: the
+adapter maps the brain onto the existing six `sandbox.*` tools plus the
+`open_pr` composite. The adapter authors the model-facing schemas itself
+(the framework's built-in tools are simply not installed), and `exec`
+subsumes search/patch-apply. Richer toolserver primitives re-open only if
+the step-22 parity suite shows fidelity loss; the escalation path is
+documented in `step21-brain-spike.md`.
 - **O-4 — Review sandbox shape.** Full sandbox from the PR ref (the ephemeral
 reviewer can execute), or read-only diff review via `git.read` only?
 Recommendation: full sandbox (it reuses the implement plumbing verbatim),

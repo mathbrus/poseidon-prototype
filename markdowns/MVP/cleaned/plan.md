@@ -1551,6 +1551,37 @@ spike against). Can start any time Phase 3 is underway.
 
 **Done when:** O-2 and O-3 are recorded as decided, with an adapter sketch.
 
+> **Status (2026-08-05): done** — O-2 and O-3 decided; full decision record
+> with evidence and the adapter sketch in `step21-brain-spike.md` (this
+> directory). **O-2: the OpenHands Agent SDK** (`openhands-sdk`, MIT),
+> adopted as a library behind Poseidon contracts, version-pinned. Not taken
+> on faith: the SDK was installed and driven **headless end-to-end** — one
+> custom gateway-stub tool, a scripted LLM (no provider, no cost), zero
+> built-in side-effect tools — and the loop dispatched the custom tool and
+> finished cleanly. Criteria: default tool surface is Finish/Think only
+> (built-ins are opt-in imports from a separate `openhands-tools` package we
+> won't install); custom `ToolDefinition`s + `register_tool` give the Hands
+> shape directly, native MCP config (bearer auth) exists as an alternative;
+> workspace is an inert local dir unless you opt into Docker/Remote flavors,
+> and the host owns `run()`/`pause()`/`interrupt()`/`max_iteration_per_run`
+> — the `dispatch_executor` poll shape fits; condenser + skills are plain
+> library objects. Risk accepted with mitigation: fast release cadence (80
+> releases Oct 2025 → Aug 2026, no formal semver contract) → exact pin,
+> upgrades gated on the parity suite. Peer (Claude Agent SDK) rejected:
+> Anthropic-format-only endpoint (explicitly no non-Claude models through a
+> gateway) breaks the llm-gateway's OpenAI-shaped tier routing/metering and
+> the free mock-brain e2e suite; a Node CLI subprocess as the loop; pre-1.0;
+> commercial ToS. **O-3: A — the existing six `sandbox.*` tools** (plus the
+> `open_pr` composite). The adapter authors the model-facing schemas itself,
+> so no framework pressure for richer primitives; `exec` subsumes
+> search/patch-apply; the escalation path (five-file change, Rego
+> `bound_to_run` for free via `SANDBOX_TOOLS`) is written down in the spike
+> report and re-opens only if step-22 parity shows fidelity loss. Two traps
+> found for step 22: the SDK retries 429s by default (5×, 8–64 s backoff) —
+> the llm-gateway's `budget_exhausted` 429 must map to the C6 terminal path
+> with `num_retries` low, or budget stops grind for minutes; and the `lmnr`
+> telemetry dep is env-gated — keep `LMNR_*` out of the crew-pod env.
+
 ### Step 22 — Hands adapter + brain adoption; delete the PoC graph
 
 **Depends on:** step 21; integrates as the `feature-delivery` executor from
@@ -1724,7 +1755,7 @@ executor carries it through step 10, the transitional engineer from 10 to
 | Decision | Must be settled | Default carried by this plan |
 | --- | --- | --- |
 | O-1 — approvals visible to OPA? | before step 20 | A: workflow state gates `git.merge_pr`; caller restricted to platform identity; gate outcomes as first-class audit events; merge approval is thereby the one *named* sole-ownership exception to defense in depth (overview §2) and needs that explicit sign-off; revisit B at V1 |
-| O-2 — brain framework | by step 21 (the spike decides it) | OpenHands Agent SDK is the candidate, not the default |
-| O-3 — Hands tool-surface width | by step 21, consumed at 22 | — |
+| O-2 — brain framework | **settled 2026-08-05 (step 21)** | Decided: OpenHands Agent SDK (`openhands-sdk`, MIT), as a library behind Poseidon contracts, version-pinned; see `step21-brain-spike.md` |
+| O-3 — Hands tool-surface width | **settled 2026-08-05 (step 21)**, consumed at 22 | Decided: A — the existing six `sandbox.*` tools + the `open_pr` composite; escalation path documented in `step21-brain-spike.md`, re-opens only on step-22 parity failure |
 | O-4 — review sandbox shape | before step 20 | Full sandbox from the PR ref (reuses implement plumbing; costs a second sandbox per feature) |
 | O-5 — OpenShell V1 gate criteria | written down during step 24 | Decision itself is V1, non-gating for MVP |
