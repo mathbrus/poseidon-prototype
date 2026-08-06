@@ -70,9 +70,16 @@ class FakeProvisioner:
         self.provisioned: list[dict] = []
         self.destroyed: list[str] = []
 
-    def provision(self, *, agent_id, run_id, company, agent_image, env):
-        from orchestrator.crewpods import CrewPodHandle
+    def provision(self, *, agent_id, run_id, company, agent_image, env,
+                  still_wanted=None):
+        from orchestrator.crewpods import CrewPodAbandoned, CrewPodHandle
 
+        # Mirrors the real provisioner's step-23 contract: the caller's
+        # verdict is consulted immediately before creation, never earlier.
+        # A double that skipped it could not catch a guard that stopped
+        # being wired up.
+        if still_wanted is not None and not still_wanted():
+            raise CrewPodAbandoned(f"run {run_id} was torn down")
         self.provisioned.append({
             "agent_id": agent_id, "run_id": run_id, "company": company,
             "agent_image": agent_image, "env": dict(env),
@@ -399,3 +406,49 @@ def test_workflow_path_with_no_policy_installed_fails_closed(
     with pytest.raises(RuntimeError, match="no_policy_installed"):
         asyncio.run(crew.fulfill_crew(_fulfill_spec()))
     assert participants.rows == {}
+
+
+def test_crew_pod_carries_a_wall_clock_deadline():
+    """Plan step 23 backstop: the race guard refuses to provision for a run
+    whose teardown has passed, but a pod created in the last instant before
+    that becomes true has no owner left to collect it. A deadline means an
+    orphan stops burning compute by itself — the same device §4.6 already
+    uses for sandboxes."""
+    from orchestrator.crewpods import CREW_POD_DEADLINE_S
+
+    manifest = crew_pod_manifest(
+        agent_id="feature-delivery-executor-run-1",
+        run_id="run-1",
+        company="hello-saas",
+        agent_image="poseidon-agent:test",
+        env={},
+    )
+    assert manifest["spec"]["activeDeadlineSeconds"] == CREW_POD_DEADLINE_S
+    assert manifest["spec"]["restartPolicy"] == "Never"
+
+
+def test_a_run_torn_down_mid_provision_gets_no_pod(settings, stores):
+    """Plan step 23, the timing that actually mattered: the guard is
+    consulted by the provisioner immediately before creation, not by the
+    activity beforehand. Removing a remnant pod waits for it to terminate
+    (31 s, measured), and a verdict taken before that wait is stale by the
+    time the pod is born — which is how crew pods came to outlive their
+    runs. Here the run is torn down *during* provisioning: no pod."""
+    from orchestrator.crewpods import CrewPodAbandoned
+
+    participants, audit = stores
+
+    class TearsDownMidProvision(FakeProvisioner):
+        def provision(self, **kwargs):
+            # Stands in for the remnant-deletion wait: the run ends while
+            # we are in here, before anything is created.
+            participants.terminate_for_run(RUN_ID)
+            return super().provision(**kwargs)
+
+    provisioner = TearsDownMidProvision()
+    crew = CrewActivities(settings, participants, audit, provisioner)
+    asyncio.run(crew.mint_participant(dict(SPEC)))
+
+    with pytest.raises(CrewPodAbandoned):
+        asyncio.run(crew.provision_crew_pod(dict(SPEC)))
+    assert provisioner.provisioned == [], "a pod was created for a dead run"

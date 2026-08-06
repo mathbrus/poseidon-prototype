@@ -325,12 +325,27 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
         assert rows and rows[0]["status"] == "terminated", rows
         registry.execute(
             "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,))
-    pods = subprocess.run(
-        ["kubectl", "-n", COMPANY_NS, "get", "pod", pod_name(executor_id),
-         "-o", "name"],
-        capture_output=True, text=True, timeout=30,
-    )
-    assert pods.returncode != 0, "the crew pod survived teardown"
+    # "Survived" means still there, not still there *this instant*. A
+    # cancelled fulfillment retry can be mid-`provision` in a worker thread
+    # when the workflow returns — `asyncio.to_thread` cannot interrupt it —
+    # so a doomed pod may appear for a few seconds and then be collected.
+    # The bound is what keeps this honest: the leak this test exists to
+    # catch (plan step 23, a provision landing past teardown with nothing
+    # left to collect it) left pods Running indefinitely — minutes, not
+    # seconds — so a real regression still fails here.
+    deadline = time.monotonic() + 90
+    while True:
+        pods = subprocess.run(
+            ["kubectl", "-n", COMPANY_NS, "get", "pod", pod_name(executor_id),
+             "-o", "name"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if pods.returncode != 0:
+            break
+        assert time.monotonic() < deadline, (
+            f"the crew pod survived teardown: {pods.stdout.strip()}"
+        )
+        time.sleep(3)
 
     story = audit_story(run_id)
     assert any(e["tool"] == "lifecycle.revoke" for e in story)

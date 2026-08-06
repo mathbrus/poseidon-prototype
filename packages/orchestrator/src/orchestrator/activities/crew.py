@@ -33,7 +33,7 @@ from orchestrator.clients import AgentClient
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import CrewPodProvisioner
 from orchestrator.identity import ephemeral_agent_id, mint_ephemeral
-from registry import AuditStore, RunParticipants
+from registry import AuditStore, ParticipantRevoked, RunParticipants
 from registry.crews import request_id
 
 
@@ -52,6 +52,7 @@ class CrewActivities:
         crew_requests: Any = None,
         companies: Any = None,
         ledger: Any = None,
+        runs: Any = None,
     ) -> None:
         self._settings = settings
         self._participants = participants
@@ -64,6 +65,9 @@ class CrewActivities:
         # Read-only, for the workflow-recorded crew request (step 19): the
         # budget-headroom half of the §5.1 enrichment.
         self._ledger = ledger
+        # Read-only, for the step-23 terminal-run guard: a run that has
+        # already finalized must never acquire new pods or identities.
+        self._runs = runs
         self._log = get_logger("orchestrator.crew")
 
     @activity.defn(name="mint_participant")
@@ -72,8 +76,10 @@ class CrewActivities:
 
         spec: {run_id, company, crew_template, member, role_template,
         parent_agent_id}. Retry-safe: the agent_id derives from
-        {crew, member, run}, so a re-mint revives the same row and signs a
-        fresh token — one identity, never two.
+        {crew, member, run}, so a re-mint lands on the same row and signs a
+        fresh token — one identity, never two. A re-mint after the run's
+        teardown swept the row raises `ParticipantRevoked`: revocation is
+        final (plan step 23).
         """
         started = time.monotonic()
         agent_id = ephemeral_agent_id(
@@ -148,8 +154,11 @@ class CrewActivities:
 
         spec: {run_id, company, crew_template, member, role_template,
         parent_agent_id}. The participants row must already exist (16a's
-        mint activity); re-minting here revives it, so a retry after a
-        crash converges.
+        mint activity); re-asserting it here lets a retry after a crash
+        converge on the same identity. A retry that lost the race with its
+        run's teardown raises `ParticipantRevoked` instead — revocation is
+        final (plan step 23), and a pod created past that point would hold
+        a revoked identity with nothing left to collect it.
         """
         started = time.monotonic()
         provisioner = self._require_provisioner()
@@ -184,6 +193,24 @@ class CrewActivities:
             "MAX_ITERATIONS": str(self._settings.max_iterations),
             "GATEWAY_TOKEN": minted.token,
         }
+        # The step-23 race guard. `add` above refuses to revive a revoked
+        # row, which stops a retry that begins after teardown's sweep; this
+        # catches the rest — above all a retry still in flight while the
+        # run ends, which is what leaked pods in practice.
+        #
+        # Two independent signals, because either alone has a hole: the
+        # participant row (teardown revokes before it destroys, so a
+        # non-active row means the sweep already passed) and the run's own
+        # terminal state (the row can be *re-created* active by this very
+        # activity when something deleted it meanwhile — the run record
+        # cannot). A finalized run must never acquire a new pod.
+        #
+        # Handed to the provisioner rather than checked here, for two
+        # reasons learned the hard way: checking *before* the call leaves
+        # the remnant-deletion wait (measured at 31 s) between verdict and
+        # creation, and checking *after* never runs at all — the workflow's
+        # completion cancels this activity, and the cancellation lands on
+        # the very next await.
         handle = await asyncio.to_thread(
             lambda: provisioner.provision(
                 agent_id=agent_id,
@@ -191,6 +218,9 @@ class CrewActivities:
                 company=spec["company"],
                 agent_image=self._settings.agent_image,
                 env=env,
+                still_wanted=lambda: self._collectable_now(
+                    spec["run_id"], agent_id
+                ),
             )
         )
         await self._emit(
@@ -208,6 +238,23 @@ class CrewActivities:
             "crew pod provisioned", extra={"agent_id": agent_id, "url": handle.url}
         )
         return {"agent_id": agent_id, "pod_name": handle.pod_name, "url": handle.url}
+
+    def _collectable_now(self, run_id: str, agent_id: str) -> bool:
+        """Whether anything provisioned for this run would still be torn
+        down by someone. False once the run's teardown has swept past —
+        seen either as a revoked binding row or as a finalized run.
+
+        Synchronous by design: the provisioner calls it from the worker
+        thread, immediately before creating the pod, so the answer cannot
+        go stale between verdict and creation."""
+        if self._participants.active(agent_id) is None:
+            return False
+        if self._runs is None:
+            return True
+        record = self._runs.get(run_id)
+        # A missing run row is not evidence of finalization (the e2e
+        # fixtures delete rows); only an explicitly terminal one is.
+        return record is None or record.status not in ("done", "failed")
 
     @activity.defn(name="destroy_crew_pods")
     async def destroy_crew_pods(self, run_id: str) -> list[str]:

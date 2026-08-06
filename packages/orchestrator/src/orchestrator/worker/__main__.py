@@ -53,6 +53,7 @@ async def main() -> None:
         CrewRequests(registry),
         Companies(registry),
         BudgetLedger(registry),
+        Runs(registry),
     )
     activities = ImplementActivities(
         settings, backend, Runs(registry), Companies(registry), crew_activities,

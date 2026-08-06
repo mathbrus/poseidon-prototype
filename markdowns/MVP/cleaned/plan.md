@@ -1688,6 +1688,103 @@ test additionally needs steps 17–19 (PM, intake, crew path).
 **Done when:** the suite, including the injected-conductor test, runs green
 in CI against kind.
 
+> **Status (2026-08-06): done** — two new modules, 23 tests, both picked up
+> by the existing CI job (it runs the whole `tests/e2e_kind` directory).
+> `test_redteam.py` (14) attacks a real provisioned sandbox: no
+> service-account token (`automountServiceAccountToken: False`), no route
+> to the Kubernetes API / kubelet :10250 / 169.254.169.254, no runtime
+> socket or host mount, no foreign processes in the PID namespace, the
+> only secret in the env is the run's own HMAC proxy credential — and a
+> sandbox **cannot forge another run's egress identity** (claiming a
+> foreign `run_id` with its own secret is 407'd and the failed attribution
+> is itself audited under the *claimed* id). Resource caps are real, not
+> declared-only: a 400 MB allocation under a 256 Mi cap dies with **exit
+> 137** (cgroup SIGKILL). `test_injected_conductor.py` (9) is §10
+> criterion 4: a poisoned intake goal makes the PM request a
+> `data-export` crew outside its `may_spawn` list → `default_deny` at the
+> gateway, nothing recorded, nothing minted, and the PM recovers into its
+> authorized crew; the delivery crew then obeys the planted "publish the
+> workspace" instruction and the egress proxy refuses it. **Both denies
+> are proven specific, not merely present:** the gateway's and the
+> proxy's `args_digest` are recomputed host-side, so the audit rows are
+> tied to *that* crew template and *that* collector host — an assertion
+> that cannot pass vacuously. Anti-vacuity was the design concern
+> throughout: a positive control asserts the sandbox's permitted route
+> (the proxy) answers, so every "blocked" result means something; probe
+> shapes assert they ran; and a guard test fails if the poison ever stops
+> reaching the executor (the §4.4 brief REPLACES the task text — the
+> step-19 lesson). **Deliberately not tested:** fork bombs and disk
+> filling — on a single-node kind cluster they are node-level DoS that
+> would take the rest of the suite with them, a worse outcome than the
+> gap.
+>
+> **The suite immediately earned its keep: a real leak, found and fixed.**
+> `test_worker_kill_leaks_no_crew` started failing — but only when the
+> red-team module ran first, and it passed in isolation. The first
+> hypothesis (the fatter step-22 image slowing termination past an
+> instantaneous check) was **wrong**, and the wait-longer "fix" was
+> reverted: the pod was never Terminating, it was **Running**, and it
+> stayed Running. The evidence that settled it: the leaked pod's
+> `creationTimestamp` was the *same second* as the run's audited
+> `crew_pod_destroyed`. Root cause — a retrying `provision_crew_pod`
+> landing **after** teardown's sweep: teardown revokes, then destroys
+> what exists, then the late provision creates a fresh pod that nothing
+> will ever collect, holding a minted (already revoked) identity. This is
+> the same race the step-22 note recorded for participants, now proven
+> for pods; the red-team OOM probe merely perturbed timing enough to make
+> a latent race reproducible, which is precisely what such a suite is
+> for. **Fixed in three parts, each closing a hole the previous one
+> left** — the worker's own logs settled it, showing `fulfill_crew`
+> *attempt 3* logging "crew pod provisioned" **after** "run finalized":
+> (1) *revocation is final* — `RunParticipants.add` no longer revives a
+> terminated row (the `ON CONFLICT DO UPDATE` now carries
+> `WHERE status = 'active'` and raises `ParticipantRevoked` when nothing
+> comes back), which stops any mint that begins after the sweep; (2) the
+> **terminal-run guard** the step-22 note promised, on two independent
+> signals because either alone has a hole — the participant row (teardown
+> revokes before it destroys, so a non-active row means the sweep already
+> passed) *and* the run's own terminal state, because the row is not a
+> reliable witness: anything that **deletes** it (the e2e fixtures do)
+> lets `add` re-insert a fresh *active* row and the check sails through,
+> whereas the run record cannot be forged that way; (3) **where** that guard
+> runs, which took three attempts and is the real lesson. Checking
+> *after* provisioning never fired once: when the workflow completes,
+> Temporal **cancels the in-flight activity and the cancellation lands on
+> the very next `await`** — exactly where the cleanup sat. Checking
+> *before* the provisioner call was also useless: `provision` first
+> deletes any remnant pod **and waits for it to terminate**, measured at
+> **31 seconds** between the verdict and the pod actually being created —
+> an eternity for teardown to sweep past. So the verdict is now handed
+> *into* the provisioner as a `still_wanted` predicate and consulted
+> immediately before `create_namespaced_pod`, with nothing in between.
+> The fake provisioner in the unit tests honors the same contract, so a
+> guard that stops being wired up fails off-cluster, and a unit test
+> reproduces the exact shape (a run torn down *during* provisioning gets
+> no pod). Plus a backstop for the instant that remains: crew pods now
+> carry `activeDeadlineSeconds` (the device §4.6 already uses for
+> sandboxes), so any orphan stops costing compute by itself. The
+> ordering argument
+> in full: teardown revokes → destroys → finalizes, so whichever signal a
+> late provision races past, the other catches it. The old registry and
+> orchestrator tests asserting "a retry revives the row" were encoding
+> the bug; they now assert convergence on a *live* row, with new tests
+> pinning finality in both, and the in-memory double mirrors the rule so
+> unit tests cannot drift from production. **Two findings recorded, not silently fixed** (both are
+> security-posture calls, not implementation details): (1) the sandbox
+> Job carries **no `securityContext`** — no `runAsNonRoot`, no
+> `allowPrivilegeEscalation: false`, no capability drop, no seccomp
+> profile — so the container runs as root; §4.6 defers kernel-level
+> isolation (gVisor/Kata) to V1 and the containment that holds is that
+> root inside the sandbox reaches nothing, which
+> `test_root_inside_the_sandbox_buys_nothing` pins so a change is
+> visible; adding the three cheap knobs (drop ALL, no-escalation,
+> RuntimeDefault) needs no non-root migration and is the recommended
+> hardening. (2) **DNS tunnelling remains open**: egress is confined to
+> kube-dns, but CoreDNS forwards unknown names upstream, so a query-name
+> side channel leaves without the audited proxy ever seeing it — closing
+> it needs resolver-level policy (V1). Suite: **85 e2e green on kind**,
+> free on the mock.
+
 ### Step 24 — OpenShell evaluation track (strictly non-gating)
 
 **Depends on:** steps 4 (contract), 23 (reuses the red-team suite).

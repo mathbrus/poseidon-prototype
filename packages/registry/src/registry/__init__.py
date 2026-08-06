@@ -13,7 +13,7 @@ from registry.audit import AuditStore
 from registry.crews import CrewRequests
 from registry.db import Registry, dsn, open_registry
 from registry.ledger import BudgetLedger
-from registry.participants import RunParticipants
+from registry.participants import ParticipantRevoked, RunParticipants
 from registry.runs import RunRecord, Runs
 from registry.sandboxes import SandboxRegistration, SandboxRegistrations
 
@@ -22,6 +22,7 @@ __all__ = [
     "BudgetLedger",
     "CrewRequests",
     "Registry",
+    "ParticipantRevoked",
     "RunParticipants",
     "RunRecord",
     "Runs",

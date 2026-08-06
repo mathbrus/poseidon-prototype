@@ -15,6 +15,7 @@ failure modes than the real thing hides exactly the bugs it exists to catch.
 from typing import Any
 
 from common.audit import AuditEvent
+from registry.participants import ParticipantRevoked
 from registry.runs import RunRecord
 
 
@@ -221,7 +222,14 @@ class InMemoryRunParticipants:
         crew_template: str,
         role: str,
     ) -> None:
-        # Upsert like the real accessor: a retried mint revives the row.
+        # Upsert like the real accessor — including its finality rule
+        # (plan step 23): a retry converges on a live row, but a revoked
+        # one is never revived.
+        existing = self.rows.get(agent_id)
+        if existing is not None and existing["status"] != "active":
+            raise ParticipantRevoked(
+                f"participant {agent_id} was revoked; it is not revivable"
+            )
         self.rows[agent_id] = {
             "agent_id": agent_id,
             "run_id": run_id,

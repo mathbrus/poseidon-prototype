@@ -18,6 +18,7 @@ sandbox through the gateway.
 """
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,10 +28,20 @@ from kubernetes.client.rest import ApiException
 
 from common.telemetry import get_logger
 
+class CrewPodAbandoned(Exception):
+    """The run was torn down while its crew pod was being provisioned, so
+    the pod was never created (plan step 23). Not a failure of the run —
+    the run is already over."""
+
+
 AGENT_PORT = 8000
 CREW_KIND = "crew-agent"
 KIND_LABEL = "poseidon.dev/kind"
 RUN_ID_LABEL = "poseidon.io/run-id"
+# Wall-clock ceiling on a crew pod, generous enough never to interrupt a
+# real dispatch (the orchestrator destroys pods long before this) and short
+# enough that an orphaned one stops costing anything the same hour.
+CREW_POD_DEADLINE_S = 3600
 POD_READY_TIMEOUT_S = 180
 DELETE_TIMEOUT_S = 120
 
@@ -47,6 +58,7 @@ def crew_pod_manifest(
     company: str,
     agent_image: str,
     env: dict[str, str],
+    deadline_s: int = CREW_POD_DEADLINE_S,
 ) -> dict[str, Any]:
     """The pod, whole and pure (unit-testable without a cluster).
 
@@ -54,6 +66,13 @@ def crew_pod_manifest(
     service links, GPG_KEY blanked. The `crew-agent` kind label is what the
     operator's company NetworkPolicies select (gateways-only egress,
     orchestrator-only ingress) and what the destroy selector requires.
+
+    `activeDeadlineSeconds` is the backstop under the step-23 race guard,
+    the same device §4.6 uses for sandboxes: the guard refuses to provision
+    for a run whose teardown has passed, but a pod created in the last
+    instant before that becomes true has no owner left to collect it. A
+    wall-clock deadline means an orphan stops burning compute on its own
+    instead of living until someone notices.
     """
     labels = {
         KIND_LABEL: CREW_KIND,
@@ -67,6 +86,7 @@ def crew_pod_manifest(
         "metadata": {"name": pod_name(agent_id), "labels": labels},
         "spec": {
             "restartPolicy": "Never",
+            "activeDeadlineSeconds": deadline_s,
             "automountServiceAccountToken": False,
             "enableServiceLinks": False,
             "containers": [
@@ -121,15 +141,30 @@ class CrewPodProvisioner:
         company: str,
         agent_image: str,
         env: dict[str, str],
+        still_wanted: Callable[[], bool] | None = None,
     ) -> CrewPodHandle:
         """Create the crew pod and wait until its brain host answers.
 
         Retry-safe: a remnant pod of the same deterministic agent_id (a
         crashed earlier attempt) is removed first — one member, one pod.
+
+        `still_wanted` is the caller's last word on whether the run this
+        pod belongs to is still live; it is consulted immediately before
+        creation (see below) and refusing raises `CrewPodAbandoned`.
         """
         name = pod_name(agent_id)
         if self._delete_pod(name):
             self._log.info("removed remnant crew pod", extra={"pod": name})
+        # The step-23 guard has to be evaluated *here*, not by the caller
+        # before it calls us: removing a remnant waits for that pod to
+        # actually terminate, which measured 31 seconds in the failure
+        # this closes — ample time for the run's teardown to sweep past a
+        # check made beforehand, leaving the pod we are about to create
+        # with nothing left to collect it.
+        if still_wanted is not None and not still_wanted():
+            raise CrewPodAbandoned(
+                f"run {run_id} was torn down before {name} could be created"
+            )
         manifest = crew_pod_manifest(
             agent_id=agent_id,
             run_id=run_id,

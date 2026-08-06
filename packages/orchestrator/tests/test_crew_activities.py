@@ -1,7 +1,8 @@
 """The 16a slice against doubles: mint binds one deterministic identity per
 {crew, member, run} and signs a verifiable §5.1 JWT; revoke sweeps every
 live participant; both land process-lifecycle audit events; a retried mint
-revives the same row instead of leaking a second identity."""
+converges on the same row instead of leaking a second identity — and never
+revives one the run's teardown already revoked (plan step 23)."""
 
 import asyncio
 
@@ -84,14 +85,28 @@ def test_mint_binds_and_signs_the_51_claims(crew, participants, audit):
     assert minted["token"] not in event.args_digest
 
 
-def test_retried_mint_revives_one_identity(crew, participants):
+def test_retried_mint_converges_on_one_identity(crew, participants):
     first = asyncio.run(crew.mint_participant(dict(SPEC)))
-    participants.terminate(first["agent_id"])
     again = asyncio.run(crew.mint_participant(dict(SPEC)))
 
     assert again["agent_id"] == first["agent_id"]
     assert len(participants.rows) == 1
     assert participants.active(first["agent_id"]) is not None
+
+
+def test_a_mint_that_lost_the_race_with_teardown_is_refused(crew, participants):
+    """Plan step 23: revocation is final. A retry that reaches the mint
+    after its run's teardown swept the row must not resurrect the identity
+    — that is how a crew pod ended up outliving its run, holding a revoked
+    credential with nothing left to collect it."""
+    from registry import ParticipantRevoked
+
+    first = asyncio.run(crew.mint_participant(dict(SPEC)))
+    assert participants.terminate_for_run(RUN_ID) == [first["agent_id"]]
+
+    with pytest.raises(ParticipantRevoked):
+        asyncio.run(crew.mint_participant(dict(SPEC)))
+    assert participants.active(first["agent_id"]) is None
 
 
 def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):

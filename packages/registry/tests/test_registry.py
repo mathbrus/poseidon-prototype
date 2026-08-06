@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 
+import pytest
+
 from common.audit import AuditEvent
 from registry.audit import AuditStore
 from registry.db import Registry
@@ -372,9 +374,9 @@ def test_crew_request_is_idempotent_and_expiring(registry: Registry):
 
 
 def test_participant_mint_is_retry_safe_and_sweepable(registry: Registry):
-    """16a contract: a retried mint (same deterministic agent_id) revives
-    the same row; the per-run sweep revokes every live participant at once
-    and reports who it swept."""
+    """16a contract: a retried mint (same deterministic agent_id) converges
+    on the same row; the per-run sweep revokes every live participant at
+    once and reports who it swept."""
     from registry.participants import RunParticipants
 
     Runs(registry).start(RUN_ID, "task")
@@ -382,10 +384,7 @@ def test_participant_mint_is_retry_safe_and_sweepable(registry: Registry):
     try:
         participants.add("feature-delivery-executor-x", RUN_ID, "pm-1",
                          "feature-delivery", "executor")
-        participants.terminate("feature-delivery-executor-x")
-        assert participants.active("feature-delivery-executor-x") is None
-
-        # The retry lands on the same row and revives it.
+        # A retry against the live row converges — one identity, never two.
         participants.add("feature-delivery-executor-x", RUN_ID, "pm-1",
                          "feature-delivery", "executor")
         assert participants.active("feature-delivery-executor-x") is not None
@@ -434,3 +433,36 @@ def test_crew_request_consume_and_spawn_count(registry: Registry):
                          (recorded["id"],))
         registry.execute("DELETE FROM registry.run_participants WHERE run_id = %s",
                          (RUN_ID,))
+
+
+def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry):
+    """Plan step 23: the only way to mint onto a terminated row is to be a
+    retry that lost the race with its run's teardown. Reviving it would
+    resurrect an identity the platform revoked — and, in the case that
+    surfaced this, leave a crew pod holding it with nothing left to collect
+    the pod. Revocation is final; the late caller is told to stop."""
+    from registry.participants import ParticipantRevoked, RunParticipants
+
+    Runs(registry).start(RUN_ID, "task")
+    participants = RunParticipants(registry)
+    try:
+        participants.add("feature-delivery-executor-z", RUN_ID, "pm-1",
+                         "feature-delivery", "executor")
+        assert participants.terminate_for_run(RUN_ID) == [
+            "feature-delivery-executor-z"
+        ]
+
+        with pytest.raises(ParticipantRevoked):
+            participants.add("feature-delivery-executor-z", RUN_ID, "pm-1",
+                             "feature-delivery", "executor")
+        # Still revoked: the failed mint changed nothing.
+        assert participants.active("feature-delivery-executor-z") is None
+        rows = registry.query(
+            "SELECT status FROM registry.run_participants WHERE agent_id = %s",
+            ("feature-delivery-executor-z",),
+        )
+        assert rows[0]["status"] == "terminated"
+    finally:
+        registry.execute(
+            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,))
+        registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (RUN_ID,))

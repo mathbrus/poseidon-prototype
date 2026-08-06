@@ -17,6 +17,13 @@ from typing import Any
 from registry.db import Registry
 
 
+class ParticipantRevoked(Exception):
+    """Raised when a mint would revive an already-revoked binding row —
+    i.e. a retry that lost the race with its run's teardown (plan step 23).
+    Revocation is final: the caller must abandon the identity, not rebuild
+    on it."""
+
+
 class RunParticipants:
     def __init__(self, registry: Registry) -> None:
         self._db = registry
@@ -29,11 +36,19 @@ class RunParticipants:
         crew_template: str,
         role: str,
     ) -> None:
-        """Create (or revive) the binding row. Upsert on purpose: the mint
-        activity derives a deterministic agent_id from
-        {crew, member, run}, so a retry after a worker death lands on the
-        same row instead of leaking a second identity."""
-        self._db.execute(
+        """Create the binding row, or re-assert one that is still active.
+        Upsert on purpose: the mint activity derives a deterministic
+        agent_id from {crew, member, run}, so a retry after a worker death
+        lands on the same row instead of leaking a second identity.
+
+        **Revocation is final** (plan step 23): a terminated row is never
+        revived. The only way to reach a terminated row is to mint after
+        the run's teardown already swept it — a retry racing compensation,
+        which must not resurrect an identity the platform has revoked.
+        `ParticipantRevoked` tells that caller to stop rather than build on
+        a dead binding.
+        """
+        updated = self._db.query(
             """
             INSERT INTO registry.run_participants
                 (agent_id, run_id, parent_agent_id, crew_template, role,
@@ -43,12 +58,18 @@ class RunParticipants:
                 run_id = EXCLUDED.run_id,
                 parent_agent_id = EXCLUDED.parent_agent_id,
                 crew_template = EXCLUDED.crew_template,
-                role = EXCLUDED.role,
-                status = 'active',
-                terminated_at = NULL
+                role = EXCLUDED.role
+            WHERE run_participants.status = 'active'
+            RETURNING agent_id
             """,
             (agent_id, run_id, parent_agent_id, crew_template, role),
         )
+        # No row back means the conflict target existed and was terminated:
+        # the WHERE on the DO UPDATE suppressed it.
+        if not updated:
+            raise ParticipantRevoked(
+                f"participant {agent_id} was revoked; it is not revivable"
+            )
 
     def terminate(self, agent_id: str) -> None:
         """Revocation (§2b): from this write on, the gateway finds no live
