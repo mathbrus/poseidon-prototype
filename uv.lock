@@ -524,6 +524,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cloudpickle"
+version = "3.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/27/fb/576f067976d320f5f0114a8d9fa1215425441bb35627b1993e5afd8111e5/cloudpickle-3.1.2.tar.gz", hash = "sha256:7fda9eb655c9c230dab534f1983763de5835249750e85fbcef43aaa30a9a2414", size = 22330, upload-time = "2025-11-03T09:25:26.604Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/88/39/799be3f2f0f38cc727ee3b4f1445fe6d5e4133064ec2e4115069418a5bb6/cloudpickle-3.1.2-py3-none-any.whl", hash = "sha256:9acb47f6afd73f60dc1df93bb801b472f05ff42fa6c84167d25cb206be1fbf4a", size = 22228, upload-time = "2025-11-03T09:25:25.534Z" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1958,6 +1967,22 @@ wheels = [
 ]
 
 [[package]]
+name = "openshell"
+version = "0.0.99"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cloudpickle" },
+    { name = "grpcio" },
+    { name = "httpx" },
+    { name = "protobuf" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/d5/8f6c394c1129ae01637fb1c9f56b8f5a10a988d667e0e4bd5fecc5e44067/openshell-0.0.99-py3-none-macosx_13_0_arm64.whl", hash = "sha256:f7db8eb284fa0815c0ab375016def8524873ee033049940f071ffef4d0c1a61e", size = 8440178, upload-time = "2026-08-05T15:33:31.493Z" },
+    { url = "https://files.pythonhosted.org/packages/db/29/7ddde3ec2d44357d7f911484b9df5fed814758922b241acd045ebe5a54a2/openshell-0.0.99-py3-none-manylinux_2_39_aarch64.whl", hash = "sha256:b06e062563201d4f98a87e8de23e10e40733b548e12891623982ca5b120bccf2", size = 8506339, upload-time = "2026-08-05T15:33:52.563Z" },
+    { url = "https://files.pythonhosted.org/packages/76/cb/8520cd87729942de875ce6af08953e9d1e19296a5db0a1da92d76a77a682/openshell-0.0.99-py3-none-manylinux_2_39_x86_64.whl", hash = "sha256:72f8f14c304f5da233755ae285ee8c4c19aaf7fb7b40b14f6c6b17ef9752141f", size = 8988885, upload-time = "2026-08-05T15:34:12.529Z" },
+]
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.39.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3152,6 +3177,9 @@ dependencies = [
 egress = [
     { name = "registry" },
 ]
+openshell = [
+    { name = "openshell" },
+]
 toolchain = [
     { name = "pytest" },
 ]
@@ -3161,11 +3189,12 @@ requires-dist = [
     { name = "common", editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "kubernetes", specifier = ">=31" },
+    { name = "openshell", marker = "extra == 'openshell'", specifier = "==0.0.99" },
     { name = "pytest", marker = "extra == 'toolchain'", specifier = ">=8" },
     { name = "registry", marker = "extra == 'egress'", editable = "packages/registry" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
-provides-extras = ["egress", "toolchain"]
+provides-extras = ["egress", "openshell", "toolchain"]
 
 [[package]]
 name = "schema"

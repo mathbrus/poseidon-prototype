@@ -1804,6 +1804,50 @@ in CI against kind.
 **Done when:** an evaluation report with O-5 criteria exists; nothing on the
 MVP critical path references OpenShell.
 
+> **Status (2026-08-06): done** — report in `step24-openshell-eval.md`.
+> The candidate is real and was inspected directly, not from docs alone:
+> **NVIDIA OpenShell** (Apache-2.0, `openshell==0.0.99`), whose client and
+> protobuf surface were probed in a scratch venv the way step 21 probed
+> the brain SDK. Built: `packages/sandbox/backends/openshell/` behind
+> contract v2 (create → wait_ready → workspace over `exec` stdin →
+> labelled handle; idempotent destroy), with `build_spec` **verified
+> against the real protobuf**, and `ocsf.py` mapping OCSF v1.7 into the
+> step-13 audit contract (`source=sandbox-infra`, args digested, unmapped
+> classes refused rather than guessed). 10 unit tests plus a structural
+> test that greps the tree to enforce "strictly non-gating" — the extra
+> is optional so it can never ride into the sandbox image.
+> **Verdict: do not adopt at V1 on today's evidence.** Two O-5 criteria
+> fail outright — multi-tenancy does not exist ("single-player mode",
+> against our namespace-per-company shape) and the API is `0.0.x`
+> shipping most days with no stability promise — and one contract
+> mismatch costs real work: OpenShell publishes **no per-sandbox
+> address** (`SandboxRef` is `{id, name, workspace, status, labels}`; all
+> access is Gateway-mediated gRPC `exec`), so C4 would need a translating
+> shim, which moves the toolserver *outside* the isolation domain and
+> re-implements file ops as shell commands. The backend raises
+> `ContractGap` rather than returning a plausible dead URL. Subordinate
+> mode otherwise passes (providers empty — verified; no inference route,
+> so the metered LLM gateway keeps §4.8; its Gateway gets an endpoint and
+> a token and nothing else), with one unverifiable claim recorded: we can
+> decline to *use* credential providers but could not confirm we can
+> *forbid* them. OCSF passes on shape, fails on trust — records are
+> written **inside the sandbox** (3-file rotation, file-drop not push),
+> so the audited workload can reach its own audit trail, and the records
+> carry no `run_id`, so attribution is ours to supply from the sandbox
+> label. **The finding that matters most is the inversion:** OpenShell's
+> appeal is its *posture* — `runtime_class_name`, user namespaces,
+> Landlock, `run_as_user` — which is exactly what step 23 found missing
+> from our own sandbox (no `securityContext` at all), and posture is
+> portable. Hardening `k8s_jobs` is a `securityContext` block on a
+> manifest we already operate; adopting OpenShell is a shim, an ingest
+> job, an upgrade treadmill and a missing tenancy model. Also recorded so
+> nobody re-derives it: OpenShell has no `activeDeadlineSeconds`
+> equivalent (our §4.6 runaway backstop would move to the orchestrator),
+> its `exec` takes real stdin (nicer than the pods/exec base64 hack), and
+> its `network_policies` could double up the egress allowlist — as
+> defense in depth only, never replacing the proxy that makes denies
+> auditable.
+
 ### Step 25 — MVP acceptance: the §10 exit criteria, scripted, on two clusters
 
 **Depends on:** steps 12, 14, 16, 20, 22 (i.e. everything gating).
@@ -1908,4 +1952,4 @@ executor carries it through step 10, the transitional engineer from 10 to
 | O-2 — brain framework | **settled 2026-08-05 (step 21)** | Decided: OpenHands Agent SDK (`openhands-sdk`, MIT), as a library behind Poseidon contracts, version-pinned; see `step21-brain-spike.md` |
 | O-3 — Hands tool-surface width | **settled 2026-08-05 (step 21)**, consumed at 22 | Decided: A — the existing six `sandbox.*` tools + the `open_pr` composite; escalation path documented in `step21-brain-spike.md`, re-opens only on step-22 parity failure |
 | O-4 — review sandbox shape | before step 20 | Full sandbox from the PR ref (reuses implement plumbing; costs a second sandbox per feature) |
-| O-5 — OpenShell V1 gate criteria | written down during step 24 | Decision itself is V1, non-gating for MVP |
+| O-5 — OpenShell V1 gate criteria | **written down 2026-08-06 (step 24)** | Criteria judged in `step24-openshell-eval.md`: 2 fail (no multi-tenancy, `0.0.x` API), 1 contract gap (no per-sandbox address → C4 shim). Recommendation: keep `k8s_jobs` and borrow OpenShell's posture (`securityContext`/RuntimeClass) instead; re-open at V1 if multi-tenancy and API stability land |

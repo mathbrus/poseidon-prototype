@@ -18,6 +18,13 @@ egress = [
     "registry",
 ]
 
+# The OpenShell evaluation track (plan step 24, O-5): strictly non-gating,
+# pinned exactly, and an extra so it never rides into the sandbox image or
+# the MVP critical path.
+openshell = [
+    "openshell==0.0.99",
+]
+
 # The prebaked in-sandbox toolchain (Dockerfile.sandbox): the test runner
 # the toolserver's /tests endpoint shells out to, lockfile-pinned like
 # everything else in the image.
