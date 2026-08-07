@@ -1,7 +1,6 @@
-# Poseidon CI (plan step 6): unit tests, policy tests, lockfile-pinned image
-# builds, and the secret-inspection gate that proves invariant #1 by
-# inspection — no *_TOKEN/*_KEY may be baked
-# into the agent or sandbox images.
+# Poseidon CI: unit tests, policy tests, lockfile-pinned image builds, and
+# the secret-inspection gate that proves invariant #1 by inspection — no
+# *_TOKEN/*_KEY may be baked into the agent or sandbox images.
 #
 # The kind e2e suite (E1–E4 + kill-the-worker) opens real PRs on a
 # disposable repo, so it stays manually dispatched. It spends no LLM tokens:
@@ -118,9 +117,9 @@ jobs:
     # disposable repo. No LLM spend — the stack deploys the mock brain.
     # Requires the E2E_GIT_TOKEN / E2E_TARGET_REPO repository secrets.
     #
-    # Since plan step 25 this job IS the MVP acceptance suite (§10 exit
-    # criteria; scripts/mvp-acceptance.sh runs the same thing locally):
-    # tests/e2e_kind in full, with test_zz_acceptance.py as the capstone.
+    # This job IS the MVP acceptance suite (scripts/acceptance.sh runs the
+    # same thing locally): tests/e2e_kind in full, with
+    # test_zz_acceptance.py as the capstone.
     if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
     runs-on: ubuntu-latest
     steps:

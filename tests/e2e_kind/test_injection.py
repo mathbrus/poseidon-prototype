@@ -1,10 +1,9 @@
-"""E2 on the cluster (plan step 6; compiled policy since step 12): the
-injected task's planted "hotfix runbook" steers delivery onto `main`; the
-gateway denies it by policy (a `git_open_pr_*` branch rule — `main`
-violates both branch protection and the allowed pattern, and the
-lowest-sorting deny wins), the denial is fed back to the brain, and the run
-still delivers legitimately on a feature branch — with the whole episode in
-the audit story.
+"""E2 on the cluster: the injected task's planted "hotfix runbook" steers
+delivery onto `main`; the gateway denies it by compiled policy (a
+`git_open_pr_*` branch rule — `main` violates both branch protection and the
+allowed pattern, and the lowest-sorting deny wins), the denial is fed back to
+the brain, and the run still delivers legitimately on a feature branch — with
+the whole episode in the audit story.
 """
 
 import re

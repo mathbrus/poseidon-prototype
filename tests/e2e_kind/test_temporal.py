@@ -1,7 +1,6 @@
-"""Temporal smoke test (plan step 2 done-when): a worker connects to the
-self-hosted Temporal on kind, runs a trivial workflow, and the workflow
-history survives a Temporal pod restart — proving persistence really is in
-Postgres, not in the pods.
+"""Temporal smoke test: a worker connects to the self-hosted Temporal on
+kind, runs a trivial workflow, and the workflow history survives a Temporal
+pod restart — proving persistence really is in Postgres, not in the pods.
 
 The frontend is reached through `kubectl port-forward` (no NodePort: the
 kind extraPortMappings are fixed at cluster creation, and nothing but this

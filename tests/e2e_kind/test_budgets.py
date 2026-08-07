@@ -1,4 +1,4 @@
-"""The §4.8 exit criteria on kind (plan step 14).
+"""Budget enforcement, end to end, on kind.
 
 A blueprint edit shrinks hello-saas's per-run cap to a value the mock
 brain's second model call must exceed; the LLM gateway hard-stops the run
@@ -88,7 +88,7 @@ async def _run_until_paused_then_reject(address: str, run_id: str, task_text: st
         id=workflow_id(run_id),
         task_queue=TASK_QUEUE,
     )
-    # The §4.8 promise: the stop is an API-visible pending state.
+    # The budget hard-stop leaves an API-visible pending state.
     deadline = time.monotonic() + 300
     while True:
         state = await handle.query("state")
@@ -96,7 +96,7 @@ async def _run_until_paused_then_reject(address: str, run_id: str, task_text: st
             break
         assert time.monotonic() < deadline, f"never paused (state={state!r})"
         await asyncio.sleep(2)
-    # §10 criterion 5: the pause *escalates* — a real process-gate audit
+    # The pause *escalates* — a real process-gate audit
     # event fires at half the gate deadline (45s on the fast profile). Wait
     # for it before answering, exactly like the merge-gate e2e does: the
     # escalation path proves itself on every run.
@@ -128,8 +128,8 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     assert "budget_exhausted" in (record["error"] or "")
 
     # The ledger fully attributes what was spent before the stop — to the
-    # run's ephemeral crew identities (plan step 19): the planner's brief
-    # spent first (inside fulfill_crew), then the executor hit the cap.
+    # run's ephemeral crew identities: the planner's brief spent first
+    # (inside fulfill_crew), then the executor hit the cap.
     from orchestrator.identity import ephemeral_agent_id
 
     crew_ids = {
@@ -139,8 +139,8 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     entries = ledger_entries(run_id)
     assert entries, "no ledger rows for the run"
     for entry in entries:
-        # The full §4.8 attribution tuple, row by row: {run, parent,
-        # participant, role} (§10 criterion 5) plus company and model.
+        # The full attribution tuple, row by row: {run, parent,
+        # participant, role} plus company and model.
         assert entry["run_id"] == run_id
         assert entry["company"] == "hello-saas"
         assert entry["agent_id"] in crew_ids
@@ -150,7 +150,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
         assert entry["prompt_tokens"] > 0
     assert sum(float(e["usd"]) for e in entries) >= TINY_CAP
 
-    # Budget events are in the one audit story (steps 13+14): metered
+    # Budget events are in the one audit story: metered
     # allows and the hard-stop deny, all source=llm-gateway.
     story = audit_story(run_id)
     llm_events = [e for e in story if e["source"] == "llm-gateway"]
@@ -175,9 +175,9 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     ]
     assert late_allows == [], f"model calls after the hard-stop: {late_allows}"
 
-    # And the pause is in the story as first-class gate outcomes (§10
-    # criterion 5 "escalates"): the escalation at half-deadline, then the
-    # human's rejection — same process-gate contract as the merge gate.
+    # And the pause is in the story as first-class gate outcomes: the
+    # escalation at half-deadline, then the human's rejection — same
+    # process-gate contract as the merge gate.
     gate_rules = [
         e["rule"] for e in story
         if e["source"] == "process-gate" and e["tool"] == "gate.budget"
@@ -190,7 +190,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
 
 
 def test_unattributed_model_call_is_rejected(stack: None) -> None:
-    """§4.8: no run context, no model — with a valid workload identity but
+    """No run context, no model: with a valid workload identity but
     no run attribution the gateway refuses before any upstream work."""
     token = projected_token(COMPANY_NS, "pm-1")
     with port_forward("llm-gateway", LLM_LOCAL_PORT, 4000) as base:

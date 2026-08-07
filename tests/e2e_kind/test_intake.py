@@ -51,7 +51,7 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
     record = asyncio.run(start())
     issue_number = None
     try:
-        # The run record is the intake outcome: done, tickets linked (§6.1).
+        # The run record is the intake outcome: done, tickets linked.
         assert record["status"] == "done", f"intake failed: {record}"
         assert record["workflow"] == "intake"
         assert record["ticket_urls"], "the runs row links no tickets"

@@ -54,7 +54,7 @@ def workspace_tar(tmp_path: Path) -> bytes:
 
 
 def projected_token(namespace: str, service_account: str) -> str:
-    """Workload identity (plan steps 11/12): mint the same kind of
+    """Workload identity: mint the same kind of
     audience-scoped projected token the kubelet mounts, for the real
     ServiceAccounts — the static bearer tokens are gone."""
     proc = subprocess.run(
@@ -80,7 +80,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
     gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
     # Registration is the orchestrator's platform admin action; `sandbox.*`
     # belongs to the run's ephemeral executor (the lean roster's only
-    # execution identity since plan step 19) — two identities, exactly as
+    # execution identity) — two identities, exactly as
     # in a real run.
     runner_token = projected_token(PLATFORM_NS, "orchestrator-worker")
     backend = K8sJobsBackend(namespace=COMPANY_NS)
@@ -155,7 +155,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
 
 def test_run_records_live_in_the_registry(implement_run: dict):
     """The `runs` table replaced runs/<id>/manifest.json: the workflow's
-    terminal record is a row, and the workflow id maps back to it (§5.5)."""
+    terminal record is a row, and the workflow id maps back to it."""
     record = run_record(implement_run["run_id"])
     assert record is not None, "no run row for a completed run"
     assert record["status"] == "done"

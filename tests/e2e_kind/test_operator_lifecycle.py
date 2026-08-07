@@ -84,7 +84,7 @@ def apply_blueprint(path: Path) -> None:
 def wait_for_convergence(timeout_s: int = 300) -> None:
     kubectl("wait", "--for=jsonpath={.status.phase}=Active",
             f"ns/{COMPANY_NS}", f"--timeout={timeout_s}s")
-    # The lean roster (plan step 19): the PM is the only standing hire.
+    # The lean roster: the PM is the only standing hire.
     for hire in ("pm",):
         kubectl("-n", COMPANY_NS, "rollout", "status", f"deployment/{hire}",
                 f"--timeout={timeout_s}s", timeout=timeout_s + 30)

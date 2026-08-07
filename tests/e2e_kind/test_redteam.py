@@ -1,29 +1,28 @@
-"""The red-team suite against the live sandbox backend (plan step 23,
-overview §4.6 exit criteria): attacks run inside a real provisioned
-sandbox on the cluster, not against OPA decisions on paper.
+"""The red-team suite against the live sandbox backend: attacks run inside
+a real provisioned sandbox on the cluster, not against OPA decisions on
+paper.
 
 What this suite claims, and what it deliberately does not:
 
-- **Claimed and asserted here** — the MVP containment posture of §4.6: K8s
+- **Claimed and asserted here** — the containment posture: K8s
   Jobs + NetworkPolicy + resource caps. No credential to scrape, no
   Kubernetes API or node metadata to reach, no container-runtime socket or
   host mount, no other tenant's processes, run-scoped egress identity that
   cannot be forged, resource caps that actually terminate a runaway, and a
   wall-clock deadline on every Job.
-- **Explicitly NOT claimed** — kernel-level isolation. §4.6 defers a
-  hardened RuntimeClass (gVisor/Kata) to V1, so the container's own
-  privilege boundary is not a security boundary here.
+- **Explicitly NOT claimed** — kernel-level isolation. Not hardened: there
+  is no gVisor/Kata RuntimeClass, so the container's own privilege
+  boundary is not a security boundary here.
   `test_root_inside_the_sandbox_buys_nothing` states that honestly: the
   containment is that privilege inside the sandbox reaches nothing, not
   that privilege is unavailable.
 
-Two residual risks this suite measures rather than prevents, both recorded
-in the step-23 plan note: DNS resolution is permitted to the cluster
-resolver (a DNS tunnel through CoreDNS's upstream forwarding is not
-visible to the audited proxy), and `sandbox.exec` is inside the executor's
-compiled scope by design, so payload *attempts* are stopped by the egress
-layer rather than by the tool allow-list (asserted in
-test_injected_conductor).
+Two residual risks this suite measures rather than prevents: DNS
+resolution is permitted to the cluster resolver (a DNS tunnel through
+CoreDNS's upstream forwarding is not visible to the audited proxy), and
+`sandbox.exec` is inside the executor's compiled scope by design, so
+payload *attempts* are stopped by the egress layer rather than by the tool
+allow-list (asserted in test_injected_conductor).
 
 The baseline egress path — allowlisted host allowed, non-allowlisted host
 denied and audited, NetworkPolicy backstop, revocation on unregistration —
@@ -147,7 +146,7 @@ def test_the_one_permitted_route_out_still_works(target: Target) -> None:
 
 
 def test_no_service_account_token_is_mounted(target: Target) -> None:
-    """`automountServiceAccountToken: False` on the Job (§4.6): the sandbox
+    """`automountServiceAccountToken: False` on the Job: the sandbox
     holds no Kubernetes identity at all, so there is nothing to steal and
     nothing to replay against the API server."""
     exit_code, output = target.sh(
@@ -193,7 +192,7 @@ def test_the_only_credential_is_the_runs_own_scoped_proxy_secret(
     target: Target, egress_key: str,  # noqa: F811
 ) -> None:
     """The sandbox env carries exactly one secret-shaped value: its own
-    per-run proxy credential (§2b). It is HMAC(key, run_id) — bound to this
+    per-run proxy credential. It is HMAC(key, run_id) — bound to this
     run, useless for any other, and worth nothing beyond the blueprint's
     allowlist."""
     exit_code, output = target.sh("printenv")
@@ -305,12 +304,12 @@ def test_the_process_namespace_is_the_pods_own(target: Target) -> None:
 
 
 def test_root_inside_the_sandbox_buys_nothing(target: Target) -> None:
-    """The honest statement of the MVP boundary (§4.6): a hardened
-    RuntimeClass is a V1 item, so the container's privilege boundary is not
-    claimed as a security boundary. Containment is that privilege inside
-    the sandbox reaches *nothing* — the assertions above (no token, no API,
-    no metadata, no host mount, no foreign processes) hold regardless of
-    uid, and egress stays confined to the audited proxy.
+    """The honest statement of the containment boundary: not hardened —
+    there is no gVisor/Kata RuntimeClass, so the container's privilege
+    boundary is not claimed as a security boundary. Containment is that
+    privilege inside the sandbox reaches *nothing* — the assertions above
+    (no token, no API, no metadata, no host mount, no foreign processes)
+    hold regardless of uid, and egress stays confined to the audited proxy.
 
     This test pins the posture so a change in it is a visible decision:
     if the sandbox ever does run unprivileged, this is where that is
@@ -358,8 +357,8 @@ def test_resource_caps_and_deadline_are_declared_on_the_live_job(
 def test_memory_cap_terminates_a_runaway_allocation(
     stack: None, egress_key: str, workspace_tar: bytes  # noqa: F811
 ) -> None:
-    """Resource exhaustion, for real (§4.6: caps 'demonstrably terminate a
-    runaway workload'). Runs in its own throwaway sandbox: the cgroup OOM
+    """Resource exhaustion, for real: caps demonstrably terminate a
+    runaway workload. Runs in its own throwaway sandbox: the cgroup OOM
     killer picks the biggest process, and the shared target's toolserver
     must not be collateral.
 
@@ -397,8 +396,8 @@ def test_memory_cap_terminates_a_runaway_allocation(
 
 def test_direct_external_tcp_is_dropped_by_the_backstop(target: Target) -> None:
     """Going around the proxy rather than through it: the NetworkPolicy
-    drops it silently (§4.6 — the backstop *beneath* the audited layer, so
-    absence of an audit event here is by design, not a gap)."""
+    drops it silently — the backstop *beneath* the audited layer, so
+    absence of an audit event here is by design, not a gap."""
     exit_code, output = target.py(
         "import socket,sys\n"
         "s=socket.socket(); s.settimeout(5)\n"
@@ -411,10 +410,10 @@ def test_dns_egress_is_confined_to_the_cluster_resolver(target: Target) -> None:
     """DNS is permitted to kube-dns only, so an external resolver cannot be
     used as a side channel.
 
-    Residual risk, measured not prevented (recorded in the step-23 plan
-    note): the cluster resolver itself forwards unknown names upstream, so
-    a DNS tunnel through CoreDNS is not visible to the audited proxy.
-    Closing it needs resolver-level policy — a V1 item, not an MVP claim."""
+    Residual risk, measured not prevented: the cluster resolver itself
+    forwards unknown names upstream, so a DNS tunnel through CoreDNS is
+    not visible to the audited proxy. Closing it needs resolver-level
+    policy, which this system does not implement."""
     exit_code, output = target.py(
         "import socket,sys\n"
         "header = bytes([0xab,0xcd, 1,0, 0,1, 0,0, 0,0, 0,0])\n"
@@ -434,9 +433,10 @@ def test_dns_egress_is_confined_to_the_cluster_resolver(target: Target) -> None:
 def test_every_blocked_attempt_that_has_a_source_is_in_the_audit_store(
     target: Target,
 ) -> None:
-    """§4.6's mechanically-checkable half: where a source exists to see the
-    block, the block is on the record. The proxy sees credential and
-    allowlist denials; NetworkPolicy drops stay silent by design."""
+    """The mechanically-checkable half of the containment posture: where a
+    source exists to see the block, the block is on the record. The proxy
+    sees credential and allowlist denials; NetworkPolicy drops stay
+    silent by design."""
     exit_code, output = target.py(
         "import urllib.request\n"
         "try:\n"

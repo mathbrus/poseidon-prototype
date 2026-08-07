@@ -8,9 +8,9 @@ binding, cross-company tenancy, the platform scope. The gateway half drives
 real calls with projected workload tokens through the whole pipeline:
 authn -> registry enrichment -> compiled decision -> audit.
 
-Since plan step 19 the lean roster is in force: the standing engineer is
+The lean roster is in force: the standing engineer is
 fired and execution is ephemeral crews, so the executor-side checks here
-use the ephemeral §5.1 input shape (role + crew_template + crew_role), and
+use the ephemeral input shape (role + crew_template + crew_role), and
 the firing itself is proven — a standing backend-engineer input finds
 nothing in the compiled bundle. E2-class injection deny + recovery runs in
 test_injection.py through the crew executor's deliver dispatch.
@@ -58,8 +58,8 @@ def standing(role: str, tool: str, *, verified: bool = True, args: dict | None =
 
 def executor(tool: str, *, verified: bool = True, args: dict | None = None,
              company: str = "hello-saas") -> dict[str, Any]:
-    """The crew executor's §5.1 input shape — the only execution identity
-    since the step-19 firing diff."""
+    """The crew executor's input shape — the only execution identity
+    now that the standing backend-engineer role is retired."""
     return {
         "company": company,
         "agent_id": "feature-delivery-executor-run-gov",
@@ -91,14 +91,14 @@ def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
                           executor("sandbox.exec", verified=False))
         assert unbound == {"allow": False, "rule": "default_deny"}
 
-        # The firing diff (plan step 19), provable in policy: a standing
+        # Provable in policy: a standing
         # backend-engineer finds nothing in the compiled bundle — the role
         # exists only as crew members now.
         fired = _decide(base, COMPANY_DECISION,
                         standing("backend-engineer", "sandbox.exec"))
         assert fired == {"allow": False, "rule": "default_deny"}
 
-        # §4.5 exit: the PM cannot call executor tools — a rule, not a prompt.
+        # The PM cannot call executor tools — a rule, not a prompt.
         for tool in ("sandbox.exec", "sandbox.write_file", "git.open_pr"):
             denied = _decide(base, COMPANY_DECISION,
                              standing("pm", tool, args={"branch": "feature/x",
@@ -197,7 +197,7 @@ def test_denies_are_in_the_audit_story(stack: None) -> None:
 
 
 def test_installed_bundle_covers_the_new_tools(stack: None) -> None:
-    """Per-role scoping for the grown surface (§4.7): PM owns issues + crew
+    """Per-role scoping for the grown surface: PM owns issues + crew
     intent, the reviewer owns the review tools, nobody else does — and
     crew.request is narrowed to the conductor's may_spawn list."""
     with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
@@ -229,9 +229,9 @@ def test_installed_bundle_covers_the_new_tools(stack: None) -> None:
 
 
 def test_pm_records_crew_intent_at_the_gateway(stack: None, env: dict) -> None:
-    """The one spawn model (§4.4 rule 3), tool path: the PM's projected
+    """The one spawn model, tool path: the PM's projected
     identity records an idempotent, expiring crew_requests row — intent,
-    never fulfillment (that is step 16d)."""
+    never fulfillment."""
     token = projected_token(COMPANY_NS, "pm-1")
     run_id = f"run-gov-crew-{int(time.time())}"
 

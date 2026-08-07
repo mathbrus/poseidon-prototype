@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Plan step 25 — MVP acceptance: the §10 exit criteria, scripted, in one
-# command. The suite is tests/e2e_kind in full; its capstone module
-# (test_zz_acceptance.py) documents which module proves which criterion.
+# Runs the MVP acceptance suite (tests/e2e_kind in full) in one command.
+# Its capstone module (test_zz_acceptance.py) documents which module
+# proves which criterion.
 #
 # The suite itself is cluster-neutral: it reaches the cluster through the
 # current kubectl context, deploy/kind/.env, and the gateway URL in it.
-# Today it runs against kind (deploy/kind/kind-up.sh is the bring-up);
-# §10 criterion 7's real-cluster half is deliberately deferred — when a
+# Today it runs against kind (deploy/kind/kind-up.sh is the bring-up); the
+# real-cluster run is deliberately deferred (kind-only for now) — when a
 # real cluster exists, the intent is that this same script runs unchanged
 # against its context.
 #
@@ -36,12 +36,12 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$GATEWAY_URL/mcp" ||
   exit 1
 }
 
-echo "== MVP acceptance (§10, plan step 25) against $(kubectl config current-context)"
+echo "== MVP acceptance against $(kubectl config current-context)"
 uv run pytest tests/e2e_kind -m e2e_kind "$@"
 
 cat <<'EOF'
 
-== §10 exit criteria: all scripted checks green ==
+== Acceptance criteria: all scripted checks green ==
  1 declarative lifecycle   compile/preview/apply/edit/teardown+revocation
  2 durable                 kill-worker resume; nothing leaked (sandbox,
                            identity, participant row, registration)

@@ -65,8 +65,8 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
         task_queue=TASK_QUEUE,
     )
 
-    # The park is an API-visible pending state (§6.4), reached only after
-    # the reviewer posted findings.
+    # The park is an API-visible pending state, reached only after the
+    # reviewer posted findings.
     deadline = time.monotonic() + 600
     parked = False
     while time.monotonic() < deadline:
@@ -97,7 +97,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
 
 @pytest.fixture(scope="module")
 def review_chain(stack: None, env: dict) -> dict:
-    """The whole §6.3 arc: a goal becomes tickets (intake), a task becomes
+    """The whole arc: a goal becomes tickets (intake), a task becomes
     a PR (implement), the PR becomes reviewer findings, a parked gate, an
     escalation, an approval, and a gateway merge (review)."""
     chain: dict = {"env": env}
@@ -181,7 +181,7 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
 
 
 def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> None:
-    """§6.3: the reviewer is an ephemeral feature-review crew member under
+    """The reviewer is an ephemeral feature-review crew member under
     the PM's authority — it reads the diff, executes the suite in its own
     sandbox (provisioned from the PR ref), and comments on the PR."""
     run_id = review_chain["review_run_id"]
@@ -216,7 +216,7 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
 def test_the_crew_request_was_recorded_under_conductor_authority(
     review_chain: dict,
 ) -> None:
-    """§4.4 rule 3, process-initiated: the workflow's own crew request is
+    """Process-initiated: the workflow's own crew request is
     the same crew_requests row and the same audited compiled decision an
     agent-issued request produces."""
     run_id = review_chain["review_run_id"]
@@ -240,7 +240,7 @@ def test_the_crew_request_was_recorded_under_conductor_authority(
 
 
 def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
-    """§6.4 'human never approves' row, then the verdict: both transitions
+    """Escalation, then the verdict: both transitions
     are process-gate audit events carrying the workflow id, in order."""
     run_id = review_chain["review_run_id"]
     gate_events = [e for e in audit_story(run_id)
@@ -256,7 +256,7 @@ def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
 
 
 def test_merge_is_a_gateway_call_strictly_after_the_gate(review_chain: dict) -> None:
-    """O-1 A made observable: git.merge_pr is a gateway-audited call under
+    """git.merge_pr is a gateway-audited call under
     the platform lifecycle, and it happens after the gate's approval —
     never before, never around the gateway."""
     run_id = review_chain["review_run_id"]
@@ -274,7 +274,7 @@ def test_merge_is_a_gateway_call_strictly_after_the_gate(review_chain: dict) -> 
 
 
 def test_one_story_spans_every_review_source(review_chain: dict) -> None:
-    """One run_id query tells the whole §6.3 arc: reviewer tool calls
+    """One run_id query tells the whole story: reviewer tool calls
     (gateway), its model calls (llm-gateway), fulfillment and revocation
     (process-lifecycle), and the gate (process-gate)."""
     run_id = review_chain["review_run_id"]

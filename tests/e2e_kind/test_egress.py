@@ -1,4 +1,4 @@
-"""Step-5 exit criteria against the live kind cluster (§4.6): from inside a
+"""Egress enforcement against the live kind cluster: from inside a
 sandbox, a request to a non-allowlisted host is blocked *and* the deny lands
 in the registry audit store correlated by run_id; an allowlisted `pip install`
 succeeds through the proxy; and the NetworkPolicy backstop silently drops
@@ -7,9 +7,9 @@ attempts to bypass the proxy.
 The sandbox is provisioned exactly as the orchestrator does it: the per-run
 proxy credential is minted with the shared key (read from the cluster
 secret) and injected via `SandboxPolicy.env`, and the sandbox is registered
-at the gateway — since plan step 12 the proxy's allowlist resolves per run
-through that registration to the applied blueprint's IR projection, so an
-unregistered run has zero egress.
+at the gateway — the proxy's allowlist resolves per run through that
+registration to the applied blueprint's IR projection, so an unregistered
+run has zero egress.
 """
 
 import asyncio

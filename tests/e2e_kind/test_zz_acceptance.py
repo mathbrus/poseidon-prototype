@@ -1,11 +1,11 @@
-"""Plan step 25 — MVP acceptance: the §10 exit criteria, scripted.
+"""MVP acceptance: the exit criteria, scripted.
 
 The acceptance suite is the whole of `tests/e2e_kind` (one command:
-`scripts/mvp-acceptance.sh`, or `uv run pytest tests/e2e_kind -m e2e_kind`).
-This module is its capstone: the §10 clauses no earlier module asserts,
+`scripts/acceptance.sh`, or `uv run pytest tests/e2e_kind -m e2e_kind`).
+This module is its capstone: the clauses no earlier module asserts,
 plus the cross-suite claims that only make sense once everything else ran.
 
-Where each §10 criterion is proven:
+Where each criterion is proven:
 
   1 declarative   test_operator_lifecycle (apply / edit / teardown with the
                   failed post-teardown call); HERE: compile and preview as
@@ -73,7 +73,7 @@ ALL_SOURCES = {
 }
 
 
-# -- §10 criterion 1: compile → preview, scripted, against the live cluster --
+# -- criterion 1: compile → preview, scripted, against the live cluster ------
 
 
 def _blueprint_cli(args: list[str], dsn: str) -> subprocess.CompletedProcess:
@@ -87,7 +87,7 @@ def _blueprint_cli(args: list[str], dsn: str) -> subprocess.CompletedProcess:
 
 
 def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
-    """§10 criterion 1's first two verbs, e2e: previewing the applied
+    """Criterion 1's first two verbs, e2e: previewing the applied
     blueprint against the live registry reports *no changes* (the cluster
     is converged on exactly what the document says), an edit previews as
     exactly that one change, and a local compile produces byte-for-byte
@@ -146,13 +146,13 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
     )
 
 
-# -- §10 criterion 2: the killed run's own leak check ------------------------
+# -- criterion 2: the killed run's own leak check ----------------------------
 
 
 def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
     """E1 kills the worker mid-run; earlier modules assert the *sandbox*
     leaked nothing and prove the crew sweep on a separate run. Here the
-    §10 clause is closed on the killed run itself: its participant rows
+    clause is closed on the killed run itself: its participant rows
     are terminated, its crew pod is gone, its sandbox registration is
     terminated — no leaked sandbox, identity, or participant row."""
     run_id = implement_run["run_id"]
@@ -183,7 +183,7 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         assert row["terminated_at"], f"leaked sandbox registration: {row}"
 
 
-# -- §10 criterion 6: the roster, from the registry's point of view ----------
+# -- criterion 6: the roster, from the registry's point of view --------------
 
 
 def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
@@ -215,7 +215,7 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
 def test_live_executor_cannot_exceed_its_compiled_allowlist(
     stack, env: dict, tmp_path
 ) -> None:
-    """§10 criterion 6's last clause, live: a *real minted* executor —
+    """Criterion 6's last clause, live: a *real minted* executor —
     token, participants row, full pipeline — is denied the tools outside
     its compiled allow-list at the gateway (deny by rule, audited), while
     its in-scope surface still answers. The planner half of this claim is
@@ -294,7 +294,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                 "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
-# -- §10 criterion 4: every audit source, real, in this suite execution ------
+# -- criterion 4: every audit source, real, in this suite execution ---------
 
 
 def _events_since(fence: str) -> list[dict[str, Any]]:
@@ -316,9 +316,9 @@ def _events_since(fence: str) -> list[dict[str, Any]]:
 def test_all_five_audit_sources_are_real_in_this_suite(
     stack, db_session_start: str
 ) -> None:
-    """§10 criterion 4's audit clause with no seeding anywhere: within this
+    """Criterion 4's audit clause with no seeding anywhere: within this
     suite execution (fenced by the database's own clock at session start),
-    real producers wrote every source in the closed §5.2 vocabulary —
+    real producers wrote every source in the closed audit-source vocabulary —
     gateway tool decisions, llm-gateway metering/hard-stops, sandbox-infra
     egress denies, process-gate escalations/verdicts, process-lifecycle
     mint/revoke — and each source correlates to runs by run_id.

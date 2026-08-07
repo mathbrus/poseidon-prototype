@@ -1,6 +1,6 @@
 """Step-4 exit criteria against the live kind cluster: the k8s_jobs backend
 provision/destroy round-trips (Job + toolserver in the company namespace),
-and the policy deadline kills a runaway sandbox (§4.6).
+and the policy deadline kills a runaway sandbox.
 
 The full sandbox.* proxy path through the gateway is proven by the E1 suite
 (test_happy_path), which now runs on this backend end-to-end.
@@ -103,7 +103,7 @@ def test_provision_serve_destroy(backend: K8sJobsBackend, workspace_tar: bytes):
 
 
 def test_deadline_kills_runaway_sandbox(backend: K8sJobsBackend, workspace_tar: bytes):
-    """activeDeadlineSeconds is the wall-clock cap of §4.6: a sandbox that
+    """activeDeadlineSeconds is the wall-clock cap: a sandbox that
     outlives its policy deadline is terminated by the Job controller with no
     orchestrator involvement."""
     run_id = new_run_id()

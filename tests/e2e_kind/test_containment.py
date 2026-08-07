@@ -1,4 +1,4 @@
-"""E3 on the cluster (plan step 6), adapted to NetworkPolicy + the egress
+"""E3 on the cluster, adapted to NetworkPolicy + the egress
 proxy: from inside the agent pod only the two gateways answer; no pod in the
 company namespace carries a credential-shaped env var. The sandbox half —
 egress only through the audited proxy, silent NetworkPolicy backstop — is
@@ -52,7 +52,7 @@ def _probe(pod: str, url: str, want: str) -> bool:
         (f"http://llm-gateway.{PLATFORM_NS}.svc.cluster.local:4000/healthz",
          "reachable"),
         # The llm-proxy (provider keys) is sealed behind the metered
-        # gateway since plan step 14 — an agent must not reach it.
+        # gateway — an agent must not reach it.
         (f"http://llm-proxy.{PLATFORM_NS}.svc.cluster.local:4000/health/liveliness",
          "blocked"),
         (f"http://opa.{PLATFORM_NS}.svc.cluster.local:8181/health", "blocked"),
@@ -66,14 +66,14 @@ def test_agent_reaches_only_the_gateways(stack: None, url: str, want: str) -> No
 
 
 def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
-    """Same rule as the CI image gate: nothing *_TOKEN/*_KEY since plan
-    step 11 (a standing agent's credential is a projected token file, not
+    """Same rule as the CI image gate: nothing *_TOKEN/*_KEY
+    (a standing agent's credential is a projected token file, not
     an env var); GPG_KEY only if blanked (the chart empties the python
     base image's baked-in value). One deliberate exception (step 16c):
     crew pods carry their minted short-TTL ephemeral identity as
     GATEWAY_TOKEN — that token IS the pod (run-scoped, registry-revocable
-    before TTL), not a platform secret, and §4.9 forbids the per-run
-    Kubernetes service accounts a file mount would need."""
+    before TTL), not a platform secret, and a file mount would need
+    per-run Kubernetes service accounts, which the platform avoids."""
     listing = subprocess.run(
         ["kubectl", "-n", COMPANY_NS, "get", "pods",
          "--field-selector=status.phase=Running",

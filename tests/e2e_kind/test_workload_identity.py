@@ -1,4 +1,4 @@
-"""Workload identity on kind (plan step 11 done-when).
+"""Workload identity on kind.
 
 Positive half: the in-cluster callers hold no static token anymore (their
 env is checked structurally) and still authenticate — a token minted for
@@ -89,7 +89,7 @@ def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
     assert "ORCHESTRATOR_BEARER_TOKEN" not in worker_env
     assert "GATEWAY_TOKEN_FILE" in worker_env
 
-    # The lean roster's one standing agent (plan step 19): the PM.
+    # The lean roster's one standing agent: the PM.
     agent_env = _kubectl(
         "-n", COMPANY_NS, "get", "deployment/pm",
         "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}",

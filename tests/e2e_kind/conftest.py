@@ -1,4 +1,4 @@
-"""Fixtures for the kind e2e suite (plan steps 1d + 3).
+"""Fixtures for the kind e2e suite.
 
 These tests run against the kind cluster brought up by
 `deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
@@ -6,7 +6,7 @@ GIT_TOKEN and a disposable TARGET_REPO. They open real pull requests on
 that repo. The LLM is the deterministic mock by default (free); only a
 cluster deployed with REAL_LLM=1 spends provider tokens.
 
-Since plan step 3, runs go through Temporal: the suite starts the implement
+Runs go through Temporal: the suite starts the implement
 workflow as a thin client (exactly what `poseidon run` does), and the
 in-cluster orchestrator worker drives the activities. Mid-run, the worker
 pod is killed — the E1 assertions double as the step-3 crash-resume proof.
@@ -105,8 +105,7 @@ def _psql_json(query: str, run_id: str, default: str) -> Any:
 
 
 def audit_story(run_id: str) -> list[dict[str, Any]]:
-    """The whole story for one run, from the registry (plan step 8 retired
-    the two JSONL sinks)."""
+    """The whole story for one run, from the registry."""
     return _psql_json(
         "SELECT COALESCE(json_agg(e ORDER BY e.ts, e.id), '[]'::json) FROM ("
         "SELECT * FROM registry.audit_events WHERE run_id = :'run_id'"
@@ -160,7 +159,7 @@ def restart_gateway() -> None:
 
 def sandbox_pods(run_id: str | None = None) -> list[str]:
     """Names of live (non-terminated) sandbox pods, optionally for one run.
-    Sandboxes are Jobs in the company namespace since plan step 4."""
+    Sandboxes are Jobs in the company namespace."""
     selector = f"{RUN_ID_LABEL}={run_id}" if run_id else RUN_ID_LABEL
     proc = subprocess.run(
         [

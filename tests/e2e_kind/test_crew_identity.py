@@ -135,7 +135,7 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
             assert foreign.isError
             assert "default_deny" in foreign.content[0].text
 
-            # Revocation = row termination (§2b), long before TTL.
+            # Revocation = row termination, long before TTL.
             swept = asyncio.run(crew.revoke_participants(run_id))
             assert minted["agent_id"] in swept
 
@@ -183,10 +183,10 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
 
 
 def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
-    """The 16b done-when's third clause, against the running OPA: there is
-    no pushed run data anywhere (the PoC's data.runs.assignments successor
-    is the enriched *input*), and the same live bundle flips the executor's
-    decision on the input flag alone."""
+    """Against the running OPA: there is no pushed run data anywhere — the
+    policy reads the enriched request *input* rather than a pushed
+    data.runs.assignments document — and the same live bundle flips the
+    executor's decision on the input flag alone."""
     from .test_operator_lifecycle import port_forward
 
     with port_forward("opa", 18183, 8181) as base:

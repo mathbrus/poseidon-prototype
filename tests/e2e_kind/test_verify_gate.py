@@ -1,6 +1,6 @@
-"""The platform verify gate on the live cluster (plan step 19, sequencing
-choices 4 + 8): E3 — the executor's completion claim is advisory, the
-platform's own `sandbox.run_tests` is the gate of record.
+"""The platform verify gate on the live cluster: E3 — the executor's
+completion claim is advisory, the platform's own `sandbox.run_tests` is the
+gate of record.
 
 The scripted scenario (examples/task-verify-red.md) plants a
 state-dependent test that greens the executor's advisory verify and reds

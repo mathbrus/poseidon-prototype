@@ -54,7 +54,7 @@ def agent_image() -> str:
 
 
 def test_worker_rbac_is_bounded(stack: None) -> None:
-    """The §3 TCB review artifact, checked against the live API server:
+    """The worker's RBAC boundary, checked against the live API server:
     pods in the company namespace only; never the platform namespace,
     never standing structure."""
     assert _can_i("create", "pods", COMPANY_NS)

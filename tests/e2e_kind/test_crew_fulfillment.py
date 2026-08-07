@@ -1,4 +1,4 @@
-"""Step 16d done-when — the §4.4 exit criteria on the live cluster.
+"""Crew fulfillment on the live cluster.
 
 The full fulfillment path runs with the real machinery: the PM records
 intent through the gateway (policy-faced), fulfill consumes it, mints the
@@ -150,8 +150,8 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
         Runs(registry).start(run_id, task_text, "implement", None, "hello-saas")
         try:
             # 1. The PM records intent through the gateway — same row, same
-            #    policy as any spawn (§4.4 rule 3); may_spawn/cap/budget
-            #    checks all faced here.
+            #    policy as any spawn; may_spawn/cap/budget checks all
+            #    faced here.
             pm_token = projected_token(COMPANY_NS, "pm-1")
             recorded = _call(env, pm_token, "crew.request",
                              {"run_id": run_id,
@@ -181,10 +181,9 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 )
 
                 # 4. The executor dispatch carries the brief verbatim — the
-                #    orchestrator-fixed graph IS the handoff (§4.4 rule 6).
-                #    Since plan step 19 it ends at a completion claim; the
-                #    separate deliver dispatch (issued here in the platform
-                #    verify gate's stead) opens the PR.
+                #    orchestrator-fixed graph IS the handoff. It ends at a
+                #    completion claim; the separate deliver dispatch (issued
+                #    here in the platform verify gate's stead) opens the PR.
                 async def dispatch(mode: str, text: str) -> dict:
                     async with AgentClient(fulfilled["executor_url"]) as agent:
                         await agent.dispatch(run_id, text, mode=mode)
@@ -216,7 +215,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             pr = pr_info(status["pr_url"])
             assert pr["head"]["ref"] == f"feature/slugify-{nonce}"
 
-            # §4.4 exit: parentage on every gateway decision the crew made.
+            # Parentage on every gateway decision the crew made.
             story = audit_story(run_id)
             crew_events = [e for e in story if e["source"] == "gateway"
                            and e["lifecycle"] == "ephemeral"]
@@ -263,10 +262,10 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 
 
 def test_worker_kill_leaks_no_crew(stack: None) -> None:
-    """§4.4 exit: identities revoked and rows terminal after teardown
+    """Identities revoked and rows terminal after teardown
     *including* worker kill — the sweep rides the workflow's compensation,
-    which Temporal replays on the restarted worker. Since plan step 19 the
-    workflow stands its own crew up (fulfill_crew), so the kill lands on a
+    which Temporal replays on the restarted worker. The workflow stands
+    its own crew up (fulfill_crew), so the kill lands on a
     run with a live minted roster and a crew pod."""
     from orchestrator.crewpods import pod_name
     from orchestrator.identity import ephemeral_agent_id
@@ -330,8 +329,8 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     # when the workflow returns — `asyncio.to_thread` cannot interrupt it —
     # so a doomed pod may appear for a few seconds and then be collected.
     # The bound is what keeps this honest: the leak this test exists to
-    # catch (plan step 23, a provision landing past teardown with nothing
-    # left to collect it) left pods Running indefinitely — minutes, not
+    # catch — a provision landing past teardown with nothing left to
+    # collect it — left pods Running indefinitely — minutes, not
     # seconds — so a real regression still fails here.
     deadline = time.monotonic() + 90
     while True:

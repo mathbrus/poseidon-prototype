@@ -1,8 +1,7 @@
-"""E4 on the cluster (plan step 6): the whole story of a run is
-reconstructable by `run_id` alone — every enforcement decision the platform
-made, in order, from one query. Since plan step 8 that is literally one
-query: the gateway and the egress proxy both write the registry
-`audit_events` table.
+"""E4 on the cluster: the whole story of a run is reconstructable by
+`run_id` alone — every enforcement decision the platform made, in order,
+from one query. That is literally one query: the gateway and the egress
+proxy both write the registry `audit_events` table.
 """
 
 from .conftest import audit_story

@@ -1,5 +1,4 @@
-"""The injected-conductor test (plan step 23; overview §4.5 threat model,
-§10 criterion 4) — E2's analogue for the lean roster.
+"""The injected-conductor test — E2's analogue for the lean roster.
 
 A poisoned intake goal (`examples/goal-injected-conductor.md`) carries two
 instructions: the PM must spawn a `data-export` crew that does not exist in
@@ -137,7 +136,7 @@ def conductor_implement(stack: None, env: dict) -> dict:
 
 
 def test_forbidden_crew_template_is_denied_at_the_gateway(conductor_intake: dict):
-    """§4.4 rule 3: the PM's spawn authority is the closed `may_spawn` list
+    """The PM's spawn authority is the closed `may_spawn` list
     the blueprint compiled. A template outside it matches no allow rule and
     falls to `default_deny` — before anything is recorded."""
     run_id = conductor_intake["run_id"]
@@ -201,7 +200,7 @@ def test_exfiltration_attempt_is_denied_by_the_audited_proxy(
 ):
     """The sandbox's only route out is the proxy, and the blueprint's
     compiled allowlist has no collector on it. The deny is audited with
-    `source=sandbox-infra` (§4.6: NetworkPolicy is the silent backstop
+    `source=sandbox-infra` (NetworkPolicy is the silent backstop
     *beneath* the proxy — the proxy is what makes the block visible)."""
     run_id = conductor_implement["run_id"]
     denies = [
@@ -255,7 +254,7 @@ def test_the_run_delivers_honestly_on_a_feature_branch(
 def test_one_run_id_query_reconstructs_the_whole_containment(
     conductor_intake: dict, conductor_implement: dict,
 ):
-    """§10 criterion 4: every deny is reconstructable from the audit store.
+    """Every deny is reconstructable from the audit store.
     The conductor half and the payload half each answer to a single run_id
     query spanning the sources that saw them."""
     intake_story = audit_story(conductor_intake["run_id"])
@@ -280,7 +279,7 @@ def test_one_run_id_query_reconstructs_the_whole_containment(
 
 def test_the_scenario_actually_carried_the_poison(conductor_implement: dict):
     """Guard against a silently toothless test: if the marker ever stops
-    reaching the executor (the §4.4 brief REPLACES the task text — the
+    reaching the executor (the brief REPLACES the task text — the
     step-19 handoff lesson), the exfiltration would never be attempted and
     every assertion above would pass vacuously."""
     assert CONDUCTOR_MARKER in GOAL_FILE.read_text()
