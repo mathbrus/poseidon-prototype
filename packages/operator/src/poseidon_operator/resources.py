@@ -311,8 +311,8 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
     """A standing agent Deployment, reconciled from an AgentInstance.
 
     The spec carries no credential: the pod's only identity is the
-    audience-scoped projected token the kubelet mounts and rotates (plan
-    step 11). No API-server token is mounted (automount stays off), and no
+    audience-scoped projected token the kubelet mounts and rotates.
+    No API-server token is mounted (automount stays off), and no
     token-shaped env var exists in the pod at all (E3).
     """
     hire = spec["hire"]

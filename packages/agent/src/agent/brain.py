@@ -267,9 +267,9 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
                     passed = result.get("exit_code") == 0
                     log.info("verify", extra={"iteration": iterations, "passed": passed})
                     if passed:
-                        # Advisory green = the completion claim (sequencing
-                        # choice 8): the platform verifies of record and the
-                        # workflow directs delivery in a separate dispatch.
+                        # Advisory green = the completion claim: the platform
+                        # verify is the gate of record, and the workflow
+                        # directs delivery in a separate dispatch.
                         return RunResult(iterations=iterations)
                     if iterations >= settings.max_iterations:
                         return RunResult(

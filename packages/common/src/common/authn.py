@@ -55,8 +55,8 @@ class WorkloadAuthnSettings(BaseSettings):
     platform_namespace: str = "poseidon-platform"
     orchestrator_service_account: str = "orchestrator-worker"
     token_audience: str = "poseidon-gateway"
-    # Empty disables the ephemeral-JWT path (nothing mints these until plan
-    # step 16a; the verify seam is live since step 11).
+    # Empty disables the ephemeral-JWT path entirely: with no key there is
+    # nothing to verify a platform-signed token against.
     platform_jwt_key: str = ""
     # Empty means "derive from the in-cluster environment"; unit tests leave
     # all three alone and inject a reviewer instead.
