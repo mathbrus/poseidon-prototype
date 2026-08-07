@@ -7,7 +7,6 @@ proven by test_governance.py::test_pm_is_denied_executor_tools_at_the_gateway
 and the installed-bundle checks; this file proves the affirmative half.
 """
 
-import asyncio
 import contextlib
 import re
 import socket
@@ -18,7 +17,7 @@ import httpx
 
 from common.ids import new_run_id
 
-from .conftest import COMPANY_NS, PLATFORM_NS, _psql_json, audit_story
+from .conftest import COMPANY_NS, _psql_json, audit_story
 from .test_crew_identity import _registry
 
 PM_LOCAL_PORT = 18002
@@ -38,9 +37,11 @@ def _pm_forward():
                 with socket.create_connection(("127.0.0.1", PM_LOCAL_PORT),
                                               timeout=1):
                     break
-            except OSError:
+            except OSError as exc:
                 if time.monotonic() > deadline:
-                    raise RuntimeError("port-forward to the PM never came up")
+                    raise RuntimeError(
+                        "port-forward to the PM never came up"
+                    ) from exc
                 time.sleep(0.5)
         yield f"http://127.0.0.1:{PM_LOCAL_PORT}"
     finally:

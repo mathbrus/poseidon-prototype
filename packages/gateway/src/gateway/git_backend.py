@@ -103,7 +103,7 @@ class GitBackend:
                 timeout=GIT_TIMEOUT_S,
                 env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
-        except subprocess.TimeoutExpired as exc:
+        except subprocess.TimeoutExpired:
             # TimeoutExpired's own message carries the full command line —
             # including a credentialed clone URL — so it never propagates
             # unredacted.

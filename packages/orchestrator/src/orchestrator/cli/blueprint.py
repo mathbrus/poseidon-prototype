@@ -12,7 +12,13 @@ from pathlib import Path
 
 import typer
 
-from compiler import EMPTY, InstanceSnapshot, RegistrySnapshot, compile_blueprint, diff_plan
+from compiler import (
+    EMPTY,
+    InstanceSnapshot,
+    RegistrySnapshot,
+    compile_blueprint,
+    diff_plan,
+)
 from compiler.errors import CompileError
 from schema import load_blueprint
 from schema.validate import ValidationError

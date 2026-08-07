@@ -1,14 +1,6 @@
 """Brain-host tests: the production OpenHands SDK loops
 driven by a scripted LLM and a fake gateway (see conftest)."""
 
-from agent.brain import (
-    build_llm,
-    deliver_dispatch,
-    implement_dispatch,
-    plan_dispatch,
-    review_dispatch,
-)
-from agent.hands import REVIEWER_TOOLS
 from conftest import (
     COMMENT_URL,
     PR_URL,
@@ -21,6 +13,15 @@ from conftest import (
     tc,
     text_of,
 )
+
+from agent.brain import (
+    build_llm,
+    deliver_dispatch,
+    implement_dispatch,
+    plan_dispatch,
+    review_dispatch,
+)
+from agent.hands import REVIEWER_TOOLS
 
 TASK = "Add a `greet(name)` function to src/hello.py with a test."
 
@@ -262,9 +263,11 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
             model="test-model",
         )
 
-    import agent.brain as brain
     from unittest.mock import patch
+
     from conftest import FakeBridge
+
+    import agent.brain as brain
 
     with patch.object(brain, "GatewayBridge",
                       lambda url, token: FakeBridge(gateway)):

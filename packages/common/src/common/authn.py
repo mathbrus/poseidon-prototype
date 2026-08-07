@@ -25,7 +25,7 @@ import hashlib
 import os
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import httpx
@@ -282,7 +282,7 @@ class Authenticator:
 
     async def _reject(self, path: str, rule: str, principal: str) -> None:
         event = AuditEvent(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=datetime.now(UTC).isoformat(),
             run_id="",
             agent_id=principal,
             role="",

@@ -9,7 +9,6 @@ NetworkPolicy's job.
 """
 
 from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
-
 from sandbox.contract import SandboxPolicy
 
 RUN_ID_LABEL = "poseidon.io/run-id"

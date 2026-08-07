@@ -21,8 +21,6 @@ from registry.memory import (
     InMemoryRunParticipants,
 )
 
-from conftest import AGENT_TOKEN, RUNNER_TOKEN
-
 pytestmark = pytest.mark.anyio
 
 PLATFORM_NS = "poseidon-platform"

@@ -2,6 +2,7 @@
 
 import io
 import tarfile
+from datetime import UTC
 
 from fastapi.testclient import TestClient
 
@@ -14,7 +15,7 @@ class FakeBundles:
         self.stored: dict[str, object] = {}
 
     def put(self, company: str, files: dict[str, str]) -> str:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from registry.bundles import StoredBundle
 
@@ -23,7 +24,7 @@ class FakeBundles:
             company=company,
             revision=revision,
             tarball=tarball,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         return revision
 

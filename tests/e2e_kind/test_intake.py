@@ -8,7 +8,6 @@ starts it — a thin Temporal client; the in-cluster worker drives the PM.
 import asyncio
 import contextlib
 import re
-import time
 
 import httpx
 

@@ -176,8 +176,9 @@ class FakePlanHost:
         self.dispatches: list[dict] = []
 
     def handler(self, request):
-        import httpx
         import json as _json
+
+        import httpx
 
         if request.method == "POST" and request.url.path == "/task":
             self.dispatches.append(_json.loads(request.content))

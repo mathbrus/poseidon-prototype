@@ -7,9 +7,9 @@ Regenerate deliberately (never reflexively — the diff is the review):
 
 import json
 
-from compiler import compile_blueprint
-
 from conftest import GOLDEN
+
+from compiler import compile_blueprint
 
 
 def test_plan_matches_the_golden_file(blueprint):

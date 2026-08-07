@@ -1,6 +1,6 @@
 """What the registry must guarantee for the services that depend on it."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -15,7 +15,7 @@ RUN_ID = "run-01REGISTRYTEST"
 
 def event(**overrides) -> AuditEvent:
     fields = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": datetime.now(UTC).isoformat(),
         "run_id": RUN_ID,
         "agent_id": "backend-engineer-1",
         "role": "backend-engineer",

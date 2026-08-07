@@ -25,7 +25,7 @@ import asyncio
 import hashlib
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from temporalio import activity
@@ -150,7 +150,7 @@ class ReviewActivities:
             raise RuntimeError("review activities constructed without an audit store")
         payload = {"gate": gate, "outcome": kind}
         event = AuditEvent(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id="orchestrator",
             role="platform",

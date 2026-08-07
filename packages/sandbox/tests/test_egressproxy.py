@@ -8,8 +8,8 @@ from pathlib import Path
 
 import httpx
 import pytest
-from registry.memory import InMemoryAuditStore
 
+from registry.memory import InMemoryAuditStore
 from sandbox.egressproxy.credentials import (
     ProxyUnresolvable,
     mint,

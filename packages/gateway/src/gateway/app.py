@@ -28,8 +28,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from common.authn import Authenticator, Reviewer, default_reviewer
-from gateway.config import GatewaySettings
 from common.identity import Identity
+from gateway.config import GatewaySettings
 from gateway.opa import OpaClient
 from gateway.service import GatewayService, PolicyDenied
 from registry import (

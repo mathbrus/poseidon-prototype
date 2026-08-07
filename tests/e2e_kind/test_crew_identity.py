@@ -22,7 +22,7 @@ import pytest
 
 from common.ids import new_run_id
 
-from .conftest import COMPANY_NS, PLATFORM_NS, audit_story
+from .conftest import PLATFORM_NS, audit_story
 from .test_governance import _call
 
 PG_LOCAL_PORT = 15434

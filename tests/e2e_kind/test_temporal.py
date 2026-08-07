@@ -20,7 +20,6 @@ from temporalio.worker import Worker
 # non-deterministic (pytest, the conftest's httpx/runner imports) must be
 # passed through rather than re-imported under restrictions.
 with workflow.unsafe.imports_passed_through():
-    import pytest
 
     from .conftest import PLATFORM_NS, temporal_port_forward
 

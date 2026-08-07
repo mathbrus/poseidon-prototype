@@ -25,14 +25,13 @@ import contextlib
 import hashlib
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 from urllib.parse import urlsplit
 
 from common.audit import AuditEvent
 from common.telemetry import get_logger
 from registry import AuditStore
-
 from sandbox.egressproxy.credentials import verify
 
 DEFAULT_PORT = 3128
@@ -287,7 +286,7 @@ class EgressProxy:
         backend_status: str | None,
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id="egress-proxy",
             # The enforcement point is the `source` field —

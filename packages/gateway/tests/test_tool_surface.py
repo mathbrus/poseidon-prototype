@@ -6,8 +6,6 @@ recording idempotent spawn intent under the conductor identity."""
 import json
 
 import pytest
-
-from common import platformjwt
 from conftest import (
     AGENT_TOKEN,
     JWT_KEY,
@@ -16,6 +14,8 @@ from conftest import (
     audit_events,
     mcp_session,
 )
+
+from common import platformjwt
 
 pytestmark = pytest.mark.anyio
 

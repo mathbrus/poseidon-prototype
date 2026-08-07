@@ -26,12 +26,11 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from pydantic import Field
-
 from openhands.sdk import TextContent, register_tool
 from openhands.sdk.tool import ToolDefinition, ToolExecutor
 from openhands.sdk.tool.schema import Action, Observation
 from openhands.sdk.tool.spec import Tool
+from pydantic import Field
 
 from agent.config import AgentSettings
 from agent.gateway_client import ToolCallError

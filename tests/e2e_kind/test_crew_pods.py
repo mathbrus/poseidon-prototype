@@ -11,7 +11,6 @@ process-lifecycle events in the run's story.
 
 import asyncio
 import subprocess
-import time
 
 from common.ids import new_run_id
 

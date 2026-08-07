@@ -23,7 +23,7 @@ import asyncio
 import hashlib
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -134,7 +134,7 @@ def create_app(
         backend_status: str | None,
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id=identity.agent_id,
             role=identity.role,

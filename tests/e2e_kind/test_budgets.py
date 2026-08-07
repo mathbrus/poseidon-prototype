@@ -13,9 +13,7 @@ against the real cap.
 """
 
 import asyncio
-import subprocess
 import time
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -32,7 +30,6 @@ from orchestrator.workflows.implement import (
 
 from .conftest import (
     COMPANY_NS,
-    PLATFORM_NS,
     REPO_ROOT,
     TASK_QUEUE,
     _psql_json,

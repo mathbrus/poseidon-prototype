@@ -13,9 +13,9 @@ identity. The orchestrator consumes them when it fulfills a crew.
 import hashlib
 from typing import Any
 
-DEFAULT_TTL_S = 3600
-
 from registry.db import Registry
+
+DEFAULT_TTL_S = 3600
 
 
 def request_id(conductor: str, crew_template: str, run_id: str) -> str:

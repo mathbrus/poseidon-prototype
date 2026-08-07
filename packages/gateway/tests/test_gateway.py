@@ -9,7 +9,6 @@ import json
 import re
 
 import pytest
-
 from conftest import (
     AGENT_TOKEN,
     RUNNER_TOKEN,

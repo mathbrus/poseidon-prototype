@@ -10,7 +10,6 @@ import json
 import tarfile
 
 import pytest
-
 from conftest import (
     AGENT_TOKEN,
     GIT_TOKEN,
@@ -21,6 +20,7 @@ from conftest import (
     make_bundle,
     mcp_session,
 )
+
 from gateway.git_backend import repo_slug
 
 pytestmark = pytest.mark.anyio

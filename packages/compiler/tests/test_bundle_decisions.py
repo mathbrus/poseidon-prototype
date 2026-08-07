@@ -45,7 +45,6 @@ def decide(tmp_path_factory, request):
     if runner is None:
         pytest.skip("neither the opa binary nor docker is available")
     import yaml
-
     from conftest import HELLO_SAAS
 
     blueprint = yaml.safe_load(HELLO_SAAS.read_text())

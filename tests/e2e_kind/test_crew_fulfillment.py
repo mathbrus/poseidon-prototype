@@ -21,8 +21,6 @@ import socket
 import subprocess
 import time
 
-import pytest
-
 from common.ids import new_run_id
 from orchestrator.workflows.implement import (
     FAST_TIMEOUTS,
@@ -37,7 +35,6 @@ from .conftest import (
     TASK_QUEUE,
     audit_story,
     sandbox_image,
-    sandbox_pods,
     temporal_port_forward,
 )
 from .test_crew_identity import _cluster_secret, _registry
@@ -71,7 +68,6 @@ def _worker_settings(env: dict, tmp_path, registry_unused=None):
 def _pod_forwarded_agent_client(pod: str):
     """Route AgentClient's pod-IP URLs through a kubectl port-forward to
     the (deterministically named) crew pod."""
-    import httpx
 
     from orchestrator import clients
 
@@ -92,9 +88,11 @@ def _pod_forwarded_agent_client(pod: str):
                 with socket.create_connection(("127.0.0.1", AGENT_LOCAL_PORT),
                                               timeout=1):
                     return
-            except OSError:
+            except OSError as exc:
                 if time.monotonic() > deadline:
-                    raise RuntimeError("port-forward to the crew pod never came up")
+                    raise RuntimeError(
+                        "port-forward to the crew pod never came up"
+                    ) from exc
                 time.sleep(0.5)
 
     original_init = clients.AgentClient.__init__
@@ -267,9 +265,10 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     which Temporal replays on the restarted worker. The workflow stands
     its own crew up (fulfill_crew), so the kill lands on a
     run with a live minted roster and a crew pod."""
+    from temporalio.client import Client
+
     from orchestrator.crewpods import pod_name
     from orchestrator.identity import ephemeral_agent_id
-    from temporalio.client import Client
 
     run_id = new_run_id()
     nonce = secrets.token_hex(3)

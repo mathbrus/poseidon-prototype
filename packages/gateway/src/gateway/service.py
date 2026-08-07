@@ -17,20 +17,20 @@ import hashlib
 import json
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
 from common.audit import AuditEvent
-from common.telemetry import get_logger
-from gateway.config import GatewaySettings
-from gateway.git_backend import GitBackend
 from common.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
     Identity,
 )
+from common.telemetry import get_logger
+from gateway.config import GatewaySettings
+from gateway.git_backend import GitBackend
 from gateway.opa import PLATFORM_DECISION_PATH, OpaClient, company_decision_path
 from registry import AuditStore, Runs, SandboxRegistrations
 
@@ -317,9 +317,14 @@ class GatewayService:
         try:
             prepared = await self._git.prepare_pr(repo, branch, bundle_b64)
         except Exception as exc:
+            # Bound outside the closure on purpose: Python unbinds the
+            # `except ... as` name when the block exits, so a closure that
+            # captured `exc` itself would work only while the backend is
+            # still called inside this `await`.
+            failure = BackendError(str(exc))
 
             async def failing_backend() -> Any:
-                raise BackendError(str(exc)) from exc
+                raise failure
 
             return await self.call(identity, "git.open_pr", args, failing_backend)
 
@@ -441,7 +446,7 @@ class GatewayService:
         workflow: str = "",
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id=identity.agent_id,
             role=identity.role,

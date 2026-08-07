@@ -20,12 +20,11 @@ import asyncio
 import hashlib
 import json
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from temporalio import activity
-
 import httpx
+from temporalio import activity
 
 from common.audit import AuditEvent
 from common.telemetry import get_logger
@@ -520,7 +519,7 @@ class CrewActivities:
         lifecycle: str = "ephemeral",
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id=agent_id,
             role=role,

@@ -31,8 +31,6 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, SecretStr
-
 from openhands.sdk import (
     LLM,
     Agent,
@@ -41,6 +39,7 @@ from openhands.sdk import (
     LLMSummarizingCondenser,
 )
 from openhands.sdk.llm import Message, TextContent
+from pydantic import BaseModel, SecretStr
 
 from agent.config import AgentSettings
 from agent.gateway_client import McpGateway, ToolCallError

@@ -11,9 +11,6 @@ scope; credentials arrive at runtime as projected tokens.
 
 from typing import Any
 
-from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES, CrewTemplate, RoleTemplate
-from schema.tools import PLATFORM_TOOLS, REPO_TOOLS
-
 from compiler.checks import check
 from compiler.errors import CompileError
 from compiler.infra import build_infra
@@ -28,6 +25,8 @@ from compiler.plan import (
 )
 from compiler.rego import build_bundle, build_platform_bundle
 from compiler.snapshot import EMPTY, RegistrySnapshot
+from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES, CrewTemplate, RoleTemplate
+from schema.tools import PLATFORM_TOOLS, REPO_TOOLS
 
 # What the orchestrator's own identity may call. Not blueprint-configurable:
 # a company that could grant itself the platform lifecycle would be able to

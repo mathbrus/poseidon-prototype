@@ -12,7 +12,7 @@ import json
 import re
 import tarfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -109,7 +109,7 @@ class PolicyBundles:
             company=row["company"],
             revision=row["revision"],
             tarball=bytes(row["tarball"]),
-            updated_at=row["updated_at"] or datetime.now(timezone.utc),
+            updated_at=row["updated_at"] or datetime.now(UTC),
         )
 
     def delete(self, company: str) -> None:

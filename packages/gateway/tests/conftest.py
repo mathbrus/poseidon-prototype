@@ -18,9 +18,11 @@ from pathlib import Path
 
 import httpx
 import pytest
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
-from gateway.app import create_app
 from common.authn import ServiceAccount
+from gateway.app import create_app
 from gateway.config import GatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
@@ -32,8 +34,6 @@ from registry.memory import (
     InMemoryRuns,
     InMemorySandboxRegistrations,
 )
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
 
 AGENT_TOKEN = "agent-secret"
 RUNNER_TOKEN = "runner-secret"
@@ -50,7 +50,7 @@ COMPANY = "hello-saas"
 COMPANY_NS = "hello-saas"
 PLATFORM_NS = "poseidon-platform"
 AGENT_ID = "backend-engineer-1"
-COMPANY_DECISION = f"/v1/data/poseidon/authz/hello_saas/decision"
+COMPANY_DECISION = "/v1/data/poseidon/authz/hello_saas/decision"
 PLATFORM_DECISION = "/v1/data/poseidon/platform/decision"
 
 
