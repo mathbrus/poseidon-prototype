@@ -192,6 +192,25 @@ def kill_worker_pod() -> None:
     )
 
 
+@pytest.fixture(scope="session", autouse=True)
+def db_session_start() -> str:
+    """The registry database's own clock at the start of the pytest
+    session. The acceptance capstone (test_zz_acceptance) uses it as the
+    fence for "what this suite execution really produced" — the database's
+    clock, not the host's, so clock skew cannot widen or narrow the window.
+    Autouse so it is stamped before the first test, whichever that is."""
+    proc = subprocess.run(
+        ["kubectl", "-n", PLATFORM_NS, "exec", "-i", "statefulset/postgres", "--",
+         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At",
+         "-c", "SELECT now()"],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, f"cannot read the registry clock: {proc.stderr}"
+    stamp = proc.stdout.strip()
+    assert stamp
+    return stamp
+
+
 @pytest.fixture(scope="session")
 def env() -> dict[str, str]:
     if not ENV_FILE.is_file():

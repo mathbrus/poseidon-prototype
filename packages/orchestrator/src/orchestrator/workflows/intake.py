@@ -65,6 +65,16 @@ class IntakeWorkflow:
     def state(self) -> str:
         return self._phase
 
+    async def _record_gate(
+        self, run_id: str, gate: str, kind: str, timeouts: Timeouts
+    ) -> None:
+        await workflow.execute_activity(
+            "record_gate_outcome",
+            args=[run_id, gate, kind, workflow.info().workflow_id],
+            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            retry_policy=STEP_RETRY,
+        )
+
     @workflow.run
     async def run(self, input: IntakeInput) -> dict[str, Any]:
         timeouts = input.timeouts or Timeouts()
@@ -91,13 +101,20 @@ class IntakeWorkflow:
             )
             if (gates or {}).get("intake", "none") != "none":
                 # The configured gate: park until a human answers or the
-                # escalation deadline lapses (§6.4 timers).
+                # escalation deadline lapses (§6.4 timers). Transitions are
+                # process-gate audit events like every other gate's.
                 self._phase = "paused-intake_gate"
                 outcome = await self._intake_gate.wait(
                     timeout=timedelta(seconds=timeouts.budget_gate_s),
                     escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
+                    on_escalate=lambda: self._record_gate(
+                        input.run_id, "intake", "escalated", timeouts
+                    ),
                 )
                 self._phase = "running"
+                await self._record_gate(
+                    input.run_id, "intake", outcome.kind, timeouts
+                )
                 if outcome.kind != "approved":
                     error = f"intake gate {outcome.kind}"
                     raise _GateClosed()

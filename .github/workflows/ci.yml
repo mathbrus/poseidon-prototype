@@ -117,6 +117,10 @@ jobs:
     # Manual and optional: brings up a kind cluster and opens real PRs on a
     # disposable repo. No LLM spend — the stack deploys the mock brain.
     # Requires the E2E_GIT_TOKEN / E2E_TARGET_REPO repository secrets.
+    #
+    # Since plan step 25 this job IS the MVP acceptance suite (§10 exit
+    # criteria; scripts/mvp-acceptance.sh runs the same thing locally):
+    # tests/e2e_kind in full, with test_zz_acceptance.py as the capstone.
     if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
     runs-on: ubuntu-latest
     steps:

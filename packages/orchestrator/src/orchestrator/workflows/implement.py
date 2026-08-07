@@ -149,6 +149,19 @@ class ImplementWorkflow:
         pending state, never silent degradation)."""
         return self._phase
 
+    async def _record_gate(
+        self, run_id: str, gate: str, kind: str, timeouts: Timeouts
+    ) -> None:
+        """A gate transition as a first-class `process-gate` audit event
+        (§10 criterion 5: a budget stop escalates — visibly, in the audit
+        store, not just in a workflow timer)."""
+        await workflow.execute_activity(
+            "record_gate_outcome",
+            args=[run_id, gate, kind, workflow.info().workflow_id],
+            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            retry_policy=STEP_RETRY,
+        )
+
     async def _dispatch(
         self,
         run_id: str,
@@ -176,13 +189,19 @@ class ImplementWorkflow:
                 return result
             # The LLM gateway hard-stopped the run's spend (§2b): pause
             # into an API-visible state and wait for a human verdict —
-            # never silently retry against an exhausted cap.
+            # never silently retry against an exhausted cap. Escalation
+            # and verdict are process-gate audit events, like the merge
+            # gate's (one Gate spine, one audit contract).
             self._phase = f"paused-{BUDGET_MARKER}"
             outcome = await self._budget_gate.wait(
                 timeout=timedelta(seconds=timeouts.budget_gate_s),
                 escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
+                on_escalate=lambda: self._record_gate(
+                    run_id, "budget", "escalated", timeouts
+                ),
             )
             self._phase = "running"
+            await self._record_gate(run_id, "budget", outcome.kind, timeouts)
             if outcome.kind != "approved":
                 # The dispatch result already carries the budget error;
                 # teardown finalizes the run with it.

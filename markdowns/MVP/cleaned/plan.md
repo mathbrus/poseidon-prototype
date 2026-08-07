@@ -1864,6 +1864,55 @@ MVP critical path references OpenShell.
 
 **Done when:** green on both clusters.
 
+> **Status (2026-08-07): done — the kind half.** The real-cluster run is
+> deliberately deferred (kind only for now, by explicit decision); the
+> suite is written to run unchanged against another kubectl context when
+> one exists. The scripted suite is `tests/e2e_kind` in full — **90 e2e
+> green on kind in ~17 min**, free on the mock — behind one command,
+> `scripts/mvp-acceptance.sh` (preflight + suite + §10 summary; CI's
+> `e2e-kind` job runs the same thing). What step 25 *added* was decided by
+> a clause-by-clause audit of §10 against the existing 85 tests; the gaps
+> it closed, each an assertion no module made: (1) **`blueprint preview`
+> had zero e2e coverage** — the capstone (`test_zz_acceptance.py`,
+> zz-named so pytest collects it last) now previews the applied blueprint
+> against the live registry (a converged cluster diffs *empty* — also a
+> convergence proof), previews an edit as exactly that one change, and
+> proves **compile-is-what's-live**: the local compile's content-addressed
+> bundle revision equals `Company.status.bundleRevision`. (2) **Criterion
+> 2 was stitched from two runs** — the killed E1 run itself is now checked:
+> participants terminated, no labelled pod, sandbox registration
+> terminated. (3) **Budget "escalates" was neither wired nor tested** —
+> the one product change of this step: implement/review budget gates and
+> the intake gate now record escalation + verdict through the step-20
+> `record_gate_outcome` activity (one Gate spine, one audit contract); the
+> budget e2e waits for the real `gate_escalated` row before rejecting and
+> asserts `[gate_escalated, gate_rejected]` in the story. (4) **The ledger
+> tuple was 2.5/4 asserted** — every row now checks
+> `{run_id, parent_agent_id, agent_id, role}`, plus "the stop stopped
+> things": no metered allow after the last `budget_exhausted` deny.
+> (5) **The only five-source audit test seeded two sources with raw SQL**
+> (stale since steps 14/20 landed the producers) — de-seeded: the happy
+> run honestly asserts its three real sources, and the capstone proves all
+> five sources **real within the suite execution**, fenced by the
+> database's own clock (a session-start fixture), nothing seeded anywhere.
+> (6) **Lean roster was CR-only and the executor's scope was never denied
+> live** — the registry roster (`agent_instances` == pm-1 alone, at suite
+> end, after every finalizer cycle) and a real minted executor denied
+> `issues.create`/`git.merge_pr` at the gateway (audited, with the
+> in-scope positive control) close criterion 6. Stale empty `tests/e2e/`
+> deleted.
+>
+> Keep an eye on: the capstone's five-source test reads what the whole
+> suite produced — standalone against a fresh cluster it fails by design
+> (its docstring says so); collection order rides the `zz` name. The
+> deferred real-cluster half has known kind-isms to confront: image
+> delivery (`kind load` + content-addressed tags → a registry push path),
+> gateway NodePort via `extraPortMappings`, bootstrap-installed Calico
+> (a real cluster brings its own CNI), and the red-team suite's
+> deliberate single-node scoping (fork bombs / disk fill untested). The
+> intake gate's escalation wiring is live but no blueprint configures
+> `gates.intake`, so no e2e exercises it yet.
+
 ---
 
 ## Anytime track (non-blocking)
@@ -1925,8 +1974,6 @@ executor carries it through step 10, the transitional engineer from 10 to
 | 4. Governance re-proof | 6 (M1 equivalents), 12 (compiled, via the transitional engineer), 19 (re-run via the crew executor), 5+23 (egress/audit), 23 (injected-conductor), 25 |
 | 5. Budgets | 14, 25 |
 | 6. Standing/ephemeral + lean roster | 9 (compile checks), 10, 16a–16d, 17, 19 (strict roster error + firing diff), 25 |
-| 7. kind/real parity | 1a (structure), 25 (proof) |
-
 ---
 
 ## 9. Deletion schedule (no backwards compatibility)

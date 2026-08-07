@@ -122,16 +122,22 @@ class ReviewWorkflow:
             outcome = await self._budget_gate.wait(
                 timeout=timedelta(seconds=timeouts.budget_gate_s),
                 escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
+                on_escalate=lambda: self._record_gate(
+                    run_id, "budget", "escalated", timeouts
+                ),
             )
             self._phase = "running"
+            await self._record_gate(run_id, "budget", outcome.kind, timeouts)
             if outcome.kind != "approved":
                 return result
             self._budget_gate = Gate("budget")
 
-    async def _record_gate(self, run_id: str, kind: str, timeouts: Timeouts) -> None:
+    async def _record_gate(
+        self, run_id: str, gate: str, kind: str, timeouts: Timeouts
+    ) -> None:
         await workflow.execute_activity(
             "record_gate_outcome",
-            args=[run_id, "merge", kind, workflow.info().workflow_id],
+            args=[run_id, gate, kind, workflow.info().workflow_id],
             start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
             retry_policy=STEP_RETRY,
         )
@@ -233,11 +239,11 @@ class ReviewWorkflow:
                 timeout=timedelta(seconds=timeouts.merge_gate_s),
                 escalate_after=timedelta(seconds=timeouts.merge_gate_s // 2),
                 on_escalate=lambda: self._record_gate(
-                    input.run_id, "escalated", timeouts
+                    input.run_id, "merge", "escalated", timeouts
                 ),
             )
             self._phase = "running"
-            await self._record_gate(input.run_id, outcome.kind, timeouts)
+            await self._record_gate(input.run_id, "merge", outcome.kind, timeouts)
             if outcome.kind != "approved":
                 error = f"merge gate {outcome.kind}"
                 raise _ReviewOver()
