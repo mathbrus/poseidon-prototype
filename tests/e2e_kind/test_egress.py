@@ -28,8 +28,6 @@ from sandbox.egressproxy.credentials import sandbox_proxy_env
 
 from .conftest import COMPANY_NS, PLATFORM_NS, audit_story, sandbox_image
 
-PROXY_URL = f"http://egress-proxy.{PLATFORM_NS}.svc.cluster.local:3128"
-
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "test",
     "GIT_AUTHOR_EMAIL": "test@example.com",
@@ -43,6 +41,26 @@ def _kubectl(*args: str) -> str:
     proc = subprocess.run(["kubectl", *args], capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     return proc.stdout
+
+
+@pytest.fixture(scope="module")
+def proxy_url(stack: None) -> str:
+    """The proxy address as the sandbox must receive it: an address, not a
+    name. The orchestrator resolves the Service name in-cluster at provision
+    time (the sandbox has no resolver of its own); this suite runs on the
+    host, where that name does not resolve, so it asks Kubernetes for the
+    same ClusterIP instead."""
+    ip = _kubectl(
+        "-n",
+        PLATFORM_NS,
+        "get",
+        "svc",
+        "egress-proxy",
+        "-o",
+        "jsonpath={.spec.clusterIP}",
+    ).strip()
+    assert ip, "the egress-proxy Service has no ClusterIP"
+    return f"http://{ip}:3128"
 
 
 @pytest.fixture(scope="module")
@@ -110,14 +128,16 @@ def _admin(env: dict, action: str, run_id: str, handle=None) -> None:
     asyncio.run(run())
 
 
-def test_egress_containment(env: dict, egress_key: str, workspace_tar: bytes):
+def test_egress_containment(
+    env: dict, egress_key: str, proxy_url: str, workspace_tar: bytes
+):
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()
     policy = SandboxPolicy(
         image=sandbox_image(),
         cpu="500m",
         memory="512Mi",
-        env=sandbox_proxy_env(PROXY_URL, egress_key, run_id),
+        env=sandbox_proxy_env(proxy_url, egress_key, run_id),
     )
     handle = backend.provision(run_id, workspace_tar, policy)
     _admin(env, "register", run_id, handle)

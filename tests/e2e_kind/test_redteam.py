@@ -13,9 +13,10 @@ What this suite claims, and what it deliberately does not:
 - **Explicitly NOT claimed** — kernel-level isolation. Not hardened: there
   is no gVisor/Kata RuntimeClass, so the container's own privilege
   boundary is not a security boundary here.
-  `test_root_inside_the_sandbox_buys_nothing` states that honestly: the
-  containment is that privilege inside the sandbox reaches nothing, not
-  that privilege is unavailable.
+  `test_privilege_inside_the_sandbox_buys_nothing` states that honestly:
+  the containment is that privilege inside the sandbox reaches nothing.
+  The sandbox does also run unprivileged (uid 10001, caps dropped), but
+  that is defence in depth on top of the containment, not the claim.
 
 One residual risk this suite measures rather than prevents:
 `sandbox.exec` is inside the executor's compiled scope by design, so
@@ -42,8 +43,8 @@ from sandbox.backends.k8s_jobs.manifest import job_name
 from sandbox.contract import SandboxPolicy
 from sandbox.egressproxy.credentials import mint, sandbox_proxy_env
 
-from .conftest import COMPANY_NS, PLATFORM_NS, audit_story, sandbox_image
-from .test_egress import PROXY_URL, _admin, egress_key  # noqa: F401
+from .conftest import COMPANY_NS, audit_story, sandbox_image
+from .test_egress import _admin, egress_key, proxy_url  # noqa: F401
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "test",
@@ -104,7 +105,9 @@ class Target:
 
 
 @pytest.fixture(scope="module")
-def target(stack: None, env: dict, egress_key: str, workspace_tar: bytes):  # noqa: F811
+def target(  # noqa: F811
+    stack: None, env: dict, egress_key: str, proxy_url: str, workspace_tar: bytes
+):
     """One sandbox for the whole suite, provisioned and registered exactly
     as the orchestrator does it (registration is what gives the run its
     egress allowlist)."""
@@ -117,7 +120,7 @@ def target(stack: None, env: dict, egress_key: str, workspace_tar: bytes):  # no
             image=sandbox_image(),
             cpu="500m",
             memory="512Mi",
-            env=sandbox_proxy_env(PROXY_URL, egress_key, run_id),
+            env=sandbox_proxy_env(proxy_url, egress_key, run_id),
         ),
     )
     _admin(env, "register", run_id, handle)
@@ -132,15 +135,23 @@ def target(stack: None, env: dict, egress_key: str, workspace_tar: bytes):  # no
 # --- the control every "blocked" assertion below depends on -------------------
 
 
-def test_the_one_permitted_route_out_still_works(target: Target) -> None:
+def test_the_one_permitted_route_out_still_works(
+    target: Target,
+    proxy_url: str,  # noqa: F811
+) -> None:
     """The control for this whole suite: the sandbox's network stack is
     live and its *permitted* egress — the audited proxy — answers. Without
     this, every "blocked" assertion below would also pass on a sandbox with
-    no networking at all, and the suite would prove nothing."""
+    no networking at all, and the suite would prove nothing.
+
+    By address, not name: the sandbox has no resolver, which is why the
+    proxy is addressed by the IP the orchestrator resolved at provision
+    time."""
+    host, _, port = proxy_url.removeprefix("http://").partition(":")
     exit_code, output = target.py(
         "import socket,sys\n"
         "s=socket.socket(); s.settimeout(10)\n"
-        f"rc = s.connect_ex(('egress-proxy.{PLATFORM_NS}.svc.cluster.local', 3128))\n"
+        f"rc = s.connect_ex(('{host}', {int(port)}))\n"
         "print('connect_ex', rc)\n"
         "sys.exit(0 if rc == 0 else 1)"
     )
@@ -230,6 +241,7 @@ def test_the_only_credential_is_the_runs_own_scoped_proxy_secret(
 def test_a_sandbox_cannot_forge_another_runs_egress_identity(
     target: Target,
     egress_key: str,  # noqa: F811
+    proxy_url: str,  # noqa: F811
 ) -> None:
     """The credential is self-authenticating (username=run_id,
     password=HMAC(key, run_id)), so a sandbox that only ever sees its own
@@ -238,11 +250,11 @@ def test_a_sandbox_cannot_forge_another_runs_egress_identity(
     audited, under the *claimed* id."""
     victim_run = new_run_id()
     own_secret = mint(egress_key, target.run_id)
+    host, _, port = proxy_url.removeprefix("http://").partition(":")
     exit_code, output = target.py(
         "import base64,socket,sys\n"
         f"cred = base64.b64encode(b'{victim_run}:{own_secret}').decode()\n"
-        "s = socket.create_connection(('egress-proxy."
-        f"{PLATFORM_NS}.svc.cluster.local', 3128), timeout=10)\n"
+        f"s = socket.create_connection(('{host}', {int(port)}), timeout=10)\n"
         "s.sendall(('CONNECT pypi.org:443 HTTP/1.1\\r\\n'\n"
         "          'Host: pypi.org:443\\r\\n'\n"
         "          'Proxy-Authorization: Basic ' + cred + '\\r\\n\\r\\n')"
@@ -320,7 +332,7 @@ def test_the_process_namespace_is_the_pods_own(target: Target) -> None:
         assert foreign not in joined, f"host process visible from the sandbox: {foreign}"
 
 
-def test_root_inside_the_sandbox_buys_nothing(target: Target) -> None:
+def test_privilege_inside_the_sandbox_buys_nothing(target: Target) -> None:
     """The honest statement of the containment boundary: not hardened —
     there is no gVisor/Kata RuntimeClass, so the container's privilege
     boundary is not claimed as a security boundary. Containment is that
@@ -328,9 +340,10 @@ def test_root_inside_the_sandbox_buys_nothing(target: Target) -> None:
     (no token, no API, no metadata, no host mount, no foreign processes)
     hold regardless of uid, and egress stays confined to the audited proxy.
 
-    This test pins the posture so a change in it is a visible decision:
-    if the sandbox ever does run unprivileged, this is where that is
-    recorded."""
+    The sandbox now runs unprivileged as well: uid 10001, no
+    privilege-escalation path, no capabilities. That is defence in depth on
+    top of the containment above, not a replacement for it — which is why
+    every assertion in this suite is written to hold at any uid."""
     exit_code, output = target.py(
         "import os\n"
         "leaked = [\n"
@@ -347,7 +360,7 @@ def test_root_inside_the_sandbox_buys_nothing(target: Target) -> None:
 
     # Whatever the uid, reading PID 1 gets the attacker nothing.
     assert leaked_line == "[]", f"PID 1 env leaked a credential: {leaked_line}"
-    assert int(uid_line) in (0, 65532), f"unexpected sandbox uid {uid_line}"
+    assert int(uid_line) != 0, f"the sandbox is running as root (uid {uid_line})"
 
 
 # --- resource caps and the wall-clock deadline --------------------------------
