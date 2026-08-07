@@ -3,10 +3,9 @@
 Everything the SandboxPolicy caps or scopes lands here: resource limits and
 requests (disk as ephemeral-storage), the wall-clock deadline as
 activeDeadlineSeconds, the workspace scope as the toolserver's WORKSPACE_DIR,
-and the per-run env injection seam (§2b). Isolation the manifest cannot
+and the per-run env injection seam. Isolation the manifest cannot
 express — ingress only from the gateway, zero egress — is the sandbox
-NetworkPolicy's job (deploy/helm, hand-authored until the compiler emits it
-at plan step 12).
+NetworkPolicy's job.
 """
 
 from sandbox.contract import SandboxPolicy

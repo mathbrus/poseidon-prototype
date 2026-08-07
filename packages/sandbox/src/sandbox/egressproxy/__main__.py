@@ -6,7 +6,7 @@ Configured by env (all set by the Helm chart):
     EGRESS_PROXY_KEY     shared HMAC key for per-run credentials (required)
     REGISTRY_DSN         Postgres DSN — audit_events plus the per-run
                          allowlist resolution (run -> registration ->
-                         company blueprint, plan step 12)
+                         company blueprint)
     EGRESS_LISTEN_PORT   listen port (default 3128) — deliberately NOT
                          EGRESS_PROXY_PORT, which Kubernetes service links
                          shadow with `tcp://<ip>:3128` for every pod in the

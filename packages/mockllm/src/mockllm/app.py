@@ -28,7 +28,7 @@ class ChatRequest(BaseModel):
 
 def _usage(messages: list[dict[str, Any]], message: dict[str, Any]) -> dict[str, int]:
     """Deterministic token estimate (~4 chars/token): nonzero so the LLM
-    gateway's metering and budget hard-stop (plan step 14) have real usage
+    gateway's metering and budget hard-stop have real usage
     to account, stable so e2e assertions can rely on it."""
     prompt = sum(len(str(m.get("content") or "")) for m in messages) // 4 + 1
     completion = len(str(message.get("content") or "")) // 4 + 1

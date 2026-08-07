@@ -1,4 +1,4 @@
-"""Per-run egress-proxy credentials — the frozen §2b attribution contract.
+"""Per-run egress-proxy credentials — the attribution contract.
 
 The credential is self-authenticating: username is the `run_id`, password is
 HMAC(key, run_id). The orchestrator (which holds the shared key) mints it
@@ -21,8 +21,8 @@ def verify(key: str, run_id: str, secret: str) -> bool:
 
 
 def sandbox_proxy_env(proxy_url: str, key: str, run_id: str) -> dict[str, str]:
-    """The env block injected through `SandboxPolicy.env` (plan step 4's
-    seam): standard proxy variables carrying the per-run credential, which
+    """The env block injected through `SandboxPolicy.env`:
+    standard proxy variables carrying the per-run credential, which
     pip/npm/curl and friends honor without any sandbox-side setup."""
     scheme, _, rest = proxy_url.partition("://")
     authed = f"{scheme}://{run_id}:{mint(key, run_id)}@{rest}"

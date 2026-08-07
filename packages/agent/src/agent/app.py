@@ -1,13 +1,13 @@
 """Agent HTTP API — contract C6.
 
 POST /task {run_id, task_text, mode?, gateway_token?} -> 202, runs the
-graph in a background task (one concurrent run is all the PoC needs);
+dispatch in a background task (one concurrent run per host);
 GET /task/{run_id} -> {status, pr_url, iterations, error, brief}.
 
-Mode `plan` (plan step 16d) runs the read-only planner and finishes with
+Mode `plan` runs the read-only planner and finishes with
 `brief`; the optional per-dispatch `gateway_token` is how the planner acts
-under its own minted identity while borrowing this brain host (§4.4 —
-the planner gets no pod of its own).
+under its own minted identity while borrowing this brain host
+(the planner gets no pod of its own).
 
 Run with: uvicorn --factory agent.app:create_app
 """
@@ -64,7 +64,7 @@ def create_app(
     # loop is blocking); each dispatch runs on a worker thread.
     if task_runner is None:
         async def task_runner(run_id: str, task_text: str) -> RunResult:
-            # Role-template-driven (plan step 17): the PM instance scopes
+            # Role-template-driven: the PM instance scopes
             # and delegates; every other template implements.
             if _settings().role_template == "pm":
                 return await asyncio.to_thread(
@@ -135,7 +135,7 @@ def create_app(
             # the run already in flight.
             raise HTTPException(status_code=409, detail=f"run {request.run_id} already running")
         # A terminal run re-dispatched is a restart — the budget-pause
-        # resume (plan step 14): the workflow re-dispatches after the cap
+        # resume: the workflow re-dispatches after the cap
         # was raised, and polling the stale failure would loop forever.
         log.bind(run_id=request.run_id).info(
             "task accepted", extra={"mode": request.mode}

@@ -1,7 +1,7 @@
-"""The Hands adapter (§4.3, plan step 22): OpenHands tool definitions that
+"""The Hands adapter: OpenHands tool definitions that
 resolve every side effect to a gateway MCP call.
 
-Two PoC-toolbox mechanisms carry over verbatim:
+Two mechanisms worth stating:
 
 - `run_id` (and `target_repo`) are injected at call time and appear in no
   action schema — the model cannot see or forge them.

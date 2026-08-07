@@ -1,6 +1,6 @@
 """Unit tests for the k8s_jobs Job manifest: every SandboxPolicy cap and
-scope must land in the spec (this is the statically checkable half of the
-§4.6 exit criteria; the live kill-a-runaway proof is the e2e_kind suite)."""
+scope must land in the spec (the statically checkable half;
+the live kill-a-runaway proof is the e2e_kind suite)."""
 
 from sandbox.backends.k8s_jobs.manifest import (
     RUN_ID_LABEL,
@@ -55,7 +55,7 @@ def test_workspace_scope_and_env_injection_seam():
     job = build_job(RUN_ID, POLICY)
     env = {e["name"]: e["value"] for e in container(job)["env"]}
     assert env["WORKSPACE_DIR"] == "/workspace"
-    # The frozen §2b injection point: per-run values reach the pod env.
+    # The env injection point: per-run values reach the pod env.
     assert env["EGRESS_PROXY_CREDENTIAL"] == "per-run-secret"
 
 

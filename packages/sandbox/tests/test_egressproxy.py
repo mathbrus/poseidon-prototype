@@ -68,7 +68,7 @@ async def _with_stack(tmp_path: Path, scenario):
     audit = InMemoryAuditStore()
     upstream = await asyncio.start_server(_upstream, "127.0.0.1", 0)
     upstream_port = upstream.sockets[0].getsockname()[1]
-    # A per-run resolver (plan step 12): RUN_ID's company allows the local
+    # A per-run resolver: RUN_ID's company allows the local
     # upstream; any other run resolves to zero egress.
     class OneRunAllowlist:
         def hosts_for(self, run_id: str) -> set[str]:

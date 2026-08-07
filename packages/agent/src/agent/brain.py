@@ -1,5 +1,5 @@
-"""The brain host (plan step 22): the OpenHands Agent SDK as a library
-behind Poseidon contracts (§4.3).
+"""The brain host: the OpenHands Agent SDK as a library
+behind Poseidon contracts.
 
 The SDK owns the reasoning loop, context machinery and coding heuristics —
 nothing else. Enforced boundaries:
@@ -11,12 +11,12 @@ nothing else. Enforced boundaries:
 - The brain starts and stops no sandboxes and owns no process-level
   retries/timeouts/cancellation — the workflow dispatches into this host
   and waits (C6); `num_retries=1` keeps the SDK from grinding on errors the
-  workflow owns (a `budget_exhausted` 429 surfaces immediately, §4.8).
+  workflow owns (a `budget_exhausted` 429 surfaces immediately).
 - The implement dispatch ends at a completion claim: its tool surface has
   no `open_pr`, its advisory verify (host-driven `sandbox.run_tests`
   between conversation turns) only shapes iteration, and delivery is the
   separate workflow-directed `mode="deliver"` dispatch after the platform
-  verify gate (sequencing choice 8).
+  verify gate.
 
 The mode runners are synchronous — the SDK conversation loop is blocking —
 and run in a worker thread under the async C6 app (`asyncio.to_thread`).
@@ -74,14 +74,14 @@ class RunResult(BaseModel):
     pr_url: str | None = None
     iterations: int = 0
     error: str | None = None
-    # Planner mode (plan step 16d): the §4.4 task brief the executor's
+    # Planner mode: the task brief the executor's
     # dispatch carries verbatim.
     brief: str | None = None
-    # PM runtime (plan step 17): the tickets it filed and the crew intent
-    # it recorded — what an intake run links to the run record (§6.1).
+    # PM runtime: the tickets it filed and the crew intent
+    # it recorded — what an intake run links to the run record.
     ticket_urls: list[str] = []
     crew_request_id: str | None = None
-    # Reviewer mode (plan step 20): the findings comment(s) it posted —
+    # Reviewer mode: the findings comment(s) it posted —
     # the review workflow refuses to reach the merge gate without one.
     comment_urls: list[str] = []
 
@@ -146,7 +146,7 @@ class GatewayBridge:
 
 
 def build_llm(settings: AgentSettings, run_id: str, token: str) -> LLM:
-    """The LLM gateway client (plan step 14), SDK-shaped: authenticated
+    """The LLM gateway client, SDK-shaped: authenticated
     with the workload credential, every call attributed to its run via the
     header. The gateway routes the model by tier — the name here is
     advisory. litellm needs a provider prefix to route to the custom
@@ -287,8 +287,8 @@ def implement_dispatch(
 
 
 def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """The workflow-directed delivery dispatch (plan step 19, sequencing
-    choice 8): only ever dispatched after the platform verify gate passed.
+    """The workflow-directed delivery dispatch:
+    only ever dispatched after the platform verify gate passed.
     Commit the sandbox's work on the task's branch, bundle it, open the PR.
     A policy denial comes back as the tool observation so the model can
     recover (the E2 path)."""
@@ -327,9 +327,9 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
 
 
 def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """The ephemeral reviewer's dispatch (§6.3, plan step 20): read the
+    """The ephemeral reviewer's dispatch: read the
     diff via git.read, execute the suite in the run's sandbox (provisioned
-    from the PR ref — O-4), post findings via git.comment. Read-and-judge
+    from the PR ref), post findings via git.comment. Read-and-judge
     only: no write_file, no open_pr, and the compiled sdet scope enforces
     the same at the gateway. A dispatch with no posted findings is a failed
     review."""
@@ -358,10 +358,10 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
 
 
 def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """The PM runtime (plan step 17): scope a goal, file tickets, record
+    """The PM runtime: scope a goal, file tickets, record
     crew intent — through governed tools only. No sandbox, no delivery, no
     private memory: the backlog and the run history are the PM's only
-    cross-run state (overview §4.5). Executor-tool refusal is the
+    cross-run state. Executor-tool refusal is the
     gateway's job; a deny surfaces as a tool observation the model sees."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
@@ -408,7 +408,7 @@ def plan_dispatch(
     task_text: str,
     gateway_token: str | None = None,
 ) -> RunResult:
-    """Planner mode (§4.4 planner contract, plan step 16d): survey the
+    """Planner mode: survey the
     run's sandbox read-only, produce the task brief, write nothing. The
     planner is LLM-only — one completion, no tool loop — and calls the
     gateway under its *own* identity (the per-dispatch token), so its

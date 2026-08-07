@@ -1,4 +1,4 @@
-"""GatewayBridge against a REAL MCP streamable-http server (plan step 22).
+"""GatewayBridge against a REAL MCP streamable-http server.
 
 The unit doubles elsewhere replace the bridge, so this is the one test that
 exercises the actual session plumbing — which is where the first cluster
@@ -82,7 +82,7 @@ def test_bridge_surfaces_tool_errors_as_toolcallerror(mcp_server_url):
 
 
 def test_bridge_reenters_cleanly(mcp_server_url):
-    """Two sequential dispatch lifetimes on one process — the PoC pod shape
+    """Two sequential dispatch lifetimes on one process
     (plan → implement → deliver each open their own bridge)."""
     for round_ in ("a", "b"):
         with GatewayBridge(mcp_server_url, "test-token") as bridge:

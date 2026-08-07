@@ -1,5 +1,5 @@
-"""Kubernetes-Jobs implementation of the SandboxBackend contract (C5) — the
-MVP default (overview §4.6).
+"""Kubernetes-Jobs implementation of the SandboxBackend contract — the
+default backend.
 
 One Job per run in the company namespace: resource caps and
 activeDeadlineSeconds come from the SandboxPolicy, the toolserver image runs
@@ -7,9 +7,9 @@ as the only container, and the pod is addressed by IP (the gateway's egress
 NetworkPolicy allows it by pod selector). The workspace tarball is delivered
 at startup over the Kubernetes exec API — the same API-server path kubectl
 exec uses — so it needs no ingress exception: the sandbox NetworkPolicy keeps
-ingress gateway-only and egress at zero until the egress proxy (plan step 5).
+ingress gateway-only and egress proxy-only.
 
-Only the orchestrator calls provision/destroy (§4.6); its ServiceAccount
+Only the orchestrator calls provision/destroy; its ServiceAccount
 carries the matching bounded Role (jobs, pods, pods/exec in the company
 namespace only — see deploy/helm .../orchestrator-rbac.yaml).
 """

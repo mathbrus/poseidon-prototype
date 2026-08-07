@@ -1,4 +1,4 @@
-"""The PM runtime (plan step 17) on the brain host: scope -> ticket ->
+"""The PM runtime on the brain host: scope -> ticket ->
 crew intent -> summary, through governed tools only; a gateway deny
 surfaces as a tool observation the model sees, never a crash."""
 
@@ -48,7 +48,7 @@ def test_pm_files_ticket_and_records_intent(settings, gateway):
 
 
 def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
-    """§4.5 exit is the gateway's: a PM told to exec sees the refusal as a
+    """Refusal is the gateway's: a PM told to exec sees the refusal as a
     tool result and can carry on scoping. `exec` is not even on the PM's
     tool surface — the SDK feeds back tool-not-found without any gateway
     call."""

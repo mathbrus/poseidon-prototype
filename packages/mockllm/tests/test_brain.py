@@ -111,7 +111,7 @@ def test_arguments_are_json_serializable():
         json.dumps(call.arguments)
 
 
-# --- the injected-conductor scenario (plan step 23) ---------------------------
+# --- the injected-conductor scenario ------------------------------------------
 
 CONDUCTOR_GOAL = (
     "Goal:\nAdd a /stats endpoint.\n\n"
@@ -161,8 +161,8 @@ def test_clean_goal_never_asks_for_the_forbidden_crew():
 
 
 def test_planner_echoes_the_conductor_marker_into_the_brief():
-    """§4.4: the brief REPLACES the task text for the executor, so a marker
-    that is not echoed is lost (the step-19 handoff lesson)."""
+    """The brief REPLACES the task text for the executor, so a marker
+    that is not echoed is lost."""
     brief = next_completion(
         [{"role": "system", "content": "engineer"},
          {"role": "user", "content": f"Task:\n{CONDUCTOR_GOAL}"}], None)

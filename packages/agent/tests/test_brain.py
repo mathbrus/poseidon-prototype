@@ -1,6 +1,5 @@
-"""Brain-host tests (plan step 22): the production OpenHands SDK loops
-driven by a scripted LLM and a fake gateway (see conftest) — the same
-behaviours the PoC graph's suite named, re-expressed against the new host."""
+"""Brain-host tests: the production OpenHands SDK loops
+driven by a scripted LLM and a fake gateway (see conftest)."""
 
 from agent.brain import (
     build_llm,
@@ -30,7 +29,7 @@ TASK = "Add a `greet(name)` function to src/hello.py with a test."
 
 
 def test_happy_path_ends_in_a_completion_claim(settings, gateway):
-    """Sequencing choice 8 (plan step 19): the implement dispatch ends at
+    """The implement dispatch ends at
     the advisory-green completion claim — no PR, no deliver tools, ever."""
     llm = ScriptedLLM(
         [
@@ -92,7 +91,7 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
 
 
 def test_review_dispatch_reads_runs_and_comments(settings, gateway):
-    """The reviewer (mode=review, plan step 20): read the diff, execute
+    """The reviewer (mode=review): read the diff, execute
     the suite, post findings — no write tools on the surface."""
     llm = ScriptedLLM(
         [
@@ -243,7 +242,7 @@ def test_deliver_without_pr_fails_the_run(settings, gateway):
     assert result.error == "agent stopped without opening a pull request"
 
 
-# --- budget stop (§4.8) ---------------------------------------------------------
+# --- budget stop ----------------------------------------------------------------
 
 
 def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
@@ -282,7 +281,7 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
     assert len(attempts) == 1  # num_retries=1: one attempt, no grind
 
 
-# --- planner mode (§4.4) --------------------------------------------------------
+# --- planner mode ---------------------------------------------------------------
 
 
 def test_planner_produces_the_brief_from_one_completion(settings, gateway):
@@ -310,7 +309,7 @@ def test_planner_empty_brief_is_an_error(settings, gateway):
     assert result.error == "planner produced an empty brief"
 
 
-# --- the LLM client shape (plan step 14 contract) -------------------------------
+# --- the LLM client shape -------------------------------------------------------
 
 
 def test_llm_carries_run_attribution_and_single_attempt(settings):

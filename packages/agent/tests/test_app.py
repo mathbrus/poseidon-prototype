@@ -118,7 +118,7 @@ async def test_duplicate_run_id_is_409():
 
 async def test_terminal_run_restarts_on_redispatch():
     """409 is for runs in flight (crash-resume re-attach); a terminal run
-    re-dispatched restarts — the budget-pause resume path (plan step 14)
+    re-dispatched restarts — the budget-pause resume path
     would otherwise poll the stale failure forever."""
     attempts: list[str] = []
 
@@ -177,5 +177,5 @@ async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
 
     assert status["status"] == "done"
     assert status["brief"] == "1. read\n2. brief"
-    # The per-dispatch token is how the planner acts as itself (§4.4).
+    # The per-dispatch token is how the planner acts as itself.
     assert seen == [(RUN_ID, "scope it", "planner-jwt")]

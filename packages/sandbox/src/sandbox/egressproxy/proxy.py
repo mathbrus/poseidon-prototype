@@ -1,19 +1,19 @@
-"""The sandbox egress proxy (plan step 5, overview §4.6 [adopted]).
+"""The sandbox egress proxy.
 
 An owned forward proxy — HTTP CONNECT tunneling for TLS plus absolute-form
 plain HTTP — enforcing a host allowlist and emitting an audit event for
 every decision, correlated to the run through the per-run credential
-(`credentials.py`, the frozen §2b contract). Owned rather than off-the-shelf
+(`credentials.py`). Owned rather than off-the-shelf
 because the audit contract *is* the point: NetworkPolicy drops packets
 silently and stays the backstop beneath this; the proxy is what makes
 "egress attempt blocked and visible in the audit store" mechanically true.
 
-The allowlist is the blueprint's compiled IR projection (plan step 12,
-closing sequencing choice 2): each request's run resolves through its live
+The allowlist is the blueprint's compiled IR projection:
+each request's run resolves through its live
 sandbox registration to the company whose applied blueprint names the
 allowed hosts. No applied blueprint, no live registration — zero egress.
 
-Audit events ride the v2 ingestion contract (plan step 13):
+Audit events ride the shared ingestion contract:
 `source=sandbox-infra`, `tool=sandbox.egress`, `agent_id=egress-proxy` —
 they land in the registry `audit_events` table alongside the gateway's, so
 one `run_id` query returns the whole story.
@@ -290,8 +290,8 @@ class EgressProxy:
             ts=datetime.now(timezone.utc).isoformat(),
             run_id=run_id,
             agent_id="egress-proxy",
-            # v2 (§5.2): the enforcement point is the `source` field now —
-            # role carried it only while the schema had nowhere else to.
+            # The enforcement point is the `source` field —
+            # role is a caller property this producer does not have.
             role="",
             tool="sandbox.egress",
             args_digest=_digest({"host": host, "port": port}),
