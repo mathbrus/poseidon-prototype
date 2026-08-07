@@ -1,5 +1,5 @@
-# Postgres, the first in the stack (plan step 2): Temporal's persistence
-# store now, host of the registry database at step 8. Owned by this chart —
+# Postgres: Temporal's persistence store, and host of the registry
+# database. Owned by this chart —
 # the Temporal release (deploy/helm/temporal-values.yaml) points here and
 # reads the password from the postgres-credentials secret.
 apiVersion: v1
@@ -12,7 +12,7 @@ type: Opaque
 stringData:
   POSTGRES_PASSWORD: {{ .Values.secrets.postgresPassword | quote }}
 ---
-# The registry DSN (plan step 8): the schema lives in the instance's default
+# The registry DSN: the schema lives in the instance's default
 # database, so no CREATE DATABASE has to race the services that migrate at
 # startup. Held by the three writers — gateway, egress proxy, orchestrator.
 apiVersion: v1

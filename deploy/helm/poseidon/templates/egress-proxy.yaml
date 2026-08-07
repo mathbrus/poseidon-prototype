@@ -1,9 +1,8 @@
-# The sandbox egress proxy (plan step 5): enforces the host allowlist and
-# audits every allow/deny with run attribution (§2b credential). The
-# allowlist is static config in this phase — empty means zero egress; the
-# compiler emits it from the blueprint at step 12. Deny events go to the
-# registry audit table since plan step 8, so one run_id query returns the
-# gateway's decisions and the proxy's together.
+# The sandbox egress proxy: enforces the host allowlist and
+# audits every allow/deny with run attribution. The
+# compiler emits the allowlist from the blueprint; empty means zero
+# egress. Deny events go to the registry audit table, so one run_id query
+# returns the gateway's decisions and the proxy's together.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,8 +35,8 @@ spec:
                 secretKeyRef:
                   name: egress-proxy-key
                   key: EGRESS_PROXY_KEY
-            # The allowlist is the applied blueprint's IR projection since
-            # plan step 12 — resolved per run through the registry, no
+            # The allowlist is the applied blueprint's IR projection,
+            # resolved per run through the registry, no
             # static host config.
             - name: REGISTRY_DSN
               valueFrom:

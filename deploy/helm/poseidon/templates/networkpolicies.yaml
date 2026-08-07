@@ -1,11 +1,10 @@
 {{- if .Values.networkPolicies.enabled }}
-# NetworkPolicy hardening (plan step 1c) — replaces the four Compose
-# networks. Requires a CNI that enforces NetworkPolicy (kind's default CNI
-# does not; the bootstrap installs Calico).
+# NetworkPolicy hardening. Requires a CNI that enforces NetworkPolicy
+# (kind's default CNI does not; the bootstrap installs Calico).
 #
 # Platform-namespace policies only. Everything inside a company namespace —
 # the deny-all envelope, agent egress/ingress, sandbox isolation — belongs
-# to the operator since plan step 10, because the namespace itself is
+# to the operator, because the namespace itself is
 # operator-created and a chart cannot template what it does not own.
 #
 #   gateway egress: OPA, the registry, DNS, the sandbox toolservers in the
@@ -36,7 +35,7 @@ spec:
 ---
 # The llm-proxy (provider keys) answers the LLM gateway and nobody else —
 # what makes the metered, audited gateway the only route to a model
-# ("anonymous passthrough is removed", plan step 14). Kubelet probes
+# (no anonymous passthrough). Kubelet probes
 # bypass NetworkPolicy.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -75,7 +74,7 @@ spec:
               app: opa
       ports:
         - port: 8181
-    # The sandbox.* proxy path: gateway -> toolserver pods (plan step 4).
+    # The sandbox.* proxy path: gateway -> toolserver pods.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -85,7 +84,7 @@ spec:
               app: poseidon-sandbox
       ports:
         - port: 8000
-    # The registry (plan step 8): sandbox registrations and audit events.
+    # The registry: sandbox registrations and audit events.
     # Cluster CIDRs are excluded from the external rule below, so without
     # this the gateway cannot reach its own database.
     - to:
@@ -106,7 +105,7 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # The API server, for TokenReview (workload identity, plan step 11).
+    # The API server, for TokenReview (workload identity).
     # By address, not selector: the endpoint may sit outside any namespace
     # (kind: the node's IP:6443; managed clusters: an external VIP:443),
     # and kube-proxy DNATs the service VIP before policy is evaluated, so

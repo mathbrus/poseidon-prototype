@@ -1,7 +1,7 @@
-# LLM gateway image (plan step 14): the workload-authenticated, metered,
+# LLM gateway image: the workload-authenticated, metered,
 # tier-routing route to any model. Holds no provider keys — the sealed
 # upstream (LiteLLM or the mock) does; nothing but this service reaches it.
-# Lockfile-pinned build (plan step 6): third-party deps come from uv.lock via
+# Lockfile-pinned build: third-party deps come from uv.lock via
 # `uv export`, so images and the host resolve identical versions.
 # Build from the repo root: docker build -f Dockerfile.gatewayllm .
 FROM python:3.12-slim

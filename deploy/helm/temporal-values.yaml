@@ -1,4 +1,4 @@
-# Self-hosted Temporal (plan step 2) — installed alongside the poseidon
+# Self-hosted Temporal — installed alongside the poseidon
 # release into the platform namespace from the official chart, version-pinned
 # in deploy/kind/kind-up.sh (chart 1.6.0 / server 1.31.x). No Temporal Cloud
 # (O3 = B). The same values file serves kind and real clusters.

@@ -1,6 +1,6 @@
 # Poseidon values. The release is installed into the platform namespace
 # (`helm install -n poseidon-platform --create-namespace`); company
-# namespaces are the operator's, created from Company CRs (plan step 10).
+# namespaces are the operator's, created from Company CRs.
 # Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
 
 # The bootstrap company's namespace — platform-side wiring only: the worker's
@@ -48,9 +48,9 @@ images:
     tag: latest
     pullPolicy: IfNotPresent
 
-# Secrets layout (plan step 1a): GIT_TOKEN mountable only into the gateway,
+# Secrets layout: GIT_TOKEN mountable only into the gateway,
 # LLM_API_KEY only into LiteLLM — both live in the platform namespace.
-# Caller identity is workload tokens since plan steps 11/12 (no static
+# Caller identity is workload tokens (no static
 # bearer tokens anywhere). Placeholders keep `helm install` self-contained;
 # real values come from the bootstrap script (kind) or a values override.
 secrets:
@@ -58,11 +58,11 @@ secrets:
   llmApiKey: sk-replace-with-provider-key
   # Cluster-internal only (Postgres never leaves the platform namespace).
   postgresPassword: postgres-password-placeholder
-  # Shared HMAC key for per-run egress credentials (§2b): egress-proxy and
+  # Shared HMAC key for per-run egress credentials: egress-proxy and
   # the orchestrator worker only; sandboxes see only their derived credential.
   egressProxyKey: egress-proxy-key-placeholder
-  # The §2b platform signing key (plan step 11): gateway verifies
-  # platform-signed ephemeral JWTs; the orchestrator mints from step 16a.
+  # The platform signing key: gateway verifies
+  # platform-signed ephemeral JWTs; the orchestrator mints them.
   platformJwtKey: platform-jwt-key-placeholder
 
 # Run configuration (the C7 subset the in-cluster services need).
@@ -74,14 +74,14 @@ run:
 
 orchestrator:
   temporalAddress: temporal-frontend:7233
-  # SandboxPolicy values come from the applied blueprint's infra IR since
-  # plan step 12; the deployment supplies only the resolution of the IR's
+  # SandboxPolicy values come from the applied blueprint's infra IR;
+  # the deployment supplies only the resolution of the IR's
   # logical toolchain image (content-addressed on kind).
   sandbox:
     image: poseidon-sandbox
 
-# The LLM gateway (plan step 14): tier -> model resolution and the flat
-# MVP price per 1K tokens the ledger accrues at. The blueprint names
+# The LLM gateway: tier -> model resolution and the flat
+# price per 1K tokens the ledger accrues at. The blueprint names
 # tiers; only the deployment knows the concrete models. In mock mode every
 # tier resolves to the mock brain via values-mockllm.yaml.
 llmGateway:
@@ -91,8 +91,8 @@ llmGateway:
     small: gpt-4o-mini
   pricePer1kTokens: "0.002"
 
-# Sandbox egress proxy (plan step 5). The allowlist is the applied
-# blueprint's compiled IR projection (plan step 12), resolved per run via
+# Sandbox egress proxy. The allowlist is the applied
+# blueprint's compiled IR projection, resolved per run via
 # the registry — a run without an applied blueprint has zero egress.
 # Deny/allow audit events carry the per-run credential attribution.
 egressProxy:

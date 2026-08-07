@@ -1,7 +1,7 @@
 # Orchestrator worker image: workflows, activities and the Temporal worker.
 # Credential posture: the orchestrator bearer token and the egress-proxy
 # HMAC key arrive via env at deploy time — no GIT_TOKEN, no provider keys,
-# ever. Lockfile-pinned build (plan step 6): deps from uv.lock via
+# ever. Lockfile-pinned build: deps from uv.lock via
 # `uv export`.
 # Build from the repo root: docker build -f Dockerfile.orchestrator .
 FROM python:3.12-slim

@@ -1,7 +1,7 @@
 # Sandbox image: toolchain prebaked because sandbox egress is proxy-only
 # (and empty allowlists mean zero egress). pytest rides the sandbox
-# package's `toolchain` extra so the whole image is lockfile-pinned
-# (plan step 6): deps from uv.lock via `uv export`.
+# package's `toolchain` extra so the whole image is lockfile-pinned:
+# deps from uv.lock via `uv export`.
 # Build from the repo root: docker build -f Dockerfile.sandbox .
 FROM python:3.12-slim
 

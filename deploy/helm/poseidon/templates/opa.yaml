@@ -1,6 +1,5 @@
-# OPA. Operator-installed compiled bundles are the only policy source since
-# the step-12 cutover (the hand-authored policies/ ConfigMap retired with
-# poc.rego). OPA *polls* the bundle server (§2b) — never pushed, so an OPA
+# OPA. Operator-installed compiled bundles are the only policy source.
+# OPA *polls* the bundle server — never pushed, so an OPA
 # restart re-fetches the current revision instead of running on whatever it
 # last held. Two bundles: the platform scope (compiler-owned, reserved key)
 # and one per company.

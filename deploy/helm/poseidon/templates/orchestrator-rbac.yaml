@@ -1,7 +1,7 @@
 # The orchestrator worker's identity. Its Kubernetes surface for the
 # k8s_jobs sandbox backend (the bounded sandbox-provisioner Role +
 # RoleBinding) lives in each company namespace — and company namespaces are
-# operator-created since plan step 10, so the operator reconciles that RBAC
+# operator-created, so the operator reconciles that RBAC
 # too (see poseidon_operator.resources; the operator's ClusterRole holds
 # escalate/bind for exactly this). Nothing here may touch the platform
 # namespace.

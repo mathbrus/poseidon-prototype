@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NetworkPolicy probe (plan step 1c done-when): from inside the agent pod,
+# NetworkPolicy probe: from inside the agent pod,
 # the two gateways answer and nothing else does; no pod in the company
 # namespace carries a credential-shaped env var.
 set -euo pipefail
@@ -43,9 +43,9 @@ probe "http://1.1.1.1" blocked
 probe "http://api.github.com" blocked
 
 echo "==> scanning $COMPANY_NS pod envs for credential-shaped variables"
-# Same rule as the CI secret-inspection gate: nothing *_TOKEN/*_KEY since
-# plan step 11 (a standing agent's credential is a projected token file);
-# GPG_KEY only if blanked. Crew pods (step 16c) carry their minted
+# Same rule as the CI secret-inspection gate: nothing *_TOKEN/*_KEY
+# (a standing agent's credential is a projected token file);
+# GPG_KEY only if blanked. Crew pods carry their minted
 # ephemeral identity as GATEWAY_TOKEN — run-scoped and registry-revocable,
 # deliberately exempt.
 for pod in $(kubectl -n "$COMPANY_NS" get pods -o jsonpath='{.items[*].metadata.name}'); do

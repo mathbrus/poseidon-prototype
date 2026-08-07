@@ -1,9 +1,8 @@
 # MCP gateway: the only pod holding GIT_TOKEN. Audit events and sandbox
-# registrations live in the registry since plan step 8 — the PVC that
-# carried the audit JSONL is gone, and with it the reason this Deployment
-# could not roll normally.
+# registrations live in the registry, so this Deployment rolls normally
+# with no local state to lose.
 #
-# Workload identity (plan step 11): the gateway verifies callers' projected
+# Workload identity: the gateway verifies callers' projected
 # service-account tokens through the TokenReview API, which needs its own
 # ServiceAccount bound to system:auth-delegator.
 apiVersion: v1
@@ -63,9 +62,9 @@ spec:
               value: {{ .Values.run.baseRef | quote }}
             - name: OPA_URL
               value: http://opa:8181
-            # Workload identity (plan step 11): where the orchestrator's
-            # ServiceAccount lives, and the §2b key for verifying
-            # platform-signed ephemeral JWTs (minted from step 16a).
+            # Workload identity: where the orchestrator's
+            # ServiceAccount lives, and the platform signing key for
+            # verifying platform-signed ephemeral JWTs.
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
             - name: PLATFORM_JWT_KEY

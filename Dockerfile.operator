@@ -1,6 +1,6 @@
-# Operator image (plan step 10): the kopf reconciler and the OPA bundle
+# Operator image: the kopf reconciler and the OPA bundle
 # server, which share a package and differ only by entry point.
-# Lockfile-pinned build (plan step 6): deps from uv.lock via `uv export`.
+# Lockfile-pinned build: deps from uv.lock via `uv export`.
 # Build from the repo root: docker build -f Dockerfile.operator .
 FROM python:3.12-slim
 

@@ -1,11 +1,11 @@
-# The orchestrator worker (plan step 3): drives implement through Temporal.
+# The orchestrator worker: drives the workflows through Temporal.
 # Credentials: the egress-proxy HMAC key and the registry DSN — no
 # GIT_TOKEN, no provider keys. Its gateway identity is a projected
-# service-account token (plan step 11), audience-scoped to the gateway and
+# service-account token, audience-scoped to the gateway and
 # rotated by the kubelet; the same ServiceAccount carries the bounded
 # sandbox-provisioner Role (orchestrator-rbac.yaml) for the k8s_jobs
-# backend (plan step 4). Run records live in the registry since step 8, so
-# the runs PVC (and its Recreate strategy) are gone.
+# backend. Run records live in the registry, so
+# there is no runs PVC to manage.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,7 +25,7 @@ spec:
     spec:
       serviceAccountName: orchestrator-worker
       volumes:
-        # Audience-scoped gateway identity (plan step 11) — distinct from
+        # Audience-scoped gateway identity — distinct from
         # the automounted API-server token the k8s_jobs backend uses; this
         # one is useless at the API server and the API one at the gateway.
         - name: gateway-identity
@@ -49,12 +49,12 @@ spec:
               value: {{ .Values.orchestrator.temporalAddress | quote }}
             - name: MCP_GATEWAY_URL
               value: http://mcp-gateway:8080
-            # The standing conductor's dispatch address (plan step 18).
+            # The standing conductor's dispatch address.
             # Executors have no standing address: implement dispatches at
-            # the crew pod fulfill_crew provisioned (plan step 19).
+            # the crew pod fulfill_crew provisioned.
             - name: PM_URL
               value: http://pm.{{ .Values.companyNamespace }}.svc.cluster.local:8000
-            # The workflow-recorded crew request (plan step 19) evaluates
+            # The workflow-recorded crew request evaluates
             # the same compiled decision the crew.request tool faces,
             # directly at OPA.
             - name: OPA_URL
@@ -71,10 +71,10 @@ spec:
               value: {{ .Values.companyNamespace | quote }}
             # Deploy-time resolution of the infra IR's logical toolchain
             # image (content-addressed on kind); every other SandboxPolicy
-            # value comes from the applied blueprint (plan step 12).
+            # value comes from the applied blueprint.
             - name: SANDBOX_IMAGE
               value: {{ .Values.orchestrator.sandbox.image | quote }}
-            # Crew pods (plan step 16c) run the agent image; the worker
+            # Crew pods run the agent image; the worker
             # resolves gateway FQDNs from the platform namespace.
             - name: AGENT_IMAGE
               value: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
@@ -84,7 +84,7 @@ spec:
               value: {{ .Values.run.model | quote }}
             - name: MAX_ITERATIONS
               value: {{ .Values.run.maxIterations | quote }}
-            # Egress attribution (§2b): the proxy URL as sandboxes resolve
+            # Egress attribution: the proxy URL as sandboxes resolve
             # it, and the shared key to mint their per-run credentials.
             - name: EGRESS_PROXY_URL
               value: http://egress-proxy.{{ .Release.Namespace }}.svc.cluster.local:3128
@@ -93,7 +93,7 @@ spec:
                 secretKeyRef:
                   name: egress-proxy-key
                   key: EGRESS_PROXY_KEY
-            # The §2b platform signing key (plan step 16a): the fulfill
+            # The platform signing key: the fulfill
             # activities mint ephemeral identities with it.
             - name: PLATFORM_JWT_KEY
               valueFrom:

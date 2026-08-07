@@ -1,4 +1,4 @@
-# The LLM gateway (plan step 14): the workload-authenticated, metered,
+# The LLM gateway: the workload-authenticated, metered,
 # tier-routing route to any model. Verifies the same projected tokens as
 # the MCP gateway (TokenReview -> auth-delegator); holds no provider keys —
 # the upstream llm-proxy does, and NetworkPolicy seals it so nothing but
@@ -66,7 +66,7 @@ spec:
                   key: REGISTRY_DSN
             - name: UPSTREAM_URL
               value: http://llm-proxy:4000
-            # tier -> model resolution (§4.8): the blueprint names tiers,
+            # tier -> model resolution: the blueprint names tiers,
             # only the deployment knows which concrete model a tier means.
             - name: TIER_MODELS
               value: {{ .Values.llmGateway.tierModels | toJson | quote }}

@@ -1,7 +1,7 @@
-# Backend-engineer agent image: credential-free by construction (E3) — the
+# Backend-engineer agent image: credential-free by construction — the
 # pod holds no secret at all: its gateway credential is a projected
-# service-account token file (plan step 11).
-# Lockfile-pinned build (plan step 6): deps from uv.lock via `uv export`.
+# service-account token file.
+# Lockfile-pinned build: deps from uv.lock via `uv export`.
 # Build from the repo root: docker build -f Dockerfile.agent .
 FROM python:3.12-slim
 

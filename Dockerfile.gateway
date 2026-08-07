@@ -1,6 +1,6 @@
 # MCP gateway image: the only container holding GIT_TOKEN; needs git for
 # the platform-side clones behind repo.archive and git.open_pr.
-# Lockfile-pinned build (plan step 6): third-party deps come from uv.lock via
+# Lockfile-pinned build: third-party deps come from uv.lock via
 # `uv export`, so images and the host resolve identical versions. Workspace
 # pyprojects are copied first so uv can validate the lock; sources after, so
 # the dependency layer caches across source edits.

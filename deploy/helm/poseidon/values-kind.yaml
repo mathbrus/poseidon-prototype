@@ -9,9 +9,9 @@ gateway:
     type: NodePort
     nodePort: 30080
 
-# The egress allowlist comes from the applied blueprint since plan step 12
+# The egress allowlist comes from the applied blueprint
 # (hello-saas admits the PyPI hosts, so the `pip install` allow path stays
-# exercisable) — no static host config here anymore.
+# exercisable) — no static host config here.
 
 networkPolicies:
   # kind-config.yaml pins podSubnet to Calico's default pool; the service

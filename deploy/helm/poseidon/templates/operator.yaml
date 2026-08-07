@@ -1,9 +1,9 @@
-# The operator (plan step 10) and the OPA bundle server.
+# The operator and the OPA bundle server.
 #
 # The operator owns standing structure: namespace-per-company, the
 # NetworkPolicy envelope, standing agent Deployments, and persisting
 # compiled bundles. It never creates ephemeral agents and never runs a
-# process (§3 ownership matrix), which is why its RBAC stops where it does.
+# process, which is why its RBAC stops where it does.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -43,14 +43,14 @@ rules:
     verbs: ["get", "list", "watch", "create", "patch", "delete", "escalate", "bind"]
   # Standing agents. Note what is absent: no pods (ephemeral crew members
   # are the orchestrator's, inside a run), no exec, no jobs, no secrets
-  # (the bearer-token sync retired with workload identity, plan step 11).
+  # (there is no bearer-token sync — identity is workload-based).
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch", "create", "patch", "delete"]
-  # One ServiceAccount per standing agent (plan step 11): the instance's
+  # One ServiceAccount per standing agent: the instance's
   # workload identity, verified at the gateway via TokenReview. Deleting it
   # at teardown is what revokes a fired agent's tokens.
   - apiGroups: [""]
@@ -124,7 +124,7 @@ spec:
             httpGet: {path: /healthz, port: 8080}
             initialDelaySeconds: 15
 ---
-# The bundle server: OPA polls it, nothing pushes to OPA (§2b).
+# The bundle server: OPA polls it, nothing pushes to OPA.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

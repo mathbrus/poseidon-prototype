@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Poseidon M1 kind bootstrap (plan step 1a/1b): create the cluster, install
+# Poseidon kind bootstrap: create the cluster, install
 # Calico (kind's default CNI does not enforce NetworkPolicy), build and
 # side-load the images, and install the Helm chart. Idempotent — safe to
 # re-run for image or chart updates.
@@ -73,7 +73,7 @@ docker build -q -f Dockerfile.egressproxy -t "poseidon-egress-proxy:$BUILD_TAG" 
 docker build -q -f Dockerfile.operator -t "poseidon-operator:$BUILD_TAG" . >/dev/null
 docker build -q -f Dockerfile.gatewayllm -t "poseidon-gateway-llm:$BUILD_TAG" . >/dev/null
 # The sandbox image is side-loaded too: sandboxes are Kubernetes Jobs in the
-# company namespace since the k8s_jobs backend (plan step 4).
+# company namespace, run by the k8s_jobs backend.
 IMAGES=(
   "poseidon-gateway:$BUILD_TAG"
   "poseidon-agent:$BUILD_TAG"
@@ -146,7 +146,7 @@ for deploy in opa llm-proxy llm-gateway mcp-gateway egress-proxy bundle-server p
 done
 
 echo "==> temporal (chart $TEMPORAL_CHART_VERSION)"
-# Version-pinned, same values path for kind and real clusters (plan step 2).
+# Version-pinned, same values path for kind and real clusters.
 # The schema hook jobs create/migrate both databases against the poseidon
 # chart's Postgres, which is Ready by now.
 if ! helm repo list 2>/dev/null | grep -q go.temporal.io; then
@@ -177,7 +177,7 @@ done
 REGISTRY_DSN="postgresql://${POSTGRES_USER:-poseidon}:${POSTGRES_PASSWORD:-poseidon-dev-postgres}@127.0.0.1:15432/${POSTGRES_USER:-poseidon}" \
   uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 kill $PGPF 2>/dev/null || true
-# Lean roster (plan step 19): the PM is the only standing hire; execution
+# Lean roster: the PM is the only standing hire; execution
 # is ephemeral crews.
 for hire in pm; do
   kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
