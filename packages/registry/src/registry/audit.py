@@ -1,10 +1,8 @@
 """`audit_events` — the one ingestion contract for every audit source.
 
-The sink the JSONL files retired into (sequencing choice 1), schema v2
-since plan step 13 (§5.2). Its whole point is the E4 query: one `run_id`,
-one ordered story, every source — gateway, sandbox-infra, and (as their
-steps land) llm-gateway and process-gate all write this table through this
-accessor and nothing else.
+Its whole point is the correlated query: one `run_id`,
+one ordered story, every source — gateway, sandbox-infra, llm-gateway and
+process-gate all write this table through this accessor and nothing else.
 """
 
 from typing import Any
@@ -48,7 +46,7 @@ class AuditStore:
 
     def story(self, run_id: str) -> list[dict[str, Any]]:
         """Everything the platform decided for this run, in order — across
-        every source, from one query (§4.10)."""
+        every source, from one query."""
         return self._db.query(
             """
             SELECT ts, run_id, agent_id, role, tool, args_digest,

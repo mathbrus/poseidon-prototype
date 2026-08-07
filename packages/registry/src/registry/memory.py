@@ -55,7 +55,7 @@ class InMemoryAuditStore:
 
 
 class InMemoryCrewRequests:
-    """Recorded spawn intent (plan step 15): idempotent by derived id,
+    """Recorded spawn intent: idempotent by derived id,
     refresh-while-recorded, untouched once fulfilled."""
 
     def __init__(self) -> None:
@@ -96,7 +96,7 @@ class InMemoryCrewRequests:
 
 
 class InMemoryBudgetLedger:
-    """The LLM gateway's meter (plan step 14): recorded entries and the
+    """The LLM gateway's meter: recorded entries and the
     per-run SUM the hard-stop compares against."""
 
     def __init__(self) -> None:
@@ -154,8 +154,8 @@ class InMemorySandboxRegistrations:
 
 
 class InMemoryCompanies:
-    """The operator's writes and the read side the worker and egress proxy
-    grew at plan step 12 (infra IR consumption)."""
+    """The operator's writes, plus the read side the worker and egress
+    proxy consume the infra IR through."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
@@ -177,8 +177,8 @@ class InMemoryCompanies:
 
 
 class InMemoryAgentInstances:
-    """The gateway's read side of `agent_instances` (workload identity,
-    plan step 11) plus the operator's upsert, same row shape as Postgres."""
+    """The gateway's read side of `agent_instances` (workload identity)
+    plus the operator's upsert, same row shape as Postgres."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
@@ -222,9 +222,9 @@ class InMemoryRunParticipants:
         crew_template: str,
         role: str,
     ) -> None:
-        # Upsert like the real accessor — including its finality rule
-        # (plan step 23): a retry converges on a live row, but a revoked
-        # one is never revived.
+        # Upsert like the real accessor — including its finality rule:
+        # a retry converges on a live row, but a revoked one is never
+        # revived.
         existing = self.rows.get(agent_id)
         if existing is not None and existing["status"] != "active":
             raise ParticipantRevoked(

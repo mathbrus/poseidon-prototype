@@ -3,8 +3,7 @@
 Pure on purpose: what the operator *would* apply is testable without a
 cluster, and the reconcilers below stay thin enough to read. The operator
 owns standing structure only — namespaces, NetworkPolicies, standing agent
-Deployments — and never creates ephemeral agents or runs processes
-(§3 ownership matrix).
+Deployments — and never creates ephemeral agents or runs processes.
 """
 
 import os
@@ -12,7 +11,7 @@ from typing import Any
 
 AGENT_PORT = 8000
 LABELS = {"app.kubernetes.io/part-of": "poseidon", "app.kubernetes.io/managed-by": "poseidon-operator"}
-# Workload identity (plan step 11): every standing agent runs as its own
+# Workload identity: every standing agent runs as its own
 # ServiceAccount, named by its agent_id, and authenticates to the MCP
 # gateway with a kubelet-rotated projected token scoped to this audience.
 # Must match the gateway's `token_audience` setting.
@@ -90,7 +89,7 @@ def agent_egress(company_ns: str) -> dict[str, Any]:
                             "namespaceSelector": {
                                 "matchLabels": {"kubernetes.io/metadata.name": platform}
                             },
-                            # The metered LLM gateway (plan step 14) — the
+                            # The metered LLM gateway — the
                             # llm-proxy behind it is sealed to everyone
                             # but that gateway.
                             "podSelector": {"matchLabels": {"app": "llm-gateway"}},
@@ -147,7 +146,7 @@ def agent_ingress(company_ns: str) -> dict[str, Any]:
 
 def _peer_rule(name: str) -> dict[str, Any]:
     """One IR peer name -> the NetworkPolicy rule that admits exactly it.
-    The vocabulary is the §5.4 projection's: platform services by app label,
+    The vocabulary is the infra IR projection's: platform services by app label,
     cluster DNS by its kube-system label."""
     if name == "kube-dns":
         return {
@@ -183,11 +182,11 @@ def _peer_rule(name: str) -> dict[str, Any]:
 def sandbox_isolation(
     company_ns: str, projection: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """The sandbox envelope, projected from the compiled infra IR (§5.4,
-    wired at plan step 12): answer the gateway, reach only the audited
-    proxy. NetworkPolicy is the silent backstop beneath the proxy's audited
-    denies. The defaults equal what the compiler emits for every blueprint
-    today, so a CR predating the IR wiring converges identically."""
+    """The sandbox envelope, projected from the compiled infra IR: answer
+    the gateway, reach only the audited proxy. NetworkPolicy is the silent
+    backstop beneath the proxy's audited denies. The defaults equal what
+    the compiler emits for every blueprint today, so a CR carrying no
+    projection converges identically."""
     projection = projection or {}
     ingress_from = list(projection.get("sandbox_ingress_from") or ["mcp-gateway"])
     egress_to = list(
@@ -216,9 +215,9 @@ def sandbox_isolation(
 
 def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     """The orchestrator worker's Kubernetes surface — deliberately bounded,
-    and a review artifact per the overview §3 TCB stance. Two consumers:
-    the k8s_jobs sandbox backend (plan step 4: Jobs + pod reads + exec for
-    workspace delivery) and the crew-pod provisioner (plan step 16c: pod
+    and a review artifact: it is part of the trusted computing base. Two
+    consumers: the k8s_jobs sandbox backend (Jobs + pod reads + exec for
+    workspace delivery) and the crew-pod provisioner (pod
     create/delete for the ephemeral executor's brain host). Company
     namespaces only — the Role is namespaced and operator-reconciled, so
     the worker can create no pod in the platform namespace; the
@@ -282,7 +281,7 @@ def sandbox_provisioner_binding(company_ns: str) -> dict[str, Any]:
 
 
 def agent_service_account(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
-    """The instance's own identity (plan step 11). The name is the
+    """The instance's own identity. The name is the
     agent_id: the gateway resolves `system:serviceaccount:<ns>:<agent_id>`
     against the registry's `agent_instances` row and requires the namespace
     to match — a same-named ServiceAccount anywhere else verifies fine at
@@ -364,8 +363,8 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                                 # The spec's tier and tool scope ride the pod
                                 # template so an AgentInstance edit converges
                                 # as a rollout. MODEL itself stays cluster
-                                # config until the LLM gateway resolves
-                                # tier -> model at plan step 14.
+                                # config: the LLM gateway resolves
+                                # tier -> model.
                                 {"name": "MODEL_TIER",
                                  "value": spec.get("modelTier", "")},
                                 {"name": "ROLE_TEMPLATE",

@@ -1,13 +1,13 @@
 """`crew_requests` — recorded spawn authorization + intent, never
-fulfillment (§4.4 rule 3, plan step 15).
+fulfillment.
 
 One spawn model: whether the PM calls the `crew.request` tool (the gateway
 records) or a workflow records under the PM's conductor authority (the
-orchestrator, steps 18–19), the same row lands here and faced the same
+orchestrator), the same row lands here and faced the same
 policy. Rows are idempotent — the id derives from
 {conductor, crew_template, run_id}, so a retried request refreshes rather
 than duplicates — and expiring, so a request nothing fulfills orphans no
-identity (§6.4). Fulfillment consumes them at step 16d.
+identity. The orchestrator consumes them when it fulfills a crew.
 """
 
 import hashlib
@@ -59,11 +59,11 @@ class CrewRequests:
         return row
 
     def consume(self, rid: str, run_id: str) -> dict[str, Any] | None:
-        """Fulfillment's claim on a recorded request (plan step 16d):
+        """Fulfillment's claim on a recorded request:
         recorded + unexpired -> fulfilled, atomically. Idempotent for the
         retrying activity: a request this run already fulfilled is handed
         back; anything else — expired, foreign, absent — is None, and
-        fulfillment must not proceed (no orphan identities, §6.4)."""
+        fulfillment must not proceed (no orphan identities)."""
         rows = self._db.query(
             """
             UPDATE registry.crew_requests

@@ -1,6 +1,6 @@
 """`companies`, `policy_bundles` and `agent_instances` — operator-written.
 
-The §2b delivery contract in one place: the operator persists a compiled
+The bundle delivery contract in one place: the operator persists a compiled
 bundle, the bundle server hands it to OPA over the standard bundle API, and
 OPA polls. Nothing is pushed at runtime, so a gateway or OPA restart
 re-fetches the same revision instead of running on whatever it last held.
@@ -141,7 +141,7 @@ class Companies:
 
     def get(self, name: str) -> dict[str, Any] | None:
         """The applied spec (the Company CR spec minus the bundle) — what the
-        orchestrator's provision reads the infra IR from (plan step 12)."""
+        orchestrator's provision reads the infra IR from."""
         rows = self._db.query(
             "SELECT blueprint FROM registry.companies WHERE name = %s", (name,)
         )
@@ -163,7 +163,7 @@ class Companies:
 
 
 class AgentInstances:
-    """Standing roster status, written by the operator (§4.1)."""
+    """Standing roster status, written by the operator."""
 
     def __init__(self, registry: Registry) -> None:
         self._db = registry
@@ -197,8 +197,8 @@ class AgentInstances:
         )
 
     def get(self, agent_id: str) -> dict | None:
-        """One standing instance — the gateway's read for workload identity
-        (plan step 11): a projected token's ServiceAccount name resolves
+        """One standing instance — the gateway's read for workload
+        identity: a projected token's ServiceAccount name resolves
         here, and its namespace must match the recorded one."""
         rows = self._db.query(
             "SELECT agent_id, company, hire, role_template, model_tier,"

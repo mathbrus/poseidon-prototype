@@ -72,8 +72,8 @@ def reconcile_company(
         resources.default_deny(company_ns),
         resources.agent_egress(company_ns),
         resources.agent_ingress(company_ns),
-        # The sandbox envelope comes from the compiled infra IR (§5.4,
-        # wired at plan step 12) — hand-authoring a projection is a bug.
+        # The sandbox envelope comes from the compiled infra IR —
+        # hand-authoring a projection is a bug.
         resources.sandbox_isolation(
             company_ns, (spec.get("infra") or {}).get("network_policy")
         ),
@@ -93,7 +93,7 @@ def reconcile_company(
     bundle = spec.get("policyBundle") or {}
     if bundle:
         # Persist, do not push: OPA polls the bundle server for this
-        # revision (§2b). Nothing installs policy into a running OPA.
+        # revision. Nothing installs policy into a running OPA.
         revision = PolicyBundles(_db()).put(name, dict(bundle))
         _log.info("policy bundle stored", extra={"company": name, "revision": revision})
     platform_bundle = spec.get("platformBundle") or {}
@@ -139,7 +139,7 @@ def reconcile_instance(
     cluster = _cluster()
     # The ServiceAccount precedes the Deployment that runs as it; its name
     # (the agent_id) plus the namespace recorded below are what the gateway
-    # verifies a projected token against (plan step 11).
+    # verifies a projected token against.
     cluster.upsert_service_account(
         namespace, resources.agent_service_account(spec, namespace)
     )
@@ -160,7 +160,7 @@ def reconcile_instance(
 
 @kopf.on.delete("poseidon.dev", "v1", "agentinstances")
 def teardown_instance(spec: dict[str, Any], namespace: str, **_: Any) -> None:
-    """The firing half of hire/fire-as-diff (plan step 19 exercises it).
+    """The firing half of hire/fire-as-diff.
     Deleting the ServiceAccount revokes the instance's workload identity:
     the API server refuses TokenReview for tokens of an SA that no longer
     exists, so a fired agent's projected token dies with it (bounded by the

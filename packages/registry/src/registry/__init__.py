@@ -1,5 +1,4 @@
-"""The registry (overview §4.1, plan step 8): the join point between
-declarative intent and live state.
+"""The registry: the join point between declarative intent and live state.
 
 A shared library rather than a service: the writers are already separate
 processes with separate identities, and putting an HTTP hop in front of

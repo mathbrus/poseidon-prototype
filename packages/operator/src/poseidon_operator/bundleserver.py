@@ -1,4 +1,4 @@
-"""The OPA bundle server (§2b delivery contract).
+"""The OPA bundle server — the bundle delivery contract.
 
 OPA polls this for each company's compiled bundle; nothing is ever pushed
 into a running OPA. That is what makes gateway and OPA restarts safe — a
@@ -28,7 +28,7 @@ def create_app(bundles: PolicyBundles | None = None) -> FastAPI:
         # Postgres accepts connections, and a connect at create_app() time
         # would crash-loop it. /healthz stays database-free — readiness is
         # about the process; a warming-up store surfaces as a 500 on the
-        # bundle route, which OPA retries on its own poll schedule (§2b).
+        # bundle route, which OPA retries on its own poll schedule.
         nonlocal store
         if store is None:
             store = PolicyBundles(open_registry())

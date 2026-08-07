@@ -1,10 +1,10 @@
-"""`budget_ledger` — written by the LLM gateway only (plan step 14).
+"""`budget_ledger` — written by the LLM gateway only.
 
-One ledger with dimensions, never parallel accounts (§4.8): every model
+One ledger with dimensions, never parallel accounts: every model
 call lands here under {company, run_id, standing parent, ephemeral
 participant, role, model}, so crew fan-out stays reconcilable and "what did
 run X cost" is one SUM. The headroom read is what the hard-stop rides:
-enforcement is local at the LLM gateway (§2b — no Temporal client there);
+enforcement is local at the LLM gateway (no Temporal client there);
 the workflow observes the stop through the brain's surfaced budget error.
 """
 

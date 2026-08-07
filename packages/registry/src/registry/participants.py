@@ -1,14 +1,14 @@
 """`run_participants` — ephemeral crew members, one row per minted identity.
 
-Both halves of the frozen §2b identity contract meet here. The verify half
-(step 11): the gateway accepts a platform-signed JWT only while a live row
-backs it. The fulfill half (step 16a): the orchestrator's mint activity
+Both halves of the ephemeral-identity contract meet here. The verify half:
+the gateway accepts a platform-signed JWT only while a live row
+backs it. The fulfill half: the orchestrator's mint activity
 creates the row, and revocation is a row termination — effective before the
-token's TTL runs out, terminated on every terminal path (16b/16d extend the
-sweep to the workflow's compensation).
+token's TTL runs out, terminated on every terminal path (the workflow's
+compensation sweeps the run).
 
-The `role` column stores the crew member name — what §5.1 calls `crew_role`
-and the compiled crew rules key on; the §5.1 `role` (the catalog template)
+The `role` column stores the crew member name — the `crew_role` the
+compiled crew rules key on; the caller's `role` (the catalog template)
 rides the minted JWT's claims.
 """
 
@@ -19,7 +19,7 @@ from registry.db import Registry
 
 class ParticipantRevoked(Exception):
     """Raised when a mint would revive an already-revoked binding row —
-    i.e. a retry that lost the race with its run's teardown (plan step 23).
+    i.e. a retry that lost the race with its run's teardown.
     Revocation is final: the caller must abandon the identity, not rebuild
     on it."""
 
@@ -41,7 +41,7 @@ class RunParticipants:
         agent_id from {crew, member, run}, so a retry after a worker death
         lands on the same row instead of leaking a second identity.
 
-        **Revocation is final** (plan step 23): a terminated row is never
+        **Revocation is final**: a terminated row is never
         revived. The only way to reach a terminated row is to mint after
         the run's teardown already swept it — a retry racing compensation,
         which must not resurrect an identity the platform has revoked.
@@ -72,7 +72,7 @@ class RunParticipants:
             )
 
     def terminate(self, agent_id: str) -> None:
-        """Revocation (§2b): from this write on, the gateway finds no live
+        """Revocation: from this write on, the gateway finds no live
         row and the identity's tokens are dead — before TTL expiry."""
         self._db.execute(
             "UPDATE registry.run_participants"
@@ -99,7 +99,7 @@ class RunParticipants:
     def active_spawn_count(self, parent_agent_id: str) -> int:
         """How many crews the conductor is running right now — distinct
         {run, crew} pairs with live members. What the gateway injects as
-        `active_spawns` for the compiled concurrency cap (plan step 16d)."""
+        `active_spawns` for the compiled concurrency cap."""
         rows = self._db.query(
             "SELECT COUNT(DISTINCT (run_id, crew_template)) AS spawns"
             " FROM registry.run_participants"

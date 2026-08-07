@@ -56,7 +56,7 @@ class SandboxRegistrations:
 
     def active(self, run_id: str) -> dict | None:
         """The live registration, namespace included — what the gateway's
-        run-binding enrichment (plan step 12) and the egress proxy's
+        run-binding enrichment and the egress proxy's
         allowlist resolution key on. Stale or terminated rows return None,
         which is exactly what makes a stale `run_id` claim fail closed."""
         rows = self._db.query(

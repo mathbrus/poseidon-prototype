@@ -148,9 +148,8 @@ def test_story_is_one_run_in_order(registry: Registry):
 
 
 def test_story_spans_all_four_sources(registry: Registry):
-    """The step-13 done-when at the contract level: gateway, sandbox-infra,
-    llm-gateway and process-gate events for one run answer a single
-    `run_id`-correlated query, v2 attribution included (§5.2)."""
+    """Gateway, sandbox-infra, llm-gateway and process-gate events for one
+    run answer a single `run_id`-correlated query, attribution included."""
     audit = AuditStore(registry)
     audit.append(event(tool="sandbox.exec", ts="2026-01-01T00:00:01+00:00"))
     audit.append(
@@ -210,7 +209,7 @@ def test_unattributable_attempts_are_still_recorded(registry: Registry):
     assert len(audit.story("run-does-not-exist")) == 1
 
 
-# -- the operator-owned tables (plan step 10) -------------------------------
+# -- the operator-owned tables ----------------------------------------------
 
 
 def test_policy_bundle_round_trips_and_revokes(registry: Registry):
@@ -243,7 +242,7 @@ def test_company_rows_and_instance_sweep(registry: Registry):
     instances.delete_for_company("other-corp")
 
 
-# -- workload identity reads (plan step 11) --------------------------------
+# -- workload identity reads ------------------------------------------------
 
 
 def test_agent_instance_lookup_carries_namespace(registry: Registry):
@@ -289,7 +288,7 @@ def test_participant_active_goes_dark_on_termination(registry: Registry):
 
 
 def test_sandbox_registration_active_row(registry: Registry):
-    """The run-binding read (plan step 12): live row with namespace, gone
+    """The run-binding read: live row with namespace, gone
     once terminated — a stale run_id claim must resolve to nothing."""
     boxes = SandboxRegistrations(registry)
     boxes.register(RUN_ID, "http://10.0.0.5:8000", "hello-saas", "sbx-x")
@@ -318,7 +317,7 @@ def test_company_spec_reads(registry: Registry):
 
 
 def test_budget_ledger_attributes_and_sums(registry: Registry):
-    """One ledger with dimensions (§4.8): every entry fully attributed,
+    """One ledger with dimensions: every entry fully attributed,
     the per-run SUM is what the LLM gateway's hard-stop compares against."""
     from registry.ledger import BudgetLedger
 
@@ -346,7 +345,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
 
 
 def test_crew_request_is_idempotent_and_expiring(registry: Registry):
-    """§4.4 rule 3 + §6.4: same {conductor, crew, run} lands on one row;
+    """Same {conductor, crew, run} lands on one row;
     while recorded a retry refreshes it; once fulfilled it is untouched —
     a retry must not resurrect consumed intent."""
     from registry.crews import CrewRequests

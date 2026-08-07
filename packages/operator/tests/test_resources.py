@@ -42,7 +42,7 @@ def test_agent_egress_reaches_only_the_two_gateways_and_dns():
         or rule["to"][0]["podSelector"]["matchLabels"].get("k8s-app")
         for rule in egress
     }
-    # Since plan step 14 the model route is the metered llm-gateway; the
+    # The model route is the metered llm-gateway; the
     # llm-proxy behind it is sealed to everyone but that gateway.
     assert targets == {"mcp-gateway", "llm-gateway", "kube-dns"}
 
@@ -59,9 +59,9 @@ def test_sandbox_answers_the_gateway_and_reaches_only_the_proxy():
 
 
 def test_sandbox_isolation_projects_the_infra_ir():
-    """Since plan step 12 the envelope comes from the compiled projection;
-    the compiler's standard emission must produce the same envelope as the
-    defaults (a CR predating the wiring converges identically)."""
+    """The envelope comes from the compiled projection; the compiler's
+    standard emission must produce the same envelope as the defaults (a CR
+    carrying no projection converges identically)."""
     projected = resources.sandbox_isolation(
         "hello-saas",
         {"sandbox_ingress_from": ["mcp-gateway"],
@@ -82,7 +82,7 @@ def _assert_sandbox_envelope(spec):
 
 
 def test_agent_deployment_carries_no_credential_env_at_all():
-    """E3 by construction since plan step 11: identity is the projected
+    """Credential-free by construction: identity is the projected
     token file, so no token-shaped env var exists — not even a secretKeyRef.
     GPG_KEY (baked into the base image) is blanked."""
     container = resources.agent_deployment(SPEC, "hello-saas")["spec"]["template"][
@@ -157,7 +157,7 @@ def test_spec_edits_change_the_pod_template():
 
 
 def test_sandbox_provisioner_rbac_is_bounded():
-    """A review artifact (§3 TCB): jobs and pods in the company namespace
+    """A review artifact: jobs and pods in the company namespace
     only, pods/exec for workspace delivery, nothing wider."""
     role = resources.sandbox_provisioner_role("hello-saas")
     resources_granted = {

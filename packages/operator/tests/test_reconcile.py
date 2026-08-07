@@ -128,11 +128,11 @@ def test_company_reconcile_converges_the_envelope(cluster, stores):
     # namespace — the operator creates it, the worker uses it.
     assert cluster.named("upsert_role") == [("hello-saas", "sandbox-provisioner")]
     assert cluster.named("upsert_role_binding") == [("hello-saas", "sandbox-provisioner")]
-    # No secret sync: identity is the projected token since plan step 11.
+    # No secret sync: identity is the projected token.
     assert cluster.named("upsert_secret") == []
 
     assert "hello-saas" in bundles.stored
-    # The platform scope rides every apply under its reserved key (§2b);
+    # The platform scope rides every apply under its reserved key;
     # identical content, so re-applies never churn the revision.
     assert "platform" in bundles.stored
     # The registry row records what was applied, minus the bundle (which
@@ -185,7 +185,7 @@ def test_instance_reconcile_deploys_and_registers(cluster, stores):
     reconcile.reconcile_instance(
         spec=INSTANCE_SPEC, namespace="hello-saas", name="pm", patch=patch
     )
-    # The workload identity precedes the pod that runs as it (plan step 11).
+    # The workload identity precedes the pod that runs as it.
     assert cluster.named("upsert_service_account") == [("hello-saas", "pm-1")]
     assert cluster.named("upsert_deployment") == [("hello-saas", "pm")]
     assert cluster.named("upsert_service") == [("hello-saas", "pm")]
