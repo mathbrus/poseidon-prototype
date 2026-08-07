@@ -98,10 +98,20 @@ spec:
     spec:
       serviceAccountName: poseidon-operator
       enableServiceLinks: false
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: operator
           image: "{{ .Values.images.operator.repository }}:{{ .Values.images.operator.tag }}"
           imagePullPolicy: {{ .Values.images.operator.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           command: ["kopf", "run", "-m", "poseidon_operator.reconcile", "--all-namespaces", "--liveness", "http://0.0.0.0:8080/healthz"]
           env:
             {{- include "poseidon.otelEnv" (dict "root" $ "service" "poseidon-operator") | nindent 12 }}
@@ -144,10 +154,20 @@ spec:
     spec:
       enableServiceLinks: false
       automountServiceAccountToken: false
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: bundle-server
           image: "{{ .Values.images.operator.repository }}:{{ .Values.images.operator.tag }}"
           imagePullPolicy: {{ .Values.images.operator.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           command: ["python", "-m", "poseidon_operator.bundleserver"]
           ports:
             - containerPort: 8081

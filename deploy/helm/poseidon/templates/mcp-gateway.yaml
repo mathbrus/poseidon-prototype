@@ -45,10 +45,22 @@ spec:
         {{- include "poseidon.labels" . | nindent 8 }}
     spec:
       serviceAccountName: mcp-gateway
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      volumes:
+        # Scratch space for the platform-side git clones behind
+        # repo.archive / git.open_pr; the root filesystem stays read-only.
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: mcp-gateway
           image: "{{ .Values.images.gateway.repository }}:{{ .Values.images.gateway.tag }}"
           imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           ports:
             - containerPort: 8080
           env:

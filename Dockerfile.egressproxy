@@ -30,5 +30,9 @@ COPY packages/registry packages/registry
 COPY packages/sandbox packages/sandbox
 RUN pip install --no-cache-dir --no-deps ./packages/common ./packages/registry ./packages/sandbox
 
+# Non-root runtime user; pod specs set runAsNonRoot/runAsUser to match.
+RUN useradd --create-home --uid 10001 poseidon
+USER 10001
+
 EXPOSE 3128
 CMD ["python", "-m", "sandbox.egressproxy"]

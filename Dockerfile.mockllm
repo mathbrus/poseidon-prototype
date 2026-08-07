@@ -28,6 +28,10 @@ RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package mockll
 COPY packages/mockllm packages/mockllm
 RUN pip install --no-cache-dir --no-deps ./packages/mockllm
 
+# Non-root runtime user; pod specs set runAsNonRoot/runAsUser to match.
+RUN useradd --create-home --uid 10001 poseidon
+USER 10001
+
 # The llm-proxy template supplies LiteLLM-shaped args (--model ... --port 4000);
 # the entry point accepts and ignores what it must.
 ENTRYPOINT ["python", "-m", "mockllm"]

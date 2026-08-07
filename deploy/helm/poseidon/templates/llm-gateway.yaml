@@ -44,10 +44,20 @@ spec:
     spec:
       serviceAccountName: llm-gateway
       enableServiceLinks: false
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: llm-gateway
           image: "{{ .Values.images.gatewayLlm.repository }}:{{ .Values.images.gatewayLlm.tag }}"
           imagePullPolicy: {{ .Values.images.gatewayLlm.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           ports:
             - containerPort: 4000
           env:

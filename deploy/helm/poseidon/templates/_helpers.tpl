@@ -28,3 +28,37 @@ to the always-on stdout JSON. Usage:
   value: {{ .service | quote }}
 {{- end }}
 {{- end }}
+
+{{/*
+Pod- and container-level security posture shared by the platform
+workloads: non-root (uid 10001, the user baked into the poseidon images),
+no privilege-escalation path, all capabilities dropped, default seccomp
+filter. Services whose root filesystem can be read-only mount an emptyDir
+at /tmp for scratch space (git clones, tempfiles). Postgres runs its own
+variant (uid 999, the image's postgres user).
+*/}}
+{{- define "poseidon.podSecurityContext" -}}
+runAsNonRoot: true
+runAsUser: 10001
+runAsGroup: 10001
+seccompProfile:
+  type: RuntimeDefault
+{{- end }}
+
+{{- define "poseidon.containerSecurityContext" -}}
+allowPrivilegeEscalation: false
+capabilities:
+  drop: ["ALL"]
+readOnlyRootFilesystem: true
+{{- end }}
+
+{{/*
+Same posture minus the read-only root: for third-party images whose
+write locations we do not control (LiteLLM).
+*/}}
+{{- define "poseidon.containerSecurityContextWritable" -}}
+allowPrivilegeEscalation: false
+capabilities:
+  drop: ["ALL"]
+readOnlyRootFilesystem: false
+{{- end }}

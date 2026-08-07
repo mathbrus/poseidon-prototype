@@ -24,6 +24,8 @@ spec:
         {{- include "poseidon.labels" . | nindent 8 }}
     spec:
       serviceAccountName: orchestrator-worker
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
       volumes:
         # Audience-scoped gateway identity — distinct from
         # the automounted API-server token the k8s_jobs backend uses; this
@@ -35,14 +37,20 @@ spec:
                   audience: poseidon-gateway
                   expirationSeconds: 3600
                   path: token
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: worker
           image: "{{ .Values.images.orchestrator.repository }}:{{ .Values.images.orchestrator.tag }}"
           imagePullPolicy: {{ .Values.images.orchestrator.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             - name: gateway-identity
               mountPath: /var/run/poseidon/identity
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
           env:
             {{- include "poseidon.otelEnv" (dict "root" $ "service" "orchestrator-worker") | nindent 12 }}
             - name: TEMPORAL_ADDRESS

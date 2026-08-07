@@ -97,6 +97,22 @@ def test_agent_deployment_carries_no_credential_env_at_all():
         assert "valueFrom" not in entry, name
 
 
+def test_agent_pod_runs_non_root_with_no_escalation_path():
+    pod_spec = resources.agent_deployment(SPEC, "hello-saas")["spec"]["template"][
+        "spec"
+    ]
+    assert pod_spec["securityContext"] == {
+        "runAsNonRoot": True,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
+    assert pod_spec["containers"][0]["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+    }
+
+
 def test_agent_pod_identity_is_the_audience_scoped_projected_token():
     """The pod runs as its instance's ServiceAccount and mounts one
     projected token, audience-scoped to the gateway; the API-server token

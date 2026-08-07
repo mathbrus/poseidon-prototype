@@ -24,10 +24,20 @@ spec:
       # shadow EGRESS_* env names with tcp:// pseudo-URLs.
       automountServiceAccountToken: false
       enableServiceLinks: false
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: proxy
           image: "{{ .Values.egressProxy.image.repository }}:{{ .Values.egressProxy.image.tag }}"
           imagePullPolicy: {{ .Values.egressProxy.image.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           env:
             {{- include "poseidon.otelEnv" (dict "root" $ "service" "egress-proxy") | nindent 12 }}
             - name: EGRESS_PROXY_KEY

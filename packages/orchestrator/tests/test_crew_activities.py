@@ -95,7 +95,7 @@ def test_retried_mint_converges_on_one_identity(crew, participants):
 
 
 def test_a_mint_that_lost_the_race_with_teardown_is_refused(crew, participants):
-    """Plan step 23: revocation is final. A retry that reaches the mint
+    """Revocation is final. A retry that reaches the mint
     after its run's teardown swept the row must not resurrect the identity
     — that is how a crew pod ended up outliving its run, holding a revoked
     credential with nothing left to collect it."""

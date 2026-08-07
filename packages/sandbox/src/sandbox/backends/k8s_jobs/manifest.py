@@ -50,11 +50,27 @@ def build_job(run_id: str, policy: SandboxPolicy) -> dict:
                     # Kubernetes API — nothing to mount, nothing to scrape.
                     "automountServiceAccountToken": False,
                     "enableServiceLinks": False,
+                    # Non-root (the image's poseidon user owns /workspace),
+                    # no privilege-escalation path, no capabilities, default
+                    # seccomp filter. The root filesystem stays writable:
+                    # workspace code legitimately writes (git worktrees,
+                    # pip --user installs) and the ephemeral-storage limit
+                    # above caps what it can fill.
+                    "securityContext": {
+                        "runAsNonRoot": True,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
+                        "seccompProfile": {"type": "RuntimeDefault"},
+                    },
                     "containers": [
                         {
                             "name": "toolserver",
                             "image": policy.image,
                             "imagePullPolicy": "IfNotPresent",
+                            "securityContext": {
+                                "allowPrivilegeEscalation": False,
+                                "capabilities": {"drop": ["ALL"]},
+                            },
                             "env": [
                                 {"name": name, "value": value}
                                 for name, value in sorted(env.items())

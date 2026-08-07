@@ -1,6 +1,6 @@
 # Stock LiteLLM in single-model mode: holds the provider key so the agent pod
-# never sees it (invariant #1 / E3). Grows into packages/gateway-llm at plan
-# step 14.
+# never sees it. The metered llm-gateway (packages/gateway-llm) is the only
+# service that can reach it.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,10 +18,17 @@ spec:
         app: llm-proxy
         {{- include "poseidon.labels" . | nindent 8 }}
     spec:
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
       containers:
         - name: llm-proxy
           image: "{{ .Values.images.llmProxy.repository }}:{{ .Values.images.llmProxy.tag }}"
           imagePullPolicy: {{ .Values.images.llmProxy.pullPolicy }}
+          # Writable root: LiteLLM is a third-party image whose write
+          # locations we do not control (the mock swap-in would tolerate
+          # read-only, but the spec must fit both).
+          securityContext:
+            {{- include "poseidon.containerSecurityContextWritable" . | nindent 12 }}
           # args only: the image's litellm entrypoint stays in charge.
           args: ["--model", {{ .Values.run.model | quote }}, "--port", "4000"]
           ports:

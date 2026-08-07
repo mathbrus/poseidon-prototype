@@ -409,7 +409,7 @@ def test_workflow_path_with_no_policy_installed_fails_closed(
 
 
 def test_crew_pod_carries_a_wall_clock_deadline():
-    """Plan step 23 backstop: the race guard refuses to provision for a run
+    """The race guard refuses to provision for a run
     whose teardown has passed, but a pod created in the last instant before
     that becomes true has no owner left to collect it. A deadline means an
     orphan stops burning compute by itself — the same device sandboxes
@@ -427,8 +427,28 @@ def test_crew_pod_carries_a_wall_clock_deadline():
     assert manifest["spec"]["restartPolicy"] == "Never"
 
 
+def test_crew_pod_runs_non_root_with_no_escalation_path():
+    manifest = crew_pod_manifest(
+        agent_id="feature-delivery-executor-run-1",
+        run_id="run-1",
+        company="hello-saas",
+        agent_image="poseidon-agent:test",
+        env={},
+    )
+    assert manifest["spec"]["securityContext"] == {
+        "runAsNonRoot": True,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
+    assert manifest["spec"]["containers"][0]["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+    }
+
+
 def test_a_run_torn_down_mid_provision_gets_no_pod(settings, stores):
-    """Plan step 23, the timing that actually mattered: the guard is
+    """The timing that actually matters: the guard is
     consulted by the provisioner immediately before creation, not by the
     activity beforehand. Removing a remnant pod waits for it to terminate
     (31 s, measured), and a verdict taken before that wait is stale by the

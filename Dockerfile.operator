@@ -30,4 +30,8 @@ COPY packages/operator packages/operator
 RUN pip install --no-cache-dir --no-deps \
       ./packages/common ./packages/registry ./packages/operator
 
+# Non-root runtime user; pod specs set runAsNonRoot/runAsUser to match.
+RUN useradd --create-home --uid 10001 poseidon
+USER 10001
+
 CMD ["kopf", "run", "-m", "poseidon_operator.reconcile", "--all-namespaces"]

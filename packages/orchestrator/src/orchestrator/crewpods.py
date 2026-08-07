@@ -89,11 +89,24 @@ def crew_pod_manifest(
             "activeDeadlineSeconds": deadline_s,
             "automountServiceAccountToken": False,
             "enableServiceLinks": False,
+            # Non-root, no privilege-escalation path, no capabilities,
+            # default seccomp filter. Root filesystem stays writable — the
+            # brain SDK writes under $HOME.
+            "securityContext": {
+                "runAsNonRoot": True,
+                "runAsUser": 10001,
+                "runAsGroup": 10001,
+                "seccompProfile": {"type": "RuntimeDefault"},
+            },
             "containers": [
                 {
                     "name": "agent",
                     "image": agent_image,
                     "imagePullPolicy": "IfNotPresent",
+                    "securityContext": {
+                        "allowPrivilegeEscalation": False,
+                        "capabilities": {"drop": ["ALL"]},
+                    },
                     "ports": [{"containerPort": AGENT_PORT}],
                     "env": [
                         {"name": name, "value": value}

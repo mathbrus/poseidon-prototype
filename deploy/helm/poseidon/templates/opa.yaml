@@ -52,10 +52,16 @@ spec:
         # its config file. Bump the literal when the config shape changes.
         poseidon.dev/opa-config-rev: "step12-platform+{{ .Values.companyNamespace }}"
     spec:
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
       containers:
         - name: opa
           image: "{{ .Values.images.opa.repository }}:{{ .Values.images.opa.tag }}"
           imagePullPolicy: {{ .Values.images.opa.pullPolicy }}
+          # OPA is a static binary that keeps bundles in memory; nothing
+          # writes to disk.
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           args:
             - run
             - --server

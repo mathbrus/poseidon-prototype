@@ -32,5 +32,9 @@ RUN pip install --no-cache-dir --no-deps ./packages/common ./packages/agent
 # The SDK is env-gated quiet: no banner, no Laminar telemetry (LMNR_* absent).
 ENV OPENHANDS_SUPPRESS_BANNER=1
 
+# Non-root runtime user; pod specs set runAsNonRoot/runAsUser to match.
+RUN useradd --create-home --uid 10001 poseidon
+USER 10001
+
 EXPOSE 8000
 CMD ["uvicorn", "--factory", "agent.app:create_app", "--host", "0.0.0.0", "--port", "8000"]

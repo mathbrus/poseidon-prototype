@@ -435,7 +435,7 @@ def test_crew_request_consume_and_spawn_count(registry: Registry):
 
 
 def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry):
-    """Plan step 23: the only way to mint onto a terminated row is to be a
+    """The only way to mint onto a terminated row is to be a
     retry that lost the race with its run's teardown. Reviving it would
     resurrect an identity the platform revoked — and, in the case that
     surfaced this, leave a crew pod holding it with nothing left to collect

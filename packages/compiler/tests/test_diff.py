@@ -49,8 +49,8 @@ def test_a_small_edit_shows_a_minimal_diff(blueprint):
 
 
 def test_the_firing_diff_is_a_deletion(lean):
-    """Plan step 19 removes the transitional engineer by editing the
-    blueprint — the live demo of fire-as-diff."""
+    """Firing a standing hire is a blueprint edit — the live demo of
+    fire-as-diff."""
     snapshot = live(
         ("pm", "pm", "standard"), ("backend-engineer", "backend-engineer", "frontier")
     )

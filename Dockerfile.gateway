@@ -36,5 +36,9 @@ COPY packages/registry packages/registry
 COPY packages/gateway packages/gateway
 RUN pip install --no-cache-dir --no-deps ./packages/common ./packages/registry ./packages/gateway
 
+# Non-root runtime user; pod specs set runAsNonRoot/runAsUser to match.
+RUN useradd --create-home --uid 10001 poseidon
+USER 10001
+
 EXPOSE 8080
 CMD ["uvicorn", "--factory", "gateway.app:create_app", "--host", "0.0.0.0", "--port", "8080"]

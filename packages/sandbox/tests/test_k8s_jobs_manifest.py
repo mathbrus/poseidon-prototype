@@ -71,3 +71,22 @@ def test_sandbox_holds_no_kubernetes_identity():
     assert pod_spec["automountServiceAccountToken"] is False
     assert pod_spec["restartPolicy"] == "Never"
     assert job["spec"]["backoffLimit"] == 0
+
+
+def test_sandbox_runs_non_root_with_no_escalation_path():
+    """The pod runs as the image's non-root user, with no privilege
+    escalation, no capabilities and the default seccomp filter. The root
+    filesystem stays writable on purpose (workspace code writes); the
+    ephemeral-storage limit caps what it can fill."""
+    job = build_job(RUN_ID, POLICY)
+    pod_spec = job["spec"]["template"]["spec"]
+    assert pod_spec["securityContext"] == {
+        "runAsNonRoot": True,
+        "runAsUser": 10001,
+        "runAsGroup": 10001,
+        "seccompProfile": {"type": "RuntimeDefault"},
+    }
+    assert container(job)["securityContext"] == {
+        "allowPrivilegeEscalation": False,
+        "capabilities": {"drop": ["ALL"]},
+    }

@@ -41,5 +41,14 @@ RUN git config --system user.name "poseidon-sandbox" \
 
 WORKDIR /workspace
 
+# Non-root runtime user; the Job spec sets runAsNonRoot/runAsUser to match.
+# The user owns /workspace so tar delivery, git worktrees and test runs all
+# work without root; pip installs from workspace code fall back to --user
+# (the home directory is writable).
+RUN useradd --create-home --uid 10001 poseidon \
+    && chown poseidon:poseidon /workspace
+
+USER 10001
+
 EXPOSE 8000
 ENTRYPOINT ["uvicorn", "sandbox.toolserver.app:app", "--host", "0.0.0.0", "--port", "8000"]

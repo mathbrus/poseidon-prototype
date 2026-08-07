@@ -314,7 +314,7 @@ def test_crew_rule_compares_the_raw_member_name():
 
 
 def test_crew_request_is_narrowed_to_may_spawn(decide):
-    """Plan step 15: the compiled crew.request rule requires the requested
+    """The compiled crew.request rule requires the requested
     template to be in the conductor's may_spawn list — spawn intent outside
     it never even records."""
     allowed = decide(**standing("pm", tool="crew.request",

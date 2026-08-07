@@ -333,6 +333,15 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                     # server. Automount stays off.
                     "automountServiceAccountToken": False,
                     "enableServiceLinks": False,
+                    # Non-root, no privilege-escalation path, no
+                    # capabilities, default seccomp filter. Root filesystem
+                    # stays writable — the brain SDK writes under $HOME.
+                    "securityContext": {
+                        "runAsNonRoot": True,
+                        "runAsUser": 10001,
+                        "runAsGroup": 10001,
+                        "seccompProfile": {"type": "RuntimeDefault"},
+                    },
                     "volumes": [
                         {
                             "name": "gateway-identity",
@@ -354,6 +363,10 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                             "name": "agent",
                             "image": env.get("AGENT_IMAGE", "poseidon-agent:latest"),
                             "imagePullPolicy": "IfNotPresent",
+                            "securityContext": {
+                                "allowPrivilegeEscalation": False,
+                                "capabilities": {"drop": ["ALL"]},
+                            },
                             "ports": [{"containerPort": AGENT_PORT}],
                             "env": [
                                 {"name": "MCP_GATEWAY_URL",

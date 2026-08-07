@@ -31,5 +31,9 @@ COPY packages/registry packages/registry
 COPY packages/gateway-llm packages/gateway-llm
 RUN pip install --no-cache-dir --no-deps ./packages/common ./packages/registry ./packages/gateway-llm
 
+# Non-root runtime user; pod specs set runAsNonRoot/runAsUser to match.
+RUN useradd --create-home --uid 10001 poseidon
+USER 10001
+
 EXPOSE 4000
 CMD ["python", "-m", "gateway_llm"]
