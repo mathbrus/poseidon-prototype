@@ -1,4 +1,4 @@
-"""The intake activities (plan step 18) against doubles: the run row, the
+"""The intake activities against doubles: the run row, the
 budget-headroom boundary, the blueprint-read gate slot, the PM dispatch,
 and finalization linking tickets."""
 

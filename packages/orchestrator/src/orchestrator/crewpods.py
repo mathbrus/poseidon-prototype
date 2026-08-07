@@ -1,4 +1,4 @@
-"""The ephemeral runtime provisioner (plan step 16c, overview §3 TCB).
+"""The ephemeral runtime provisioner.
 
 The orchestrator's bounded Kubernetes surface for crew pods — designed,
 not improvised: it creates and deletes **pods only**, in the **company
@@ -10,10 +10,10 @@ Role rules live in `poseidon_operator.resources.sandbox_provisioner_role`
 — a review artifact.
 
 A crew pod is the ephemeral executor's brain host: the same agent image a
-standing hire runs, labeled to its run, holding its minted §2b identity
+standing hire runs, labeled to its run, holding its minted identity
 token in `GATEWAY_TOKEN` — injected here at provision time, which is what
-keeps it out of workflow history (the 16a obligation). The planner needs
-no pod at all (LLM-only, §4.4); both members share the run's single
+keeps it out of workflow history. The planner needs
+no pod at all (LLM-only); both members share the run's single
 sandbox through the gateway.
 """
 
@@ -30,7 +30,7 @@ from common.telemetry import get_logger
 
 class CrewPodAbandoned(Exception):
     """The run was torn down while its crew pod was being provisioned, so
-    the pod was never created (plan step 23). Not a failure of the run —
+    the pod was never created. Not a failure of the run —
     the run is already over."""
 
 
@@ -67,8 +67,8 @@ def crew_pod_manifest(
     operator's company NetworkPolicies select (gateways-only egress,
     orchestrator-only ingress) and what the destroy selector requires.
 
-    `activeDeadlineSeconds` is the backstop under the step-23 race guard,
-    the same device §4.6 uses for sandboxes: the guard refuses to provision
+    `activeDeadlineSeconds` is the backstop under the teardown race guard,
+    the same device sandboxes use: the guard refuses to provision
     for a run whose teardown has passed, but a pod created in the last
     instant before that becomes true has no owner left to collect it. A
     wall-clock deadline means an orphan stops burning compute on its own

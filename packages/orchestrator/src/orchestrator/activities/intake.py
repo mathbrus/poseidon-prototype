@@ -1,9 +1,9 @@
-"""The intake activities (§6.1, plan step 18): thin clients, as always —
+"""The intake activities: thin clients, as always —
 sequencing, timeouts, retries and the gate slot live in the workflow.
 
 Retry safety, per activity:
     create_intake_run — upserts the run row; safe.
-    check_budget      — read-only; safe. The §2b activity-boundary
+    check_budget      — read-only; safe. The activity-boundary
                         headroom check: enforcement stays local at the LLM
                         gateway, but a run that would be born exhausted
                         fails here, before any dispatch.
@@ -60,9 +60,9 @@ class IntakeActivities:
 
     @activity.defn(name="check_budget")
     async def check_budget(self, run_id: str) -> dict[str, Any]:
-        """Budget reservation at the run's birth (§6.1): verify the run has
+        """Budget reservation at the run's birth: verify the run has
         headroom under the applied blueprint's per-run cap before anything
-        is dispatched. Enforcement stays local at the LLM gateway (§2b) —
+        is dispatched. Enforcement stays local at the LLM gateway —
         this is the activity-boundary observation of the same ledger."""
         def read() -> tuple[float, float]:
             spec = self._companies.get(self._settings.company) or {}
@@ -80,7 +80,7 @@ class IntakeActivities:
     @activity.defn(name="intake_gate_config")
     async def intake_gate_config(self) -> dict[str, str]:
         """The intake workflow's gate configuration from the applied
-        blueprint — the gate slot reads config, never hardcodes (§9)."""
+        blueprint — the gate slot reads config, never hardcodes."""
         spec = await asyncio.to_thread(
             self._companies.get, self._settings.company
         ) or {}
@@ -113,7 +113,7 @@ class IntakeActivities:
         self, run_id: str, result: dict[str, Any] | None, error: str | None
     ) -> dict[str, Any]:
         """Link the tickets to the run record and write the honest terminal
-        state (§6.1: 'run record links ticket URLs')."""
+        state ('run record links ticket URLs')."""
         result = result or {}
         ticket_urls = list(result.get("ticket_urls") or [])
         if ticket_urls:

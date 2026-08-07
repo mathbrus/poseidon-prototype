@@ -1,8 +1,8 @@
-"""The 16a slice against doubles: mint binds one deterministic identity per
-{crew, member, run} and signs a verifiable §5.1 JWT; revoke sweeps every
-live participant; both land process-lifecycle audit events; a retried mint
-converges on the same row instead of leaking a second identity — and never
-revives one the run's teardown already revoked (plan step 23)."""
+"""Identity minting against doubles: mint binds one deterministic identity
+per {crew, member, run} and signs a verifiable platform JWT; revoke sweeps
+every live participant; both land process-lifecycle audit events; a retried
+mint converges on the same row instead of leaking a second identity — and
+never revives one the run's teardown already revoked."""
 
 import asyncio
 
@@ -66,7 +66,7 @@ def test_mint_binds_and_signs_the_51_claims(crew, participants, audit):
     assert row["run_id"] == RUN_ID
     assert row["parent_agent_id"] == "pm-1"
     assert row["crew_template"] == "feature-delivery"
-    assert row["role"] == "executor"  # the member name = §5.1 crew_role
+    assert row["role"] == "executor"  # the member name = crew_role
 
     claims = platformjwt.verify(KEY, minted["token"], "poseidon-gateway")
     assert claims["sub"] == expected_id

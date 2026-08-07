@@ -1,11 +1,11 @@
-"""The orchestrator worker: connects to Temporal, registers the implement
-workflow and its activities, runs until terminated.
+"""The orchestrator worker: connects to Temporal, registers the
+workflows and their activities, runs until terminated.
 
     python -m orchestrator.worker
 
 Deployed in the platform namespace. Credentials: the orchestrator bearer
 token only (env) — no GIT_TOKEN, no provider keys. Sandboxes are Kubernetes
-Jobs in the company namespace (plan step 4); the worker's ServiceAccount
+Jobs in the company namespace; the worker's ServiceAccount
 carries the matching bounded Role, its only Kubernetes-API surface.
 """
 

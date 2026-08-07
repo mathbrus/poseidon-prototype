@@ -1,7 +1,6 @@
-"""The implement workflow (§4.2, §6.2, §6.4 rows 1–3).
+"""The implement workflow.
 
-Activity sequencing with per-activity timeouts and retries (replacing the
-PoC runner's `step_timeout_s` and polling loops) and guaranteed
+Activity sequencing with per-activity timeouts and retries, and guaranteed
 compensation: teardown runs on success, failure, cancel, activity timeout,
 and worker death (Temporal replays the workflow on the restarted worker and
 the retry policies re-drive the interrupted activity).
@@ -9,23 +8,22 @@ the retry policies re-drive the interrupted activity).
 Activities are referenced by name — the one seam the engine adapter needs:
 this module imports nothing from the activity implementations.
 
-Since plan step 19 the crew is the only execution path: fulfill_crew stands
+The crew is the only execution path: fulfill_crew stands
 the ephemeral executor up (recording the crew request under the standing
 conductor's authority when none exists), the executor is dispatched at its
 crew pod, and its completion claim is advisory — the platform verify gate
 (`platform_verify`, the orchestrator's own run of the sandbox tests) is the
 gate of record. Red verify feeds the failure back for a bounded number of
 re-dispatches (the blueprint's `max_verify_retries`); only a green verify
-releases the separate mode="deliver" dispatch (sequencing choice 8) that
+releases the separate mode="deliver" dispatch that
 opens the PR. Delivery before verify is structurally impossible: the
 implement-mode toolset has no `git.open_pr`, and the deliver dispatch is
 sequenced strictly after the gate.
 
-Two pauses ride the same Gate skeleton: the budget pause (plan step 14,
-§2b) parks the workflow on the `budget` signal in an API-visible
+The budget pause rides the same Gate skeleton as the review workflow's
+merge gate: it parks the workflow on the `budget` signal in an API-visible
 `paused-budget_exhausted` state whenever a dispatch comes back with the
-LLM gateway's `budget_exhausted` marker. Process gates from blueprint
-config land at plan step 20.
+LLM gateway's `budget_exhausted` marker.
 """
 
 import asyncio
@@ -80,7 +78,7 @@ class Timeouts:
     # up (escalation fires at half of it).
     budget_gate_s: int = 3600
     # How long the review workflow's merge gate waits for a human verdict
-    # (§6.3; escalation fires at half of it). Humans deserve a working day,
+    # (escalation fires at half of it). Humans deserve a working day,
     # not an activity-sized bound — this is a durable workflow timer.
     merge_gate_s: int = 86400
 
@@ -113,7 +111,7 @@ class ImplementInput:
 
 
 def workflow_id(run_id: str) -> str:
-    """Run identity (§5.5): one workflow per run, deterministically named."""
+    """One workflow per run, deterministically named."""
     return f"implement-{run_id}"
 
 
@@ -145,16 +143,16 @@ class ImplementWorkflow:
 
     @workflow.query
     def state(self) -> str:
-        """The API-visible run phase (§4.8: a budget stop must be a visible
+        """The API-visible run phase (a budget stop must be a visible
         pending state, never silent degradation)."""
         return self._phase
 
     async def _record_gate(
         self, run_id: str, gate: str, kind: str, timeouts: Timeouts
     ) -> None:
-        """A gate transition as a first-class `process-gate` audit event
-        (§10 criterion 5: a budget stop escalates — visibly, in the audit
-        store, not just in a workflow timer)."""
+        """A gate transition as a first-class `process-gate` audit event:
+        a budget stop escalates — visibly, in the audit
+        store, not just in a workflow timer."""
         await workflow.execute_activity(
             "record_gate_outcome",
             args=[run_id, gate, kind, workflow.info().workflow_id],
@@ -187,7 +185,7 @@ class ImplementWorkflow:
             )
             if BUDGET_MARKER not in ((result or {}).get("error") or ""):
                 return result
-            # The LLM gateway hard-stopped the run's spend (§2b): pause
+            # The LLM gateway hard-stopped the run's spend: pause
             # into an API-visible state and wait for a human verdict —
             # never silently retry against an exhausted cap. Escalation
             # and verdict are process-gate audit events, like the merge
@@ -223,9 +221,9 @@ class ImplementWorkflow:
                 start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
                 retry_policy=STEP_RETRY,
             )
-            # §6.2 row 1: the run is born with headroom or not at all — the
-            # same activity-boundary ledger observation intake makes (§2b
-            # enforcement itself stays local at the LLM gateway).
+            # The run is born with headroom or not at all — the
+            # same activity-boundary ledger observation intake makes
+            # (enforcement itself stays local at the LLM gateway).
             await workflow.execute_activity(
                 "check_budget",
                 args=[input.run_id],
@@ -250,7 +248,7 @@ class ImplementWorkflow:
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
-            # The crew is the only execution path (§4.2): fulfill stands the
+            # The crew is the only execution path: fulfill stands the
             # ephemeral roster up — recording the crew request under the
             # conductor's authority via the same compiled decision the
             # crew.request tool faces — and hands back the planner's brief

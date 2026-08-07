@@ -129,7 +129,7 @@ def test_provision_injects_a_fresh_token_and_binds(crew, stores, provisioner):
     (created,) = provisioner.provisioned
     assert created["agent_image"] == "poseidon-agent:abc123"
     env = created["env"]
-    # The §2b credential is injected at provision time — and verifiable.
+    # The credential is injected at provision time — and verifiable.
     claims = platformjwt.verify(KEY, env["GATEWAY_TOKEN"], "poseidon-gateway")
     assert claims["sub"] == result["agent_id"]
     assert claims["run_id"] == RUN_ID
@@ -252,8 +252,8 @@ def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
     assert result["executor_agent_id"] == executor_id
     assert result["executor_url"] == "http://10.0.0.7:8000"
 
-    # The planner borrowed the executor's brain host under its OWN token
-    # (§4.4), in plan mode, and its brief is the handoff.
+    # The planner borrowed the executor's brain host under its OWN token,
+    # in plan mode, and its brief is the handoff.
     (dispatch,) = plan_host.dispatches
     assert dispatch["mode"] == "plan"
     claims = platformjwt.verify(KEY, dispatch["gateway_token"], "poseidon-gateway")
@@ -284,7 +284,7 @@ def test_fulfill_without_recorded_intent_refuses(fulfill_world):
     assert participants.rows == {}  # nothing minted without authority
 
 
-# -- record-under-authority (plan step 19) ------------------------------------
+# -- record-under-authority ---------------------------------------------------
 
 
 class FakeOpa:
@@ -330,7 +330,7 @@ def test_workflow_path_records_under_conductor_authority(
     fulfill_world, monkeypatch
 ):
     """No recorded request + record_under_authority: the same compiled
-    crew.request decision is evaluated at OPA under the conductor's §5.1
+    crew.request decision is evaluated at OPA under the conductor's
     input, the recording is audited, and fulfillment proceeds."""
     import orchestrator.activities.crew as module
 
@@ -364,7 +364,7 @@ def test_workflow_path_records_under_conductor_authority(
 
 def test_recording_names_the_calling_workflow(fulfill_world, monkeypatch):
     """The review workflow records under the same authority with its own
-    name in the §5.1 input (plan step 20) — implement stays the default."""
+    name in the decision input — implement stays the default."""
     import orchestrator.activities.crew as module
 
     crew, _, _, _, _ = fulfill_world
@@ -412,8 +412,8 @@ def test_crew_pod_carries_a_wall_clock_deadline():
     """Plan step 23 backstop: the race guard refuses to provision for a run
     whose teardown has passed, but a pod created in the last instant before
     that becomes true has no owner left to collect it. A deadline means an
-    orphan stops burning compute by itself — the same device §4.6 already
-    uses for sandboxes."""
+    orphan stops burning compute by itself — the same device sandboxes
+    already use."""
     from orchestrator.crewpods import CREW_POD_DEADLINE_S
 
     manifest = crew_pod_manifest(

@@ -1,29 +1,29 @@
-"""The review workflow (§6.3, plan step 20): PR in, human-gated merge out.
+"""The review workflow: PR in, human-gated merge out.
 
     create_review_run -> check_budget -> review_config -> read_pr ->
-    fetch_workspace (PR head ref, O-4) -> provision_sandbox ->
-    fulfill_crew (feature-review under the PM's conductor authority,
-    §4.4 rule 3 — process-initiated is a first-class recorded request,
+    fetch_workspace (PR head ref) -> provision_sandbox ->
+    fulfill_crew (feature-review under the PM's conductor authority —
+    process-initiated is a first-class recorded request,
     not a bypass) -> dispatch the ephemeral reviewer (mode="review":
     reads the diff via git.read, runs the tests in its own sandbox,
     posts findings via git.comment) -> MERGE GATE -> approve: the
-    orchestrator merges via git.merge_pr under its platform identity
-    (O-1 A); reject/timeout: honest failure -> teardown.
+    orchestrator merges via git.merge_pr under its platform identity;
+    reject/timeout: honest failure -> teardown.
 
-The merge gate is the one human gate in the MVP, and the sole owner of the
-merge guarantee (overview §2's named exception): the workflow parks on the
+The merge gate is the one human gate, and the sole owner of the
+merge guarantee — merge approval is workflow state, the single named
+exception to policy-side defense in depth: the workflow parks on the
 `merge` signal exactly when the blueprint configures `gates.merge` — gate
-config comes from the compiled plan, never hardcoded (§9). Nobody home?
-The timer escalates at half the deadline and expires the gate at the end
-(§6.4); the park is API-visible (`state` query), the escalation and the
+config comes from the compiled plan, never hardcoded. Nobody home?
+The timer escalates at half the deadline and expires the gate at the end;
+the park is API-visible (`state` query), the escalation and the
 verdict are `process-gate` audit events written through an activity, and
 the merge itself is a gateway-audited tool call — so one run_id query
 tells the whole story: findings, park, escalation, verdict, merge.
 
-Review is orchestrator-sequenced over HTTP; no SLIM anywhere on the
-critical path (§6.3 [adopted]). Reject handling is the MVP's honest
+Review is orchestrator-sequenced over HTTP. Reject handling is the honest
 minimum: findings are already on the PR, the run finalizes failed with
-the verdict; the findings-loop/close refinement is deferred (§6.4).
+the verdict; a findings-loop/close refinement is deliberately absent.
 """
 
 import asyncio
@@ -53,7 +53,7 @@ class ReviewInput:
 
 
 def review_workflow_id(run_id: str) -> str:
-    """Run identity (§5.5): one workflow per run, deterministically named."""
+    """One workflow per run, deterministically named."""
     return f"review-{run_id}"
 
 
@@ -91,7 +91,7 @@ class ReviewWorkflow:
     @workflow.query
     def state(self) -> str:
         """The API-visible run phase: a parked merge gate must be a
-        visible pending state (§6.4), never a silent hang."""
+        visible pending state, never a silent hang."""
         return self._phase
 
     async def _dispatch(
@@ -174,7 +174,7 @@ class ReviewWorkflow:
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
-            # O-4: a full sandbox from the PR ref — the reviewer runs
+            # A full sandbox from the PR ref — the reviewer runs
             # things, it does not just read diffs. Reuses the implement
             # provisioning verbatim.
             workspace_tar = await workflow.execute_activity(
@@ -189,7 +189,7 @@ class ReviewWorkflow:
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
-            # §4.4 rule 3, process-initiated: the workflow records the
+            # Process-initiated: the workflow records the
             # feature-review crew request under the PM's conductor
             # authority — same crew_requests row, same compiled may_spawn
             # decision an agent-issued request faces.
@@ -231,7 +231,7 @@ class ReviewWorkflow:
                 # implicitly.
                 raise _ReviewOver()
 
-            # The merge gate (O-1 A): park on the signal, escalate at half
+            # The merge gate: park on the signal, escalate at half
             # the deadline, expire at the end. Every transition is a
             # process-gate audit event written through an activity.
             self._phase = "paused-merge_gate"

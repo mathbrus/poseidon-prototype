@@ -3,9 +3,9 @@
 Split in two: `TemporalSettings` is all a Temporal client needs (the CLI —
 every field has a default suitable for a port-forwarded kind cluster);
 `WorkerSettings` adds what activities need. The worker's gateway credential
-is its projected service-account token (plan step 11); GIT_TOKEN and
+is its projected service-account token; GIT_TOKEN and
 provider keys never appear here by design. SandboxPolicy values come from
-the applied blueprint's infra IR in the registry (plan step 12) — only the
+the applied blueprint's infra IR in the registry — only the
 egress-proxy attribution env and the logical-image resolution live here.
 """
 
@@ -24,10 +24,10 @@ class TemporalSettings(BaseSettings):
 
 
 class WorkerSettings(TemporalSettings):
-    # Gateway credential (plan step 11): the projected service-account
+    # Gateway credential: the projected service-account
     # token the kubelet mounts and rotates. Read per client construction —
     # clients live one activity, far shorter than the token's remaining
-    # validity. The static token is the pre-step-11 fallback, deleted at 12.
+    # validity.
     gateway_token_file: str = ""
     mcp_gateway_url: str
     target_repo: str
@@ -37,31 +37,31 @@ class WorkerSettings(TemporalSettings):
     # per-run at a later step.
     company: str = "hello-saas"
     sandbox_namespace: str = "hello-saas"
-    # Deploy-time resolution of the infra IR's *logical* toolchain image
-    # (plan step 12): a blueprint says `poseidon-sandbox`; only the
+    # Deploy-time resolution of the infra IR's *logical* toolchain image:
+    # a blueprint says `poseidon-sandbox`; only the
     # deployment knows the content-addressed reference the cluster actually
     # carries. Any other image the IR names passes through untouched.
     sandbox_image: str = "poseidon-sandbox"
-    # Egress attribution (§2b): the proxy URL as sandboxes reach it and the
+    # Egress attribution: the proxy URL as sandboxes reach it and the
     # shared HMAC key for per-run credentials. Both empty disables the env
     # injection entirely (proxy-less clusters keep zero egress).
     egress_proxy_url: str = ""
     egress_proxy_key: str = ""
-    # The §2b platform signing key (plan step 16a): the orchestrator's
+    # The platform signing key: the orchestrator's
     # fulfill activities mint short-TTL ephemeral JWTs with it; both
     # gateways verify. Empty disables minting, never verification.
     platform_jwt_key: str = ""
     ephemeral_ttl_s: int = 900
-    # Crew-pod provisioning (plan step 16c): the agent image the ephemeral
+    # Crew-pod provisioning: the agent image the ephemeral
     # executor's brain host runs (content-addressed on kind, like the
     # sandbox image), and the platform namespace for gateway FQDNs.
     agent_image: str = ""
     platform_namespace: str = "poseidon-platform"
-    # The standing PM's dispatch address (plan step 18: intake dispatches
+    # The standing PM's dispatch address (intake dispatches
     # the conductor; implement dispatches ephemeral executors at their
-    # crew-pod URLs — there is no standing executor address anymore).
+    # crew-pod URLs — there is no standing executor address).
     pm_url: str = ""
-    # The workflow-recorded crew-request path (plan step 19) evaluates the
+    # The workflow-recorded crew-request path evaluates the
     # same compiled decision the crew.request tool faces, directly at OPA.
     opa_url: str = "http://opa:8181"
     model: str = "mock-brain"

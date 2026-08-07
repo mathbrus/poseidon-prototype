@@ -1,5 +1,4 @@
-"""`poseidon run|signal|status` — a thin Temporal client (§4.2), successor
-of the deleted `poseidon-poc` entry point.
+"""`poseidon run|signal|status` — a thin Temporal client.
 
 Reaches the Temporal frontend via TEMPORAL_ADDRESS (default 127.0.0.1:7233,
 e.g. `kubectl -n poseidon-platform port-forward svc/temporal-frontend
@@ -41,7 +40,7 @@ def run(
     workflow: str = typer.Option(
         "implement",
         help="Which workflow to start: implement (a task for the engineer)"
-        " or intake (a goal for the PM to scope, plan step 18)",
+        " or intake (a goal for the PM to scope)",
     ),
     detach: bool = typer.Option(False, help="Start the workflow and exit"),
     fast_timeouts: bool = typer.Option(
@@ -107,7 +106,7 @@ def review(
         help="Short per-activity bounds, sized for the mock brain",
     ),
 ) -> None:
-    """Start a review run for the pull request (§6.3, plan step 20)."""
+    """Start a review run for the pull request."""
     from orchestrator.workflows.review import ReviewInput, review_workflow_id
 
     settings = TemporalSettings()
@@ -140,7 +139,7 @@ def review(
 
 def _workflow_id(workflow: str, run_id: str) -> str:
     """Workflow ids are `{workflow}-{run_id}` across all three workflows
-    (§5.5) — the CLI only needs to know which family a run belongs to."""
+    — the CLI only needs to know which family a run belongs to."""
     if workflow not in ("implement", "intake", "review"):
         typer.echo(f"unknown workflow {workflow!r}", err=True)
         raise typer.Exit(2)

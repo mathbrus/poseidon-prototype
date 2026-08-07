@@ -1,8 +1,8 @@
-"""`poseidon blueprint compile|preview` (plan step 9).
+"""`poseidon blueprint compile|preview`.
 
 The compiler is pure, so the CLI is where the impure parts live: reading the
 YAML, reading the registry snapshot, writing the emitted bundle to disk.
-Apply is deliberately absent — it arrives with the operator at plan step 10,
+Apply is deliberately absent — it belongs to the operator,
 and keeping cluster mutation in exactly one place is what makes the
 declarative loop trustworthy.
 """

@@ -1,4 +1,4 @@
-"""The intake workflow (§6.1, plan step 18): goal text in, tickets and
+"""The intake workflow: goal text in, tickets and
 recorded crew intent out.
 
     create_intake_run -> check_budget -> [gate slot] -> dispatch_pm ->
@@ -13,10 +13,10 @@ never touches GitHub or the registry's crew tables directly.
 Intake is the injection surface for the standing conductor: the goal text
 is untrusted input handed straight to the PM. Containment is the compiled
 policy's (the PM cannot execute, deliver, or spawn outside its may_spawn
-list) — the injected-conductor red-team test enters here at step 23.
+list) — the injected-conductor red-team test enters here.
 
 No human gate by default — but the slot exists and reads the blueprint's
-`workflows.intake.gates` like any other gate (§9): configure
+`workflows.intake.gates` like any other gate: configure
 `gates.intake: human_approval` and the workflow parks on the `intake`
 signal before dispatching the PM.
 """
@@ -45,7 +45,7 @@ class IntakeInput:
 
 
 def intake_workflow_id(run_id: str) -> str:
-    """Run identity (§5.5): one workflow per run, deterministically named."""
+    """One workflow per run, deterministically named."""
     return f"intake-{run_id}"
 
 
@@ -101,7 +101,7 @@ class IntakeWorkflow:
             )
             if (gates or {}).get("intake", "none") != "none":
                 # The configured gate: park until a human answers or the
-                # escalation deadline lapses (§6.4 timers). Transitions are
+                # escalation deadline lapses. Transitions are
                 # process-gate audit events like every other gate's.
                 self._phase = "paused-intake_gate"
                 outcome = await self._intake_gate.wait(

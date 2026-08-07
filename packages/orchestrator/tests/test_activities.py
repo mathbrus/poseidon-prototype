@@ -15,7 +15,7 @@ from sandbox.contract import SandboxHandle, SandboxPolicy
 RUN_ID = "run-test-0001"
 
 # What an applied hello-saas blueprint records (the Company CR spec's infra
-# section) — the SandboxPolicy source since plan step 12.
+# section) — the SandboxPolicy source.
 APPLIED_SPEC = {
     "namespace": "hello-saas",
     "infra": {
@@ -102,7 +102,7 @@ def test_create_run_opens_a_running_row(activities, runs):
     assert record.status == "running"
     assert record.task == "do the thing"
     assert record.finished_at is None
-    # §5.5: the workflow id derives from the run id and is recorded with it.
+    # The workflow id derives from the run id and is recorded with it.
     assert record.workflow_id == f"implement-{RUN_ID}"
 
 
@@ -122,7 +122,7 @@ JOB_HANDLE = {
 
 
 def test_sandbox_policy_comes_from_the_applied_blueprint(activities):
-    """Plan step 12 (sequencing choice 2 closed): the infra IR in the
+    """The infra IR in the
     registry is the SandboxPolicy source; the logical default image resolves
     to the deploy-time reference the cluster actually carries."""
     policy = activities._sandbox_policy(RUN_ID)
@@ -296,7 +296,7 @@ def test_dispatch_executor_raises_when_agent_lost_the_run(activities, monkeypatc
         asyncio.run(activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL))
 
 
-# -- implement_config (plan step 19) ------------------------------------------
+# -- implement_config ---------------------------------------------------------
 
 WORKFLOWS_SPEC = {
     **APPLIED_SPEC,

@@ -1,15 +1,15 @@
-"""Ephemeral identity minting — the fulfill-side half of the frozen §2b
-contract (plan step 16a).
+"""Ephemeral identity minting — the fulfill-side half of the
+ephemeral-identity contract.
 
-The orchestrator is the only minter: it signs short-TTL platform JWTs whose
-claims are the §5.1 fields, and the gateways accept one only while a live
-`run_participants` row backs it (their half, live since steps 11/12).
+The orchestrator is the only minter: it signs short-TTL platform JWTs
+carrying the identity claims, and the gateways accept one only while a live
+`run_participants` row backs it.
 Revocation is therefore a registry row termination — effective before the
-TTL runs out, which is the kill-worker criterion.
+TTL runs out.
 
 Agent ids are deterministic from {crew, member, run}: a mint retried after
 a worker death lands on the same participants row instead of leaking a
-second identity (§6.4).
+second identity.
 """
 
 from dataclasses import dataclass
@@ -24,7 +24,7 @@ AUDIENCE = "poseidon-gateway"
 
 def ephemeral_agent_id(crew_template: str, member: str, run_id: str) -> str:
     """One identity per crew member per run, deterministically named — the
-    §5.1 `agent_id` of an ephemeral caller, and the participants row's key."""
+    `agent_id` of an ephemeral caller, and the participants row's key."""
     return f"{crew_template}-{member}-{run_id}"
 
 
@@ -45,7 +45,7 @@ def mint_ephemeral(
     parent_agent_id: str,
     ttl_s: int = DEFAULT_TTL_S,
 ) -> MintedIdentity:
-    """Sign the §5.1 claims. `role` carries the catalog template (what
+    """Sign the identity claims. `role` carries the catalog template (what
     path-ownership rules name); the crew coordinates the compiled rules key
     on come from the live participants row at verification time."""
     token = platformjwt.mint(

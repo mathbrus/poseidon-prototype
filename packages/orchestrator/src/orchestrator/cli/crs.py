@@ -42,7 +42,7 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
             "stage": plan.company.stage or "",
             "policyBundle": plan.bundle.files,
             # Compiler-owned and identical from every blueprint; riding the
-            # CR keeps the operator the only bundle writer (§2b). Every
+            # CR keeps the operator the only bundle writer. Every
             # apply upserts the same revision, so it never churns.
             "platformBundle": plan.platform_bundle.files,
             "infra": data["infra"],

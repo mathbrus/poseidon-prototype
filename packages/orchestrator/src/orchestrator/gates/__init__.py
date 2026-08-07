@@ -1,15 +1,16 @@
-"""Process-gate skeleton (§4.2) — the early, explicit spine for gates.
+"""Process gates — the explicit spine for human wait points in workflows.
 
-Ships at M1 with no gate wired into any workflow (M1 implement is gate-free
-by design, overview §9). Step 20 configures real gates from the blueprint's
-compiled plan; if O-1 lands as A, the merge gate built on this framework is
-the sole owner of the merge guarantee, which is why the spine exists early.
+The review workflow wires a real merge gate on this framework (configured
+from the blueprint's compiled plan), and the implement workflow parks its
+budget pause on the same primitives. The merge gate is the sole owner of
+the merge guarantee: approvals are workflow state, and `git.merge_pr` is
+only ever called after the gate approves.
 
 Three pieces:
     Gate            — a generic signal-driven wait point for workflow code
     GateOutcome     — approved / rejected / timed_out (+ optional payload)
-    gate_audit_event— stub for the `process-gate` audit source (§5.2); the
-                      real ingestion contract lands at plan step 13
+    gate_audit_event— shapes the `process-gate` audit event; an activity
+                      writes it to the registry
 """
 
 from collections.abc import Awaitable, Callable
@@ -30,7 +31,7 @@ class GateOutcome:
 class Gate:
     """A named wait point a workflow parks on until a signal or a deadline.
 
-    Workflow usage (none at M1 — first wired at step 20):
+    Workflow usage:
 
         gate = Gate("merge")
 
@@ -61,8 +62,8 @@ class Gate:
     ) -> GateOutcome:
         """Park until resolved or timed out. The timer/escalation primitive:
         when `escalate_after` elapses first, an `escalated` outcome is
-        emitted to the audit stub — and to `on_escalate` when the caller
-        passes one (plan step 20: the review workflow records it as a real
+        emitted to the audit log — and to `on_escalate` when the caller
+        passes one (the review workflow records it as a real
         `process-gate` audit event through an activity) — and the wait
         continues to the deadline."""
         remaining = timeout
@@ -93,12 +94,11 @@ class Gate:
 def gate_audit_event(
     outcome: GateOutcome, workflow_id: str, run_id: str = ""
 ) -> dict[str, Any]:
-    """A `source=process-gate` event in the v2 ingestion shape (§5.2, plan
-    step 13). Shaped here, written by an *activity* at step 20 — workflow
-    code cannot touch the registry (Temporal sandbox), and gate outcomes
-    become first-class audit events only when a real gate is wired. The
+    """A `source=process-gate` event in the audit ingestion shape.
+    Shaped here, written by an *activity* — workflow
+    code cannot touch the registry (Temporal sandbox). The
     `workflow` field carries the workflow id, which maps back to run_id
-    (§5.5) even when the gate fires without one in hand."""
+    even when the gate fires without one in hand."""
     import hashlib
     import json
 

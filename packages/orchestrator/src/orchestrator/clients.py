@@ -45,7 +45,7 @@ class AgentRunLost(AgentError):
 class GatewayClient:
     """MCP session for `repo.archive` plus the non-MCP admin registration,
     both authenticated with the token the caller passes (the worker's
-    projected service-account token since plan step 11)."""
+    projected service-account token)."""
 
     def __init__(self, url: str, bearer_token: str) -> None:
         self._base = url.rstrip("/")
@@ -126,7 +126,7 @@ class GatewayClient:
         return json.loads(text)
 
     async def run_tests(self, run_id: str) -> dict[str, Any]:
-        """The platform verify gate (plan step 19, sequencing choice 4):
+        """The platform verify gate:
         `sandbox.run_tests` under the orchestrator's own identity — the
         gate of record after the brain's completion claim."""
         return await self._tool("sandbox.run_tests", {"run_id": run_id})
@@ -134,7 +134,7 @@ class GatewayClient:
     async def read_pr(self, run_id: str, repo: str, number: int) -> dict[str, Any]:
         """PR metadata (head ref included) for the review workflow — how
         the platform resolves the ref the review sandbox is provisioned
-        from (plan step 20, O-4)."""
+        from."""
         return await self._tool(
             "git.read", {"run_id": run_id, "repo": repo, "number": number}
         )
@@ -142,7 +142,7 @@ class GatewayClient:
     async def merge_pr(
         self, run_id: str, repo: str, number: int, method: str = "merge"
     ) -> dict[str, Any]:
-        """The post-gate merge (O-1 A): only ever called by the review
+        """The post-gate merge: only ever called by the review
         workflow after the human merge gate approved, under the
         orchestrator's platform identity — policy restricts `git.merge_pr`
         to exactly that identity."""

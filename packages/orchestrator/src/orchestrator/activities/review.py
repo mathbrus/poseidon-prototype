@@ -1,4 +1,4 @@
-"""The review activities (§6.3, plan step 20): thin clients, as always —
+"""The review activities: thin clients, as always —
 sequencing, the merge gate and its timers live in the workflow.
 
 Retry safety, per activity:
@@ -12,11 +12,11 @@ Retry safety, per activity:
                           already-merged PR (it answers 405, surfaced as a
                           backend error the workflow reports honestly).
 
-The merge itself is O-1 A made literal: `git.merge_pr` is a *gateway tool
+The merge itself: `git.merge_pr` is a *gateway tool
 call* under the orchestrator's platform identity — one of the two mediation
 paths, audited at the gateway like any agent call — issued by the workflow
 only after the human gate approved. The gate outcome events here are the
-`process-gate` audit source (§5.2): approvals are workflow state, so the
+`process-gate` audit source: approvals are workflow state, so the
 audit story is where a human can later see that the gate, not a bug,
 released the merge.
 """
@@ -72,11 +72,11 @@ class ReviewActivities:
 
     @activity.defn(name="review_config")
     async def review_config(self) -> dict[str, Any]:
-        """The review workflow's shape, from the applied blueprint (§6.3):
+        """The review workflow's shape, from the applied blueprint:
         which crew reviews, which standing conductor's authority the crew
         request is recorded under, and which signal the merge gate parks
-        on — gate config comes from the compiled plan, never hardcoded
-        (§9). Fail-closed, like implement_config."""
+        on — gate config comes from the compiled plan, never hardcoded.
+        Fail-closed, like implement_config."""
         def read() -> dict[str, Any]:
             spec = self._companies.get(self._settings.company) or {}
             config = next(
@@ -93,7 +93,7 @@ class ReviewActivities:
             if not crew_template:
                 raise RuntimeError(
                     "review workflow binds no crew — the reviewer is an"
-                    " ephemeral crew member (§6.3); the compiler should"
+                    " ephemeral crew member; the compiler should"
                     " have refused this blueprint"
                 )
             conductor_hire = config["conductor"]
@@ -122,7 +122,7 @@ class ReviewActivities:
     @activity.defn(name="read_pr")
     async def read_pr(self, run_id: str, pr_number: int) -> dict[str, Any]:
         """PR metadata under the platform identity: the head ref is what
-        the review sandbox is provisioned from (O-4), the title and URL
+        the review sandbox is provisioned from, the title and URL
         seed the reviewer's task text and the run record."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
@@ -143,9 +143,9 @@ class ReviewActivities:
     async def record_gate_outcome(
         self, run_id: str, gate: str, kind: str, workflow_id: str
     ) -> None:
-        """One `source=process-gate` audit event (§5.2): parked gates,
+        """One `source=process-gate` audit event: parked gates,
         escalations and verdicts become first-class rows in the run's
-        story, carrying the workflow id that maps back to run_id (§5.5)."""
+        story, carrying the workflow id that maps back to run_id."""
         if self._audit is None:
             raise RuntimeError("review activities constructed without an audit store")
         payload = {"gate": gate, "outcome": kind}
@@ -175,7 +175,7 @@ class ReviewActivities:
 
     @activity.defn(name="merge_pr")
     async def merge_pr(self, run_id: str, pr_number: int) -> dict[str, Any]:
-        """The post-gate merge (O-1 A): a gateway tool call under the
+        """The post-gate merge: a gateway tool call under the
         orchestrator's platform identity — audited at the gateway — that
         the workflow issues strictly after the merge gate approved."""
         started = time.monotonic()

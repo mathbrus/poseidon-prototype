@@ -1,11 +1,11 @@
-"""Crew fulfillment activities — the 16a and 16c slices.
+"""Crew fulfillment activities: identity minting and pod provisioning.
 
-16a: mint writes the `run_participants` binding row (the §2b contract's
-fulfill half; the gateways' verify half has been live since steps 11/12)
+Mint writes the `run_participants` binding row (the fulfill half of the
+ephemeral-identity contract; the gateways own the verify half)
 and signs the short-TTL platform JWT; revoke terminates rows — the write
 that kills the identity's tokens before their TTL.
 
-16c: provision creates the ephemeral executor's brain-host pod through the
+Provision creates the ephemeral executor's brain-host pod through the
 bounded `CrewPodProvisioner` — the minted token is injected into the pod
 env *here*, at provision time, so it never rides workflow history — and
 destroy deletes by the run+kind label selector.
@@ -58,14 +58,14 @@ class CrewActivities:
         self._participants = participants
         self._audit = audit
         self._provisioner = provisioner
-        # Fulfillment (16d): the recorded intent it consumes, and the
+        # Fulfillment: the recorded intent it consumes, and the
         # applied blueprint the crew's member specs come from.
         self._crew_requests = crew_requests
         self._companies = companies
-        # Read-only, for the workflow-recorded crew request (step 19): the
-        # budget-headroom half of the §5.1 enrichment.
+        # Read-only, for the workflow-recorded crew request: the
+        # budget-headroom half of the decision-input enrichment.
         self._ledger = ledger
-        # Read-only, for the step-23 terminal-run guard: a run that has
+        # Read-only, for the terminal-run guard: a run that has
         # already finalized must never acquire new pods or identities.
         self._runs = runs
         self._log = get_logger("orchestrator.crew")
@@ -79,7 +79,7 @@ class CrewActivities:
         {crew, member, run}, so a re-mint lands on the same row and signs a
         fresh token — one identity, never two. A re-mint after the run's
         teardown swept the row raises `ParticipantRevoked`: revocation is
-        final (plan step 23).
+        final.
         """
         started = time.monotonic()
         agent_id = ephemeral_agent_id(
@@ -125,7 +125,7 @@ class CrewActivities:
     @activity.defn(name="revoke_participants")
     async def revoke_participants(self, run_id: str) -> list[str]:
         """Terminate every live participant of the run — the terminal-path
-        sweep (§6.4). From these writes on, the gateways find no live rows
+        sweep. From these writes on, the gateways find no live rows
         and every minted token of the run is dead, TTL notwithstanding."""
         started = time.monotonic()
         swept = await asyncio.to_thread(self._participants.terminate_for_run, run_id)
@@ -148,16 +148,16 @@ class CrewActivities:
 
     @activity.defn(name="provision_crew_pod")
     async def provision_crew_pod(self, spec: dict[str, Any]) -> dict[str, Any]:
-        """Create the crew member's brain-host pod (16c), minting a fresh
+        """Create the crew member's brain-host pod, minting a fresh
         token into its env — provision-time injection is what keeps the
-        §2b credential out of workflow history.
+        credential out of workflow history.
 
         spec: {run_id, company, crew_template, member, role_template,
-        parent_agent_id}. The participants row must already exist (16a's
+        parent_agent_id}. The participants row must already exist (the
         mint activity); re-asserting it here lets a retry after a crash
         converge on the same identity. A retry that lost the race with its
         run's teardown raises `ParticipantRevoked` instead — revocation is
-        final (plan step 23), and a pod created past that point would hold
+        final, and a pod created past that point would hold
         a revoked identity with nothing left to collect it.
         """
         started = time.monotonic()
@@ -283,16 +283,16 @@ class CrewActivities:
 
     @activity.defn(name="fulfill_crew")
     async def fulfill_crew(self, spec: dict[str, Any]) -> dict[str, Any]:
-        """The 16d composition: consume the recorded request -> mint every
-        member (16a) -> pod for the acting member (16c, token injected at
+        """The fulfillment composition: consume the recorded request ->
+        mint every member -> pod for the acting member (token injected at
         provision) -> dispatch the planner on that brain host under its own
         identity -> hand back the brief for the executor dispatch. The
         orchestrator-fixed graph IS the planner->executor handoff; there is
-        no free-form crew chat (§4.4 rule 6).
+        no free-form crew chat.
 
         spec: {run_id, company, crew_template, conductor, task_text,
         workflow?}. `workflow` names the calling workflow in the recorded
-        decision input (implement by default; review since plan step 20).
+        decision input (implement by default, or review).
         Retry-safe end to end: consume is idempotent for this run, minting
         revives deterministic identities, provisioning replaces remnants.
         """
@@ -306,7 +306,7 @@ class CrewActivities:
             self._crew_requests.consume, rid, run_id
         )
         if consumed is None and spec.get("record_under_authority"):
-            # The workflow path (§4.4 rule 3): record the request under the
+            # The workflow path: record the request under the
             # conductor's authority — same row, same policy. "Same policy"
             # is literal: the recording is allowed only if the compiled
             # decision the crew.request *tool* faces allows it, evaluated
@@ -328,8 +328,7 @@ class CrewActivities:
             )
         if consumed is None:
             # No recorded, unexpired intent for this run: fulfillment does
-            # not improvise authority (§4.4 rule 3; expired requests orphan
-            # nothing, §6.4).
+            # not improvise authority (expired requests orphan nothing).
             raise RuntimeError(
                 f"no recorded crew request for {conductor}/{crew_template}"
                 f" on run {run_id} — record intent before fulfilling"
@@ -368,7 +367,7 @@ class CrewActivities:
                 f"crew {crew_template!r} has no pod-hosting member"
             )
 
-        # The planner (a no-pod member, §4.4) borrows the acting member's
+        # The planner (a no-pod member) borrows the acting member's
         # brain host, under its own identity: its gateway calls carry the
         # planner's minted token, so its compiled read-only scope binds.
         brief = spec["task_text"]
@@ -414,7 +413,7 @@ class CrewActivities:
         workflow: str = "implement",
     ) -> None:
         """Evaluate the conductor-shaped crew.request decision against the
-        live compiled bundle — the §4.4 "same policy" clause, literally:
+        live compiled bundle — the "same policy" clause, literally:
         may_spawn narrowing, the concurrency cap and budget headroom all
         bind exactly as at the gateway's crew.request tool. The decision is
         audited either way; a deny refuses the recording."""

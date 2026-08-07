@@ -1,5 +1,5 @@
-"""The implement activities (§4.2): the five PoC flow steps, step-shaped as
-before, now durable. Each is a thin client over the gateway, the
+"""The implement activities: durable, step-shaped.
+Each is a thin client over the gateway, the
 SandboxBackend, or agent HTTP; sequencing, timeouts, retries and
 compensation live in the workflow, not here.
 
@@ -55,15 +55,14 @@ class ImplementActivities:
         self._backend = backend
         self._runs = runs
         # Read-only: the applied blueprint's infra IR is the SandboxPolicy
-        # source (plan step 12, closing sequencing choice 2), and its
-        # workflow config directs the step-19 crew-only flow.
+        # source, and its workflow config directs the crew-only flow.
         self._companies = companies
         # Read-only: hire name -> standing instance (the conductor id the
         # crew request is recorded under).
         self._instances = instances
-        # The 16a revoke, called directly (same process) from teardown so
-        # run-binding termination rides the one compensation anchor that
-        # runs on every terminal path (plan step 16b).
+        # The identity revoke, called directly (same process) from teardown
+        # so run-binding termination rides the one compensation anchor that
+        # runs on every terminal path.
         self._crew = crew
         self._log = get_logger("orchestrator.activities")
 
@@ -83,7 +82,7 @@ class ImplementActivities:
 
     @activity.defn(name="implement_config")
     async def implement_config(self) -> dict[str, Any]:
-        """The workflow's shape, from the applied blueprint (§6.2): which
+        """The workflow's shape, from the applied blueprint: which
         crew implements, which standing conductor's authority the crew
         request is recorded under, and how many verify-red re-dispatches
         the run gets. Fail-closed: no applied blueprint, no enabled
@@ -105,7 +104,7 @@ class ImplementActivities:
             if not crew_template:
                 raise RuntimeError(
                     "implement workflow binds no crew — execution is"
-                    " ephemeral crews (§4.2); the compiler should have"
+                    " ephemeral crews; the compiler should have"
                     " refused this blueprint"
                 )
             conductor_hire = config["conductor"]
@@ -133,7 +132,7 @@ class ImplementActivities:
 
     def _sandbox_policy(self, run_id: str) -> SandboxPolicy:
         """The compiled SandboxPolicy: the applied blueprint's infra IR plus
-        the per-run egress credential (§2b) and the deploy-time resolution
+        the per-run egress credential and the deploy-time resolution
         of the logical toolchain image. No applied blueprint means no
         policy — provisioning without one would resurrect hand-authored
         values the compiler exists to replace."""
@@ -161,8 +160,8 @@ class ImplementActivities:
     @activity.defn(name="fetch_workspace")
     async def fetch_workspace(self, run_id: str, ref: str | None = None) -> bytes:
         """Archive the target repo at `ref` — the configured base ref by
-        default; the review workflow passes the PR head ref instead (O-4:
-        the review sandbox is a full sandbox from the PR ref)."""
+        default; the review workflow passes the PR head ref instead
+        (the review sandbox is a full sandbox from the PR ref)."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
@@ -197,10 +196,10 @@ class ImplementActivities:
     ) -> dict[str, Any]:
         """Dispatch the ephemeral executor on its crew pod and poll until it
         reaches a terminal state, heartbeating every poll. The pod's own
-        GATEWAY_TOKEN (injected at provision, 16c) is the credential — no
+        GATEWAY_TOKEN (injected at provision) is the credential — no
         token rides this call or the workflow history. mode="implement"
         works to a completion claim; mode="deliver" is the separate,
-        workflow-directed delivery dispatch (sequencing choice 8), only
+        workflow-directed delivery dispatch, only
         ever issued after the platform verify gate is green."""
         async with AgentClient(url) as agent:
             await agent.dispatch(run_id, task_text, mode=mode)
@@ -217,7 +216,7 @@ class ImplementActivities:
 
     @activity.defn(name="platform_verify")
     async def platform_verify(self, run_id: str) -> dict[str, Any]:
-        """The gate of record (§4.2, sequencing choice 4): the platform
+        """The gate of record: the platform
         runs the sandbox's test suite under the orchestrator's own
         identity. The executor's claim is advisory; this result is what
         delivery hangs on."""
@@ -241,7 +240,7 @@ class ImplementActivities:
         error: str | None,
     ) -> dict[str, Any]:
         """Compensation + finalization: revoke the run's ephemeral
-        identities (plan step 16b — the binding rows die on every terminal
+        identities (the binding rows die on every terminal
         path, before the token TTLs would), destroy the sandbox (when one
         was provisioned), retire its registration, and write the honest
         terminal run record, which is also the workflow's result."""

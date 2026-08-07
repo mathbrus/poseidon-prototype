@@ -1,4 +1,4 @@
-"""Unit tests for the review activities (plan step 20): config resolution
+"""Unit tests for the review activities: config resolution
 fail-closed, gate outcomes as first-class process-gate audit events, and
 the post-gate merge as a gateway call. Sequencing — the merge strictly
 after the gate — is a workflow concern, proven live by the kind suite."""
@@ -122,7 +122,7 @@ def test_create_review_run_opens_a_review_row(settings):
 
 
 def test_gate_outcomes_are_process_gate_audit_events(settings, audit):
-    """§5.2: escalation and the verdict are first-class rows carrying the
+    """Escalation and the verdict are first-class rows carrying the
     workflow id that maps back to run_id — approved is the only allow."""
     activities = _activities(
         settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit=audit
@@ -162,7 +162,7 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(settings, monkeypatch):
 
 def test_read_pr_refuses_a_headless_pr(settings, monkeypatch):
     """No head ref means nothing to provision the review sandbox from
-    (O-4) — refuse before provisioning, like every config activity."""
+    — refuse before provisioning, like every config activity."""
     import orchestrator.activities.review as module
 
     class FakeGateway:
