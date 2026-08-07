@@ -55,9 +55,7 @@ GIT_ENV = {
 
 
 def _kubectl(*args: str) -> str:
-    proc = subprocess.run(
-        ["kubectl", *args], capture_output=True, text=True, timeout=60
-    )
+    proc = subprocess.run(["kubectl", *args], capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     return proc.stdout.strip()
 
@@ -65,13 +63,24 @@ def _kubectl(*args: str) -> str:
 @pytest.fixture(scope="module")
 def workspace_tar(tmp_path_factory) -> bytes:
     path = tmp_path_factory.mktemp("redteam-ws")
-    subprocess.run(["git", "init", "-b", "main"], cwd=path, env=GIT_ENV,
-                   check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=path,
+        env=GIT_ENV,
+        check=True,
+        capture_output=True,
+    )
     (path / "secret-looking.txt").write_text("nothing to see\n")
-    subprocess.run(["git", "add", "-A"], cwd=path, env=GIT_ENV,
-                   check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "base"], cwd=path, env=GIT_ENV,
-                   check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "-A"], cwd=path, env=GIT_ENV, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "base"],
+        cwd=path,
+        env=GIT_ENV,
+        check=True,
+        capture_output=True,
+    )
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         for entry in path.iterdir():
@@ -135,9 +144,7 @@ def test_the_one_permitted_route_out_still_works(target: Target) -> None:
         "print('connect_ex', rc)\n"
         "sys.exit(0 if rc == 0 else 1)"
     )
-    assert exit_code == 0, (
-        f"the sandbox cannot reach its own egress proxy: {output}"
-    )
+    assert exit_code == 0, f"the sandbox cannot reach its own egress proxy: {output}"
 
 
 # --- secret scraping ----------------------------------------------------------
@@ -160,8 +167,9 @@ def test_the_kubernetes_api_is_unreachable(target: Target) -> None:
     """Even with a token, there would be no route: the sandbox
     NetworkPolicy permits egress to the audited proxy and nothing else.
     Probed with a raw socket so the proxy env cannot mask the result."""
-    cluster_ip = _kubectl("-n", "default", "get", "svc", "kubernetes",
-                          "-o", "jsonpath={.spec.clusterIP}")
+    cluster_ip = _kubectl(
+        "-n", "default", "get", "svc", "kubernetes", "-o", "jsonpath={.spec.clusterIP}"
+    )
     exit_code, output = target.py(
         "import socket,sys\n"
         "s=socket.socket(); s.settimeout(5)\n"
@@ -174,8 +182,12 @@ def test_node_metadata_endpoints_are_unreachable(target: Target) -> None:
     """The kubelet's authenticated port and the cloud metadata address —
     the two classic pivots out of a container — are both off the sandbox's
     permitted egress."""
-    node_ip = _kubectl("get", "nodes", "-o",
-                       "jsonpath={.items[0].status.addresses[?(@.type=='InternalIP')].address}")
+    node_ip = _kubectl(
+        "get",
+        "nodes",
+        "-o",
+        "jsonpath={.items[0].status.addresses[?(@.type=='InternalIP')].address}",
+    )
     probes = [(node_ip, 10250), ("169.254.169.254", 80)]
     for host, port in probes:
         exit_code, output = target.py(
@@ -187,7 +199,8 @@ def test_node_metadata_endpoints_are_unreachable(target: Target) -> None:
 
 
 def test_the_only_credential_is_the_runs_own_scoped_proxy_secret(
-    target: Target, egress_key: str,  # noqa: F811
+    target: Target,
+    egress_key: str,  # noqa: F811
 ) -> None:
     """The sandbox env carries exactly one secret-shaped value: its own
     per-run proxy credential. It is HMAC(key, run_id) — bound to this
@@ -195,9 +208,7 @@ def test_the_only_credential_is_the_runs_own_scoped_proxy_secret(
     allowlist."""
     exit_code, output = target.sh("printenv")
     assert exit_code == 0
-    env = dict(
-        line.split("=", 1) for line in output.splitlines() if "=" in line
-    )
+    env = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
 
     expected = mint(egress_key, target.run_id)
     assert expected in env.get("HTTP_PROXY", ""), "proxy credential missing"
@@ -207,7 +218,8 @@ def test_the_only_credential_is_the_runs_own_scoped_proxy_secret(
     # only the proxy vars and the blanked python-image GPG_KEY.
     proxy_vars = {"HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"}
     leaked = [
-        name for name, value in env.items()
+        name
+        for name, value in env.items()
         if (name.endswith("_TOKEN") or name.endswith("_KEY"))
         and name not in proxy_vars
         and value != ""
@@ -216,7 +228,8 @@ def test_the_only_credential_is_the_runs_own_scoped_proxy_secret(
 
 
 def test_a_sandbox_cannot_forge_another_runs_egress_identity(
-    target: Target, egress_key: str,  # noqa: F811
+    target: Target,
+    egress_key: str,  # noqa: F811
 ) -> None:
     """The credential is self-authenticating (username=run_id,
     password=HMAC(key, run_id)), so a sandbox that only ever sees its own
@@ -245,7 +258,8 @@ def test_a_sandbox_cannot_forge_another_runs_egress_identity(
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         denies = [
-            e for e in audit_story(victim_run)
+            e
+            for e in audit_story(victim_run)
             if e["decision"] == "deny" and e["rule"] == "egress_bad_credential"
         ]
         if denies:
@@ -262,8 +276,13 @@ def test_no_container_runtime_socket_or_host_mount(target: Target) -> None:
     """Nothing of the host is handed to the sandbox: no runtime socket to
     drive, no host filesystem bind-mounted in. The Job manifest declares no
     volumes at all — this asserts the live pod matches."""
-    for path in ("/var/run/docker.sock", "/run/containerd/containerd.sock",
-                 "/var/run/crio/crio.sock", "/host", "/rootfs"):
+    for path in (
+        "/var/run/docker.sock",
+        "/run/containerd/containerd.sock",
+        "/var/run/crio/crio.sock",
+        "/host",
+        "/rootfs",
+    ):
         exit_code, output = target.sh(f"test -e {path}; echo rc=$?")
         assert "rc=" in output, f"the probe for {path} did not run: {output!r}"
         assert "rc=0" not in output, f"{path} exists inside the sandbox"
@@ -341,9 +360,9 @@ def test_resource_caps_and_deadline_are_declared_on_the_live_job(
     manifest builder: CPU, memory and ephemeral-storage limits on the
     container, and a wall-clock deadline on the Job (whose enforcement is
     proven by test_sandbox_k8s's runaway test)."""
-    spec = json.loads(_kubectl(
-        "-n", COMPANY_NS, "get", "job", job_name(target.run_id), "-o", "json"
-    ))
+    spec = json.loads(
+        _kubectl("-n", COMPANY_NS, "get", "job", job_name(target.run_id), "-o", "json")
+    )
     assert spec["spec"]["activeDeadlineSeconds"] > 0
     pod_spec = spec["spec"]["template"]["spec"]
     assert pod_spec["automountServiceAccountToken"] is False
@@ -353,7 +372,9 @@ def test_resource_caps_and_deadline_are_declared_on_the_live_job(
 
 
 def test_memory_cap_terminates_a_runaway_allocation(
-    stack: None, egress_key: str, workspace_tar: bytes  # noqa: F811
+    stack: None,
+    egress_key: str,
+    workspace_tar: bytes,  # noqa: F811
 ) -> None:
     """Resource exhaustion, for real: caps demonstrably terminate a
     runaway workload. Runs in its own throwaway sandbox: the cgroup OOM
@@ -373,17 +394,18 @@ def test_memory_cap_terminates_a_runaway_allocation(
     try:
         exit_code, output = backend._exec(
             handle.pod_name,
-            ["python", "-c",
-             "b = bytearray(400 * 1024 * 1024)\n"
-             "for i in range(0, len(b), 4096): b[i] = 1\n"
-             "print('allocated')"],
+            [
+                "python",
+                "-c",
+                "b = bytearray(400 * 1024 * 1024)\n"
+                "for i in range(0, len(b), 4096): b[i] = 1\n"
+                "print('allocated')",
+            ],
         )
         # 137 = 128 + SIGKILL: the cgroup OOM killer, not an incidental
         # error. (The kill takes the container's task with it, which is
         # exactly why this runs in a sandbox of its own.)
-        assert exit_code == 137, (
-            f"expected an OOM kill (137), got {exit_code}: {output}"
-        )
+        assert exit_code == 137, f"expected an OOM kill (137), got {exit_code}: {output}"
         assert "allocated" not in output
     finally:
         backend.destroy(handle)
@@ -434,8 +456,9 @@ def test_no_dns_resolver_answers_the_sandbox(target: Target) -> None:
     exit_code, output = target.py(probe.format(resolver="8.8.8.8"))
     assert exit_code == 0, f"an external DNS resolver answered: {output}"
 
-    cluster_dns = _kubectl("-n", "kube-system", "get", "svc", "kube-dns",
-                           "-o", "jsonpath={.spec.clusterIP}")
+    cluster_dns = _kubectl(
+        "-n", "kube-system", "get", "svc", "kube-dns", "-o", "jsonpath={.spec.clusterIP}"
+    )
     exit_code, output = target.py(probe.format(resolver=cluster_dns))
     assert exit_code == 0, f"the cluster resolver answered: {output}"
 
@@ -485,7 +508,8 @@ def test_every_blocked_attempt_that_has_a_source_is_in_the_audit_store(
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         denies = [
-            e for e in audit_story(target.run_id)
+            e
+            for e in audit_story(target.run_id)
             if e["decision"] == "deny" and e["rule"] == "egress_not_allowlisted"
         ]
         if denies:

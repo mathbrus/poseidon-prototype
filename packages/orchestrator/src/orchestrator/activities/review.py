@@ -77,11 +77,11 @@ class ReviewActivities:
         request is recorded under, and which signal the merge gate parks
         on — gate config comes from the compiled plan, never hardcoded.
         Fail-closed, like implement_config."""
+
         def read() -> dict[str, Any]:
             spec = self._companies.get(self._settings.company) or {}
             config = next(
-                (w for w in spec.get("workflows") or []
-                 if w.get("name") == "review"),
+                (w for w in spec.get("workflows") or [] if w.get("name") == "review"),
                 None,
             )
             if config is None or not config.get("enabled", False):
@@ -100,8 +100,11 @@ class ReviewActivities:
             instance = None
             if self._instances is not None:
                 instance = next(
-                    (i for i in self._instances.for_company(self._settings.company)
-                     if i.get("hire") == conductor_hire),
+                    (
+                        i
+                        for i in self._instances.for_company(self._settings.company)
+                        if i.get("hire") == conductor_hire
+                    ),
                     None,
                 )
             if instance is None:
@@ -127,9 +130,7 @@ class ReviewActivities:
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            pr = await gateway.read_pr(
-                run_id, self._settings.target_repo, pr_number
-            )
+            pr = await gateway.read_pr(run_id, self._settings.target_repo, pr_number)
         if not pr.get("head"):
             raise RuntimeError(
                 f"pull request #{pr_number} has no head ref — nothing to"
@@ -182,13 +183,14 @@ class ReviewActivities:
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            result = await gateway.merge_pr(
-                run_id, self._settings.target_repo, pr_number
-            )
+            result = await gateway.merge_pr(run_id, self._settings.target_repo, pr_number)
         self._log.bind(run_id=run_id).info(
             "pr merged",
-            extra={"pr_number": pr_number, "merged": result.get("merged"),
-                   "latency_ms": int((time.monotonic() - started) * 1000)},
+            extra={
+                "pr_number": pr_number,
+                "merged": result.get("merged"),
+                "latency_ms": int((time.monotonic() - started) * 1000),
+            },
         )
         if not result.get("merged"):
             raise RuntimeError(f"merge of pull request #{pr_number} did not land")

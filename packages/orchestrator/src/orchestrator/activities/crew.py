@@ -183,10 +183,8 @@ class CrewActivities:
         )
         platform = self._settings.platform_namespace
         env = {
-            "MCP_GATEWAY_URL":
-                f"http://mcp-gateway.{platform}.svc.cluster.local:8080",
-            "LLM_PROXY_URL":
-                f"http://llm-gateway.{platform}.svc.cluster.local:4000",
+            "MCP_GATEWAY_URL": f"http://mcp-gateway.{platform}.svc.cluster.local:8080",
+            "LLM_PROXY_URL": f"http://llm-gateway.{platform}.svc.cluster.local:4000",
             "MODEL": self._settings.model,
             "TARGET_REPO": self._settings.target_repo,
             "MAX_ITERATIONS": str(self._settings.max_iterations),
@@ -217,9 +215,7 @@ class CrewActivities:
                 company=spec["company"],
                 agent_image=self._settings.agent_image,
                 env=env,
-                still_wanted=lambda: self._collectable_now(
-                    spec["run_id"], agent_id
-                ),
+                still_wanted=lambda: self._collectable_now(spec["run_id"], agent_id),
             )
         )
         await self._emit(
@@ -301,9 +297,7 @@ class CrewActivities:
         started = time.monotonic()
 
         rid = request_id(conductor, crew_template, run_id)
-        consumed = await asyncio.to_thread(
-            self._crew_requests.consume, rid, run_id
-        )
+        consumed = await asyncio.to_thread(self._crew_requests.consume, rid, run_id)
         if consumed is None and spec.get("record_under_authority"):
             # The workflow path: record the request under the
             # conductor's authority — same row, same policy. "Same policy"
@@ -311,8 +305,11 @@ class CrewActivities:
             # decision the crew.request *tool* faces allows it, evaluated
             # against the same bundle with the same enriched input.
             await self._authorize_recording(
-                run_id, spec["company"], conductor,
-                spec.get("conductor_role", "pm"), crew_template,
+                run_id,
+                spec["company"],
+                conductor,
+                spec.get("conductor_role", "pm"),
+                crew_template,
                 spec.get("workflow", "implement"),
             )
             await asyncio.to_thread(
@@ -322,9 +319,7 @@ class CrewActivities:
                 run_id,
                 spec.get("reason", "workflow-recorded under conductor authority"),
             )
-            consumed = await asyncio.to_thread(
-                self._crew_requests.consume, rid, run_id
-            )
+            consumed = await asyncio.to_thread(self._crew_requests.consume, rid, run_id)
         if consumed is None:
             # No recorded, unexpired intent for this run: fulfillment does
             # not improvise authority (expired requests orphan nothing).
@@ -333,11 +328,10 @@ class CrewActivities:
                 f" on run {run_id} — record intent before fulfilling"
             )
 
-        blueprint = await asyncio.to_thread(
-            self._companies.get, spec["company"]
-        ) or {}
+        blueprint = await asyncio.to_thread(self._companies.get, spec["company"]) or {}
         members = [
-            m for m in blueprint.get("crewMembers") or []
+            m
+            for m in blueprint.get("crewMembers") or []
             if m.get("crew") == crew_template
         ]
         if not members:
@@ -362,20 +356,18 @@ class CrewActivities:
                 pod = await self.provision_crew_pod(member_spec)
                 pod_member = member
         if pod is None or pod_member is None:
-            raise RuntimeError(
-                f"crew {crew_template!r} has no pod-hosting member"
-            )
+            raise RuntimeError(f"crew {crew_template!r} has no pod-hosting member")
 
         # The planner (a no-pod member) borrows the acting member's
         # brain host, under its own identity: its gateway calls carry the
         # planner's minted token, so its compiled read-only scope binds.
         brief = spec["task_text"]
-        planner = next(
-            (m for m in members if not m.get("needs_sandbox")), None
-        )
+        planner = next((m for m in members if not m.get("needs_sandbox")), None)
         if planner is not None:
             plan_run = await self._dispatch_plan(
-                pod["url"], run_id, spec["task_text"],
+                pod["url"],
+                run_id,
+                spec["task_text"],
                 minted[planner["member"]]["token"],
             )
             if plan_run.get("error"):
@@ -390,8 +382,7 @@ class CrewActivities:
             parent_agent_id=conductor,
             tool="lifecycle.fulfill",
             rule="crew_fulfilled",
-            digest=_digest({"crew_template": crew_template,
-                            "request_id": rid}),
+            digest=_digest({"crew_template": crew_template, "request_id": rid}),
             started=started,
         )
         return {
@@ -416,9 +407,10 @@ class CrewActivities:
         may_spawn narrowing, the concurrency cap and budget headroom all
         bind exactly as at the gateway's crew.request tool. The decision is
         audited either way; a deny refuses the recording."""
+
         def enrich() -> tuple[int, bool]:
             spawns = self._participants.active_spawn_count(conductor)
-            spec = (self._companies.get(company) or {})
+            spec = self._companies.get(company) or {}
             cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
             headroom = True
             if cap > 0 and self._ledger is not None:
@@ -449,7 +441,8 @@ class CrewActivities:
             )
             resp.raise_for_status()
             result = resp.json().get("result") or {
-                "allow": False, "rule": "no_policy_installed",
+                "allow": False,
+                "rule": "no_policy_installed",
             }
         started = time.monotonic()
         allowed = bool(result.get("allow"))
@@ -476,8 +469,7 @@ class CrewActivities:
         self, url: str, run_id: str, task_text: str, token: str
     ) -> dict[str, Any]:
         async with AgentClient(url) as agent:
-            await agent.dispatch(run_id, task_text, mode="plan",
-                                 gateway_token=token)
+            await agent.dispatch(run_id, task_text, mode="plan", gateway_token=token)
             while True:
                 if activity.in_activity():
                     activity.heartbeat()

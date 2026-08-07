@@ -29,18 +29,43 @@ sys.exit(0 if reachable == (want == "reachable") else 1)
 
 def _agent_pod() -> str:
     proc = subprocess.run(
-        ["kubectl", "-n", COMPANY_NS, "get", "pod", "-l", "poseidon.dev/kind=standing-agent",
-         "-o", "jsonpath={.items[0].metadata.name}"],
-        capture_output=True, text=True, timeout=30, check=True,
+        [
+            "kubectl",
+            "-n",
+            COMPANY_NS,
+            "get",
+            "pod",
+            "-l",
+            "poseidon.dev/kind=standing-agent",
+            "-o",
+            "jsonpath={.items[0].metadata.name}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
     )
     return proc.stdout.strip()
 
 
 def _probe(pod: str, url: str, want: str) -> bool:
     proc = subprocess.run(
-        ["kubectl", "-n", COMPANY_NS, "exec", pod, "--",
-         "python", "-c", _PROBE, url, want],
-        capture_output=True, text=True, timeout=60,
+        [
+            "kubectl",
+            "-n",
+            COMPANY_NS,
+            "exec",
+            pod,
+            "--",
+            "python",
+            "-c",
+            _PROBE,
+            url,
+            want,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     return proc.returncode == 0
 
@@ -49,12 +74,13 @@ def _probe(pod: str, url: str, want: str) -> bool:
     ("url", "want"),
     [
         (f"http://mcp-gateway.{PLATFORM_NS}.svc.cluster.local:8080/mcp", "reachable"),
-        (f"http://llm-gateway.{PLATFORM_NS}.svc.cluster.local:4000/healthz",
-         "reachable"),
+        (f"http://llm-gateway.{PLATFORM_NS}.svc.cluster.local:4000/healthz", "reachable"),
         # The llm-proxy (provider keys) is sealed behind the metered
         # gateway — an agent must not reach it.
-        (f"http://llm-proxy.{PLATFORM_NS}.svc.cluster.local:4000/health/liveliness",
-         "blocked"),
+        (
+            f"http://llm-proxy.{PLATFORM_NS}.svc.cluster.local:4000/health/liveliness",
+            "blocked",
+        ),
         (f"http://opa.{PLATFORM_NS}.svc.cluster.local:8181/health", "blocked"),
         (f"http://egress-proxy.{PLATFORM_NS}.svc.cluster.local:3128/healthz", "blocked"),
         ("http://1.1.1.1", "blocked"),
@@ -75,18 +101,32 @@ def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
     before TTL), not a platform secret, and a file mount would need
     per-run Kubernetes service accounts, which the platform avoids."""
     listing = subprocess.run(
-        ["kubectl", "-n", COMPANY_NS, "get", "pods",
-         "--field-selector=status.phase=Running",
-         "-o", ("jsonpath={range .items[*]}{.metadata.name}"
-                "|{.metadata.labels.poseidon\\.dev/kind}{'\\n'}{end}")],
-        capture_output=True, text=True, timeout=30, check=True,
+        [
+            "kubectl",
+            "-n",
+            COMPANY_NS,
+            "get",
+            "pods",
+            "--field-selector=status.phase=Running",
+            "-o",
+            (
+                "jsonpath={range .items[*]}{.metadata.name}"
+                "|{.metadata.labels.poseidon\\.dev/kind}{'\\n'}{end}"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
     ).stdout.splitlines()
     assert listing
     for line in listing:
         pod, _, kind = line.partition("|")
         env = subprocess.run(
             ["kubectl", "-n", COMPANY_NS, "exec", pod, "--", "printenv"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if env.returncode != 0:  # pod terminated mid-scan (sandbox teardown)
             continue

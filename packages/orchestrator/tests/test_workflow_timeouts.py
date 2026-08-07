@@ -30,7 +30,5 @@ def test_fast_profile_is_strictly_tighter_on_every_bound():
 
 def test_fast_dispatch_still_outlives_a_single_attempt():
     # schedule_to_close must leave room for a retry after a worker kill.
-    assert (
-        FAST_TIMEOUTS.dispatch_schedule_to_close_s > FAST_TIMEOUTS.dispatch_s
-    )
+    assert FAST_TIMEOUTS.dispatch_schedule_to_close_s > FAST_TIMEOUTS.dispatch_s
     assert FAST_TIMEOUTS.dispatch_heartbeat_s < FAST_TIMEOUTS.dispatch_s

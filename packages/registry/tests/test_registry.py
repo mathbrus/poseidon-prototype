@@ -187,7 +187,10 @@ def test_story_spans_all_four_sources(registry: Registry):
 
     story = audit.story(RUN_ID)
     assert [e["source"] for e in story] == [
-        "gateway", "sandbox-infra", "llm-gateway", "process-gate",
+        "gateway",
+        "sandbox-infra",
+        "llm-gateway",
+        "process-gate",
     ]
     assert all(e["run_id"] == RUN_ID for e in story)
     assert story[0]["company"] == "hello-saas"
@@ -250,8 +253,12 @@ def test_agent_instance_lookup_carries_namespace(registry: Registry):
 
     instances = AgentInstances(registry)
     instances.upsert(
-        "backend-engineer-1", "hello-saas", "backend-engineer",
-        "backend-engineer", "standard", namespace="hello-saas",
+        "backend-engineer-1",
+        "hello-saas",
+        "backend-engineer",
+        "backend-engineer",
+        "standard",
+        namespace="hello-saas",
     )
     try:
         row = instances.get("backend-engineer-1")
@@ -305,8 +312,9 @@ def test_company_spec_reads(registry: Registry):
     from registry.bundles import Companies
 
     companies = Companies(registry)
-    companies.upsert("hello-saas", {"namespace": "hello-saas",
-                                    "infra": {"sandbox": {"cpu": "1"}}})
+    companies.upsert(
+        "hello-saas", {"namespace": "hello-saas", "infra": {"sandbox": {"cpu": "1"}}}
+    )
     try:
         assert companies.get("hello-saas")["infra"]["sandbox"]["cpu"] == "1"
         assert companies.by_namespace("hello-saas")["namespace"] == "hello-saas"
@@ -324,14 +332,26 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     ledger = BudgetLedger(registry)
     Runs(registry).start(RUN_ID, "task")
     ledger.record(
-        company="hello-saas", run_id=RUN_ID, agent_id="backend-engineer-1",
-        parent_agent_id="", role="backend-engineer", model="mock-brain",
-        prompt_tokens=100, completion_tokens=50, usd=0.0003,
+        company="hello-saas",
+        run_id=RUN_ID,
+        agent_id="backend-engineer-1",
+        parent_agent_id="",
+        role="backend-engineer",
+        model="mock-brain",
+        prompt_tokens=100,
+        completion_tokens=50,
+        usd=0.0003,
     )
     ledger.record(
-        company="hello-saas", run_id=RUN_ID, agent_id="executor-01X",
-        parent_agent_id="pm-1", role="backend-engineer", model="mock-brain",
-        prompt_tokens=10, completion_tokens=5, usd=0.0001,
+        company="hello-saas",
+        run_id=RUN_ID,
+        agent_id="executor-01X",
+        parent_agent_id="pm-1",
+        role="backend-engineer",
+        model="mock-brain",
+        prompt_tokens=10,
+        completion_tokens=5,
+        usd=0.0001,
     )
     registry.execute("DELETE FROM registry.budget_ledger WHERE run_id != %s", (RUN_ID,))
     try:
@@ -341,7 +361,9 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
         assert entries[1]["parent_agent_id"] == "pm-1"
         assert ledger.spent_for_run("run-unmetered") == 0.0
     finally:
-        registry.execute("DELETE FROM registry.budget_ledger WHERE run_id = %s", (RUN_ID,))
+        registry.execute(
+            "DELETE FROM registry.budget_ledger WHERE run_id = %s", (RUN_ID,)
+        )
 
 
 def test_crew_request_is_idempotent_and_expiring(registry: Registry):
@@ -363,13 +385,16 @@ def test_crew_request_is_idempotent_and_expiring(registry: Registry):
 
         registry.execute(
             "UPDATE registry.crew_requests SET status='fulfilled',"
-            " fulfilled_at=now() WHERE id = %s", (first["id"],))
+            " fulfilled_at=now() WHERE id = %s",
+            (first["id"],),
+        )
         after = requests.record("pm-1", "feature-delivery", RUN_ID, "retry")
         assert after["status"] == "fulfilled"
         assert after["reason"] == "ship it now"  # untouched
     finally:
         registry.execute(
-            "DELETE FROM registry.crew_requests WHERE id = %s", (first["id"],))
+            "DELETE FROM registry.crew_requests WHERE id = %s", (first["id"],)
+        )
 
 
 def test_participant_mint_is_retry_safe_and_sweepable(registry: Registry):
@@ -381,24 +406,29 @@ def test_participant_mint_is_retry_safe_and_sweepable(registry: Registry):
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
     try:
-        participants.add("feature-delivery-executor-x", RUN_ID, "pm-1",
-                         "feature-delivery", "executor")
+        participants.add(
+            "feature-delivery-executor-x", RUN_ID, "pm-1", "feature-delivery", "executor"
+        )
         # A retry against the live row converges — one identity, never two.
-        participants.add("feature-delivery-executor-x", RUN_ID, "pm-1",
-                         "feature-delivery", "executor")
+        participants.add(
+            "feature-delivery-executor-x", RUN_ID, "pm-1", "feature-delivery", "executor"
+        )
         assert participants.active("feature-delivery-executor-x") is not None
 
-        participants.add("feature-delivery-planner-x", RUN_ID, "pm-1",
-                         "feature-delivery", "planner")
+        participants.add(
+            "feature-delivery-planner-x", RUN_ID, "pm-1", "feature-delivery", "planner"
+        )
         swept = participants.terminate_for_run(RUN_ID)
         assert sorted(swept) == [
-            "feature-delivery-executor-x", "feature-delivery-planner-x",
+            "feature-delivery-executor-x",
+            "feature-delivery-planner-x",
         ]
         assert participants.active("feature-delivery-planner-x") is None
         assert participants.terminate_for_run(RUN_ID) == []  # idempotent
     finally:
         registry.execute(
-            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,))
+            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
+        )
 
 
 def test_crew_request_consume_and_spawn_count(registry: Registry):
@@ -428,10 +458,12 @@ def test_crew_request_consume_and_spawn_count(registry: Registry):
         participants.terminate_for_run(RUN_ID)
         assert participants.active_spawn_count("pm-1") == 0
     finally:
-        registry.execute("DELETE FROM registry.crew_requests WHERE id = %s",
-                         (recorded["id"],))
-        registry.execute("DELETE FROM registry.run_participants WHERE run_id = %s",
-                         (RUN_ID,))
+        registry.execute(
+            "DELETE FROM registry.crew_requests WHERE id = %s", (recorded["id"],)
+        )
+        registry.execute(
+            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
+        )
 
 
 def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry):
@@ -445,15 +477,19 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
     try:
-        participants.add("feature-delivery-executor-z", RUN_ID, "pm-1",
-                         "feature-delivery", "executor")
-        assert participants.terminate_for_run(RUN_ID) == [
-            "feature-delivery-executor-z"
-        ]
+        participants.add(
+            "feature-delivery-executor-z", RUN_ID, "pm-1", "feature-delivery", "executor"
+        )
+        assert participants.terminate_for_run(RUN_ID) == ["feature-delivery-executor-z"]
 
         with pytest.raises(ParticipantRevoked):
-            participants.add("feature-delivery-executor-z", RUN_ID, "pm-1",
-                             "feature-delivery", "executor")
+            participants.add(
+                "feature-delivery-executor-z",
+                RUN_ID,
+                "pm-1",
+                "feature-delivery",
+                "executor",
+            )
         # Still revoked: the failed mint changed nothing.
         assert participants.active("feature-delivery-executor-z") is None
         rows = registry.query(
@@ -463,5 +499,6 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
         assert rows[0]["status"] == "terminated"
     finally:
         registry.execute(
-            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,))
+            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
+        )
         registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (RUN_ID,))

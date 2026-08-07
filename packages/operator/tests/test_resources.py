@@ -64,15 +64,17 @@ def test_sandbox_isolation_projects_the_infra_ir():
     carrying no projection converges identically)."""
     projected = resources.sandbox_isolation(
         "hello-saas",
-        {"sandbox_ingress_from": ["mcp-gateway"],
-         "sandbox_egress_to": ["egress-proxy"]},
+        {"sandbox_ingress_from": ["mcp-gateway"], "sandbox_egress_to": ["egress-proxy"]},
     )
     assert projected == resources.sandbox_isolation("hello-saas")
     _assert_sandbox_envelope(projected["spec"])
 
 
 def _assert_sandbox_envelope(spec):
-    assert spec["ingress"][0]["from"][0]["podSelector"]["matchLabels"]["app"] == "mcp-gateway"
+    assert (
+        spec["ingress"][0]["from"][0]["podSelector"]["matchLabels"]["app"]
+        == "mcp-gateway"
+    )
     egress_targets = {
         rule["to"][0]["podSelector"]["matchLabels"].get("app")
         or rule["to"][0]["podSelector"]["matchLabels"].get("k8s-app")
@@ -100,9 +102,7 @@ def test_agent_deployment_carries_no_credential_env_at_all():
 
 
 def test_agent_pod_runs_non_root_with_no_escalation_path():
-    pod_spec = resources.agent_deployment(SPEC, "hello-saas")["spec"]["template"][
-        "spec"
-    ]
+    pod_spec = resources.agent_deployment(SPEC, "hello-saas")["spec"]["template"]["spec"]
     assert pod_spec["securityContext"] == {
         "runAsNonRoot": True,
         "runAsUser": 10001,
@@ -158,9 +158,7 @@ def test_spec_edits_change_the_pod_template():
     """The step-10 done-when: a blueprint edit (model tier, tool scope) must
     converge as a rollout, so the spec's tier and tools ride the template."""
     small = resources.agent_deployment({**SPEC, "modelTier": "small"}, "hello-saas")
-    frontier = resources.agent_deployment(
-        {**SPEC, "modelTier": "frontier"}, "hello-saas"
-    )
+    frontier = resources.agent_deployment({**SPEC, "modelTier": "frontier"}, "hello-saas")
     assert small["spec"]["template"] != frontier["spec"]["template"]
 
     env = {

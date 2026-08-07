@@ -35,18 +35,38 @@ sys.exit(0 if reachable == (want == "reachable") else 1)
 
 def _can_i(verb: str, resource: str, namespace: str) -> bool:
     proc = subprocess.run(
-        ["kubectl", "auth", "can-i", verb, resource,
-         "-n", namespace, f"--as={WORKER_SA}"],
-        capture_output=True, text=True, timeout=30,
+        [
+            "kubectl",
+            "auth",
+            "can-i",
+            verb,
+            resource,
+            "-n",
+            namespace,
+            f"--as={WORKER_SA}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     return proc.stdout.strip() == "yes"
 
 
 def agent_image() -> str:
     proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "get", "deployment/orchestrator-worker",
-         "-o", 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="AGENT_IMAGE")].value}'],
-        capture_output=True, text=True, timeout=30, check=True,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "get",
+            "deployment/orchestrator-worker",
+            "-o",
+            'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="AGENT_IMAGE")].value}',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
     )
     assert proc.stdout.strip(), "worker carries no AGENT_IMAGE env"
     return proc.stdout.strip()
@@ -96,43 +116,74 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
             AuditStore(registry),
             CrewPodProvisioner(COMPANY_NS),
         )
-        Runs(registry).start(run_id, "16c pod contract", "implement", None,
-                             "hello-saas")
+        Runs(registry).start(run_id, "16c pod contract", "implement", None, "hello-saas")
         # An unlabeled bystander in the same namespace: the destroy
         # selector must never touch it.
         subprocess.run(
-            ["kubectl", "-n", COMPANY_NS, "run", decoy,
-             f"--image={agent_image()}", "--restart=Never",
-             "--command", "--", "sleep", "300"],
-            check=True, capture_output=True, timeout=60,
+            [
+                "kubectl",
+                "-n",
+                COMPANY_NS,
+                "run",
+                decoy,
+                f"--image={agent_image()}",
+                "--restart=Never",
+                "--command",
+                "--",
+                "sleep",
+                "300",
+            ],
+            check=True,
+            capture_output=True,
+            timeout=60,
         )
         try:
-            provisioned = asyncio.run(crew.provision_crew_pod({
-                "run_id": run_id,
-                "company": "hello-saas",
-                "crew_template": "feature-delivery",
-                "member": "executor",
-                "role_template": "backend-engineer",
-                "parent_agent_id": "pm-1",
-            }))
+            provisioned = asyncio.run(
+                crew.provision_crew_pod(
+                    {
+                        "run_id": run_id,
+                        "company": "hello-saas",
+                        "crew_template": "feature-delivery",
+                        "member": "executor",
+                        "role_template": "backend-engineer",
+                        "parent_agent_id": "pm-1",
+                    }
+                )
+            )
             pod = provisioned["pod_name"]
 
             # The pod is Ready (the kubelet's probe hit the brain host) and
             # contained the moment it exists: the operator's agent envelope
             # selects the crew-agent kind.
             for url, want in [
-                (f"http://llm-gateway.{PLATFORM_NS}.svc.cluster.local:4000/healthz",
-                 "reachable"),
-                (f"http://mcp-gateway.{PLATFORM_NS}.svc.cluster.local:8080/mcp",
-                 "reachable"),
-                (f"http://opa.{PLATFORM_NS}.svc.cluster.local:8181/health",
-                 "blocked"),
+                (
+                    f"http://llm-gateway.{PLATFORM_NS}.svc.cluster.local:4000/healthz",
+                    "reachable",
+                ),
+                (
+                    f"http://mcp-gateway.{PLATFORM_NS}.svc.cluster.local:8080/mcp",
+                    "reachable",
+                ),
+                (f"http://opa.{PLATFORM_NS}.svc.cluster.local:8181/health", "blocked"),
                 ("http://api.github.com", "blocked"),
             ]:
                 probe = subprocess.run(
-                    ["kubectl", "-n", COMPANY_NS, "exec", pod, "--",
-                     "python", "-c", _PROBE, url, want],
-                    capture_output=True, text=True, timeout=60,
+                    [
+                        "kubectl",
+                        "-n",
+                        COMPANY_NS,
+                        "exec",
+                        pod,
+                        "--",
+                        "python",
+                        "-c",
+                        _PROBE,
+                        url,
+                        want,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
                 )
                 assert probe.returncode == 0, f"{url} should be {want}"
 
@@ -140,9 +191,19 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
             deleted = asyncio.run(crew.destroy_crew_pods(run_id))
             assert pod in deleted
             survivor = subprocess.run(
-                ["kubectl", "-n", COMPANY_NS, "get", "pod", decoy,
-                 "-o", "jsonpath={.metadata.name}"],
-                capture_output=True, text=True, timeout=30,
+                [
+                    "kubectl",
+                    "-n",
+                    COMPANY_NS,
+                    "get",
+                    "pod",
+                    decoy,
+                    "-o",
+                    "jsonpath={.metadata.name}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             assert survivor.stdout.strip() == decoy, (
                 "the destroy selector deleted an unlabeled pod"
@@ -150,18 +211,30 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
 
             # Idempotent, and audited per action in the one story.
             assert asyncio.run(crew.destroy_crew_pods(run_id)) == []
-            lifecycle = [(e["tool"], e["rule"]) for e in audit_story(run_id)
-                         if e["source"] == "process-lifecycle"]
+            lifecycle = [
+                (e["tool"], e["rule"])
+                for e in audit_story(run_id)
+                if e["source"] == "process-lifecycle"
+            ]
             assert ("lifecycle.provision_pod", "crew_pod_provisioned") in lifecycle
             assert ("lifecycle.destroy_pod", "crew_pod_destroyed") in lifecycle
         finally:
             subprocess.run(
-                ["kubectl", "-n", COMPANY_NS, "delete", "pod", decoy,
-                 "--ignore-not-found", "--wait=false"],
-                capture_output=True, timeout=60,
+                [
+                    "kubectl",
+                    "-n",
+                    COMPANY_NS,
+                    "delete",
+                    "pod",
+                    decoy,
+                    "--ignore-not-found",
+                    "--wait=false",
+                ],
+                capture_output=True,
+                timeout=60,
             )
             asyncio.run(crew.destroy_crew_pods(run_id))
             registry.execute(
-                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,))
-            registry.execute(
-                "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
+            )
+            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))

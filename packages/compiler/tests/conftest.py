@@ -20,6 +20,8 @@ def standing_executor(blueprint: dict) -> dict:
     the strict lean-roster rule refuses."""
     document = copy.deepcopy(blueprint)
     document["departments"]["roles"]["backend-engineer"] = {
-        "template": "backend-engineer", "count": 1, "model_tier": "frontier",
+        "template": "backend-engineer",
+        "count": 1,
+        "model_tier": "frontier",
     }
     return document

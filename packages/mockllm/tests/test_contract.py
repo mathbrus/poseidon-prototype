@@ -107,12 +107,23 @@ class FakeGateway:
                     )
                 return {"pr_url": PR_URL}
             case "git.read":
-                return {"number": args["number"], "title": "Add slugify",
-                        "state": "open", "url": PR_URL,
-                        "head": "feature/slugify-c0ffee", "base": "main",
-                        "merged": False,
-                        "files": [{"path": "slugify.py", "additions": 4,
-                                   "deletions": 0, "patch": "+..."}]}
+                return {
+                    "number": args["number"],
+                    "title": "Add slugify",
+                    "state": "open",
+                    "url": PR_URL,
+                    "head": "feature/slugify-c0ffee",
+                    "base": "main",
+                    "merged": False,
+                    "files": [
+                        {
+                            "path": "slugify.py",
+                            "additions": 4,
+                            "deletions": 0,
+                            "patch": "+...",
+                        }
+                    ],
+                }
             case "git.comment":
                 return {"url": f"{PR_URL}#issuecomment-1"}
             case _:
@@ -175,8 +186,7 @@ def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
         delivered = deliver_dispatch(cfg, "run-mock-e2", task_text)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
-    opened = [args["branch"] for tool, args in gateway.calls
-              if tool == "git.open_pr"]
+    opened = [args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"]
     assert opened[0] == "main"  # attempted, denied by the policy double
     assert FEATURE_BRANCH_RE.match(opened[1])  # recovered
 
@@ -191,8 +201,9 @@ def test_planner_brief_echoes_branch_and_scenario_markers(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        result = plan_dispatch(cfg, "run-mock-plan", task_text,
-                               gateway_token="minted-planner")
+        result = plan_dispatch(
+            cfg, "run-mock-plan", task_text, gateway_token="minted-planner"
+        )
     assert result.error is None
     assert "feature/slugify-brief1" in result.brief
     # The planner surveyed read-only — no writes, no tests, no delivery.
@@ -219,8 +230,11 @@ class GatedFakeGateway(FakeGateway):
             if "tests/test_gate.py" in self.files:
                 self.test_runs += 1
                 if self.test_runs == 2:
-                    return {"exit_code": 1, "stdout": "1 failed",
-                            "stderr": "environment drifted since the claim"}
+                    return {
+                        "exit_code": 1,
+                        "stdout": "1 failed",
+                        "stderr": "environment drifted since the claim",
+                    }
             return {"exit_code": 0, "stdout": "passed", "stderr": ""}
         return await super().call(tool, args)
 

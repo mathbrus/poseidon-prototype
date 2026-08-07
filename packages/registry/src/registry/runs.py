@@ -135,9 +135,7 @@ class Runs:
         return record
 
     def get(self, run_id: str) -> RunRecord | None:
-        rows = self._db.query(
-            "SELECT * FROM registry.runs WHERE run_id = %s", (run_id,)
-        )
+        rows = self._db.query("SELECT * FROM registry.runs WHERE run_id = %s", (run_id,))
         return RunRecord.from_row(rows[0]) if rows else None
 
     def recent(self, limit: int = 20) -> list[RunRecord]:

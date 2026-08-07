@@ -94,7 +94,9 @@ def create_app(
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
     settings = settings or GatewaySettings()
-    http_client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=630.0))
+    http_client = http_client or httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0, read=630.0)
+    )
     opa = OpaClient(settings.opa_url, http_client)
     # Registry accessors (sandbox registrations, audit events since step 8;
     # instance/participant reads for workload identity since step 11; run
@@ -102,8 +104,14 @@ def create_app(
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.
     accessors = (
-        sandboxes, audit, instances, participants, runs, crew_requests,
-        ledger, companies,
+        sandboxes,
+        audit,
+        instances,
+        participants,
+        runs,
+        crew_requests,
+        ledger,
+        companies,
     )
     registry = None
     if all(a is None for a in accessors):
@@ -119,8 +127,16 @@ def create_app(
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
     service = GatewayService(
-        settings, opa, http_client, sandboxes, audit, runs, crew_requests,
-        participants, ledger, companies,
+        settings,
+        opa,
+        http_client,
+        sandboxes,
+        audit,
+        runs,
+        crew_requests,
+        participants,
+        ledger,
+        companies,
     )
     authenticator = Authenticator(
         settings,
@@ -136,7 +152,9 @@ def create_app(
         json_response=True,
         # Clients reach the gateway via Docker-network hostnames; auth is the
         # bearer-token middleware, not Host-header checking.
-        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=False
+        ),
     )
 
     def identity_of(ctx: Context) -> Identity:
@@ -148,7 +166,9 @@ def create_app(
             raise PermissionError("unauthorized")
         return identity
 
-    async def sandbox_call(ctx: Context, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+    async def sandbox_call(
+        ctx: Context, tool: str, args: dict[str, Any]
+    ) -> dict[str, Any]:
         identity = identity_of(ctx)
         return await service.call(
             identity, tool, args, lambda: service.proxy_sandbox(tool, args)
@@ -156,19 +176,25 @@ def create_app(
 
     @mcp.tool(name="sandbox.read_file")
     async def sandbox_read_file(run_id: str, path: str, ctx: Context) -> dict[str, Any]:
-        return await sandbox_call(ctx, "sandbox.read_file", {"run_id": run_id, "path": path})
+        return await sandbox_call(
+            ctx, "sandbox.read_file", {"run_id": run_id, "path": path}
+        )
 
     @mcp.tool(name="sandbox.write_file")
     async def sandbox_write_file(
         run_id: str, path: str, content: str, ctx: Context
     ) -> dict[str, Any]:
         return await sandbox_call(
-            ctx, "sandbox.write_file", {"run_id": run_id, "path": path, "content": content}
+            ctx,
+            "sandbox.write_file",
+            {"run_id": run_id, "path": path, "content": content},
         )
 
     @mcp.tool(name="sandbox.list_dir")
     async def sandbox_list_dir(run_id: str, path: str, ctx: Context) -> dict[str, Any]:
-        return await sandbox_call(ctx, "sandbox.list_dir", {"run_id": run_id, "path": path})
+        return await sandbox_call(
+            ctx, "sandbox.list_dir", {"run_id": run_id, "path": path}
+        )
 
     @mcp.tool(name="sandbox.exec")
     async def sandbox_exec(
@@ -183,7 +209,9 @@ def create_app(
         return await sandbox_call(ctx, "sandbox.run_tests", {"run_id": run_id})
 
     @mcp.tool(name="sandbox.git_bundle")
-    async def sandbox_git_bundle(run_id: str, branch: str, ctx: Context) -> dict[str, Any]:
+    async def sandbox_git_bundle(
+        run_id: str, branch: str, ctx: Context
+    ) -> dict[str, Any]:
         return await sandbox_call(
             ctx, "sandbox.git_bundle", {"run_id": run_id, "branch": branch}
         )
@@ -243,7 +271,9 @@ def create_app(
         return await service.issues_comment(identity_of(ctx), run_id, repo, number, body)
 
     @mcp.tool(name="git.read")
-    async def git_read(run_id: str, repo: str, number: int, ctx: Context) -> dict[str, Any]:
+    async def git_read(
+        run_id: str, repo: str, number: int, ctx: Context
+    ) -> dict[str, Any]:
         return await service.git_read(identity_of(ctx), run_id, repo, number)
 
     @mcp.tool(name="git.comment")
@@ -256,17 +286,13 @@ def create_app(
     async def git_merge_pr(
         run_id: str, repo: str, number: int, ctx: Context, method: str = "merge"
     ) -> dict[str, Any]:
-        return await service.git_merge_pr(
-            identity_of(ctx), run_id, repo, number, method
-        )
+        return await service.git_merge_pr(identity_of(ctx), run_id, repo, number, method)
 
     @mcp.tool(name="crew.request")
     async def crew_request(
         run_id: str, crew_template: str, reason: str, ctx: Context
     ) -> dict[str, Any]:
-        return await service.request_crew(
-            identity_of(ctx), run_id, crew_template, reason
-        )
+        return await service.request_crew(identity_of(ctx), run_id, crew_template, reason)
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])
     async def admin_sandboxes(request: Request) -> Response:
@@ -276,7 +302,9 @@ def create_app(
         try:
             body = RegisterSandboxRequest.model_validate(await request.json())
         except ValidationError as exc:
-            return JSONResponse({"detail": exc.errors(include_url=False)}, status_code=422)
+            return JSONResponse(
+                {"detail": exc.errors(include_url=False)}, status_code=422
+            )
         try:
             await service.register_run(
                 identity, body.run_id, body.url, body.namespace, body.job_name
@@ -293,7 +321,9 @@ def create_app(
         try:
             body = UnregisterSandboxRequest.model_validate(await request.json())
         except ValidationError as exc:
-            return JSONResponse({"detail": exc.errors(include_url=False)}, status_code=422)
+            return JSONResponse(
+                {"detail": exc.errors(include_url=False)}, status_code=422
+            )
         try:
             await service.unregister_run(identity, body.run_id)
         except PolicyDenied as exc:

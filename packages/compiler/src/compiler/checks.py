@@ -63,9 +63,7 @@ def _company_name(blueprint: dict[str, Any]) -> list[str]:
     return []
 
 
-def _lean_roster(
-    blueprint: dict[str, Any], roles: dict[str, Any]
-) -> list[str]:
+def _lean_roster(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
     """No standing executor counts — every hired (count > 0) role must be
     a spawner, and every enabled workflow's conductor must be one.
     Executors exist only as ephemeral crew members under a conductor's
@@ -155,8 +153,7 @@ def _tool_scopes(blueprint: dict[str, Any]) -> list[str]:
         for tool in (scope or {}).get("allow") or []:
             if tool not in KNOWN_TOOLS:
                 problems.append(
-                    f"tools.{role_name}.allow: {tool!r} is not a tool the "
-                    f"gateway serves"
+                    f"tools.{role_name}.allow: {tool!r} is not a tool the gateway serves"
                 )
             elif tool in PLATFORM_ONLY:
                 problems.append(
@@ -234,14 +231,12 @@ def _spawnable_crews(
         if crew is None:
             continue
         if crew not in declared:
-            problems.append(
-                f"workflows.{name}.crew: {crew!r} is not declared in `crews`"
-            )
+            problems.append(f"workflows.{name}.crew: {crew!r} is not declared in `crews`")
             continue
         conductor = workflow.get("conductor")
-        allowed = (
-            (_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}
-        ).get("crew") or []
+        allowed = ((_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}).get(
+            "crew"
+        ) or []
         if crew not in allowed:
             problems.append(
                 f"workflows.{name}: conductor {conductor!r} may not spawn "

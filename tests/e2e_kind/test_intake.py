@@ -21,10 +21,14 @@ from .test_crew_identity import _registry
 
 def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
     return httpx.request(
-        method, f"https://api.github.com{path}",
-        headers={"Accept": "application/vnd.github+json",
-                 "Authorization": f"Bearer {env['GIT_TOKEN']}"},
-        timeout=30, **kwargs,
+        method,
+        f"https://api.github.com{path}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {env['GIT_TOKEN']}",
+        },
+        timeout=30,
+        **kwargs,
     )
 
 
@@ -32,16 +36,17 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
     from temporalio.client import Client
 
     run_id = new_run_id()
-    goal = ("Expose a /stats endpoint summarizing stored slugs "
-            f"(e2e intake goal {run_id[-6:].lower()})")
+    goal = (
+        "Expose a /stats endpoint summarizing stored slugs "
+        f"(e2e intake goal {run_id[-6:].lower()})"
+    )
 
     async def start() -> dict:
         with temporal_port_forward() as address:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal,
-                            timeouts=FAST_TIMEOUTS),
+                IntakeInput(run_id=run_id, goal_text=goal, timeouts=FAST_TIMEOUTS),
                 id=intake_workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )
@@ -69,7 +74,8 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
             "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
             "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
             ") c",
-            run_id, default="[]",
+            run_id,
+            default="[]",
         )
         assert len(rows) == 1
         assert rows[0]["conductor"] == "pm-1"
@@ -89,10 +95,14 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
         if issue_number is not None:
             slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
             with contextlib.suppress(Exception):
-                _github(env, "PATCH", f"/repos/{slug}/issues/{issue_number}",
-                        json={"state": "closed"})
+                _github(
+                    env,
+                    "PATCH",
+                    f"/repos/{slug}/issues/{issue_number}",
+                    json={"state": "closed"},
+                )
         with _registry() as registry:
             registry.execute(
-                "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,))
-            registry.execute(
-                "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+                "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
+            )
+            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))

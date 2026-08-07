@@ -34,14 +34,17 @@ def settings(tmp_path) -> WorkerSettings:
 @pytest.fixture
 def companies() -> InMemoryCompanies:
     store = InMemoryCompanies()
-    store.upsert("hello-saas", {
-        "namespace": "hello-saas",
-        "budgets": {"per_run_usd": 5.0},
-        "workflows": [
-            {"name": "intake", "gates": {"intake": "none"}},
-            {"name": "review", "gates": {"merge": "human_approval"}},
-        ],
-    })
+    store.upsert(
+        "hello-saas",
+        {
+            "namespace": "hello-saas",
+            "budgets": {"per_run_usd": 5.0},
+            "workflows": [
+                {"name": "intake", "gates": {"intake": "none"}},
+                {"name": "review", "gates": {"merge": "human_approval"}},
+            ],
+        },
+    )
     return store
 
 
@@ -60,8 +63,13 @@ def test_create_and_finalize_link_tickets(world):
     assert record.workflow_id == f"intake-{RUN_ID}"
     assert record.company == "hello-saas"
 
-    result = {"status": "done", "ticket_urls": ["https://github.test/i/7"],
-              "crew_request_id": "crq-1", "iterations": 0, "error": None}
+    result = {
+        "status": "done",
+        "ticket_urls": ["https://github.test/i/7"],
+        "crew_request_id": "crq-1",
+        "iterations": 0,
+        "error": None,
+    }
     final = asyncio.run(intake.finalize_intake(RUN_ID, result, None))
     assert final["status"] == "done"
     assert final["ticket_urls"] == ["https://github.test/i/7"]
@@ -72,9 +80,17 @@ def test_budget_boundary_fails_born_exhausted_runs(world):
     headroom = asyncio.run(intake.check_budget(RUN_ID))
     assert headroom == {"cap_usd": 5.0, "spent_usd": 0.0}
 
-    ledger.record(company="hello-saas", run_id=RUN_ID, agent_id="pm-1",
-                  parent_agent_id="", role="pm", model="mock-brain",
-                  prompt_tokens=1, completion_tokens=1, usd=5.0)
+    ledger.record(
+        company="hello-saas",
+        run_id=RUN_ID,
+        agent_id="pm-1",
+        parent_agent_id="",
+        role="pm",
+        model="mock-brain",
+        prompt_tokens=1,
+        completion_tokens=1,
+        usd=5.0,
+    )
     with pytest.raises(RuntimeError, match="budget_exhausted"):
         asyncio.run(intake.check_budget(RUN_ID))
 
@@ -93,15 +109,22 @@ def test_dispatch_pm_polls_to_terminal(world, monkeypatch):
     intake, _, _ = world
     statuses = [
         {"status": "running"},
-        {"status": "done", "pr_url": None, "iterations": 0, "error": None,
-         "ticket_urls": ["https://github.test/i/7"], "crew_request_id": "crq-1"},
+        {
+            "status": "done",
+            "pr_url": None,
+            "iterations": 0,
+            "error": None,
+            "ticket_urls": ["https://github.test/i/7"],
+            "crew_request_id": "crq-1",
+        },
     ]
 
     def handler(request):
         if request.method == "POST":
             return httpx.Response(202, json={})
-        return httpx.Response(200, json=statuses.pop(0)
-                              if len(statuses) > 1 else statuses[0])
+        return httpx.Response(
+            200, json=statuses.pop(0) if len(statuses) > 1 else statuses[0]
+        )
 
     from orchestrator import clients
 

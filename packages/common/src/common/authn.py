@@ -125,8 +125,9 @@ class KubeTokenReviewer:
         username = (status.get("user") or {}).get("username", "")
         prefix, _, rest = username.partition(":serviceaccount:")
         if prefix != "system" or not rest:
-            self._log.info("token review: non-serviceaccount principal",
-                           extra={"username": username})
+            self._log.info(
+                "token review: non-serviceaccount principal", extra={"username": username}
+            )
             return None
         namespace, _, name = rest.partition(":")
         if not namespace or not name:
@@ -144,9 +145,7 @@ def default_reviewer(settings: WorkloadAuthnSettings) -> KubeTokenReviewer | Non
             api_url = f"https://{host}:{port}"
     if not api_url or not os.path.exists(settings.kube_token_file):
         return None
-    return KubeTokenReviewer(
-        api_url, settings.kube_token_file, settings.kube_ca_file
-    )
+    return KubeTokenReviewer(api_url, settings.kube_token_file, settings.kube_ca_file)
 
 
 class Authenticator:

@@ -76,7 +76,9 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
     }
 
 
-def submit(plan: DeploymentPlan, api: k8s.CustomObjectsApi | None = None) -> tuple[int, int]:
+def submit(
+    plan: DeploymentPlan, api: k8s.CustomObjectsApi | None = None
+) -> tuple[int, int]:
     api = api or _api()
     created = updated = 0
 
@@ -108,9 +110,7 @@ def submit(plan: DeploymentPlan, api: k8s.CustomObjectsApi | None = None) -> tup
     return created, updated
 
 
-def _wait_for_namespace(
-    namespace: str, timeout_s: float = NAMESPACE_TIMEOUT_S
-) -> None:
+def _wait_for_namespace(namespace: str, timeout_s: float = NAMESPACE_TIMEOUT_S) -> None:
     """Wait for the operator to create the company namespace. Waiting on the
     namespace rather than Company status keeps this decoupled from kopf's
     status mechanics: the namespace is what the AgentInstance create below
@@ -165,9 +165,7 @@ def _replace_namespaced(
         api.create_namespaced_custom_object(GROUP, VERSION, namespace, plural, body)
         return False
     body["metadata"]["resourceVersion"] = existing["metadata"]["resourceVersion"]
-    api.replace_namespaced_custom_object(
-        GROUP, VERSION, namespace, plural, name, body
-    )
+    api.replace_namespaced_custom_object(GROUP, VERSION, namespace, plural, name, body)
     return True
 
 

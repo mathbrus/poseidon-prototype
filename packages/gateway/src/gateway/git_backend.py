@@ -235,8 +235,9 @@ class GitBackend:
         )
         if resp.status_code not in (200, 201):
             raise GitBackendError(
-                self._redact(f"GitHub {method} {path} failed:"
-                             f" {resp.status_code} {resp.text}")
+                self._redact(
+                    f"GitHub {method} {path} failed: {resp.status_code} {resp.text}"
+                )
             )
         return resp.json()
 
@@ -252,7 +253,8 @@ class GitBackend:
 
     async def create_issue(self, repo: str, title: str, body: str) -> dict[str, Any]:
         issue = await self._github(
-            "POST", f"/repos/{repo_slug(repo)}/issues",
+            "POST",
+            f"/repos/{repo_slug(repo)}/issues",
             json={"title": title, "body": body},
         )
         return self._issue_view(issue)
@@ -262,14 +264,18 @@ class GitBackend:
         state is this list plus the runs history."""
         slug = repo_slug(repo)
         if number is not None:
-            return {"issues": [self._issue_view(
-                await self._github("GET", f"/repos/{slug}/issues/{number}")
-            )]}
+            return {
+                "issues": [
+                    self._issue_view(
+                        await self._github("GET", f"/repos/{slug}/issues/{number}")
+                    )
+                ]
+            }
         listing = await self._github("GET", f"/repos/{slug}/issues?state=open")
         # The issues API returns PRs too; the backlog is issues only.
-        return {"issues": [
-            self._issue_view(i) for i in listing if "pull_request" not in i
-        ]}
+        return {
+            "issues": [self._issue_view(i) for i in listing if "pull_request" not in i]
+        }
 
     async def update_issue(
         self,
@@ -295,7 +301,8 @@ class GitBackend:
         """One endpoint serves both `issues.comment` and `git.comment` —
         GitHub PR conversations are issue comments."""
         comment = await self._github(
-            "POST", f"/repos/{repo_slug(repo)}/issues/{number}/comments",
+            "POST",
+            f"/repos/{repo_slug(repo)}/issues/{number}/comments",
             json={"body": body},
         )
         return {"url": comment.get("html_url", "")}
@@ -329,7 +336,8 @@ class GitBackend:
         self, repo: str, number: int, method: str = "merge"
     ) -> dict[str, Any]:
         result = await self._github(
-            "PUT", f"/repos/{repo_slug(repo)}/pulls/{number}/merge",
+            "PUT",
+            f"/repos/{repo_slug(repo)}/pulls/{number}/merge",
             json={"merge_method": method},
         )
         self._log.info("pr merged", extra={"repo": repo_slug(repo), "number": number})

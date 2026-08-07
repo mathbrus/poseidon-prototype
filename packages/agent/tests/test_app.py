@@ -44,9 +44,14 @@ async def test_task_lifecycle_running_then_done():
 
         resp = await http.get(f"/task/{RUN_ID}")
         assert resp.json() == {
-            "status": "running", "pr_url": None, "iterations": 0,
-            "error": None, "brief": None, "ticket_urls": [],
-            "crew_request_id": None, "comment_urls": [],
+            "status": "running",
+            "pr_url": None,
+            "iterations": 0,
+            "error": None,
+            "brief": None,
+            "ticket_urls": [],
+            "crew_request_id": None,
+            "comment_urls": [],
         }
 
         release.set()
@@ -168,10 +173,15 @@ async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
         raise AssertionError("implement runner must not run in plan mode")
 
     async with client(create_app(task_runner=never, plan_runner=planner)) as http:
-        resp = await http.post("/task", json={
-            "run_id": RUN_ID, "task_text": "scope it",
-            "mode": "plan", "gateway_token": "planner-jwt",
-        })
+        resp = await http.post(
+            "/task",
+            json={
+                "run_id": RUN_ID,
+                "task_text": "scope it",
+                "mode": "plan",
+                "gateway_token": "planner-jwt",
+            },
+        )
         assert resp.status_code == 202
         status = await poll_until_terminal(http, RUN_ID)
 

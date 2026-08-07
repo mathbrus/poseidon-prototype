@@ -200,8 +200,12 @@ def _open_pr(ctx: HandsContext, a: OpenPrAction) -> dict[str, Any]:
 def _create_issue(ctx: HandsContext, a: CreateIssueAction) -> dict[str, Any]:
     result = ctx.bridge.call(
         "issues.create",
-        {"run_id": ctx.run_id, "repo": ctx.settings.target_repo,
-         "title": a.title, "body": a.body},
+        {
+            "run_id": ctx.run_id,
+            "repo": ctx.settings.target_repo,
+            "title": a.title,
+            "body": a.body,
+        },
     )
     if result.get("url"):
         ctx.records.ticket_urls.append(result["url"])
@@ -228,16 +232,19 @@ def _request_crew(ctx: HandsContext, a: RequestCrewAction) -> dict[str, Any]:
 def _read_pr(ctx: HandsContext, a: ReadPrAction) -> dict[str, Any]:
     return ctx.bridge.call(
         "git.read",
-        {"run_id": ctx.run_id, "repo": ctx.settings.target_repo,
-         "number": int(a.number)},
+        {"run_id": ctx.run_id, "repo": ctx.settings.target_repo, "number": int(a.number)},
     )
 
 
 def _comment_pr(ctx: HandsContext, a: CommentPrAction) -> dict[str, Any]:
     result = ctx.bridge.call(
         "git.comment",
-        {"run_id": ctx.run_id, "repo": ctx.settings.target_repo,
-         "number": int(a.number), "body": a.body},
+        {
+            "run_id": ctx.run_id,
+            "repo": ctx.settings.target_repo,
+            "number": int(a.number),
+            "body": a.body,
+        },
     )
     if result.get("url"):
         ctx.records.comment_urls.append(result["url"])
@@ -247,54 +254,63 @@ def _comment_pr(ctx: HandsContext, a: CommentPrAction) -> dict[str, Any]:
 _TOOLS: dict[str, tuple[str, type[Action], Any]] = {
     "list_dir": (
         "List entries of a directory inside the workspace.",
-        ListDirAction, _list_dir,
+        ListDirAction,
+        _list_dir,
     ),
     "read_file": (
         "Read a text file from the workspace.",
-        ReadFileAction, _read_file,
+        ReadFileAction,
+        _read_file,
     ),
     "write_file": (
         "Write (create or overwrite) a text file in the workspace.",
-        WriteFileAction, _write_file,
+        WriteFileAction,
+        _write_file,
     ),
     "exec": (
         "Run a shell command in the workspace root (e.g. git, ls, python).",
-        ExecAction, _exec,
+        ExecAction,
+        _exec,
     ),
     "run_tests": (
         "Run the repository's test suite in your sandbox.",
-        RunTestsAction, _run_tests,
+        RunTestsAction,
+        _run_tests,
     ),
     "open_pr": (
         "Deliver the finished work: bundle the given branch and open a pull "
         "request against the target repository. Commit your changes on the "
         "branch first (via exec).",
-        OpenPrAction, _open_pr,
+        OpenPrAction,
+        _open_pr,
     ),
     "create_issue": (
         "File a ticket on the target repository's issue tracker. Use one "
         "ticket per well-scoped piece of work.",
-        CreateIssueAction, _create_issue,
+        CreateIssueAction,
+        _create_issue,
     ),
     "read_issues": (
         "Read the open ticket backlog (or one ticket by number).",
-        ReadIssuesAction, _read_issues,
+        ReadIssuesAction,
+        _read_issues,
     ),
     "request_crew": (
         "Request an ephemeral crew to carry out scoped work. This records "
         "intent for the platform to fulfill — it does not start anything "
         "by itself.",
-        RequestCrewAction, _request_crew,
+        RequestCrewAction,
+        _request_crew,
     ),
     "read_pr": (
-        "Read a pull request: metadata plus the changed files with their "
-        "patches.",
-        ReadPrAction, _read_pr,
+        "Read a pull request: metadata plus the changed files with their patches.",
+        ReadPrAction,
+        _read_pr,
     ),
     "comment_pr": (
-        "Post a review comment on the pull request — your findings, in one "
-        "comment.",
-        CommentPrAction, _comment_pr,
+        "Post a review comment on the pull request — your findings, in one comment.",
+        CommentPrAction,
+        _comment_pr,
     ),
 }
 

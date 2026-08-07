@@ -63,9 +63,7 @@ def _snapshot(live: bool) -> RegistrySnapshot:
             err=True,
         )
         return EMPTY
-    return RegistrySnapshot(
-        instances=tuple(InstanceSnapshot(**row) for row in rows)
-    )
+    return RegistrySnapshot(instances=tuple(InstanceSnapshot(**row) for row in rows))
 
 
 @app.command()

@@ -19,9 +19,15 @@ class FakeCluster:
 
     def __getattr__(self, method: str):
         if method.startswith("upsert_") or method.startswith("delete_"):
+
             def record(*args):
-                name = args[-1]["metadata"]["name"] if isinstance(args[-1], dict) else args[-1]
+                name = (
+                    args[-1]["metadata"]["name"]
+                    if isinstance(args[-1], dict)
+                    else args[-1]
+                )
                 self.calls.append((method, *args[:-1], name))
+
             return record
         raise AttributeError(method)
 
@@ -47,10 +53,20 @@ class FakeInstances:
     def __init__(self) -> None:
         self.rows: dict[str, dict] = {}
 
-    def upsert(self, agent_id, company, hire, role_template, model_tier,
-               namespace=None, status="ready"):
+    def upsert(
+        self,
+        agent_id,
+        company,
+        hire,
+        role_template,
+        model_tier,
+        namespace=None,
+        status="ready",
+    ):
         self.rows[agent_id] = {
-            "company": company, "hire": hire, "namespace": namespace,
+            "company": company,
+            "hire": hire,
+            "namespace": namespace,
             "status": status,
         }
 
@@ -122,7 +138,10 @@ def test_company_reconcile_converges_the_envelope(cluster, stores):
 
     assert cluster.named("upsert_namespace") == [("hello-saas",)]
     assert {name for ns, name in cluster.named("upsert_network_policy")} == {
-        "default-deny", "agent-egress", "agent-ingress", "sandbox-isolation",
+        "default-deny",
+        "agent-egress",
+        "agent-ingress",
+        "sandbox-isolation",
     }
     # The orchestrator's bounded sandbox RBAC rides the operator-owned
     # namespace — the operator creates it, the worker uses it.
@@ -161,9 +180,7 @@ def test_company_without_a_bundle_stores_no_company_bundle(cluster, stores):
 
 def test_company_teardown_revokes_and_sweeps(cluster, stores):
     bundles, instances, companies = stores
-    reconcile.reconcile_company(
-        spec=COMPANY_SPEC, name="hello-saas", patch=kopf.Patch()
-    )
+    reconcile.reconcile_company(spec=COMPANY_SPEC, name="hello-saas", patch=kopf.Patch())
     instances.upsert("pm-1", "hello-saas", "pm", "pm", "standard")
     instances.upsert("pm-9", "other-corp", "pm", "pm", "standard")
 

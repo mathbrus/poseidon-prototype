@@ -77,7 +77,9 @@ def ledger_entries(run_id: str) -> list[dict[str, Any]]:
     )
 
 
-async def _run_until_paused_then_reject(address: str, run_id: str, task_text: str) -> dict:
+async def _run_until_paused_then_reject(
+    address: str, run_id: str, task_text: str
+) -> dict:
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "implement",
@@ -100,7 +102,8 @@ async def _run_until_paused_then_reject(address: str, run_id: str, task_text: st
     deadline = time.monotonic() + FAST_TIMEOUTS.budget_gate_s - 5
     while True:
         escalated = [
-            e for e in audit_story(run_id)
+            e
+            for e in audit_story(run_id)
             if e["source"] == "process-gate" and e["rule"] == "gate_escalated"
         ]
         if escalated:
@@ -152,22 +155,22 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     story = audit_story(run_id)
     llm_events = [e for e in story if e["source"] == "llm-gateway"]
     assert any(
-        e["decision"] == "allow" and e["rule"] == "budget_headroom"
-        for e in llm_events
+        e["decision"] == "allow" and e["rule"] == "budget_headroom" for e in llm_events
     )
     assert any(
-        e["decision"] == "deny" and e["rule"] == "budget_exhausted"
-        for e in llm_events
+        e["decision"] == "deny" and e["rule"] == "budget_exhausted" for e in llm_events
     ), f"no budget_exhausted deny in the story: {llm_events}"
 
     # The stop stopped things: no metered model call after the hard-stop —
     # the ledger's spend all precedes the deny in the story's own ordering.
     last_deny = max(
-        i for i, e in enumerate(story)
+        i
+        for i, e in enumerate(story)
         if e["source"] == "llm-gateway" and e["rule"] == "budget_exhausted"
     )
     late_allows = [
-        e for e in story[last_deny + 1:]
+        e
+        for e in story[last_deny + 1 :]
         if e["source"] == "llm-gateway" and e["decision"] == "allow"
     ]
     assert late_allows == [], f"model calls after the hard-stop: {late_allows}"
@@ -176,14 +179,13 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     # escalation at half-deadline, then the human's rejection — same
     # process-gate contract as the merge gate.
     gate_rules = [
-        e["rule"] for e in story
+        e["rule"]
+        for e in story
         if e["source"] == "process-gate" and e["tool"] == "gate.budget"
     ]
     assert gate_rules == ["gate_escalated", "gate_rejected"], gate_rules
     gate_events = [e for e in story if e["source"] == "process-gate"]
-    assert all(
-        e["workflow"] == f"implement-{run_id}" for e in gate_events
-    ), gate_events
+    assert all(e["workflow"] == f"implement-{run_id}" for e in gate_events), gate_events
 
 
 def test_unattributed_model_call_is_rejected(stack: None) -> None:
@@ -194,8 +196,7 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
         resp = httpx.post(
             f"{base}/chat/completions",
             headers={"Authorization": f"Bearer {token}"},
-            json={"model": "mock-brain",
-                  "messages": [{"role": "user", "content": "hi"}]},
+            json={"model": "mock-brain", "messages": [{"role": "user", "content": "hi"}]},
             timeout=15,
         )
     assert resp.status_code == 400
@@ -205,8 +206,7 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
     with port_forward("llm-gateway", LLM_LOCAL_PORT, 4000) as base:
         resp = httpx.post(
             f"{base}/chat/completions",
-            json={"model": "mock-brain",
-                  "messages": [{"role": "user", "content": "hi"}]},
+            json={"model": "mock-brain", "messages": [{"role": "user", "content": "hi"}]},
             timeout=15,
         )
     assert resp.status_code == 401

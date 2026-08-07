@@ -103,9 +103,7 @@ def reconcile_company(
         # is a no-op except on a compiler upgrade.
         PolicyBundles(_db()).put("platform", dict(platform_bundle))
 
-    Companies(_db()).upsert(
-        name, {k: v for k, v in spec.items() if k != "policyBundle"}
-    )
+    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k != "policyBundle"})
 
     # Explicit status writes: kopf handler return values land under
     # status.<handler_id>, which the structural schema prunes.

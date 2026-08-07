@@ -67,6 +67,7 @@ class FakeReviewer:
     async def review(self, token: str, audience: str) -> ServiceAccount | None:
         return self.accounts.get(token)
 
+
 SANDBOX_RESPONSES = {
     "/files/read": {"content": "hello from sandbox"},
     "/files/write": {"ok": True},
@@ -105,9 +106,13 @@ class Backends:
         if path == PLATFORM_DECISION:
             if policy_input.get("lifecycle") != "platform":
                 return {"allow": False, "rule": "default_deny"}
-            if tool in ("repo.archive", "/admin/sandboxes",
-                        "/admin/sandboxes.delete", "sandbox.run_tests",
-                        "git.merge_pr"):
+            if tool in (
+                "repo.archive",
+                "/admin/sandboxes",
+                "/admin/sandboxes.delete",
+                "sandbox.run_tests",
+                "git.merge_pr",
+            ):
                 return {"allow": True, "rule": f"platform_{tool}"}
             return {"allow": False, "rule": "default_deny"}
         if path != COMPANY_DECISION:
@@ -119,11 +124,16 @@ class Backends:
             and policy_input.get("company") == COMPANY
             and policy_input.get("role") == "pm"
         ):
-            if tool in ("issues.create", "issues.read", "issues.update",
-                        "issues.comment"):
+            if tool in (
+                "issues.create",
+                "issues.read",
+                "issues.update",
+                "issues.comment",
+            ):
                 return {"allow": True, "rule": f"role_pm_{tool}"}
             if tool == "crew.request" and args.get("crew_template") in (
-                "feature-delivery", "feature-review",
+                "feature-delivery",
+                "feature-review",
             ):
                 # The compiled cap and budget denies (step 16d), reading
                 # the enriched input exactly like the real bundle.
@@ -184,9 +194,7 @@ class Backends:
             if self.github_error is not None:
                 return httpx.Response(self.github_error, json={"message": "github boom"})
             payload = json.loads(request.content) if request.content else {}
-            self.github_calls.append(
-                (request.url.path, payload, dict(request.headers))
-            )
+            self.github_calls.append((request.url.path, payload, dict(request.headers)))
             return self._github(request, payload)
         return httpx.Response(502, text=f"unexpected host {request.url.host}")
 
@@ -197,8 +205,11 @@ class Backends:
 
         def issue(number: int = 7, **overrides) -> dict:
             return {
-                "number": number, "title": "an issue", "state": "open",
-                "body": "details", "html_url": f"https://github.test/i/{number}",
+                "number": number,
+                "title": "an issue",
+                "state": "open",
+                "body": "details",
+                "html_url": f"https://github.test/i/{number}",
                 **overrides,
             }
 
@@ -208,29 +219,48 @@ class Backends:
             return httpx.Response(201, json={"html_url": "https://github.test/c/1"})
         if method == "POST" and path.endswith("/issues"):
             return httpx.Response(
-                201, json=issue(title=payload.get("title", ""),
-                                body=payload.get("body", ""))
+                201,
+                json=issue(title=payload.get("title", ""), body=payload.get("body", "")),
             )
         if method == "PATCH" and "/issues/" in path:
             return httpx.Response(200, json=issue(**payload))
         if method == "GET" and path.endswith("/issues"):
             # The listing includes a PR-shaped item the backlog must drop.
-            return httpx.Response(200, json=[
-                issue(), issue(number=8, pull_request={"url": "x"}),
-            ])
+            return httpx.Response(
+                200,
+                json=[
+                    issue(),
+                    issue(number=8, pull_request={"url": "x"}),
+                ],
+            )
         if method == "GET" and "/issues/" in path:
             return httpx.Response(200, json=issue())
         if method == "GET" and path.endswith("/files"):
-            return httpx.Response(200, json=[
-                {"filename": "app.py", "additions": 3, "deletions": 1,
-                 "patch": "@@ -1 +1,3 @@"},
-            ])
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "filename": "app.py",
+                        "additions": 3,
+                        "deletions": 1,
+                        "patch": "@@ -1 +1,3 @@",
+                    },
+                ],
+            )
         if method == "GET" and "/pulls/" in path:
-            return httpx.Response(200, json={
-                "number": 5, "title": "a pr", "state": "open", "body": "",
-                "html_url": PR_URL, "merged": False,
-                "head": {"ref": "feature/x"}, "base": {"ref": "main"},
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "number": 5,
+                    "title": "a pr",
+                    "state": "open",
+                    "body": "",
+                    "html_url": PR_URL,
+                    "merged": False,
+                    "head": {"ref": "feature/x"},
+                    "base": {"ref": "main"},
+                },
+            )
         if method == "PUT" and path.endswith("/merge"):
             return httpx.Response(200, json={"merged": True, "sha": "abc123"})
         return httpx.Response(404, json={"message": f"unstubbed {method} {path}"})
@@ -270,11 +300,20 @@ def instances() -> InMemoryAgentInstances:
     seeded with the standing hires the test tokens resolve to."""
     store = InMemoryAgentInstances()
     store.upsert(
-        AGENT_ID, COMPANY, "backend-engineer", "backend-engineer",
-        "frontier", namespace=COMPANY_NS,
+        AGENT_ID,
+        COMPANY,
+        "backend-engineer",
+        "backend-engineer",
+        "frontier",
+        namespace=COMPANY_NS,
     )
     store.upsert(
-        "pm-1", COMPANY, "pm", "pm", "standard", namespace=COMPANY_NS,
+        "pm-1",
+        COMPANY,
+        "pm",
+        "pm",
+        "standard",
+        namespace=COMPANY_NS,
     )
     return store
 
@@ -297,10 +336,13 @@ def ledger() -> InMemoryBudgetLedger:
 @pytest.fixture
 def companies() -> InMemoryCompanies:
     store = InMemoryCompanies()
-    store.upsert(COMPANY, {
-        "namespace": COMPANY_NS,
-        "budgets": {"per_run_usd": 5.0, "per_role_monthly_usd": {}},
-    })
+    store.upsert(
+        COMPANY,
+        {
+            "namespace": COMPANY_NS,
+            "budgets": {"per_run_usd": 5.0, "per_role_monthly_usd": {}},
+        },
+    )
     return store
 
 
@@ -337,7 +379,9 @@ async def app(
 def http_client(app, token: str | None) -> httpx.AsyncClient:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://gateway.test", headers=headers
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://gateway.test",
+        headers=headers,
     )
 
 
@@ -397,7 +441,9 @@ def target_repo(tmp_path: Path) -> Path:
     return bare
 
 
-def make_bundle(target_repo: Path, tmp_path: Path, branch: str, files: dict[str, str]) -> str:
+def make_bundle(
+    target_repo: Path, tmp_path: Path, branch: str, files: dict[str, str]
+) -> str:
     """Do what the sandbox does: commit `files` on `branch`, bundle base..branch."""
     work = tmp_path / f"work-{branch.replace('/', '-')}"
     git("clone", str(target_repo), str(work))

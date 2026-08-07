@@ -9,7 +9,6 @@ the applied blueprint's infra IR in the registry — only the
 egress-proxy attribution env and the logical-image resolution live here.
 """
 
-
 from pathlib import Path
 
 from pydantic_settings import BaseSettings

@@ -134,15 +134,14 @@ def test_sandbox_policy_comes_from_the_applied_blueprint(activities):
 
 def test_custom_toolchain_image_passes_through(activities, companies):
     spec = dict(APPLIED_SPEC)
-    spec["infra"] = {"sandbox": {**APPLIED_SPEC["infra"]["sandbox"],
-                                 "image": "python:3.12-slim"}}
+    spec["infra"] = {
+        "sandbox": {**APPLIED_SPEC["infra"]["sandbox"], "image": "python:3.12-slim"}
+    }
     companies.upsert("hello-saas", spec)
     assert activities._sandbox_policy(RUN_ID).image == "python:3.12-slim"
 
 
-def test_provision_without_an_applied_blueprint_fails_closed(
-    settings, backend, runs
-):
+def test_provision_without_an_applied_blueprint_fails_closed(settings, backend, runs):
     lone = ImplementActivities(settings, backend, runs, InMemoryCompanies())
     with pytest.raises(RuntimeError, match="no applied blueprint"):
         lone._sandbox_policy(RUN_ID)
@@ -162,9 +161,7 @@ def test_sandbox_policy_injects_per_run_proxy_credentials(activities, settings):
     assert other["HTTPS_PROXY"] != env["HTTPS_PROXY"]
 
 
-def test_sandbox_policy_fails_when_the_proxy_host_does_not_resolve(
-    activities, settings
-):
+def test_sandbox_policy_fails_when_the_proxy_host_does_not_resolve(activities, settings):
     """Provisioning with an unresolvable proxy would hand the sandbox a
     hostname it has no resolver for — fail here, where there is one."""
     from sandbox.egressproxy.credentials import ProxyUnresolvable
@@ -278,9 +275,7 @@ def test_dispatch_executor_polls_to_terminal(activities, monkeypatch):
         ],
     )
     _patch_agent(monkeypatch, transport)
-    status = asyncio.run(
-        activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL)
-    )
+    status = asyncio.run(activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL))
     assert status["status"] == "done"
     assert status["pr_url"] == "https://pr"
 
@@ -293,9 +288,7 @@ def test_dispatch_executor_tolerates_conflict_and_reattaches(activities, monkeyp
         statuses=[{"status": "done", "pr_url": None, "iterations": 1, "error": "red"}],
     )
     _patch_agent(monkeypatch, transport)
-    status = asyncio.run(
-        activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL)
-    )
+    status = asyncio.run(activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL))
     assert transport.dispatches == 1
     assert status["error"] == "red"
 
@@ -303,9 +296,7 @@ def test_dispatch_executor_tolerates_conflict_and_reattaches(activities, monkeyp
 def test_dispatch_executor_raises_when_agent_lost_the_run(activities, monkeypatch):
     from orchestrator.clients import AgentRunLost
 
-    transport = FakeAgentTransport(
-        dispatch_codes=[409], statuses=[{"__code": 404}]
-    )
+    transport = FakeAgentTransport(dispatch_codes=[409], statuses=[{"__code": 404}])
     _patch_agent(monkeypatch, transport)
     with pytest.raises(AgentRunLost):
         asyncio.run(activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL))
@@ -316,8 +307,13 @@ def test_dispatch_executor_raises_when_agent_lost_the_run(activities, monkeypatc
 WORKFLOWS_SPEC = {
     **APPLIED_SPEC,
     "workflows": [
-        {"name": "implement", "enabled": True, "conductor": "pm",
-         "crew": "feature-delivery", "max_verify_retries": 2},
+        {
+            "name": "implement",
+            "enabled": True,
+            "conductor": "pm",
+            "crew": "feature-delivery",
+            "max_verify_retries": 2,
+        },
         {"name": "intake", "enabled": True, "conductor": "pm", "crew": None},
     ],
 }
@@ -331,17 +327,19 @@ class FakeInstances:
         return [r for r in self.rows if r["company"] == company]
 
 
-PM_ROW = {"agent_id": "pm-1", "company": "hello-saas", "hire": "pm",
-          "role_template": "pm"}
+PM_ROW = {
+    "agent_id": "pm-1",
+    "company": "hello-saas",
+    "hire": "pm",
+    "role_template": "pm",
+}
 
 
 def _config_activities(settings, backend, runs, spec, instances):
     companies = InMemoryCompanies()
     if spec is not None:
         companies.upsert("hello-saas", spec)
-    return ImplementActivities(
-        settings, backend, runs, companies, None, instances
-    )
+    return ImplementActivities(settings, backend, runs, companies, None, instances)
 
 
 def test_implement_config_resolves_crew_and_conductor(settings, backend, runs):
@@ -385,8 +383,12 @@ def test_platform_verify_maps_exit_code(activities, monkeypatch):
 
     class FakeGateway:
         def __init__(self, *a, **k): ...
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
         async def run_tests(self, run_id):
             return {"exit_code": 1, "stdout": "1 failed", "stderr": ""}
 
@@ -408,26 +410,36 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     crew = CrewActivities(settings, participants, audit)
     activities = ImplementActivities(settings, backend, runs, companies, crew)
 
-    participants.add("feature-delivery-executor-" + RUN_ID, RUN_ID, "pm-1",
-                     "feature-delivery", "executor")
+    participants.add(
+        "feature-delivery-executor-" + RUN_ID,
+        RUN_ID,
+        "pm-1",
+        "feature-delivery",
+        "executor",
+    )
     record = asyncio.run(activities.teardown(RUN_ID, None, None, "early failure"))
     assert record["status"] == "failed"
     assert participants.active("feature-delivery-executor-" + RUN_ID) is None
     assert [e.tool for e in audit.events] == ["lifecycle.revoke"]
 
     # Success path, with a handle: sweep still runs first.
-    participants.add("feature-delivery-planner-" + RUN_ID, RUN_ID, "pm-1",
-                     "feature-delivery", "planner")
-    record = asyncio.run(activities.teardown(
-        RUN_ID, dict(JOB_HANDLE), {"status": "done", "pr_url": "https://pr"}, None
-    ))
+    participants.add(
+        "feature-delivery-planner-" + RUN_ID,
+        RUN_ID,
+        "pm-1",
+        "feature-delivery",
+        "planner",
+    )
+    record = asyncio.run(
+        activities.teardown(
+            RUN_ID, dict(JOB_HANDLE), {"status": "done", "pr_url": "https://pr"}, None
+        )
+    )
     assert record["status"] == "done"
     assert participants.active("feature-delivery-planner-" + RUN_ID) is None
 
 
-def test_revoke_failure_is_loud_but_not_masking(
-    settings, backend, runs, companies
-):
+def test_revoke_failure_is_loud_but_not_masking(settings, backend, runs, companies):
     """A failed sweep surfaces in the run record; the sandbox is still
     destroyed and the run still finalizes."""
 
@@ -435,12 +447,10 @@ def test_revoke_failure_is_loud_but_not_masking(
         async def revoke_participants(self, run_id: str):
             raise RuntimeError("registry unreachable")
 
-    activities = ImplementActivities(
-        settings, backend, runs, companies, BrokenCrew()
+    activities = ImplementActivities(settings, backend, runs, companies, BrokenCrew())
+    record = asyncio.run(
+        activities.teardown(RUN_ID, dict(JOB_HANDLE), {"status": "done"}, None)
     )
-    record = asyncio.run(activities.teardown(
-        RUN_ID, dict(JOB_HANDLE), {"status": "done"}, None
-    ))
     assert backend.destroyed == [JOB_HANDLE["job_name"]]
     assert record["status"] == "failed"
     assert "participant revoke failed" in record["error"]

@@ -200,9 +200,7 @@ class CrewPodProvisioner:
         name alone: the bound below is what guarantees nothing unlabeled
         (and nothing of another run) can be deleted through this surface."""
         selector = f"{KIND_LABEL}={CREW_KIND},{RUN_ID_LABEL}={run_id}"
-        pods = self._core.list_namespaced_pod(
-            self._namespace, label_selector=selector
-        )
+        pods = self._core.list_namespaced_pod(self._namespace, label_selector=selector)
         deleted = []
         for pod in pods.items:
             if self._delete_pod(pod.metadata.name, wait=True):
@@ -232,7 +230,9 @@ class CrewPodProvisioner:
                         break
                     raise
                 if time.monotonic() > deadline:
-                    raise RuntimeError(f"pod {name} not deleted after {DELETE_TIMEOUT_S}s")
+                    raise RuntimeError(
+                        f"pod {name} not deleted after {DELETE_TIMEOUT_S}s"
+                    )
                 time.sleep(1)
         return True
 

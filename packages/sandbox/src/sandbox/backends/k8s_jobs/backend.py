@@ -145,7 +145,9 @@ class K8sJobsBackend:
                         break
                     raise
                 if time.monotonic() > deadline:
-                    raise RuntimeError(f"job {name} not deleted after {DELETE_TIMEOUT_S}s")
+                    raise RuntimeError(
+                        f"job {name} not deleted after {DELETE_TIMEOUT_S}s"
+                    )
                 time.sleep(1)
         return True
 

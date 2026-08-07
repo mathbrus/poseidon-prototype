@@ -81,9 +81,9 @@ def test_alg_is_pinned() -> None:
     token = platformjwt.mint(KEY, CLAIMS, AUD, ttl_s=600, now=NOW)
     _, payload, signature = token.split(".")
     forged_header = (
-        base64.urlsafe_b64encode(
-            json.dumps({"alg": "none", "typ": "JWT"}).encode()
-        ).rstrip(b"=").decode()
+        base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+        .rstrip(b"=")
+        .decode()
     )
     with pytest.raises(platformjwt.TokenError) as err:
         platformjwt.verify(KEY, f"{forged_header}.{payload}.{signature}", AUD, now=NOW)

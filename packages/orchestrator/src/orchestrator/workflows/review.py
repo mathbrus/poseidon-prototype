@@ -195,18 +195,18 @@ class ReviewWorkflow:
             # decision an agent-issued request faces.
             crew = await workflow.execute_activity(
                 "fulfill_crew",
-                args=[{
-                    "run_id": input.run_id,
-                    "company": config["company"],
-                    "crew_template": config["crew_template"],
-                    "conductor": config["conductor"],
-                    "conductor_role": config["conductor_role"],
-                    "task_text": review_task(
-                        input.pr_number, pr["title"], pr["url"]
-                    ),
-                    "record_under_authority": True,
-                    "workflow": "review",
-                }],
+                args=[
+                    {
+                        "run_id": input.run_id,
+                        "company": config["company"],
+                        "crew_template": config["crew_template"],
+                        "conductor": config["conductor"],
+                        "conductor_role": config["conductor_role"],
+                        "task_text": review_task(input.pr_number, pr["title"], pr["url"]),
+                        "record_under_authority": True,
+                        "workflow": "review",
+                    }
+                ],
                 start_to_close_timeout=timedelta(seconds=timeouts.fulfill_s),
                 heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
                 retry_policy=STEP_RETRY,

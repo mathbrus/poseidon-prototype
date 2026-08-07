@@ -110,14 +110,18 @@ def _instances(
     """Standing roster only. A `count: 0` placeholder produces no instance —
     that is the whole point of declaring one."""
     instances = []
-    for hire, role in sorted((blueprint.get("departments") or {}).get("roles", {}).items()):
+    for hire, role in sorted(
+        (blueprint.get("departments") or {}).get("roles", {}).items()
+    ):
         count = role.get("count", 0)
         template = roles[role["template"]]
         # The blueprint narrows the template, never widens it: a scope the
         # catalog does not grant cannot be granted by naming it here. The
         # same holds for spawn authority — checks.py errors on a widening
         # attempt; the intersection is the belt under that brace.
-        declared = set((scopes.get(role["template"]) or {}).get("allow") or template.tools)
+        declared = set(
+            (scopes.get(role["template"]) or {}).get("allow") or template.tools
+        )
         tools = tuple(sorted(declared & set(template.tools)))
         may_spawn = tuple(
             sorted(
@@ -166,9 +170,7 @@ def _crew_members(
             )
             needs_sandbox = member.get("needs_sandbox")
             if needs_sandbox is None:
-                needs_sandbox = (
-                    catalog_member.needs_sandbox if catalog_member else True
-                )
+                needs_sandbox = catalog_member.needs_sandbox if catalog_member else True
             # Narrowed against the catalog member like standing tools are
             # narrowed against the role template: a widening blueprint is a
             # checks.py error, and even past that, nothing wider than the
@@ -203,7 +205,9 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
                 max_verify_retries=int(
                     workflow.get("max_verify_retries", DEFAULT_VERIFY_RETRIES)
                 ),
-                drain=dict(sorted({**DEFAULT_DRAIN, **(workflow.get("drain") or {})}.items())),
+                drain=dict(
+                    sorted({**DEFAULT_DRAIN, **(workflow.get("drain") or {})}.items())
+                ),
             )
         )
     return tuple(configs)

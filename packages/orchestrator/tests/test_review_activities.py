@@ -21,15 +21,29 @@ RUN_ID = "run-review-0001"
 REVIEW_SPEC = {
     "namespace": "hello-saas",
     "workflows": [
-        {"name": "implement", "enabled": True, "conductor": "pm",
-         "crew": "feature-delivery", "max_verify_retries": 2},
-        {"name": "review", "enabled": True, "conductor": "pm",
-         "crew": "feature-review", "gates": {"merge": "human_approval"}},
+        {
+            "name": "implement",
+            "enabled": True,
+            "conductor": "pm",
+            "crew": "feature-delivery",
+            "max_verify_retries": 2,
+        },
+        {
+            "name": "review",
+            "enabled": True,
+            "conductor": "pm",
+            "crew": "feature-review",
+            "gates": {"merge": "human_approval"},
+        },
     ],
 }
 
-PM_ROW = {"agent_id": "pm-1", "company": "hello-saas", "hire": "pm",
-          "role_template": "pm"}
+PM_ROW = {
+    "agent_id": "pm-1",
+    "company": "hello-saas",
+    "hire": "pm",
+    "role_template": "pm",
+}
 
 
 class FakeInstances:
@@ -60,9 +74,7 @@ def _activities(settings, spec, instances, audit=None, runs=None):
     companies = InMemoryCompanies()
     if spec is not None:
         companies.upsert("hello-saas", spec)
-    return ReviewActivities(
-        settings, runs or InMemoryRuns(), companies, instances, audit
-    )
+    return ReviewActivities(settings, runs or InMemoryRuns(), companies, instances, audit)
 
 
 def test_review_config_resolves_crew_conductor_and_gate(settings):
@@ -80,8 +92,12 @@ def test_review_config_resolves_crew_conductor_and_gate(settings):
 def test_review_config_defaults_the_gate_to_none(settings):
     spec = {
         "workflows": [
-            {"name": "review", "enabled": True, "conductor": "pm",
-             "crew": "feature-review"},
+            {
+                "name": "review",
+                "enabled": True,
+                "conductor": "pm",
+                "crew": "feature-review",
+            },
         ],
     }
     activities = _activities(settings, spec, FakeInstances([PM_ROW]))
@@ -95,8 +111,11 @@ def test_review_config_fails_closed_without_a_blueprint(settings):
 
 
 def test_review_config_fails_closed_without_a_crew(settings):
-    spec = {"workflows": [{"name": "review", "enabled": True,
-                           "conductor": "pm", "crew": None}]}
+    spec = {
+        "workflows": [
+            {"name": "review", "enabled": True, "conductor": "pm", "crew": None}
+        ]
+    }
     activities = _activities(settings, spec, FakeInstances([PM_ROW]))
     with pytest.raises(RuntimeError, match="binds no crew"):
         asyncio.run(activities.review_config())
@@ -110,9 +129,7 @@ def test_review_config_fails_closed_without_a_conductor_instance(settings):
 
 def test_create_review_run_opens_a_review_row(settings):
     runs = InMemoryRuns()
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
-    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     asyncio.run(activities.create_review_run(RUN_ID, 41))
     record = runs.get(RUN_ID)
     assert record.status == "running"
@@ -124,13 +141,11 @@ def test_create_review_run_opens_a_review_row(settings):
 def test_gate_outcomes_are_process_gate_audit_events(settings, audit):
     """Escalation and the verdict are first-class rows carrying the
     workflow id that maps back to run_id — approved is the only allow."""
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit=audit
-    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit=audit)
     for kind in ("escalated", "approved"):
-        asyncio.run(activities.record_gate_outcome(
-            RUN_ID, "merge", kind, f"review-{RUN_ID}"
-        ))
+        asyncio.run(
+            activities.record_gate_outcome(RUN_ID, "merge", kind, f"review-{RUN_ID}")
+        )
     events = [e for e in audit.events if e.run_id == RUN_ID]
     assert [(e.rule, e.decision) for e in events] == [
         ("gate_escalated", "deny"),
@@ -146,12 +161,20 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(settings, monkeypatch):
 
     class FakeGateway:
         def __init__(self, *a, **k): ...
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
         async def read_pr(self, run_id, repo, number):
-            return {"number": number, "title": "Add slugify", "head":
-                    "feature/slugify-x", "url": "https://pr/41",
-                    "files": [{"path": "slugify.py", "patch": "+..."}]}
+            return {
+                "number": number,
+                "title": "Add slugify",
+                "head": "feature/slugify-x",
+                "url": "https://pr/41",
+                "files": [{"path": "slugify.py", "patch": "+..."}],
+            }
 
     monkeypatch.setattr(module, "GatewayClient", FakeGateway)
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
@@ -167,8 +190,12 @@ def test_read_pr_refuses_a_headless_pr(settings, monkeypatch):
 
     class FakeGateway:
         def __init__(self, *a, **k): ...
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
         async def read_pr(self, run_id, repo, number):
             return {"number": number, "head": ""}
 
@@ -181,13 +208,19 @@ def test_read_pr_refuses_a_headless_pr(settings, monkeypatch):
 def test_merge_pr_raises_when_the_merge_does_not_land(settings, monkeypatch):
     import orchestrator.activities.review as module
 
-    merged: list[dict[str, Any]] = [{"merged": True, "sha": "abc123"},
-                                    {"merged": False, "sha": ""}]
+    merged: list[dict[str, Any]] = [
+        {"merged": True, "sha": "abc123"},
+        {"merged": False, "sha": ""},
+    ]
 
     class FakeGateway:
         def __init__(self, *a, **k): ...
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
         async def merge_pr(self, run_id, repo, number, method="merge"):
             return merged.pop(0)
 

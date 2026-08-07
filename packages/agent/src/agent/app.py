@@ -63,6 +63,7 @@ def create_app(
     # The brain host's mode runners are synchronous (the SDK conversation
     # loop is blocking); each dispatch runs on a worker thread.
     if task_runner is None:
+
         async def task_runner(run_id: str, task_text: str) -> RunResult:
             # Role-template-driven: the PM instance scopes
             # and delegates; every other template implements.
@@ -75,6 +76,7 @@ def create_app(
             )
 
     if plan_runner is None:
+
         async def plan_runner(
             run_id: str, task_text: str, gateway_token: str | None
         ) -> RunResult:
@@ -133,7 +135,9 @@ def create_app(
         if existing is not None and existing.status == "running":
             # Crash-resume semantics: the workflow's retry re-attaches to
             # the run already in flight.
-            raise HTTPException(status_code=409, detail=f"run {request.run_id} already running")
+            raise HTTPException(
+                status_code=409, detail=f"run {request.run_id} already running"
+            )
         # A terminal run re-dispatched is a restart — the budget-pause
         # resume: the workflow re-dispatches after the cap
         # was raised, and polling the stale failure would loop forever.

@@ -24,9 +24,7 @@ AUDIENCE = "poseidon-gateway"
 
 
 def _kubectl(*args: str, check: bool = True) -> str:
-    proc = subprocess.run(
-        ["kubectl", *args], capture_output=True, text=True, timeout=60
-    )
+    proc = subprocess.run(["kubectl", *args], capture_output=True, text=True, timeout=60)
     if check:
         assert proc.returncode == 0, proc.stderr
     return proc.stdout.strip()
@@ -36,8 +34,13 @@ def mint_token(namespace: str, service_account: str, audience: str = AUDIENCE) -
     """TokenRequest via kubectl: the same kind of projected token the
     kubelet mounts, minted for an arbitrary ServiceAccount."""
     return _kubectl(
-        "-n", namespace, "create", "token", service_account,
-        f"--audience={audience}", "--duration=10m",
+        "-n",
+        namespace,
+        "create",
+        "token",
+        service_account,
+        f"--audience={audience}",
+        "--duration=10m",
     )
 
 
@@ -83,16 +86,24 @@ def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
     carries a bearer-token env var, so every green run on this cluster rode
     the projected tokens."""
     worker_env = _kubectl(
-        "-n", PLATFORM_NS, "get", "deployment/orchestrator-worker",
-        "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}",
+        "-n",
+        PLATFORM_NS,
+        "get",
+        "deployment/orchestrator-worker",
+        "-o",
+        "jsonpath={.spec.template.spec.containers[0].env[*].name}",
     ).split()
     assert "ORCHESTRATOR_BEARER_TOKEN" not in worker_env
     assert "GATEWAY_TOKEN_FILE" in worker_env
 
     # The lean roster's one standing agent: the PM.
     agent_env = _kubectl(
-        "-n", COMPANY_NS, "get", "deployment/pm",
-        "-o", "jsonpath={.spec.template.spec.containers[0].env[*].name}",
+        "-n",
+        COMPANY_NS,
+        "get",
+        "deployment/pm",
+        "-o",
+        "jsonpath={.spec.template.spec.containers[0].env[*].name}",
     ).split()
     assert "AGENT_BEARER_TOKEN" not in agent_env
     assert "GATEWAY_TOKEN_FILE" in agent_env
@@ -109,9 +120,15 @@ def test_agent_pod_token_round_trips_from_inside(stack: None) -> None:
     projection, the operator-created ServiceAccount, the registry mapping
     and the TokenReview path end to end."""
     pod = _kubectl(
-        "-n", COMPANY_NS, "get", "pod",
-        "-l", "app=pm", "--field-selector=status.phase=Running",
-        "-o", "jsonpath={.items[0].metadata.name}",
+        "-n",
+        COMPANY_NS,
+        "get",
+        "pod",
+        "-l",
+        "app=pm",
+        "--field-selector=status.phase=Running",
+        "-o",
+        "jsonpath={.items[0].metadata.name}",
     )
     probe = (
         "import urllib.request, urllib.error\n"
@@ -144,8 +161,9 @@ def test_wrong_service_account_is_rejected_and_audited(stack: None, env) -> None
 def test_wrong_namespace_same_name_is_rejected_and_audited(stack: None, env) -> None:
     """A ServiceAccount named like a real instance but living elsewhere
     verifies fine at the API server and must still map to nothing."""
-    _kubectl("-n", "default", "create", "serviceaccount", "pm-1",
-             check=False)  # idempotent across reruns
+    _kubectl(
+        "-n", "default", "create", "serviceaccount", "pm-1", check=False
+    )  # idempotent across reruns
     try:
         token = mint_token("default", "pm-1")
         assert gateway_status(env, token) == 401
@@ -154,8 +172,7 @@ def test_wrong_namespace_same_name_is_rejected_and_audited(stack: None, env) -> 
             "system:serviceaccount:default:pm-1",
         )
     finally:
-        _kubectl("-n", "default", "delete", "serviceaccount", "pm-1",
-                 check=False)
+        _kubectl("-n", "default", "delete", "serviceaccount", "pm-1", check=False)
 
 
 def test_wrong_audience_is_rejected(stack: None, env) -> None:

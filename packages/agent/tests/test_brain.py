@@ -67,8 +67,12 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
                         "git -c user.name=a -c user.email=a@p commit -m 'add greet'"
                     ),
                 ),
-                tc("open_pr", branch="feature/greet", title="Add greet",
-                   body="Adds greet()."),
+                tc(
+                    "open_pr",
+                    branch="feature/greet",
+                    title="Add greet",
+                    body="Adds greet().",
+                ),
             ),
             says("Delivered."),
         ]
@@ -80,7 +84,9 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
     assert result.pr_url == PR_URL
     assert result.error is None
     assert gateway.tools_called() == [
-        "sandbox.exec", "sandbox.git_bundle", "git.open_pr",
+        "sandbox.exec",
+        "sandbox.git_bundle",
+        "git.open_pr",
     ]
     open_pr_args = gateway.calls[-1][1]
     assert open_pr_args["repo"] == settings.target_repo
@@ -98,8 +104,13 @@ def test_review_dispatch_reads_runs_and_comments(settings, gateway):
         [
             calls(tc("read_pr", number=41)),
             calls(tc("run_tests")),
-            calls(tc("comment_pr", number=41,
-                     body="Suite green in the review sandbox; no findings.")),
+            calls(
+                tc(
+                    "comment_pr",
+                    number=41,
+                    body="Suite green in the review sandbox; no findings.",
+                )
+            ),
             says("Findings posted."),
         ]
     )
@@ -112,7 +123,9 @@ def test_review_dispatch_reads_runs_and_comments(settings, gateway):
     assert result.error is None
     assert result.comment_urls == [COMMENT_URL]
     assert gateway.tools_called() == [
-        "git.read", "sandbox.run_tests", "git.comment",
+        "git.read",
+        "sandbox.run_tests",
+        "git.comment",
     ]
     # Every offered toolset is the reviewer's (plus the SDK's control
     # tools) — read-and-judge only.
@@ -222,8 +235,9 @@ def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(settings, gat
     assert result.pr_url == PR_URL
     assert result.error is None
 
-    pr_attempts = [args["branch"] for tool, args in gateway.calls
-                   if tool == "git.open_pr"]
+    pr_attempts = [
+        args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"
+    ]
     assert pr_attempts == ["main", "feature/greet"]
 
     retry_messages, _ = llm.requests[1]
@@ -258,7 +272,7 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
         attempts.append(1)
         raise RateLimitError(
             message='{"error": {"code": "budget_exhausted", '
-                    '"message": "run exhausted its budget"}}',
+            '"message": "run exhausted its budget"}}',
             llm_provider="openai",
             model="test-model",
         )
@@ -269,10 +283,8 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
 
     import agent.brain as brain
 
-    with patch.object(brain, "GatewayBridge",
-                      lambda url, token: FakeBridge(gateway)):
-        with patch("openhands.sdk.llm.llm.litellm_completion",
-                   side_effect=raise_429):
+    with patch.object(brain, "GatewayBridge", lambda url, token: FakeBridge(gateway)):
+        with patch("openhands.sdk.llm.llm.litellm_completion", side_effect=raise_429):
             try:
                 implement_dispatch(settings, RUN_ID, TASK)
                 raised = None
@@ -333,7 +345,7 @@ def test_prompt_rendering_survives_stray_braces(tmp_path, settings):
 
     template = tmp_path / "prompt.md"
     template.write_text(
-        "Repo: {target_repo}. Example: {\"key\": \"value\"} and {not_a_field!r}."
+        'Repo: {target_repo}. Example: {"key": "value"} and {not_a_field!r}.'
     )
     rendered = _render_prompt(template, settings)
     assert f"Repo: {settings.target_repo}." in rendered

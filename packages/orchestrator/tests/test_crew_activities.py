@@ -115,10 +115,12 @@ def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):
     audit.events.clear()
 
     swept = asyncio.run(crew.revoke_participants(RUN_ID))
-    assert sorted(swept) == sorted([
-        ephemeral_agent_id("feature-delivery", "executor", RUN_ID),
-        ephemeral_agent_id("feature-delivery", "planner", RUN_ID),
-    ])
+    assert sorted(swept) == sorted(
+        [
+            ephemeral_agent_id("feature-delivery", "executor", RUN_ID),
+            ephemeral_agent_id("feature-delivery", "planner", RUN_ID),
+        ]
+    )
     for agent_id in swept:
         assert participants.active(agent_id) is None
 

@@ -122,9 +122,7 @@ class GatewayBridge:
 
     def __enter__(self) -> "GatewayBridge":
         self._thread.start()
-        self._session = asyncio.run_coroutine_threadsafe(
-            self._run_session(), self._loop
-        )
+        self._session = asyncio.run_coroutine_threadsafe(self._run_session(), self._loop)
         self._ready.result(timeout=60)
         return self
 
@@ -231,9 +229,7 @@ def _task_prompt(task_text: str, entries: str) -> str:
     )
 
 
-def implement_dispatch(
-    settings: AgentSettings, run_id: str, task_text: str
-) -> RunResult:
+def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
     """mode=implement: the SDK loop acts (read/write/list/exec, never
     open_pr), the host runs the ADVISORY verify between turns, and advisory
     green ends the dispatch with a completion claim. The gate of record is
@@ -265,15 +261,11 @@ def implement_dispatch(
                         )
                     iterations += 1
                     try:
-                        result = bridge.call(
-                            "sandbox.run_tests", {"run_id": run_id}
-                        )
+                        result = bridge.call("sandbox.run_tests", {"run_id": run_id})
                     except ToolCallError as exc:
                         result = {"exit_code": -1, "stdout": "", "stderr": str(exc)}
                     passed = result.get("exit_code") == 0
-                    log.info(
-                        "verify", extra={"iteration": iterations, "passed": passed}
-                    )
+                    log.info("verify", extra={"iteration": iterations, "passed": passed})
                     if passed:
                         # Advisory green = the completion claim (sequencing
                         # choice 8): the platform verifies of record and the
@@ -282,13 +274,9 @@ def implement_dispatch(
                     if iterations >= settings.max_iterations:
                         return RunResult(
                             iterations=iterations,
-                            error=(
-                                f"tests still failing after {iterations} iterations"
-                            ),
+                            error=(f"tests still failing after {iterations} iterations"),
                         )
-                    convo.send_message(
-                        _test_report(result) + "\n\nFix the failures."
-                    )
+                    convo.send_message(_test_report(result) + "\n\nFix the failures.")
             finally:
                 convo.close()
 
@@ -386,9 +374,7 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
             try:
                 convo.send_message(f"Goal:\n{task_text}")
                 convo.run()
-                capped = (
-                    convo.state.execution_status == ConversationExecutionStatus.ERROR
-                )
+                capped = convo.state.execution_status == ConversationExecutionStatus.ERROR
             finally:
                 convo.close()
     if capped:
@@ -401,8 +387,7 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
         return RunResult(error="PM filed no ticket for the goal")
     log.info(
         "pm finished",
-        extra={"tickets": records.ticket_urls,
-               "crew_request": records.crew_request_id},
+        extra={"tickets": records.ticket_urls, "crew_request": records.crew_request_id},
     )
     return RunResult(
         ticket_urls=records.ticket_urls, crew_request_id=records.crew_request_id
@@ -427,13 +412,13 @@ def plan_dispatch(
     response = llm.completion(
         messages=[
             Message(role="system", content=[TextContent(text=_system_prompt(settings))]),
-            Message(role="user", content=[TextContent(text=_task_prompt(task_text, entries))]),
+            Message(
+                role="user", content=[TextContent(text=_task_prompt(task_text, entries))]
+            ),
         ]
     )
     brief = "".join(
-        block.text
-        for block in response.message.content
-        if isinstance(block, TextContent)
+        block.text for block in response.message.content if isinstance(block, TextContent)
     ).strip()
     if not brief:
         return RunResult(error="planner produced an empty brief")

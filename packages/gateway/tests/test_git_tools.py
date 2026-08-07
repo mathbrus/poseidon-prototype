@@ -55,7 +55,9 @@ async def open_pr(app, token, *, branch, bundle_b64, repo):
 # --- repo.archive -------------------------------------------------------------
 
 
-async def test_platform_archives_repo_stripped_of_remotes(app, target_repo, tmp_path, audit):
+async def test_platform_archives_repo_stripped_of_remotes(
+    app, target_repo, tmp_path, audit
+):
     async with mcp_session(app, RUNNER_TOKEN) as session:
         result = await session.call_tool(
             "repo.archive",
@@ -107,7 +109,11 @@ async def test_feature_branch_pr_is_pushed_and_opened(
     )
 
     result = await open_pr(
-        app, AGENT_TOKEN, branch="feature/add-greeting", bundle_b64=bundle, repo=target_repo
+        app,
+        AGENT_TOKEN,
+        branch="feature/add-greeting",
+        bundle_b64=bundle,
+        repo=target_repo,
     )
 
     assert tool_payload(result) == {"pr_url": PR_URL}
@@ -131,7 +137,9 @@ async def test_feature_branch_pr_is_pushed_and_opened(
     assert event["backend_status"] == "ok"
 
 
-async def test_changed_paths_are_part_of_the_policy_input(app, backends, target_repo, tmp_path):
+async def test_changed_paths_are_part_of_the_policy_input(
+    app, backends, target_repo, tmp_path
+):
     bundle = make_bundle(
         target_repo,
         tmp_path,
@@ -139,7 +147,9 @@ async def test_changed_paths_are_part_of_the_policy_input(app, backends, target_
         {"src/new_module.py": "x = 1\n", "docs/notes.md": "notes\n"},
     )
 
-    await open_pr(app, AGENT_TOKEN, branch="feature/two-files", bundle_b64=bundle, repo=target_repo)
+    await open_pr(
+        app, AGENT_TOKEN, branch="feature/two-files", bundle_b64=bundle, repo=target_repo
+    )
 
     policy_input = backends.policy_inputs[-1]
     assert policy_input["tool"] == "git.open_pr"
@@ -155,7 +165,9 @@ async def test_pr_to_main_is_denied_and_nothing_is_pushed(
     before = git("rev-parse", "main", cwd=target_repo)
     bundle = make_bundle(target_repo, tmp_path, "main", {"evil.py": "pwned = True\n"})
 
-    result = await open_pr(app, AGENT_TOKEN, branch="main", bundle_b64=bundle, repo=target_repo)
+    result = await open_pr(
+        app, AGENT_TOKEN, branch="main", bundle_b64=bundle, repo=target_repo
+    )
 
     assert result.isError
     assert "git_open_pr_protected_branch" in result.content[0].text
@@ -167,7 +179,9 @@ async def test_pr_to_main_is_denied_and_nothing_is_pushed(
     assert event["backend_status"] is None
 
 
-async def test_pr_touching_workflows_is_denied(app, backends, target_repo, tmp_path, audit):
+async def test_pr_touching_workflows_is_denied(
+    app, backends, target_repo, tmp_path, audit
+):
     bundle = make_bundle(
         target_repo,
         tmp_path,
@@ -192,11 +206,17 @@ async def test_pr_touching_workflows_is_denied(app, backends, target_repo, tmp_p
 async def test_tampered_bundle_errors_and_is_audited(
     app, backends, target_repo, tmp_path, audit
 ):
-    good = bytearray(base64.b64decode(make_bundle(target_repo, tmp_path, "feature/ok", {"f.py": "1\n"})))
+    good = bytearray(
+        base64.b64decode(
+            make_bundle(target_repo, tmp_path, "feature/ok", {"f.py": "1\n"})
+        )
+    )
     good[len(good) // 2] ^= 0xFF  # flip a byte in the packfile
     tampered = base64.b64encode(bytes(good)).decode()
 
-    result = await open_pr(app, AGENT_TOKEN, branch="feature/ok", bundle_b64=tampered, repo=target_repo)
+    result = await open_pr(
+        app, AGENT_TOKEN, branch="feature/ok", bundle_b64=tampered, repo=target_repo
+    )
 
     assert result.isError
     assert "refs/heads/feature/ok" not in refs(target_repo)
@@ -213,7 +233,9 @@ async def test_tampered_bundle_errors_and_is_audited(
 async def test_garbage_bundle_errors_and_is_audited(app, backends, target_repo, audit):
     garbage = base64.b64encode(b"definitely not a git bundle").decode()
 
-    result = await open_pr(app, AGENT_TOKEN, branch="feature/ok", bundle_b64=garbage, repo=target_repo)
+    result = await open_pr(
+        app, AGENT_TOKEN, branch="feature/ok", bundle_b64=garbage, repo=target_repo
+    )
 
     assert result.isError
     assert backends.github_calls == []

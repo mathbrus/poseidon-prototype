@@ -63,8 +63,11 @@ def temporal_port_forward():
     extraPortMappings are fixed at cluster creation)."""
     proc = subprocess.Popen(
         [
-            "kubectl", "-n", PLATFORM_NS,
-            "port-forward", "svc/temporal-frontend",
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "port-forward",
+            "svc/temporal-frontend",
             f"{TEMPORAL_LOCAL_PORT}:7233",
         ],
         stdout=subprocess.DEVNULL,
@@ -96,10 +99,29 @@ def _psql_json(query: str, run_id: str, default: str) -> Any:
     generated ids) and parse the JSON result. Read through psql so the
     suite needs nothing on the host but kubectl."""
     proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "exec", "-i", "statefulset/postgres", "--",
-         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At",
-         "-v", f"run_id={run_id}", "-f", "-"],
-        input=query, capture_output=True, text=True, timeout=60,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "exec",
+            "-i",
+            "statefulset/postgres",
+            "--",
+            "psql",
+            "-U",
+            POSTGRES_USER,
+            "-d",
+            POSTGRES_USER,
+            "-At",
+            "-v",
+            f"run_id={run_id}",
+            "-f",
+            "-",
+        ],
+        input=query,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert proc.returncode == 0, f"psql failed: {proc.stderr}"
     return json.loads(proc.stdout.strip() or default)
@@ -133,9 +155,18 @@ def sandbox_image() -> str:
     predate content-addressed tags — a fresh cluster has no such image and
     the pod dies in ImagePullBackOff (the step-6 stale-`:latest` trap)."""
     proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "get", "deployment/orchestrator-worker",
-         "-o", 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="SANDBOX_IMAGE")].value}'],
-        capture_output=True, text=True, timeout=30,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "get",
+            "deployment/orchestrator-worker",
+            "-o",
+            'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="SANDBOX_IMAGE")].value}',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert proc.returncode == 0, proc.stderr
     image = proc.stdout.strip()
@@ -147,14 +178,33 @@ def restart_gateway() -> None:
     """Delete the gateway pod and wait for its replacement to be Ready —
     the step-8 done-when: a run's sandbox registration must survive it."""
     subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "delete", "pod", "-l", "app=mcp-gateway",
-         "--wait=true"],
-        check=True, capture_output=True, timeout=120,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "delete",
+            "pod",
+            "-l",
+            "app=mcp-gateway",
+            "--wait=true",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=120,
     )
     subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "rollout", "status",
-         "deployment/mcp-gateway", "--timeout=180s"],
-        check=True, capture_output=True, timeout=200,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "rollout",
+            "status",
+            "deployment/mcp-gateway",
+            "--timeout=180s",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=200,
     )
 
 
@@ -164,9 +214,15 @@ def sandbox_pods(run_id: str | None = None) -> list[str]:
     selector = f"{RUN_ID_LABEL}={run_id}" if run_id else RUN_ID_LABEL
     proc = subprocess.run(
         [
-            "kubectl", "-n", COMPANY_NS,
-            "get", "pods", "-l", selector,
-            "-o", "jsonpath={range .items[*]}{.metadata.name} {.status.phase}{'\\n'}{end}",
+            "kubectl",
+            "-n",
+            COMPANY_NS,
+            "get",
+            "pods",
+            "-l",
+            selector,
+            "-o",
+            "jsonpath={range .items[*]}{.metadata.name} {.status.phase}{'\\n'}{end}",
         ],
         capture_output=True,
         text=True,
@@ -185,10 +241,18 @@ def sandbox_pods(run_id: str | None = None) -> list[str]:
 def kill_worker_pod() -> None:
     subprocess.run(
         [
-            "kubectl", "-n", PLATFORM_NS,
-            "delete", "pod", "-l", "app=orchestrator-worker", "--wait=false",
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "delete",
+            "pod",
+            "-l",
+            "app=orchestrator-worker",
+            "--wait=false",
         ],
-        check=True, capture_output=True, timeout=60,
+        check=True,
+        capture_output=True,
+        timeout=60,
     )
 
 
@@ -200,10 +264,26 @@ def db_session_start() -> str:
     clock, not the host's, so clock skew cannot widen or narrow the window.
     Autouse so it is stamped before the first test, whichever that is."""
     proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "exec", "-i", "statefulset/postgres", "--",
-         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At",
-         "-c", "SELECT now()"],
-        capture_output=True, text=True, timeout=60,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "exec",
+            "-i",
+            "statefulset/postgres",
+            "--",
+            "psql",
+            "-U",
+            POSTGRES_USER,
+            "-d",
+            POSTGRES_USER,
+            "-At",
+            "-c",
+            "SELECT now()",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert proc.returncode == 0, f"cannot read the registry clock: {proc.stderr}"
     stamp = proc.stdout.strip()
@@ -232,17 +312,25 @@ def stack(env: dict[str, str]) -> None:
     try:
         resp = httpx.get(gateway_url + "/mcp", timeout=5)
         if resp.status_code != 401:
-            pytest.fail(f"gateway at {gateway_url} answered "
-                        f"{resp.status_code}, expected 401 without a token")
+            pytest.fail(
+                f"gateway at {gateway_url} answered "
+                f"{resp.status_code}, expected 401 without a token"
+            )
     except httpx.TransportError as exc:
         pytest.fail(f"cannot reach the stack ({exc}); {hint}")
     ready = subprocess.run(
         [
-            "kubectl", "-n", PLATFORM_NS,
-            "get", "deployment/orchestrator-worker",
-            "-o", "jsonpath={.status.readyReplicas}",
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "get",
+            "deployment/orchestrator-worker",
+            "-o",
+            "jsonpath={.status.readyReplicas}",
         ],
-        capture_output=True, text=True, timeout=30,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     if ready.returncode != 0 or ready.stdout.strip() != "1":
         pytest.fail(f"orchestrator worker not ready; {hint}")

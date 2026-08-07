@@ -86,7 +86,5 @@ def test_bridge_reenters_cleanly(mcp_server_url):
     (plan → implement → deliver each open their own bridge)."""
     for round_ in ("a", "b"):
         with GatewayBridge(mcp_server_url, "test-token") as bridge:
-            result = bridge.call(
-                "sandbox.echo", {"run_id": "r-2", "value": round_}
-            )
+            result = bridge.call("sandbox.echo", {"run_id": "r-2", "value": round_})
             assert result["echoed"] == round_

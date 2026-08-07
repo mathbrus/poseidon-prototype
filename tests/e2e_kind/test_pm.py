@@ -26,22 +26,19 @@ PM_LOCAL_PORT = 18002
 @contextlib.contextmanager
 def _pm_forward():
     proc = subprocess.Popen(
-        ["kubectl", "-n", COMPANY_NS, "port-forward", "svc/pm",
-         f"{PM_LOCAL_PORT}:8000"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ["kubectl", "-n", COMPANY_NS, "port-forward", "svc/pm", f"{PM_LOCAL_PORT}:8000"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     try:
         deadline = time.monotonic() + 30
         while True:
             try:
-                with socket.create_connection(("127.0.0.1", PM_LOCAL_PORT),
-                                              timeout=1):
+                with socket.create_connection(("127.0.0.1", PM_LOCAL_PORT), timeout=1):
                     break
             except OSError as exc:
                 if time.monotonic() > deadline:
-                    raise RuntimeError(
-                        "port-forward to the PM never came up"
-                    ) from exc
+                    raise RuntimeError("port-forward to the PM never came up") from exc
                 time.sleep(0.5)
         yield f"http://127.0.0.1:{PM_LOCAL_PORT}"
     finally:
@@ -51,24 +48,39 @@ def _pm_forward():
 
 def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
     return httpx.request(
-        method, f"https://api.github.com{path}",
-        headers={"Accept": "application/vnd.github+json",
-                 "Authorization": f"Bearer {env['GIT_TOKEN']}"},
-        timeout=30, **kwargs,
+        method,
+        f"https://api.github.com{path}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {env['GIT_TOKEN']}",
+        },
+        timeout=30,
+        **kwargs,
     )
 
 
 def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
     ready = subprocess.run(
-        ["kubectl", "-n", COMPANY_NS, "get", "deployment/pm",
-         "-o", "jsonpath={.status.readyReplicas}"],
-        capture_output=True, text=True, timeout=30,
+        [
+            "kubectl",
+            "-n",
+            COMPANY_NS,
+            "get",
+            "deployment/pm",
+            "-o",
+            "jsonpath={.status.readyReplicas}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     assert ready.stdout.strip() == "1", "the PM instance is not deployed/ready"
 
     run_id = new_run_id()
-    goal = ("Add a health-check endpoint returning build metadata "
-            f"(e2e pm goal {run_id[-6:].lower()})")
+    goal = (
+        "Add a health-check endpoint returning build metadata "
+        f"(e2e pm goal {run_id[-6:].lower()})"
+    )
 
     with _registry() as registry:
         from registry import Runs
@@ -79,9 +91,9 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
         issue_number = None
         try:
             with _pm_forward() as base:
-                resp = httpx.post(f"{base}/task",
-                                  json={"run_id": run_id, "task_text": goal},
-                                  timeout=30)
+                resp = httpx.post(
+                    f"{base}/task", json={"run_id": run_id, "task_text": goal}, timeout=30
+                )
                 assert resp.status_code == 202, resp.text
                 deadline = time.monotonic() + 300
                 while True:
@@ -109,7 +121,8 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
                 "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
                 "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
                 ") c",
-                run_id, default="[]",
+                run_id,
+                default="[]",
             )
             assert len(rows) == 1
             assert rows[0]["conductor"] == "pm-1"
@@ -129,9 +142,13 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
             if issue_number is not None:
                 slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
                 with contextlib.suppress(Exception):
-                    _github(env, "PATCH", f"/repos/{slug}/issues/{issue_number}",
-                            json={"state": "closed"})
+                    _github(
+                        env,
+                        "PATCH",
+                        f"/repos/{slug}/issues/{issue_number}",
+                        json={"state": "closed"},
+                    )
             registry.execute(
-                "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,))
-            registry.execute(
-                "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+                "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
+            )
+            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))

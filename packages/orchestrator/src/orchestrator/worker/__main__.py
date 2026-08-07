@@ -56,15 +56,22 @@ async def main() -> None:
         Runs(registry),
     )
     activities = ImplementActivities(
-        settings, backend, Runs(registry), Companies(registry), crew_activities,
+        settings,
+        backend,
+        Runs(registry),
+        Companies(registry),
+        crew_activities,
         AgentInstances(registry),
     )
     intake_activities = IntakeActivities(
         settings, Runs(registry), Companies(registry), BudgetLedger(registry)
     )
     review_activities = ReviewActivities(
-        settings, Runs(registry), Companies(registry),
-        AgentInstances(registry), AuditStore(registry),
+        settings,
+        Runs(registry),
+        Companies(registry),
+        AgentInstances(registry),
+        AuditStore(registry),
     )
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping

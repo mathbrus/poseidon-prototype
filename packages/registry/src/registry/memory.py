@@ -61,18 +61,29 @@ class InMemoryCrewRequests:
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
 
-    def record(self, conductor: str, crew_template: str, run_id: str,
-               reason: str, ttl_s: int = 3600) -> dict[str, Any]:
+    def record(
+        self,
+        conductor: str,
+        crew_template: str,
+        run_id: str,
+        reason: str,
+        ttl_s: int = 3600,
+    ) -> dict[str, Any]:
         from registry.crews import request_id
 
         rid = request_id(conductor, crew_template, run_id)
         existing = self.rows.get(rid)
         if existing is None:
             self.rows[rid] = {
-                "id": rid, "run_id": run_id, "conductor": conductor,
-                "crew_template": crew_template, "reason": reason,
-                "status": "recorded", "created_at": "2026-01-01T00:00:00+00:00",
-                "expires_at": "2026-01-01T01:00:00+00:00", "fulfilled_at": None,
+                "id": rid,
+                "run_id": run_id,
+                "conductor": conductor,
+                "crew_template": crew_template,
+                "reason": reason,
+                "status": "recorded",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "expires_at": "2026-01-01T01:00:00+00:00",
+                "fulfilled_at": None,
             }
         elif existing["status"] == "recorded":
             existing["reason"] = reason
@@ -102,15 +113,32 @@ class InMemoryBudgetLedger:
     def __init__(self) -> None:
         self.entries: list[dict[str, Any]] = []
 
-    def record(self, *, company: str, run_id: str, agent_id: str,
-               parent_agent_id: str, role: str, model: str,
-               prompt_tokens: int, completion_tokens: int, usd: float) -> None:
-        self.entries.append({
-            "company": company, "run_id": run_id, "agent_id": agent_id,
-            "parent_agent_id": parent_agent_id, "role": role, "model": model,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens, "usd": usd,
-        })
+    def record(
+        self,
+        *,
+        company: str,
+        run_id: str,
+        agent_id: str,
+        parent_agent_id: str,
+        role: str,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        usd: float,
+    ) -> None:
+        self.entries.append(
+            {
+                "company": company,
+                "run_id": run_id,
+                "agent_id": agent_id,
+                "parent_agent_id": parent_agent_id,
+                "role": role,
+                "model": model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "usd": usd,
+            }
+        )
 
     def spent_for_run(self, run_id: str) -> float:
         return float(sum(e["usd"] for e in self.entries if e["run_id"] == run_id))
@@ -255,12 +283,13 @@ class InMemoryRunParticipants:
         return swept
 
     def active_spawn_count(self, parent_agent_id: str) -> int:
-        return len({
-            (row["run_id"], row["crew_template"])
-            for row in self.rows.values()
-            if row["parent_agent_id"] == parent_agent_id
-            and row["status"] == "active"
-        })
+        return len(
+            {
+                (row["run_id"], row["crew_template"])
+                for row in self.rows.values()
+                if row["parent_agent_id"] == parent_agent_id and row["status"] == "active"
+            }
+        )
 
     def active(self, agent_id: str) -> dict[str, Any] | None:
         row = self.rows.get(agent_id)

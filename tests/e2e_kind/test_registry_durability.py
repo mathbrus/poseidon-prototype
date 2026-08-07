@@ -58,9 +58,20 @@ def projected_token(namespace: str, service_account: str) -> str:
     audience-scoped projected token the kubelet mounts, for the real
     ServiceAccounts — the static bearer tokens are gone."""
     proc = subprocess.run(
-        ["kubectl", "-n", namespace, "create", "token", service_account,
-         "--audience=poseidon-gateway", "--duration=10m"],
-        capture_output=True, text=True, timeout=60, check=True,
+        [
+            "kubectl",
+            "-n",
+            namespace,
+            "create",
+            "token",
+            service_account,
+            "--audience=poseidon-gateway",
+            "--duration=10m",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
     )
     return proc.stdout.strip()
 
@@ -112,22 +123,26 @@ def test_sandbox_registration_survives_a_gateway_restart(
             gateway_token_file=str(token_file),
             mcp_gateway_url=gateway_url,
             target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
-            platform_jwt_key=_cluster_secret("platform-jwt-key",
-                                             "PLATFORM_JWT_KEY"),
+            platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
         )
-        crew = CrewActivities(
-            settings, RunParticipants(registry), AuditStore(registry)
+        crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
+        Runs(registry).start(
+            run_id, "registry durability", "implement", None, "hello-saas"
         )
-        Runs(registry).start(run_id, "registry durability", "implement",
-                             None, "hello-saas")
         try:
             asyncio.run(register())
-            agent_token = asyncio.run(crew.mint_participant({
-                "run_id": run_id, "company": "hello-saas",
-                "crew_template": "feature-delivery", "member": "executor",
-                "role_template": "backend-engineer",
-                "parent_agent_id": "pm-1",
-            }))["token"]
+            agent_token = asyncio.run(
+                crew.mint_participant(
+                    {
+                        "run_id": run_id,
+                        "company": "hello-saas",
+                        "crew_template": "feature-delivery",
+                        "member": "executor",
+                        "role_template": "backend-engineer",
+                        "parent_agent_id": "pm-1",
+                    }
+                )
+            )["token"]
 
             # The gateway that accepted the registration is now gone.
             restart_gateway()
@@ -147,10 +162,9 @@ def test_sandbox_registration_survives_a_gateway_restart(
         finally:
             backend.destroy(handle)
             registry.execute(
-                "DELETE FROM registry.run_participants WHERE run_id = %s",
-                (run_id,))
-            registry.execute(
-                "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
+            )
+            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 def test_run_records_live_in_the_registry(implement_run: dict):

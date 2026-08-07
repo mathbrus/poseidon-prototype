@@ -136,8 +136,14 @@ class GatewayService:
             # Parentage is mandatory for ephemeral callers — an
             # identity missing it never reaches policy.
             await self._audit(
-                identity, tool, args, run_id, "deny",
-                "ephemeral_parentage_missing", started, None,
+                identity,
+                tool,
+                args,
+                run_id,
+                "deny",
+                "ephemeral_parentage_missing",
+                started,
+                None,
             )
             raise PolicyDenied("ephemeral_parentage_missing")
         workflow = policy_input["workflow"]
@@ -150,8 +156,15 @@ class GatewayService:
 
         if not decision.allow:
             await self._audit(
-                identity, tool, args, run_id, "deny", decision.rule, started,
-                None, workflow,
+                identity,
+                tool,
+                args,
+                run_id,
+                "deny",
+                decision.rule,
+                started,
+                None,
+                workflow,
             )
             raise PolicyDenied(decision.rule)
 
@@ -159,13 +172,27 @@ class GatewayService:
             result = await backend()
         except Exception:
             await self._audit(
-                identity, tool, args, run_id, "allow", decision.rule, started,
-                "error", workflow,
+                identity,
+                tool,
+                args,
+                run_id,
+                "allow",
+                decision.rule,
+                started,
+                "error",
+                workflow,
             )
             raise
         await self._audit(
-            identity, tool, args, run_id, "allow", decision.rule, started,
-            "ok", workflow,
+            identity,
+            tool,
+            args,
+            run_id,
+            "allow",
+            decision.rule,
+            started,
+            "ok",
+            workflow,
         )
         return result
 
@@ -181,6 +208,7 @@ class GatewayService:
         """
         registration = run_row = None
         if run_id:
+
             def read():
                 return self._sandboxes.active(run_id), self._runs.get(run_id)
 
@@ -215,14 +243,13 @@ class GatewayService:
         }
         if identity.lifecycle == LIFECYCLE_EPHEMERAL:
             if not (
-                identity.parent_agent_id
-                and identity.crew_template
-                and identity.crew_role
+                identity.parent_agent_id and identity.crew_template and identity.crew_role
             ):
                 return None
             policy_input["crew_template"] = identity.crew_template
             policy_input["crew_role"] = identity.crew_role
         if tool == "crew.request":
+
             def spawn_state() -> tuple[int, bool]:
                 spawns = self._participants.active_spawn_count(identity.agent_id)
                 spec = self._companies.get(identity.company or "") or {}
@@ -272,9 +299,7 @@ class GatewayService:
         async def backend() -> None:
             await asyncio.to_thread(self._sandboxes.terminate, run_id)
 
-        await self.call(
-            identity, "/admin/sandboxes.delete", {"run_id": run_id}, backend
-        )
+        await self.call(identity, "/admin/sandboxes.delete", {"run_id": run_id}, backend)
 
     # -- git tools ----------------------------------------------------------
 
@@ -345,7 +370,9 @@ class GatewayService:
     ) -> Any:
         args = {"run_id": run_id, "repo": repo, "title": title, "body": body}
         return await self.call(
-            identity, "issues.create", args,
+            identity,
+            "issues.create",
+            args,
             lambda: self._git.create_issue(repo, title, body),
         )
 
@@ -367,10 +394,18 @@ class GatewayService:
         body: str | None,
         state: str | None,
     ) -> Any:
-        args = {"run_id": run_id, "repo": repo, "number": number,
-                "title": title, "body": body, "state": state}
+        args = {
+            "run_id": run_id,
+            "repo": repo,
+            "number": number,
+            "title": title,
+            "body": body,
+            "state": state,
+        }
         return await self.call(
-            identity, "issues.update", args,
+            identity,
+            "issues.update",
+            args,
             lambda: self._git.update_issue(repo, number, title, body, state),
         )
 
@@ -379,7 +414,9 @@ class GatewayService:
     ) -> Any:
         args = {"run_id": run_id, "repo": repo, "number": number, "body": body}
         return await self.call(
-            identity, "issues.comment", args,
+            identity,
+            "issues.comment",
+            args,
             lambda: self._git.comment_issue(repo, number, body),
         )
 
@@ -396,7 +433,9 @@ class GatewayService:
     ) -> Any:
         args = {"run_id": run_id, "repo": repo, "number": number, "body": body}
         return await self.call(
-            identity, "git.comment", args,
+            identity,
+            "git.comment",
+            args,
             lambda: self._git.comment_issue(repo, number, body),
         )
 
@@ -407,7 +446,9 @@ class GatewayService:
         orchestrator calls it after the human merge gate."""
         args = {"run_id": run_id, "repo": repo, "number": number, "method": method}
         return await self.call(
-            identity, "git.merge_pr", args,
+            identity,
+            "git.merge_pr",
+            args,
             lambda: self._git.merge_pr(repo, number, method),
         )
 

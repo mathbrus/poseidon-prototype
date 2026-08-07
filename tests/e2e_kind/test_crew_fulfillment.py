@@ -50,9 +50,19 @@ def _worker_settings(env: dict, tmp_path, registry_unused=None):
     token_file = tmp_path / "unused"
     token_file.write_text("unused")
     proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "get", "deployment/orchestrator-worker",
-         "-o", 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="AGENT_IMAGE")].value}'],
-        capture_output=True, text=True, timeout=30, check=True,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "get",
+            "deployment/orchestrator-worker",
+            "-o",
+            'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="AGENT_IMAGE")].value}',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
     )
     return WorkerSettings(
         gateway_token_file=str(token_file),
@@ -78,15 +88,21 @@ def _pod_forwarded_agent_client(pod: str):
         if proc is not None:
             return
         proc = subprocess.Popen(
-            ["kubectl", "-n", COMPANY_NS, "port-forward", f"pod/{pod}",
-             f"{AGENT_LOCAL_PORT}:8000"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            [
+                "kubectl",
+                "-n",
+                COMPANY_NS,
+                "port-forward",
+                f"pod/{pod}",
+                f"{AGENT_LOCAL_PORT}:8000",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         deadline = time.monotonic() + 30
         while True:
             try:
-                with socket.create_connection(("127.0.0.1", AGENT_LOCAL_PORT),
-                                              timeout=1):
+                with socket.create_connection(("127.0.0.1", AGENT_LOCAL_PORT), timeout=1):
                     return
             except OSError as exc:
                 if time.monotonic() > deadline:
@@ -151,29 +167,45 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             #    policy as any spawn; may_spawn/cap/budget checks all
             #    faced here.
             pm_token = projected_token(COMPANY_NS, "pm-1")
-            recorded = _call(env, pm_token, "crew.request",
-                             {"run_id": run_id,
-                              "crew_template": "feature-delivery",
-                              "reason": "e2e crew delivery"})
+            recorded = _call(
+                env,
+                pm_token,
+                "crew.request",
+                {
+                    "run_id": run_id,
+                    "crew_template": "feature-delivery",
+                    "reason": "e2e crew delivery",
+                },
+            )
             assert not recorded.isError, recorded.content
 
             # 2. The run's single sandbox, exactly as implement provisions
             #    it (both members share it through the gateway).
-            workspace = asyncio.run(_fetch_workspace(
-                gateway_url, orchestrator_token, run_id, env["TARGET_REPO"]))
+            workspace = asyncio.run(
+                _fetch_workspace(
+                    gateway_url, orchestrator_token, run_id, env["TARGET_REPO"]
+                )
+            )
             handle = backend.provision(
-                run_id, workspace,
+                run_id,
+                workspace,
                 _sandbox_policy(sandbox_image()),
             )
             asyncio.run(_register(gateway_url, orchestrator_token, run_id, handle))
 
             # 3. Fulfill: consume -> mint -> pod -> planner -> brief.
             with _pod_forwarded_agent_client(pod_name(executor_id)):
-                fulfilled = asyncio.run(crew.fulfill_crew({
-                    "run_id": run_id, "company": "hello-saas",
-                    "crew_template": "feature-delivery", "conductor": "pm-1",
-                    "task_text": task_text,
-                }))
+                fulfilled = asyncio.run(
+                    crew.fulfill_crew(
+                        {
+                            "run_id": run_id,
+                            "company": "hello-saas",
+                            "crew_template": "feature-delivery",
+                            "conductor": "pm-1",
+                            "task_text": task_text,
+                        }
+                    )
+                )
                 assert f"feature/slugify-{nonce}" in fulfilled["brief"], (
                     "the brief lost the delivery constraint"
                 )
@@ -215,28 +247,43 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 
             # Parentage on every gateway decision the crew made.
             story = audit_story(run_id)
-            crew_events = [e for e in story if e["source"] == "gateway"
-                           and e["lifecycle"] == "ephemeral"]
+            crew_events = [
+                e
+                for e in story
+                if e["source"] == "gateway" and e["lifecycle"] == "ephemeral"
+            ]
             assert crew_events, "no ephemeral gateway decisions in the story"
             assert all(e["parent_agent_id"] == "pm-1" for e in crew_events)
-            assert any(e["agent_id"] == executor_id
-                       and e["tool"] == "git.open_pr"
-                       and e["decision"] == "allow" for e in crew_events), (
-                "the PR was not opened by the ephemeral executor"
-            )
+            assert any(
+                e["agent_id"] == executor_id
+                and e["tool"] == "git.open_pr"
+                and e["decision"] == "allow"
+                for e in crew_events
+            ), "the PR was not opened by the ephemeral executor"
             # The planner acted too, as itself.
             planner_id = ephemeral_agent_id("feature-delivery", "planner", run_id)
             assert any(e["agent_id"] == planner_id for e in crew_events)
 
             # A member outside its compiled allow-list is denied at the
             # gateway: the read-only planner cannot write.
-            planner_token = asyncio.run(crew.mint_participant({
-                "run_id": run_id, "company": "hello-saas",
-                "crew_template": "feature-delivery", "member": "planner",
-                "role_template": "backend-engineer", "parent_agent_id": "pm-1",
-            }))["token"]
-            denied = _call(env, planner_token, "sandbox.write_file",
-                           {"run_id": run_id, "path": "x.py", "content": "x"})
+            planner_token = asyncio.run(
+                crew.mint_participant(
+                    {
+                        "run_id": run_id,
+                        "company": "hello-saas",
+                        "crew_template": "feature-delivery",
+                        "member": "planner",
+                        "role_template": "backend-engineer",
+                        "parent_agent_id": "pm-1",
+                    }
+                )
+            )["token"]
+            denied = _call(
+                env,
+                planner_token,
+                "sandbox.write_file",
+                {"run_id": run_id, "path": "x.py", "content": "x"},
+            )
             assert denied.isError and "default_deny" in denied.content[0].text
 
             # 5. Teardown semantics: revoke + destroy; the executor's token
@@ -252,11 +299,12 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 backend.destroy(handle)
             asyncio.run(crew.destroy_crew_pods(run_id))
             registry.execute(
-                "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,))
+                "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
+            )
             registry.execute(
-                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,))
-            registry.execute(
-                "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
+            )
+            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 def test_worker_kill_leaks_no_crew(stack: None) -> None:
@@ -282,8 +330,9 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
             client = await Client.connect(address)
             wf = await client.start_workflow(
                 "implement",
-                ImplementInput(run_id=run_id, task_text=task_text,
-                               timeouts=FAST_TIMEOUTS),
+                ImplementInput(
+                    run_id=run_id, task_text=task_text, timeouts=FAST_TIMEOUTS
+                ),
                 id=workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )
@@ -292,10 +341,20 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
             deadline = time.monotonic() + 300
             while True:
                 pods = subprocess.run(
-                    ["kubectl", "-n", COMPANY_NS, "get", "pods",
-                     "-l", f"poseidon.dev/kind=crew-agent,poseidon.io/run-id={run_id}",
-                     "-o", "jsonpath={.items[*].metadata.name}"],
-                    capture_output=True, text=True, timeout=30,
+                    [
+                        "kubectl",
+                        "-n",
+                        COMPANY_NS,
+                        "get",
+                        "pods",
+                        "-l",
+                        f"poseidon.dev/kind=crew-agent,poseidon.io/run-id={run_id}",
+                        "-o",
+                        "jsonpath={.items[*].metadata.name}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 )
                 if pods.stdout.strip():
                     break
@@ -305,9 +364,19 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
             # Kill the worker mid-run; the replay finishes the run and its
             # teardown on the replacement pod.
             subprocess.run(
-                ["kubectl", "-n", PLATFORM_NS, "delete", "pod",
-                 "-l", "app=orchestrator-worker", "--wait=false"],
-                check=True, capture_output=True, timeout=60,
+                [
+                    "kubectl",
+                    "-n",
+                    PLATFORM_NS,
+                    "delete",
+                    "pod",
+                    "-l",
+                    "app=orchestrator-worker",
+                    "--wait=false",
+                ],
+                check=True,
+                capture_output=True,
+                timeout=60,
             )
             return await asyncio.wait_for(wf.result(), timeout=900)
 
@@ -322,7 +391,8 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
         )
         assert rows and rows[0]["status"] == "terminated", rows
         registry.execute(
-            "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,))
+            "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
+        )
     # "Survived" means still there, not still there *this instant*. A
     # cancelled fulfillment retry can be mid-`provision` in a worker thread
     # when the workflow returns — `asyncio.to_thread` cannot interrupt it —
@@ -334,9 +404,19 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     deadline = time.monotonic() + 90
     while True:
         pods = subprocess.run(
-            ["kubectl", "-n", COMPANY_NS, "get", "pod", pod_name(executor_id),
-             "-o", "name"],
-            capture_output=True, text=True, timeout=30,
+            [
+                "kubectl",
+                "-n",
+                COMPANY_NS,
+                "get",
+                "pod",
+                pod_name(executor_id),
+                "-o",
+                "name",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if pods.returncode != 0:
             break
@@ -364,8 +444,9 @@ async def _register(gateway_url, token, run_id, handle) -> None:
     from orchestrator.clients import GatewayClient
 
     async with GatewayClient(gateway_url, token) as gateway:
-        await gateway.register_sandbox(run_id, handle.url, handle.namespace,
-                                       handle.job_name)
+        await gateway.register_sandbox(
+            run_id, handle.url, handle.namespace, handle.job_name
+        )
 
 
 async def _unregister(gateway_url, token, run_id) -> None:

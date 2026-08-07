@@ -177,21 +177,25 @@ def create_app(
         # -- run attribution (mandatory; anonymous passthrough is gone) ----
         run_id = request.headers.get(RUN_HEADER, "").strip()
         if not run_id:
-            await emit(identity, "", "", "deny", "llm_unattributed", digest,
-                       started, None)
+            await emit(
+                identity, "", "", "deny", "llm_unattributed", digest, started, None
+            )
             return _error(400, "missing X-Poseidon-Run-Id", "llm_unattributed")
         if identity.lifecycle == LIFECYCLE_EPHEMERAL and identity.run_id != run_id:
-            await emit(identity, run_id, "", "deny", "llm_foreign_run", digest,
-                       started, None)
+            await emit(
+                identity, run_id, "", "deny", "llm_foreign_run", digest, started, None
+            )
             return _error(403, "not a participant of this run", "llm_foreign_run")
         run = await asyncio.to_thread(runs.get, run_id)
         if run is None or (
             identity.company and run.company and run.company != identity.company
         ):
-            await emit(identity, run_id, "", "deny", "llm_unknown_run", digest,
-                       started, None)
-            return _error(403, f"unknown run {run_id!r} for this caller",
-                          "llm_unknown_run")
+            await emit(
+                identity, run_id, "", "deny", "llm_unknown_run", digest, started, None
+            )
+            return _error(
+                403, f"unknown run {run_id!r} for this caller", "llm_unknown_run"
+            )
         workflow = run.workflow or ""
         company = identity.company or run.company or ""
 
@@ -203,8 +207,16 @@ def create_app(
 
         cap, spent = await asyncio.to_thread(read_budget)
         if cap > 0 and spent >= cap:
-            await emit(identity, run_id, workflow, "deny", "budget_exhausted",
-                       digest, started, None)
+            await emit(
+                identity,
+                run_id,
+                workflow,
+                "deny",
+                "budget_exhausted",
+                digest,
+                started,
+                None,
+            )
             return _error(
                 429,
                 f"budget_exhausted: run {run_id} spent {spent:.6f} USD of its"
@@ -222,12 +234,28 @@ def create_app(
         try:
             upstream = await http_client.post("/v1/chat/completions", json=body)
         except httpx.HTTPError as exc:
-            await emit(identity, run_id, workflow, "allow", "budget_headroom",
-                       digest, started, "error")
+            await emit(
+                identity,
+                run_id,
+                workflow,
+                "allow",
+                "budget_headroom",
+                digest,
+                started,
+                "error",
+            )
             return _error(502, f"upstream unreachable: {exc}", "llm_upstream_error")
         if upstream.status_code != 200:
-            await emit(identity, run_id, workflow, "allow", "budget_headroom",
-                       digest, started, "error")
+            await emit(
+                identity,
+                run_id,
+                workflow,
+                "allow",
+                "budget_headroom",
+                digest,
+                started,
+                "error",
+            )
             return JSONResponse(upstream.json(), status_code=upstream.status_code)
 
         payload = upstream.json()
@@ -248,13 +276,16 @@ def create_app(
             completion_tokens=completion_tokens,
             usd=usd,
         )
-        await emit(identity, run_id, workflow, "allow", "budget_headroom",
-                   digest, started, "ok")
+        await emit(
+            identity, run_id, workflow, "allow", "budget_headroom", digest, started, "ok"
+        )
         return JSONResponse(payload)
 
     app.add_middleware(AuthMiddleware, authenticator=authenticator)
     if registry is not None:
+
         @app.on_event("shutdown")
         def close_registry() -> None:
             registry.close()
+
     return app

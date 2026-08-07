@@ -255,15 +255,17 @@ class ImplementWorkflow:
             # plus the executor's crew-pod address.
             crew = await workflow.execute_activity(
                 "fulfill_crew",
-                args=[{
-                    "run_id": input.run_id,
-                    "company": config["company"],
-                    "crew_template": config["crew_template"],
-                    "conductor": config["conductor"],
-                    "conductor_role": config["conductor_role"],
-                    "task_text": input.task_text,
-                    "record_under_authority": True,
-                }],
+                args=[
+                    {
+                        "run_id": input.run_id,
+                        "company": config["company"],
+                        "crew_template": config["crew_template"],
+                        "conductor": config["conductor"],
+                        "conductor_role": config["conductor_role"],
+                        "task_text": input.task_text,
+                        "record_under_authority": True,
+                    }
+                ],
                 start_to_close_timeout=timedelta(seconds=timeouts.fulfill_s),
                 heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
                 retry_policy=STEP_RETRY,
@@ -316,9 +318,9 @@ class ImplementWorkflow:
                 # The deliver status carries pr_url; keep the implement
                 # iteration count alongside it.
                 merged = dict(result or {})
-                merged.update({
-                    k: v for k, v in (delivery or {}).items() if v is not None
-                })
+                merged.update(
+                    {k: v for k, v in (delivery or {}).items() if v is not None}
+                )
                 result = merged
         except asyncio.CancelledError:
             # Cooperative cancel: compensate, then let the cancellation

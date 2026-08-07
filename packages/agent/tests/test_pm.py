@@ -24,14 +24,22 @@ def settings(tmp_path) -> AgentSettings:
 
 
 def test_pm_files_ticket_and_records_intent(settings, gateway):
-    llm = ScriptedLLM([
-        calls(tc("read_issues")),
-        calls(tc("create_issue", title="Implement slug endpoint",
-                 body="acceptance: ...")),
-        calls(tc("request_crew", crew_template="feature-delivery",
-                 reason="ticket 7")),
-        says("Set up: ticket 7, crew requested."),
-    ])
+    llm = ScriptedLLM(
+        [
+            calls(tc("read_issues")),
+            calls(
+                tc(
+                    "create_issue",
+                    title="Implement slug endpoint",
+                    body="acceptance: ...",
+                )
+            ),
+            calls(
+                tc("request_crew", crew_template="feature-delivery", reason="ticket 7")
+            ),
+            says("Set up: ticket 7, crew requested."),
+        ]
+    )
 
     with scripted(gateway, llm):
         result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
@@ -44,6 +52,7 @@ def test_pm_files_ticket_and_records_intent(settings, gateway):
     # The PM prompt is the PM's — the mock brain keys on it.
     messages, _ = llm.requests[0]
     from conftest import text_of
+
     assert "product manager" in text_of(messages[0])
 
 
@@ -52,11 +61,13 @@ def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
     tool result and can carry on scoping. `exec` is not even on the PM's
     tool surface — the SDK feeds back tool-not-found without any gateway
     call."""
-    llm = ScriptedLLM([
-        calls(tc("exec", cmd="rm -rf /")),  # not a PM tool at all
-        calls(tc("create_issue", title="t", body="b")),
-        says("done"),
-    ])
+    llm = ScriptedLLM(
+        [
+            calls(tc("exec", cmd="rm -rf /")),  # not a PM tool at all
+            calls(tc("create_issue", title="t", body="b")),
+            says("done"),
+        ]
+    )
 
     with scripted(gateway, llm):
         result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")

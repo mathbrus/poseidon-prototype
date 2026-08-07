@@ -39,7 +39,9 @@ def create_app(bundles: PolicyBundles | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/bundles/{company}/bundle.tar.gz")
-    def bundle(company: str, if_none_match: str | None = Header(default=None)) -> Response:
+    def bundle(
+        company: str, if_none_match: str | None = Header(default=None)
+    ) -> Response:
         stored = _store().get(company)
         if stored is None:
             # No compiled bundle means no policy: OPA keeps serving what it

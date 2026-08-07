@@ -62,8 +62,12 @@ def audit() -> InMemoryAuditStore:
 def instances() -> InMemoryAgentInstances:
     store = InMemoryAgentInstances()
     store.upsert(
-        "backend-engineer-1", COMPANY_NS, "backend-engineer",
-        "backend-engineer", "standard", namespace=COMPANY_NS,
+        "backend-engineer-1",
+        COMPANY_NS,
+        "backend-engineer",
+        "backend-engineer",
+        "standard",
+        namespace=COMPANY_NS,
     )
     return store
 
@@ -155,9 +159,7 @@ async def test_token_review_is_cached(authenticator, reviewer):
 
 
 async def test_no_reviewer_fails_closed(authn_settings, audit, instances, participants):
-    lone = Authenticator(
-        authn_settings, audit, instances, participants, reviewer=None
-    )
+    lone = Authenticator(authn_settings, audit, instances, participants, reviewer=None)
     assert await lone.authenticate("Bearer sa-agent", "/mcp") is None
     assert rules(audit) == ["authn_unknown_token"]
 
@@ -179,8 +181,7 @@ def mint(_key: str = JWT_KEY, _ttl: int = 600, **overrides) -> str:
 
 
 async def test_ephemeral_jwt_with_live_row_is_accepted(authenticator, participants):
-    participants.add("executor-01X", RUN_ID, "pm-1", "feature-delivery",
-                     "executor")
+    participants.add("executor-01X", RUN_ID, "pm-1", "feature-delivery", "executor")
     identity = await authenticator.authenticate(f"Bearer {mint()}", "/mcp")
     assert identity is not None
     assert identity.lifecycle == "ephemeral"
@@ -202,8 +203,9 @@ async def test_ephemeral_jwt_without_row_is_rejected(authenticator, audit):
 
 
 async def test_row_termination_revokes_before_ttl(authenticator, participants, audit):
-    participants.add("executor-01X", RUN_ID, "pm-1", "feature-delivery",
-                     "backend-engineer")
+    participants.add(
+        "executor-01X", RUN_ID, "pm-1", "feature-delivery", "backend-engineer"
+    )
     token = mint()
     assert await authenticator.authenticate(f"Bearer {token}", "/mcp") is not None
 
@@ -213,8 +215,9 @@ async def test_row_termination_revokes_before_ttl(authenticator, participants, a
 
 
 async def test_run_id_mismatch_is_rejected(authenticator, participants, audit):
-    participants.add("executor-01X", "run-OTHER", "pm-1", "feature-delivery",
-                     "backend-engineer")
+    participants.add(
+        "executor-01X", "run-OTHER", "pm-1", "feature-delivery", "backend-engineer"
+    )
     assert await authenticator.authenticate(f"Bearer {mint()}", "/mcp") is None
     assert rules(audit) == ["authn_no_live_participant"]
 
@@ -226,8 +229,9 @@ async def test_forged_signature_is_rejected_and_audited(authenticator, audit):
 
 
 async def test_expired_jwt_is_rejected(authenticator, participants, audit):
-    participants.add("executor-01X", RUN_ID, "pm-1", "feature-delivery",
-                     "backend-engineer")
+    participants.add(
+        "executor-01X", RUN_ID, "pm-1", "feature-delivery", "backend-engineer"
+    )
     stale = mint(_ttl=-10)
     assert await authenticator.authenticate(f"Bearer {stale}", "/mcp") is None
     assert rules(audit) == ["authn_expired"]
@@ -259,18 +263,25 @@ async def test_kube_token_reviewer_speaks_tokenreview(tmp_path):
         assert request.headers["authorization"] == "Bearer gateway-own-token"
         assert body["spec"]["audiences"] == [AUD]
         if body["spec"]["token"] == "good":
-            return httpx.Response(201, json={"status": {
-                "authenticated": True,
-                "user": {"username":
-                         "system:serviceaccount:hello-saas:backend-engineer-1"},
-            }})
+            return httpx.Response(
+                201,
+                json={
+                    "status": {
+                        "authenticated": True,
+                        "user": {
+                            "username": "system:serviceaccount:hello-saas:backend-engineer-1"
+                        },
+                    }
+                },
+            )
         return httpx.Response(201, json={"status": {"authenticated": False}})
 
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url="https://kube.test"
     )
-    reviewer = KubeTokenReviewer("https://kube.test", str(own), "unused-ca",
-                                 http_client=client)
+    reviewer = KubeTokenReviewer(
+        "https://kube.test", str(own), "unused-ca", http_client=client
+    )
     account = await reviewer.review("good", AUD)
     assert account == ServiceAccount("hello-saas", "backend-engineer-1")
     assert await reviewer.review("bad", AUD) is None
@@ -286,13 +297,18 @@ async def test_kube_token_reviewer_ignores_non_service_accounts(tmp_path):
     own.write_text("t")
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(201, json={"status": {
-            "authenticated": True, "user": {"username": "kubernetes-admin"},
-        }})
+        return httpx.Response(
+            201,
+            json={
+                "status": {
+                    "authenticated": True,
+                    "user": {"username": "kubernetes-admin"},
+                }
+            },
+        )
 
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url="https://kube.test"
     )
-    reviewer = KubeTokenReviewer("https://kube.test", str(own), "ca",
-                                 http_client=client)
+    reviewer = KubeTokenReviewer("https://kube.test", str(own), "ca", http_client=client)
     assert await reviewer.review("any", AUD) is None

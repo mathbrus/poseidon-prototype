@@ -153,8 +153,8 @@ def signal(
     approved: bool = typer.Option(True, help="Gate verdict carried by the signal"),
     payload: str = typer.Option(None, help="Optional payload"),
     workflow: str = typer.Option(
-        "implement", help="Which workflow family the run belongs to:"
-        " implement, intake or review"
+        "implement",
+        help="Which workflow family the run belongs to: implement, intake or review",
     ),
 ) -> None:
     """Send a gate signal to a run's workflow — the HITL verdict path
@@ -175,8 +175,8 @@ def signal(
 def status(
     run_id: str,
     workflow: str = typer.Option(
-        "implement", help="Which workflow family the run belongs to:"
-        " implement, intake or review"
+        "implement",
+        help="Which workflow family the run belongs to: implement, intake or review",
     ),
 ) -> None:
     """Show the workflow status (and result, when completed) of a run."""

@@ -27,7 +27,9 @@ def make_event(**overrides):
 def test_round_trip_matches_contract():
     """The audit event shape: decision fields plus source and the
     attribution columns, empty when genuinely absent."""
-    event = make_event(decision="deny", rule="branch_must_be_feature", backend_status=None)
+    event = make_event(
+        decision="deny", rule="branch_must_be_feature", backend_status=None
+    )
     parsed = json.loads(event.model_dump_json())
     assert parsed == {
         "ts": "2026-07-20T17:00:00+00:00",
@@ -50,8 +52,11 @@ def test_round_trip_matches_contract():
 
 def test_v2_attribution_fields_round_trip():
     event = make_event(
-        source="sandbox-infra", company="hello-saas", lifecycle="ephemeral",
-        parent_agent_id="pm-1", workflow="implement",
+        source="sandbox-infra",
+        company="hello-saas",
+        lifecycle="ephemeral",
+        parent_agent_id="pm-1",
+        workflow="implement",
     )
     assert event.source == "sandbox-infra"
     assert event.company == "hello-saas"

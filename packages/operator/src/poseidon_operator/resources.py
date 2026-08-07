@@ -12,7 +12,10 @@ from typing import Any
 from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
 
 AGENT_PORT = 8000
-LABELS = {"app.kubernetes.io/part-of": "poseidon", "app.kubernetes.io/managed-by": "poseidon-operator"}
+LABELS = {
+    "app.kubernetes.io/part-of": "poseidon",
+    "app.kubernetes.io/managed-by": "poseidon-operator",
+}
 # Workload identity: every standing agent runs as its own
 # ServiceAccount, named by its agent_id, and authenticates to the MCP
 # gateway with a kubelet-rotated projected token scoped to this audience.
@@ -103,7 +106,9 @@ def agent_egress(company_ns: str) -> dict[str, Any]:
                     "to": [
                         {
                             "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+                                "matchLabels": {
+                                    "kubernetes.io/metadata.name": "kube-system"
+                                }
                             },
                             "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
                         }
@@ -136,7 +141,9 @@ def agent_ingress(company_ns: str) -> dict[str, Any]:
                                     "kubernetes.io/metadata.name": platform_namespace()
                                 }
                             },
-                            "podSelector": {"matchLabels": {"app": "orchestrator-worker"}},
+                            "podSelector": {
+                                "matchLabels": {"app": "orchestrator-worker"}
+                            },
                         }
                     ],
                     "ports": [{"port": AGENT_PORT}],
@@ -170,9 +177,7 @@ def _peer_rule(name: str) -> dict[str, Any]:
         "to": [
             {
                 "namespaceSelector": {
-                    "matchLabels": {
-                        "kubernetes.io/metadata.name": platform_namespace()
-                    }
+                    "matchLabels": {"kubernetes.io/metadata.name": platform_namespace()}
                 },
                 "podSelector": {"matchLabels": {"app": name}},
             }
@@ -366,27 +371,44 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                             "securityContext": dict(CONTAINER_SECURITY_CONTEXT),
                             "ports": [{"containerPort": AGENT_PORT}],
                             "env": [
-                                {"name": "MCP_GATEWAY_URL",
-                                 "value": f"http://mcp-gateway.{platform_namespace()}.svc.cluster.local:8080"},
-                                {"name": "LLM_PROXY_URL",
-                                 "value": f"http://llm-gateway.{platform_namespace()}.svc.cluster.local:4000"},
+                                {
+                                    "name": "MCP_GATEWAY_URL",
+                                    "value": f"http://mcp-gateway.{platform_namespace()}.svc.cluster.local:8080",
+                                },
+                                {
+                                    "name": "LLM_PROXY_URL",
+                                    "value": f"http://llm-gateway.{platform_namespace()}.svc.cluster.local:4000",
+                                },
                                 # The spec's tier and tool scope ride the pod
                                 # template so an AgentInstance edit converges
                                 # as a rollout. MODEL itself stays cluster
                                 # config: the LLM gateway resolves
                                 # tier -> model.
-                                {"name": "MODEL_TIER",
-                                 "value": spec.get("modelTier", "")},
-                                {"name": "ROLE_TEMPLATE",
-                                 "value": spec["roleTemplate"]},
-                                {"name": "TOOLS",
-                                 "value": ",".join(sorted(spec.get("tools") or []))},
-                                {"name": "MODEL", "value": env.get("MODEL", "mock-brain")},
-                                {"name": "TARGET_REPO", "value": env.get("TARGET_REPO", "")},
-                                {"name": "MAX_ITERATIONS",
-                                 "value": env.get("MAX_ITERATIONS", "10")},
-                                {"name": "GATEWAY_TOKEN_FILE",
-                                 "value": f"{TOKEN_MOUNT_DIR}/token"},
+                                {
+                                    "name": "MODEL_TIER",
+                                    "value": spec.get("modelTier", ""),
+                                },
+                                {"name": "ROLE_TEMPLATE", "value": spec["roleTemplate"]},
+                                {
+                                    "name": "TOOLS",
+                                    "value": ",".join(sorted(spec.get("tools") or [])),
+                                },
+                                {
+                                    "name": "MODEL",
+                                    "value": env.get("MODEL", "mock-brain"),
+                                },
+                                {
+                                    "name": "TARGET_REPO",
+                                    "value": env.get("TARGET_REPO", ""),
+                                },
+                                {
+                                    "name": "MAX_ITERATIONS",
+                                    "value": env.get("MAX_ITERATIONS", "10"),
+                                },
+                                {
+                                    "name": "GATEWAY_TOKEN_FILE",
+                                    "value": f"{TOKEN_MOUNT_DIR}/token",
+                                },
                                 # The python base image bakes this in; blank
                                 # it so no token-shaped value exists in a
                                 # company pod at all (E3).

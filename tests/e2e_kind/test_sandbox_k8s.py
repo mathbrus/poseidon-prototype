@@ -35,7 +35,12 @@ GIT_ENV = {
 
 def git(workspace: Path, *args: str) -> str:
     proc = subprocess.run(
-        ["git", *args], cwd=workspace, env=GIT_ENV, capture_output=True, text=True, check=True
+        ["git", *args],
+        cwd=workspace,
+        env=GIT_ENV,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return proc.stdout.strip()
 
@@ -88,7 +93,8 @@ def test_provision_serve_destroy(backend: K8sJobsBackend, workspace_tar: bytes):
         exit_code, output = backend._exec(
             handle.pod_name,
             [
-                "python", "-c",
+                "python",
+                "-c",
                 "import urllib.request; print(urllib.request.urlopen("
                 "'http://localhost:8000/openapi.json', timeout=2).status)",
             ],
@@ -113,9 +119,7 @@ def test_deadline_kills_runaway_sandbox(backend: K8sJobsBackend, workspace_tar: 
     try:
         deadline = time.monotonic() + 120
         while sandbox_pods(run_id):
-            assert time.monotonic() < deadline, (
-                "sandbox pod survived its policy deadline"
-            )
+            assert time.monotonic() < deadline, "sandbox pod survived its policy deadline"
             time.sleep(2)
     finally:
         backend.destroy(handle)

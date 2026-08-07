@@ -28,13 +28,33 @@ def _runner():
     if shutil.which("opa"):
         return lambda bundle, stdin, query: subprocess.run(
             ["opa", "eval", "-d", bundle, "-f", "raw", "-I", query],
-            input=stdin, capture_output=True, text=True, timeout=60,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     if shutil.which("docker"):
         return lambda bundle, stdin, query: subprocess.run(
-            ["docker", "run", "--rm", "-i", "-v", f"{bundle}:/b:ro",
-             "openpolicyagent/opa", "eval", "-d", "/b", "-f", "raw", "-I", query],
-            input=stdin, capture_output=True, text=True, timeout=120,
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-i",
+                "-v",
+                f"{bundle}:/b:ro",
+                "openpolicyagent/opa",
+                "eval",
+                "-d",
+                "/b",
+                "-f",
+                "raw",
+                "-I",
+                query,
+            ],
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
     return None
 
@@ -88,9 +108,13 @@ def standing(role: str, **extra) -> dict:
 
 
 def test_pm_may_request_a_crew(decide):
-    decision = decide(**standing("pm", tool="crew.request",
-                                 args={"crew_template": "feature-review",
-                                       "reason": "review PR"}))
+    decision = decide(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "feature-review", "reason": "review PR"},
+        )
+    )
     assert decision["allow"] is True
 
 
@@ -109,16 +133,33 @@ def test_planner_is_read_only(decide):
     """Both members run the `backend-engineer` template, so without the
     crew-member discriminator the planner would inherit delivery rights."""
     read = decide(
-        **ephemeral("feature-delivery", "planner", "backend-engineer",
-                    tool="sandbox.read_file", run_binding_verified=True, args={})
+        **ephemeral(
+            "feature-delivery",
+            "planner",
+            "backend-engineer",
+            tool="sandbox.read_file",
+            run_binding_verified=True,
+            args={},
+        )
     )
     write = decide(
-        **ephemeral("feature-delivery", "planner", "backend-engineer",
-                    tool="sandbox.write_file", run_binding_verified=True, args={})
+        **ephemeral(
+            "feature-delivery",
+            "planner",
+            "backend-engineer",
+            tool="sandbox.write_file",
+            run_binding_verified=True,
+            args={},
+        )
     )
     deliver = decide(
-        **ephemeral("feature-delivery", "planner", "backend-engineer",
-                    tool="git.open_pr", args={"branch": "feature/x", "paths": []})
+        **ephemeral(
+            "feature-delivery",
+            "planner",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/x", "paths": []},
+        )
     )
     assert read["allow"] is True
     assert write["allow"] is False
@@ -127,17 +168,26 @@ def test_planner_is_read_only(decide):
 
 def test_executor_delivers_on_feature_branches(decide):
     decision = decide(
-        **ephemeral("feature-delivery", "executor", "backend-engineer",
-                    tool="git.open_pr",
-                    args={"branch": "feature/slugify", "paths": ["slugify.py"]})
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/slugify", "paths": ["slugify.py"]},
+        )
     )
     assert decision["allow"] is True
 
 
 def test_reviewer_cannot_deliver(decide):
     decision = decide(
-        **ephemeral("feature-review", "reviewer", "sdet",
-                    tool="git.open_pr", args={"branch": "feature/x", "paths": []})
+        **ephemeral(
+            "feature-review",
+            "reviewer",
+            "sdet",
+            tool="git.open_pr",
+            args={"branch": "feature/x", "paths": []},
+        )
     )
     assert decision["allow"] is False
 
@@ -147,8 +197,13 @@ def test_reviewer_cannot_deliver(decide):
 
 def test_protected_branch_is_denied(decide):
     decision = decide(
-        **ephemeral("feature-delivery", "executor", "backend-engineer",
-                    tool="git.open_pr", args={"branch": "main", "paths": ["a.py"]})
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "main", "paths": ["a.py"]},
+        )
     )
     assert decision["allow"] is False
     assert decision["rule"].startswith("git_open_pr_")
@@ -156,9 +211,13 @@ def test_protected_branch_is_denied(decide):
 
 def test_denied_paths_beat_an_allowed_branch(decide):
     decision = decide(
-        **ephemeral("feature-delivery", "executor", "backend-engineer",
-                    tool="git.open_pr",
-                    args={"branch": "feature/x", "paths": [".github/workflows/ci.yml"]})
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/x", "paths": [".github/workflows/ci.yml"]},
+        )
     )
     assert decision == {"allow": False, "rule": "git_open_pr_denied_paths"}
 
@@ -170,16 +229,25 @@ def test_sandbox_tools_require_a_verified_run_binding(decide):
     """A per-role allow-list without run binding reopens cross-run tool
     use; the gateway's registry enrichment is what sets this flag."""
     decision = decide(
-        **ephemeral("feature-delivery", "executor", "backend-engineer",
-                    tool="sandbox.exec", args={})
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="sandbox.exec",
+            args={},
+        )
     )
     assert decision["allow"] is False
 
 
 def test_another_company_cannot_borrow_our_rules(decide):
     decision = decide(
-        company="evil-corp", lifecycle="standing", role="pm",
-        tool="crew.request", run_id="run-1", args={},
+        company="evil-corp",
+        lifecycle="standing",
+        role="pm",
+        tool="crew.request",
+        run_id="run-1",
+        args={},
     )
     assert decision["allow"] is False
 
@@ -191,12 +259,28 @@ def test_only_the_platform_may_merge(decide):
     """The workflow merges under its own identity after the human
     gate — via its own decision path; no company role can reach the tool in
     the company package at all."""
-    assert decide(PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr",
-                  run_id="run-1", args={})["allow"] is True
-    assert decide(
-        **ephemeral("feature-delivery", "executor", "backend-engineer",
-                    tool="git.merge_pr", args={})
-    )["allow"] is False
+    assert (
+        decide(
+            PLATFORM_QUERY,
+            lifecycle="platform",
+            tool="git.merge_pr",
+            run_id="run-1",
+            args={},
+        )["allow"]
+        is True
+    )
+    assert (
+        decide(
+            **ephemeral(
+                "feature-delivery",
+                "executor",
+                "backend-engineer",
+                tool="git.merge_pr",
+                args={},
+            )
+        )["allow"]
+        is False
+    )
 
 
 def test_unknown_tool_is_denied_by_default(decide):
@@ -208,16 +292,22 @@ def test_platform_may_retire_a_sandbox_registration(decide):
     """Both gateway admin routes are in PLATFORM_SCOPE — the DELETE was
     missing, which would have killed teardown at the step-12 cutover."""
     for tool in ("/admin/sandboxes", "/admin/sandboxes.delete"):
-        assert decide(PLATFORM_QUERY, lifecycle="platform", tool=tool,
-                      run_id="run-1", args={})["allow"] is True, tool
+        assert (
+            decide(
+                PLATFORM_QUERY, lifecycle="platform", tool=tool, run_id="run-1", args={}
+            )["allow"]
+            is True
+        ), tool
 
 
 def test_company_lifecycles_find_nothing_in_the_platform_package(decide):
     """The platform package carries only platform rules: a standing or
     ephemeral caller routed there by mistake still gets default-deny."""
     assert decide(
-        PLATFORM_QUERY, **standing("backend-engineer", tool="sandbox.exec",
-                                   run_binding_verified=True, args={})
+        PLATFORM_QUERY,
+        **standing(
+            "backend-engineer", tool="sandbox.exec", run_binding_verified=True, args={}
+        ),
     ) == {"allow": False, "rule": "default_deny"}
 
 
@@ -226,8 +316,13 @@ def test_open_pr_without_paths_is_denied(decide):
     args.paths cannot be checked against them, so it is denied (the
     gateway's bundle-apply always supplies the paths)."""
     decision = decide(
-        **ephemeral("feature-delivery", "executor", "backend-engineer",
-                    tool="git.open_pr", args={"branch": "feature/x"})
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/x"},
+        )
     )
     assert decision == {"allow": False, "rule": "git_open_pr_paths_missing"}
 
@@ -254,7 +349,9 @@ def test_bundle_without_policies_still_loads(tmp_path_factory, blueprint):
     declares both rule sets."""
     del blueprint["policies"]
     decision = _eval_bundle(
-        tmp_path_factory, blueprint, "no-policies",
+        tmp_path_factory,
+        blueprint,
+        "no-policies",
         standing("pm", tool="issues.purge", args={}),
     )
     assert decision == {"allow": False, "rule": "default_deny"}
@@ -265,10 +362,16 @@ def test_pattern_with_a_backtick_cannot_inject_policy(tmp_path_factory, blueprin
     used to terminate the raw literal and splice text into the bundle."""
     blueprint["policies"]["branch_protection"]["allowed_pattern"] = "^feature/`x.*"
     decision = _eval_bundle(
-        tmp_path_factory, blueprint, "backtick-pattern",
-        ephemeral("feature-delivery", "executor", "backend-engineer",
-                  tool="git.open_pr",
-                  args={"branch": "feature/nope", "paths": ["a.py"]}),
+        tmp_path_factory,
+        blueprint,
+        "backtick-pattern",
+        ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/nope", "paths": ["a.py"]},
+        ),
     )
     assert decision == {"allow": False, "rule": "git_open_pr_branch_pattern"}
 
@@ -278,9 +381,16 @@ def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
     time to match the lowercased input."""
     blueprint["policies"]["branch_protection"] = {"protected": ["Main"]}
     decision = _eval_bundle(
-        tmp_path_factory, blueprint, "uppercase-protected",
-        ephemeral("feature-delivery", "executor", "backend-engineer",
-                  tool="git.open_pr", args={"branch": "main", "paths": ["a.py"]}),
+        tmp_path_factory,
+        blueprint,
+        "uppercase-protected",
+        ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "main", "paths": ["a.py"]},
+        ),
     )
     assert decision == {"allow": False, "rule": "git_open_pr_protected_branch"}
 
@@ -316,14 +426,22 @@ def test_crew_request_is_narrowed_to_may_spawn(decide):
     """The compiled crew.request rule requires the requested
     template to be in the conductor's may_spawn list — spawn intent outside
     it never even records."""
-    allowed = decide(**standing("pm", tool="crew.request",
-                                args={"crew_template": "feature-delivery",
-                                      "reason": "ticket"}))
+    allowed = decide(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "feature-delivery", "reason": "ticket"},
+        )
+    )
     assert allowed["allow"] is True
 
-    outside = decide(**standing("pm", tool="crew.request",
-                                args={"crew_template": "shadow-ops",
-                                      "reason": "hm"}))
+    outside = decide(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "shadow-ops", "reason": "hm"},
+        )
+    )
     assert outside == {"allow": False, "rule": "default_deny"}
 
     absent = decide(**standing("pm", tool="crew.request", args={}))
@@ -334,19 +452,28 @@ def test_crew_request_concurrency_cap_denies_by_rule(decide):
     """16d: the PM's max_concurrent (2 in hello-saas) is a compiled deny
     keyed on the instance — a first-class governance event, not a
     default-deny shrug. The count rides the enriched input."""
-    under = decide(**standing("pm", tool="crew.request",
-                              args={"crew_template": "feature-delivery"}),
-                   agent_id="pm-1", active_spawns=1, budget_headroom=True)
+    under = decide(
+        **standing("pm", tool="crew.request", args={"crew_template": "feature-delivery"}),
+        agent_id="pm-1",
+        active_spawns=1,
+        budget_headroom=True,
+    )
     assert under["allow"] is True
 
-    over = decide(**standing("pm", tool="crew.request",
-                             args={"crew_template": "feature-delivery"}),
-                  agent_id="pm-1", active_spawns=2, budget_headroom=True)
+    over = decide(
+        **standing("pm", tool="crew.request", args={"crew_template": "feature-delivery"}),
+        agent_id="pm-1",
+        active_spawns=2,
+        budget_headroom=True,
+    )
     assert over == {"allow": False, "rule": "crew_request_over_cap"}
 
 
 def test_crew_request_without_budget_headroom_is_denied(decide):
-    decision = decide(**standing("pm", tool="crew.request",
-                                 args={"crew_template": "feature-delivery"}),
-                      agent_id="pm-1", active_spawns=0, budget_headroom=False)
+    decision = decide(
+        **standing("pm", tool="crew.request", args={"crew_template": "feature-delivery"}),
+        agent_id="pm-1",
+        active_spawns=0,
+        budget_headroom=False,
+    )
     assert decision == {"allow": False, "rule": "crew_request_no_budget"}

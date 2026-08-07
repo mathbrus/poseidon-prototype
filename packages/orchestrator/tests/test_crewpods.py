@@ -57,8 +57,9 @@ def test_manifest_is_contained_and_labeled():
 
 
 def test_pod_name_fits_kubernetes():
-    agent_id = ephemeral_agent_id("feature-delivery", "executor",
-                                  "run-01HXXXXXXXXXXXXXXXXXXXXXXXXX")
+    agent_id = ephemeral_agent_id(
+        "feature-delivery", "executor", "run-01HXXXXXXXXXXXXXXXXXXXXXXXXX"
+    )
     assert len(pod_name(agent_id)) <= 63
 
 
@@ -70,8 +71,9 @@ class FakeProvisioner:
         self.provisioned: list[dict] = []
         self.destroyed: list[str] = []
 
-    def provision(self, *, agent_id, run_id, company, agent_image, env,
-                  still_wanted=None):
+    def provision(
+        self, *, agent_id, run_id, company, agent_image, env, still_wanted=None
+    ):
         from orchestrator.crewpods import CrewPodAbandoned, CrewPodHandle
 
         # Mirrors the real provisioner's step-23 contract: the caller's
@@ -80,12 +82,18 @@ class FakeProvisioner:
         # being wired up.
         if still_wanted is not None and not still_wanted():
             raise CrewPodAbandoned(f"run {run_id} was torn down")
-        self.provisioned.append({
-            "agent_id": agent_id, "run_id": run_id, "company": company,
-            "agent_image": agent_image, "env": dict(env),
-        })
-        return CrewPodHandle(agent_id=agent_id, pod_name=pod_name(agent_id),
-                             url="http://10.0.0.7:8000")
+        self.provisioned.append(
+            {
+                "agent_id": agent_id,
+                "run_id": run_id,
+                "company": company,
+                "agent_image": agent_image,
+                "env": dict(env),
+            }
+        )
+        return CrewPodHandle(
+            agent_id=agent_id, pod_name=pod_name(agent_id), url="http://10.0.0.7:8000"
+        )
 
     def destroy(self, run_id: str) -> list[str]:
         self.destroyed.append(run_id)
@@ -184,10 +192,16 @@ class FakePlanHost:
             self.dispatches.append(_json.loads(request.content))
             return httpx.Response(202, json={})
         if request.method == "GET" and request.url.path.startswith("/task/"):
-            return httpx.Response(200, json={
-                "status": "done", "pr_url": None, "iterations": 0,
-                "error": None, "brief": self.brief,
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "status": "done",
+                    "pr_url": None,
+                    "iterations": 0,
+                    "error": None,
+                    "brief": self.brief,
+                },
+            )
         return httpx.Response(404)
 
 
@@ -204,15 +218,26 @@ def fulfill_world(settings, provisioner, monkeypatch):
     audit = InMemoryAuditStore()
     requests = InMemoryCrewRequests()
     companies = InMemoryCompanies()
-    companies.upsert("hello-saas", {
-        "namespace": "hello-saas",
-        "crewMembers": [
-            {"crew": "feature-delivery", "member": "planner",
-             "role_template": "backend-engineer", "needs_sandbox": False},
-            {"crew": "feature-delivery", "member": "executor",
-             "role_template": "backend-engineer", "needs_sandbox": True},
-        ],
-    })
+    companies.upsert(
+        "hello-saas",
+        {
+            "namespace": "hello-saas",
+            "crewMembers": [
+                {
+                    "crew": "feature-delivery",
+                    "member": "planner",
+                    "role_template": "backend-engineer",
+                    "needs_sandbox": False,
+                },
+                {
+                    "crew": "feature-delivery",
+                    "member": "executor",
+                    "role_template": "backend-engineer",
+                    "needs_sandbox": True,
+                },
+            ],
+        },
+    )
     plan_host = FakePlanHost()
 
     import httpx
@@ -228,8 +253,7 @@ def fulfill_world(settings, provisioner, monkeypatch):
         )
 
     monkeypatch.setattr(clients.AgentClient, "__init__", patched)
-    crew = CrewActivities(settings, participants, audit, provisioner,
-                          requests, companies)
+    crew = CrewActivities(settings, participants, audit, provisioner, requests, companies)
     return crew, participants, audit, requests, plan_host
 
 
@@ -237,11 +261,17 @@ def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
     crew, participants, audit, requests, plan_host = fulfill_world
     requests.record("pm-1", "feature-delivery", RUN_ID, "ship ticket 7")
 
-    result = asyncio.run(crew.fulfill_crew({
-        "run_id": RUN_ID, "company": "hello-saas",
-        "crew_template": "feature-delivery", "conductor": "pm-1",
-        "task_text": "the raw goal",
-    }))
+    result = asyncio.run(
+        crew.fulfill_crew(
+            {
+                "run_id": RUN_ID,
+                "company": "hello-saas",
+                "crew_template": "feature-delivery",
+                "conductor": "pm-1",
+                "task_text": "the raw goal",
+            }
+        )
+    )
 
     # Both members minted with parentage; only the executor got a pod.
     assert result["members"] == ["executor", "planner"]
@@ -263,11 +293,17 @@ def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
 
     # The request is consumed; a retry converges instead of duplicating.
     assert requests.rows[list(requests.rows)[0]]["status"] == "fulfilled"
-    again = asyncio.run(crew.fulfill_crew({
-        "run_id": RUN_ID, "company": "hello-saas",
-        "crew_template": "feature-delivery", "conductor": "pm-1",
-        "task_text": "the raw goal",
-    }))
+    again = asyncio.run(
+        crew.fulfill_crew(
+            {
+                "run_id": RUN_ID,
+                "company": "hello-saas",
+                "crew_template": "feature-delivery",
+                "conductor": "pm-1",
+                "task_text": "the raw goal",
+            }
+        )
+    )
     assert again["executor_agent_id"] == executor_id
 
     tools = [e.tool for e in audit.events]
@@ -277,11 +313,17 @@ def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
 def test_fulfill_without_recorded_intent_refuses(fulfill_world):
     crew, participants, _, _, _ = fulfill_world
     with pytest.raises(RuntimeError, match="no recorded crew request"):
-        asyncio.run(crew.fulfill_crew({
-            "run_id": RUN_ID, "company": "hello-saas",
-            "crew_template": "feature-delivery", "conductor": "pm-1",
-            "task_text": "t",
-        }))
+        asyncio.run(
+            crew.fulfill_crew(
+                {
+                    "run_id": RUN_ID,
+                    "company": "hello-saas",
+                    "crew_template": "feature-delivery",
+                    "conductor": "pm-1",
+                    "task_text": "t",
+                }
+            )
+        )
     assert participants.rows == {}  # nothing minted without authority
 
 
@@ -311,25 +353,24 @@ class FakeOpa:
 
                 fake.calls.append((url, json))
                 body = {} if fake.result is None else {"result": fake.result}
-                return real.Response(
-                    200, json=body, request=real.Request("POST", url)
-                )
+                return real.Response(200, json=body, request=real.Request("POST", url))
 
         return _Client()
 
 
 def _fulfill_spec():
     return {
-        "run_id": RUN_ID, "company": "hello-saas",
-        "crew_template": "feature-delivery", "conductor": "pm-1",
-        "conductor_role": "pm", "task_text": "the raw goal",
+        "run_id": RUN_ID,
+        "company": "hello-saas",
+        "crew_template": "feature-delivery",
+        "conductor": "pm-1",
+        "conductor_role": "pm",
+        "task_text": "the raw goal",
         "record_under_authority": True,
     }
 
 
-def test_workflow_path_records_under_conductor_authority(
-    fulfill_world, monkeypatch
-):
+def test_workflow_path_records_under_conductor_authority(fulfill_world, monkeypatch):
     """No recorded request + record_under_authority: the same compiled
     crew.request decision is evaluated at OPA under the conductor's
     input, the recording is audited, and fulfillment proceeds."""
@@ -344,7 +385,7 @@ def test_workflow_path_records_under_conductor_authority(
 
     # The decision went to the company's compiled package with the
     # enriched conductor input — not to some hand-rolled check.
-    (url, payload), = opa.calls
+    ((url, payload),) = opa.calls
     assert url.endswith("/v1/data/poseidon/authz/hello_saas/decision")
     decision_input = payload["input"]
     assert decision_input["agent_id"] == "pm-1"
@@ -373,13 +414,11 @@ def test_recording_names_the_calling_workflow(fulfill_world, monkeypatch):
     monkeypatch.setattr(module, "httpx", opa)
 
     asyncio.run(crew.fulfill_crew({**_fulfill_spec(), "workflow": "review"}))
-    (_, payload), = opa.calls
+    ((_, payload),) = opa.calls
     assert payload["input"]["workflow"] == "review"
 
 
-def test_workflow_path_denied_by_the_compiled_decision(
-    fulfill_world, monkeypatch
-):
+def test_workflow_path_denied_by_the_compiled_decision(fulfill_world, monkeypatch):
     import orchestrator.activities.crew as module
 
     crew, participants, audit, requests, _ = fulfill_world
@@ -389,14 +428,12 @@ def test_workflow_path_denied_by_the_compiled_decision(
     with pytest.raises(RuntimeError, match="crew_request_not_in_may_spawn"):
         asyncio.run(crew.fulfill_crew(_fulfill_spec()))
     assert participants.rows == {}  # nothing minted on a deny
-    assert requests.rows == {}      # and nothing recorded
+    assert requests.rows == {}  # and nothing recorded
     event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
     assert event.decision == "deny"
 
 
-def test_workflow_path_with_no_policy_installed_fails_closed(
-    fulfill_world, monkeypatch
-):
+def test_workflow_path_with_no_policy_installed_fails_closed(fulfill_world, monkeypatch):
     """An empty OPA answer (no compiled bundle active) must refuse, not
     improvise."""
     import orchestrator.activities.crew as module

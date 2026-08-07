@@ -112,9 +112,7 @@ class IntakeWorkflow:
                     ),
                 )
                 self._phase = "running"
-                await self._record_gate(
-                    input.run_id, "intake", outcome.kind, timeouts
-                )
+                await self._record_gate(input.run_id, "intake", outcome.kind, timeouts)
                 if outcome.kind != "approved":
                     error = f"intake gate {outcome.kind}"
                     raise _GateClosed()

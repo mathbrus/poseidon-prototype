@@ -210,8 +210,7 @@ class AgentClient:
         caller proceeds to polling either way. Mode `plan` runs the
         read-only planner (step 16d); the optional token is the planner's
         own minted identity when it borrows the executor's brain host."""
-        payload: dict[str, Any] = {"run_id": run_id, "task_text": task_text,
-                                   "mode": mode}
+        payload: dict[str, Any] = {"run_id": run_id, "task_text": task_text, "mode": mode}
         if gateway_token is not None:
             payload["gateway_token"] = gateway_token
         resp = await self._http.post("/task", json=payload)

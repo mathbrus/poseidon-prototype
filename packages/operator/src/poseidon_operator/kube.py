@@ -48,14 +48,13 @@ class Cluster:
         the policy was meant to cover."""
         name = body["metadata"]["name"]
         try:
-            existing = self._networking.read_namespaced_network_policy(
-                name, namespace
-            )
+            existing = self._networking.read_namespaced_network_policy(name, namespace)
         except k8s.exceptions.ApiException as exc:
             if exc.status != 404:
                 raise
             self._apply(
-                self._networking.create_namespaced_network_policy, body,
+                self._networking.create_namespaced_network_policy,
+                body,
                 namespace=namespace,
             )
             return
@@ -70,12 +69,12 @@ class Cluster:
 
     def upsert_role(self, namespace: str, body: dict[str, Any]) -> None:
         name = body["metadata"]["name"]
-        if self._exists(
-            self._rbac.read_namespaced_role, name=name, namespace=namespace
-        ):
+        if self._exists(self._rbac.read_namespaced_role, name=name, namespace=namespace):
             self._apply(
-                self._rbac.patch_namespaced_role, body,
-                name=name, namespace=namespace,
+                self._rbac.patch_namespaced_role,
+                body,
+                name=name,
+                namespace=namespace,
             )
         else:
             self._apply(self._rbac.create_namespaced_role, body, namespace=namespace)
@@ -86,8 +85,10 @@ class Cluster:
             self._rbac.read_namespaced_role_binding, name=name, namespace=namespace
         ):
             self._apply(
-                self._rbac.patch_namespaced_role_binding, body,
-                name=name, namespace=namespace,
+                self._rbac.patch_namespaced_role_binding,
+                body,
+                name=name,
+                namespace=namespace,
             )
         else:
             self._apply(
@@ -100,8 +101,10 @@ class Cluster:
             self._apps.read_namespaced_deployment, name=name, namespace=namespace
         ):
             self._apply(
-                self._apps.patch_namespaced_deployment, body,
-                name=name, namespace=namespace,
+                self._apps.patch_namespaced_deployment,
+                body,
+                name=name,
+                namespace=namespace,
             )
         else:
             self._apply(
@@ -114,13 +117,13 @@ class Cluster:
             self._core.read_namespaced_service, name=name, namespace=namespace
         ):
             self._apply(
-                self._core.patch_namespaced_service, body,
-                name=name, namespace=namespace,
+                self._core.patch_namespaced_service,
+                body,
+                name=name,
+                namespace=namespace,
             )
         else:
-            self._apply(
-                self._core.create_namespaced_service, body, namespace=namespace
-            )
+            self._apply(self._core.create_namespaced_service, body, namespace=namespace)
 
     def upsert_service_account(self, namespace: str, body: dict[str, Any]) -> None:
         name = body["metadata"]["name"]
@@ -128,12 +131,15 @@ class Cluster:
             self._core.read_namespaced_service_account, name=name, namespace=namespace
         ):
             self._apply(
-                self._core.patch_namespaced_service_account, body,
-                name=name, namespace=namespace,
+                self._core.patch_namespaced_service_account,
+                body,
+                name=name,
+                namespace=namespace,
             )
         else:
             self._apply(
-                self._core.create_namespaced_service_account, body,
+                self._core.create_namespaced_service_account,
+                body,
                 namespace=namespace,
             )
 

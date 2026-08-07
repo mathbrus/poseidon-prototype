@@ -64,6 +64,7 @@ class IntakeActivities:
         headroom under the applied blueprint's per-run cap before anything
         is dispatched. Enforcement stays local at the LLM gateway —
         this is the activity-boundary observation of the same ledger."""
+
         def read() -> tuple[float, float]:
             spec = self._companies.get(self._settings.company) or {}
             cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
@@ -81,9 +82,7 @@ class IntakeActivities:
     async def intake_gate_config(self) -> dict[str, str]:
         """The intake workflow's gate configuration from the applied
         blueprint — the gate slot reads config, never hardcodes."""
-        spec = await asyncio.to_thread(
-            self._companies.get, self._settings.company
-        ) or {}
+        spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}
         for workflow in spec.get("workflows") or []:
             if workflow.get("name") == "intake":
                 return dict(workflow.get("gates") or {})
@@ -130,8 +129,7 @@ class IntakeActivities:
             error,
         )
         self._log.bind(run_id=run_id).info(
-            "intake finalized", extra={"status": record.status,
-                                      "tickets": ticket_urls}
+            "intake finalized", extra={"status": record.status, "tickets": ticket_urls}
         )
         return record.as_dict()
 

@@ -46,10 +46,14 @@ def _reviewer_id(run_id: str) -> str:
 
 def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
     return httpx.request(
-        method, f"https://api.github.com{path}",
-        headers={"Accept": "application/vnd.github+json",
-                 "Authorization": f"Bearer {env['GIT_TOKEN']}"},
-        timeout=30, **kwargs,
+        method,
+        f"https://api.github.com{path}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {env['GIT_TOKEN']}",
+        },
+        timeout=30,
+        **kwargs,
     )
 
 
@@ -88,8 +92,10 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
     deadline = time.monotonic() + FAST_TIMEOUTS.merge_gate_s
     escalated = False
     while time.monotonic() < deadline:
-        if any(e["source"] == "process-gate" and e["rule"] == "gate_escalated"
-               for e in audit_story(run_id)):
+        if any(
+            e["source"] == "process-gate" and e["rule"] == "gate_escalated"
+            for e in audit_story(run_id)
+        ):
             escalated = True
             break
         await asyncio.sleep(2)
@@ -110,8 +116,10 @@ def review_chain(stack: None, env: dict) -> dict:
 
     # 1. Intake: tickets + recorded intent under the PM's authority.
     intake_run = new_run_id()
-    goal = ("Ship the slugify utility to production "
-            f"(e2e review-chain goal {intake_run[-6:].lower()})")
+    goal = (
+        "Ship the slugify utility to production "
+        f"(e2e review-chain goal {intake_run[-6:].lower()})"
+    )
 
     async def start_intake() -> dict:
         from temporalio.client import Client
@@ -120,8 +128,7 @@ def review_chain(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=intake_run, goal_text=goal,
-                            timeouts=FAST_TIMEOUTS),
+                IntakeInput(run_id=intake_run, goal_text=goal, timeouts=FAST_TIMEOUTS),
                 id=intake_workflow_id(intake_run),
                 task_queue=TASK_QUEUE,
             )
@@ -132,9 +139,7 @@ def review_chain(stack: None, env: dict) -> dict:
 
     # 2. Implement: the chain's own PR (this module merges it — the shared
     # session fixtures' PRs must stay untouched).
-    chain["implement"] = run_implement(
-        "task-happy.md", kill_worker=False, env=env
-    )
+    chain["implement"] = run_implement("task-happy.md", kill_worker=False, env=env)
     pr_url = chain["implement"]["pr_url"]
     match = re.search(r"/pull/(\d+)$", pr_url or "")
     assert match, f"implement produced no usable PR: {chain['implement']}"
@@ -158,13 +163,17 @@ def review_chain(stack: None, env: dict) -> dict:
         number = re.search(r"/issues/(\d+)$", url)
         if number:
             with contextlib.suppress(Exception):
-                _github(env, "PATCH", f"/repos/{slug}/issues/{number.group(1)}",
-                        json={"state": "closed"})
+                _github(
+                    env,
+                    "PATCH",
+                    f"/repos/{slug}/issues/{number.group(1)}",
+                    json={"state": "closed"},
+                )
     with _registry() as registry:
         registry.execute(
-            "DELETE FROM registry.crew_requests WHERE run_id = %s", (intake_run,))
-        registry.execute(
-            "DELETE FROM registry.runs WHERE run_id = %s", (intake_run,))
+            "DELETE FROM registry.crew_requests WHERE run_id = %s", (intake_run,)
+        )
+        registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (intake_run,))
 
 
 def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
@@ -180,8 +189,9 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     assert record["pr_url"] == review_chain["pr_url"]
 
     env = review_chain["env"]
-    pr = _github(env, "GET",
-                 f"/repos/{_repo_slug(env)}/pulls/{review_chain['pr_number']}")
+    pr = _github(
+        env, "GET", f"/repos/{_repo_slug(env)}/pulls/{review_chain['pr_number']}"
+    )
     assert pr.status_code == 200
     assert pr.json()["merged"] is True, "the gateway merge never landed"
 
@@ -195,8 +205,9 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
     story = audit_story(run_id)
     # Parentage is the gateway pipeline's enrichment (participants row →
     # v2 attribution); lifecycle.revoke rows legitimately carry no parent.
-    reviewer_events = [e for e in story
-                       if e["agent_id"] == reviewer and e["source"] == "gateway"]
+    reviewer_events = [
+        e for e in story if e["agent_id"] == reviewer and e["source"] == "gateway"
+    ]
     tools = [e["tool"] for e in reviewer_events]
     assert "git.read" in tools, "the reviewer never read the diff"
     assert "sandbox.run_tests" in tools, "the reviewer never executed the suite"
@@ -210,7 +221,8 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
     # The findings comment is really on the PR.
     env = review_chain["env"]
     comments = _github(
-        env, "GET",
+        env,
+        "GET",
         f"/repos/{_repo_slug(env)}/issues/{review_chain['pr_number']}/comments",
     )
     assert comments.status_code == 200
@@ -230,15 +242,15 @@ def test_the_crew_request_was_recorded_under_conductor_authority(
         "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
         "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
         ") c",
-        run_id, default="[]",
+        run_id,
+        default="[]",
     )
     assert len(rows) == 1
     assert rows[0]["conductor"] == "pm-1"
     assert rows[0]["crew_template"] == "feature-review"
     assert rows[0]["status"] == "fulfilled"
 
-    recorded = [e for e in audit_story(run_id)
-                if e["tool"] == "lifecycle.record_request"]
+    recorded = [e for e in audit_story(run_id) if e["tool"] == "lifecycle.record_request"]
     assert len(recorded) == 1
     assert recorded[0]["decision"] == "allow"
     assert recorded[0]["agent_id"] == "pm-1"
@@ -249,8 +261,7 @@ def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
     """Escalation, then the verdict: both transitions
     are process-gate audit events carrying the workflow id, in order."""
     run_id = review_chain["review_run_id"]
-    gate_events = [e for e in audit_story(run_id)
-                   if e["source"] == "process-gate"]
+    gate_events = [e for e in audit_story(run_id) if e["source"] == "process-gate"]
     rules = [e["rule"] for e in gate_events]
     assert rules == ["gate_escalated", "gate_approved"]
     for event in gate_events:
@@ -272,8 +283,11 @@ def test_merge_is_a_gateway_call_strictly_after_the_gate(review_chain: dict) -> 
     merge_index, merge = merges[0]
     assert merge["decision"] == "allow"
     assert merge["lifecycle"] == "platform"
-    approvals = [i for i, e in enumerate(story)
-                 if e["source"] == "process-gate" and e["rule"] == "gate_approved"]
+    approvals = [
+        i
+        for i, e in enumerate(story)
+        if e["source"] == "process-gate" and e["rule"] == "gate_approved"
+    ]
     assert approvals and max(approvals) < merge_index, (
         "the merge does not follow the gate approval in the story"
     )
@@ -286,11 +300,16 @@ def test_one_story_spans_every_review_source(review_chain: dict) -> None:
     run_id = review_chain["review_run_id"]
     story = audit_story(run_id)
     sources = {e["source"] for e in story}
-    assert {"gateway", "llm-gateway", "process-lifecycle",
-            "process-gate"} <= sources, sources
+    assert {"gateway", "llm-gateway", "process-lifecycle", "process-gate"} <= sources, (
+        sources
+    )
     tools = [e["tool"] for e in story]
-    for lifecycle_step in ("lifecycle.record_request", "lifecycle.mint",
-                           "lifecycle.provision_pod", "lifecycle.fulfill",
-                           "lifecycle.revoke"):
+    for lifecycle_step in (
+        "lifecycle.record_request",
+        "lifecycle.mint",
+        "lifecycle.provision_pod",
+        "lifecycle.fulfill",
+        "lifecycle.revoke",
+    ):
         assert lifecycle_step in tools, f"{lifecycle_step} missing from the story"
     assert all(e["run_id"] == run_id for e in story)

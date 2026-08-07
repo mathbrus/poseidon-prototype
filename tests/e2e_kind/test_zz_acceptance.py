@@ -68,7 +68,10 @@ from .test_operator_lifecycle import (
 PG_LOCAL_PORT = 15436  # distinct per module: forwards must never collide
 
 ALL_SOURCES = {
-    "gateway", "llm-gateway", "sandbox-infra", "process-gate",
+    "gateway",
+    "llm-gateway",
+    "sandbox-infra",
+    "process-gate",
     "process-lifecycle",
 }
 
@@ -81,7 +84,10 @@ def _blueprint_cli(args: list[str], dsn: str) -> subprocess.CompletedProcess:
     the cluster's registry."""
     return subprocess.run(
         ["uv", "run", "poseidon", "blueprint", *args],
-        capture_output=True, text=True, timeout=300, cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=REPO_ROOT,
         env={**os.environ, "REGISTRY_DSN": dsn},
     )
 
@@ -161,7 +167,8 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         "SELECT COALESCE(json_agg(p), '[]'::json) FROM ("
         "SELECT agent_id, status, terminated_at"
         " FROM registry.run_participants WHERE run_id = :'run_id') p",
-        run_id, default="[]",
+        run_id,
+        default="[]",
     )
     assert participants, "the crewed run minted no participants at all"
     for row in participants:
@@ -176,7 +183,8 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         "SELECT COALESCE(json_agg(r), '[]'::json) FROM ("
         "SELECT run_id, terminated_at FROM registry.sandbox_registrations"
         " WHERE run_id = :'run_id') r",
-        run_id, default="[]",
+        run_id,
+        default="[]",
     )
     assert registrations, "the run never registered a sandbox"
     for row in registrations:
@@ -195,19 +203,22 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
         "SELECT COALESCE(json_agg(i ORDER BY i.agent_id), '[]'::json) FROM ("
         "SELECT agent_id, hire, role_template, namespace"
         " FROM registry.agent_instances WHERE company = 'hello-saas') i",
-        run_id="", default="[]",
+        run_id="",
+        default="[]",
     )
-    assert [
-        (r["agent_id"], r["role_template"], r["namespace"]) for r in rows
-    ] == [("pm-1", "pm", COMPANY_NS)], (
-        f"the registry roster is not the lean blueprint: {rows}"
-    )
+    assert [(r["agent_id"], r["role_template"], r["namespace"]) for r in rows] == [
+        ("pm-1", "pm", COMPANY_NS)
+    ], f"the registry roster is not the lean blueprint: {rows}"
 
     # And the CRs still agree at suite end (drift check after all the
     # module finalizers): the PM is the only standing instance.
     instances = kubectl(
-        "-n", COMPANY_NS, "get", "agentinstances",
-        "-o", "jsonpath={.items[*].metadata.name}",
+        "-n",
+        COMPANY_NS,
+        "get",
+        "agentinstances",
+        "-o",
+        "jsonpath={.items[*].metadata.name}",
     ).stdout.split()
     assert instances == ["pm"], instances
 
@@ -240,36 +251,41 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
             platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
             ephemeral_ttl_s=900,
         )
-        crew = CrewActivities(
-            settings, RunParticipants(registry), AuditStore(registry)
-        )
+        crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
         Runs(registry).start(
             run_id, "step 25 executor scope check", "implement", None, "hello-saas"
         )
         try:
-            minted = asyncio.run(crew.mint_participant({
-                "run_id": run_id,
-                "company": "hello-saas",
-                "crew_template": "feature-delivery",
-                "member": "executor",
-                "role_template": "backend-engineer",
-                "parent_agent_id": "pm-1",
-            }))
+            minted = asyncio.run(
+                crew.mint_participant(
+                    {
+                        "run_id": run_id,
+                        "company": "hello-saas",
+                        "crew_template": "feature-delivery",
+                        "member": "executor",
+                        "role_template": "backend-engineer",
+                        "parent_agent_id": "pm-1",
+                    }
+                )
+            )
             token = minted["token"]
 
             # Positive control: the executor's in-scope surface answers
             # (policy allow; the backend errors because no sandbox exists —
             # a denied *identity* would never reach the backend).
-            control = _call(env, token, "sandbox.list_dir",
-                            {"run_id": run_id, "path": "."})
+            control = _call(
+                env, token, "sandbox.list_dir", {"run_id": run_id, "path": "."}
+            )
             assert control.isError
             assert "denied by policy" not in control.content[0].text
             assert "no sandbox registered" in control.content[0].text
 
             # Out of scope: PM-only and platform-only tools, denied by rule.
             for tool, args in (
-                ("issues.create", {"run_id": run_id, "repo": repo,
-                                   "title": "x", "body": "y"}),
+                (
+                    "issues.create",
+                    {"run_id": run_id, "repo": repo, "title": "x", "body": "y"},
+                ),
                 ("git.merge_pr", {"run_id": run_id, "repo": repo, "number": 1}),
             ):
                 denied = _call(env, token, tool, args)
@@ -281,17 +297,19 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
             # Both denies are first-class audit events under the minted
             # identity — gateway deny, not prompt hope, reconstructable.
             denies = {
-                e["tool"] for e in audit_story(run_id)
-                if e["source"] == "gateway" and e["decision"] == "deny"
+                e["tool"]
+                for e in audit_story(run_id)
+                if e["source"] == "gateway"
+                and e["decision"] == "deny"
                 and e["agent_id"] == minted["agent_id"]
             }
             assert {"issues.create", "git.merge_pr"} <= denies, denies
         finally:
             asyncio.run(crew.revoke_participants(run_id))
             registry.execute(
-                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,))
-            registry.execute(
-                "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
+            )
+            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 # -- criterion 4: every audit source, real, in this suite execution ---------
@@ -299,15 +317,33 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
 
 def _events_since(fence: str) -> list[dict[str, Any]]:
     proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "exec", "-i", "statefulset/postgres", "--",
-         "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At",
-         "-v", f"fence={fence}", "-f", "-"],
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "exec",
+            "-i",
+            "statefulset/postgres",
+            "--",
+            "psql",
+            "-U",
+            POSTGRES_USER,
+            "-d",
+            POSTGRES_USER,
+            "-At",
+            "-v",
+            f"fence={fence}",
+            "-f",
+            "-",
+        ],
         input=(
             "SELECT COALESCE(json_agg(e), '[]'::json) FROM ("
             "SELECT source, run_id, decision, rule, tool"
             " FROM registry.audit_events WHERE ts >= :'fence') e"
         ),
-        capture_output=True, text=True, timeout=60,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout.strip() or "[]")
@@ -337,9 +373,9 @@ def test_all_five_audit_sources_are_real_in_this_suite(
     # Every source produced run_id-correlated events (authn rejects may
     # legitimately carry none — the credential mapped to nothing).
     for source in sorted(ALL_SOURCES):
-        assert any(
-            e["run_id"] for e in events if e["source"] == source
-        ), f"source {source} never correlated to a run"
+        assert any(e["run_id"] for e in events if e["source"] == source), (
+            f"source {source} never correlated to a run"
+        )
 
     # And the store stayed well-formed under everything the suite did.
     for event in events:

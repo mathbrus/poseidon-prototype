@@ -28,8 +28,10 @@ def test_local_paths_pass_through():
 def test_host_paths_rewrite_to_credentialed_https():
     url = backend()._clone_url("github.com/org/repo")
     assert url == "https://x-access-token:tok-123@github.com/org/repo"
-    assert backend()._clone_url("https://github.com/org/repo").startswith(
-        "https://x-access-token:"
+    assert (
+        backend()
+        ._clone_url("https://github.com/org/repo")
+        .startswith("https://x-access-token:")
     )
 
 

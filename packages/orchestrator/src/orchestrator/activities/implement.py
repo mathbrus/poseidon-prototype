@@ -88,11 +88,11 @@ class ImplementActivities:
         the run gets. Fail-closed: no applied blueprint, no enabled
         implement workflow, no crew, or no standing conductor instance
         each refuse the run before anything is provisioned."""
+
         def read() -> dict[str, Any]:
             spec = self._companies.get(self._settings.company) or {}
             config = next(
-                (w for w in spec.get("workflows") or []
-                 if w.get("name") == "implement"),
+                (w for w in spec.get("workflows") or [] if w.get("name") == "implement"),
                 None,
             )
             if config is None or not config.get("enabled", False):
@@ -111,8 +111,11 @@ class ImplementActivities:
             instance = None
             if self._instances is not None:
                 instance = next(
-                    (i for i in self._instances.for_company(self._settings.company)
-                     if i.get("hire") == conductor_hire),
+                    (
+                        i
+                        for i in self._instances.for_company(self._settings.company)
+                        if i.get("hire") == conductor_hire
+                    ),
                     None,
                 )
             if instance is None:
@@ -174,7 +177,9 @@ class ImplementActivities:
         return workspace_tar
 
     @activity.defn(name="provision_sandbox")
-    async def provision_sandbox(self, run_id: str, workspace_tar: bytes) -> dict[str, Any]:
+    async def provision_sandbox(
+        self, run_id: str, workspace_tar: bytes
+    ) -> dict[str, Any]:
         def provision():
             return self._backend.provision(
                 run_id, workspace_tar, self._sandbox_policy(run_id)
@@ -226,9 +231,7 @@ class ImplementActivities:
             result = await gateway.run_tests(run_id)
         passed = result.get("exit_code") == 0
         output = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".strip()
-        self._log.bind(run_id=run_id).info(
-            "platform verify", extra={"passed": passed}
-        )
+        self._log.bind(run_id=run_id).info("platform verify", extra={"passed": passed})
         return {"passed": passed, "output": output[-4000:]}
 
     @activity.defn(name="teardown")

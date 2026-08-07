@@ -39,9 +39,16 @@ OPA_LOCAL_PORT = 18181
 @contextlib.contextmanager
 def port_forward(service: str, local: int, remote: int):
     proc = subprocess.Popen(
-        ["kubectl", "-n", PLATFORM_NS, "port-forward", f"svc/{service}",
-         f"{local}:{remote}"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "port-forward",
+            f"svc/{service}",
+            f"{local}:{remote}",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     try:
         deadline = time.monotonic() + 30
@@ -61,7 +68,9 @@ def port_forward(service: str, local: int, remote: int):
         proc.wait(timeout=10)
 
 
-def kubectl(*args: str, check: bool = True, timeout: int = 60) -> subprocess.CompletedProcess:
+def kubectl(
+    *args: str, check: bool = True, timeout: int = 60
+) -> subprocess.CompletedProcess:
     proc = subprocess.run(
         ["kubectl", *args], capture_output=True, text=True, timeout=timeout
     )
@@ -76,18 +85,32 @@ def apply_blueprint(path: Path) -> None:
     and still submits the CRs."""
     proc = subprocess.run(
         ["uv", "run", "poseidon", "blueprint", "apply", str(path), "--yes"],
-        capture_output=True, text=True, timeout=300, cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=REPO_ROOT,
     )
     assert proc.returncode == 0, f"blueprint apply failed: {proc.stderr}"
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:
-    kubectl("wait", "--for=jsonpath={.status.phase}=Active",
-            f"ns/{COMPANY_NS}", f"--timeout={timeout_s}s")
+    kubectl(
+        "wait",
+        "--for=jsonpath={.status.phase}=Active",
+        f"ns/{COMPANY_NS}",
+        f"--timeout={timeout_s}s",
+    )
     # The lean roster: the PM is the only standing hire.
     for hire in ("pm",):
-        kubectl("-n", COMPANY_NS, "rollout", "status", f"deployment/{hire}",
-                f"--timeout={timeout_s}s", timeout=timeout_s + 30)
+        kubectl(
+            "-n",
+            COMPANY_NS,
+            "rollout",
+            "status",
+            f"deployment/{hire}",
+            f"--timeout={timeout_s}s",
+            timeout=timeout_s + 30,
+        )
     # Converged includes *policy*: after a teardown + re-apply (and
     # possibly an OPA restart), OPA needs a poll cycle (5-15s) to activate
     # the company bundle. Tests that run right after a finalizer re-apply
@@ -110,8 +133,11 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
 
 def bundle_revision_from_cr() -> str:
     return kubectl(
-        "get", "company", COMPANY_NS,
-        "-o", "jsonpath={.status.bundleRevision}",
+        "get",
+        "company",
+        COMPANY_NS,
+        "-o",
+        "jsonpath={.status.bundleRevision}",
     ).stdout.strip()
 
 
@@ -133,9 +159,9 @@ def test_apply_converges_the_company(stack: None):
 
     # The namespace is operator-owned and carries its labels; the
     # orchestrator's bounded sandbox RBAC was reconciled into it.
-    labels = yaml.safe_load(
-        kubectl("get", "ns", COMPANY_NS, "-o", "yaml").stdout
-    )["metadata"]["labels"]
+    labels = yaml.safe_load(kubectl("get", "ns", COMPANY_NS, "-o", "yaml").stdout)[
+        "metadata"
+    ]["labels"]
     assert labels["app.kubernetes.io/managed-by"] == "poseidon-operator"
     assert labels["poseidon.dev/company"] == COMPANY_NS
     kubectl("-n", COMPANY_NS, "get", "role", "sandbox-provisioner")
@@ -145,14 +171,23 @@ def test_apply_converges_the_company(stack: None):
     # (the PM conductor) — execution is ephemeral crews, so no standing
     # engineer exists to converge.
     instances = kubectl(
-        "-n", COMPANY_NS, "get", "agentinstances",
-        "-o", "jsonpath={.items[*].metadata.name}",
+        "-n",
+        COMPANY_NS,
+        "get",
+        "agentinstances",
+        "-o",
+        "jsonpath={.items[*].metadata.name}",
     ).stdout.split()
     assert instances == ["pm"], f"standing roster should be the PM only: {instances}"
     deployments = kubectl(
-        "-n", COMPANY_NS, "get", "deployments",
-        "-l", "poseidon.dev/kind=standing-agent",
-        "-o", "jsonpath={.items[*].metadata.name}",
+        "-n",
+        COMPANY_NS,
+        "get",
+        "deployments",
+        "-l",
+        "poseidon.dev/kind=standing-agent",
+        "-o",
+        "jsonpath={.items[*].metadata.name}",
     ).stdout.split()
     assert deployments == ["pm"], f"unexpected standing deployments: {deployments}"
 
@@ -222,15 +257,27 @@ def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
     deadline = time.monotonic() + 180
     while True:
         tier = kubectl(
-            "-n", COMPANY_NS, "get", "deployment", "pm", "-o",
+            "-n",
+            COMPANY_NS,
+            "get",
+            "deployment",
+            "pm",
+            "-o",
             r"jsonpath={.spec.template.metadata.labels['poseidon\.dev/model-tier']}",
         ).stdout.strip()
         if tier == "small":
             break
         assert time.monotonic() < deadline, f"pm pod template still at {tier!r}"
         time.sleep(3)
-    kubectl("-n", COMPANY_NS, "rollout", "status", "deployment/pm",
-            "--timeout=180s", timeout=200)
+    kubectl(
+        "-n",
+        COMPANY_NS,
+        "rollout",
+        "status",
+        "deployment/pm",
+        "--timeout=180s",
+        timeout=200,
+    )
     # The module finalizer re-applies the pristine blueprint.
 
 
@@ -245,14 +292,15 @@ def test_company_delete_revokes(stack: None, env: dict):
 
     agent_token = projected_token(COMPANY_NS, "pm-1")
     gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
-    before = httpx.get(f"{gateway_url}/mcp",
-                       headers={"Authorization": f"Bearer {agent_token}"},
-                       timeout=10)
+    before = httpx.get(
+        f"{gateway_url}/mcp",
+        headers={"Authorization": f"Bearer {agent_token}"},
+        timeout=10,
+    )
     assert before.status_code != 401, "the pre-teardown credential must work"
 
     kubectl("delete", "company", COMPANY_NS, "--timeout=120s", timeout=150)
-    kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s",
-            timeout=200)
+    kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s", timeout=200)
 
     # Revocation at the delivery layer: the bundle is no longer served.
     with port_forward("bundle-server", BUNDLE_LOCAL_PORT, 8081) as base:
@@ -262,10 +310,18 @@ def test_company_delete_revokes(stack: None, env: dict):
     # Across an OPA restart: a fresh OPA re-polls, gets the 404, and
     # activates nothing for the company — the platform bundle (which is
     # the platform's, not the company's) is still served.
-    kubectl("-n", PLATFORM_NS, "delete", "pod", "-l", "app=opa", "--wait=true",
-            timeout=120)
-    kubectl("-n", PLATFORM_NS, "rollout", "status", "deployment/opa",
-            "--timeout=180s", timeout=200)
+    kubectl(
+        "-n", PLATFORM_NS, "delete", "pod", "-l", "app=opa", "--wait=true", timeout=120
+    )
+    kubectl(
+        "-n",
+        PLATFORM_NS,
+        "rollout",
+        "status",
+        "deployment/opa",
+        "--timeout=180s",
+        timeout=200,
+    )
     with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
         compiled = httpx.get(
             f"{base}/v1/data/poseidon/authz/hello_saas/decision", timeout=10
@@ -282,9 +338,11 @@ def test_company_delete_revokes(stack: None, env: dict):
     # (60s) drains — a failed post-teardown call, per the step-10 done-when.
     deadline = time.monotonic() + 120
     while True:
-        after = httpx.get(f"{gateway_url}/mcp",
-                          headers={"Authorization": f"Bearer {agent_token}"},
-                          timeout=10)
+        after = httpx.get(
+            f"{gateway_url}/mcp",
+            headers={"Authorization": f"Bearer {agent_token}"},
+            timeout=10,
+        )
         if after.status_code == 401:
             break
         assert time.monotonic() < deadline, (

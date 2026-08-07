@@ -92,6 +92,7 @@ async def _with_stack(tmp_path: Path, scenario):
     audit = InMemoryAuditStore()
     upstream = await asyncio.start_server(_upstream, "127.0.0.1", 0)
     upstream_port = upstream.sockets[0].getsockname()[1]
+
     # A per-run resolver: RUN_ID's company allows the local
     # upstream; any other run resolves to zero egress.
     class OneRunAllowlist:
@@ -216,8 +217,10 @@ def test_registry_allowlist_resolves_run_to_company_projection():
     companies = InMemoryCompanies()
     companies.upsert(
         "hello-saas",
-        {"namespace": "hello-saas",
-         "infra": {"egress_proxy_allowlist": ["PyPI.org", " files.pythonhosted.org "]}},
+        {
+            "namespace": "hello-saas",
+            "infra": {"egress_proxy_allowlist": ["PyPI.org", " files.pythonhosted.org "]},
+        },
     )
     allowlist = RegistryAllowlist(sandboxes, companies, ttl_s=0)
 

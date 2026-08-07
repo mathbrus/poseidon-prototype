@@ -29,32 +29,36 @@ _ids = count(1)
 def says(content: str) -> ModelResponse:
     """A plain-text completion — what ends an SDK conversation."""
     return ModelResponse(
-        choices=[{
-            "index": 0,
-            "finish_reason": "stop",
-            "message": {"role": "assistant", "content": content},
-        }]
+        choices=[
+            {
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": content},
+            }
+        ]
     )
 
 
 def calls(*tool_calls: tuple[str, dict[str, Any]]) -> ModelResponse:
     return ModelResponse(
-        choices=[{
-            "index": 0,
-            "finish_reason": "tool_calls",
-            "message": {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": f"call-{next(_ids)}",
-                        "type": "function",
-                        "function": {"name": name, "arguments": json.dumps(args)},
-                    }
-                    for name, args in tool_calls
-                ],
-            },
-        }]
+        choices=[
+            {
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": f"call-{next(_ids)}",
+                            "type": "function",
+                            "function": {"name": name, "arguments": json.dumps(args)},
+                        }
+                        for name, args in tool_calls
+                    ],
+                },
+            }
+        ]
     )
 
 
@@ -66,9 +70,7 @@ def text_of(message: dict[str, Any]) -> str:
     """Message text from either OpenAI string content or SDK content blocks."""
     content = message.get("content")
     if isinstance(content, list):
-        return "".join(
-            str(b.get("text", "")) for b in content if isinstance(b, dict)
-        )
+        return "".join(str(b.get("text", "")) for b in content if isinstance(b, dict))
     return str(content or "")
 
 
@@ -131,20 +133,34 @@ class FakeGateway:
                     "head": "feature/greet",
                     "base": "main",
                     "merged": False,
-                    "files": [{"path": "src/hello.py", "additions": 2,
-                               "deletions": 0, "patch": "+def greet..."}],
+                    "files": [
+                        {
+                            "path": "src/hello.py",
+                            "additions": 2,
+                            "deletions": 0,
+                            "patch": "+def greet...",
+                        }
+                    ],
                 }
             case "git.comment":
                 return {"url": COMMENT_URL}
             case "issues.create":
-                return {"number": 7, "state": "open", "title": args["title"],
-                        "body": args["body"], "url": "https://github.test/i/7"}
+                return {
+                    "number": 7,
+                    "state": "open",
+                    "title": args["title"],
+                    "body": args["body"],
+                    "url": "https://github.test/i/7",
+                }
             case "issues.read":
                 return {"issues": []}
             case "crew.request":
-                return {"id": "crq-abc123", "status": "recorded",
-                        "conductor": "pm-1",
-                        "expires_at": "2026-01-01T01:00:00+00:00"}
+                return {
+                    "id": "crq-abc123",
+                    "status": "recorded",
+                    "conductor": "pm-1",
+                    "expires_at": "2026-01-01T01:00:00+00:00",
+                }
             case "git.open_pr":
                 branch = args["branch"]
                 if branch.lower() in {"main", "master"}:

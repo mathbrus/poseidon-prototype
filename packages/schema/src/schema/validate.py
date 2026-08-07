@@ -103,8 +103,7 @@ def _catalog_problems(document: Any) -> list[str]:
         catalog_crew = CREW_TEMPLATES.get(crew_name)
         if catalog_crew is None:
             problems.append(
-                f"crews.{crew_name}: not a known crew template "
-                f"(known: {known_crews})"
+                f"crews.{crew_name}: not a known crew template (known: {known_crews})"
             )
         members = crew.get("members")
         for member_name, member in (members if isinstance(members, dict) else {}).items():

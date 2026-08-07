@@ -25,9 +25,7 @@ async def main() -> None:
     registry = open_registry()
     proxy = EgressProxy(
         key=os.environ["EGRESS_PROXY_KEY"],
-        allowlist=RegistryAllowlist(
-            SandboxRegistrations(registry), Companies(registry)
-        ),
+        allowlist=RegistryAllowlist(SandboxRegistrations(registry), Companies(registry)),
         audit=AuditStore(registry),
         port=int(os.environ.get("EGRESS_LISTEN_PORT", DEFAULT_PORT)),
     )

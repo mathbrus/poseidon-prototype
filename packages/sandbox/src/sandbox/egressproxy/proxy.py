@@ -72,9 +72,7 @@ class RegistryAllowlist:
                 for h in (spec.get("infra") or {}).get("egress_proxy_allowlist") or []
                 if h.strip()
             }
-        self._cache = {
-            k: v for k, v in self._cache.items() if v[1] > time.monotonic()
-        }
+        self._cache = {k: v for k, v in self._cache.items() if v[1] > time.monotonic()}
         self._cache[run_id] = (hosts, time.monotonic() + self._ttl)
         return hosts
 
@@ -141,7 +139,11 @@ class EgressProxy:
         }
 
         if target.startswith("/"):  # origin-form: only the kubelet probe
-            status = "200 OK" if method == "GET" and target == "/healthz" else "400 Bad Request"
+            status = (
+                "200 OK"
+                if method == "GET" and target == "/healthz"
+                else "400 Bad Request"
+            )
             self._respond(writer, status, b"ok" if status.startswith("200") else b"")
             return
 
@@ -163,7 +165,9 @@ class EgressProxy:
             )
             return
         if not await self._allowed(run_id, host):
-            await self._audit(run_id, host, port, "deny", "egress_not_allowlisted", started, None)
+            await self._audit(
+                run_id, host, port, "deny", "egress_not_allowlisted", started, None
+            )
             self._respond(writer, "403 Forbidden")
             return
 
@@ -172,11 +176,17 @@ class EgressProxy:
                 asyncio.open_connection(host, port), timeout=CONNECT_TIMEOUT_S
             )
         except (OSError, TimeoutError) as exc:
-            await self._audit(run_id, host, port, "allow", "egress_allowlisted", started, "error")
-            self._log.info("upstream connect failed", extra={"host": host, "error": str(exc)})
+            await self._audit(
+                run_id, host, port, "allow", "egress_allowlisted", started, "error"
+            )
+            self._log.info(
+                "upstream connect failed", extra={"host": host, "error": str(exc)}
+            )
             self._respond(writer, "502 Bad Gateway")
             return
-        await self._audit(run_id, host, port, "allow", "egress_allowlisted", started, "ok")
+        await self._audit(
+            run_id, host, port, "allow", "egress_allowlisted", started, "ok"
+        )
 
         try:
             if method == "CONNECT":

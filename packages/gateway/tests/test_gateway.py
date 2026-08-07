@@ -96,7 +96,9 @@ async def test_bound_agent_call_is_proxied_to_sandbox(app, backends, audit):
 
     event = audit_events(audit)[-1]
     assert event["tool"] == "sandbox.read_file"
-    assert event["agent_id"] == "backend-engineer-1" and event["role"] == "backend-engineer"
+    assert (
+        event["agent_id"] == "backend-engineer-1" and event["role"] == "backend-engineer"
+    )
     assert event["run_id"] == RUN_ID
     assert event["decision"] == "allow"
     assert event["rule"] == "role_backend_engineer_sandbox.read_file"
@@ -115,7 +117,11 @@ async def test_all_six_sandbox_tools_map_to_c4_routes(app, backends):
 
     calls = [
         ("sandbox.read_file", {"run_id": RUN_ID, "path": "a.py"}, "/files/read"),
-        ("sandbox.write_file", {"run_id": RUN_ID, "path": "a.py", "content": "x"}, "/files/write"),
+        (
+            "sandbox.write_file",
+            {"run_id": RUN_ID, "path": "a.py", "content": "x"},
+            "/files/write",
+        ),
         ("sandbox.list_dir", {"run_id": RUN_ID, "path": "."}, "/files/list"),
         ("sandbox.exec", {"run_id": RUN_ID, "cmd": "ls", "timeout_s": 5}, "/exec"),
         ("sandbox.run_tests", {"run_id": RUN_ID}, "/tests"),
@@ -126,7 +132,9 @@ async def test_all_six_sandbox_tools_map_to_c4_routes(app, backends):
             result = await session.call_tool(tool, args)
             assert not result.isError, (tool, result.content)
 
-    assert [route for route, _ in backends.sandbox_calls] == [route for _, _, route in calls]
+    assert [route for route, _ in backends.sandbox_calls] == [
+        route for _, _, route in calls
+    ]
     exec_payload = dict(backends.sandbox_calls[3][1])
     assert exec_payload == {"cmd": "ls", "timeout_s": 5}
 
@@ -200,9 +208,7 @@ async def test_sandbox_http_error_surfaces_and_audits(app, backends, audit):
     backends.sandbox_error = 500
 
     async with mcp_session(app, AGENT_TOKEN) as session:
-        result = await session.call_tool(
-            "sandbox.run_tests", {"run_id": RUN_ID}
-        )
+        result = await session.call_tool("sandbox.run_tests", {"run_id": RUN_ID})
 
     assert result.isError
     event = audit_events(audit)[-1]

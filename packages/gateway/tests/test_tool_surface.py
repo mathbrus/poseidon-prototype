@@ -33,9 +33,15 @@ def reviewer_token(participants) -> str:
     participants.add("reviewer-01X", RUN_ID, "pm-1", "feature-review", "reviewer")
     return platformjwt.mint(
         JWT_KEY,
-        {"sub": "reviewer-01X", "company": "hello-saas", "role": "sdet",
-         "lifecycle": "ephemeral", "run_id": RUN_ID},
-        "poseidon-gateway", ttl_s=600,
+        {
+            "sub": "reviewer-01X",
+            "company": "hello-saas",
+            "role": "sdet",
+            "lifecycle": "ephemeral",
+            "run_id": RUN_ID,
+        },
+        "poseidon-gateway",
+        ttl_s=600,
     )
 
 
@@ -44,34 +50,42 @@ def reviewer_token(participants) -> str:
 
 async def test_pm_runs_the_issue_lifecycle(app, backends, audit):
     async with mcp_session(app, PM_TOKEN) as session:
-        created = payload(await session.call_tool(
-            "issues.create",
-            {"run_id": RUN_ID, "repo": REPO, "title": "ship slugs", "body": "spec"},
-        ))
+        created = payload(
+            await session.call_tool(
+                "issues.create",
+                {"run_id": RUN_ID, "repo": REPO, "title": "ship slugs", "body": "spec"},
+            )
+        )
         assert created["number"] == 7 and created["state"] == "open"
 
-        backlog = payload(await session.call_tool(
-            "issues.read", {"run_id": RUN_ID, "repo": REPO}
-        ))
+        backlog = payload(
+            await session.call_tool("issues.read", {"run_id": RUN_ID, "repo": REPO})
+        )
         # The GitHub issues listing includes PRs; the backlog must not.
         assert [i["number"] for i in backlog["issues"]] == [7]
 
-        updated = payload(await session.call_tool(
-            "issues.update",
-            {"run_id": RUN_ID, "repo": REPO, "number": 7, "state": "closed"},
-        ))
+        updated = payload(
+            await session.call_tool(
+                "issues.update",
+                {"run_id": RUN_ID, "repo": REPO, "number": 7, "state": "closed"},
+            )
+        )
         assert updated["state"] == "closed"
 
-        comment = payload(await session.call_tool(
-            "issues.comment",
-            {"run_id": RUN_ID, "repo": REPO, "number": 7, "body": "done"},
-        ))
+        comment = payload(
+            await session.call_tool(
+                "issues.comment",
+                {"run_id": RUN_ID, "repo": REPO, "number": 7, "body": "done"},
+            )
+        )
         assert comment["url"]
 
     events = [(e["tool"], e["decision"]) for e in audit_events(audit)]
     assert events == [
-        ("issues.create", "allow"), ("issues.read", "allow"),
-        ("issues.update", "allow"), ("issues.comment", "allow"),
+        ("issues.create", "allow"),
+        ("issues.read", "allow"),
+        ("issues.update", "allow"),
+        ("issues.comment", "allow"),
     ]
     assert all(e["agent_id"] == "pm-1" for e in audit_events(audit))
 
@@ -102,16 +116,20 @@ async def test_pm_is_denied_the_review_surface(app, audit):
 async def test_reviewer_reads_and_comments_the_pr(app, participants, audit):
     token = reviewer_token(participants)
     async with mcp_session(app, token) as session:
-        pr = payload(await session.call_tool(
-            "git.read", {"run_id": RUN_ID, "repo": REPO, "number": 5}
-        ))
+        pr = payload(
+            await session.call_tool(
+                "git.read", {"run_id": RUN_ID, "repo": REPO, "number": 5}
+            )
+        )
         assert pr["head"] == "feature/x"
         assert pr["files"][0]["path"] == "app.py"
 
-        comment = payload(await session.call_tool(
-            "git.comment",
-            {"run_id": RUN_ID, "repo": REPO, "number": 5, "body": "LGTM-ish"},
-        ))
+        comment = payload(
+            await session.call_tool(
+                "git.comment",
+                {"run_id": RUN_ID, "repo": REPO, "number": 5, "body": "LGTM-ish"},
+            )
+        )
         assert comment["url"]
 
     for event in audit_events(audit):
@@ -138,9 +156,11 @@ async def test_reviewer_cannot_merge_or_open_issues(app, participants):
 
 async def test_merge_is_platform_only(app, backends, audit):
     async with mcp_session(app, RUNNER_TOKEN) as session:
-        merged = payload(await session.call_tool(
-            "git.merge_pr", {"run_id": RUN_ID, "repo": REPO, "number": 5}
-        ))
+        merged = payload(
+            await session.call_tool(
+                "git.merge_pr", {"run_id": RUN_ID, "repo": REPO, "number": 5}
+            )
+        )
     assert merged == {"merged": True, "sha": "abc123"}
     assert backends.github_calls[-1][0].endswith("/pulls/5/merge")
 
@@ -150,8 +170,11 @@ async def test_merge_is_platform_only(app, backends, audit):
                 "git.merge_pr", {"run_id": RUN_ID, "repo": REPO, "number": 5}
             )
         assert result.isError, "a company role reached git.merge_pr"
-    denies = [e for e in audit_events(audit) if e["tool"] == "git.merge_pr"
-              and e["decision"] == "deny"]
+    denies = [
+        e
+        for e in audit_events(audit)
+        if e["tool"] == "git.merge_pr" and e["decision"] == "deny"
+    ]
     assert len(denies) == 2
 
 
@@ -160,16 +183,26 @@ async def test_merge_is_platform_only(app, backends, audit):
 
 async def test_crew_request_records_idempotent_intent(app, crew_requests, audit):
     async with mcp_session(app, PM_TOKEN) as session:
-        first = payload(await session.call_tool(
-            "crew.request",
-            {"run_id": RUN_ID, "crew_template": "feature-delivery",
-             "reason": "ticket #7"},
-        ))
-        again = payload(await session.call_tool(
-            "crew.request",
-            {"run_id": RUN_ID, "crew_template": "feature-delivery",
-             "reason": "ticket #7, retried"},
-        ))
+        first = payload(
+            await session.call_tool(
+                "crew.request",
+                {
+                    "run_id": RUN_ID,
+                    "crew_template": "feature-delivery",
+                    "reason": "ticket #7",
+                },
+            )
+        )
+        again = payload(
+            await session.call_tool(
+                "crew.request",
+                {
+                    "run_id": RUN_ID,
+                    "crew_template": "feature-delivery",
+                    "reason": "ticket #7, retried",
+                },
+            )
+        )
 
     assert first["status"] == "recorded"
     assert first["conductor"] == "pm-1"
@@ -215,8 +248,11 @@ async def test_over_cap_crew_request_is_denied_and_audited(
     async with mcp_session(app, PM_TOKEN) as session:
         result = await session.call_tool(
             "crew.request",
-            {"run_id": RUN_ID, "crew_template": "feature-delivery",
-             "reason": "a third crew"},
+            {
+                "run_id": RUN_ID,
+                "crew_template": "feature-delivery",
+                "reason": "a third crew",
+            },
         )
     assert result.isError
     assert "crew_request_over_cap" in result.content[0].text
@@ -225,12 +261,18 @@ async def test_over_cap_crew_request_is_denied_and_audited(
     assert event["decision"] == "deny" and event["rule"] == "crew_request_over_cap"
 
 
-async def test_exhausted_budget_denies_crew_request(
-    app, ledger, crew_requests, audit
-):
-    ledger.record(company="hello-saas", run_id=RUN_ID, agent_id="backend-engineer-1",
-                  parent_agent_id="", role="backend-engineer", model="mock-brain",
-                  prompt_tokens=1, completion_tokens=1, usd=5.0)
+async def test_exhausted_budget_denies_crew_request(app, ledger, crew_requests, audit):
+    ledger.record(
+        company="hello-saas",
+        run_id=RUN_ID,
+        agent_id="backend-engineer-1",
+        parent_agent_id="",
+        role="backend-engineer",
+        model="mock-brain",
+        prompt_tokens=1,
+        completion_tokens=1,
+        usd=5.0,
+    )
     async with mcp_session(app, PM_TOKEN) as session:
         result = await session.call_tool(
             "crew.request",

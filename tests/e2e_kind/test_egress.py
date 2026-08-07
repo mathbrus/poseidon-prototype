@@ -40,9 +40,7 @@ GIT_ENV = {
 
 
 def _kubectl(*args: str) -> str:
-    proc = subprocess.run(
-        ["kubectl", *args], capture_output=True, text=True, timeout=60
-    )
+    proc = subprocess.run(["kubectl", *args], capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0, proc.stderr
     return proc.stdout
 
@@ -50,8 +48,13 @@ def _kubectl(*args: str) -> str:
 @pytest.fixture(scope="module")
 def egress_key(stack: None) -> str:
     out = _kubectl(
-        "-n", PLATFORM_NS, "get", "secret", "egress-proxy-key",
-        "-o", "go-template={{index .data \"EGRESS_PROXY_KEY\" | base64decode}}",
+        "-n",
+        PLATFORM_NS,
+        "get",
+        "secret",
+        "egress-proxy-key",
+        "-o",
+        'go-template={{index .data "EGRESS_PROXY_KEY" | base64decode}}',
     )
     assert out
     return out
@@ -59,13 +62,24 @@ def egress_key(stack: None) -> str:
 
 @pytest.fixture
 def workspace_tar(tmp_path: Path) -> bytes:
-    subprocess.run(["git", "init", "-b", "main"], cwd=tmp_path, env=GIT_ENV,
-                   check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "-b", "main"],
+        cwd=tmp_path,
+        env=GIT_ENV,
+        check=True,
+        capture_output=True,
+    )
     (tmp_path / "hello.txt").write_text("hello\n")
-    subprocess.run(["git", "add", "-A"], cwd=tmp_path, env=GIT_ENV,
-                   check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "base"], cwd=tmp_path, env=GIT_ENV,
-                   check=True, capture_output=True)
+    subprocess.run(
+        ["git", "add", "-A"], cwd=tmp_path, env=GIT_ENV, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "base"],
+        cwd=tmp_path,
+        env=GIT_ENV,
+        check=True,
+        capture_output=True,
+    )
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         for entry in tmp_path.iterdir():
@@ -111,8 +125,11 @@ def test_egress_containment(env: dict, egress_key: str, workspace_tar: bytes):
         # Non-allowlisted host: blocked at the proxy (403 on the tunnel).
         exit_code, output = backend._exec(
             handle.pod_name,
-            ["python", "-c",
-             "import urllib.request; urllib.request.urlopen('https://example.com', timeout=15)"],
+            [
+                "python",
+                "-c",
+                "import urllib.request; urllib.request.urlopen('https://example.com', timeout=15)",
+            ],
         )
         assert exit_code != 0
         assert "403" in output
@@ -142,8 +159,11 @@ def test_egress_containment(env: dict, egress_key: str, workspace_tar: bytes):
         # NetworkPolicy backstop: bypassing the proxy is silently dropped.
         exit_code, _ = backend._exec(
             handle.pod_name,
-            ["python", "-c",
-             "import socket; s=socket.socket(); s.settimeout(5); s.connect(('1.1.1.1', 443))"],
+            [
+                "python",
+                "-c",
+                "import socket; s=socket.socket(); s.settimeout(5); s.connect(('1.1.1.1', 443))",
+            ],
         )
         assert exit_code != 0
 
@@ -154,9 +174,12 @@ def test_egress_containment(env: dict, egress_key: str, workspace_tar: bytes):
         while True:
             exit_code, output = backend._exec(
                 handle.pod_name,
-                ["python", "-c",
-                 "import urllib.request; urllib.request.urlopen("
-                 "'https://pypi.org', timeout=15)"],
+                [
+                    "python",
+                    "-c",
+                    "import urllib.request; urllib.request.urlopen("
+                    "'https://pypi.org', timeout=15)",
+                ],
             )
             if exit_code != 0 and "403" in output:
                 break

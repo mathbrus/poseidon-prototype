@@ -46,7 +46,8 @@ def test_delivery_never_precedes_the_platform_verify(implement_run: dict) -> Non
     the gate, not by the executor's claim."""
     story = audit_story(implement_run["run_id"])
     platform_verifies = [
-        i for i, e in enumerate(story)
+        i
+        for i, e in enumerate(story)
         if e["tool"] == "sandbox.run_tests" and e["lifecycle"] == "platform"
     ]
     assert platform_verifies, "no platform-identity verify in the story"
@@ -83,7 +84,9 @@ def test_one_query_spans_the_runs_real_sources(implement_run: dict) -> None:
     run_id = implement_run["run_id"]
     story = audit_story(run_id)
     assert {e["source"] for e in story} == {
-        "gateway", "llm-gateway", "process-lifecycle",
+        "gateway",
+        "llm-gateway",
+        "process-lifecycle",
     }
     assert all(e["run_id"] == run_id for e in story)
 

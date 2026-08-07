@@ -152,8 +152,7 @@ class Companies:
         proxy's path from a run's sandbox namespace to the blueprint's
         allowlist projection."""
         rows = self._db.query(
-            "SELECT blueprint FROM registry.companies"
-            " WHERE blueprint->>'namespace' = %s",
+            "SELECT blueprint FROM registry.companies WHERE blueprint->>'namespace' = %s",
             (namespace,),
         )
         return rows[0]["blueprint"] if rows else None

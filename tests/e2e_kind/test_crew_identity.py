@@ -30,9 +30,20 @@ PG_LOCAL_PORT = 15434
 
 def _cluster_secret(name: str, key: str) -> str:
     proc = subprocess.run(
-        ["kubectl", "-n", PLATFORM_NS, "get", "secret", name,
-         "-o", f"go-template={{{{index .data \"{key}\" | base64decode}}}}"],
-        capture_output=True, text=True, timeout=60, check=True,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "get",
+            "secret",
+            name,
+            "-o",
+            f'go-template={{{{index .data "{key}" | base64decode}}}}',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
     )
     assert proc.stdout
     return proc.stdout
@@ -43,9 +54,16 @@ def _registry():
     """The cluster's registry over a port-forward — the same accessors the
     in-cluster worker uses, pointed at the same database."""
     proc = subprocess.Popen(
-        ["kubectl", "-n", PLATFORM_NS, "port-forward", "svc/postgres",
-         f"{PG_LOCAL_PORT}:5432"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "port-forward",
+            "svc/postgres",
+            f"{PG_LOCAL_PORT}:5432",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     try:
         deadline = time.monotonic() + 30
@@ -93,20 +111,22 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
             platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
             ephemeral_ttl_s=900,  # revocation must beat this by a mile
         )
-        crew = CrewActivities(
-            settings, RunParticipants(registry), AuditStore(registry)
-        )
+        crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
         runs = Runs(registry)
         runs.start(run_id, "16a identity contract", "implement", None, "hello-saas")
         try:
-            minted = asyncio.run(crew.mint_participant({
-                "run_id": run_id,
-                "company": "hello-saas",
-                "crew_template": "feature-delivery",
-                "member": "executor",
-                "role_template": "backend-engineer",
-                "parent_agent_id": "pm-1",
-            }))
+            minted = asyncio.run(
+                crew.mint_participant(
+                    {
+                        "run_id": run_id,
+                        "company": "hello-saas",
+                        "crew_template": "feature-delivery",
+                        "member": "executor",
+                        "role_template": "backend-engineer",
+                        "parent_agent_id": "pm-1",
+                    }
+                )
+            )
             token = minted["token"]
 
             # The minted identity authenticates at the real gateway ...
@@ -120,8 +140,9 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
             # ... and its compiled crew rules answer: the executor's bound
             # sandbox call passes policy (no sandbox is registered, so the
             # backend errors — but it is not a deny).
-            result = _call(env, token, "sandbox.list_dir",
-                           {"run_id": run_id, "path": "."})
+            result = _call(
+                env, token, "sandbox.list_dir", {"run_id": run_id, "path": "."}
+            )
             assert result.isError
             text = result.content[0].text
             assert "denied by policy" not in text, text
@@ -130,8 +151,9 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
             # A foreign run_id claim from a *live* participant (16b): authn
             # passes — the row is alive — but the enrichment binds the
             # identity to exactly one run, so policy fails it closed.
-            foreign = _call(env, token, "sandbox.list_dir",
-                            {"run_id": "run-not-mine", "path": "."})
+            foreign = _call(
+                env, token, "sandbox.list_dir", {"run_id": "run-not-mine", "path": "."}
+            )
             assert foreign.isError
             assert "default_deny" in foreign.content[0].text
 
@@ -151,12 +173,18 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
             # The whole episode is one story: mint, the allowed call, the
             # revoke, and the post-revocation authn deny.
             story = audit_story(run_id)
-            lifecycle = [(e["tool"], e["rule"]) for e in story
-                         if e["source"] == "process-lifecycle"]
+            lifecycle = [
+                (e["tool"], e["rule"])
+                for e in story
+                if e["source"] == "process-lifecycle"
+            ]
             assert ("lifecycle.mint", "participant_minted") in lifecycle
             assert ("lifecycle.revoke", "participant_revoked") in lifecycle
-            gateway_events = [e for e in story if e["source"] == "gateway"
-                              and e["agent_id"] == minted["agent_id"]]
+            gateway_events = [
+                e
+                for e in story
+                if e["source"] == "gateway" and e["agent_id"] == minted["agent_id"]
+            ]
             assert gateway_events, "the minted identity's call left no event"
             assert all(e["lifecycle"] == "ephemeral" for e in gateway_events)
             assert all(e["parent_agent_id"] == "pm-1" for e in gateway_events)
@@ -177,9 +205,9 @@ def test_minted_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pa
                 time.sleep(1)
         finally:
             registry.execute(
-                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,))
-            registry.execute(
-                "DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+                "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
+            )
+            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
@@ -198,11 +226,17 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
         )
 
         executor = {
-            "company": "hello-saas", "agent_id": "feature-delivery-executor-x",
-            "lifecycle": "ephemeral", "parent_agent_id": "pm-1",
-            "role": "backend-engineer", "crew_template": "feature-delivery",
-            "crew_role": "executor", "run_id": "run-16b", "workflow": "implement",
-            "tool": "sandbox.exec", "args": {},
+            "company": "hello-saas",
+            "agent_id": "feature-delivery-executor-x",
+            "lifecycle": "ephemeral",
+            "parent_agent_id": "pm-1",
+            "role": "backend-engineer",
+            "crew_template": "feature-delivery",
+            "crew_role": "executor",
+            "run_id": "run-16b",
+            "workflow": "implement",
+            "tool": "sandbox.exec",
+            "args": {},
         }
         bound = httpx.post(
             f"{base}/v1/data/poseidon/authz/hello_saas/decision",

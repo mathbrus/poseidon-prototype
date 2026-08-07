@@ -25,9 +25,7 @@ def verify_red_run(stack: None, env: dict) -> dict:
 def test_red_gate_feeds_back_and_the_run_still_delivers(
     verify_red_run: dict, pr_info
 ) -> None:
-    assert verify_red_run["status"] == "done", (
-        f"run failed: {verify_red_run['error']}"
-    )
+    assert verify_red_run["status"] == "done", f"run failed: {verify_red_run['error']}"
     assert verify_red_run["pr_url"], "no PR after the red-path recovery"
     pr = pr_info(verify_red_run["pr_url"])
     assert re.fullmatch(r"feature/[a-z0-9-]+", pr["head"]["ref"])
@@ -39,14 +37,18 @@ def test_the_gate_of_record_went_red_then_green(verify_red_run: dict) -> None:
     re-dispatch fixed it) — and delivery only after the green."""
     story = audit_story(verify_red_run["run_id"])
     platform_verifies = [
-        (i, e) for i, e in enumerate(story)
+        (i, e)
+        for i, e in enumerate(story)
         if e["tool"] == "sandbox.run_tests" and e["lifecycle"] == "platform"
     ]
     assert len(platform_verifies) >= 2, (
         "the red path needs at least two platform verifies"
     )
-    pr_opens = [i for i, e in enumerate(story) if e["tool"] == "git.open_pr"
-                and e["decision"] == "allow"]
+    pr_opens = [
+        i
+        for i, e in enumerate(story)
+        if e["tool"] == "git.open_pr" and e["decision"] == "allow"
+    ]
     assert pr_opens, "no delivery in the story"
     assert max(i for i, _ in platform_verifies) < min(pr_opens), (
         "delivery did not wait for the last platform verify"
