@@ -10,12 +10,18 @@ without them still gets a green run (CI has Docker).
 """
 
 import json
+import os
 import shutil
 import subprocess
 
 import pytest
 
 from compiler import compile_blueprint
+
+# Pinned to the tag the chart deploys and CI's `opa` job checks against, so
+# these decisions are the ones the OPA that will actually load the bundle
+# would make.
+OPA_IMAGE = "openpolicyagent/opa:1.19.0"
 
 # Per-company packages; the platform scope lives in its
 # own bundle. Both are loaded together here — their packages (and therefore
@@ -40,9 +46,14 @@ def _runner():
                 "run",
                 "--rm",
                 "-i",
+                # As the invoking user, so reading the bundle directory does
+                # not depend on the image's default uid matching whoever ran
+                # the tests. (It silently did locally and did not on CI.)
+                "--user",
+                f"{os.getuid()}:{os.getgid()}",
                 "-v",
                 f"{bundle}:/b:ro",
-                "openpolicyagent/opa",
+                OPA_IMAGE,
                 "eval",
                 "-d",
                 "/b",
