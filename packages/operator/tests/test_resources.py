@@ -65,7 +65,7 @@ def test_sandbox_isolation_projects_the_infra_ir():
     projected = resources.sandbox_isolation(
         "hello-saas",
         {"sandbox_ingress_from": ["mcp-gateway"],
-         "sandbox_egress_to": ["egress-proxy", "kube-dns"]},
+         "sandbox_egress_to": ["egress-proxy"]},
     )
     assert projected == resources.sandbox_isolation("hello-saas")
     _assert_sandbox_envelope(projected["spec"])
@@ -78,7 +78,9 @@ def _assert_sandbox_envelope(spec):
         or rule["to"][0]["podSelector"]["matchLabels"].get("k8s-app")
         for rule in spec["egress"]
     }
-    assert egress_targets == {"egress-proxy", "kube-dns"}
+    # No kube-dns: the sandbox gets no resolver at all (see
+    # sandbox_isolation) — the audited proxy is its only peer.
+    assert egress_targets == {"egress-proxy"}
 
 
 def test_agent_deployment_carries_no_credential_env_at_all():

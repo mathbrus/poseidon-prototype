@@ -87,7 +87,9 @@ def test_infra_ir_feeds_both_consumers_from_one_list(blueprint):
     plan = compile_blueprint(blueprint)
     assert plan.infra.sandbox.egress_allow == plan.infra.egress_proxy_allowlist
     assert plan.infra.sandbox.image == "poseidon-sandbox"
-    assert plan.infra.network_policy.sandbox_egress_to == ("egress-proxy", "kube-dns")
+    # The audited proxy is the sandbox's only peer — no cluster DNS, so a
+    # resolver cannot be used as an unaudited channel.
+    assert plan.infra.network_policy.sandbox_egress_to == ("egress-proxy",)
 
 
 def test_empty_egress_allowlist_means_zero_egress(blueprint):

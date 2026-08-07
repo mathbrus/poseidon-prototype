@@ -9,7 +9,12 @@ from pathlib import Path
 import httpx
 from registry.memory import InMemoryAuditStore
 
-from sandbox.egressproxy.credentials import mint, sandbox_proxy_env, verify
+from sandbox.egressproxy.credentials import (
+    mint,
+    resolve_host,
+    sandbox_proxy_env,
+    verify,
+)
 from sandbox.egressproxy.proxy import EgressProxy
 
 KEY = "unit-test-key"
@@ -28,11 +33,29 @@ def test_mint_verify_roundtrip():
 
 
 def test_sandbox_proxy_env_carries_the_credential():
+    # An unresolvable host stays as written (the run then fails at the
+    # proxy connection, not at provisioning).
     env = sandbox_proxy_env("http://egress-proxy.ns:3128", KEY, RUN_ID)
     expected = f"http://{RUN_ID}:{mint(KEY, RUN_ID)}@egress-proxy.ns:3128"
     assert env["HTTP_PROXY"] == env["HTTPS_PROXY"] == expected
     assert env["http_proxy"] == env["https_proxy"] == expected
     assert "localhost" in env["NO_PROXY"]
+
+
+def test_proxy_address_is_resolved_for_the_sandbox():
+    """The sandbox has no DNS, so the one name it would have needed — the
+    proxy's own — is resolved here, at provision time."""
+    resolved = resolve_host("http://localhost:3128")
+    assert resolved == "http://127.0.0.1:3128"
+
+    env = sandbox_proxy_env("http://localhost:3128", KEY, RUN_ID)
+    assert env["HTTPS_PROXY"].endswith("@127.0.0.1:3128")
+
+
+def test_unresolvable_proxy_host_is_left_alone():
+    url = "http://nothing.invalid:3128"
+    assert resolve_host(url) == url
+    assert resolve_host("egress-proxy:3128") == "egress-proxy:3128"
 
 
 # -- proxy behaviour ------------------------------------------------------

@@ -186,12 +186,15 @@ def sandbox_isolation(
     the gateway, reach only the audited proxy. NetworkPolicy is the silent
     backstop beneath the proxy's audited denies. The defaults equal what
     the compiler emits for every blueprint today, so a CR carrying no
-    projection converges identically."""
+    projection converges identically.
+
+    No cluster DNS: a resolver forwarding unknown names upstream is a
+    channel the audited proxy cannot see, and the sandbox needs no
+    resolver (the proxy resolves target hosts; the orchestrator resolves
+    the proxy's own address at provision time)."""
     projection = projection or {}
     ingress_from = list(projection.get("sandbox_ingress_from") or ["mcp-gateway"])
-    egress_to = list(
-        projection.get("sandbox_egress_to") or ["egress-proxy", "kube-dns"]
-    )
+    egress_to = list(projection.get("sandbox_egress_to") or ["egress-proxy"])
     ingress = [
         {"from": rule["to"], "ports": rule["ports"]}
         for rule in (_peer_rule(name) for name in ingress_from)

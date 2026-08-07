@@ -37,10 +37,17 @@ def build_infra(blueprint: dict[str, Any], namespace: str) -> InfraIR:
     network_policy = NetworkPolicyProjection(
         namespace=namespace,
         # The sandbox answers the gateway and nobody else; it reaches the
-        # audited proxy and cluster DNS and nothing else. NetworkPolicy
-        # stays the silent backstop beneath the proxy's audited denies.
+        # audited proxy and nothing else. NetworkPolicy stays the silent
+        # backstop beneath the proxy's audited denies.
+        #
+        # Cluster DNS is deliberately absent: a resolver that forwards
+        # unknown names upstream is an exfiltration channel the audited
+        # proxy cannot see. The sandbox needs no resolver — with an HTTP
+        # proxy the proxy resolves target hosts, and the proxy's own
+        # address is resolved by the orchestrator at provision time
+        # (sandbox.egressproxy.credentials.resolve_host).
         sandbox_ingress_from=("mcp-gateway",),
-        sandbox_egress_to=("egress-proxy", "kube-dns"),
+        sandbox_egress_to=("egress-proxy",),
     )
     return InfraIR(
         sandbox=sandbox,

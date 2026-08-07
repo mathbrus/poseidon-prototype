@@ -17,9 +17,7 @@ What this suite claims, and what it deliberately does not:
   containment is that privilege inside the sandbox reaches nothing, not
   that privilege is unavailable.
 
-Two residual risks this suite measures rather than prevents: DNS
-resolution is permitted to the cluster resolver (a DNS tunnel through
-CoreDNS's upstream forwarding is not visible to the audited proxy), and
+One residual risk this suite measures rather than prevents:
 `sandbox.exec` is inside the executor's compiled scope by design, so
 payload *attempts* are stopped by the egress layer rather than by the tool
 allow-list (asserted in test_injected_conductor).
@@ -160,7 +158,7 @@ def test_no_service_account_token_is_mounted(target: Target) -> None:
 
 def test_the_kubernetes_api_is_unreachable(target: Target) -> None:
     """Even with a token, there would be no route: the sandbox
-    NetworkPolicy permits egress to the audited proxy and cluster DNS only.
+    NetworkPolicy permits egress to the audited proxy and nothing else.
     Probed with a raw socket so the proxy env cannot mask the result."""
     cluster_ip = _kubectl("-n", "default", "get", "svc", "kubernetes",
                           "-o", "jsonpath={.spec.clusterIP}")
@@ -406,15 +404,20 @@ def test_direct_external_tcp_is_dropped_by_the_backstop(target: Target) -> None:
     assert exit_code == 0, f"direct external TCP succeeded: {output}"
 
 
-def test_dns_egress_is_confined_to_the_cluster_resolver(target: Target) -> None:
-    """DNS is permitted to kube-dns only, so an external resolver cannot be
-    used as a side channel.
+def test_no_dns_resolver_answers_the_sandbox(target: Target) -> None:
+    """The sandbox has no DNS at all: neither an external resolver nor the
+    cluster's own answers it.
 
-    Residual risk, measured not prevented: the cluster resolver itself
-    forwards unknown names upstream, so a DNS tunnel through CoreDNS is
-    not visible to the audited proxy. Closing it needs resolver-level
-    policy, which this system does not implement."""
-    exit_code, output = target.py(
+    Cluster DNS is deliberately absent from the sandbox NetworkPolicy.
+    CoreDNS forwards unknown names upstream, so a resolver the sandbox can
+    reach is an exfiltration channel the audited proxy never sees — and
+    the sandbox needs no resolver, because with an HTTP proxy the proxy
+    resolves target hosts and the orchestrator resolves the proxy's own
+    address at provision time.
+
+    Both resolvers are probed by raw UDP so the proxy env cannot mask the
+    result."""
+    probe = (
         "import socket,sys\n"
         "header = bytes([0xab,0xcd, 1,0, 0,1, 0,0, 0,0, 0,0])\n"
         "name = b''.join(bytes([len(p)]) + p for p in "
@@ -422,12 +425,42 @@ def test_dns_egress_is_confined_to_the_cluster_resolver(target: Target) -> None:
         "query = header + name + bytes([0,1, 0,1])\n"
         "s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(5)\n"
         "try:\n"
-        "    s.sendto(query, ('8.8.8.8', 53)); s.recvfrom(512)\n"
+        "    s.sendto(query, ('{resolver}', 53)); s.recvfrom(512)\n"
         "    sys.exit(1)\n"
         "except Exception:\n"
         "    sys.exit(0)"
     )
+
+    exit_code, output = target.py(probe.format(resolver="8.8.8.8"))
     assert exit_code == 0, f"an external DNS resolver answered: {output}"
+
+    cluster_dns = _kubectl("-n", "kube-system", "get", "svc", "kube-dns",
+                           "-o", "jsonpath={.spec.clusterIP}")
+    exit_code, output = target.py(probe.format(resolver=cluster_dns))
+    assert exit_code == 0, f"the cluster resolver answered: {output}"
+
+
+def test_name_resolution_is_unavailable_in_the_sandbox(target: Target) -> None:
+    """The consequence, stated positively: resolving any name fails, and
+    the proxy env carries an address rather than a hostname — which is why
+    egress through the audited proxy still works (proven by
+    test_the_one_permitted_route_out_still_works)."""
+    exit_code, output = target.py(
+        "import socket,sys\n"
+        "try:\n"
+        "    socket.gethostbyname('pypi.org')\n"
+        "    sys.exit(1)\n"
+        "except OSError:\n"
+        "    sys.exit(0)"
+    )
+    assert exit_code == 0, f"a name resolved inside the sandbox: {output}"
+
+    exit_code, output = target.sh("printenv HTTPS_PROXY")
+    assert exit_code == 0, output
+    host = output.strip().rsplit("@", 1)[-1].rsplit(":", 1)[0]
+    assert all(part.isdigit() for part in host.split(".")), (
+        f"the proxy env carries a hostname, not an address: {host!r}"
+    )
 
 
 def test_every_blocked_attempt_that_has_a_source_is_in_the_audit_store(

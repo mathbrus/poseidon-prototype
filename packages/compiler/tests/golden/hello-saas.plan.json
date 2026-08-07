@@ -76,8 +76,7 @@
       "default_deny": true,
       "namespace": "hello-saas",
       "sandbox_egress_to": [
-        "egress-proxy",
-        "kube-dns"
+        "egress-proxy"
       ],
       "sandbox_ingress_from": [
         "mcp-gateway"
