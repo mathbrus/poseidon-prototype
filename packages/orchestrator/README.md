@@ -18,7 +18,7 @@ the single point where a person is required before code leaves the system.
 | `crewpods.py` | The bounded Kubernetes surface for crew pods: **pods only**, in the **company namespace only**, deleted only by label selector. |
 | `identity.py` | Ephemeral identity minting — the fulfill half of the identity contract. |
 | `clients.py` | `GatewayClient` (MCP + admin) and `AgentClient` (dispatch/poll). |
-| `cli/` | `poseidon run|signal|status`, `poseidon blueprint compile|preview|apply`. |
+| `cli/` | `poseidon run|review|signal|status`, `poseidon blueprint compile|preview|apply`. |
 | `worker/` | The worker process. |
 | `config.py` | `TemporalSettings` (all a client needs) and `WorkerSettings` (what activities need). |
 
@@ -90,10 +90,18 @@ teardown, and it must abandon the identity rather than build on it.
 uv run poseidon blueprint compile examples/hello-saas.yaml --no-live --out ./bundle
 uv run poseidon blueprint preview examples/hello-saas.yaml
 uv run poseidon blueprint apply examples/hello-saas.yaml --yes
-uv run poseidon run --workflow implement --task "..."
-uv run poseidon signal <run-id> --gate merge --approve
-uv run poseidon status <run-id>
+
+uv run poseidon run examples/task-happy.md               # implement by default
+uv run poseidon run --workflow intake examples/goal-injected-conductor.md
+uv run poseidon review 41                                # start a review run for PR #41
+uv run poseidon signal <run_id> merge --workflow review  # approve the merge gate
+uv run poseidon signal <run_id> merge --no-approved --workflow review
+uv run poseidon status <run_id>
 ```
+
+`run` and `review` take the task file and the PR number as positional
+arguments; `signal` takes the run id and the gate name, with the verdict on
+`--approved/--no-approved`.
 
 The CLI holds no credentials — runs execute in the in-cluster worker; it
 only starts, signals and inspects. It reaches Temporal via
