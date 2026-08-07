@@ -190,8 +190,16 @@ def _build_conversation(
     )
 
 
+def _render_prompt(path: Path, settings: AgentSettings) -> str:
+    """Literal placeholder substitution — deliberately not str.format:
+    format machinery turns any other brace in the prompt text into a
+    crash (or a format-spec evaluation), and prompt files are edited as
+    prose."""
+    return path.read_text().replace("{target_repo}", settings.target_repo)
+
+
 def _system_prompt(settings: AgentSettings) -> str:
-    return SYSTEM_PROMPT_PATH.read_text().format(target_repo=settings.target_repo)
+    return _render_prompt(SYSTEM_PROMPT_PATH, settings)
 
 
 def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
@@ -370,7 +378,7 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
         with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
             convo = _build_conversation(
                 build_llm(settings, run_id, token),
-                PM_PROMPT_PATH.read_text().format(target_repo=settings.target_repo),
+                _render_prompt(PM_PROMPT_PATH, settings),
                 PM_TOOLS,
                 ctx,
                 workspace,

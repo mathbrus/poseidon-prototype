@@ -318,3 +318,21 @@ def test_llm_carries_run_attribution_and_single_attempt(settings):
     assert llm.num_retries == 1
     assert llm.model == "openai/test-model"  # provider prefix for routing only
     assert llm.base_url == settings.llm_proxy_url
+
+
+# --- prompt rendering -----------------------------------------------------------
+
+
+def test_prompt_rendering_survives_stray_braces(tmp_path, settings):
+    """Prompt files are edited as prose: a brace added to the text must
+    stay literal text, never a format crash or a format-spec evaluation."""
+    from agent.brain import _render_prompt
+
+    template = tmp_path / "prompt.md"
+    template.write_text(
+        "Repo: {target_repo}. Example: {\"key\": \"value\"} and {not_a_field!r}."
+    )
+    rendered = _render_prompt(template, settings)
+    assert f"Repo: {settings.target_repo}." in rendered
+    assert '{"key": "value"}' in rendered
+    assert "{not_a_field!r}" in rendered
