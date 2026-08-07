@@ -1,16 +1,15 @@
 """Gateway enforcement pipeline: policy input -> OPA -> audit -> backend.
 
 Every call (MCP tool or admin endpoint) goes through `GatewayService.call`,
-which builds the §5.1 decision input — enriched with the verified run
-binding from the registry (plan step 12) — queries the caller's compiled
-decision path, emits a C1 audit event, and only on allow executes the
+which builds the policy decision input — enriched with the verified run
+binding from the registry — queries the caller's compiled
+decision path, emits an audit event, and only on allow executes the
 backend action.
 
-Run-binding enrichment is the successor of the PoC's `data.runs.assignments`
-pushes: the gateway resolves the claimed run against the registry (live
-sandbox registration, its namespace, the run row) and injects
+Run-binding enrichment: the gateway resolves the claimed run against the
+registry (live sandbox registration, its namespace, the run row) and injects
 `run_binding_verified` into the *input*. Policy never reads pushed data, so
-OPA stays a pure function of bundle + input (§2b).
+OPA stays a pure function of bundle + input.
 """
 
 import asyncio
@@ -81,20 +80,20 @@ class GatewayService:
         self._http = http_client
         self._git = git_backend or GitBackend(settings, http_client)
         self._log = get_logger("gateway")
-        # Registry-backed since plan step 8: an in-memory dict silently
-        # orphaned every sandbox call of every in-flight run whenever this
-        # process restarted (resolution row 16).
+        # Registry-backed: an in-memory dict would silently orphan every
+        # sandbox call of every in-flight run whenever this process
+        # restarted.
         self._sandboxes = sandboxes
         self._audit_store = audit
-        # Read-only: the run row supplies the §5.1 `workflow` field.
+        # Read-only: the run row supplies the decision input's `workflow`.
         self._runs = runs
-        # Written on the crew.request tool path (§4.4 rule 3: the tool and
-        # the step-18/19 workflow path record the same row).
+        # Written on the crew.request tool path (the tool and the
+        # workflow path record the same row).
         self._crew_requests = crew_requests
-        # Read-only, for the crew.request enrichment (plan step 16d): the
+        # Read-only, for the crew.request enrichment: the
         # conductor's live spawn count and the run's budget headroom ride
         # the decision input — the compiled caps read them there, never
-        # from pushed data (§2b).
+        # from pushed data.
         self._participants = participants
         self._ledger = ledger
         self._companies = companies
@@ -134,7 +133,7 @@ class GatewayService:
 
         policy_input = await self._decision_input(identity, tool, args, run_id)
         if policy_input is None:
-            # Parentage is mandatory for ephemeral callers (§5.1) — an
+            # Parentage is mandatory for ephemeral callers — an
             # identity missing it never reaches policy.
             await self._audit(
                 identity, tool, args, run_id, "deny",
@@ -173,7 +172,7 @@ class GatewayService:
     async def _decision_input(
         self, identity: Identity, tool: str, args: dict[str, Any], run_id: str
     ) -> dict[str, Any] | None:
-        """The §5.1 decision input, run binding verified against the registry.
+        """The policy decision input, run binding verified against the registry.
 
         Wrong, stale or revoked `run_id` claims resolve to
         `run_binding_verified: false`, and every run-scoped compiled rule
@@ -257,7 +256,7 @@ class GatewayService:
         job_name: str | None = None,
     ) -> None:
         """Admin action: register a sandbox. The registration row *is* the
-        run binding — nothing is pushed to OPA (§2b)."""
+        run binding — nothing is pushed to OPA."""
 
         async def backend() -> None:
             await self.register_sandbox(run_id, url, namespace, job_name)
@@ -334,7 +333,7 @@ class GatewayService:
         finally:
             prepared.cleanup()
 
-    # -- issues + review + merge (plan step 15) ---------------------------
+    # -- issues + review + merge ------------------------------------------
 
     async def issues_create(
         self, identity: Identity, run_id: str, repo: str, title: str, body: str
@@ -399,8 +398,8 @@ class GatewayService:
     async def git_merge_pr(
         self, identity: Identity, run_id: str, repo: str, number: int, method: str
     ) -> Any:
-        """O-1 A: policy restricts this to the platform lifecycle — the
-        orchestrator calls it after the human gate (step 20 wires the gate)."""
+        """Policy restricts this to the platform lifecycle — the
+        orchestrator calls it after the human merge gate."""
         args = {"run_id": run_id, "repo": repo, "number": number, "method": method}
         return await self.call(
             identity, "git.merge_pr", args,
@@ -410,10 +409,10 @@ class GatewayService:
     async def request_crew(
         self, identity: Identity, run_id: str, crew_template: str, reason: str
     ) -> Any:
-        """Record spawn intent under the conductor identity (§4.4 rule 3).
+        """Record spawn intent under the conductor identity.
         An allowed request is authorization + intent, never fulfillment —
-        that is step 16d's. The compiled rule already narrows the template
-        to the conductor's may_spawn list."""
+        fulfillment is the orchestrator's. The compiled rule already
+        narrows the template to the conductor's may_spawn list."""
         args = {"run_id": run_id, "crew_template": crew_template, "reason": reason}
 
         async def backend() -> Any:
@@ -452,7 +451,7 @@ class GatewayService:
             rule=rule,
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=backend_status,
-            # v2 (§5.2): the caller's verified attribution rides every event.
+            # The caller's verified attribution rides every event.
             source="gateway",
             company=identity.company or "",
             lifecycle=identity.lifecycle,

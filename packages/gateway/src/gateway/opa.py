@@ -1,10 +1,10 @@
 """OPA client: decision queries against operator-installed compiled bundles.
 
-The decision path is per caller since plan step 12: company callers query
+The decision path is per caller: company callers query
 their company's package (`poseidon/authz/<slug>/decision`), the platform
 lifecycle queries `poseidon/platform/decision`. Nothing is ever pushed into
-OPA — the PoC's `data.runs.assignments` successor is the run-binding
-enrichment the gateway injects into the decision *input* (§2b).
+OPA — run binding rides as enrichment the gateway injects into the
+decision *input*.
 """
 
 from typing import Any

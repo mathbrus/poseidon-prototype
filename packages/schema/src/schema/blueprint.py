@@ -1,9 +1,9 @@
-"""JSON Schema for the eight blueprint sections (overview §4.1).
+"""JSON Schema for the eight blueprint sections.
 
 Structural validation only. Cross-checks that need the catalogs or a
 registry snapshot (does this template exist, does this workflow node bind to
 a hired conductor, do budgets cover enabled workflows) belong to the
-compiler at plan step 9 — the schema's job is to make a document
+compiler — the schema's job is to make a document
 well-formed, not to make a company coherent.
 
 Two conventions worth stating once: every object is `additionalProperties:
@@ -39,8 +39,8 @@ _COMPANY = {
     },
 }
 
-# Feeds the sandbox image and the egress allowlist through the infra IR
-# (§5.4); an empty allowlist means zero egress, exactly the PoC posture.
+# Feeds the sandbox image and the egress allowlist through the infra IR;
+# an empty allowlist means zero egress.
 _STACK = {
     "type": "object",
     "additionalProperties": False,
@@ -161,7 +161,7 @@ _WORKFLOW = {
     "properties": {
         "enabled": {"type": "boolean"},
         # The standing role that spawns/conducts this workflow — never a
-        # standing executor (§4.5 rule 4; enforced by the compiler).
+        # standing executor (enforced by the compiler).
         "conductor": _NAME,
         "crew": _NAME,
         "gates": {
@@ -169,14 +169,14 @@ _WORKFLOW = {
             "additionalProperties": False,
             "properties": {"merge": _GATE, "intake": _GATE},
         },
-        # Bounded verify re-dispatches (§4.3 [adopted]).
+        # Bounded verify re-dispatches.
         "max_verify_retries": {"type": "integer", "minimum": 0},
         "drain": {
             "type": "object",
             "additionalProperties": False,
             "properties": {
                 # What happens to in-flight runs when the conductor is
-                # drained by a blueprint diff (§6.4).
+                # drained by a blueprint diff.
                 "on_conductor_drain": {
                     "type": "string",
                     "enum": ["abort_crew", "finish_run"],
@@ -220,7 +220,7 @@ _POLICIES = {
                 "properties": {
                     "paths": {"type": "array", "items": _TEXT, "minItems": 1},
                     # Role templates, not instance ids: path rules name what
-                    # a caller *is* (§4.5 rule 3).
+                    # a caller *is*.
                     "roles": {"type": "array", "items": _NAME, "minItems": 1},
                 },
             },
@@ -241,7 +241,7 @@ _BUDGETS = {
     "additionalProperties": False,
     "required": ["per_run"],
     "properties": {
-        # Hard-stop at the LLM gateway (§4.8).
+        # Hard-stop at the LLM gateway.
         "per_run": {
             "type": "object",
             "additionalProperties": False,

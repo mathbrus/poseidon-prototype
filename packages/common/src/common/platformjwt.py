@@ -1,6 +1,6 @@
-"""Platform-signed short-TTL JWTs — the §2b ephemeral-identity contract.
+"""Platform-signed short-TTL JWTs — the ephemeral-identity contract.
 
-The platform (orchestrator fulfill activities, plan step 16a) mints; both
+The platform (orchestrator fulfill activities) mints; both
 gateways verify. Signature verification alone is never enough: the gateway
 must also find a live `run_participants` row, so revocation is a registry
 row termination and takes effect before the TTL runs out. That second half
@@ -49,7 +49,7 @@ def mint(
     ttl_s: int,
     now: float | None = None,
 ) -> str:
-    """Sign `claims` (the §5.1 identity fields) into a compact JWT."""
+    """Sign `claims` (the identity fields) into a compact JWT."""
     issued = int(now if now is not None else time.time())
     payload = {
         **claims,

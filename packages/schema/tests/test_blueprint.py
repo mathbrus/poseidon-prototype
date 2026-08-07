@@ -1,7 +1,7 @@
 """Blueprint validation: the shipped example validates, and representative
 invalid documents fail with errors that say where and what to write instead.
 
-The done-when for plan step 7 is exactly those two properties, so the
+Both properties matter, so the
 invalid cases assert on message *content*, not just on the raising.
 """
 
@@ -37,9 +37,9 @@ def test_hello_saas_validates():
 
 
 def test_hello_saas_is_the_lean_profile(blueprint):
-    """Since the firing diff (plan step 19): the PM is the only standing
-    hire; the analyst placeholder documents growth at count 0; no standing
-    executor exists in the document at all."""
+    """The PM is the only standing hire; the analyst placeholder documents
+    growth at count 0; no standing executor exists in the document at
+    all."""
     roles = blueprint["departments"]["roles"]
     assert roles["pm"]["count"] == 1
     assert roles["analyst"]["count"] == 0
@@ -47,7 +47,7 @@ def test_hello_saas_is_the_lean_profile(blueprint):
 
 
 def test_pm_holds_no_executor_tools(blueprint):
-    """§4.5: spawn authority is not permission to wield the crew's tools —
+    """Spawn authority is not permission to wield the crew's tools —
     a gateway deny, not prompt hope, and it starts in the blueprint."""
     pm_tools = set(blueprint["tools"]["pm"]["allow"])
     assert not any(t.startswith("sandbox.") for t in pm_tools)
@@ -142,7 +142,7 @@ def test_unknown_crew_member_template_is_caught(blueprint):
 
 
 def test_company_role_cannot_hold_the_platform_merge_tool(blueprint):
-    """O-1 A: git.merge_pr is the orchestrator's after the gate. A blueprint
+    """git.merge_pr is the orchestrator's after the gate. A blueprint
     that could grant it would make the human merge gate optional."""
     blueprint["tools"]["pm"]["allow"].append("git.merge_pr")
     (problem,) = [p for p in problems_of(blueprint) if "git.merge_pr" in p]

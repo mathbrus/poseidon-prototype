@@ -55,7 +55,7 @@ async def test_missing_token_is_rejected_with_401(app):
 async def test_platform_registers_sandbox_via_its_own_decision_path(app, backends, audit):
     resp = await register_sandbox(app, RUN_ID)
     assert resp.status_code == 200 and resp.json() == {"ok": True}
-    # Nothing is pushed to OPA (§2b): the registration row *is* the binding,
+    # Nothing is pushed to OPA: the registration row *is* the binding,
     # and the decision was made on the platform package.
     assert backends.decision_paths == ["/v1/data/poseidon/platform/decision"]
 
@@ -104,7 +104,7 @@ async def test_bound_agent_call_is_proxied_to_sandbox(app, backends, audit):
     assert event["backend_status"] == "ok"
     assert SHA256_HEX.match(event["args_digest"])
 
-    # The §5.1 decision input, enriched: the registration made the binding.
+    # The decision input, enriched: the registration made the binding.
     decision_input = backends.policy_inputs[-1]
     assert decision_input["company"] == "hello-saas"
     assert decision_input["lifecycle"] == "standing"
@@ -137,8 +137,8 @@ async def test_all_six_sandbox_tools_map_to_c4_routes(app, backends):
 
 async def test_unbound_run_is_denied_with_rule_name(app, backends, audit):
     """No live sandbox registration for the claimed run -> the enrichment
-    sets run_binding_verified false -> the compiled rule cannot match. The
-    wrong/stale run_id deny the PoC's data.runs.assignments used to give."""
+    sets run_binding_verified false -> the compiled rule cannot match, so
+    a wrong or stale run_id is denied."""
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(
             "sandbox.exec", {"run_id": "run-NOTMINE", "cmd": "rm -rf /", "timeout_s": 5}

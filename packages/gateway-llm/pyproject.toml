@@ -1,7 +1,7 @@
 [project]
 name = "gateway-llm"
 version = "0.2.0"
-description = "Poseidon LLM gateway: workload-authenticated, metered, tier-routing model access (plan step 14)"
+description = "Poseidon LLM gateway: workload-authenticated, metered, tier-routing model access"
 requires-python = ">=3.12"
 dependencies = [
     "common[otel]",

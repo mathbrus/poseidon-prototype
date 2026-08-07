@@ -1,16 +1,15 @@
-"""Audit event model — schema v2 (§5.2, plan step 13).
+"""Audit event model.
 
-The v1 fields plus the multi-source attribution: `company`, `lifecycle`,
-`parent_agent_id`, `workflow`, and an explicit `source`. One model, one
-registry table, one ingestion contract — every producer writes the same
-shape and one `run_id` query returns the whole story across sources
-(§4.10). Args remain digests: audit must never become a leak channel.
+Multi-source attribution: `company`, `lifecycle`, `parent_agent_id`,
+`workflow`, and an explicit `source`. One model, one registry table, one
+ingestion contract — every producer writes the same shape and one `run_id`
+query returns the whole story across sources. Args remain digests: audit
+must never become a leak channel.
 
-Sources: the MCP gateway emits from step 12's pipeline; the egress proxy's
-allows/denies ride the same contract (`sandbox-infra`); the LLM gateway
-joined at plan step 14; `process-lifecycle` is the orchestrator's fulfill
-machinery (identity mint/revoke at step 16a, crew-pod provisioning at
-16c); process gates emit at steps 18–20.
+Sources: the MCP gateway's decision pipeline; the egress proxy's
+allows/denies (`sandbox-infra`); the LLM gateway; `process-lifecycle`, the
+orchestrator's fulfill machinery (identity mint/revoke, crew-pod
+provisioning); and the process gates.
 """
 
 from typing import Literal
@@ -33,7 +32,7 @@ class AuditEvent(BaseModel):
     rule: str | None
     latency_ms: int
     backend_status: Literal["ok", "error"] | None
-    # -- v2 (§5.2) ---------------------------------------------------------
+    # -- attribution -------------------------------------------------------
     # Which enforcement point produced the event. Explicit on purpose: the
     # consumer must never have to infer it from agent_id conventions.
     source: Source

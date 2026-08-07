@@ -25,7 +25,7 @@ def make_event(**overrides):
 
 
 def test_round_trip_matches_contract():
-    """The v2 shape (§5.2, plan step 13): v1 fields plus source and the
+    """The audit event shape: decision fields plus source and the
     attribution columns, empty when genuinely absent."""
     event = make_event(decision="deny", rule="branch_must_be_feature", backend_status=None)
     parsed = json.loads(event.model_dump_json())

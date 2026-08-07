@@ -1,4 +1,4 @@
-"""The platform JWT format (plan step 11): mint/verify round-trip and every
+"""The platform JWT format: mint/verify round-trip and every
 rejection reason a gateway will turn into an audit rule."""
 
 import pytest

@@ -29,7 +29,7 @@ def payload(result) -> dict:
 
 
 def reviewer_token(participants) -> str:
-    """A bound ephemeral reviewer (the sdet crew member of §6.3)."""
+    """A bound ephemeral reviewer (the review workflow's sdet crew member)."""
     participants.add("reviewer-01X", RUN_ID, "pm-1", "feature-review", "reviewer")
     return platformjwt.mint(
         JWT_KEY,
@@ -133,7 +133,7 @@ async def test_reviewer_cannot_merge_or_open_issues(app, participants):
     assert merge.isError and create.isError
 
 
-# -- git.merge_pr (platform only, O-1 A) ------------------------------------
+# -- git.merge_pr (platform only) -------------------------------------------
 
 
 async def test_merge_is_platform_only(app, backends, audit):
@@ -173,7 +173,7 @@ async def test_crew_request_records_idempotent_intent(app, crew_requests, audit)
 
     assert first["status"] == "recorded"
     assert first["conductor"] == "pm-1"
-    assert first["expires_at"]  # expiring: no orphan intent (§6.4)
+    assert first["expires_at"]  # expiring: no orphan intent
     assert again["id"] == first["id"]  # idempotent
     assert len(crew_requests.rows) == 1
 

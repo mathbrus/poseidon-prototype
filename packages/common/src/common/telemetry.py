@@ -5,7 +5,7 @@ the same records exported over OTLP (the anytime-track OTel adoption).
 per line. Context such as run_id/agent_id is attached with `.bind(...)`,
 which returns a new logger carrying those fields on every line.
 
-OTel enters at this seam and nowhere else (overview §1 seam table, §8):
+OTel enters at this seam and nowhere else:
 
 - stdout JSON stays the always-on contract — `kubectl logs` and every
   debugging workflow keep working unchanged, exporter or not;

@@ -6,11 +6,10 @@ write instead*. So every error is rendered as a YAML-ish path plus the
 concrete allowed values, and errors are reported together — fixing a
 blueprint one message per run is a bad trade for the author.
 
-Structural checks only (plan step 7). The catalog cross-checks (does this
+Structural checks only. The catalog cross-checks (does this
 template exist, is `analyst` really at count 0) live here too, because they
 are properties of the *document* against a versioned catalog; anything
-needing a registry snapshot or a deployment plan is the compiler's, at
-step 9.
+needing a registry snapshot or a deployment plan is the compiler's.
 """
 
 from pathlib import Path
@@ -175,7 +174,7 @@ def _catalog_problems(document: Any) -> list[str]:
 
 def _platform_tool_problems(where: str, declared: list[str]) -> list[str]:
     """No company role may hold a platform-only tool: `git.merge_pr` belongs
-    to the orchestrator identity after the gate (O-1 A), and a blueprint
+    to the orchestrator identity after the gate, and a blueprint
     able to grant it would make the merge gate optional."""
     return [
         f"{where}: {tool!r} is callable only by the platform identity "

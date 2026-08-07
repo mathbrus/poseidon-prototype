@@ -1,4 +1,4 @@
-"""The LLM gateway pipeline (§4.8, plan step 14) against in-memory doubles
+"""The LLM gateway pipeline against in-memory doubles
 and a stubbed upstream: unattributed calls rejected, run attribution
 verified, tier routing applied, every forwarded call metered to the ledger
 and audited (source=llm-gateway), and the per-run cap a hard stop with a
@@ -157,7 +157,7 @@ def test_tier_routes_the_model_and_meters_the_ledger(app, stores, upstream):
     assert resp.status_code == 200
 
     # The caller's frontier tier picked the model; the request's own model
-    # field did not survive (§4.8 routing is the gateway's, not the brain's).
+    # field did not survive (routing is the gateway's, not the brain's).
     assert upstream.requests[0]["model"] == "big-model"
 
     (entry,) = ledger.entries_for_run(RUN_ID)

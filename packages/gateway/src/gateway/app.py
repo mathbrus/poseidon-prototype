@@ -6,7 +6,7 @@ platform-side clones holding the GIT_TOKEN, plus `POST`/`DELETE
 /admin/sandboxes` (platform lifecycle only) to register and retire a run's
 sandbox address. Authentication is workload identity (projected
 service-account tokens via TokenReview, platform-signed ephemeral JWTs —
-plan step 11; the static PoC tokens died at the step-12 cutover); every
+no static tokens); every
 call is policy-checked against the caller's compiled decision path and
 audited (C1/C2) — the admin routes included, which is why the registration
 write lives behind the gateway rather than in the orchestrator.
@@ -46,7 +46,7 @@ from registry.bundles import AgentInstances, Companies
 
 class AuthMiddleware:
     """Authenticate every HTTP request once (platform JWT or Kubernetes
-    TokenReview — plan step 11) and stash the identity in the request
+    TokenReview) and stash the identity in the request
     state; rejected tokens are audited by the authenticator."""
 
     def __init__(self, app: ASGIApp, authenticator: Authenticator) -> None:
@@ -208,7 +208,7 @@ def create_app(
             identity_of(ctx), run_id, repo, branch, title, body, bundle_b64
         )
 
-    # -- plan step 15: issues, review, merge, crew intent -------------------
+    # -- issues, review, merge, crew intent ---------------------------------
 
     @mcp.tool(name="issues.create")
     async def issues_create(

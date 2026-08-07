@@ -1,10 +1,10 @@
-"""Workload identity verification (plan step 11, overview §4.9), shared by
+"""Workload identity verification, shared by
 both gateways — the MCP gateway and the LLM gateway verify the same
-credentials against the same registry state (§2b).
+credentials against the same registry state.
 
 One `Authenticator` resolves a bearer credential to an `Identity`:
 
-  platform JWT      -> §2b ephemeral contract: HS256 signature + audience +
+  platform JWT      -> HS256 signature + audience +
                        expiry AND a live `run_participants` row, so a
                        registry row termination revokes before TTL expiry
   anything else     -> Kubernetes TokenReview with our audience; the
@@ -17,7 +17,7 @@ One `Authenticator` resolves a bearer credential to an `Identity`:
 
 Every rejection of a *presented* token is audited (`authn_*` rules): a
 token from the wrong service account or namespace must be visible in the
-audit store, not just 401'd (the step-11 done-when).
+audit store, not just 401'd.
 """
 
 import asyncio
@@ -181,7 +181,7 @@ class Authenticator:
             return await self._verify_platform_jwt(token, path)
         return await self._verify_kube_token(token, path)
 
-    # -- platform-signed ephemeral JWTs (§2b) ------------------------------
+    # -- platform-signed ephemeral JWTs ------------------------------------
 
     async def _verify_platform_jwt(self, token: str, path: str) -> Identity | None:
         key = self._settings.platform_jwt_key
@@ -200,7 +200,7 @@ class Authenticator:
         if row is None or row["run_id"] != claims.get("run_id"):
             await self._reject(path, "authn_no_live_participant", agent_id or "unknown")
             return None
-        # §5.1: `role` carries the catalog template (the minted claim);
+        # `role` carries the catalog template (the minted claim);
         # the row carries the crew coordinates and parentage — the pair the
         # compiled crew rules key on (crew_template + crew_role).
         return Identity(
@@ -255,7 +255,7 @@ class Authenticator:
             account.namespace == settings.platform_namespace
             and account.name == settings.orchestrator_service_account
         ):
-            # The orchestrator's privileged identity (§4.9: platform
+            # The orchestrator's privileged identity (platform
             # lifecycle); policy keys on the lifecycle via the platform
             # decision path.
             return Identity(
@@ -292,7 +292,7 @@ class Authenticator:
             rule=rule,
             latency_ms=0,
             backend_status=None,
-            # v2 (§5.2): an authn reject is the gateway speaking about a
+            # An authn reject is the gateway speaking about a
             # credential that mapped to nothing — no company, no lifecycle.
             source="gateway",
         )

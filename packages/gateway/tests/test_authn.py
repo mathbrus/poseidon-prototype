@@ -1,4 +1,4 @@
-"""Workload identity at the gateway (plan step 11).
+"""Workload identity at the gateway.
 
 Projected service-account tokens resolve through a (faked) TokenReview to
 registry-backed identities; platform-signed ephemeral JWTs verify against
@@ -164,7 +164,7 @@ async def test_no_reviewer_fails_closed(authn_settings, audit, instances, partic
     assert rules(audit) == ["authn_unknown_token"]
 
 
-# -- platform-signed ephemeral JWTs (§2b) -----------------------------------
+# -- platform-signed ephemeral JWTs -----------------------------------------
 
 
 def mint(_key: str = JWT_KEY, _ttl: int = 600, **overrides) -> str:
@@ -188,7 +188,7 @@ async def test_ephemeral_jwt_with_live_row_is_accepted(authenticator, participan
     assert identity.lifecycle == "ephemeral"
     assert identity.agent_id == "executor-01X"
     assert identity.company == COMPANY_NS
-    # The §5.1 refinement: role stays the catalog template (the claim);
+    # role stays the catalog template (the claim);
     # the crew coordinates and parentage come from the live row.
     assert identity.role == "backend-engineer"
     assert identity.crew_template == "feature-delivery"

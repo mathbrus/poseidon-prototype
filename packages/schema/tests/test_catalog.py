@@ -43,8 +43,8 @@ def test_analyst_is_a_placeholder_with_no_tools():
 
 
 def test_executor_templates_are_not_placeholders():
-    """backend-engineer and sdet stay hireable-in-schema through the M2→M3
-    bridge; the lean-roster refusal is a compiler error at step 19."""
+    """backend-engineer and sdet stay hireable-in-schema;
+    the lean-roster refusal is a compiler error, not a schema rule."""
     assert not ROLE_TEMPLATES["backend-engineer"].placeholder_only
     assert not ROLE_TEMPLATES["sdet"].placeholder_only
 

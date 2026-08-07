@@ -176,7 +176,7 @@ class GitBackend:
         self._log.info("pr opened", extra={"branch": prepared.branch, "pr_url": pr_url})
         return {"pr_url": pr_url}
 
-    # -- GitHub REST (plan step 15: issues.*, git.read/comment/merge_pr) ------
+    # -- GitHub REST (issues.*, git.read/comment/merge_pr) --------------------
 
     async def _github(
         self, method: str, path: str, json: dict[str, Any] | None = None
@@ -216,7 +216,7 @@ class GitBackend:
 
     async def read_issues(self, repo: str, number: int | None) -> dict[str, Any]:
         """One issue by number, or the open backlog — the PM's cross-run
-        state is this list plus the runs history (overview §4.5)."""
+        state is this list plus the runs history."""
         slug = repo_slug(repo)
         if number is not None:
             return {"issues": [self._issue_view(
@@ -258,7 +258,7 @@ class GitBackend:
         return {"url": comment.get("html_url", "")}
 
     async def read_pr(self, repo: str, number: int) -> dict[str, Any]:
-        """PR metadata + changed files — what a reviewer reads (§6.3)."""
+        """PR metadata + changed files — what a reviewer reads."""
         slug = repo_slug(repo)
         pr = await self._github("GET", f"/repos/{slug}/pulls/{number}")
         files = await self._github("GET", f"/repos/{slug}/pulls/{number}/files")

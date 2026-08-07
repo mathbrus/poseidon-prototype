@@ -1,4 +1,4 @@
-"""LLM gateway settings (plan step 14).
+"""LLM gateway settings.
 
 Inherits the shared workload-authn shape (`common.authn`) — both gateways
 verify the same credentials — and adds the metering knobs. Provider keys
@@ -23,9 +23,9 @@ class LlmGatewaySettings(WorkloadAuthnSettings):
     tier_models: str = ""
     # For unmapped tiers and callers without an instance row.
     default_model: str = "mock-brain"
-    # Flat MVP pricing per 1K tokens (prompt + completion). Per-model price
-    # tables are a V1 concern; what matters at MVP is that spend accrues
-    # from real usage and the cap bites (§4.8).
+    # Flat pricing per 1K tokens (prompt + completion). Per-model price
+    # tables are a future concern; what matters is that spend accrues
+    # from real usage and the cap bites.
     price_per_1k_tokens: float = 0.002
 
     def tier_model_map(self) -> dict[str, str]:

@@ -248,8 +248,8 @@ def backends() -> Backends:
 
 @pytest.fixture
 def audit() -> InMemoryAuditStore:
-    """The registry audit store, in memory (plan step 8 moved the sink off
-    JSONL; the interface is the same object the gateway writes through)."""
+    """The registry audit store, in memory — the interface is the same
+    object the gateway writes through."""
     return InMemoryAuditStore()
 
 
@@ -355,7 +355,7 @@ async def mcp_session(app, token: str):
 async def register_sandbox(app, run_id: str, token: str = RUNNER_TOKEN) -> httpx.Response:
     """Register a run's sandbox exactly as the orchestrator does — namespace
     included, because the registration's namespace is what a standing
-    caller's run binding is verified against (plan step 12)."""
+    caller's run binding is verified against."""
     async with http_client(app, token) as client:
         return await client.post(
             "/admin/sandboxes",

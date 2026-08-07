@@ -1,4 +1,4 @@
-"""The LLM gateway (§4.8, plan step 14): the one route to any model.
+"""The LLM gateway: the one route to any model.
 
 Pipeline per completion call:
 
@@ -8,7 +8,7 @@ Pipeline per completion call:
        exactly that run) — anonymous or unattributed passthrough is gone
     -> budget headroom: the applied blueprint's per-run cap against the
        ledger SUM; exhausted -> a distinguishable `budget_exhausted` error,
-       audited, never silent degradation (§2b: enforcement is local here,
+       audited, never silent degradation (enforcement is local here,
        no Temporal client — the workflow observes the surfaced error)
     -> model-tier routing: the caller's instance tier resolves to a model
        from cluster config; the request's own model field is overridden
@@ -195,7 +195,7 @@ def create_app(
         workflow = run.workflow or ""
         company = identity.company or run.company or ""
 
-        # -- budget headroom (§2b: local enforcement, never silent) --------
+        # -- budget headroom (local enforcement, never silent) -------------
         def read_budget() -> tuple[float, float]:
             spec = companies.get(company) or {}
             cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
@@ -212,7 +212,7 @@ def create_app(
                 "budget_exhausted",
             )
 
-        # -- model-tier routing (§4.8) -------------------------------------
+        # -- model-tier routing --------------------------------------------
         instance = await asyncio.to_thread(instances.get, identity.agent_id)
         tier = (instance or {}).get("model_tier") or ""
         model = tier_models.get(tier, settings.default_model)

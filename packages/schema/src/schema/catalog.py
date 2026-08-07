@@ -1,4 +1,4 @@
-"""Versioned role-template and crew-template catalogs (overview §4.4, §4.5).
+"""Versioned role-template and crew-template catalogs.
 
 A blueprint names templates; the compiler resolves them into agent specs and
 per-member Rego bundles. Templates carry tool scopes, model tier and runtime
@@ -7,11 +7,9 @@ the blueprint's business, and credentials never enter a spec at all.
 
 Two rules the catalog encodes rather than documents:
 
-- `backend-engineer` and `sdet` exist **only** as crew-member material in
-  the MVP end state (§4.5 rule 3). The schema does not forbid standing
-  counts structurally — the compiler error does, and it lands at plan step
-  19 with the firing diff, because the M2→M3 bridge blueprint must compile
-  until then (sequencing choice 7).
+- `backend-engineer` and `sdet` exist **only** as crew-member material.
+  The schema does not forbid standing counts structurally — the compiler
+  error does.
 - `analyst` is a placeholder documenting the future-monitor growth path and
   is valid only at `count: 0`. That one *is* structural: it exercises no
   tools, so there is nothing for a later step to relax.
@@ -46,8 +44,8 @@ class RoleTemplate:
 class CrewMember:
     role_template: str
     # The member's explicit allow-list — deliberately NOT required to be a
-    # subset of the conductor's scope (§4.5 rule 5): spawn authority is not
-    # a capability ceiling.
+    # subset of the conductor's scope: spawn authority is not a capability
+    # ceiling.
     tools: tuple[str, ...]
     # LLM-only members get no sandbox of their own (the planner contract).
     needs_sandbox: bool = True
@@ -59,7 +57,7 @@ class CrewTemplate:
     summary: str
     members: dict[str, CrewMember]
     # Members inherit the run's budget; the ledger keeps them as separate
-    # dimensions so crew fan-out stays attributable (§4.8).
+    # dimensions so crew fan-out stays attributable.
     budget_inheritance: str = "run"
 
 
@@ -69,7 +67,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         summary=(
             "Standing conductor: scopes goals, writes and reads tickets, "
             "requests crews. Holds no executor tools — the PM cannot open a "
-            "pull request or write in a sandbox (§4.5 exit criteria)."
+            "pull request or write in a sandbox."
         ),
         tools=tuple(ISSUE_TOOLS + CREW_TOOLS),
         model_tier="standard",
@@ -82,8 +80,8 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
     "backend-engineer": RoleTemplate(
         name="backend-engineer",
         summary=(
-            "Coding executor. Crew-member material in the MVP end state; "
-            "standing counts are a compile error from plan step 19."
+            "Coding executor. Crew-member material only; "
+            "standing counts are a compile error."
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         model_tier="frontier",
@@ -99,7 +97,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
     "analyst": RoleTemplate(
         name="analyst",
         summary=(
-            "Placeholder for the future standing monitor (§13 growth path). "
+            "Placeholder for a future standing monitor. "
             "Valid only at count: 0 — produces no instance and exercises no "
             "tools."
         ),
@@ -111,7 +109,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
 
 
 # The planner is LLM-only: read-only against the run's one sandbox, no
-# sandbox of its own, no write tools (§4.4 planner contract). It produces
+# sandbox of its own, no write tools. It produces
 # exactly one artifact — the task brief the executor's dispatch carries.
 _PLANNER_TOOLS = ("sandbox.read_file", "sandbox.list_dir", "issues.read")
 
