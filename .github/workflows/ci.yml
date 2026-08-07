@@ -1,16 +1,17 @@
-# Poseidon CI: unit tests, policy tests, lockfile-pinned image builds, and
-# the secret-inspection gate that proves invariant #1 by inspection — no
+# Poseidon CI: lint, unit tests, lockfile and dependency checks, chart
+# rendering, policy tests, lockfile-pinned image builds, and the
+# secret-inspection gate that proves invariant #1 by inspection — no
 # *_TOKEN/*_KEY may be baked into the agent or sandbox images.
 #
-# The kind e2e suite (E1–E4 + kill-the-worker) opens real PRs on a
-# disposable repo, so it stays manually dispatched. It spends no LLM tokens:
-# the cluster deploys the deterministic mock brain by default.
+# The kind e2e suite opens real PRs on a disposable repo, so it stays
+# manually dispatched. It spends no LLM tokens: the cluster deploys the
+# deterministic mock brain.
 
 name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -20,6 +21,65 @@ on:
         default: false
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      # The images build with `uv export --frozen`, so a stale lockfile
+      # means the images and the host resolve different versions.
+      - name: Lockfile is current
+        run: uv lock --check
+      - run: uv sync
+      # Advisory: a fresh CVE in a transitive dependency should be visible
+      # on every run without failing an unrelated change.
+      - name: "Dependency audit (advisory)"
+        continue-on-error: true
+        run: |
+          # --no-header because pip-audit rejects uv's leading comment.
+          uv export --frozen --no-emit-workspace --no-hashes --no-header \
+            -o requirements-audit.txt
+          uv run pip-audit -r requirements-audit.txt
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Secrets are `required` in the templates, so rendering needs values
+      # for them; these are throwaway strings, never a real credential.
+      - name: Lint and render the chart
+        run: |
+          secrets=(
+            --set secrets.gitToken=ci
+            --set secrets.llmApiKey=ci
+            --set secrets.postgresPassword=ci
+            --set secrets.egressProxyKey=ci
+            --set secrets.platformJwtKey=ci
+          )
+          helm lint deploy/helm/poseidon "${secrets[@]}"
+          helm template deploy/helm/poseidon "${secrets[@]}" >/dev/null
+          helm template deploy/helm/poseidon "${secrets[@]}" \
+            -f deploy/helm/poseidon/values-kind.yaml >/dev/null
+      - name: "A bare install must not deploy placeholder credentials"
+        run: |
+          if helm template deploy/helm/poseidon >/dev/null 2>&1; then
+            echo "the chart rendered without secret overrides" >&2
+            exit 1
+          fi
+
   unit:
     runs-on: ubuntu-latest
     # The registry suite tests SQL, so it runs against a real Postgres —
@@ -45,11 +105,12 @@ jobs:
           python-version: "3.12"
       - run: uv sync
       # Per package: the suites share fixture module names (conftest.py),
-      # which collide in a single rootdir-wide collection.
+      # which collide in a single rootdir-wide collection. Discovered from
+      # the workspace so a new package cannot be silently untested.
       - run: |
-          for package in common gateway gateway-llm agent sandbox orchestrator mockllm schema registry compiler operator; do
+          for package in packages/*/; do
             echo "::group::$package"
-            uv run pytest "packages/$package" -q
+            uv run pytest "$package" -q
             echo "::endgroup::"
           done
 
@@ -65,7 +126,10 @@ jobs:
         run: |
           uv run poseidon blueprint compile examples/hello-saas.yaml \
             --no-live --out compiled-bundle >/dev/null
-          docker run --rm -v "$PWD/compiled-bundle:/b:ro" openpolicyagent/opa check /b
+          # Pinned to the tag the chart deploys, so CI checks the bundle
+          # against the OPA that will actually load it.
+          docker run --rm -v "$PWD/compiled-bundle:/b:ro" \
+            openpolicyagent/opa:1.19.0 check /b
 
   images:
     runs-on: ubuntu-latest
@@ -74,17 +138,23 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+      - run: uv sync
+      # Derived from the Dockerfiles themselves: a new image is built and
+      # inspected without anyone remembering to add it here.
       - name: Build images
         run: |
-          for image in gateway gatewayllm agent sandbox orchestrator egressproxy mockllm operator; do
-            docker build -f "Dockerfile.$image" -t "poseidon-$image" .
+          for dockerfile in Dockerfile.*; do
+            image="poseidon-${dockerfile#Dockerfile.}"
+            echo "::group::$image"
+            docker build -f "$dockerfile" -t "$image" .
+            echo "::endgroup::"
           done
 
       - name: "Lockfile pinning: images resolve the locked versions"
         run: |
           # `uv export` in the build means an image can only carry what
-          # uv.lock resolves; spot-check the dependency that bit us at step 3.
-          locked=$(python -c "
+          # uv.lock resolves; spot-check a dependency that has bitten us.
+          locked=$(uv run python -c "
           import tomllib, pathlib
           lock = tomllib.loads(pathlib.Path('uv.lock').read_text())
           print(next(p['version'] for p in lock['package'] if p['name'] == 'mcp'))
@@ -112,14 +182,26 @@ jobs:
             fi
           done
 
+      - name: "Images run as a non-root user"
+        run: |
+          for dockerfile in Dockerfile.*; do
+            image="poseidon-${dockerfile#Dockerfile.}"
+            uid=$(docker inspect --format '{{.Config.User}}' "$image")
+            if [ "$uid" != "10001" ]; then
+              echo "$image runs as '${uid:-root}', expected 10001" >&2
+              exit 1
+            fi
+          done
+
   e2e-kind:
     # Manual and optional: brings up a kind cluster and opens real PRs on a
-    # disposable repo. No LLM spend — the stack deploys the mock brain.
+    # disposable repo. No LLM spend — the stack deploys the mock brain
+    # (nothing here sets REAL_LLM).
     # Requires the E2E_GIT_TOKEN / E2E_TARGET_REPO repository secrets.
     #
-    # This job IS the MVP acceptance suite (scripts/acceptance.sh runs the
-    # same thing locally): tests/e2e_kind in full, with
-    # test_zz_acceptance.py as the capstone.
+    # This job IS the acceptance suite (scripts/acceptance.sh runs the same
+    # thing locally): tests/e2e_kind in full, with test_zz_acceptance.py as
+    # the capstone.
     if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
     runs-on: ubuntu-latest
     steps:

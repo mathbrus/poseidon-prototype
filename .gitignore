@@ -3,3 +3,4 @@ runs/
 .env
 __pycache__/
 .venv/
+requirements-audit.txt
