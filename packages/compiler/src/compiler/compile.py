@@ -1,12 +1,12 @@
 """The compiler: `(blueprint, role_catalog, registry_snapshot) → plan`.
 
-A pure function (§4.1). It reads nothing but its arguments, writes nothing,
-and touches no cluster: apply is the operator's job at plan step 10, and
-keeping the mutation in exactly one place is what makes "the blueprint is
-the source of truth" checkable rather than aspirational.
+A pure function. It reads nothing but its arguments, writes nothing,
+and touches no cluster: apply is the operator's job, and keeping the
+mutation in exactly one place is what makes "the blueprint is the source
+of truth" checkable rather than aspirational.
 
 Secrets never enter a plan. Agent specs carry a role, a tier and a tool
-scope; credentials arrive at runtime as projected tokens (§4.9).
+scope; credentials arrive at runtime as projected tokens.
 """
 
 from typing import Any
@@ -31,7 +31,7 @@ from compiler.snapshot import EMPTY, RegistrySnapshot
 
 # What the orchestrator's own identity may call. Not blueprint-configurable:
 # a company that could grant itself the platform lifecycle would be able to
-# merge its own pull requests (O-1 A). The two /admin entries are the
+# merge its own pull requests. The two /admin entries are the
 # gateway's admin routes, policed under their path as the tool name —
 # both must be here or sandbox registration and teardown die.
 PLATFORM_SCOPE = sorted(
@@ -40,8 +40,8 @@ PLATFORM_SCOPE = sorted(
         *REPO_TOOLS,
         "sandbox.run_tests",
         # The review workflow resolves the PR's head ref before provisioning
-        # the review sandbox from it (§6.3, O-4) — a read, but the
-        # platform's own, like repo.archive.
+        # the review sandbox from it — a read, but the platform's own,
+        # like repo.archive.
         "git.read",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",
@@ -109,7 +109,7 @@ def _instances(
     snapshot: RegistrySnapshot,
 ) -> tuple[AgentInstanceCR, ...]:
     """Standing roster only. A `count: 0` placeholder produces no instance —
-    that is the whole point of declaring one (§4.5 rule 1)."""
+    that is the whole point of declaring one."""
     instances = []
     for hire, role in sorted((blueprint.get("departments") or {}).get("roles", {}).items()):
         count = role.get("count", 0)
@@ -199,9 +199,7 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
                 enabled=bool(workflow.get("enabled")),
                 conductor=workflow.get("conductor", ""),
                 crew=workflow.get("crew"),
-                # Gate config comes from the blueprint, never hardcoded —
-                # what §9 requires before the intake→review exit can be
-                # claimed (plan step 20 reads this).
+                # Gate config comes from the blueprint, never hardcoded.
                 gates=dict(sorted((workflow.get("gates") or {}).items())),
                 max_verify_retries=int(
                     workflow.get("max_verify_retries", DEFAULT_VERIFY_RETRIES)

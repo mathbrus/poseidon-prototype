@@ -1,7 +1,7 @@
 """The compiler provably performs no I/O beyond its inputs.
 
 This is the property that makes "apply is the only mutation of enforcement"
-checkable rather than aspirational (§4.1): if compiling could touch a
+checkable rather than aspirational: if compiling could touch a
 cluster, write a file, or read something not passed to it, the blueprint
 would stop being the source of truth and nobody could tell from the outside.
 """

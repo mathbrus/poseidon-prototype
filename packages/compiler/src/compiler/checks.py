@@ -1,4 +1,4 @@
-"""Compile-time validations (§4.1).
+"""Compile-time validations.
 
 These are the checks the schema cannot make, because they are about a
 company being *coherent* rather than a document being well-formed: does this
@@ -11,14 +11,13 @@ repeated here — the compiler must fail closed on an unvalidated input, not
 KeyError halfway through emission.
 
 Deliberately absent: the child-⊆-parent scope check. It was dropped with the
-lean roster (§4.5 rule 5) — a conducting PM is not a capability supersystem,
+lean roster — a conducting PM is not a capability supersystem,
 and keeping ⊆ would force the PM's declared allows to become the union of
 every crew member's scope. Spawn authority is `may_spawn` plus the crew
 template plus budget and concurrency caps; tool authority is the member's
 own compiled allow-list.
 
-The strict lean-roster rule landed with the firing diff (plan step 19,
-sequencing choice 7): a standing hire with `count > 0` must be a *spawner*
+The strict lean-roster rule: a standing hire with `count > 0` must be a *spawner*
 (its catalog template carries `may_spawn`) — standing executors do not
 exist; execution is ephemeral crews, spawned under conductor authority.
 Workflow nodes bind to spawners only. `count: 0` placeholders remain legal
@@ -56,7 +55,7 @@ def check(
 
 def _company_name(blueprint: dict[str, Any]) -> list[str]:
     """`platform` is the bundle key and Rego package the orchestrator's own
-    scope lives under (plan step 12) — a company by that name would collide
+    scope lives under — a company by that name would collide
     with it at the bundle server and shadow the platform decision path."""
     name = (blueprint.get("company") or {}).get("name")
     if name == "platform":
@@ -67,10 +66,10 @@ def _company_name(blueprint: dict[str, Any]) -> list[str]:
 def _lean_roster(
     blueprint: dict[str, Any], roles: dict[str, Any]
 ) -> list[str]:
-    """Plan step 19 (sequencing choice 7): no standing executor counts —
-    every hired (count > 0) role must be a spawner, and every enabled
-    workflow's conductor must be one. Executors exist only as ephemeral
-    crew members under a conductor's authority (§4.5)."""
+    """No standing executor counts — every hired (count > 0) role must be
+    a spawner, and every enabled workflow's conductor must be one.
+    Executors exist only as ephemeral crew members under a conductor's
+    authority."""
     problems = []
     for hire, role in _hires(blueprint).items():
         if role.get("count", 0) <= 0:
@@ -132,9 +131,8 @@ def _role_templates(
 
 def _workflow_conductors(blueprint: dict[str, Any]) -> list[str]:
     """Every workflow node maps to a hired standing role — never to an
-    ephemeral member role (§4.5 rule 4). The stricter spawner-only stance
-    (no standing executor may conduct) is plan step 19's compile error,
-    together with the firing diff — not here."""
+    ephemeral member role. The stricter spawner-only stance (no standing
+    executor may conduct) is `_lean_roster`'s compile error — not here."""
     problems = []
     hired = _standing_hires(blueprint)
     for name, workflow in _enabled_workflows(blueprint).items():
@@ -260,7 +258,7 @@ def _crew_allow_lists(
 ) -> list[str]:
     """Every crew member carries an explicit allow-list of real tools that
     narrows (never widens) the catalog member's contract. No ⊆-parent check
-    by design (§4.5 rule 5)."""
+    by design (see the module docstring)."""
     problems = []
     for crew_name, crew in (blueprint.get("crews") or {}).items():
         catalog_crew = crews_catalog.get(crew_name)

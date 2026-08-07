@@ -1,7 +1,7 @@
 """Compile failures.
 
 The point of compiling is that a governance mistake fails here rather than
-at the first tool call in production (§4.1), so the message has to be good
+at the first tool call in production, so the message has to be good
 enough to fix the blueprint from: what is wrong, where, and what is allowed
 instead.
 """

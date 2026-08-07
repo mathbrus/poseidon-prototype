@@ -18,7 +18,7 @@ decision := {"allow": true, "rule": min(allow_rules)} if {
 }
 
 # Run binding is verified by the gateway against the registry and arrives in
-# the input (§5.1). Policy never reads live data, so OPA stays a pure
+# the input. Policy never reads live data, so OPA stays a pure
 # function of bundle + input and restarts are safe.
 bound_to_run if {
 	input.run_id != ""
@@ -33,49 +33,49 @@ allow_rules contains "declared_nowhere" if { false }
 
 deny_rules contains "declared_nowhere" if { false }
 
-# The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
+# The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
-# merge that only the workflow may perform after the human gate (O-1 A).
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform__admin_sandboxes" if {
 	input.lifecycle == "platform"
 	input.tool == "/admin/sandboxes"
 }
 
-# The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
+# The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
-# merge that only the workflow may perform after the human gate (O-1 A).
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform__admin_sandboxes_delete" if {
 	input.lifecycle == "platform"
 	input.tool == "/admin/sandboxes.delete"
 }
 
-# The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
+# The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
-# merge that only the workflow may perform after the human gate (O-1 A).
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform_git_merge_pr" if {
 	input.lifecycle == "platform"
 	input.tool == "git.merge_pr"
 }
 
-# The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
+# The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
-# merge that only the workflow may perform after the human gate (O-1 A).
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform_git_read" if {
 	input.lifecycle == "platform"
 	input.tool == "git.read"
 }
 
-# The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
+# The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
-# merge that only the workflow may perform after the human gate (O-1 A).
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform_repo_archive" if {
 	input.lifecycle == "platform"
 	input.tool == "repo.archive"
 }
 
-# The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
+# The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
-# merge that only the workflow may perform after the human gate (O-1 A).
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform_sandbox_run_tests" if {
 	input.lifecycle == "platform"
 	input.tool == "sandbox.run_tests"

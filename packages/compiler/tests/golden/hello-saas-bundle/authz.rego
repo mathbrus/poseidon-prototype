@@ -18,7 +18,7 @@ decision := {"allow": true, "rule": min(allow_rules)} if {
 }
 
 # Run binding is verified by the gateway against the registry and arrives in
-# the input (§5.1). Policy never reads live data, so OPA stays a pure
+# the input. Policy never reads live data, so OPA stays a pure
 # function of bundle + input and restarts are safe.
 bound_to_run if {
 	input.run_id != ""

@@ -1,4 +1,4 @@
-"""The compiler (overview §4.1, plan step 9).
+"""The compiler.
 
 `(blueprint, role_catalog, registry_snapshot) → deployment_plan`, pure: no
 cluster mutation, no secrets in agent specs, no OASF/Directory dependency.

@@ -1,13 +1,13 @@
 """Compiled policy bundles, generated from one source of truth.
 
-Every rule here targets the §5.1 decision input — the shape the gateway
-sends from step 12 on:
+Every rule here targets the policy decision input — the shape the gateway
+sends:
 
     {company, agent_id, lifecycle, parent_agent_id, role, run_id,
      workflow, tool, args}
 
 plus, for ephemeral callers, `crew_template` and `crew_role`. That pair is a
-necessary refinement, not an embellishment: §5.1 says `role` carries the
+necessary refinement, not an embellishment: `role` carries the
 *catalog template*, and `feature-delivery`'s planner and executor both run
 the `backend-engineer` template. Without the member name, the planner's
 read-only scope and the executor's delivery scope are the same principal to
@@ -15,13 +15,12 @@ policy, which would hand every planner `git.open_pr`. The registry already
 records both columns on `run_participants`, so the gateway can inject them
 with the rest of the verified binding.
 
-Structure mirrors the retired `policies/poc.rego`, which was proven and
-readable: a default-deny `decision`, `allow_rules` and `deny_rules` as
+Structure: a default-deny `decision`, `allow_rules` and `deny_rules` as
 sets, and the lowest-sorting deny wins. Bundles are installed by the
 operator and served over the standard OPA bundle API; nothing is pushed at
-runtime (§2b).
+runtime.
 
-Two bundles per apply since plan step 12:
+Two bundles per apply:
   - the company bundle, `package poseidon.authz.<company_slug>` — per-company
     so two live companies never claim overlapping OPA bundle roots
     (activation under a shared root would erase the other company's rules);
@@ -63,7 +62,7 @@ decision := {{"allow": true, "rule": min(allow_rules)}} if {{
 }}
 
 # Run binding is verified by the gateway against the registry and arrives in
-# the input (§5.1). Policy never reads live data, so OPA stays a pure
+# the input. Policy never reads live data, so OPA stays a pure
 # function of bundle + input and restarts are safe.
 bound_to_run if {{
 	input.run_id != ""
@@ -100,14 +99,13 @@ allow_rules contains "crew_{crew_slug}_{member_slug}_{tool_slug}" if {{
 {extra}}}
 '''
 
-# §4.4 rule 3 / §4.5 rule 5, compiled at step 16d: spawn authority is
-# bounded by the conductor's concurrency cap and the run's budget headroom
-# — both riding the enriched *input* (the gateway counts live spawns and
-# checks the ledger; no OPA data pushes). Note what is absent: any
-# child-⊆-parent scope check.
+# Spawn authority is bounded by the conductor's concurrency cap and the
+# run's budget headroom — both riding the enriched *input* (the gateway
+# counts live spawns and checks the ledger; no OPA data pushes). Note what
+# is absent: any child-⊆-parent scope check.
 _OVER_CAP_RULE = '''
 # {agent_id}: at most {cap} concurrent crews (spawn denials are
-# first-class governance events, §4.5 threat model).
+# first-class governance events).
 deny_rules contains "crew_request_over_cap" if {{
 	input.tool == "crew.request"
 	input.agent_id == "{agent_id}"
@@ -125,9 +123,9 @@ deny_rules contains "crew_request_no_budget" if {
 '''
 
 _PLATFORM = '''
-# The orchestrator's own privileged calls (§5.1 `platform` lifecycle):
+# The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
-# merge that only the workflow may perform after the human gate (O-1 A).
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform_{tool_slug}" if {{
 	input.lifecycle == "platform"
 	input.tool == "{tool}"
@@ -147,16 +145,16 @@ def company_package(company: str) -> str:
 
 def _run_binding(tool: str) -> str:
     """RUN_SCOPED tools additionally require a verified run binding — a role
-    allow-list without it reopens cross-run tool use (§5.1). Membership is
+    allow-list without it reopens cross-run tool use. Membership is
     declared in `schema.tools`, a property of the tool, not a name prefix."""
     return "\tbound_to_run\n" if tool in RUN_SCOPED else ""
 
 
 def _role_extra(tool: str, may_spawn: tuple[str, ...]) -> str:
     """Per-tool guards beyond the plain allow. `crew.request` narrows the
-    requested template to the conductor's may_spawn list (plan step 15):
-    spawn intent outside it is a rule deny before anything is recorded.
-    Concurrency caps and budget headroom join at step 16d."""
+    requested template to the conductor's may_spawn list: spawn intent
+    outside it is a rule deny before anything is recorded. Concurrency caps
+    and budget headroom are enforced by separate deny rules."""
     if tool == "crew.request":
         return (
             f"\tinput.args.crew_template in {json.dumps(sorted(may_spawn))}\n"
@@ -229,7 +227,7 @@ def _platform_rules(tools: list[str]) -> str:
 def _policies_file(company: str, policies: dict[str, Any]) -> str:
     """Branch protection, deny paths and path ownership — enforceable on
     real arguments because bundle-apply already gives policy the changed
-    paths (§4.7)."""
+    paths."""
     protection = policies.get("branch_protection") or {}
     protected = protection.get("protected") or []
     pattern = protection.get("allowed_pattern")
@@ -284,7 +282,7 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
         )
     for index, rule in enumerate(ownership):
         # Path ownership names role *templates* — what a caller is, not
-        # which instance it happens to be (§4.5 rule 3).
+        # which instance it happens to be.
         roles = json.dumps(sorted(rule.get("roles") or []))
         paths = json.dumps(sorted(rule.get("paths") or []))
         lines.append(

@@ -1,9 +1,7 @@
-"""The infrastructure policy IR and its projections (§5.4).
+"""The infrastructure policy IR and its projections.
 
 One IR compiled from blueprint `stack` + policies; several emissions.
-Hand-authoring any projection is a bug — which is precisely what the
-hand-authored values in `values.yaml` (plan steps 4 and 5) become once step
-12 consumes this.
+Hand-authoring any projection is a bug — they all come from here.
 """
 
 from typing import Any
@@ -23,8 +21,8 @@ DEFAULT_DEADLINE_S = 3600
 def build_infra(blueprint: dict[str, Any], namespace: str) -> InfraIR:
     stack = blueprint.get("stack") or {}
     toolchain = stack.get("toolchain") or {}
-    # An empty allowlist means zero egress — the PoC posture, and still the
-    # right default for a stack that needs nothing.
+    # An empty allowlist means zero egress — the right default for a stack
+    # that needs nothing.
     egress_allow = tuple(sorted(toolchain.get("egress_allow") or []))
 
     sandbox = SandboxConstraints(

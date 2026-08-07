@@ -17,7 +17,7 @@ import pytest
 
 from compiler import compile_blueprint
 
-# Per-company packages since plan step 12; the platform scope lives in its
+# Per-company packages; the platform scope lives in its
 # own bundle. Both are loaded together here — their packages (and therefore
 # bundle roots) are disjoint by construction.
 COMPANY_QUERY = "data.poseidon.authz.hello_saas.decision"
@@ -96,7 +96,7 @@ def test_pm_may_request_a_crew(decide):
 
 
 def test_pm_cannot_call_executor_tools(decide):
-    """§4.5 exit: 'the PM cannot call executor-only tools' — a gateway deny,
+    """'The PM cannot call executor-only tools' — a gateway deny,
     not prompt hope."""
     for tool in ("git.open_pr", "sandbox.write_file", "sandbox.exec"):
         decision = decide(**standing("pm", tool=tool, args={"branch": "feature/x"}))
@@ -168,8 +168,8 @@ def test_denied_paths_beat_an_allowed_branch(decide):
 
 
 def test_sandbox_tools_require_a_verified_run_binding(decide):
-    """A per-role allow-list without run binding reopens cross-run tool use
-    (§5.1); the gateway's registry enrichment is what sets this flag."""
+    """A per-role allow-list without run binding reopens cross-run tool
+    use; the gateway's registry enrichment is what sets this flag."""
     decision = decide(
         **ephemeral("feature-delivery", "executor", "backend-engineer",
                     tool="sandbox.exec", args={})
@@ -189,7 +189,7 @@ def test_another_company_cannot_borrow_our_rules(decide):
 
 
 def test_only_the_platform_may_merge(decide):
-    """O-1 A: the workflow merges under its own identity after the human
+    """The workflow merges under its own identity after the human
     gate — via its own decision path; no company role can reach the tool in
     the company package at all."""
     assert decide(PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr",

@@ -1,5 +1,5 @@
 """Compile-time validations: each one is a governance mistake that must fail
-here rather than at the first tool call in production (§4.1)."""
+here rather than at the first tool call in production."""
 
 import pytest
 
@@ -118,8 +118,8 @@ def test_monthly_budget_for_an_unhired_role_is_caught(blueprint):
 
 
 def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
-    """§4.5 rule 5: the PM cannot call git.open_pr, yet the crew it spawns
-    may. Dropping ⊆-parent is deliberate — spawn authority is not a
+    """The PM cannot call git.open_pr, yet the crew it spawns may.
+    Dropping ⊆-parent is deliberate — spawn authority is not a
     capability ceiling — so this must compile."""
     pm_tools = set(blueprint["tools"]["pm"]["allow"])
     executor = set(blueprint["crews"]["feature-delivery"]["members"]["executor"]["tools"])
@@ -128,9 +128,9 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
 
 
 def test_standing_executor_is_a_compile_error(bridge):
-    """Plan step 19 (sequencing choice 7): the strict lean-roster stance —
-    no standing executor counts; workflow nodes bind to spawners only. The
-    bridge shape that carried M2->M3 no longer compiles."""
+    """The strict lean-roster stance — no standing executor counts;
+    workflow nodes bind to spawners only. A standing-executor shape is a
+    compile error."""
     with pytest.raises(CompileError) as err:
         compile_blueprint(bridge)
     assert "non-spawner template 'backend-engineer'" in str(err.value)

@@ -44,7 +44,7 @@ def test_standing_roster_excludes_the_placeholder(blueprint):
 
 
 def test_agent_specs_carry_no_secrets(blueprint):
-    """§4.1: no secrets in agent specs — credentials arrive at runtime as
+    """No secrets in agent specs — credentials arrive at runtime as
     projected tokens, never baked into a CR."""
     blob = json.dumps(compile_blueprint(blueprint).as_dict()).lower()
     for smell in ("token", "password", "secret", "api_key", "apikey", "ghp_", "sk-"):
@@ -61,8 +61,8 @@ def test_pm_scope_is_narrowed_not_widened(blueprint):
 
 
 def test_crew_members_are_specs_not_instances(blueprint):
-    """Ephemeral members exist only inside a run (§4.4 rule 2): the plan
-    describes them, the operator never creates them."""
+    """Ephemeral members exist only inside a run: the plan describes
+    them, the operator never creates them."""
     plan = compile_blueprint(blueprint)
     members = {(m.crew, m.member) for m in plan.crew_members}
     assert members == {
@@ -82,7 +82,7 @@ def test_gate_config_comes_from_the_blueprint(blueprint):
 
 
 def test_infra_ir_feeds_both_consumers_from_one_list(blueprint):
-    """§5.4: the sandbox caps and the proxy allowlist are projections of one
+    """The sandbox caps and the proxy allowlist are projections of one
     IR — hand-authoring either is the bug this replaces."""
     plan = compile_blueprint(blueprint)
     assert plan.infra.sandbox.egress_allow == plan.infra.egress_proxy_allowlist

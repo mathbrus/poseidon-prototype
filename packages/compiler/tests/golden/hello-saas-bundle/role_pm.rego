@@ -47,7 +47,7 @@ allow_rules contains "role_pm_issues_update" if {
 }
 
 # pm-1: at most 2 concurrent crews (spawn denials are
-# first-class governance events, §4.5 threat model).
+# first-class governance events).
 deny_rules contains "crew_request_over_cap" if {
 	input.tool == "crew.request"
 	input.agent_id == "pm-1"

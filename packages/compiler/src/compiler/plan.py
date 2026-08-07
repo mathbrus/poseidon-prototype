@@ -1,7 +1,7 @@
 """The deployment plan: everything a blueprint compiles into.
 
-One source of truth, several emissions (§4.1). The plan is data — the
-operator applies it (plan step 10), the compiler never touches a cluster.
+One source of truth, several emissions. The plan is data — the
+operator applies it, the compiler never touches a cluster.
 Every type is a plain dataclass with a deterministic `as_dict()` so plans
 are diffable and golden-testable.
 """
@@ -12,7 +12,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class CompanyCR:
-    """The `Company` custom resource (crds/ at plan step 10)."""
+    """The `Company` custom resource (see crds/)."""
 
     name: str
     namespace: str
@@ -22,8 +22,8 @@ class CompanyCR:
 
 @dataclass(frozen=True)
 class AgentInstanceCR:
-    """One standing hire. Never carries a secret: agent specs are public
-    (§4.1), credentials arrive at runtime as projected tokens."""
+    """One standing hire. Never carries a secret: agent specs are public,
+    credentials arrive at runtime as projected tokens."""
 
     agent_id: str
     company: str
@@ -39,7 +39,7 @@ class AgentInstanceCR:
 @dataclass(frozen=True)
 class CrewMemberSpec:
     """Crew-template artifact: what an ephemeral member is allowed to be.
-    Not an instance — members exist only inside a run (§4.4 rule 2)."""
+    Not an instance — members exist only inside a run."""
 
     crew: str
     member: str
@@ -69,8 +69,7 @@ class BudgetRegistration:
 @dataclass(frozen=True)
 class SandboxConstraints:
     """The Job-spec projection of the infra IR: what `provision_sandbox`
-    passes as `SandboxPolicy` once step 12 wires it in (closing sequencing
-    choice 2)."""
+    passes as `SandboxPolicy`."""
 
     image: str
     workspace_dir: str
@@ -94,7 +93,7 @@ class NetworkPolicyProjection:
 
 @dataclass(frozen=True)
 class InfraIR:
-    """One neutral IR (§5.4) with several projections. Hand-authoring any
+    """One neutral IR with several projections. Hand-authoring any
     projection is a bug — they all come from `stack` + role + policies."""
 
     sandbox: SandboxConstraints
@@ -105,7 +104,8 @@ class InfraIR:
 @dataclass(frozen=True)
 class RegoBundle:
     """Compiled policy: a bundle is a set of Rego files installed together
-    and served over the standard OPA bundle API (§2b contract)."""
+    and served over the standard OPA bundle API; nothing is pushed to OPA
+    at runtime."""
 
     files: dict[str, str]
 
@@ -119,7 +119,7 @@ class DeploymentPlan:
     budgets: BudgetRegistration
     infra: InfraIR
     bundle: RegoBundle
-    # The orchestrator's compiler-owned scope, its own bundle (plan step 12):
+    # The orchestrator's compiler-owned scope, its own bundle:
     # per-company packages keep company roots disjoint, and the platform
     # rules — identical from every blueprint — live under poseidon.platform.
     platform_bundle: RegoBundle
