@@ -1,0 +1,354 @@
+"""In-memory stand-ins for the registry accessors — for tests only.
+
+They live here, next to the real implementations, because two packages
+(gateway and sandbox) need them and a double that drifts from its interface
+is worse than no double at all. Nothing in a running service may import
+this module: the point of the registry is that state survives the process.
+
+Each double mirrors its accessor's *behaviour*, not just its signatures:
+`start` upserts and preserves artifacts, `record_artifacts` is a no-op for
+an unknown run (an UPDATE matching zero rows), and `story` returns the same
+ten-column projection the Postgres query does. A double with friendlier
+failure modes than the real thing hides exactly the bugs it exists to catch.
+"""
+
+from typing import Any
+
+from common.audit import AuditEvent
+from registry.participants import ParticipantRevoked
+from registry.runs import RunRecord
+
+
+class InMemoryAuditStore:
+    def __init__(self) -> None:
+        self.events: list[AuditEvent] = []
+
+    def append(self, event: AuditEvent) -> None:
+        self.events.append(event)
+
+    def story(self, run_id: str) -> list[dict[str, Any]]:
+        # The same projection and order as AuditStore.story — consumers must
+        # not come to depend on extra keys Postgres will never return.
+        return [
+            {
+                "ts": e.ts,
+                "run_id": e.run_id,
+                "agent_id": e.agent_id,
+                "role": e.role,
+                "tool": e.tool,
+                "args_digest": e.args_digest,
+                "decision": e.decision,
+                "rule": e.rule,
+                "latency_ms": e.latency_ms,
+                "backend_status": e.backend_status,
+                "source": e.source,
+                "company": e.company,
+                "lifecycle": e.lifecycle,
+                "parent_agent_id": e.parent_agent_id,
+                "workflow": e.workflow,
+            }
+            for e in sorted(
+                (e for e in self.events if e.run_id == run_id),
+                key=lambda e: e.ts,
+            )
+        ]
+
+
+class InMemoryCrewRequests:
+    """Recorded spawn intent: idempotent by derived id,
+    refresh-while-recorded, untouched once fulfilled."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def record(
+        self,
+        conductor: str,
+        crew_template: str,
+        run_id: str,
+        reason: str,
+        ttl_s: int = 3600,
+    ) -> dict[str, Any]:
+        from registry.crews import request_id
+
+        rid = request_id(conductor, crew_template, run_id)
+        existing = self.rows.get(rid)
+        if existing is None:
+            self.rows[rid] = {
+                "id": rid,
+                "run_id": run_id,
+                "conductor": conductor,
+                "crew_template": crew_template,
+                "reason": reason,
+                "status": "recorded",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "expires_at": "2026-01-01T01:00:00+00:00",
+                "fulfilled_at": None,
+            }
+        elif existing["status"] == "recorded":
+            existing["reason"] = reason
+        return dict(self.rows[rid])
+
+    def get(self, rid: str) -> dict[str, Any] | None:
+        row = self.rows.get(rid)
+        return dict(row) if row else None
+
+    def consume(self, rid: str, run_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(rid)
+        if row is None:
+            return None
+        if row["status"] == "recorded" and row["run_id"] == run_id:
+            row["status"] = "fulfilled"
+            row["fulfilled_at"] = "2026-01-01T00:30:00+00:00"
+            return dict(row)
+        if row["status"] == "fulfilled" and row["run_id"] == run_id:
+            return dict(row)  # the retry after a crash mid-fulfill
+        return None
+
+
+class InMemoryBudgetLedger:
+    """The LLM gateway's meter: recorded entries and the
+    per-run SUM the hard-stop compares against."""
+
+    def __init__(self) -> None:
+        self.entries: list[dict[str, Any]] = []
+
+    def record(
+        self,
+        *,
+        company: str,
+        run_id: str,
+        agent_id: str,
+        parent_agent_id: str,
+        role: str,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        usd: float,
+    ) -> None:
+        self.entries.append(
+            {
+                "company": company,
+                "run_id": run_id,
+                "agent_id": agent_id,
+                "parent_agent_id": parent_agent_id,
+                "role": role,
+                "model": model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "usd": usd,
+            }
+        )
+
+    def spent_for_run(self, run_id: str) -> float:
+        return float(sum(e["usd"] for e in self.entries if e["run_id"] == run_id))
+
+    def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        return [dict(e) for e in self.entries if e["run_id"] == run_id]
+
+
+class InMemorySandboxRegistrations:
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def register(
+        self,
+        run_id: str,
+        url: str,
+        namespace: str | None = None,
+        job_name: str | None = None,
+    ) -> None:
+        self.rows[run_id] = {
+            "run_id": run_id,
+            "url": url,
+            "namespace": namespace,
+            "job_name": job_name,
+            "terminated": False,
+        }
+
+    def url_for(self, run_id: str) -> str | None:
+        row = self.active(run_id)
+        return row["url"] if row else None
+
+    def active(self, run_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(run_id)
+        if row is None or row["terminated"]:
+            return None
+        return {k: row[k] for k in ("run_id", "url", "namespace", "job_name")}
+
+    def terminate(self, run_id: str) -> None:
+        if run_id in self.rows:
+            self.rows[run_id]["terminated"] = True
+
+
+class InMemoryCompanies:
+    """The operator's writes, plus the read side the worker and egress
+    proxy consume the infra IR through."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def upsert(self, name: str, spec: dict[str, Any]) -> None:
+        self.rows[name] = dict(spec)
+
+    def get(self, name: str) -> dict[str, Any] | None:
+        return self.rows.get(name)
+
+    def by_namespace(self, namespace: str) -> dict[str, Any] | None:
+        for spec in self.rows.values():
+            if spec.get("namespace") == namespace:
+                return spec
+        return None
+
+    def delete(self, name: str) -> None:
+        self.rows.pop(name, None)
+
+
+class InMemoryAgentInstances:
+    """The gateway's read side of `agent_instances` (workload identity)
+    plus the operator's upsert, same row shape as Postgres."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def upsert(
+        self,
+        agent_id: str,
+        company: str,
+        hire: str,
+        role_template: str,
+        model_tier: str,
+        namespace: str | None = None,
+        status: str = "ready",
+    ) -> None:
+        self.rows[agent_id] = {
+            "agent_id": agent_id,
+            "company": company,
+            "hire": hire,
+            "role_template": role_template,
+            "model_tier": model_tier,
+            "namespace": namespace,
+            "status": status,
+        }
+
+    def get(self, agent_id: str) -> dict[str, Any] | None:
+        return self.rows.get(agent_id)
+
+
+class InMemoryRunParticipants:
+    """Live ephemeral identities; `active` goes dark on termination — the
+    behaviour the revocation-before-TTL criterion rides on."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict[str, Any]] = {}
+
+    def add(
+        self,
+        agent_id: str,
+        run_id: str,
+        parent_agent_id: str,
+        crew_template: str,
+        role: str,
+    ) -> None:
+        # Upsert like the real accessor — including its finality rule:
+        # a retry converges on a live row, but a revoked one is never
+        # revived.
+        existing = self.rows.get(agent_id)
+        if existing is not None and existing["status"] != "active":
+            raise ParticipantRevoked(
+                f"participant {agent_id} was revoked; it is not revivable"
+            )
+        self.rows[agent_id] = {
+            "agent_id": agent_id,
+            "run_id": run_id,
+            "parent_agent_id": parent_agent_id,
+            "crew_template": crew_template,
+            "role": role,
+            "status": "active",
+        }
+
+    def terminate(self, agent_id: str) -> None:
+        row = self.rows.get(agent_id)
+        if row is not None and row["status"] == "active":
+            row["status"] = "terminated"
+
+    def terminate_for_run(self, run_id: str) -> list[str]:
+        swept = [
+            agent_id
+            for agent_id, row in self.rows.items()
+            if row["run_id"] == run_id and row["status"] == "active"
+        ]
+        for agent_id in swept:
+            self.rows[agent_id]["status"] = "terminated"
+        return swept
+
+    def active_spawn_count(self, parent_agent_id: str) -> int:
+        return len(
+            {
+                (row["run_id"], row["crew_template"])
+                for row in self.rows.values()
+                if row["parent_agent_id"] == parent_agent_id and row["status"] == "active"
+            }
+        )
+
+    def active(self, agent_id: str) -> dict[str, Any] | None:
+        row = self.rows.get(agent_id)
+        return row if row is not None and row["status"] == "active" else None
+
+
+class InMemoryRuns:
+    def __init__(self) -> None:
+        self.rows: dict[str, RunRecord] = {}
+
+    def start(
+        self,
+        run_id: str,
+        task: str,
+        workflow: str = "implement",
+        workflow_id: str | None = None,
+        company: str | None = None,
+    ) -> None:
+        # Upsert like the real accessor: a retried start lands on the same
+        # row and keeps recorded artifacts, resetting only the run state.
+        record = self.rows.get(run_id) or RunRecord(run_id=run_id)
+        record.task = task
+        record.status = "running"
+        record.workflow = workflow
+        record.workflow_id = workflow_id
+        record.company = company
+        record.error = None
+        record.finished_at = None
+        self.rows[run_id] = record
+
+    def record_artifacts(
+        self, run_id: str, pr_url: str | None = None, ticket_urls: list[str] | None = None
+    ) -> None:
+        record = self.rows.get(run_id)
+        if record is None:  # an UPDATE matching zero rows, not a KeyError
+            return
+        record.pr_url = pr_url or record.pr_url
+        record.ticket_urls = ticket_urls or record.ticket_urls
+
+    def finish(
+        self,
+        run_id: str,
+        status: str,
+        pr_url: str | None = None,
+        iterations: int = 0,
+        error: str | None = None,
+    ) -> RunRecord:
+        record = self.rows.get(run_id) or RunRecord(run_id=run_id)
+        record.status = status
+        record.pr_url = pr_url or record.pr_url
+        record.iterations = iterations
+        record.error = error
+        record.finished_at = "2026-01-01T00:00:00+00:00"
+        self.rows[run_id] = record
+        return record
+
+    def get(self, run_id: str) -> RunRecord | None:
+        return self.rows.get(run_id)
+
+    def recent(self, limit: int = 20) -> list[RunRecord]:
+        # Insertion order stands in for created_at, newest first.
+        return list(self.rows.values())[-limit:][::-1]

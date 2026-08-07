@@ -1,18 +1,30 @@
 [project]
-name = "poseidon-poc"
+name = "poseidon"
 version = "0.1.0"
-description = "Poseidon PoC — one agent ships one PR under policy"
+description = "Poseidon — agent companies under declarative governance (MVP)"
 requires-python = ">=3.12"
 dependencies = [
     "common",
     "agent",
     "gateway",
     "sandbox",
-    "runner",
+    "orchestrator",
+    "mockllm",
+    "schema",
+    "registry",
+    "compiler",
+    "poseidon-operator",
+    "gateway-llm",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "temporalio>=1.31.0",
+    "ruff>=0.14",
+    "pip-audit>=2.7",
+]
 
 [tool.uv]
 package = false
@@ -20,18 +32,45 @@ package = false
 [tool.uv.workspace]
 members = ["packages/*"]
 
+[tool.ruff]
+line-length = 90
+target-version = "py312"
+
+[tool.ruff.lint]
+# Deliberately narrow: the errors worth failing CI over (real bugs and dead
+# code), not a style opinion. `ruff format` owns layout.
+select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
+# Assigning to a name only to return it is often the clearer form here.
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Importing a fixture so pytest can resolve it, then naming it as a test
+# parameter, is the documented idiom — and reads to ruff as a redefinition.
+"**/tests/**" = ["F811"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "agent", "common", "compiler", "gateway", "gateway_llm", "mockllm",
+    "orchestrator", "poseidon_operator", "registry", "sandbox", "schema",
+]
+
 [tool.pytest.ini_options]
 markers = [
-    "docker: integration tests needing a Docker daemon (run with -m docker)",
-    "e2e: end-to-end tests needing the live compose stack, a real repo and a real LLM key (run with -m e2e)",
+    "e2e_kind: end-to-end tests needing the live kind cluster and a real (disposable) repo; the LLM is mocked unless the cluster was deployed with REAL_LLM=1 (run with -m e2e_kind)",
 ]
-# Excluded by default; an explicit `-m docker` / `-m e2e` on the command line
+# Excluded by default; an explicit `-m e2e_kind` on the command line
 # overrides this.
-addopts = "-m 'not docker and not e2e'"
+addopts = "-m 'not e2e_kind'"
 
 [tool.uv.sources]
 common = { workspace = true }
 agent = { workspace = true }
 gateway = { workspace = true }
 sandbox = { workspace = true }
-runner = { workspace = true }
+orchestrator = { workspace = true }
+mockllm = { workspace = true }
+schema = { workspace = true }
+registry = { workspace = true }
+compiler = { workspace = true }
+poseidon-operator = { workspace = true }
+gateway-llm = { workspace = true }

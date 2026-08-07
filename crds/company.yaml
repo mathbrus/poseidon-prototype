@@ -1,0 +1,81 @@
+# The `Company` custom resource: one per compiled blueprint.
+#
+# Holds the parts of a deployment plan that are company-wide — the namespace
+# envelope, the infra IR projections, workflow gate config, budgets — plus
+# the compiled policy bundle's revision. The operator reconciles it into a
+# namespace, NetworkPolicies and a served bundle; it never runs processes
+# and never creates ephemeral agents.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: companies.poseidon.dev
+spec:
+  group: poseidon.dev
+  scope: Cluster
+  names:
+    kind: Company
+    plural: companies
+    singular: company
+    shortNames: [co]
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Namespace
+          type: string
+          jsonPath: .spec.namespace
+        - name: Bundle
+          type: string
+          jsonPath: .status.bundleRevision
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              required: [namespace]
+              properties:
+                namespace: {type: string}
+                mission: {type: string}
+                stage: {type: string}
+                # The compiled Rego bundle, filename -> source. The operator
+                # persists it and serves it over the standard OPA bundle
+                # API; OPA polls. No runtime data pushes.
+                policyBundle:
+                  type: object
+                  additionalProperties: {type: string}
+                # The platform scope's own bundle: compiler-
+                # owned, company-independent, served under the reserved
+                # "platform" key. Identical from every apply.
+                platformBundle:
+                  type: object
+                  additionalProperties: {type: string}
+                # Infra IR projections.
+                infra:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                workflows:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                budgets:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                crewMembers:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              properties:
+                phase: {type: string}
+                bundleRevision: {type: string}
+                message: {type: string}

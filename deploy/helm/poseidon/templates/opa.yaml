@@ -1,0 +1,104 @@
+# OPA. Operator-installed compiled bundles are the only policy source.
+# OPA *polls* the bundle server — never pushed, so an OPA
+# restart re-fetches the current revision instead of running on whatever it
+# last held. Two bundles: the platform scope (compiler-owned, reserved key)
+# and one per company.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opa-config
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    services:
+      bundles:
+        url: http://bundle-server:8081
+    bundles:
+      platform:
+        service: bundles
+        resource: bundles/platform/bundle.tar.gz
+        polling:
+          min_delay_seconds: 5
+          max_delay_seconds: 15
+      # Keyed and pathed by company *name* (which equals the namespace for
+      # the bootstrap company) — the bundle server keys by company.
+      {{ .Values.companyNamespace }}:
+        service: bundles
+        resource: bundles/{{ .Values.companyNamespace }}/bundle.tar.gz
+        polling:
+          min_delay_seconds: 5
+          max_delay_seconds: 15
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opa
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: opa
+  template:
+    metadata:
+      labels:
+        app: opa
+        {{- include "poseidon.labels" . | nindent 8 }}
+      annotations:
+        # Roll the pod when the bundle configuration changes — a ConfigMap
+        # edit alone does not restart OPA, and a running OPA never re-reads
+        # its config file. Bump the literal when the config shape changes.
+        poseidon.dev/opa-config-rev: "step12-platform+{{ .Values.companyNamespace }}"
+    spec:
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: opa
+          image: "{{ .Values.images.opa.repository }}:{{ .Values.images.opa.tag }}"
+          imagePullPolicy: {{ .Values.images.opa.pullPolicy }}
+          # OPA is a static binary that keeps bundles in memory; nothing
+          # writes to disk.
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          args:
+            - run
+            - --server
+            - --addr
+            - 0.0.0.0:8181
+            - --config-file
+            - /config/config.yaml
+          ports:
+            - containerPort: 8181
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8181
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8181
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: opa-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opa
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: opa
+  ports:
+    - port: 8181
+      targetPort: 8181

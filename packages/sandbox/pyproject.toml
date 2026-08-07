@@ -1,13 +1,30 @@
 [project]
 name = "sandbox"
 version = "0.1.0"
-description = "Poseidon PoC sandbox: backend contract, Docker backend, tool server"
+description = "Poseidon sandbox: backend contract, k8s_jobs backend, tool server, egress proxy"
 requires-python = ">=3.12"
 dependencies = [
     "common",
-    "docker>=7",
     "fastapi>=0.115",
+    "kubernetes>=31",
     "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+# The egress proxy writes audit events to the registry. Kept an extra so
+# the *sandbox* image — which runs untrusted workspace code — never carries
+# a database driver or registry credentials. The egress proxy is a platform
+# service, so it also gets the OTel extra (the toolserver image does not).
+egress = [
+    "registry",
+    "common[otel]",
+]
+
+# The prebaked in-sandbox toolchain (Dockerfile.sandbox): the test runner
+# the toolserver's /tests endpoint shells out to, lockfile-pinned like
+# everything else in the image.
+toolchain = [
+    "pytest>=8",
 ]
 
 [build-system]

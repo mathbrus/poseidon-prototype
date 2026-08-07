@@ -18,7 +18,12 @@ GIT_ENV = {
 
 def git(workspace: Path, *args: str) -> str:
     proc = subprocess.run(
-        ["git", *args], cwd=workspace, env=GIT_ENV, capture_output=True, text=True, check=True
+        ["git", *args],
+        cwd=workspace,
+        env=GIT_ENV,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return proc.stdout.strip()
 
@@ -44,6 +49,7 @@ def client(workspace: Path) -> TestClient:
 
 # --- /files/read -----------------------------------------------------------
 
+
 def test_read_file(client: TestClient):
     resp = client.post("/files/read", json={"path": "hello.txt"})
     assert resp.status_code == 200
@@ -61,8 +67,11 @@ def test_read_traversal_rejected(client: TestClient, path: str):
 
 # --- /files/write ----------------------------------------------------------
 
+
 def test_write_file_creates_parents(client: TestClient, workspace: Path):
-    resp = client.post("/files/write", json={"path": "new/dir/file.txt", "content": "data"})
+    resp = client.post(
+        "/files/write", json={"path": "new/dir/file.txt", "content": "data"}
+    )
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
     assert (workspace / "new" / "dir" / "file.txt").read_text() == "data"
@@ -74,7 +83,9 @@ def test_write_traversal_rejected(client: TestClient, tmp_path: Path):
     assert not (tmp_path.parent / "evil.txt").exists()
 
 
-def test_write_symlink_escape_rejected(client: TestClient, workspace: Path, tmp_path_factory):
+def test_write_symlink_escape_rejected(
+    client: TestClient, workspace: Path, tmp_path_factory
+):
     outside = tmp_path_factory.mktemp("outside")
     (workspace / "link").symlink_to(outside)
     resp = client.post("/files/write", json={"path": "link/evil.txt", "content": "x"})
@@ -83,6 +94,7 @@ def test_write_symlink_escape_rejected(client: TestClient, workspace: Path, tmp_
 
 
 # --- /files/list -----------------------------------------------------------
+
 
 def test_list_dir(client: TestClient):
     resp = client.post("/files/list", json={"path": "."})
@@ -102,6 +114,7 @@ def test_list_traversal_rejected(client: TestClient):
 
 
 # --- /exec -------------------------------------------------------------------
+
 
 def test_exec_runs_in_workspace(client: TestClient, workspace: Path):
     resp = client.post("/exec", json={"cmd": "pwd && cat hello.txt"})
@@ -125,6 +138,7 @@ def test_exec_timeout(client: TestClient):
 
 # --- /tests -------------------------------------------------------------------
 
+
 def test_tests_endpoint_uses_test_cmd_env(client: TestClient, monkeypatch):
     monkeypatch.setenv("TEST_CMD", "echo running-custom-tests")
     body = client.post("/tests", json={}).json()
@@ -132,7 +146,9 @@ def test_tests_endpoint_uses_test_cmd_env(client: TestClient, monkeypatch):
     assert "running-custom-tests" in body["stdout"]
 
 
-def test_tests_endpoint_default_is_pytest(client: TestClient, monkeypatch, workspace: Path):
+def test_tests_endpoint_default_is_pytest(
+    client: TestClient, monkeypatch, workspace: Path
+):
     monkeypatch.delenv("TEST_CMD", raising=False)
     (workspace / "test_ok.py").write_text("def test_ok():\n    assert True\n")
     body = client.post("/tests", json={}).json()
@@ -142,6 +158,7 @@ def test_tests_endpoint_default_is_pytest(client: TestClient, monkeypatch, works
 
 # --- /bundle -------------------------------------------------------------------
 
+
 def make_feature_commit(workspace: Path) -> None:
     git(workspace, "checkout", "-b", "feature/change")
     (workspace / "feature.txt").write_text("new\n")
@@ -149,7 +166,9 @@ def make_feature_commit(workspace: Path) -> None:
     git(workspace, "commit", "-m", "feature change")
 
 
-def test_bundle_returns_verifiable_bundle(client: TestClient, workspace: Path, tmp_path_factory):
+def test_bundle_returns_verifiable_bundle(
+    client: TestClient, workspace: Path, tmp_path_factory
+):
     make_feature_commit(workspace)
     resp = client.post("/bundle", json={"branch": "feature/change"})
     assert resp.status_code == 200

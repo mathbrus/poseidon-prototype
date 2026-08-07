@@ -1,0 +1,22 @@
+# Poseidon kind cluster.
+#
+# - Default CNI disabled: kindnet does not enforce NetworkPolicy, and
+#   NetworkPolicy enforcement matters here; the bootstrap installs Calico
+#   instead. The pod subnet matches Calico's default IPv4 pool.
+# - extraPortMappings expose the gateway NodePort (values-kind.yaml) on the
+#   host's loopback under a familiar port, so the host-side CLI
+#   keeps MCP_GATEWAY_URL=http://127.0.0.1:8080. Standing agents have no
+#   NodePort: the orchestrator reaches them in-cluster
+#   through their per-hire Services.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: poseidon
+networking:
+  disableDefaultCNI: true
+  podSubnet: 192.168.0.0/16
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30080   # mcp-gateway NodePort
+        hostPort: 8080
+        listenAddress: 127.0.0.1

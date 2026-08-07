@@ -1,5 +1,6 @@
 runs/
-!runs/.gitkeep
+.claude/
 .env
 __pycache__/
 .venv/
+requirements-audit.txt

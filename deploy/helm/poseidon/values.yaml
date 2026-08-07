@@ -1,0 +1,153 @@
+# Poseidon values. The release is installed into the platform namespace
+# (`helm install -n poseidon-platform --create-namespace`); company
+# namespaces are the operator's, created from Company CRs.
+# Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
+
+# The bootstrap company's namespace — platform-side wiring only: the worker's
+# PM_URL/SANDBOX_NAMESPACE, the platform NetworkPolicies that select the
+# company namespace, and the OPA bundle config key. Goes per-company at
+# steps 12/16; the namespace itself is operator-created either way.
+companyNamespace: hello-saas
+
+# Image tags default to `latest` only so the chart installs standalone;
+# deploy/kind/kind-up.sh overrides every one of them with a content-addressed
+# tag, which is what forces a rollout when code changes (a fixed tag renders
+# an identical pod template, so pods keep running the code they started
+# with even after `kind load` replaces the image).
+images:
+  gateway:
+    repository: poseidon-gateway
+    tag: latest
+    # Images are side-loaded on kind (`kind load docker-image`); IfNotPresent
+    # keeps the kubelet from trying to pull them from a registry.
+    pullPolicy: IfNotPresent
+  agent:
+    repository: poseidon-agent
+    tag: latest
+    pullPolicy: IfNotPresent
+  opa:
+    # The plain (distroless) image is enough on Kubernetes: probes are
+    # kubelet-side httpGet, not in-container commands. Pinned: policy
+    # enforcement must not change under a silent image drift.
+    repository: openpolicyagent/opa
+    tag: "1.19.0"
+    pullPolicy: IfNotPresent
+  llmProxy:
+    # Pinned to a LiteLLM stable release, not the moving main-stable.
+    repository: ghcr.io/berriai/litellm
+    tag: main-v1.83.7-stable
+    pullPolicy: IfNotPresent
+  orchestrator:
+    repository: poseidon-orchestrator
+    tag: latest
+    pullPolicy: IfNotPresent
+  operator:
+    repository: poseidon-operator
+    tag: latest
+    pullPolicy: IfNotPresent
+  gatewayLlm:
+    repository: poseidon-gateway-llm
+    tag: latest
+    pullPolicy: IfNotPresent
+
+# Secrets layout: GIT_TOKEN mountable only into the gateway,
+# LLM_API_KEY only into LiteLLM — both live in the platform namespace.
+# Caller identity is workload tokens (no static bearer tokens anywhere).
+#
+# No defaults on purpose: every value below is `required` in the
+# templates, so a bare `helm install` fails loudly instead of deploying
+# with a placeholder signing key. Real values come from the bootstrap
+# script (deploy/kind/kind-up.sh writes them from .env into a private
+# values file) or any values override.
+secrets:
+  gitToken: ""
+  llmApiKey: ""
+  # Cluster-internal only (Postgres never leaves the platform namespace).
+  postgresPassword: ""
+  # Shared HMAC key for per-run egress credentials: egress-proxy and
+  # the orchestrator worker only; sandboxes see only their derived credential.
+  egressProxyKey: ""
+  # The platform signing key: gateway verifies
+  # platform-signed ephemeral JWTs; the orchestrator mints them.
+  platformJwtKey: ""
+
+# Run configuration (the C7 subset the in-cluster services need).
+run:
+  model: gpt-4o-mini
+  targetRepo: github.com/example-org/example-repo
+  baseRef: main
+  maxIterations: 10
+
+orchestrator:
+  temporalAddress: temporal-frontend:7233
+  # SandboxPolicy values come from the applied blueprint's infra IR;
+  # the deployment supplies only the resolution of the IR's
+  # logical toolchain image (content-addressed on kind).
+  sandbox:
+    image: poseidon-sandbox
+
+# The LLM gateway: tier -> model resolution and the flat
+# price per 1K tokens the ledger accrues at. The blueprint names
+# tiers; only the deployment knows the concrete models. In mock mode every
+# tier resolves to the mock brain via values-mockllm.yaml.
+llmGateway:
+  tierModels:
+    frontier: gpt-4o
+    standard: gpt-4o-mini
+    small: gpt-4o-mini
+  pricePer1kTokens: "0.002"
+
+# Sandbox egress proxy. The allowlist is the applied
+# blueprint's compiled IR projection, resolved per run via
+# the registry — a run without an applied blueprint has zero egress.
+# Deny/allow audit events carry the per-run credential attribution.
+egressProxy:
+  image:
+    repository: poseidon-egress-proxy
+    tag: latest
+    pullPolicy: IfNotPresent
+
+postgres:
+  image:
+    repository: postgres
+    tag: "16.6"
+    pullPolicy: IfNotPresent
+  # Superuser for the whole instance: Temporal's schema tool creates its own
+  # databases with it, and the registry (step 8) keeps its `registry` schema
+  # in the default database of the same name.
+  user: poseidon
+  storage: 5Gi
+  # null = the cluster's default StorageClass.
+  storageClassName: null
+
+gateway:
+  service:
+    type: ClusterIP
+    # Set (with type NodePort) to give the host-side runner a stable port.
+    nodePort: null
+
+networkPolicies:
+  enabled: true
+  # CIDRs treated as cluster-internal: the gateway's external egress rule
+  # (git host) excludes them so "external" never quietly includes pods or
+  # services. Must match the cluster's pod and service CIDRs.
+  clusterCidrs:
+    - 10.244.0.0/16
+    - 10.96.0.0/12
+  # Where the host-side runner's dispatch/status calls enter the agent pod
+  # from (NodePort traffic is SNAT'd to a node address). 172.16.0.0/12 covers
+  # any Docker bridge subnet (Docker picks one per host), plus the pod CIDR
+  # for node addresses on the overlay.
+  runnerIngressCidrs:
+    - 172.16.0.0/12
+    - 10.244.0.0/16
+
+telemetry:
+  # OTLP endpoint for log export (e.g. "http://otel-collector:4318").
+  # Empty = stdout JSON only, today's behavior. When set, platform services
+  # gain OTEL_EXPORTER_OTLP_ENDPOINT/OTEL_SERVICE_NAME and export the same
+  # records over OTLP (common/telemetry.py, the anytime-track adoption).
+  # Two caveats: NetworkPolicies must separately allow egress to the
+  # collector (nothing here opens it), and operator-created agent pods do
+  # not receive these variables yet (platform services only).
+  otlpEndpoint: ""

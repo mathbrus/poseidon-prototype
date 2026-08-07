@@ -1,0 +1,124 @@
+# MCP gateway: the only pod holding GIT_TOKEN. Audit events and sandbox
+# registrations live in the registry, so this Deployment rolls normally
+# with no local state to lose.
+#
+# Workload identity: the gateway verifies callers' projected
+# service-account tokens through the TokenReview API, which needs its own
+# ServiceAccount bound to system:auth-delegator.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mcp-gateway
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: poseidon-mcp-gateway-auth-delegator
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: mcp-gateway
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-gateway
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-gateway
+  template:
+    metadata:
+      labels:
+        app: mcp-gateway
+        {{- include "poseidon.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: mcp-gateway
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      volumes:
+        # Scratch space for the platform-side git clones behind
+        # repo.archive / git.open_pr; the root filesystem stays read-only.
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: mcp-gateway
+          image: "{{ .Values.images.gateway.repository }}:{{ .Values.images.gateway.tag }}"
+          imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          ports:
+            - containerPort: 8080
+          env:
+            {{- include "poseidon.otelEnv" (dict "root" $ "service" "mcp-gateway") | nindent 12 }}
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: git-credentials
+                  key: GIT_TOKEN
+            - name: BASE_REF
+              value: {{ .Values.run.baseRef | quote }}
+            - name: OPA_URL
+              value: http://opa:8181
+            # Workload identity: where the orchestrator's
+            # ServiceAccount lives, and the platform signing key for
+            # verifying platform-signed ephemeral JWTs.
+            - name: PLATFORM_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: PLATFORM_JWT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: platform-jwt-key
+                  key: PLATFORM_JWT_KEY
+            - name: REGISTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: registry-credentials
+                  key: REGISTRY_DSN
+          # No unauthenticated route exists; a 401 from the bearer middleware
+          # proves the server is up without putting a token in the probe.
+          # (httpGet probes treat 401 as failure, hence the exec probe.)
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import urllib.request, urllib.error\ntry:\n    urllib.request.urlopen('http://localhost:8080/mcp')\nexcept urllib.error.HTTPError as e:\n    raise SystemExit(0 if e.code == 401 else 1)\nraise SystemExit(1)"
+            periodSeconds: 5
+            initialDelaySeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            periodSeconds: 10
+            initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-gateway
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.gateway.service.type }}
+  selector:
+    app: mcp-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+      {{- if .Values.gateway.service.nodePort }}
+      nodePort: {{ .Values.gateway.service.nodePort }}
+      {{- end }}

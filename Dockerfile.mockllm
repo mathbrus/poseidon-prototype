@@ -1,0 +1,37 @@
+# Mock LLM image: deterministic OpenAI-compatible brain standing in for the
+# LiteLLM proxy so e2e runs cost nothing. Dev/test only — never a production
+# component; the llm-proxy Deployment swaps to it via values-mockllm.yaml.
+# Lockfile-pinned build: deps from uv.lock via `uv export`.
+# Build from the repo root: docker build -f Dockerfile.mockllm .
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
+
+WORKDIR /opt/poseidon
+COPY pyproject.toml uv.lock ./
+COPY packages/common/pyproject.toml packages/common/
+COPY packages/agent/pyproject.toml packages/agent/
+COPY packages/gateway/pyproject.toml packages/gateway/
+COPY packages/gateway-llm/pyproject.toml packages/gateway-llm/
+COPY packages/sandbox/pyproject.toml packages/sandbox/
+COPY packages/orchestrator/pyproject.toml packages/orchestrator/
+COPY packages/mockllm/pyproject.toml packages/mockllm/
+COPY packages/registry/pyproject.toml packages/registry/
+COPY packages/compiler/pyproject.toml packages/compiler/
+COPY packages/operator/pyproject.toml packages/operator/
+COPY packages/schema/pyproject.toml packages/schema/
+RUN uv export --frozen --no-dev --no-emit-workspace --no-hashes --package mockllm \
+      -o /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
+COPY packages/mockllm packages/mockllm
+RUN pip install --no-cache-dir --no-deps ./packages/mockllm
+
+# Non-root runtime user; pod specs set runAsNonRoot/runAsUser to match.
+RUN useradd --create-home --uid 10001 poseidon
+USER 10001
+
+# The llm-proxy template supplies LiteLLM-shaped args (--model ... --port 4000);
+# the entry point accepts and ignores what it must.
+ENTRYPOINT ["python", "-m", "mockllm"]

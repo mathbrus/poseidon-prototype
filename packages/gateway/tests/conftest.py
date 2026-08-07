@@ -1,7 +1,13 @@
 """Gateway unit-test fixtures: stubbed OPA, stubbed sandbox and stubbed
 GitHub API behind one httpx.MockTransport, the real MCP app served over an
 in-process ASGI transport, and a local bare git repo standing in for
-TARGET_REPO (real git subprocesses, no network)."""
+TARGET_REPO (real git subprocesses, no network).
+
+Since the step-12 cutover the OPA stub mirrors the *compiled* policy shape:
+per-company and platform decision paths, role rules keyed on
+lifecycle+company+role, run binding read from the enriched input — and the
+test tokens resolve through a fake TokenReview (workload identity), because
+the static token map no longer exists."""
 
 import base64
 import json
@@ -12,20 +18,55 @@ from pathlib import Path
 
 import httpx
 import pytest
-
-from gateway.app import create_app
-from gateway.config import GatewaySettings
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
+from common.authn import ServiceAccount
+from gateway.app import create_app
+from gateway.config import GatewaySettings
+from registry.memory import (
+    InMemoryAgentInstances,
+    InMemoryAuditStore,
+    InMemoryBudgetLedger,
+    InMemoryCompanies,
+    InMemoryCrewRequests,
+    InMemoryRunParticipants,
+    InMemoryRuns,
+    InMemorySandboxRegistrations,
+)
+
 AGENT_TOKEN = "agent-secret"
 RUNNER_TOKEN = "runner-secret"
+PM_TOKEN = "pm-secret"
+JWT_KEY = "unit-test-platform-key"
 GIT_TOKEN = "git-platform-secret"
 OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
 GITHUB_API_URL = "http://github.test"
 PR_URL = "https://github.test/example/pull/1"
 FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
+
+COMPANY = "hello-saas"
+COMPANY_NS = "hello-saas"
+PLATFORM_NS = "poseidon-platform"
+AGENT_ID = "backend-engineer-1"
+COMPANY_DECISION = "/v1/data/poseidon/authz/hello_saas/decision"
+PLATFORM_DECISION = "/v1/data/poseidon/platform/decision"
+
+
+class FakeReviewer:
+    """TokenReview double: the test tokens resolve to the same
+    ServiceAccounts the kind cluster would report."""
+
+    accounts = {
+        AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
+        RUNNER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
+        PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
+    }
+
+    async def review(self, token: str, audience: str) -> ServiceAccount | None:
+        return self.accounts.get(token)
+
 
 SANDBOX_RESPONSES = {
     "/files/read": {"content": "hello from sandbox"},
@@ -40,56 +81,109 @@ SANDBOX_RESPONSES = {
 class Backends:
     """Scriptable stand-ins for OPA, the sandbox tool server and GitHub.
 
-    The OPA stub mirrors the real policy shape (policies/poc.rego):
-    sandbox.* allowed for backend-engineer on assigned runs, git.open_pr
-    only onto feature branches and never touching workflows, repo.archive
-    and /admin/sandboxes for the runner, default deny otherwise.
-    `force_allow` short-circuits it for tests that need an allow despite
-    no registration.
+    The OPA stub mirrors the compiled-bundle shape (compiler/rego.py):
+    company callers query their company package (standing role rules with
+    `run_binding_verified` for run-scoped tools, the blueprint's branch and
+    path denies), the platform lifecycle queries its own package. `decide`
+    reads the *enriched* input, exactly like the real bundles. `force_allow`
+    short-circuits it for tests that need an allow despite no registration.
     """
 
     def __init__(self) -> None:
-        self.assignments: dict[str, list[str]] = {}
         self.sandbox_calls: list[tuple[str, dict]] = []
         self.policy_inputs: list[dict] = []
+        self.decision_paths: list[str] = []
         self.github_calls: list[tuple[str, dict, dict]] = []
         self.force_allow = False
         self.sandbox_error: int | None = None
         self.github_error: int | None = None
 
-    def decide(self, policy_input: dict) -> dict:
+    def decide(self, policy_input: dict, path: str) -> dict:
         if self.force_allow:
             return {"allow": True, "rule": "forced_allow"}
-        tool, role = policy_input["tool"], policy_input["role"]
+        tool = policy_input["tool"]
         args = policy_input.get("args", {})
-        if tool.startswith("sandbox.") and role == "backend-engineer":
-            if policy_input["run_id"] in self.assignments.get(policy_input["agent_id"], []):
-                return {"allow": True, "rule": "sandbox_assigned_run"}
-        if tool == "git.open_pr":
-            branch = args.get("branch", "")
-            if branch.lower() in {"main", "master"}:
-                return {"allow": False, "rule": "git_open_pr_protected_branch"}
-            if not FEATURE_BRANCH_RE.match(branch):
-                return {"allow": False, "rule": "git_open_pr_branch_pattern"}
-            if any(p.startswith(".github/workflows/") for p in args.get("paths", [])):
-                return {"allow": False, "rule": "git_open_pr_workflow_paths"}
-            return {"allow": True, "rule": "git_open_pr_feature_branch"}
-        if tool == "repo.archive" and role == "runner":
-            return {"allow": True, "rule": "repo_archive_runner"}
-        if tool == "/admin/sandboxes" and role == "runner":
-            return {"allow": True, "rule": "admin_sandboxes_runner"}
+        if path == PLATFORM_DECISION:
+            if policy_input.get("lifecycle") != "platform":
+                return {"allow": False, "rule": "default_deny"}
+            if tool in (
+                "repo.archive",
+                "/admin/sandboxes",
+                "/admin/sandboxes.delete",
+                "sandbox.run_tests",
+                "git.merge_pr",
+            ):
+                return {"allow": True, "rule": f"platform_{tool}"}
+            return {"allow": False, "rule": "default_deny"}
+        if path != COMPANY_DECISION:
+            # An uninstalled company package: OPA answers with no result;
+            # the handler below turns this marker into that answer.
+            return {"no_result": True}
+        if (
+            policy_input.get("lifecycle") == "standing"
+            and policy_input.get("company") == COMPANY
+            and policy_input.get("role") == "pm"
+        ):
+            if tool in (
+                "issues.create",
+                "issues.read",
+                "issues.update",
+                "issues.comment",
+            ):
+                return {"allow": True, "rule": f"role_pm_{tool}"}
+            if tool == "crew.request" and args.get("crew_template") in (
+                "feature-delivery",
+                "feature-review",
+            ):
+                # The compiled cap and budget denies (step 16d), reading
+                # the enriched input exactly like the real bundle.
+                if policy_input.get("active_spawns", 0) >= 2:
+                    return {"allow": False, "rule": "crew_request_over_cap"}
+                if policy_input.get("budget_headroom") is False:
+                    return {"allow": False, "rule": "crew_request_no_budget"}
+                return {"allow": True, "rule": "role_pm_crew_request"}
+            return {"allow": False, "rule": "default_deny"}
+        if (
+            policy_input.get("lifecycle") == "ephemeral"
+            and policy_input.get("company") == COMPANY
+            and policy_input.get("crew_template") == "feature-review"
+            and policy_input.get("crew_role") == "reviewer"
+        ):
+            if tool in ("git.read", "git.comment", "issues.comment"):
+                return {"allow": True, "rule": f"crew_feature_review_reviewer_{tool}"}
+            return {"allow": False, "rule": "default_deny"}
+        if (
+            policy_input.get("lifecycle") == "standing"
+            and policy_input.get("company") == COMPANY
+            and policy_input.get("role") == "backend-engineer"
+        ):
+            if tool.startswith("sandbox.") and policy_input.get("run_binding_verified"):
+                return {"allow": True, "rule": f"role_backend_engineer_{tool}"}
+            if tool == "git.open_pr":
+                branch = args.get("branch", "")
+                if branch.lower() in {"main", "master"}:
+                    return {"allow": False, "rule": "git_open_pr_protected_branch"}
+                if not FEATURE_BRANCH_RE.match(branch):
+                    return {"allow": False, "rule": "git_open_pr_branch_pattern"}
+                if "paths" not in args:
+                    return {"allow": False, "rule": "git_open_pr_paths_missing"}
+                if any(p.startswith(".github/workflows/") for p in args["paths"]):
+                    return {"allow": False, "rule": "git_open_pr_denied_paths"}
+                return {"allow": True, "rule": "role_backend_engineer_git_open_pr"}
         return {"allow": False, "rule": "default_deny"}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         if request.url.host == "opa.test":
-            if request.url.path == "/v1/data/poseidon/poc/decision":
+            if request.url.path in (COMPANY_DECISION, PLATFORM_DECISION):
                 policy_input = json.loads(request.content)["input"]
                 self.policy_inputs.append(policy_input)
-                return httpx.Response(200, json={"result": self.decide(policy_input)})
-            if request.url.path == "/v1/data/runs/assignments":
-                self.assignments = json.loads(request.content)
-                return httpx.Response(204)
-            return httpx.Response(404)
+                self.decision_paths.append(request.url.path)
+                decision = self.decide(policy_input, request.url.path)
+                if decision.get("no_result"):
+                    return httpx.Response(200, json={})
+                return httpx.Response(200, json={"result": decision})
+            # Any other path: no document there (matches real OPA).
+            return httpx.Response(200, json={})
         if request.url.host == "sbx.test":
             if self.sandbox_error is not None:
                 return httpx.Response(self.sandbox_error, text="sandbox boom")
@@ -99,11 +193,77 @@ class Backends:
         if request.url.host == "github.test":
             if self.github_error is not None:
                 return httpx.Response(self.github_error, json={"message": "github boom"})
-            self.github_calls.append(
-                (request.url.path, json.loads(request.content), dict(request.headers))
-            )
-            return httpx.Response(201, json={"html_url": PR_URL})
+            payload = json.loads(request.content) if request.content else {}
+            self.github_calls.append((request.url.path, payload, dict(request.headers)))
+            return self._github(request, payload)
         return httpx.Response(502, text=f"unexpected host {request.url.host}")
+
+    @staticmethod
+    def _github(request: httpx.Request, payload: dict) -> httpx.Response:
+        """Canned GitHub REST answers for the step-15 surface."""
+        path, method = request.url.path, request.method
+
+        def issue(number: int = 7, **overrides) -> dict:
+            return {
+                "number": number,
+                "title": "an issue",
+                "state": "open",
+                "body": "details",
+                "html_url": f"https://github.test/i/{number}",
+                **overrides,
+            }
+
+        if method == "POST" and path.endswith("/pulls"):
+            return httpx.Response(201, json={"html_url": PR_URL})
+        if method == "POST" and path.endswith("/comments"):
+            return httpx.Response(201, json={"html_url": "https://github.test/c/1"})
+        if method == "POST" and path.endswith("/issues"):
+            return httpx.Response(
+                201,
+                json=issue(title=payload.get("title", ""), body=payload.get("body", "")),
+            )
+        if method == "PATCH" and "/issues/" in path:
+            return httpx.Response(200, json=issue(**payload))
+        if method == "GET" and path.endswith("/issues"):
+            # The listing includes a PR-shaped item the backlog must drop.
+            return httpx.Response(
+                200,
+                json=[
+                    issue(),
+                    issue(number=8, pull_request={"url": "x"}),
+                ],
+            )
+        if method == "GET" and "/issues/" in path:
+            return httpx.Response(200, json=issue())
+        if method == "GET" and path.endswith("/files"):
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "filename": "app.py",
+                        "additions": 3,
+                        "deletions": 1,
+                        "patch": "@@ -1 +1,3 @@",
+                    },
+                ],
+            )
+        if method == "GET" and "/pulls/" in path:
+            return httpx.Response(
+                200,
+                json={
+                    "number": 5,
+                    "title": "a pr",
+                    "state": "open",
+                    "body": "",
+                    "html_url": PR_URL,
+                    "merged": False,
+                    "head": {"ref": "feature/x"},
+                    "base": {"ref": "main"},
+                },
+            )
+        if method == "PUT" and path.endswith("/merge"):
+            return httpx.Response(200, json={"merged": True, "sha": "abc123"})
+        return httpx.Response(404, json={"message": f"unstubbed {method} {path}"})
 
 
 @pytest.fixture
@@ -117,27 +277,100 @@ def backends() -> Backends:
 
 
 @pytest.fixture
-def audit_path(tmp_path: Path) -> Path:
-    return tmp_path / "audit.jsonl"
+def audit() -> InMemoryAuditStore:
+    """The registry audit store, in memory — the interface is the same
+    object the gateway writes through."""
+    return InMemoryAuditStore()
 
 
 @pytest.fixture
-def settings(audit_path: Path) -> GatewaySettings:
+def settings() -> GatewaySettings:
     return GatewaySettings(
-        agent_bearer_token=AGENT_TOKEN,
-        runner_bearer_token=RUNNER_TOKEN,
         opa_url=OPA_URL,
-        audit_path=audit_path,
         git_token=GIT_TOKEN,
         base_ref="main",
         github_api_url=GITHUB_API_URL,
+        platform_jwt_key=JWT_KEY,
     )
 
 
 @pytest.fixture
-async def app(settings: GatewaySettings, backends: Backends):
+def instances() -> InMemoryAgentInstances:
+    """The registry rows workload identity maps ServiceAccounts through —
+    seeded with the standing hires the test tokens resolve to."""
+    store = InMemoryAgentInstances()
+    store.upsert(
+        AGENT_ID,
+        COMPANY,
+        "backend-engineer",
+        "backend-engineer",
+        "frontier",
+        namespace=COMPANY_NS,
+    )
+    store.upsert(
+        "pm-1",
+        COMPANY,
+        "pm",
+        "pm",
+        "standard",
+        namespace=COMPANY_NS,
+    )
+    return store
+
+
+@pytest.fixture
+def participants() -> InMemoryRunParticipants:
+    return InMemoryRunParticipants()
+
+
+@pytest.fixture
+def crew_requests() -> InMemoryCrewRequests:
+    return InMemoryCrewRequests()
+
+
+@pytest.fixture
+def ledger() -> InMemoryBudgetLedger:
+    return InMemoryBudgetLedger()
+
+
+@pytest.fixture
+def companies() -> InMemoryCompanies:
+    store = InMemoryCompanies()
+    store.upsert(
+        COMPANY,
+        {
+            "namespace": COMPANY_NS,
+            "budgets": {"per_run_usd": 5.0, "per_role_monthly_usd": {}},
+        },
+    )
+    return store
+
+
+@pytest.fixture
+async def app(
+    settings: GatewaySettings,
+    backends: Backends,
+    audit: InMemoryAuditStore,
+    instances: InMemoryAgentInstances,
+    participants: InMemoryRunParticipants,
+    crew_requests: InMemoryCrewRequests,
+    ledger: InMemoryBudgetLedger,
+    companies: InMemoryCompanies,
+):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
-    application = create_app(settings, stub_client)
+    application = create_app(
+        settings,
+        stub_client,
+        sandboxes=InMemorySandboxRegistrations(),
+        audit=audit,
+        instances=instances,
+        participants=participants,
+        runs=InMemoryRuns(),
+        crew_requests=crew_requests,
+        ledger=ledger,
+        companies=companies,
+        token_reviewer=FakeReviewer(),
+    )
     async with application.state.fastmcp.session_manager.run():
         yield application
     await stub_client.aclose()
@@ -146,7 +379,9 @@ async def app(settings: GatewaySettings, backends: Backends):
 def http_client(app, token: str | None) -> httpx.AsyncClient:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://gateway.test", headers=headers
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://gateway.test",
+        headers=headers,
     )
 
 
@@ -162,14 +397,18 @@ async def mcp_session(app, token: str):
 
 
 async def register_sandbox(app, run_id: str, token: str = RUNNER_TOKEN) -> httpx.Response:
+    """Register a run's sandbox exactly as the orchestrator does — namespace
+    included, because the registration's namespace is what a standing
+    caller's run binding is verified against."""
     async with http_client(app, token) as client:
-        return await client.post("/admin/sandboxes", json={"run_id": run_id, "url": SANDBOX_URL})
+        return await client.post(
+            "/admin/sandboxes",
+            json={"run_id": run_id, "url": SANDBOX_URL, "namespace": COMPANY_NS},
+        )
 
 
-def audit_events(audit_path: Path) -> list[dict]:
-    if not audit_path.exists():
-        return []
-    return [json.loads(line) for line in audit_path.read_text().splitlines()]
+def audit_events(audit: InMemoryAuditStore) -> list[dict]:
+    return [event.model_dump() for event in audit.events]
 
 
 # --- local git fixtures (TARGET_REPO stand-in, agent-side bundles) ------------
@@ -202,7 +441,9 @@ def target_repo(tmp_path: Path) -> Path:
     return bare
 
 
-def make_bundle(target_repo: Path, tmp_path: Path, branch: str, files: dict[str, str]) -> str:
+def make_bundle(
+    target_repo: Path, tmp_path: Path, branch: str, files: dict[str, str]
+) -> str:
     """Do what the sandbox does: commit `files` on `branch`, bundle base..branch."""
     work = tmp_path / f"work-{branch.replace('/', '-')}"
     git("clone", str(target_repo), str(work))

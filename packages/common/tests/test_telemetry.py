@@ -57,3 +57,66 @@ def test_stdout_handler_configured_once():
     root = logging.getLogger()
     json_handlers = [h for h in root.handlers if isinstance(h.formatter, JsonFormatter)]
     assert len(json_handlers) == 1
+
+
+def test_otel_handler_exports_bound_fields_as_attributes():
+    """The OTel half of the seam: bound context rides as flat, primitive
+    log-record attributes (never the `bound` dict itself), the body is the
+    message, and the stdout JSON contract is untouched by the extra
+    handler's presence."""
+    try:
+        from opentelemetry.sdk._logs.export import (
+            InMemoryLogRecordExporter as InMemoryExporter,
+        )
+    except ImportError:
+        from opentelemetry.sdk.logs.export import (
+            InMemoryLogRecordExporter as InMemoryExporter,
+        )
+
+    from common import telemetry
+
+    exporter = InMemoryExporter()
+    handler = telemetry._otel_handler(exporter=exporter)
+    assert handler is not None
+
+    underlying = logging.getLogger("t-otel")
+    underlying.addHandler(handler)
+    underlying.setLevel(logging.INFO)
+    try:
+        log = get_logger("t-otel").bind(run_id="run-z", agent_id="pm-1")
+        log.info("exported", extra={"iterations": 3, "handle": object()})
+        assert handler._logger_provider.force_flush()
+    finally:
+        underlying.removeHandler(handler)
+
+    finished = exporter.get_finished_logs()
+    assert len(finished) == 1
+    record = finished[0].log_record
+    assert record.body == "exported"
+    attributes = dict(record.attributes)
+    assert attributes["run_id"] == "run-z"
+    assert attributes["agent_id"] == "pm-1"
+    assert attributes["iterations"] == 3
+    # Non-primitive bound values are stringified, and the dict container
+    # itself never leaks through as an attribute.
+    assert isinstance(attributes["handle"], str)
+    assert "bound" not in attributes
+
+
+def test_otel_service_name_rides_the_resource(monkeypatch):
+    from common import telemetry
+
+    try:
+        from opentelemetry.sdk._logs.export import (
+            InMemoryLogRecordExporter as InMemoryExporter,
+        )
+    except ImportError:
+        from opentelemetry.sdk.logs.export import (
+            InMemoryLogRecordExporter as InMemoryExporter,
+        )
+
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "mcp-gateway")
+    handler = telemetry._otel_handler(exporter=InMemoryExporter())
+    assert handler is not None
+    resource = handler._logger_provider.resource
+    assert resource.attributes["service.name"] == "mcp-gateway"

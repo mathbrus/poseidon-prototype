@@ -1,0 +1,11 @@
+apiVersion: v2
+name: poseidon
+description: >-
+  Poseidon — the core services (OPA, LiteLLM, MCP gateway, agent) hosted
+  on Kubernetes. The release installs into the platform namespace; the
+  operator reconciles company namespaces from applied blueprints.
+  The same chart and values structure serves kind and real clusters (exit
+  criterion 7); kind-specific overrides live in values-kind.yaml.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

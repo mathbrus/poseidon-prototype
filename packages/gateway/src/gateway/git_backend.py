@@ -47,6 +47,27 @@ def repo_slug(repo: str) -> str:
     return "/".join(path.split("/")[-2:])
 
 
+def _require_safe_argument(what: str, value: str) -> str:
+    """Refuse caller-supplied strings that could be read as git options or
+    smuggle transport tricks: leading dash, whitespace/control characters,
+    and `::` (git's `ext::`/`fd::` pseudo-URLs execute commands)."""
+    if not value or value.startswith("-") or "::" in value:
+        raise GitBackendError(f"{what} {value!r} is not allowed")
+    if any(c.isspace() or ord(c) < 0x20 for c in value):
+        raise GitBackendError(f"{what} {value!r} is not allowed")
+    return value
+
+
+def _require_safe_ref(what: str, value: str) -> str:
+    """A conservative subset of git's ref-format rules — enough that a
+    caller-supplied ref or branch can never be an option or rewrite a
+    refspec (`:` splits refspecs; `..` builds ranges)."""
+    _require_safe_argument(what, value)
+    if ":" in value or ".." in value or value.startswith("/") or value.endswith("/"):
+        raise GitBackendError(f"{what} {value!r} is not a valid ref name")
+    return value
+
+
 @dataclass
 class PreparedBundle:
     """A verified bundle applied to a platform-side clone, awaiting push."""
@@ -73,14 +94,22 @@ class GitBackend:
         return text.replace(token, "***") if token else text
 
     def _git(self, cwd: Path | None, *args: str) -> str:
-        proc = subprocess.run(
-            ["git", *args],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT_S,
-            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
-        )
+        try:
+            proc = subprocess.run(
+                ["git", *args],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=GIT_TIMEOUT_S,
+                env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            )
+        except subprocess.TimeoutExpired:
+            # TimeoutExpired's own message carries the full command line —
+            # including a credentialed clone URL — so it never propagates
+            # unredacted.
+            raise GitBackendError(
+                self._redact(f"git {args[0]} timed out after {GIT_TIMEOUT_S}s")
+            ) from None
         if proc.returncode != 0:
             raise GitBackendError(
                 self._redact(f"git {args[0]} failed: {proc.stderr.strip()}")
@@ -88,8 +117,18 @@ class GitBackend:
         return proc.stdout
 
     def _clone_url(self, repo: str) -> str:
+        """Resolve `repo` to a clone URL. The transport set is closed:
+        local paths (tests, fixtures) or https with the platform token —
+        anything else is refused, because git's other transports (`ext::`
+        among them) can execute commands."""
+        _require_safe_argument("repo", repo)
         if repo.startswith(("file://", "/", ".")):
             return repo
+        scheme, sep, _ = repo.partition("://")
+        if sep and scheme != "https":
+            raise GitBackendError(
+                f"repo URL scheme {scheme!r} is not allowed (https only)"
+            )
         token = self._settings.git_token
         if not token:
             raise GitBackendError("GIT_TOKEN is not configured")
@@ -102,11 +141,14 @@ class GitBackend:
         return await asyncio.to_thread(self._archive_sync, repo, ref)
 
     def _archive_sync(self, repo: str, ref: str) -> dict[str, Any]:
+        _require_safe_ref("ref", ref)
         self._log.info("archive", extra={"repo": repo_slug(repo), "ref": ref})
         with tempfile.TemporaryDirectory(prefix="poseidon-archive-") as tmp:
             clone = Path(tmp) / "repo"
-            self._git(None, "clone", self._clone_url(repo), str(clone))
-            self._git(clone, "checkout", ref)
+            self._git(None, "clone", "--", self._clone_url(repo), str(clone))
+            # `<ref> --` pins the argument as a revision, never an option
+            # or a path.
+            self._git(clone, "checkout", ref, "--")
             # Removing the remote drops the credentialed URL and all
             # remote-tracking refs; nothing secret survives in the archive.
             self._git(clone, "remote", "remove", "origin")
@@ -127,6 +169,7 @@ class GitBackend:
         return await asyncio.to_thread(self._prepare_sync, repo, branch, bundle_b64)
 
     def _prepare_sync(self, repo: str, branch: str, bundle_b64: str) -> PreparedBundle:
+        _require_safe_ref("branch", branch)
         root = Path(tempfile.mkdtemp(prefix="poseidon-pr-"))
         try:
             bundle_path = root / "incoming.bundle"
@@ -135,7 +178,7 @@ class GitBackend:
             except binascii.Error as exc:
                 raise GitBackendError(f"bundle is not valid base64: {exc}") from exc
             clone = root / "repo"
-            self._git(None, "clone", self._clone_url(repo), str(clone))
+            self._git(None, "clone", "--", self._clone_url(repo), str(clone))
             self._git(clone, "bundle", "verify", str(bundle_path))
             self._git(clone, "fetch", str(bundle_path), f"{branch}:{INCOMING_REF}")
             diff = self._git(
@@ -162,23 +205,140 @@ class GitBackend:
             "origin",
             f"{INCOMING_REF}:refs/heads/{prepared.branch}",
         )
-        headers = {"Accept": "application/vnd.github+json"}
-        if self._settings.git_token:
-            headers["Authorization"] = f"Bearer {self._settings.git_token}"
-        resp = await self._http.post(
-            f"{self._settings.github_api_url.rstrip('/')}/repos/{repo_slug(repo)}/pulls",
+        data = await self._github(
+            "POST",
+            f"/repos/{repo_slug(repo)}/pulls",
             json={
                 "title": title,
                 "body": body,
                 "head": prepared.branch,
                 "base": self._settings.base_ref,
             },
+        )
+        pr_url = data["html_url"]
+        self._log.info("pr opened", extra={"branch": prepared.branch, "pr_url": pr_url})
+        return {"pr_url": pr_url}
+
+    # -- GitHub REST (issues.*, git.read/comment/merge_pr) --------------------
+
+    async def _github(
+        self, method: str, path: str, json: dict[str, Any] | None = None
+    ) -> Any:
+        headers = {"Accept": "application/vnd.github+json"}
+        if self._settings.git_token:
+            headers["Authorization"] = f"Bearer {self._settings.git_token}"
+        resp = await self._http.request(
+            method,
+            f"{self._settings.github_api_url.rstrip('/')}{path}",
+            json=json,
             headers=headers,
         )
         if resp.status_code not in (200, 201):
             raise GitBackendError(
-                self._redact(f"GitHub PR creation failed: {resp.status_code} {resp.text}")
+                self._redact(
+                    f"GitHub {method} {path} failed: {resp.status_code} {resp.text}"
+                )
             )
-        pr_url = resp.json()["html_url"]
-        self._log.info("pr opened", extra={"branch": prepared.branch, "pr_url": pr_url})
-        return {"pr_url": pr_url}
+        return resp.json()
+
+    @staticmethod
+    def _issue_view(issue: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "number": issue["number"],
+            "title": issue.get("title", ""),
+            "state": issue.get("state", ""),
+            "body": issue.get("body") or "",
+            "url": issue.get("html_url", ""),
+        }
+
+    async def create_issue(self, repo: str, title: str, body: str) -> dict[str, Any]:
+        issue = await self._github(
+            "POST",
+            f"/repos/{repo_slug(repo)}/issues",
+            json={"title": title, "body": body},
+        )
+        return self._issue_view(issue)
+
+    async def read_issues(self, repo: str, number: int | None) -> dict[str, Any]:
+        """One issue by number, or the open backlog — the PM's cross-run
+        state is this list plus the runs history."""
+        slug = repo_slug(repo)
+        if number is not None:
+            return {
+                "issues": [
+                    self._issue_view(
+                        await self._github("GET", f"/repos/{slug}/issues/{number}")
+                    )
+                ]
+            }
+        listing = await self._github("GET", f"/repos/{slug}/issues?state=open")
+        # The issues API returns PRs too; the backlog is issues only.
+        return {
+            "issues": [self._issue_view(i) for i in listing if "pull_request" not in i]
+        }
+
+    async def update_issue(
+        self,
+        repo: str,
+        number: int,
+        title: str | None = None,
+        body: str | None = None,
+        state: str | None = None,
+    ) -> dict[str, Any]:
+        fields = {
+            k: v
+            for k, v in (("title", title), ("body", body), ("state", state))
+            if v is not None
+        }
+        if not fields:
+            raise GitBackendError("issues.update: nothing to update")
+        issue = await self._github(
+            "PATCH", f"/repos/{repo_slug(repo)}/issues/{number}", json=fields
+        )
+        return self._issue_view(issue)
+
+    async def comment_issue(self, repo: str, number: int, body: str) -> dict[str, Any]:
+        """One endpoint serves both `issues.comment` and `git.comment` —
+        GitHub PR conversations are issue comments."""
+        comment = await self._github(
+            "POST",
+            f"/repos/{repo_slug(repo)}/issues/{number}/comments",
+            json={"body": body},
+        )
+        return {"url": comment.get("html_url", "")}
+
+    async def read_pr(self, repo: str, number: int) -> dict[str, Any]:
+        """PR metadata + changed files — what a reviewer reads."""
+        slug = repo_slug(repo)
+        pr = await self._github("GET", f"/repos/{slug}/pulls/{number}")
+        files = await self._github("GET", f"/repos/{slug}/pulls/{number}/files")
+        return {
+            "number": pr["number"],
+            "title": pr.get("title", ""),
+            "state": pr.get("state", ""),
+            "body": pr.get("body") or "",
+            "url": pr.get("html_url", ""),
+            "head": (pr.get("head") or {}).get("ref", ""),
+            "base": (pr.get("base") or {}).get("ref", ""),
+            "merged": bool(pr.get("merged")),
+            "files": [
+                {
+                    "path": f.get("filename", ""),
+                    "additions": f.get("additions", 0),
+                    "deletions": f.get("deletions", 0),
+                    "patch": f.get("patch", ""),
+                }
+                for f in files
+            ],
+        }
+
+    async def merge_pr(
+        self, repo: str, number: int, method: str = "merge"
+    ) -> dict[str, Any]:
+        result = await self._github(
+            "PUT",
+            f"/repos/{repo_slug(repo)}/pulls/{number}/merge",
+            json={"merge_method": method},
+        )
+        self._log.info("pr merged", extra={"repo": repo_slug(repo), "number": number})
+        return {"merged": bool(result.get("merged")), "sha": result.get("sha", "")}

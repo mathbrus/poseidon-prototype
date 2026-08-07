@@ -1,0 +1,353 @@
+"""Brain-host tests: the production OpenHands SDK loops
+driven by a scripted LLM and a fake gateway (see conftest)."""
+
+from conftest import (
+    COMMENT_URL,
+    PR_URL,
+    RUN_ID,
+    TESTS_FAIL,
+    ScriptedLLM,
+    calls,
+    says,
+    scripted,
+    tc,
+    text_of,
+)
+
+from agent.brain import (
+    build_llm,
+    deliver_dispatch,
+    implement_dispatch,
+    plan_dispatch,
+    review_dispatch,
+)
+from agent.hands import REVIEWER_TOOLS
+
+TASK = "Add a `greet(name)` function to src/hello.py with a test."
+
+
+# --- happy path ---------------------------------------------------------------
+
+
+def test_happy_path_ends_in_a_completion_claim(settings, gateway):
+    """The implement dispatch ends at
+    the advisory-green completion claim — no PR, no deliver tools, ever."""
+    llm = ScriptedLLM(
+        [
+            calls(tc("write_file", path="src/hello.py", content="def greet(n): ...")),
+            says("Implementation done, ready for the test suite."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert result.pr_url is None  # the brain never self-delivers
+    assert result.iterations == 1
+    assert llm.script == []
+    assert gateway.tools_called() == [
+        "sandbox.list_dir",
+        "sandbox.write_file",
+        "sandbox.run_tests",
+    ]
+    assert all(args["run_id"] == RUN_ID for _, args in gateway.calls)
+
+
+def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
+    """The workflow-directed delivery (mode=deliver): commit, bundle, PR —
+    and the bundle base64 never enters the model context."""
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc(
+                    "exec",
+                    cmd=(
+                        "git checkout -b feature/greet && git add -A && "
+                        "git -c user.name=a -c user.email=a@p commit -m 'add greet'"
+                    ),
+                ),
+                tc(
+                    "open_pr",
+                    branch="feature/greet",
+                    title="Add greet",
+                    body="Adds greet().",
+                ),
+            ),
+            says("Delivered."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = deliver_dispatch(settings, RUN_ID, TASK)
+
+    assert result.pr_url == PR_URL
+    assert result.error is None
+    assert gateway.tools_called() == [
+        "sandbox.exec",
+        "sandbox.git_bundle",
+        "git.open_pr",
+    ]
+    open_pr_args = gateway.calls[-1][1]
+    assert open_pr_args["repo"] == settings.target_repo
+    assert open_pr_args["branch"] == "feature/greet"
+    assert open_pr_args["bundle_b64"] == "YnVuZGxl"
+    # The composite hid the bundle: no message the model saw contains it.
+    for messages, _ in llm.requests:
+        assert all("YnVuZGxl" not in text_of(m) for m in messages)
+
+
+def test_review_dispatch_reads_runs_and_comments(settings, gateway):
+    """The reviewer (mode=review): read the diff, execute
+    the suite, post findings — no write tools on the surface."""
+    llm = ScriptedLLM(
+        [
+            calls(tc("read_pr", number=41)),
+            calls(tc("run_tests")),
+            calls(
+                tc(
+                    "comment_pr",
+                    number=41,
+                    body="Suite green in the review sandbox; no findings.",
+                )
+            ),
+            says("Findings posted."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = review_dispatch(
+            settings, RUN_ID, "Review pull request #41 (url): Add greet"
+        )
+
+    assert result.error is None
+    assert result.comment_urls == [COMMENT_URL]
+    assert gateway.tools_called() == [
+        "git.read",
+        "sandbox.run_tests",
+        "git.comment",
+    ]
+    # Every offered toolset is the reviewer's (plus the SDK's control
+    # tools) — read-and-judge only.
+    for index in range(len(llm.requests)):
+        offered = set(llm.offered(index)) - {"finish", "think"}
+        assert offered == set(REVIEWER_TOOLS)
+    assert "write_file" not in REVIEWER_TOOLS and "open_pr" not in REVIEWER_TOOLS
+
+
+def test_review_without_findings_fails_the_dispatch(settings, gateway):
+    llm = ScriptedLLM([says("Looks fine, nothing to say.")])
+
+    with scripted(gateway, llm):
+        result = review_dispatch(settings, RUN_ID, "Review pull request #41")
+
+    assert result.error == "reviewer posted no findings"
+    assert result.comment_urls == []
+
+
+def test_prompt_and_toolsets_per_phase(settings, gateway):
+    """The implement dispatch never offers delivery tools (choice 8): the
+    act surface is the read/write set and the loop ends at the claim —
+    open_pr exists only in the separate deliver dispatch."""
+    llm = ScriptedLLM([says("nothing to do")])
+
+    with scripted(gateway, llm):
+        implement_dispatch(settings, RUN_ID, TASK)
+
+    messages, tools = llm.requests[0]
+    assert messages[0]["role"] == "system"
+    assert "feature/" in text_of(messages[0])
+    assert settings.target_repo in text_of(messages[0])
+    task_message = text_of(messages[1])
+    assert TASK in task_message
+    assert "README.md" in task_message  # workspace survey rode the prompt
+
+    offered = set(llm.offered(0)) - {"finish", "think"}
+    assert offered == {"list_dir", "read_file", "write_file", "exec"}
+    assert "open_pr" not in llm.offered(0)  # no delivery tool, ever, here
+
+
+def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):
+    """A model call to a tool outside the phase surface (open_pr while
+    implementing) comes back as an error tool result — never a crash, and
+    never a gateway call."""
+    llm = ScriptedLLM(
+        [
+            calls(tc("open_pr", branch="feature/x", title="t", body="b")),
+            says("Understood — no delivery from here."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert "git.open_pr" not in gateway.tools_called()
+    retry_messages, _ = llm.requests[-1]
+    feedback = text_of(retry_messages[-1])
+    assert "open_pr" in feedback and "not found" in feedback
+
+
+# --- verify loop and iteration cap ---------------------------------------------
+
+
+def test_failing_tests_loop_back_with_report_until_iteration_cap(settings, gateway):
+    gateway.default_test_result = TESTS_FAIL
+    # One act turn per verify cycle; tests never pass, so the run fails
+    # after max_iterations (3) verify cycles.
+    llm = ScriptedLLM([says("try 1"), says("try 2"), says("try 3")])
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.pr_url is None
+    assert result.iterations == settings.max_iterations
+    assert result.error == "tests still failing after 3 iterations"
+    assert gateway.tools_called().count("sandbox.run_tests") == 3
+    assert "git.open_pr" not in gateway.tools_called()
+
+    # The failure report was surfaced to the model between cycles.
+    last_messages, _ = llm.requests[-1]
+    report = text_of(last_messages[-1])
+    assert "exit code 1" in report
+    assert "1 failed: test_hello" in report
+
+
+# --- deny path (E2 recovery) ----------------------------------------------------
+
+
+def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(settings, gateway):
+    """E2 in the deliver dispatch: the deny (with the rule name) feeds back
+    and the model recovers onto feature/*."""
+    llm = ScriptedLLM(
+        [
+            # Injected-task behaviour: try to deliver straight to main.
+            calls(tc("open_pr", branch="main", title="t", body="b")),
+            # After seeing the denial, comply with policy.
+            calls(tc("open_pr", branch="feature/greet", title="t", body="b")),
+            says("Delivered on the feature branch."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = deliver_dispatch(settings, RUN_ID, TASK)
+
+    assert result.pr_url == PR_URL
+    assert result.error is None
+
+    pr_attempts = [
+        args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"
+    ]
+    assert pr_attempts == ["main", "feature/greet"]
+
+    retry_messages, _ = llm.requests[1]
+    denial = retry_messages[-1]
+    assert denial["role"] == "tool"
+    assert text_of(denial).startswith("ERROR:")
+    assert "git_open_pr_protected_branch" in text_of(denial)
+
+
+def test_deliver_without_pr_fails_the_run(settings, gateway):
+    llm = ScriptedLLM([says("I refuse to open a PR.")])
+
+    with scripted(gateway, llm):
+        result = deliver_dispatch(settings, RUN_ID, TASK)
+
+    assert result.pr_url is None
+    assert result.error == "agent stopped without opening a pull request"
+
+
+# --- budget stop ----------------------------------------------------------------
+
+
+def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
+    """The LLM gateway's hard stop is a 429 with the budget_exhausted
+    marker; the dispatch surfaces it (the workflow keys its pause on the
+    substring) after a single attempt — the SDK must not retry into it."""
+    from litellm.exceptions import RateLimitError
+
+    attempts = []
+
+    def raise_429(*args, **kwargs):
+        attempts.append(1)
+        raise RateLimitError(
+            message='{"error": {"code": "budget_exhausted", '
+            '"message": "run exhausted its budget"}}',
+            llm_provider="openai",
+            model="test-model",
+        )
+
+    from unittest.mock import patch
+
+    from conftest import FakeBridge
+
+    import agent.brain as brain
+
+    with patch.object(brain, "GatewayBridge", lambda url, token: FakeBridge(gateway)):
+        with patch("openhands.sdk.llm.llm.litellm_completion", side_effect=raise_429):
+            try:
+                implement_dispatch(settings, RUN_ID, TASK)
+                raised = None
+            except Exception as exc:
+                raised = exc
+
+    assert raised is not None
+    assert "budget_exhausted" in str(raised)
+    assert len(attempts) == 1  # num_retries=1: one attempt, no grind
+
+
+# --- planner mode ---------------------------------------------------------------
+
+
+def test_planner_produces_the_brief_from_one_completion(settings, gateway):
+    """mode=plan: one survey, one completion, no tool loop — the brief the
+    executor's dispatch carries verbatim."""
+    llm = ScriptedLLM([says("1. Write slugify.py\n2. Deliver on `feature/x`.")])
+
+    with scripted(gateway, llm):
+        result = plan_dispatch(settings, RUN_ID, TASK, gateway_token="minted")
+
+    assert result.error is None
+    assert result.brief == "1. Write slugify.py\n2. Deliver on `feature/x`."
+    assert gateway.tools_called() == ["sandbox.list_dir"]  # read-only survey
+    messages, tools = llm.requests[0]
+    assert tools is None  # a completion, not a tool loop
+    assert TASK in text_of(messages[1])
+
+
+def test_planner_empty_brief_is_an_error(settings, gateway):
+    llm = ScriptedLLM([says("")])
+
+    with scripted(gateway, llm):
+        result = plan_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error == "planner produced an empty brief"
+
+
+# --- the LLM client shape -------------------------------------------------------
+
+
+def test_llm_carries_run_attribution_and_single_attempt(settings):
+    llm = build_llm(settings, RUN_ID, "tok")
+    assert llm.extra_headers == {"X-Poseidon-Run-Id": RUN_ID}
+    assert llm.num_retries == 1
+    assert llm.model == "openai/test-model"  # provider prefix for routing only
+    assert llm.base_url == settings.llm_proxy_url
+
+
+# --- prompt rendering -----------------------------------------------------------
+
+
+def test_prompt_rendering_survives_stray_braces(tmp_path, settings):
+    """Prompt files are edited as prose: a brace added to the text must
+    stay literal text, never a format crash or a format-spec evaluation."""
+    from agent.brain import _render_prompt
+
+    template = tmp_path / "prompt.md"
+    template.write_text(
+        'Repo: {target_repo}. Example: {"key": "value"} and {not_a_field!r}.'
+    )
+    rendered = _render_prompt(template, settings)
+    assert f"Repo: {settings.target_repo}." in rendered
+    assert '{"key": "value"}' in rendered
+    assert "{not_a_field!r}" in rendered

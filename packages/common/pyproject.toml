@@ -1,12 +1,24 @@
 [project]
 name = "common"
 version = "0.1.0"
-description = "Poseidon PoC shared library: ids, config, audit event model, telemetry"
+description = "Poseidon shared library: ids, config, audit event model, telemetry"
 requires-python = ">=3.12"
 dependencies = [
+    "httpx>=0.27",
     "pydantic>=2",
     "pydantic-settings>=2",
     "python-ulid>=2",
+]
+
+[project.optional-dependencies]
+# The OTel adoption (anytime track) lives behind an extra so the sandbox
+# toolserver image — which runs untrusted workspace code — never carries
+# the SDK (same reasoning as sandbox's `egress` extra for the DB driver).
+# Platform services depend on `common[otel]`; export is env-gated at
+# runtime by OTEL_EXPORTER_OTLP_ENDPOINT either way.
+otel = [
+    "opentelemetry-sdk>=1.29",
+    "opentelemetry-exporter-otlp-proto-http>=1.29",
 ]
 
 [build-system]

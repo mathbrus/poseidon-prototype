@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from common.audit import AuditEvent, append
+from common.audit import AuditEvent
 
 
 def make_event(**overrides):
@@ -18,13 +18,18 @@ def make_event(**overrides):
         "rule": None,
         "latency_ms": 12,
         "backend_status": "ok",
+        "source": "gateway",
     }
     fields.update(overrides)
     return AuditEvent(**fields)
 
 
 def test_round_trip_matches_contract():
-    event = make_event(decision="deny", rule="branch_must_be_feature", backend_status=None)
+    """The audit event shape: decision fields plus source and the
+    attribution columns, empty when genuinely absent."""
+    event = make_event(
+        decision="deny", rule="branch_must_be_feature", backend_status=None
+    )
     parsed = json.loads(event.model_dump_json())
     assert parsed == {
         "ts": "2026-07-20T17:00:00+00:00",
@@ -37,7 +42,25 @@ def test_round_trip_matches_contract():
         "rule": "branch_must_be_feature",
         "latency_ms": 12,
         "backend_status": None,
+        "source": "gateway",
+        "company": "",
+        "lifecycle": "",
+        "parent_agent_id": "",
+        "workflow": "",
     }
+
+
+def test_v2_attribution_fields_round_trip():
+    event = make_event(
+        source="sandbox-infra",
+        company="hello-saas",
+        lifecycle="ephemeral",
+        parent_agent_id="pm-1",
+        workflow="implement",
+    )
+    assert event.source == "sandbox-infra"
+    assert event.company == "hello-saas"
+    assert event.parent_agent_id == "pm-1"
 
 
 def test_decision_and_backend_status_are_constrained():
@@ -45,16 +68,7 @@ def test_decision_and_backend_status_are_constrained():
         make_event(decision="maybe")
     with pytest.raises(ValidationError):
         make_event(backend_status="crashed")
-
-
-def test_append_is_append_only_jsonl(tmp_path):
-    path = tmp_path / "runs" / "audit.jsonl"
-    append(make_event(tool="sandbox.exec"), path)
-    append(make_event(tool="git.open_pr", decision="deny", rule="default_deny"), path)
-
-    lines = path.read_text().splitlines()
-    assert len(lines) == 2
-    first, second = (json.loads(line) for line in lines)
-    assert first["tool"] == "sandbox.exec"
-    assert second["tool"] == "git.open_pr"
-    assert second["decision"] == "deny"
+    # Source is a closed vocabulary — a typo'd producer fails loudly, not
+    # as a silently unqueryable source.
+    with pytest.raises(ValidationError):
+        make_event(source="side-channel")

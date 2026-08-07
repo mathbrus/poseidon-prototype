@@ -1,0 +1,130 @@
+{{- if .Values.networkPolicies.enabled }}
+# NetworkPolicy hardening. Requires a CNI that enforces NetworkPolicy
+# (kind's default CNI does not; the bootstrap installs Calico).
+#
+# Platform-namespace policies only. Everything inside a company namespace —
+# the deny-all envelope, agent egress/ingress, sandbox isolation — belongs
+# to the operator, because the namespace itself is
+# operator-created and a chart cannot template what it does not own.
+#
+#   gateway egress: OPA, the registry, DNS, the sandbox toolservers in the
+#     company namespace, and non-cluster addresses (the external git host).
+# The egress proxy answers sandboxes and nobody else (the kubelet's probes
+# bypass NetworkPolicy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-proxy-ingress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: egress-proxy
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.companyNamespace }}
+          podSelector:
+            matchLabels:
+              app: poseidon-sandbox
+      ports:
+        - port: 3128
+---
+# The llm-proxy (provider keys) answers the LLM gateway and nobody else —
+# what makes the metered, audited gateway the only route to a model
+# (no anonymous passthrough). Kubelet probes
+# bypass NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llm-proxy-ingress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: llm-proxy
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: llm-gateway
+      ports:
+        - port: 4000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-egress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: mcp-gateway
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: opa
+      ports:
+        - port: 8181
+    # The sandbox.* proxy path: gateway -> toolserver pods.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.companyNamespace }}
+          podSelector:
+            matchLabels:
+              app: poseidon-sandbox
+      ports:
+        - port: 8000
+    # The registry: sandbox registrations and audit events.
+    # Cluster CIDRs are excluded from the external rule below, so without
+    # this the gateway cannot reach its own database.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The API server, for TokenReview (workload identity).
+    # By address, not selector: the endpoint may sit outside any namespace
+    # (kind: the node's IP:6443; managed clusters: an external VIP:443),
+    # and kube-proxy DNATs the service VIP before policy is evaluated, so
+    # the rule must admit the *endpoint* address. Ports are pinned so this
+    # never widens general egress.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+        - port: 6443
+    # Everything outside the cluster: the external git host. Pods and
+    # services are explicitly excluded so "external" never quietly
+    # includes them.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              {{- range .Values.networkPolicies.clusterCidrs }}
+              - {{ . }}
+              {{- end }}
+{{- end }}

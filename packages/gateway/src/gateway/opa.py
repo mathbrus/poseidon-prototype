@@ -1,8 +1,10 @@
-"""OPA client: decision queries (contract C2) and run-assignment pushes.
+"""OPA client: decision queries against operator-installed compiled bundles.
 
-Assignments live in OPA under data.runs.assignments as
-{<agent_id>: [<run_id>, ...]}; the gateway is their source of truth and
-replaces the whole document on every change.
+The decision path is per caller: company callers query
+their company's package (`poseidon/authz/<slug>/decision`), the platform
+lifecycle queries `poseidon/platform/decision`. Nothing is ever pushed into
+OPA — run binding rides as enrichment the gateway injects into the
+decision *input*.
 """
 
 from typing import Any
@@ -10,8 +12,14 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-DECISION_PATH = "/v1/data/poseidon/poc/decision"
-ASSIGNMENTS_PATH = "/v1/data/runs/assignments"
+PLATFORM_DECISION_PATH = "poseidon/platform/decision"
+
+
+def company_decision_path(company: str) -> str:
+    """Mirrors the compiler's `company_package` slug — the two must stay
+    equal or every decision for the company lands on an empty document."""
+    slug = company.replace(".", "_").replace("-", "_").replace("/", "_")
+    return f"poseidon/authz/{slug}/decision"
 
 
 class Decision(BaseModel):
@@ -23,19 +31,16 @@ class OpaClient:
     def __init__(self, opa_url: str, http_client: httpx.AsyncClient) -> None:
         self._base = opa_url.rstrip("/")
         self._http = http_client
-        self._assignments: dict[str, list[str]] = {}
 
-    async def decide(self, policy_input: dict[str, Any]) -> Decision:
-        resp = await self._http.post(self._base + DECISION_PATH, json={"input": policy_input})
+    async def decide(self, policy_input: dict[str, Any], path: str) -> Decision:
+        resp = await self._http.post(
+            f"{self._base}/v1/data/{path}", json={"input": policy_input}
+        )
         resp.raise_for_status()
         result = resp.json().get("result")
         if result is None:
-            raise RuntimeError("OPA returned no decision (policy not loaded?)")
+            # No document at the path: the company's bundle is not (or no
+            # longer) installed. Fail closed — a torn-down company's callers
+            # find no rule to match, which is what revocation means.
+            return Decision(allow=False, rule="no_policy_installed")
         return Decision.model_validate(result)
-
-    async def assign_run(self, agent_id: str, run_id: str) -> None:
-        runs = self._assignments.setdefault(agent_id, [])
-        if run_id not in runs:
-            runs.append(run_id)
-        resp = await self._http.put(self._base + ASSIGNMENTS_PATH, json=self._assignments)
-        resp.raise_for_status()

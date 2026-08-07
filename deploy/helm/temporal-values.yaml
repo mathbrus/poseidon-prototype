@@ -1,0 +1,62 @@
+# Self-hosted Temporal — installed alongside the poseidon
+# release into the platform namespace from the official chart, version-pinned
+# in deploy/kind/kind-up.sh (chart 1.6.0 / server 1.31.x). No Temporal Cloud
+# (O3 = B). The same values file serves kind and real clusters.
+#
+#   helm upgrade --install temporal temporal/temporal --version <pinned> \
+#     -n poseidon-platform -f deploy/helm/temporal-values.yaml
+#
+# Persistence is the poseidon chart's Postgres (templates/postgres.yaml):
+# the schema hook jobs create and migrate both databases with the superuser,
+# reading the password from the postgres-credentials secret.
+
+server:
+  replicaCount: 1
+  config:
+    logLevel: "info"
+    persistence:
+      datastores:
+        default:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            databaseName: temporal
+            connectAddr: "postgres:5432"
+            connectProtocol: tcp
+            user: poseidon
+            existingSecret: postgres-credentials
+            secretKey: POSTGRES_PASSWORD
+            maxConns: 20
+            maxIdleConns: 20
+            maxConnLifetime: "1h"
+        visibility:
+          sql:
+            createDatabase: true
+            manageSchema: true
+            pluginName: postgres12
+            databaseName: temporal_visibility
+            connectAddr: "postgres:5432"
+            connectProtocol: tcp
+            user: poseidon
+            existingSecret: postgres-credentials
+            secretKey: POSTGRES_PASSWORD
+            maxConns: 10
+            maxIdleConns: 10
+            maxConnLifetime: "1h"
+    namespaces:
+      create: true
+      namespace:
+        - name: default
+          retention: 3d
+
+# The UI and in-cluster CLI are debugging conveniences, not platform surface.
+web:
+  enabled: true
+admintools:
+  enabled: true
+
+# Compatibility shims for pre-1.30 images — off, we run 1.31.
+shims:
+  dockerize: false
+  elasticsearchTool: false

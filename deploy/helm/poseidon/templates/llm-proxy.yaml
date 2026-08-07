@@ -1,0 +1,65 @@
+# Stock LiteLLM in single-model mode: holds the provider key so the agent pod
+# never sees it. The metered llm-gateway (packages/gateway-llm) is the only
+# service that can reach it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-proxy
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-proxy
+  template:
+    metadata:
+      labels:
+        app: llm-proxy
+        {{- include "poseidon.labels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: llm-proxy
+          image: "{{ .Values.images.llmProxy.repository }}:{{ .Values.images.llmProxy.tag }}"
+          imagePullPolicy: {{ .Values.images.llmProxy.pullPolicy }}
+          # Writable root: LiteLLM is a third-party image whose write
+          # locations we do not control (the mock swap-in would tolerate
+          # read-only, but the spec must fit both).
+          securityContext:
+            {{- include "poseidon.containerSecurityContextWritable" . | nindent 12 }}
+          # args only: the image's litellm entrypoint stays in charge.
+          args: ["--model", {{ .Values.run.model | quote }}, "--port", "4000"]
+          ports:
+            - containerPort: 4000
+          envFrom:
+            - secretRef:
+                name: llm-credentials
+          readinessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            periodSeconds: 5
+            # LiteLLM takes a while to come up (Compose used a 30s grace).
+            initialDelaySeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /health/liveliness
+              port: 4000
+            periodSeconds: 10
+            initialDelaySeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-proxy
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: llm-proxy
+  ports:
+    - port: 4000
+      targetPort: 4000

@@ -1,0 +1,121 @@
+# Postgres: Temporal's persistence store, and host of the registry
+# database. Owned by this chart —
+# the Temporal release (deploy/helm/temporal-values.yaml) points here and
+# reads the password from the postgres-credentials secret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-credentials
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  POSTGRES_PASSWORD: {{ required "secrets.postgresPassword is required (set it via a values override)" .Values.secrets.postgresPassword | quote }}
+---
+# The registry DSN: the schema lives in the instance's default
+# database, so no CREATE DATABASE has to race the services that migrate at
+# startup. Held by the three writers — gateway, egress proxy, orchestrator.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: registry-credentials
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  REGISTRY_DSN: postgresql://{{ .Values.postgres.user }}:{{ required "secrets.postgresPassword is required (set it via a values override)" .Values.secrets.postgresPassword }}@postgres:5432/{{ .Values.postgres.user }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        {{- include "poseidon.labels" . | nindent 8 }}
+    spec:
+      # uid/gid 999 is the image's postgres user; running as it directly
+      # (instead of root-then-su) plus emptyDirs for the socket dir and
+      # /tmp lets the root filesystem stay read-only.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            # A subdirectory keeps initdb happy on a fresh PVC (the mount
+            # point itself contains lost+found).
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.user | quote }}]
+            periodSeconds: 5
+            initialDelaySeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.user | quote }}]
+            periodSeconds: 10
+            initialDelaySeconds: 30
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.postgres.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}

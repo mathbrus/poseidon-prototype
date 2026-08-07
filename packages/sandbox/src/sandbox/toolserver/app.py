@@ -64,7 +64,9 @@ def _as_text(data: Any) -> str:
 
 
 def create_app(workspace: Path | None = None) -> FastAPI:
-    ws = (workspace or Path(os.environ.get("WORKSPACE_DIR", str(DEFAULT_WORKSPACE)))).resolve()
+    ws = (
+        workspace or Path(os.environ.get("WORKSPACE_DIR", str(DEFAULT_WORKSPACE)))
+    ).resolve()
     log = get_logger("sandbox.toolserver")
     app = FastAPI(title="poseidon-sandbox-toolserver")
 
@@ -84,9 +86,14 @@ def create_app(workspace: Path | None = None) -> FastAPI:
             return {
                 "exit_code": TIMEOUT_EXIT_CODE,
                 "stdout": _as_text(exc.stdout),
-                "stderr": _as_text(exc.stderr) + f"\ncommand timed out after {timeout_s}s",
+                "stderr": _as_text(exc.stderr)
+                + f"\ncommand timed out after {timeout_s}s",
             }
-        return {"exit_code": proc.returncode, "stdout": proc.stdout, "stderr": proc.stderr}
+        return {
+            "exit_code": proc.returncode,
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+        }
 
     @app.post("/files/read")
     def files_read(req: ReadRequest) -> dict[str, Any]:
@@ -141,7 +148,10 @@ def create_app(workspace: Path | None = None) -> FastAPI:
                 status_code=400,
                 detail=f"git bundle failed: {_as_text(proc.stderr).strip()}",
             )
-        return {"bundle_b64": base64.b64encode(proc.stdout).decode(), "base_ref": base_ref}
+        return {
+            "bundle_b64": base64.b64encode(proc.stdout).decode(),
+            "base_ref": base_ref,
+        }
 
     return app
 
