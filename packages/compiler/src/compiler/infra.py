@@ -4,10 +4,6 @@ One IR compiled from blueprint `stack` + policies; several emissions.
 Hand-authoring any projection is a bug — which is precisely what the
 hand-authored values in `values.yaml` (plan steps 4 and 5) become once step
 12 consumes this.
-
-The OpenShell YAML projection named in §5.4 is deliberately absent: it is
-evaluation-track only (plan step 24), and emitting a projection nothing
-consumes would be inventing a contract for a backend that may never ship.
 """
 
 from typing import Any

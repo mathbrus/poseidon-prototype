@@ -1,7 +1,7 @@
 """SandboxBackend contract v2 — frozen contract C5 (overview §4.6, §5.3).
 
 The narrow seam behind which sandbox runtimes are swapped: `k8s_jobs` is the
-MVP default; OpenShell implements the same contract on the evaluation track.
+MVP default.
 
 `provision` gains a compiled policy argument. Until the compiler emits the
 infrastructure policy IR (plan step 12), `SandboxPolicy` values are
