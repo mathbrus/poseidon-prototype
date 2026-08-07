@@ -211,12 +211,12 @@ def test_crew_member_tools_may_narrow_the_catalog(blueprint):
 
 
 def test_lean_roster_profile_validates(blueprint):
-    """The checked-in document IS the lean profile now; the compile error
-    that rejects standing executors lives in the compiler, not here — a
-    bridge-shaped document still *validates* structurally."""
+    """The checked-in document IS the lean profile; the rule that rejects
+    standing executors is a compile error, not a schema one — so a
+    standing-executor document still *validates* structurally."""
     assert validate_blueprint(blueprint) is blueprint
-    bridge = copy.deepcopy(blueprint)
-    bridge["departments"]["roles"]["backend-engineer"] = {
+    standing_executor = copy.deepcopy(blueprint)
+    standing_executor["departments"]["roles"]["backend-engineer"] = {
         "template": "backend-engineer", "count": 1,
     }
-    assert validate_blueprint(bridge) is bridge
+    assert validate_blueprint(standing_executor) is standing_executor

@@ -26,6 +26,7 @@ from kubernetes import client as k8s
 from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
 
+from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
 from common.telemetry import get_logger
 
 class CrewPodAbandoned(Exception):
@@ -92,21 +93,13 @@ def crew_pod_manifest(
             # Non-root, no privilege-escalation path, no capabilities,
             # default seccomp filter. Root filesystem stays writable — the
             # brain SDK writes under $HOME.
-            "securityContext": {
-                "runAsNonRoot": True,
-                "runAsUser": 10001,
-                "runAsGroup": 10001,
-                "seccompProfile": {"type": "RuntimeDefault"},
-            },
+            "securityContext": dict(POD_SECURITY_CONTEXT),
             "containers": [
                 {
                     "name": "agent",
                     "image": agent_image,
                     "imagePullPolicy": "IfNotPresent",
-                    "securityContext": {
-                        "allowPrivilegeEscalation": False,
-                        "capabilities": {"drop": ["ALL"]},
-                    },
+                    "securityContext": dict(CONTAINER_SECURITY_CONTEXT),
                     "ports": [{"containerPort": AGENT_PORT}],
                     "env": [
                         {"name": name, "value": value}

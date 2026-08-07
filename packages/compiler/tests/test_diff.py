@@ -48,13 +48,13 @@ def test_a_small_edit_shows_a_minimal_diff(blueprint):
     assert change.details == ("model_tier standard -> frontier",)
 
 
-def test_the_firing_diff_is_a_deletion(lean):
+def test_the_firing_diff_is_a_deletion(blueprint):
     """Firing a standing hire is a blueprint edit — the live demo of
-    fire-as-diff."""
+    fire-as-diff: the roster the blueprint no longer names is deleted."""
     snapshot = live(
         ("pm", "pm", "standard"), ("backend-engineer", "backend-engineer", "frontier")
     )
-    diff = diff_plan(compile_blueprint(lean, snapshot=snapshot), snapshot)
+    diff = diff_plan(compile_blueprint(blueprint, snapshot=snapshot), snapshot)
     assert [(c.agent_id, c.action) for c in diff.changes] == [
         ("backend-engineer-1", "delete")
     ]

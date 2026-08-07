@@ -11,6 +11,7 @@ a sandbox that only ever sees its own credential.
 import hashlib
 import hmac
 import socket
+from urllib.parse import urlsplit, urlunsplit
 
 
 def mint(key: str, run_id: str) -> str:
@@ -19,6 +20,10 @@ def mint(key: str, run_id: str) -> str:
 
 def verify(key: str, run_id: str, secret: str) -> bool:
     return hmac.compare_digest(mint(key, run_id), secret)
+
+
+class ProxyUnresolvable(Exception):
+    """The egress proxy's hostname did not resolve at provision time."""
 
 
 def resolve_host(proxy_url: str) -> str:
@@ -31,21 +36,23 @@ def resolve_host(proxy_url: str) -> str:
     host — so the one name the sandbox would have needed is resolved here,
     by the orchestrator, at provision time.
 
-    An unresolvable host is returned unchanged: the run then fails at the
-    proxy connection with a clear error rather than at provisioning.
+    Failing to resolve raises rather than passing the hostname through: a
+    sandbox with no resolver cannot use one, so a hostname here guarantees
+    a DNS failure inside pip or curl, as far from the misconfiguration as
+    it is possible to get. Raising fails the provisioning activity instead,
+    where there is a resolver, a log and a retry.
     """
-    scheme, sep, rest = proxy_url.partition("://")
-    if not sep:
-        return proxy_url
-    hostport, slash, path = rest.partition("/")
-    host, colon, port = hostport.rpartition(":")
-    if not colon:  # no port: the whole thing is the host
-        host, port = hostport, ""
+    parts = urlsplit(proxy_url)
+    if not parts.hostname:
+        raise ProxyUnresolvable(f"egress proxy URL has no host: {proxy_url!r}")
     try:
-        address = socket.gethostbyname(host)
-    except OSError:
-        return proxy_url
-    return f"{scheme}://{address}{colon}{port}{slash}{path}"
+        address = socket.gethostbyname(parts.hostname)
+    except OSError as exc:
+        raise ProxyUnresolvable(
+            f"egress proxy host {parts.hostname!r} did not resolve: {exc}"
+        ) from exc
+    netloc = address if parts.port is None else f"{address}:{parts.port}"
+    return urlunsplit(parts._replace(netloc=netloc))
 
 
 def sandbox_proxy_env(proxy_url: str, key: str, run_id: str) -> dict[str, str]:

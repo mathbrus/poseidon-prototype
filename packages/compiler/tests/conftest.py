@@ -15,17 +15,11 @@ def blueprint() -> dict:
 
 
 @pytest.fixture
-def lean(blueprint: dict) -> dict:
-    """The lean roster IS the checked-in blueprint."""
-    return blueprint
-
-
-@pytest.fixture
-def bridge(blueprint: dict) -> dict:
-    """A standing-executor shape, kept only to prove the strict
-    lean-roster error refuses it."""
-    bridge = copy.deepcopy(blueprint)
-    bridge["departments"]["roles"]["backend-engineer"] = {
+def standing_executor(blueprint: dict) -> dict:
+    """The blueprint with an executor hired as a standing role — the shape
+    the strict lean-roster rule refuses."""
+    document = copy.deepcopy(blueprint)
+    document["departments"]["roles"]["backend-engineer"] = {
         "template": "backend-engineer", "count": 1, "model_tier": "frontier",
     }
-    return bridge
+    return document

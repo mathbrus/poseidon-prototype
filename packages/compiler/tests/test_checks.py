@@ -127,16 +127,16 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
     assert compile_blueprint(blueprint) is not None
 
 
-def test_standing_executor_is_a_compile_error(bridge):
+def test_standing_executor_is_a_compile_error(standing_executor):
     """The strict lean-roster stance — no standing executor counts;
     workflow nodes bind to spawners only. A standing-executor shape is a
     compile error."""
     with pytest.raises(CompileError) as err:
-        compile_blueprint(bridge)
+        compile_blueprint(standing_executor)
     assert "non-spawner template 'backend-engineer'" in str(err.value)
 
 
-def test_lean_roster_compiles_to_exactly_one_instance(lean):
-    """What step 19's firing diff converges to."""
-    plan = compile_blueprint(lean)
+def test_lean_roster_compiles_to_exactly_one_instance(blueprint):
+    """The standing roster is the PM alone; execution is ephemeral crews."""
+    plan = compile_blueprint(blueprint)
     assert [i.hire for i in plan.instances] == ["pm"]

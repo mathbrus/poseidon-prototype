@@ -33,7 +33,7 @@ from orchestrator.clients import AgentClient
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import CrewPodProvisioner
 from orchestrator.identity import ephemeral_agent_id, mint_ephemeral
-from registry import AuditStore, ParticipantRevoked, RunParticipants
+from registry import AuditStore, RunParticipants
 from registry.crews import request_id
 
 

@@ -9,6 +9,8 @@ Deployments — and never creates ephemeral agents or runs processes.
 import os
 from typing import Any
 
+from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
+
 AGENT_PORT = 8000
 LABELS = {"app.kubernetes.io/part-of": "poseidon", "app.kubernetes.io/managed-by": "poseidon-operator"}
 # Workload identity: every standing agent runs as its own
@@ -339,12 +341,7 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                     # Non-root, no privilege-escalation path, no
                     # capabilities, default seccomp filter. Root filesystem
                     # stays writable — the brain SDK writes under $HOME.
-                    "securityContext": {
-                        "runAsNonRoot": True,
-                        "runAsUser": 10001,
-                        "runAsGroup": 10001,
-                        "seccompProfile": {"type": "RuntimeDefault"},
-                    },
+                    "securityContext": dict(POD_SECURITY_CONTEXT),
                     "volumes": [
                         {
                             "name": "gateway-identity",
@@ -366,10 +363,7 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                             "name": "agent",
                             "image": env.get("AGENT_IMAGE", "poseidon-agent:latest"),
                             "imagePullPolicy": "IfNotPresent",
-                            "securityContext": {
-                                "allowPrivilegeEscalation": False,
-                                "capabilities": {"drop": ["ALL"]},
-                            },
+                            "securityContext": dict(CONTAINER_SECURITY_CONTEXT),
                             "ports": [{"containerPort": AGENT_PORT}],
                             "env": [
                                 {"name": "MCP_GATEWAY_URL",

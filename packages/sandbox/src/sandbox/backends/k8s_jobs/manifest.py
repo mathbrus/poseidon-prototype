@@ -8,6 +8,8 @@ express — ingress only from the gateway, zero egress — is the sandbox
 NetworkPolicy's job.
 """
 
+from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
+
 from sandbox.contract import SandboxPolicy
 
 RUN_ID_LABEL = "poseidon.io/run-id"
@@ -56,21 +58,13 @@ def build_job(run_id: str, policy: SandboxPolicy) -> dict:
                     # workspace code legitimately writes (git worktrees,
                     # pip --user installs) and the ephemeral-storage limit
                     # above caps what it can fill.
-                    "securityContext": {
-                        "runAsNonRoot": True,
-                        "runAsUser": 10001,
-                        "runAsGroup": 10001,
-                        "seccompProfile": {"type": "RuntimeDefault"},
-                    },
+                    "securityContext": dict(POD_SECURITY_CONTEXT),
                     "containers": [
                         {
                             "name": "toolserver",
                             "image": policy.image,
                             "imagePullPolicy": "IfNotPresent",
-                            "securityContext": {
-                                "allowPrivilegeEscalation": False,
-                                "capabilities": {"drop": ["ALL"]},
-                            },
+                            "securityContext": dict(CONTAINER_SECURITY_CONTEXT),
                             "env": [
                                 {"name": name, "value": value}
                                 for name, value in sorted(env.items())
