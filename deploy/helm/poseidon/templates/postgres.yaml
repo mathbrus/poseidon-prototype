@@ -10,7 +10,7 @@ metadata:
     {{- include "poseidon.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  POSTGRES_PASSWORD: {{ .Values.secrets.postgresPassword | quote }}
+  POSTGRES_PASSWORD: {{ required "secrets.postgresPassword is required (set it via a values override)" .Values.secrets.postgresPassword | quote }}
 ---
 # The registry DSN: the schema lives in the instance's default
 # database, so no CREATE DATABASE has to race the services that migrate at
@@ -23,7 +23,7 @@ metadata:
     {{- include "poseidon.labels" . | nindent 4 }}
 type: Opaque
 stringData:
-  REGISTRY_DSN: postgresql://{{ .Values.postgres.user }}:{{ .Values.secrets.postgresPassword }}@postgres:5432/{{ .Values.postgres.user }}
+  REGISTRY_DSN: postgresql://{{ .Values.postgres.user }}:{{ required "secrets.postgresPassword is required (set it via a values override)" .Values.secrets.postgresPassword }}@postgres:5432/{{ .Values.postgres.user }}
 ---
 apiVersion: v1
 kind: Service

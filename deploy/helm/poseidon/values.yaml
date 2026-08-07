@@ -27,13 +27,15 @@ images:
     pullPolicy: IfNotPresent
   opa:
     # The plain (distroless) image is enough on Kubernetes: probes are
-    # kubelet-side httpGet, not in-container commands as on Compose.
+    # kubelet-side httpGet, not in-container commands. Pinned: policy
+    # enforcement must not change under a silent image drift.
     repository: openpolicyagent/opa
-    tag: latest
+    tag: "1.19.0"
     pullPolicy: IfNotPresent
   llmProxy:
+    # Pinned to a LiteLLM stable release, not the moving main-stable.
     repository: ghcr.io/berriai/litellm
-    tag: main-stable
+    tag: main-v1.83.7-stable
     pullPolicy: IfNotPresent
   orchestrator:
     repository: poseidon-orchestrator
@@ -50,20 +52,24 @@ images:
 
 # Secrets layout: GIT_TOKEN mountable only into the gateway,
 # LLM_API_KEY only into LiteLLM — both live in the platform namespace.
-# Caller identity is workload tokens (no static
-# bearer tokens anywhere). Placeholders keep `helm install` self-contained;
-# real values come from the bootstrap script (kind) or a values override.
+# Caller identity is workload tokens (no static bearer tokens anywhere).
+#
+# No defaults on purpose: every value below is `required` in the
+# templates, so a bare `helm install` fails loudly instead of deploying
+# with a placeholder signing key. Real values come from the bootstrap
+# script (deploy/kind/kind-up.sh writes them from .env into a private
+# values file) or any values override.
 secrets:
-  gitToken: ghp_replace-with-repo-scoped-pat
-  llmApiKey: sk-replace-with-provider-key
+  gitToken: ""
+  llmApiKey: ""
   # Cluster-internal only (Postgres never leaves the platform namespace).
-  postgresPassword: postgres-password-placeholder
+  postgresPassword: ""
   # Shared HMAC key for per-run egress credentials: egress-proxy and
   # the orchestrator worker only; sandboxes see only their derived credential.
-  egressProxyKey: egress-proxy-key-placeholder
+  egressProxyKey: ""
   # The platform signing key: gateway verifies
   # platform-signed ephemeral JWTs; the orchestrator mints them.
-  platformJwtKey: platform-jwt-key-placeholder
+  platformJwtKey: ""
 
 # Run configuration (the C7 subset the in-cluster services need).
 run:
