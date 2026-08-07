@@ -30,6 +30,7 @@ spec:
           image: "{{ .Values.egressProxy.image.repository }}:{{ .Values.egressProxy.image.tag }}"
           imagePullPolicy: {{ .Values.egressProxy.image.pullPolicy }}
           env:
+            {{- include "poseidon.otelEnv" (dict "root" $ "service" "egress-proxy") | nindent 12 }}
             - name: EGRESS_PROXY_KEY
               valueFrom:
                 secretKeyRef:

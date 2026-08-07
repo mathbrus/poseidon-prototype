@@ -10,6 +10,17 @@ dependencies = [
     "python-ulid>=2",
 ]
 
+[project.optional-dependencies]
+# The OTel adoption (anytime track) lives behind an extra so the sandbox
+# toolserver image — which runs untrusted workspace code — never carries
+# the SDK (same reasoning as sandbox's `egress` extra for the DB driver).
+# Platform services depend on `common[otel]`; export is env-gated at
+# runtime by OTEL_EXPORTER_OTLP_ENDPOINT either way.
+otel = [
+    "opentelemetry-sdk>=1.29",
+    "opentelemetry-exporter-otlp-proto-http>=1.29",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

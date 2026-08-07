@@ -1920,11 +1920,31 @@ MVP critical path references OpenShell.
 - **OTel adoption** through the existing `common/telemetry.py` seam (§1
   seam table). Best done during Phase 1 while the deployment story is being
   rebuilt; blocks nothing.
+
+  > **Status (2026-08-07): done** — at the seam and nowhere else. Stdout
+  > JSON stays the always-on C8 contract; when the standard
+  > `OTEL_EXPORTER_OTLP_ENDPOINT` is set, `telemetry.py` attaches an OTLP
+  > log exporter beside it (bound fields flattened to primitive log-record
+  > attributes; `OTEL_SERVICE_NAME` via the resource; active-span trace
+  > context rides free). The SDK is the `common[otel]` extra — platform
+  > packages (gateway, gateway-llm, orchestrator, operator, agent) depend
+  > on it, the egress proxy gets it through sandbox's `egress` extra, and
+  > the sandbox **toolserver image carries zero OTel packages** (verified
+  > by `uv export` per image), same posture reasoning as the registry
+  > driver. A set endpoint with a missing SDK degrades to stdout-only
+  > with one warning — telemetry never takes a service down. Helm:
+  > `telemetry.otlpEndpoint` (default empty = exactly today's behavior)
+  > injects the two env vars into the six platform containers. Deliberate
+  > limits, recorded: NetworkPolicies do **not** open egress to any
+  > collector (cluster-specific; set it alongside the endpoint), and
+  > operator-created agent pods don't receive the variables yet.
 - **Doc rewrite** of the building-block documents per §14 — follows the code,
-  never gates it.
+  never gates it. *(2026-08-07: still open — explicitly excluded from the
+  anytime-track pass by decision.)*
 - `pyproject.toml` workspace updates ride along with each package step (new
   members: `schema`, `compiler`, `operator`, `registry`, `gateway-llm`;
-  rename `runner` → `orchestrator`).
+  rename `runner` → `orchestrator`). *(Done along the way — the workspace
+  globs `packages/*`.)*
 
 ---
 

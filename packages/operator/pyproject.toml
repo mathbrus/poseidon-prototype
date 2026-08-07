@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Poseidon operator: reconciles Company/AgentInstance CRs and serves compiled policy bundles"
 requires-python = ">=3.12"
 dependencies = [
-    "common",
+    "common[otel]",
     "registry",
     "kopf>=1.37",
     "kubernetes>=31",

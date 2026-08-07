@@ -51,6 +51,7 @@ spec:
           ports:
             - containerPort: 4000
           env:
+            {{- include "poseidon.otelEnv" (dict "root" $ "service" "llm-gateway") | nindent 12 }}
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
             - name: PLATFORM_JWT_KEY

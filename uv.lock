@@ -31,7 +31,7 @@ name = "agent"
 version = "0.1.0"
 source = { editable = "packages/agent" }
 dependencies = [
-    { name = "common" },
+    { name = "common", extra = ["otel"] },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "mcp" },
@@ -41,7 +41,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "common", editable = "packages/common" },
+    { name = "common", extras = ["otel"], editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
@@ -552,13 +552,22 @@ dependencies = [
     { name = "python-ulid" },
 ]
 
+[package.optional-dependencies]
+otel = [
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.29" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.29" },
     { name = "pydantic", specifier = ">=2" },
     { name = "pydantic-settings", specifier = ">=2" },
     { name = "python-ulid", specifier = ">=2" },
 ]
+provides-extras = ["otel"]
 
 [[package]]
 name = "compiler"
@@ -959,7 +968,7 @@ name = "gateway"
 version = "0.1.0"
 source = { editable = "packages/gateway" }
 dependencies = [
-    { name = "common" },
+    { name = "common", extra = ["otel"] },
     { name = "httpx" },
     { name = "mcp" },
     { name = "registry" },
@@ -969,7 +978,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "common", editable = "packages/common" },
+    { name = "common", extras = ["otel"], editable = "packages/common" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
     { name = "registry", editable = "packages/registry" },
@@ -982,7 +991,7 @@ name = "gateway-llm"
 version = "0.2.0"
 source = { editable = "packages/gateway-llm" }
 dependencies = [
-    { name = "common" },
+    { name = "common", extra = ["otel"] },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "registry" },
@@ -991,7 +1000,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "common", editable = "packages/common" },
+    { name = "common", extras = ["otel"], editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "registry", editable = "packages/registry" },
@@ -2125,7 +2134,7 @@ name = "orchestrator"
 version = "0.1.0"
 source = { editable = "packages/orchestrator" }
 dependencies = [
-    { name = "common" },
+    { name = "common", extra = ["otel"] },
     { name = "compiler" },
     { name = "httpx" },
     { name = "mcp" },
@@ -2138,7 +2147,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "common", editable = "packages/common" },
+    { name = "common", extras = ["otel"], editable = "packages/common" },
     { name = "compiler", editable = "packages/compiler" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
@@ -2361,7 +2370,7 @@ name = "poseidon-operator"
 version = "0.1.0"
 source = { editable = "packages/operator" }
 dependencies = [
-    { name = "common" },
+    { name = "common", extra = ["otel"] },
     { name = "fastapi" },
     { name = "kopf" },
     { name = "kubernetes" },
@@ -2371,7 +2380,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "common", editable = "packages/common" },
+    { name = "common", extras = ["otel"], editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "kopf", specifier = ">=1.37" },
     { name = "kubernetes", specifier = ">=31" },
@@ -3175,6 +3184,7 @@ dependencies = [
 
 [package.optional-dependencies]
 egress = [
+    { name = "common", extra = ["otel"] },
     { name = "registry" },
 ]
 openshell = [
@@ -3187,6 +3197,7 @@ toolchain = [
 [package.metadata]
 requires-dist = [
     { name = "common", editable = "packages/common" },
+    { name = "common", extras = ["otel"], marker = "extra == 'egress'", editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "kubernetes", specifier = ">=31" },
     { name = "openshell", marker = "extra == 'openshell'", specifier = "==0.0.99" },

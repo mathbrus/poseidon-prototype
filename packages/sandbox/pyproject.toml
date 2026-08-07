@@ -13,9 +13,11 @@ dependencies = [
 [project.optional-dependencies]
 # The egress proxy writes audit events to the registry. Kept an extra so
 # the *sandbox* image — which runs untrusted workspace code — never carries
-# a database driver or registry credentials.
+# a database driver or registry credentials. The egress proxy is a platform
+# service, so it also gets the OTel extra (the toolserver image does not).
 egress = [
     "registry",
+    "common[otel]",
 ]
 
 # The OpenShell evaluation track (plan step 24, O-5): strictly non-gating,

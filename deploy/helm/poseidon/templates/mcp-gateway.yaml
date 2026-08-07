@@ -53,6 +53,7 @@ spec:
           ports:
             - containerPort: 8080
           env:
+            {{- include "poseidon.otelEnv" (dict "root" $ "service" "mcp-gateway") | nindent 12 }}
             - name: GIT_TOKEN
               valueFrom:
                 secretKeyRef:

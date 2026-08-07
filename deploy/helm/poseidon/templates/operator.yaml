@@ -104,6 +104,7 @@ spec:
           imagePullPolicy: {{ .Values.images.operator.pullPolicy }}
           command: ["kopf", "run", "-m", "poseidon_operator.reconcile", "--all-namespaces", "--liveness", "http://0.0.0.0:8080/healthz"]
           env:
+            {{- include "poseidon.otelEnv" (dict "root" $ "service" "poseidon-operator") | nindent 12 }}
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
             - name: AGENT_IMAGE
@@ -151,6 +152,7 @@ spec:
           ports:
             - containerPort: 8081
           env:
+            {{- include "poseidon.otelEnv" (dict "root" $ "service" "bundle-server") | nindent 12 }}
             - name: REGISTRY_DSN
               valueFrom:
                 secretKeyRef:

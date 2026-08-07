@@ -44,6 +44,7 @@ spec:
               mountPath: /var/run/poseidon/identity
               readOnly: true
           env:
+            {{- include "poseidon.otelEnv" (dict "root" $ "service" "orchestrator-worker") | nindent 12 }}
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.orchestrator.temporalAddress | quote }}
             - name: MCP_GATEWAY_URL
