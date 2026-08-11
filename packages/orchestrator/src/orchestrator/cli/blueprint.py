@@ -1,10 +1,10 @@
-"""`poseidon blueprint compile|preview`.
+"""`poseidon blueprint compile|preview|apply`.
 
 The compiler is pure, so the CLI is where the impure parts live: reading the
-YAML, reading the registry snapshot, writing the emitted bundle to disk.
-Apply is deliberately absent — it belongs to the operator,
-and keeping cluster mutation in exactly one place is what makes the
-declarative loop trustworthy.
+YAML, reading the registry snapshot, writing the emitted bundle to disk,
+submitting the CRs. Apply is exactly compile + submit — reconciling the
+cluster stays the operator's alone, and keeping cluster mutation in exactly
+one place is what makes the declarative loop trustworthy.
 """
 
 import json

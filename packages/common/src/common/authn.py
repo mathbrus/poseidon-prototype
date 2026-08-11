@@ -32,7 +32,7 @@ import httpx
 from pydantic_settings import BaseSettings
 
 from common import platformjwt
-from common.audit import AuditEvent
+from common.audit import AuditEvent, Source
 from common.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
@@ -158,12 +158,14 @@ class Authenticator:
         instances: Any,
         participants: Any,
         reviewer: Reviewer | None = None,
+        source: Source = "gateway",
     ) -> None:
         self._settings = settings
         self._audit = audit
         self._instances = instances
         self._participants = participants
         self._reviewer = reviewer
+        self._source = source
         self._log = get_logger("workload.authn")
         # token digest -> (identity, monotonic deadline); TokenReview
         # successes only. Bounded: expired entries are swept on insert.
@@ -291,9 +293,10 @@ class Authenticator:
             rule=rule,
             latency_ms=0,
             backend_status=None,
-            # An authn reject is the gateway speaking about a
+            # An authn reject is the chokepoint speaking about a
             # credential that mapped to nothing — no company, no lifecycle.
-            source="gateway",
+            # Each gateway names itself so its rejects are attributable.
+            source=self._source,
         )
         await asyncio.to_thread(self._audit.append, event)
         self._log.info("authentication rejected", extra=event.model_dump())

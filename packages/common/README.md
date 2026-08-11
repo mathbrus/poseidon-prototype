@@ -163,10 +163,10 @@ accepts would be a policy bypass through the cheaper door. Putting the
 settings classes inherit) in `common` makes drift structurally difficult:
 one change moves both, and one env layout configures both.
 
-One known wrinkle: `Authenticator._reject` stamps `source="gateway"` on
-every authn-reject event, including those the LLM gateway produces — the
-LLM gateway's own *decision* events say `source="llm-gateway"`, but its
-authn rejects do not distinguish themselves.
+Each gateway names itself on its authn-reject events: the `Authenticator`
+takes a `source` at construction (`"gateway"` by default; the LLM gateway
+passes `"llm-gateway"`), so a reject is attributable to the chokepoint
+that produced it rather than defaulting to the MCP gateway.
 
 ## Audit events
 

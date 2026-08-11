@@ -62,6 +62,7 @@ nothing about the Poseidon phase, so they are filtered out first:
 ```python
 _CONTROL_TOOLS = {"finish", "think"}
 
+
 def _offered(tools: list[dict[str, Any]] | None) -> set[str]:
     return {t["function"]["name"] for t in tools or []} - _CONTROL_TOOLS
 ```

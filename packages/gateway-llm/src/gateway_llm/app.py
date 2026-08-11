@@ -120,6 +120,7 @@ def create_app(
         instances,
         participants,
         reviewer=token_reviewer or default_reviewer(settings),
+        source="llm-gateway",
     )
     tier_models = settings.tier_model_map()
 

@@ -127,9 +127,7 @@ takes a deadline and an escalation point:
 outcome = await self._merge_gate.wait(
     timeout=timedelta(seconds=timeouts.merge_gate_s),
     escalate_after=timedelta(seconds=timeouts.merge_gate_s // 2),
-    on_escalate=lambda: self._record_gate(
-        input.run_id, "merge", "escalated", timeouts
-    ),
+    on_escalate=lambda: self._record_gate(input.run_id, "merge", "escalated", timeouts),
 )
 ```
 

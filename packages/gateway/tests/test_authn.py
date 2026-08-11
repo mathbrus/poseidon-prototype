@@ -132,6 +132,28 @@ async def test_unknown_service_account_is_rejected_and_audited(authenticator, au
     assert audit.events[0].decision == "deny"
 
 
+async def test_rejects_carry_the_constructing_gateway_as_source(
+    authn_settings, audit, instances, participants, reviewer
+):
+    """Each gateway names itself: an LLM-gateway authn reject must not be
+    attributed to the MCP gateway in the audit store."""
+    llm = Authenticator(
+        authn_settings,
+        audit,
+        instances,
+        participants,
+        reviewer=reviewer,
+        source="llm-gateway",
+    )
+    assert await llm.authenticate("Bearer sa-stranger", "/v1/completions") is None
+    assert audit.events[0].source == "llm-gateway"
+
+
+async def test_rejects_default_to_the_mcp_gateway_source(authenticator, audit):
+    assert await authenticator.authenticate("Bearer sa-stranger", "/mcp") is None
+    assert audit.events[0].source == "gateway"
+
+
 async def test_same_sa_name_in_another_namespace_is_rejected(authenticator, audit):
     """The step-11 done-when: a token from the wrong namespace is refused
     even when the ServiceAccount name matches a real instance."""
