@@ -219,6 +219,55 @@ In descending order of return on effort:
 
 ---
 
+## 7. What I would remove
+
+Criticism that never names a deletion is just commentary. Four, ranked by
+what the deletion buys. The pattern behind all of them: each is either a
+second way of doing something the platform already does well, or a
+declared capability with no enforcement behind it — and the project's
+strength is precisely that declared and real coincide almost everywhere
+else.
+
+**The hand-rolled platform JWT — by removing its reason to exist.** The
+only reason ephemeral crew members carry a custom credential is the
+borrow posture: planner and executor share one pod, a pod has one
+ServiceAccount, and two principals in one pod need a second credential
+shape. Give the planner its own pod — it is LLM-only and
+`needs_sandbox: false`, the cheapest pod there is — and every principal
+maps to one pod, one SA, one projected token. The entire custom path then
+collapses onto the TokenReview machinery that already exists:
+`platformjwt.py` goes, the JWT half of `authn.py` goes, the orchestrator's
+minting goes, and section 9's "hand-rolled crypto-adjacent primitive"
+admission is deleted rather than mitigated. The participants-row
+revocation stays — it is orthogonal to token format and it is the good
+part. Largest TCB reduction available per line removed; the cost is one
+small extra pod per run.
+
+**The llm-proxy hop.** The split exists so the provider key lives in a
+container that is not the policy-holder. But the LLM gateway is fully
+trusted anyway, is the *only* permitted caller, and can use the key
+freely through the proxy — so the split buys key-confinement-by-one-hop
+while costing an extra service, an extra image, a NetworkPolicy, and a
+large pinned LiteLLM dependency. Fold the key into the LLM gateway. The
+chokepoint properties — attribution, budgets, audit — all live there
+already; the proxy adds mass, not security.
+
+**`per_role_monthly`.** This field contradicts the project's own thesis.
+The pitch is "declared means compiled means enforced" — and here is a
+blueprint field that is declared, validated, previewed, and enforced by
+nothing. In this codebase specifically, unenforced governance
+configuration is worse than absent governance configuration, because the
+document's credibility *is* the product. Remove it until the ledger can
+enforce it; its current honest name is a comment.
+
+**`temporal-web` in the default bootstrap.** Section 9 now documents the
+Temporal frontend as the weakest unauthenticated surface in the system —
+and the kind bootstrap deploys a browsable UI over it by default, for
+convenience. Put it behind an opt-in flag. The cheapest risk deletion in
+the repository.
+
+---
+
 <sub>Commissioned criticism. Read alongside
 [what it cannot do](README.md#9-what-it-cannot-do), which admits less
 but ships more.</sub>
