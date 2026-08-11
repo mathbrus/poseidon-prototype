@@ -12,7 +12,11 @@ at chokepoints the agent cannot route around.
 This README is written to be read start to finish. It teaches the ideas
 first, then shows where each one lives in the code. If you have never worked
 with MCP, OPA, or Kubernetes NetworkPolicy, you should still be able to
-follow it — those sections are here to teach you, not to name-drop.
+follow it — those sections are here to teach you, not to name-drop. Where a
+design decision instantiates a classical result from the security
+literature, the text says so and [section 12](#12-further-reading) collects
+the primary sources; the aim is that this document can carry a seminar on
+agent governance, not just a deployment.
 
 > [!NOTE]
 > **Status: working prototype.** Every claim below is exercised by 91
@@ -36,6 +40,7 @@ follow it — those sections are here to teach you, not to name-drop.
 9. [What it cannot do](#9-what-it-cannot-do)
 10. [Developing](#10-developing)
 11. [Package reference](#11-package-reference)
+12. [Further reading](#12-further-reading)
 
 ---
 
@@ -91,12 +96,62 @@ is compromised.** Not malicious — compromised, in the way any program
 processing untrusted input can be. Then ask what the infrastructure must
 look like for that to be survivable.
 
+### The threat model, stated precisely
+
+"Assume compromised" is a slogan until you say what the adversary gets, so
+here is the model the rest of this document defends against.
+
+**The adversary controls every word of text the agents read.** Goal files,
+ticket bodies, code in the target repository, file names, test output,
+review comments — any of it may carry instructions crafted by someone else.
+Since the model cannot durably separate instruction from data, the working
+assumption is that the adversary can steer any agent's *next tool call* at
+any time. In classical terms, every agent is a standing invitation to the
+[confused deputy](#12-further-reading) problem: a program wielding
+delegated authority on behalf of input it cannot vet.
+
+**What the adversary wants**, in descending order of blast radius:
+
+1. **Credentials** — the git token, the provider API key, a Kubernetes
+   service-account token. Any one of these converts a contained agent into
+   an uncontained one, which is why "the agent holds no credentials" is the
+   first design idea rather than a footnote.
+2. **The protected branch** — merging unreviewed code into `main` is the
+   supply-chain outcome most of the other goals serve.
+3. **Exfiltration** — moving workspace contents, or anything sensitive
+   found in them, to a host the adversary controls.
+4. **Spend** — burning the LLM budget: denial-of-wallet.
+5. **Lateral movement** — reaching the cluster API, other pods, another
+   run's sandbox, or the host.
+
+**What is out of scope.** Kernel exploits from inside the sandbox container
+(section 9: it is a container, not a VM); a malicious platform operator;
+compromise of the cluster itself or of the git host. The platform services —
+gateway, orchestrator, operator — are trusted code. The claim is not that
+nothing is trusted; it is that **no LLM sits inside the trusted computing
+base**. Text flows into models, models emit tool calls, and every
+consequence of those calls is decided by ordinary code reading compiled
+policy — code whose behaviour no amount of adversarial prose can rewrite.
+
 ---
 
 ## 2. The core idea
 
 Four ideas do most of the work. Each one turns a question of agent
 behaviour into a question of system design.
+
+None of the ideas is new, and that is deliberate. Readers who know Saltzer
+and Schroeder's 1975 protection principles will recognise all four: the
+credential-free agent is *least privilege* taken to its limit — no ambient
+authority at all; the compiled, default-deny blueprint is *fail-safe
+defaults* and *economy of mechanism*; the chokepoints are *complete
+mediation* — the gateways are a [reference monitor](#12-further-reading)
+for agent effects, aspiring to "always invoked" and "small enough to
+inspect"; and the verify-then-deliver split of section 5, where two
+independent mechanisms must both fail for unverified code to ship, is
+*separation of privilege*. What is new is the principal being confined: a
+program whose intent can be rewritten by anything it reads. That makes the
+old principles more load-bearing here, not less.
 
 ### The agent holds no credentials
 
@@ -109,6 +164,14 @@ Instead, the agent asks a **gateway** to act on its behalf. The gateway
 holds the credential, checks whether this caller may make this call, records
 the decision, and only then acts. An agent that convinces itself to
 exfiltrate a token cannot, because there is no token in the room.
+
+A gateway that acts for others is, by construction, a *deputy* — and the
+classic failure of deputies is confusion: acting with their own authority
+on a request whose provenance they never checked. Poseidon's gateways avoid
+that by never taking the caller's word for anything that matters. Identity
+is proven cryptographically per call, the caller's run binding is checked
+against the registry on every call, and the policy decision is a function
+of *who verifiably asked*, not of what the request text claims.
 
 ### Authority is compiled, not configured
 
@@ -179,11 +242,20 @@ that call happens.
 Poseidon's gateway is an MCP server exposing 16 tools. The agent is an MCP
 client. Everything the agent can do to the world is one of those 16 names,
 which is what makes "the tool surface is the security surface" true rather
-than aspirational.
+than aspirational. (Fifteen of the sixteen are for agents. The sixteenth,
+`repo.archive`, belongs to the platform lifecycle — no agent role declares
+it, and the compiled bundle grants it to the platform identity alone. It is
+how a workspace enters a sandbox, and it reappears in
+[section 5](#5-anatomy-of-a-run).)
 
-A detail worth noticing: `run_id` and `target_repo` are injected by the
-gateway at call time and appear in **no** tool schema the model sees. The
-model cannot forge what it cannot name.
+A detail worth noticing: the action schemas the model sees contain no
+`run_id` and no `target_repo`. The brain host injects both at call time
+(`packages/agent/src/agent/hands.py`), so the model cannot forge what it
+cannot name. And because that injection happens inside the agent's own pod,
+it is not trusted either: the gateway independently checks the claimed
+`run_id` against the caller's registry binding, and a mismatch resolves to
+*not bound* — denied. Two layers, with the outer one assuming the inner one
+lied.
 
 </details>
 
@@ -219,6 +291,17 @@ Read it as: *an ephemeral caller of hello-saas, acting as the executor of a
 feature-delivery crew, may call `sandbox.exec` — provided its run binding
 was verified.* Everything is default-deny; the lowest-sorting deny wins over
 any allow.
+
+That final clause, `bound_to_run`, deserves a second look. Sandbox tools
+are *run-scoped*: the rule demands not just the right role but a verified
+binding between this caller and the specific run whose sandbox the call
+addresses. Without it, a role allow-list would quietly permit cross-run
+access — any executor could read any run's workspace. Which tools carry
+the requirement is a property of the tool, not of its name prefix
+(`packages/schema/src/schema/tools.py` maintains the list); `git.open_pr`,
+for instance, does not, because a pull request targets the repository
+rather than a run's sandbox — its guards are the branch-protection and
+changed-path rules you will meet in [section 7](#7-the-blueprint-line-by-line).
 
 **Nobody writes these by hand.** They are emitted by the compiler from the
 blueprint, which is why a scope you did not declare cannot exist.
@@ -343,6 +426,13 @@ from the crew template. Keeping ⊆ would have forced the PM's scope to become
 the union of everything it might ever spawn, which is the opposite of least
 privilege.
 
+Readers who know the capability literature will recognise the shape: the
+conductor holds something like a *factory* — the right to mint a new
+principal from a fixed, compiler-vetted template — rather than the right to
+delegate its own authority. The blueprint bounds what the factory can
+produce (`may_spawn` names crews, not tools), and compiled policy enforces
+the bound at spawn time against a live concurrency count.
+
 </details>
 
 ---
@@ -412,6 +502,10 @@ flowchart TB
 Read the arrows into `registry` as "the whole story of a run ends up here."
 One `run_id` query returns the gateway's decisions, the proxy's allows and
 denies, the LLM gateway's spend, and the process gates' verdicts, in order.
+Five distinct sources write audit events — `gateway`, `llm-gateway`,
+`sandbox-infra`, `process-gate`, `process-lifecycle` — and the acceptance
+suite asserts that a single run's story is reconstructible across all five
+from the `run_id` alone.
 
 <details>
 <summary><b>What each service is responsible for</b></summary>
@@ -460,6 +554,13 @@ it refuses. It mints identities for the crew (deterministically from
 than leaking a second identity), provisions the executor's pod with its
 token injected at creation time, and provisions **one sandbox** for the run.
 
+> How does the code get in? Via `repo.archive`, the platform-only sixteenth
+> tool: the *gateway* clones the target repository with its own token,
+> strips the remote — and with it the credentialed URL — and returns the
+> workspace as a tarball. The sandbox receives source code with no remote
+> configured and no credential anywhere in it. There is nothing to steal
+> and nowhere to push.
+
 **Planning.** The planner is dispatched first. It is LLM-only: it borrows
 the executor's pod but calls the gateway under its *own* token, so its
 read-only compiled scope is what policy enforces. It produces a task brief.
@@ -482,6 +583,16 @@ re-dispatches (`max_verify_retries`).
 > the delivery tool **does not exist** in the agent's conversation. An agent
 > that decides it is finished cannot deliver, because there is nothing to
 > call. Two independent mechanisms have to fail for unverified code to ship.
+
+Delivery itself is worth slowing down for, because the agent never touches
+the remote. The executor produces a *git bundle* — an offline, verifiable
+container of commits — via `sandbox.git_bundle`. The gateway verifies that
+bundle, applies it to a fresh platform-side clone, extracts the changed
+paths and feeds them to policy as real arguments (this is what makes the
+`deny_paths` rule in section 7 enforceable rather than advisory), and only
+then pushes the branch with its own token and opens the pull request. The
+agent supplied *content*; every action with authority behind it happened
+inside the trusted gateway.
 
 **Review.** A review run provisions a fresh sandbox from the PR's head ref
 and dispatches an ephemeral reviewer — read-and-judge only, no write tools —
@@ -713,17 +824,35 @@ carries verbatim.
 
 ```yaml
 workflows:
+  intake:
+    enabled: true
+    conductor: pm
+    gates:
+      intake: none
   implement:
     enabled: true
     conductor: pm
     crew: feature-delivery
     max_verify_retries: 2
+    drain:
+      on_conductor_drain: abort_crew
+      timeout_minutes: 30
   review:
     enabled: true
+    conductor: pm
     crew: feature-review
     gates:
       merge: human_approval
 ```
+
+Three workflows, one per phase of the SDLC in section 5. `intake` is the
+PM-only scoping pass — no crew, and its gate is explicitly `none`, which is
+a declaration you can read and question rather than an absence you would
+have to discover. `max_verify_retries` bounds how many times a red verify
+re-dispatches the executor before the run fails. `drain` answers a question
+most orchestration designs leave implicit: what happens to a running crew
+when its conductor is being retired? Here, the crew is aborted rather than
+orphaned, with a bounded timeout.
 
 `gates.merge: human_approval` is what makes the review workflow park and
 wait for a person. Gate configuration is read from the compiled plan at
@@ -746,9 +875,14 @@ policies:
   path_ownership:
     - paths: [tests/]
       roles: [backend-engineer, sdet]
+  escalation:
+    channel: api
+    timeout_minutes: 60
 
 budgets:
   per_run: {usd: 5}
+  per_role_monthly:
+    pm: {usd: 50}
 ```
 
 These compile into deny rules evaluated against **real arguments**. Because
@@ -758,10 +892,25 @@ modify the CI that checks it.
 
 The path rules also fail closed: without the changed paths in the input they
 *cannot* be evaluated, so the call is denied rather than allowed by default.
+Fail-safe defaults again: the dangerous condition is the absent input, and
+absence denies.
+
+`escalation` configures the human-attention channel that gates use: when a
+gate has waited half its deadline with no verdict, an escalation event
+fires on the declared channel; at the full deadline the gate expires. Both
+transitions are first-class audit events, so "nobody was home" is a
+recorded outcome rather than a silent hang.
 
 `per_run.usd` is a hard stop at the LLM gateway, not a warning. Exhausting
 it produces a distinguishable error, an audit event, an escalation, and an
 API-visible paused state — never silent degradation to a cheaper model.
+
+`per_role_monthly` is an honest contrast worth noticing: the compiler
+validates it (it must name a standing role) and `blueprint preview` reports
+it as the projected monthly cost, but no runtime component enforces it. The
+enforced cap is per-run. One declared budget is a hard stop and the other
+is a projection — the kind of distinction this document exists to keep
+visible.
 
 </details>
 
@@ -1005,6 +1154,74 @@ and how to test it.
 | [`agent`](packages/agent/README.md) | The OpenHands SDK brain host |
 | [`sandbox`](packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
 | [`mockllm`](packages/mockllm/README.md) | The deterministic brain that makes e2e runs free |
+
+---
+
+## 12. Further reading
+
+The design leans on ideas with long histories. If this document was your
+introduction to them, these are the primary sources worth your time.
+
+**Classical protection**
+
+- Saltzer & Schroeder, *The Protection of Information in Computer Systems*
+  (Proc. IEEE, 1975) — the design principles section 2 instantiates:
+  complete mediation, fail-safe defaults, least privilege, separation of
+  privilege, economy of mechanism.
+- Anderson, *Computer Security Technology Planning Study* (1972) — the
+  reference-monitor concept: always invoked, tamper-resistant, small enough
+  to inspect. The MCP and LLM gateways are an attempt at "always invoked"
+  for agent effects.
+- Hardy, *The Confused Deputy* (ACM SIGOPS, 1988) — why a
+  credential-holding intermediary must bind its decisions to the verified
+  requester, never to its own ambient authority.
+- Miller, Yee & Shapiro, *Capability Myths Demolished* (2003) — the
+  capability-discipline lens behind "spawn authority is not a capability
+  ceiling."
+
+**Prompt injection**
+
+- Greshake et al., *Not What You've Signed Up For: Compromising Real-World
+  LLM-Integrated Applications with Indirect Prompt Injection* (2023) — the
+  systematic case that any text reaching a model is an instruction channel.
+- Willison, [*The Lethal Trifecta*](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/)
+  (2025) — private data, untrusted content, and an exfiltration channel in
+  one agent; Poseidon's egress design is an exercise in amputating the
+  third leg.
+- OWASP, [*Top 10 for LLM Applications*](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
+  — LLM01 is prompt injection; this repository is one long answer to "and
+  what if you cannot prevent it?"
+
+**The systems underneath**
+
+- [OPA documentation](https://www.openpolicyagent.org/docs/) on bundles and
+  decision-making; [Temporal documentation](https://docs.temporal.io/) on
+  workflow determinism and replay; Kubernetes documentation on
+  [ServiceAccount token projection](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/)
+  and [NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/).
+
+### Questions to take to a seminar
+
+If you are reading this document with a class, these are the places where
+the design genuinely has something to argue about.
+
+1. The merge gate is the one place enforcement has a single owner
+   (section 9). Sketch the independently-checkable approval artifact that
+   would let OPA verify the human said yes — and account for the new trust
+   your artifact introduces.
+2. `bound_to_run` guards sandbox tools but not `git.open_pr`
+   (section 3). Reconstruct the reasoning: what property of opening a pull
+   request makes run binding the wrong guard, and which compiled rules
+   stand in its place?
+3. The platform trusts its own compiled policy bundle. How would you
+   detect a compromised or buggy compiler — and does the golden-file
+   workflow in section 10 count as detection, or only as review?
+4. The PM can spawn crews holding tools the PM itself may not use
+   (section 3). Argue both sides: privilege-escalation hole, or the
+   correct reading of least privilege?
+5. Section 9 concedes that in-cluster surfaces rely on NetworkPolicy
+   alone. Rank the four unauthenticated surfaces by consequence-if-reached
+   and decide which you would authenticate first, and with what identity.
 
 ---
 
