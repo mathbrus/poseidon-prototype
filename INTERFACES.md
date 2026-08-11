@@ -24,10 +24,12 @@ ever disagree, the code wins — and the document has a bug.
 The CLI is a **thin Temporal client**. It connects to the Temporal
 frontend (`TEMPORAL_ADDRESS`, default `127.0.0.1:7233` — on kind, reach it
 with `kubectl -n poseidon-platform port-forward svc/temporal-frontend
-7233:7233`) and starts, signals, or inspects workflows. It holds no
-credentials and performs no work itself: every run executes on the
-in-cluster worker, under the platform's identity, regardless of who
-invoked the CLI or from where.
+7233:7233`) and starts, signals, or inspects workflows. The run-control
+commands (`run`, `review`, `signal`, `status`) hold no credentials and
+perform no work themselves: every run executes on the in-cluster worker,
+under the platform's identity, regardless of who invoked the CLI or from
+where. The `blueprint` commands are the exception — `apply` submits custom
+resources with your kubeconfig, and `--live` compiles read the registry.
 
 Workflow ids are `{workflow}-{run_id}` across all three workflow families,
 which is why several commands take a `--workflow` option: the CLI needs to
@@ -207,7 +209,11 @@ The MCP gateway exposes **16 tools**. They are the entire action surface:
 everything any agent — or the platform itself — does to a sandbox, the git
 host, or the issue tracker is one of these names. Every call follows the
 same pipeline: authenticate the caller's workload identity, build the
-policy input, ask OPA, write an audit event, and only then act.
+policy input, ask OPA, and record exactly one audit event. The ordering
+guarantee is *deny before side effect*: a denial is audited and returned
+before anything happens, while an allowed call runs the backend first and
+then writes its audit event carrying the backend's outcome
+(`backend_status: ok|error`).
 
 Three things to keep in mind while reading the signatures:
 

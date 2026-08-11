@@ -8,8 +8,10 @@ makes "the blueprint is the source of truth" checkable rather than
 aspirational: a governance mistake fails here, at compile, instead of at the
 first tool call in production.
 
-The compiler reads nothing but its arguments, writes nothing, and touches no
-cluster. Applying a plan is the operator's job.
+The compiler reads nothing but its arguments, writes nothing, and touches
+no cluster. Applying a plan is the operator's job. If the vocabulary here
+is new — blueprints, OPA, run binding — read the
+[root README](../../README.md) first (sections 2, 4 and 7).
 
 ## Module map
 
@@ -21,9 +23,134 @@ cluster. Applying a plan is the operator's job.
 | `rego.py` | Policy bundle emission: default-deny `decision`, `allow_rules`/`deny_rules` as sets, lowest-sorting deny wins. |
 | `infra.py` | The infrastructure policy IR: one IR from `stack` + policies, several projections (sandbox constraints, NetworkPolicy, egress allowlist). |
 | `diff.py` | Preview: what applying this plan would change. Hire/fire is a diff against the registry snapshot. |
-| `snapshot.py` | The registry snapshot the diff is taken against. |
+| `snapshot.py` | The registry snapshot the diff is taken against — a value, never a connection. |
 | `errors.py` | `CompileError` — every problem at once, as actionable text. |
 | `regolden.py` | Regenerates the golden files. Not a test. |
+
+## What "pure function" buys, concretely
+
+Purity here is not aesthetics; each consequence is load-bearing.
+
+- **Determinism.** Same inputs, byte-identical plan
+  (`test_plan.py::test_compilation_is_deterministic`). The preview diff
+  is only meaningful if nothing wobbles between two compiles, and golden
+  testing is only possible because output never depends on a clock, a
+  cluster, or iteration order — `as_dict()` sorts by construction.
+- **One mutation point.** Because compiling cannot touch the cluster,
+  *apply* is the only place enforcement changes, and it is a separate,
+  visible act (`poseidon blueprint apply` = compile + submit CRs).
+- **Testability without infrastructure.** Even the diff needs no
+  database: `snapshot.py` defines `RegistrySnapshot` as a frozen value
+  the caller (the CLI) builds from registry rows and hands in.
+
+The claim is enforced, not asserted. `test_purity.py` monkeypatches
+`builtins.open` so that any write-mode open (`w`, `a`, `x`, `+`) raises,
+and replaces `socket.socket` / `socket.create_connection` with functions
+that fail on call — then compiles the example blueprint under that
+harness. A second test deep-copies the input document and asserts
+compilation left it untouched, so a caller can compile twice, or compile
+a variant, without the first pass having edited the dict underneath it.
+
+## One field, many artifacts: tracing `may_spawn`
+
+The best way to see what the compiler is *for* is to follow one blueprint
+field through everything it becomes. In `examples/hello-saas.yaml`:
+
+```yaml
+pm:
+  template: pm
+  count: 1
+  model_tier: standard
+  may_spawn:
+    crew: [feature-delivery, feature-review]
+    max_concurrent: 2
+```
+
+The `may_spawn` block fans out into:
+
+1. **Coherence checks.** `_spawn_authority` errors if the blueprint
+   names a crew the `pm` catalog template does not grant — an error, not
+   a silent drop, because a workflow may depend on the grant.
+   `_spawnable_crews` errors if a named crew is unknown, undeclared in
+   `crews:`, or if an enabled workflow's crew is outside its conductor's
+   `may_spawn` (it would compile but never be fulfillable).
+2. **The `AgentInstanceCR`**, which carries `may_spawn` and
+   `max_concurrent_spawns` into the AgentInstance custom resource.
+3. **An allow rule** in the emitted `role_pm.rego` that narrows the tool's
+   *arguments*, not just its name — spawn intent outside the list is denied
+   before anything is recorded:
+
+   ```rego
+   allow_rules contains "role_pm_crew_request" if {
+   	input.lifecycle == "standing"
+   	input.company == "hello-saas"
+   	input.role == "pm"
+   	input.tool == "crew.request"
+   	input.args.crew_template in ["feature-delivery", "feature-review"]
+   }
+   ```
+
+4. **A deny rule per instance** enforcing the concurrency cap:
+
+   ```rego
+   deny_rules contains "crew_request_over_cap" if {
+   	input.tool == "crew.request"
+   	input.agent_id == "pm-1"
+   	input.active_spawns >= 2
+   }
+   ```
+
+Two things in that last rule teach the design. `input.active_spawns`
+rides the *input* — the gateway counts live spawns and injects the
+number — because OPA reads no live data: policy stays a pure function of
+bundle + input, and restarts are safe. And the denial is *named*, so a
+refused spawn is a first-class governance event in the audit log, not a
+default-deny shrug.
+
+## How a decision is made
+
+Every bundle starts from the same entrypoint (`_DECISION` in `rego.py`):
+a `default decision` of `{"allow": false, "rule": "default_deny"}`, with
+`allow_rules` and `deny_rules` as partial sets that merge across files.
+If any deny matches, the decision is deny and reports `min(deny_rules)`
+— the lowest-sorting name — so which rule "won" is deterministic and
+assertable. Only when the deny set is empty does a non-empty allow set
+allow. One emitted oddity looks like dead code: each entrypoint declares
+`allow_rules contains "declared_nowhere" if { false }` (and likewise for
+`deny_rules`). A blueprint configuring no deny-producing policies would
+otherwise emit a bundle where `deny_rules` is never declared, which OPA
+refuses to load (unsafe variable); an always-false rule contributes
+nothing while making the entrypoint safe for every blueprint.
+
+### Why `bound_to_run` appears on sandbox rules only
+
+Compare the executor's `git.open_pr` rule with its `sandbox.exec` rule
+in the goldens: only the latter ends in `bound_to_run`, a predicate
+requiring `input.run_binding_verified == true` — a flag the gateway sets
+after checking the caller's run binding against the registry. Sandbox
+tools address *a specific run's* workspace, so a role allow-list alone
+would quietly permit cross-run access: any executor could read any run's
+files. `git.open_pr` targets the repository, not a run, so run binding
+is the wrong guard — its guards are the deny rules below. Which tools
+carry the requirement is declared in `schema.tools.RUN_SCOPED`, a
+property of the tool, not of its name prefix.
+
+### The blueprint's own policies
+
+`_policies_file` compiles `policies:` into deny rules over real
+arguments: protected branches (lowercased at emit time, so
+`protected: [Main]` still denies `main`), a branch-name regex, denied
+path prefixes, and path ownership keyed on role *templates*. Path rules
+fail closed: a `git.open_pr` whose input carries no `args.paths` hits
+`git_open_pr_paths_missing`, because a rule that cannot be evaluated
+must not default to allow. String values are emitted with `json.dumps`,
+never raw interpolation — a pattern containing a backtick once
+terminated the raw Rego literal and spliced text into the bundle
+(`test_pattern_with_a_backtick_cannot_inject_policy` pins the fix).
+`allowed_pattern` is also regex-validated at compile time — a malformed
+pattern would otherwise surface as an OPA bundle-load failure long after
+apply. (Python's `re` is not OPA's RE2, but it rejects the same broken
+syntax an author actually writes.)
 
 ## Two bundles per apply
 
@@ -36,12 +163,44 @@ cluster. Applying a plan is the operator's job.
 
 The gateway derives the decision path from the caller, so its
 `company_decision_path` and this package's `company_package` must produce
-the same slug. A cross-package test in `packages/gateway/tests/` pins that;
+the same slug. `packages/gateway/tests/test_slug_invariant.py` pins that;
 divergence would fail closed but silently.
+
+## Coherence checks as a design surface
+
+`checks.check()` runs ten passes and returns *every* problem, which
+`CompileError` renders as one list — so a broken blueprint is fixed in one
+round trip, not one error per attempt. The messages are written to be
+sufficient to fix the document: what is wrong, where, and what is allowed
+instead. One real example (the lean-roster rule, from `test_checks.py`):
+
+```
+departments.roles.backend-engineer: standing count 1 on non-spawner template 'backend-engineer' — execution is ephemeral crews; hire a conductor and give it may_spawn, or set count: 0
+```
+
+Two subtleties. First, `compile_blueprint` accepts plain dicts and does
+not run the schema pass, so a few document-level checks (template
+existence, tool vocabulary) are deliberately repeated here — the
+compiler must fail closed on an unvalidated input, not `KeyError`
+halfway through emission. Second, narrowing semantics differ by field:
+widening a *crew member's* tools or a role's *spawn authority* past the
+catalog is a compile error, while a standing role's tool scope is
+silently intersected with its template (`declared & set(template.tools)`
+in `compile.py`) — and crew tools are intersected too, belt under the
+brace, so nothing wider than the catalog can reach a bundle even if a
+check regresses.
+
+Deliberately absent: any child-⊆-parent scope check. The PM cannot open
+a pull request, yet the crew it spawns can. Spawn authority is authority
+to *create a principal* from a compiler-vetted template, not a
+capability ceiling — keeping ⊆ would force the conductor's scope to
+become the union of everything it might spawn, the opposite of least
+privilege (`test_child_scope_need_not_be_a_subset_of_the_conductor`).
 
 ## The goldens are generated — never hand-edit them
 
-`tests/golden/` holds the compiled plan and bundle for
+`tests/golden/` holds the compiled plan (`hello-saas.plan.json`) and both
+bundles (seven `.rego` files, company and platform side by side) for
 `examples/hello-saas.yaml`. They are a review artifact: the point is that a
 human reads the diff when policy output changes.
 
@@ -54,24 +213,32 @@ uv run pytest packages/compiler
 git diff packages/compiler/tests/golden/     # read it; confirm it matches intent
 ```
 
-Regolden is deliberately separate from the test run so updating a golden is
-an explicit act, never something a test does quietly on the way past.
+Regolden is deliberately separate from the test run so updating a golden
+is an explicit act, never something a test does quietly on the way past.
+A self-updating golden would pin nothing — the emitter always agrees with
+its own output — and a scope-widening bug would sail through as a green
+run instead of surfacing as a readable Rego diff.
 
 ## Entry points
 
 A library, driven by the `poseidon blueprint` CLI in `orchestrator/cli/`
-(`compile`, `preview`). No Dockerfile of its own; it ships inside the
-orchestrator and operator images.
+(`compile`, `preview`, `apply` — apply is exactly compile + CR submission).
+No Dockerfile of its own; it ships inside the orchestrator image.
 
 ## Cross-package interactions
 
-- Resolves templates and tool names against `schema`.
+- Resolves templates and tool names against `schema`
+  ([README](../schema/README.md)): the role/crew catalogs, `KNOWN_TOOLS`,
+  `PLATFORM_ONLY`, and `RUN_SCOPED`.
 - Reads a `RegistrySnapshot` built from `registry` rows to keep agent ids
-  stable across applies and to compute the firing half of a diff.
-- Its output is consumed by `operator` (which applies it) and, through the
-  applied blueprint in the registry, by `orchestrator` (SandboxPolicy,
-  workflow and gate config) and the egress proxy (host allowlist).
-- `rego.RUN_SCOPED` comes from `schema.tools`.
+  stable across applies (existing ids are reused in order; minted ids skip
+  anything taken) and to compute the firing half of a diff.
+- Its plan rides the custom resources the CLI submits — the Company CR
+  carries the bundles, infra IR, workflows, budgets and crew specs — and
+  the `operator` ([README](../operator/README.md)) reconciles them. From
+  the applied blueprint, the `orchestrator` reads SandboxPolicy, workflow
+  and gate config, and the egress proxy its host allowlist: one
+  `egress_allow` list, two consumers, no drift.
 
 ## Tests
 
@@ -79,22 +246,29 @@ orchestrator and operator images.
 uv run pytest packages/compiler
 ```
 
-`test_purity.py` is the unusual one: it proves the compiler performs no I/O
-beyond its arguments, so "apply is the only mutation of enforcement" is
-mechanically checked. `test_bundle_decisions.py` loads the emitted bundles
-into a real OPA and asserts decisions, so policy claims are tested as policy
-rather than as strings.
+60 tests (run per package, never repo-wide). `test_purity.py` is the
+unusual one: it proves the compiler performs no I/O beyond its
+arguments, so "apply is the only mutation of enforcement" is
+mechanically checked. `test_bundle_decisions.py` loads the emitted
+bundles into a real OPA — pinned to the tag the chart deploys, via the
+`opa` binary or Docker, skipping when neither is present — and asserts
+*decisions*: golden tests pin what is emitted, decision tests pin what
+it decides, which is the part that matters.
 
 ## Invariants
 
-- Pure: no cluster, no filesystem, no network.
+- Pure: no cluster, no filesystem, no network — and no mutation of the
+  input document.
 - Secrets never enter a plan. Agent specs carry a role, a tier and a tool
-  scope; credentials arrive at runtime as projected tokens.
-- A blueprint narrows a template, never widens it. `checks.py` errors on a
-  widening attempt and the emission intersects anyway — belt under brace.
+  scope; credentials arrive at runtime as projected tokens
+  (`test_plan.py` greps the whole plan for secret-shaped strings).
+- A blueprint narrows the catalog, never widens it: widened crew tools and
+  spawn authority are compile errors, and every emitted scope is
+  intersected with its template regardless.
 - No child-⊆-parent scope check, deliberately: spawn authority is not a
   capability ceiling.
-- Company names may not be `platform` — that key is the platform bundle's.
+- Company names may not be `platform` — that key is the platform bundle's,
+  and a company by that name would shadow the platform decision path.
 - Rego string literals are emitted with `json.dumps`, never raw
   interpolation: a policy value containing a backtick would otherwise
   inject policy text into the bundle.

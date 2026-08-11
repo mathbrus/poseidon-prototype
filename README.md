@@ -161,9 +161,10 @@ fails the build if a single `*_TOKEN` or `*_KEY` variable with a value
 appears in it.
 
 Instead, the agent asks a **gateway** to act on its behalf. The gateway
-holds the credential, checks whether this caller may make this call, records
-the decision, and only then acts. An agent that convinces itself to
-exfiltrate a token cannot, because there is no token in the room.
+holds the credential, checks whether this caller may make this call,
+refuses before anything happens when the answer is no, and leaves exactly
+one audit event either way. An agent that convinces itself to exfiltrate a
+token cannot, because there is no token in the room.
 
 A gateway that acts for others is, by construction, a *deputy* — and the
 classic failure of deputies is confusion: acting with their own authority
@@ -188,10 +189,15 @@ at 3am on the first tool call that hits it.
 
 ### Every consequential action passes a chokepoint
 
-There are exactly two credential-holding services: the **MCP gateway** (all
-tool use — files, shell, git, issues) and the **LLM gateway** (all model
-access). Both authenticate the caller's workload identity, both check
-compiled policy, both write an audit event, both then act.
+There are exactly two chokepoint services: the **MCP gateway** (all tool
+use — files, shell, git, issues; the sole holder of the git token) and the
+**LLM gateway** (all model access; it holds no key itself — the provider
+key sits one hop behind it, in an llm-proxy that only the LLM gateway can
+reach). Both authenticate the caller's workload identity, both check
+compiled policy, and both write exactly one audit event per call. The
+ordering guarantee is *deny before side effect*: a denial is recorded and
+returned before anything happens, while an allowed call acts first and
+then records how the action went.
 
 A third chokepoint, the **egress proxy**, is the only network route out of a
 sandbox. Everything else is dropped by NetworkPolicy — silently, as a
