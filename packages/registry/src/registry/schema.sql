@@ -7,15 +7,19 @@
 -- services migrate at startup under an advisory lock, in any order, on
 -- every restart.
 --
--- Write ownership (enforced by which accessor a service imports, and by the
--- fact that each table has exactly one writer):
+-- Write ownership (an import-graph convention, enforced by which accessor
+-- a service imports — not by Postgres grants). Seven tables have exactly
+-- one writer; the other two are shared by design:
 --   operator      -> companies, agent_instances, policy_bundles
---   orchestrator  -> runs, run_participants; crew_requests together with
---                    the gateway (the crew.request tool and the workflow
---                    path record the same row)
---   gateway       -> sandbox_registrations, audit_events
---   egress proxy  -> audit_events
+--   orchestrator  -> runs, run_participants
+--   gateway       -> sandbox_registrations
 --   LLM gateway   -> budget_ledger
+--   crew_requests <- orchestrator together with the gateway (the
+--                    crew.request tool and the workflow path record the
+--                    same row)
+--   audit_events  <- gateway, LLM gateway, egress proxy and orchestrator
+--                    (process-gate, process-lifecycle): many writers, one
+--                    append-only contract
 
 CREATE SCHEMA IF NOT EXISTS registry;
 
