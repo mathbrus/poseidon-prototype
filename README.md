@@ -982,19 +982,32 @@ depth on top of the containment, not the containment itself.
 
 <br>
 
-Four surfaces have no authentication of their own:
+Five surfaces have no authentication of their own:
 
 - the **sandbox tool server** (which exposes `/exec` and runs what it is
   given — it *is* the sandbox; that is its job),
 - the **agent's `/task` API**,
 - the **OPA bundle server**,
-- **OPA's own API**.
+- **OPA's own API**,
+- the **Temporal frontend** (and its web UI, which the kind bootstrap
+  deploys alongside it).
 
-Each is protected by being unreachable: NetworkPolicy admits exactly one
-caller. This is a real reduction in defence in depth compared to
-authenticating them, and it means **NetworkPolicy enforcement is
+The first four are protected by being unreachable: NetworkPolicy admits
+exactly one caller. This is a real reduction in defence in depth compared
+to authenticating them, and it means **NetworkPolicy enforcement is
 load-bearing**. On a cluster whose CNI ignores NetworkPolicy, these are
 open. The kind bootstrap installs Calico for exactly this reason.
+
+The fifth is the weakest of the set, and deserves its own sentence.
+Anything that reaches the Temporal frontend holds full operator authority —
+start workflows, deliver gate verdicts *including merge approval*,
+terminate runs — because the `poseidon` CLI is only a thin client over it
+(see [INTERFACES.md](INTERFACES.md)). Its pods are installed by Temporal's
+own chart and are selected by none of Poseidon's NetworkPolicies. What
+keeps agents away from it is the company namespaces' deny-all envelope,
+not any policy of its own; what keeps humans away is cluster access
+control. On a cluster where the platform namespace is reachable more
+broadly than intended, the merge gate is too.
 
 </details>
 
@@ -1220,8 +1233,9 @@ the design genuinely has something to argue about.
    (section 3). Argue both sides: privilege-escalation hole, or the
    correct reading of least privilege?
 5. Section 9 concedes that in-cluster surfaces rely on NetworkPolicy
-   alone. Rank the four unauthenticated surfaces by consequence-if-reached
-   and decide which you would authenticate first, and with what identity.
+   alone — and that the Temporal frontend is not even covered by that.
+   Rank the five unauthenticated surfaces by consequence-if-reached and
+   decide which you would authenticate first, and with what identity.
 
 ---
 

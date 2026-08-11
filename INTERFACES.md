@@ -4,12 +4,18 @@ Poseidon has exactly two ways in, and they are deliberately different in
 kind. **Humans** operate the platform through the `poseidon` CLI: they
 start runs, deliver gate verdicts, and apply blueprints. **Agents** act on
 the world through the MCP tools exposed by the gateway — and through
-nothing else. This document describes both surfaces, function by function.
+nothing else. This document describes both surfaces, function by function —
+plus a third contract that hides beneath the first: the CLI is only a thin
+wrapper over Temporal, and anything that can reach the Temporal frontend
+holds the CLI's full authority. [Section 2](#2-the-contract-beneath-the-cli-temporal)
+documents that surface explicitly, because an interface you can use
+without noticing is exactly the kind this project exists to write down.
 
 Everything here is generated reading the source: the CLI lives in
-`packages/orchestrator/src/orchestrator/cli/`, the tool definitions in
-`packages/gateway/src/gateway/app.py`. If this document and the code ever
-disagree, the code wins — and the document has a bug.
+`packages/orchestrator/src/orchestrator/cli/`, the workflow contract in
+`packages/orchestrator/src/orchestrator/workflows/`, the tool definitions
+in `packages/gateway/src/gateway/app.py`. If this document and the code
+ever disagree, the code wins — and the document has a bug.
 
 ---
 
@@ -127,7 +133,75 @@ ServiceAccount is what revokes its identity.
 
 ---
 
-## 2. The gateway's MCP tools
+## 2. The contract beneath the CLI: Temporal
+
+Every `poseidon` command in section 1 is sugar over the Temporal client
+API. The CLI confers no authority of its own — the real contract is the
+workflow surface the orchestrator registers, and any process that can
+reach the Temporal frontend can exercise all of it: start runs, deliver
+gate verdicts, terminate workflows, read every run's history. A dashboard,
+a chat-ops approval bot, or the e2e suite would integrate here, not by
+shelling out to the CLI. This section writes that contract down.
+
+All workflows run on task queue **`poseidon-orchestrator`** and are named
+deterministically, one workflow per run: `{family}-{run_id}`.
+
+### Workflows
+
+| Name | Workflow id | Input | What it runs |
+|---|---|---|---|
+| `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text, timeouts=None)` | The delivery pipeline: crew fulfilment, planning, implementation, verify gate, PR. |
+| `intake` | `intake-{run_id}` | `IntakeInput(run_id, goal_text, timeouts=None)` | The PM scoping a goal into tickets and a recorded crew request. |
+| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number, timeouts=None)` | Ephemeral review of a PR, then the human merge gate. |
+
+`timeouts=None` keeps the generous real-brain activity bounds (and lets
+old histories replay); the CLI's `--fast-timeouts` passes the mock-brain
+preset instead.
+
+### Signals
+
+Signals are how verdicts enter a parked workflow. All four share one
+signature — `(approved: bool, payload: str | None)` — which is exactly
+what `poseidon signal` sends.
+
+| Workflow | Signal | Resolves |
+|---|---|---|
+| `intake` | `intake` | The intake gate, when the blueprint configures one (the shipped example sets it to `none`). |
+| `implement` | `budget` | A budget pause: approved means the cap was raised and the run continues; rejected finalizes the run. |
+| `review` | `budget` | Same as in implement. |
+| `review` | `merge` | **The human merge gate.** Approved releases the platform-identity merge; rejected closes the run without merging. |
+
+### Queries
+
+All three workflows expose a `state` query returning the current phase as
+a string — the mechanism behind the claim that a parked gate or a budget
+stop is "an API-visible paused state, never a silent hang."
+
+### What guards this surface
+
+Nothing in the surface itself. The Temporal frontend has **no
+authentication of its own**, the kind bootstrap also deploys `temporal-web`
+(a browsable UI over the same authority), and Poseidon's NetworkPolicies
+do not select the Temporal pods — they are installed by Temporal's own
+chart. Two facts keep this honest rather than alarming:
+
+- **Agents cannot reach it.** Company namespaces are deny-all by
+  construction, with holes only toward the two gateways and the egress
+  proxy. The statement "agents have exactly one interface, the gateway"
+  survives — by the operator's NetworkPolicy, not by Temporal's.
+- **Humans reach it deliberately.** On kind there is no ingress; you hold
+  operator authority exactly when you can run `kubectl port-forward` into
+  the platform namespace — that is, when you already hold cluster
+  credentials.
+
+But state it plainly, in the spirit of the [root README's section 9](README.md#9-what-it-cannot-do):
+*delivering a merge-gate verdict requires nothing but network reach to
+port 7233.* On any cluster where the platform namespace is reachable more
+broadly than intended, the merge gate is too.
+
+---
+
+## 3. The gateway's MCP tools
 
 The MCP gateway exposes **16 tools**. They are the entire action surface:
 everything any agent — or the platform itself — does to a sandbox, the git
