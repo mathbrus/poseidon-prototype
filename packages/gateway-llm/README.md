@@ -31,17 +31,21 @@ is *enforceable*, because there is no unmetered path to a model. And the
 concrete model served is the *deployment's* choice, not the agent's.
 
 To the agent all of this is invisible. The gateway speaks plain OpenAI
-chat-completions on port 4000 — the port agents already expect for model
-access — and the brain host builds an ordinary LiteLLM-style client
-whose `base_url` points here (`agent.brain.build_llm`). Pointing an
+on port 4000 — the port agents already expect for model access — on
+**both** OpenAI surfaces: chat completions and the Responses API
+(`/responses`, `/v1/responses`). SDKs auto-select Responses for models
+whose metadata lists it (gpt-5\*, with OpenHands' default
+`api_mode="auto"`), so the second surface is what keeps "pointing an
 off-the-shelf SDK at governed model access is a URL change and nothing
-else.
+else" true for current OpenAI models. The brain host builds an ordinary
+LiteLLM-style client whose `base_url` points here
+(`agent.brain.build_llm`).
 
 ## The pipeline
 
-Every completion call (`POST /chat/completions` or
-`/v1/chat/completions`; the health probes are the only unauthenticated
-routes):
+Every completion call (`POST /chat/completions`, `/v1/chat/completions`,
+`/responses` or `/v1/responses`; the health probes are the only
+unauthenticated routes):
 
 ```
 workload authn (common.authn — the same credentials as the MCP gateway)
@@ -90,7 +94,13 @@ digest = hashlib.sha256(
 
 Prompt text never reaches the audit store. A prompt is exactly the kind
 of thing that contains workspace contents, and the audit store must not
-become the exfiltration channel it exists to expose.
+become the exfiltration channel it exists to expose. Responses bodies
+carry `input` items instead of `messages`, so that surface digests
+`{model, input-item count}` — same rule, same reason. The two surfaces
+are distinguishable in the trail by the event's tool name:
+`llm.chat_completions` vs `llm.responses`. Metering differs only in
+vocabulary: Responses `input_tokens`/`output_tokens` land on the same
+ledger prompt/completion columns.
 
 ## Budget enforcement is local, and loud
 
@@ -136,7 +146,7 @@ enforcement point stays here.
 The blueprint never names a model. Role templates in the catalog name
 *tiers* — `small`, `standard`, `frontier` — and only the deployment
 knows which concrete model a tier means, via the `TIER_MODELS` JSON
-env (`{"frontier": "gpt-4o", ...}`). The gateway looks up the caller's
+env (`{"frontier": "gpt-5.6-luna", ...}`). The gateway looks up the caller's
 `agent_instances` row, maps its tier, and **overwrites the request's
 model field**. Whatever model the agent asked for is advisory; an agent
 cannot upgrade itself to a more expensive model by asking.

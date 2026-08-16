@@ -708,8 +708,131 @@ applies the CRDs, and applies the example blueprint.
 > [!TIP]
 > **This costs nothing to run.** The cluster deploys the deterministic mock
 > brain by default, so the full end-to-end suite spends zero LLM tokens.
-> Using a real provider requires bringing the cluster up with `REAL_LLM=1`
-> explicitly — nothing does that for you, and CI never does.
+> A real provider is opt-in — see [Use a real LLM](#use-a-real-llm) — and
+> CI never turns it on.
+
+### Use a real LLM
+
+The mock brain is what the acceptance suite is written against. To run
+`hello-saas` (or any other example company) with a real model, the cluster
+must be brought up with `REAL_LLM=1`. Nothing does that for you.
+
+The provider key never enters an agent pod. It lands only in the
+`llm-proxy`, behind the LLM gateway; LiteLLM is started in single-model
+mode, so every role — PM, planner, executor, reviewer — is served the
+same `MODEL`.
+
+Edit `deploy/kind/.env` (create it from `.env.example` if you have not
+already). Uncomment and fill:
+
+```bash
+REAL_LLM=1
+LLM_API_KEY=sk-your-provider-key
+MODEL=gpt-5.6-luna
+```
+
+`gpt-5.6-luna` is the cheap OpenAI default this repo is wired for. Then
+re-run the bootstrap so the proxy, the secret, and the tier map all
+change together:
+
+```bash
+deploy/kind/kind-up.sh
+```
+
+To compare against Anthropic, swap **both** the key and the model —
+LiteLLM copies `LLM_API_KEY` into `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`
+and reads the one that matches the model prefix, so leaving an OpenAI key
+in place while changing `MODEL` to Claude will fail:
+
+```bash
+REAL_LLM=1
+LLM_API_KEY=sk-ant-your-anthropic-key
+MODEL=anthropic/claude-sonnet-4-5
+```
+
+Re-run `kind-up.sh` after every provider or model change.
+
+Do not point `scripts/acceptance.sh` at a paid provider: ninety-one tests
+against a live model will spend money and the suite asserts mock-brain
+behaviour, not model quality. The command reference is in
+[INTERFACES.md](INTERFACES.md). Once the real model is up, the walkthrough
+below is the full SDLC.
+
+### A full run: a small Tetris app
+
+This is intake → implement → review → human-gated merge, against the
+disposable `TARGET_REPO`, with a real model already configured. The
+company is still `hello-saas`; the product under construction is whatever
+that repository holds. The engine is standard-library Python on purpose:
+the sandbox image has pytest, and the agent prompt forbids `pip install`.
+
+Leave a Temporal port-forward up for every CLI command. Do not pass
+`--fast-timeouts` — those bounds are sized for the mock brain.
+
+```bash
+kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233
+```
+
+**Intake.** A goal is untrusted text handed to the PM. The PM files
+tickets and records a `feature-delivery` crew request; it cannot write
+code. [`examples/goal-tetris.md`](examples/goal-tetris.md) is that goal:
+
+```bash
+uv run poseidon run --workflow intake examples/goal-tetris.md
+```
+
+The CLI prints `started intake-<run_id> (run_id …)` on stderr and blocks
+until the run finishes. Success is JSON with `"status": "done"`,
+`"workflow": "intake"`, one or more `ticket_urls`, and a
+`crew_request_id`. The issues are real on `TARGET_REPO`. hello-saas
+configures `gates.intake: none`, so there is no signal to send.
+
+Intake and implement are **separate runs**. Fulfilment keys crew requests
+by `run_id`, so implement does not consume the intake row; a human reads
+the tickets and starts implement with a task.
+
+**Implement.** [`examples/task-tetris.md`](examples/task-tetris.md) is the
+scoped work: `tetris.py` plus `tests/test_tetris.py`, on a `feature/*`
+branch. The default workflow is implement:
+
+```bash
+uv run poseidon run examples/task-tetris.md
+```
+
+The crew planner writes a brief, the executor implements it, the
+*platform* runs `pytest -q` as the verify gate of record, and only a
+green verify releases the deliver dispatch that opens the pull request.
+Success JSON has `"status": "done"` and a `pr_url` whose head ref matches
+`^feature/[a-z0-9-]+$`. A push to `main` is a compiled deny.
+
+If the per-run budget (`budgets.per_run.usd: 5` in the blueprint) trips,
+the run parks in `paused-budget_exhausted`. Raise the cap, re-apply, then
+`uv run poseidon signal <run_id> budget --approved --workflow implement`.
+
+**Review.** Implement stops at an open PR. Review provisions a fresh
+sandbox from the PR head, dispatches a read-and-judge reviewer, and parks
+on the merge gate — so `--detach` is the usual mode. The number is the
+trailing integer of `pr_url`:
+
+```bash
+uv run poseidon review <pr-number> --detach
+# started review-<review_run_id> (run_id …)
+uv run poseidon status <review_run_id> --workflow review
+```
+
+Wait until findings are posted on the PR and status is paused on the
+gate, then approve or reject. Use the **review** `run_id`, not the
+implement one. Approval merges as the orchestrator, under the platform
+identity; the CLI never touches the repository:
+
+```bash
+uv run poseidon signal <review_run_id> merge --workflow review
+# uv run poseidon signal <review_run_id> merge --no-approved --workflow review
+```
+
+Watch a live run with `kubectl -n poseidon-platform logs -f deploy/orchestrator-worker`
+and `kubectl -n hello-saas get pods -w`. Teardown is guaranteed: on every
+terminal path the crew identities, pods, and sandbox go away.
 
 ### Run the acceptance suite
 
@@ -1056,7 +1179,7 @@ sensible future change.
 <br>
 
 Third-party images are pinned to versioned tags (`openpolicyagent/opa:1.19.0`,
-LiteLLM `main-v1.83.7-stable`, `postgres:16.6`), and Python dependencies are
+LiteLLM `v1.95.1`, `postgres:16.6`), and Python dependencies are
 lockfile-pinned with the images built via `uv export --frozen` — CI asserts
 the image resolves the same version the lockfile does.
 
@@ -1112,7 +1235,7 @@ packages/          eleven workspace packages (see the reference below)
 deploy/helm/       the Poseidon chart, plus Temporal's values
 deploy/kind/       kind bootstrap, teardown, NetworkPolicy probe, .env
 crds/              Company and AgentInstance CustomResourceDefinitions
-examples/          hello-saas.yaml and the four task/goal scenarios
+examples/          hello-saas.yaml, Tetris goal/task, and the red-team scenarios
 scripts/           acceptance.sh
 tests/e2e_kind/    the 91-test suite that runs against a live cluster
 ```

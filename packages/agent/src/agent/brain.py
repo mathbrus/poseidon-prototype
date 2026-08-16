@@ -54,8 +54,9 @@ from agent.hands import (
 )
 from common.telemetry import get_logger
 
-SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "system.md"
-PM_PROMPT_PATH = Path(__file__).parent / "prompts" / "pm.md"
+# One prompt file per dispatch mode: each phase is told what it actually
+# is, and the operating procedure matches the tool surface it is offered.
+PROMPTS_DIR = Path(__file__).parent / "prompts"
 # The PM's whole dispatch is a handful of tool calls; the cap is a backstop.
 PM_STEP_CAP = 10
 # SDK steps allowed within one act cycle before tests are forced to run.
@@ -195,8 +196,8 @@ def _render_prompt(path: Path, settings: AgentSettings) -> str:
     return path.read_text().replace("{target_repo}", settings.target_repo)
 
 
-def _system_prompt(settings: AgentSettings) -> str:
-    return _render_prompt(SYSTEM_PROMPT_PATH, settings)
+def _prompt(name: str, settings: AgentSettings) -> str:
+    return _render_prompt(PROMPTS_DIR / f"{name}.md", settings)
 
 
 def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
@@ -220,12 +221,20 @@ def _survey_entries(bridge: GatewayBridge, run_id: str) -> str:
     )
 
 
-def _task_prompt(task_text: str, entries: str) -> str:
+def _act_prompt(task_text: str, entries: str) -> str:
     return (
         f"Task:\n{task_text}\n\n"
         f"Workspace root entries: {entries}\n\n"
-        "Write a short numbered plan for completing this task, "
-        "then carry it out."
+        "Carry out this slice, then stop — the test suite is run for you "
+        "between turns."
+    )
+
+
+def _plan_prompt(task_text: str, entries: str) -> str:
+    return (
+        f"Task:\n{task_text}\n\n"
+        f"Workspace root entries: {entries}\n\n"
+        "Write only the numbered brief."
     )
 
 
@@ -241,7 +250,7 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
         with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
             convo = _build_conversation(
                 build_llm(settings, run_id, token),
-                _system_prompt(settings),
+                _prompt("implement", settings),
                 ACT_TOOLS,
                 ctx,
                 workspace,
@@ -249,7 +258,7 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
             )
             try:
                 convo.send_message(
-                    _task_prompt(task_text, _survey_entries(bridge, run_id))
+                    _act_prompt(task_text, _survey_entries(bridge, run_id))
                 )
                 iterations = 0
                 while True:
@@ -294,7 +303,7 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
         with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
             convo = _build_conversation(
                 build_llm(settings, run_id, token),
-                _system_prompt(settings),
+                _prompt("deliver", settings),
                 DELIVER_TOOLS,
                 ctx,
                 workspace,
@@ -335,7 +344,7 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
         with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
             convo = _build_conversation(
                 build_llm(settings, run_id, token),
-                _system_prompt(settings),
+                _prompt("review", settings),
                 REVIEWER_TOOLS,
                 ctx,
                 workspace,
@@ -365,7 +374,7 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
         with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
             convo = _build_conversation(
                 build_llm(settings, run_id, token),
-                _render_prompt(PM_PROMPT_PATH, settings),
+                _prompt("pm", settings),
                 PM_TOOLS,
                 ctx,
                 workspace,
@@ -411,9 +420,9 @@ def plan_dispatch(
     llm = build_llm(settings, run_id, token)
     response = llm.completion(
         messages=[
-            Message(role="system", content=[TextContent(text=_system_prompt(settings))]),
+            Message(role="system", content=[TextContent(text=_prompt("plan", settings))]),
             Message(
-                role="user", content=[TextContent(text=_task_prompt(task_text, entries))]
+                role="user", content=[TextContent(text=_plan_prompt(task_text, entries))]
             ),
         ]
     )

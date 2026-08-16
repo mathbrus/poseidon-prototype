@@ -148,7 +148,8 @@ def test_review_without_findings_fails_the_dispatch(settings, gateway):
 def test_prompt_and_toolsets_per_phase(settings, gateway):
     """The implement dispatch never offers delivery tools (choice 8): the
     act surface is the read/write set and the loop ends at the claim —
-    open_pr exists only in the separate deliver dispatch."""
+    open_pr exists only in the separate deliver dispatch, and the implement
+    prompt does not even mention it."""
     llm = ScriptedLLM([says("nothing to do")])
 
     with scripted(gateway, llm):
@@ -156,15 +157,64 @@ def test_prompt_and_toolsets_per_phase(settings, gateway):
 
     messages, tools = llm.requests[0]
     assert messages[0]["role"] == "system"
-    assert "feature/" in text_of(messages[0])
-    assert settings.target_repo in text_of(messages[0])
+    system = text_of(messages[0])
+    assert "feature/" in system
+    assert settings.target_repo in system
+    assert "open_pr" not in system  # the prompt matches the tool surface
     task_message = text_of(messages[1])
     assert TASK in task_message
     assert "README.md" in task_message  # workspace survey rode the prompt
+    assert "carry it out" not in task_message  # no delivery talk while acting
 
     offered = set(llm.offered(0)) - {"finish", "think"}
     assert offered == {"list_dir", "read_file", "write_file", "exec"}
     assert "open_pr" not in llm.offered(0)  # no delivery tool, ever, here
+
+
+def test_deliver_prompt_names_the_delivery_tool(settings, gateway):
+    """The deliver dispatch's prompt is the delivery procedure: it names
+    open_pr and the feature-branch rule."""
+    llm = ScriptedLLM([says("stopping without delivering")])
+
+    with scripted(gateway, llm):
+        deliver_dispatch(settings, RUN_ID, TASK)
+
+    system = text_of(llm.requests[0][0][0])
+    assert "open_pr" in system
+    assert "feature/" in system
+    assert settings.target_repo in system
+
+
+def test_review_prompt_is_the_reviewers(settings, gateway):
+    """The reviewer is told it is a reviewer — comment_pr procedure, not the
+    engineer identity the shared prompt used to assert."""
+    llm = ScriptedLLM([says("nothing to say")])
+
+    with scripted(gateway, llm):
+        review_dispatch(settings, RUN_ID, "Review pull request #41")
+
+    system = text_of(llm.requests[0][0][0])
+    assert "comment_pr" in system
+    assert "backend-engineer-1" not in system
+    assert "write_file" not in system
+
+
+def test_plan_prompt_asks_for_the_brief_only(settings, gateway):
+    """The planner's single completion asks for the brief and never tells
+    the model to carry the work out."""
+    llm = ScriptedLLM([says("1. Write slugify.py")])
+
+    with scripted(gateway, llm):
+        plan_dispatch(settings, RUN_ID, TASK, gateway_token="minted")
+
+    messages, tools = llm.requests[0]
+    assert tools is None
+    system = text_of(messages[0])
+    user = text_of(messages[1])
+    assert "brief" in system
+    assert "open_pr" not in system
+    assert "carry it out" not in system and "carry it out" not in user
+    assert "numbered brief" in user
 
 
 def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):

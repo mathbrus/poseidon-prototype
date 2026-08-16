@@ -32,9 +32,13 @@ recognises their markers in whatever task text reaches it.
 
 This is not a production component. It impersonates the LiteLLM proxy —
 same service name, same port, same `/chat/completions` route (plus the
-`/v1`-prefixed alias so standard OpenAI clients work too), same
-`/health/liveliness` probe the `llm-proxy` Deployment expects — so the
-`values-mockllm.yaml` swap is a pod-template change and nothing else.
+`/v1`-prefixed alias so standard OpenAI clients work too), same OpenAI
+Responses routes (`/responses` plus the `/v1` alias — SDKs auto-select
+that surface for models whose metadata lists it, e.g. gpt-5\*; the
+routes are a wire-shape adapter over the same brain, so scenario logic
+never forks), same `/health/liveliness` probe the `llm-proxy` Deployment
+expects — so the `values-mockllm.yaml` swap is a pod-template change and
+nothing else.
 That overlay also resolves every model tier (`frontier`, `standard`,
 `small`) to `mock-brain`, so the LLM gateway's ledger records what was
 actually served rather than a paid model name nothing answered as.
@@ -176,7 +180,7 @@ the same trap.
 ## Entry points
 
 ```
-python -m mockllm --model <ignored> --port 4000
+python -m mockllm --model <ignored> --port 4000 --drop_params
 ```
 
 `Dockerfile.mockllm` (repo root). The LiteLLM-shaped args are accepted
@@ -206,6 +210,11 @@ uv run pytest packages/mockllm
 including that the canned `slugify.py` actually passes the canned test
 file's assertions, so the platform verify gate has something honestly
 green to check.
+
+`test_responses.py` covers the Responses adapter: flattened tool schemas
+normalised for phase keying, `function_call`/`function_call_output`
+history items counted as made calls, and output items shaped so the
+OpenHands SDK's parser accepts them.
 
 `test_contract.py` is the valuable one: it runs the **real brain host**
 (`agent.brain`) over real HTTP against this server, proving the whole

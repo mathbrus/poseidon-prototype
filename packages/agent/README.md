@@ -41,7 +41,7 @@ only Poseidon code may act for it.
 | `hands.py` | The model-facing tool schemas, each resolving to a gateway call. |
 | `gateway_client.py` | The async MCP client (`McpGateway`, `ToolCallError`). |
 | `config.py` | Settings, including gateway-credential resolution. |
-| `prompts/` | `system.md` and `pm.md`, edited as prose. |
+| `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`), edited as prose. |
 
 ## Dispatch: the /task API
 

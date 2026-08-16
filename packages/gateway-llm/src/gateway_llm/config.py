@@ -19,7 +19,7 @@ class LlmGatewaySettings(WorkloadAuthnSettings):
     upstream_url: str = "http://llm-proxy:4000"
     # tier -> model, from cluster config (the blueprint names tiers; only
     # the deployment knows which concrete model a tier means here). JSON
-    # object, e.g. '{"frontier": "gpt-4o", "standard": "gpt-4o-mini"}'.
+    # object, e.g. '{"frontier": "gpt-5.6-luna", "standard": "gpt-5.6-luna"}'.
     tier_models: str = ""
     # For unmapped tiers and callers without an instance row.
     default_model: str = "mock-brain"

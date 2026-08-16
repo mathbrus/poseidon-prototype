@@ -30,7 +30,9 @@ spec:
           securityContext:
             {{- include "poseidon.containerSecurityContextWritable" . | nindent 12 }}
           # args only: the image's litellm entrypoint stays in charge.
-          args: ["--model", {{ .Values.run.model | quote }}, "--port", "4000"]
+          # --drop_params strips fields GPT-5.6 rejects (temperature, …)
+          # so the OpenHands client can stay provider-agnostic.
+          args: ["--model", {{ .Values.run.model | quote }}, "--port", "4000", "--drop_params"]
           ports:
             - containerPort: 4000
           envFrom:

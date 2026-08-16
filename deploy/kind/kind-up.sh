@@ -33,6 +33,9 @@ REAL_LLM=${REAL_LLM:-0}
 if [ "$REAL_LLM" != "1" ]; then
   LLM_API_KEY=${LLM_API_KEY:-mock-unused}
   MODEL=mock-brain
+else
+  : "${LLM_API_KEY:?REAL_LLM=1 requires LLM_API_KEY in $ENV_FILE}"
+  : "${MODEL:?REAL_LLM=1 requires MODEL in $ENV_FILE (e.g. gpt-5.6-luna)}"
 fi
 
 echo "==> cluster"
@@ -100,6 +103,20 @@ if [ "$REAL_LLM" != "1" ]; then
   # Only in mock mode: with REAL_LLM=1 the llm-proxy image is upstream
   # LiteLLM at its own pinned tag.
   IMAGE_VALUES+=(--set "images.llmProxy.tag=$BUILD_TAG")
+else
+  # The chart's images.llmProxy values are the single source of truth for
+  # which LiteLLM the cluster runs; read them rather than duplicating the
+  # tag here.
+  VALUES_FILE=deploy/helm/poseidon/values.yaml
+  LITELLM_REPO=$(awk '/^  llmProxy:/{f=1} f && /^    repository:/{gsub(/"/,"",$2); print $2; exit}' "$VALUES_FILE")
+  LITELLM_TAG=$(awk '/^  llmProxy:/{f=1} f && /^    tag:/{gsub(/"/,"",$2); print $2; exit}' "$VALUES_FILE")
+  if [ -z "$LITELLM_REPO" ] || [ -z "$LITELLM_TAG" ]; then
+    echo "error: could not read images.llmProxy from $VALUES_FILE" >&2
+    exit 1
+  fi
+  LITELLM_IMAGE="$LITELLM_REPO:$LITELLM_TAG"
+  docker pull "$LITELLM_IMAGE"
+  kind load docker-image "$LITELLM_IMAGE" --name "$CLUSTER_NAME"
 fi
 kind load docker-image "${IMAGES[@]}" --name "$CLUSTER_NAME"
 
@@ -125,6 +142,13 @@ run:
   targetRepo: "${TARGET_REPO:?TARGET_REPO missing from $ENV_FILE}"
   baseRef: "${BASE_REF:-main}"
   maxIterations: ${MAX_ITERATIONS:-10}
+# LiteLLM serves one model; the gateway overwrites the request's model
+# from the caller's tier, so every tier must name that same model.
+llmGateway:
+  tierModels:
+    frontier: "${MODEL}"
+    standard: "${MODEL}"
+    small: "${MODEL}"
 EOF
 MOCK_VALUES=()
 if [ "$REAL_LLM" != "1" ]; then

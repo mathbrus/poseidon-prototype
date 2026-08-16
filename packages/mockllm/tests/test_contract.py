@@ -65,11 +65,11 @@ def mock_llm_url():
     thread.join(timeout=5)
 
 
-def settings(llm_url: str) -> AgentSettings:
+def settings(llm_url: str, model: str = "mock-brain") -> AgentSettings:
     return AgentSettings(
         mcp_gateway_url="http://gateway.test:8080",
         llm_proxy_url=llm_url,
-        model="mock-brain",
+        model=model,
         gateway_token="agent-secret",
         target_repo="example/target",
         max_iterations=3,
@@ -170,6 +170,31 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
     assert delivered.pr_url == PR_URL
     opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
     assert [o["branch"] for o in opened] == ["feature/slugify-c0ffee"]
+
+
+def test_happy_task_over_the_responses_surface(mock_llm_url):
+    """The real-LLM wire shape, rehearsed for free: a gpt-5* model name
+    makes the SDK auto-select the OpenAI Responses API (`api_mode` stays
+    "auto"), so this drives the same litellm `/responses` transport a paid
+    GPT-5.6 Luna deployment uses — against the mock, spending nothing. A 404
+    here is exactly the failure a real-LLM intake once hit."""
+    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
+        "\n\nDeliver your work on the branch `feature/slugify-re5p0nse`.\n"
+    )
+    cfg = settings(mock_llm_url, model="gpt-5.6-luna")
+    gateway = FakeGateway()
+    with bridged(gateway):
+        claim = implement_dispatch(cfg, "run-mock-resp", task_text)
+    assert claim.error is None
+    assert claim.pr_url is None
+    assert set(gateway.files) == {"slugify.py", "tests/test_slugify.py"}
+
+    with bridged(gateway):
+        delivered = deliver_dispatch(cfg, "run-mock-resp", task_text)
+    assert delivered.error is None
+    assert delivered.pr_url == PR_URL
+    opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
+    assert [o["branch"] for o in opened] == ["feature/slugify-re5p0nse"]
 
 
 def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):

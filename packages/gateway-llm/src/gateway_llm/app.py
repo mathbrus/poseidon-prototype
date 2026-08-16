@@ -40,8 +40,31 @@ from gateway_llm.config import LlmGatewaySettings
 from registry import AuditStore, BudgetLedger, RunParticipants, Runs, open_registry
 from registry.bundles import AgentInstances
 
-TOOL = "llm.chat_completions"
+TOOL_CHAT = "llm.chat_completions"
+TOOL_RESPONSES = "llm.responses"
 RUN_HEADER = "x-poseidon-run-id"
+
+
+def _chat_digest_fields(body: dict[str, Any]) -> dict[str, Any]:
+    return {"model": body.get("model"), "messages": len(body.get("messages", []))}
+
+
+def _responses_digest_fields(body: dict[str, Any]) -> dict[str, Any]:
+    # Responses bodies carry `input` (a string or a list of items) instead
+    # of `messages`; digest the item count, never the text.
+    raw = body.get("input")
+    return {
+        "model": body.get("model"),
+        "input": 1 if isinstance(raw, str) else len(raw or []),
+    }
+
+
+def _usage_tokens(usage: dict[str, Any]) -> tuple[int, int]:
+    """Both usage vocabularies onto the ledger's columns: chat completions
+    report prompt/completion tokens, Responses reports input/output."""
+    prompt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    completion = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    return prompt, completion
 
 
 class AuthMiddleware:
@@ -126,6 +149,7 @@ def create_app(
 
     async def emit(
         identity: Identity,
+        tool: str,
         run_id: str,
         workflow: str,
         decision: str,
@@ -139,7 +163,7 @@ def create_app(
             run_id=run_id,
             agent_id=identity.agent_id,
             role=identity.role,
-            tool=TOOL,
+            tool=tool,
             args_digest=digest,
             decision=decision,
             rule=rule,
@@ -161,30 +185,41 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.post("/chat/completions")
-    @app.post("/v1/chat/completions")
-    async def chat_completions(request: Request) -> Any:
+    async def _complete(
+        request: Request,
+        tool: str,
+        upstream_path: str,
+        digest_fields: Any,
+    ) -> Any:
+        """The one pipeline behind every completion surface: attribution,
+        budget, tier routing, forward, meter, audit. The surfaces differ
+        only in the upstream path and in how a body is digested."""
         identity: Identity = request.state.identity
         started = time.monotonic()
         body = await request.json()
         # Digest, never content: audit must not become a leak channel.
         digest = hashlib.sha256(
-            json.dumps(
-                {"model": body.get("model"), "messages": len(body.get("messages", []))},
-                sort_keys=True,
-            ).encode()
+            json.dumps(digest_fields(body), sort_keys=True).encode()
         ).hexdigest()
 
         # -- run attribution (mandatory; anonymous passthrough is gone) ----
         run_id = request.headers.get(RUN_HEADER, "").strip()
         if not run_id:
             await emit(
-                identity, "", "", "deny", "llm_unattributed", digest, started, None
+                identity, tool, "", "", "deny", "llm_unattributed", digest, started, None
             )
             return _error(400, "missing X-Poseidon-Run-Id", "llm_unattributed")
         if identity.lifecycle == LIFECYCLE_EPHEMERAL and identity.run_id != run_id:
             await emit(
-                identity, run_id, "", "deny", "llm_foreign_run", digest, started, None
+                identity,
+                tool,
+                run_id,
+                "",
+                "deny",
+                "llm_foreign_run",
+                digest,
+                started,
+                None,
             )
             return _error(403, "not a participant of this run", "llm_foreign_run")
         run = await asyncio.to_thread(runs.get, run_id)
@@ -192,7 +227,15 @@ def create_app(
             identity.company and run.company and run.company != identity.company
         ):
             await emit(
-                identity, run_id, "", "deny", "llm_unknown_run", digest, started, None
+                identity,
+                tool,
+                run_id,
+                "",
+                "deny",
+                "llm_unknown_run",
+                digest,
+                started,
+                None,
             )
             return _error(
                 403, f"unknown run {run_id!r} for this caller", "llm_unknown_run"
@@ -210,6 +253,7 @@ def create_app(
         if cap > 0 and spent >= cap:
             await emit(
                 identity,
+                tool,
                 run_id,
                 workflow,
                 "deny",
@@ -233,10 +277,11 @@ def create_app(
 
         # -- forward + meter ------------------------------------------------
         try:
-            upstream = await http_client.post("/v1/chat/completions", json=body)
+            upstream = await http_client.post(upstream_path, json=body)
         except httpx.HTTPError as exc:
             await emit(
                 identity,
+                tool,
                 run_id,
                 workflow,
                 "allow",
@@ -249,6 +294,7 @@ def create_app(
         if upstream.status_code != 200:
             await emit(
                 identity,
+                tool,
                 run_id,
                 workflow,
                 "allow",
@@ -260,9 +306,7 @@ def create_app(
             return JSONResponse(upstream.json(), status_code=upstream.status_code)
 
         payload = upstream.json()
-        usage = payload.get("usage") or {}
-        prompt_tokens = int(usage.get("prompt_tokens") or 0)
-        completion_tokens = int(usage.get("completion_tokens") or 0)
+        prompt_tokens, completion_tokens = _usage_tokens(payload.get("usage") or {})
         usd = (prompt_tokens + completion_tokens) / 1000 * settings.price_per_1k_tokens
 
         await asyncio.to_thread(
@@ -278,9 +322,33 @@ def create_app(
             usd=usd,
         )
         await emit(
-            identity, run_id, workflow, "allow", "budget_headroom", digest, started, "ok"
+            identity,
+            tool,
+            run_id,
+            workflow,
+            "allow",
+            "budget_headroom",
+            digest,
+            started,
+            "ok",
         )
         return JSONResponse(payload)
+
+    @app.post("/chat/completions")
+    @app.post("/v1/chat/completions")
+    async def chat_completions(request: Request) -> Any:
+        return await _complete(
+            request, TOOL_CHAT, "/v1/chat/completions", _chat_digest_fields
+        )
+
+    @app.post("/responses")
+    @app.post("/v1/responses")
+    async def responses(request: Request) -> Any:
+        # The OpenAI Responses surface (SDKs auto-select it for models that
+        # list it, e.g. gpt-5*): same chokepoint, different wire shape.
+        return await _complete(
+            request, TOOL_RESPONSES, "/v1/responses", _responses_digest_fields
+        )
 
     app.add_middleware(AuthMiddleware, authenticator=authenticator)
     if registry is not None:
