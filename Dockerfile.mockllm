@@ -32,6 +32,7 @@ RUN pip install --no-cache-dir --no-deps ./packages/mockllm
 RUN useradd --create-home --uid 10001 poseidon
 USER 10001
 
-# The llm-proxy template supplies LiteLLM-shaped args (--model ... --port 4000);
-# the entry point accepts and ignores what it must.
+# The llm-proxy template supplies LiteLLM-shaped args
+# (--model ... --port 4000 --drop_params); the entry point accepts and
+# ignores what it must.
 ENTRYPOINT ["python", "-m", "mockllm"]

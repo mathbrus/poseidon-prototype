@@ -176,7 +176,7 @@ the same trap.
 ## Entry points
 
 ```
-python -m mockllm --model <ignored> --port 4000
+python -m mockllm --model <ignored> --port 4000 --drop_params
 ```
 
 `Dockerfile.mockllm` (repo root). The LiteLLM-shaped args are accepted

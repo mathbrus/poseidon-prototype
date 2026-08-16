@@ -136,7 +136,7 @@ enforcement point stays here.
 The blueprint never names a model. Role templates in the catalog name
 *tiers* — `small`, `standard`, `frontier` — and only the deployment
 knows which concrete model a tier means, via the `TIER_MODELS` JSON
-env (`{"frontier": "gpt-4o", ...}`). The gateway looks up the caller's
+env (`{"frontier": "gpt-5.6-luna", ...}`). The gateway looks up the caller's
 `agent_instances` row, maps its tier, and **overwrites the request's
 model field**. Whatever model the agent asked for is advisory; an agent
 cannot upgrade itself to a more expensive model by asking.

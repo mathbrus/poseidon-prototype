@@ -33,9 +33,11 @@ images:
     tag: "1.19.0"
     pullPolicy: IfNotPresent
   llmProxy:
-    # Pinned to a LiteLLM stable release, not the moving main-stable.
+    # Pinned to a LiteLLM release that knows gpt-5.6-luna (chat completions
+    # + function calling). Tag form is vX.Y.Z; the old main-v*-stable names
+    # are deprecated.
     repository: ghcr.io/berriai/litellm
-    tag: main-v1.83.7-stable
+    tag: v1.95.1
     pullPolicy: IfNotPresent
   orchestrator:
     repository: poseidon-orchestrator
@@ -73,7 +75,7 @@ secrets:
 
 # Run configuration (the C7 subset the in-cluster services need).
 run:
-  model: gpt-4o-mini
+  model: gpt-5.6-luna
   targetRepo: github.com/example-org/example-repo
   baseRef: main
   maxIterations: 10
@@ -91,10 +93,13 @@ orchestrator:
 # tiers; only the deployment knows the concrete models. In mock mode every
 # tier resolves to the mock brain via values-mockllm.yaml.
 llmGateway:
+  # LiteLLM is started in single-model mode (--model run.model), so every
+  # tier must name that same model or the proxy 400s the request. Split
+  # tiers need a LiteLLM model_list, which this chart does not mount.
   tierModels:
-    frontier: gpt-4o
-    standard: gpt-4o-mini
-    small: gpt-4o-mini
+    frontier: gpt-5.6-luna
+    standard: gpt-5.6-luna
+    small: gpt-5.6-luna
   pricePer1kTokens: "0.002"
 
 # Sandbox egress proxy. The allowlist is the applied
