@@ -104,8 +104,17 @@ if [ "$REAL_LLM" != "1" ]; then
   # LiteLLM at its own pinned tag.
   IMAGE_VALUES+=(--set "images.llmProxy.tag=$BUILD_TAG")
 else
-  # Keep in sync with images.llmProxy in deploy/helm/poseidon/values.yaml.
-  LITELLM_IMAGE=ghcr.io/berriai/litellm:v1.95.1
+  # The chart's images.llmProxy values are the single source of truth for
+  # which LiteLLM the cluster runs; read them rather than duplicating the
+  # tag here.
+  VALUES_FILE=deploy/helm/poseidon/values.yaml
+  LITELLM_REPO=$(awk '/^  llmProxy:/{f=1} f && /^    repository:/{gsub(/"/,"",$2); print $2; exit}' "$VALUES_FILE")
+  LITELLM_TAG=$(awk '/^  llmProxy:/{f=1} f && /^    tag:/{gsub(/"/,"",$2); print $2; exit}' "$VALUES_FILE")
+  if [ -z "$LITELLM_REPO" ] || [ -z "$LITELLM_TAG" ]; then
+    echo "error: could not read images.llmProxy from $VALUES_FILE" >&2
+    exit 1
+  fi
+  LITELLM_IMAGE="$LITELLM_REPO:$LITELLM_TAG"
   docker pull "$LITELLM_IMAGE"
   kind load docker-image "$LITELLM_IMAGE" --name "$CLUSTER_NAME"
 fi
