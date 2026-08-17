@@ -1118,8 +1118,8 @@ Five surfaces have no authentication of their own:
 - the **agent's `/task` API**,
 - the **OPA bundle server**,
 - **OPA's own API**,
-- the **Temporal frontend** (and its web UI, which the kind bootstrap
-  deploys alongside it).
+- the **Temporal frontend** (its browsable web UI is opt-in — the kind
+  bootstrap deploys it only with `TEMPORAL_WEB=1`).
 
 The first four are protected by being unreachable: NetworkPolicy admits
 exactly one caller. This is a real reduction in defence in depth compared
@@ -1136,7 +1136,10 @@ own chart and are selected by none of Poseidon's NetworkPolicies. What
 keeps agents away from it is the company namespaces' deny-all envelope,
 not any policy of its own; what keeps humans away is cluster access
 control. On a cluster where the platform namespace is reachable more
-broadly than intended, the merge gate is too.
+broadly than intended, the merge gate is too. The one mitigation taken:
+the browsable UI over this authority no longer ships by default —
+`temporal-web` is deployed only when the bootstrap is run with
+`TEMPORAL_WEB=1`.
 
 </details>
 

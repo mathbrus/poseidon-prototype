@@ -30,6 +30,9 @@ SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 # The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
 # real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
 REAL_LLM=${REAL_LLM:-0}
+# The Temporal web UI is a browsable surface over full operator authority
+# (see README §9); it stays out of the cluster unless explicitly asked for.
+TEMPORAL_WEB=${TEMPORAL_WEB:-0}
 if [ "$REAL_LLM" != "1" ]; then
   LLM_API_KEY=${LLM_API_KEY:-mock-unused}
   MODEL=mock-brain
@@ -176,12 +179,19 @@ echo "==> temporal (chart $TEMPORAL_CHART_VERSION)"
 if ! helm repo list 2>/dev/null | grep -q go.temporal.io; then
   helm repo add temporal https://go.temporal.io/helm-charts
 fi
+TEMPORAL_DEPLOYS=(temporal-frontend temporal-history temporal-matching temporal-worker)
+TEMPORAL_VALUES=()
+if [ "$TEMPORAL_WEB" = "1" ]; then
+  TEMPORAL_VALUES=(--set web.enabled=true)
+  TEMPORAL_DEPLOYS+=(temporal-web)
+fi
 helm upgrade --install temporal temporal/temporal \
   --version "$TEMPORAL_CHART_VERSION" \
   --namespace "$PLATFORM_NS" \
   -f deploy/helm/temporal-values.yaml \
+  "${TEMPORAL_VALUES[@]}" \
   --timeout 15m
-for deploy in temporal-frontend temporal-history temporal-matching temporal-worker temporal-web; do
+for deploy in "${TEMPORAL_DEPLOYS[@]}"; do
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
 done
 kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeout=300s

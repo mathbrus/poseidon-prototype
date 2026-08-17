@@ -50,9 +50,12 @@ server:
         - name: default
           retention: 3d
 
-# The UI and in-cluster CLI are debugging conveniences, not platform surface.
+# The in-cluster CLI is a debugging convenience, not platform surface. The
+# web UI is off by default: anything that reaches the Temporal frontend holds
+# full operator authority, and a browsable UI over it is the cheapest such
+# reach — kind-up.sh re-enables it with TEMPORAL_WEB=1 (--set web.enabled=true).
 web:
-  enabled: true
+  enabled: false
 admintools:
   enabled: true
 
