@@ -340,7 +340,7 @@ def companies() -> InMemoryCompanies:
         COMPANY,
         {
             "namespace": COMPANY_NS,
-            "budgets": {"per_run_usd": 5.0, "per_role_monthly_usd": {}},
+            "budgets": {"per_run_usd": 5.0},
         },
     )
     return store

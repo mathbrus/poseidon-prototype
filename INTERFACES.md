@@ -117,8 +117,8 @@ poseidon blueprint preview BLUEPRINT [--live/--no-live]
 ```
 
 Shows what applying the blueprint would change — instances hired and
-fired, in diff form — plus the budget line: the per-run cap and the
-projected monthly cost. Live diffing is the default here, since a preview
+fired, in diff form — plus the budget line: the per-run cap the LLM
+gateway enforces. Live diffing is the default here, since a preview
 against nothing answers no interesting question.
 
 ### `poseidon blueprint apply`

@@ -1010,8 +1010,6 @@ policies:
 
 budgets:
   per_run: {usd: 5}
-  per_role_monthly:
-    pm: {usd: 50}
 ```
 
 These compile into deny rules evaluated against **real arguments**. Because
@@ -1034,12 +1032,13 @@ recorded outcome rather than a silent hang.
 it produces a distinguishable error, an audit event, an escalation, and an
 API-visible paused state — never silent degradation to a cheaper model.
 
-`per_role_monthly` is an honest contrast worth noticing: the compiler
-validates it (it must name a standing role) and `blueprint preview` reports
-it as the projected monthly cost, but no runtime component enforces it. The
-enforced cap is per-run. One declared budget is a hard stop and the other
-is a projection — the kind of distinction this document exists to keep
-visible.
+It is also the *only* budget field the schema accepts, and that is a
+deliberate deletion rather than a gap. An earlier revision declared a
+`per_role_monthly` cap that the compiler validated and `preview` projected
+— but nothing enforced. In a document whose credibility rests on "declared
+means compiled means enforced," an unenforced field is worse than an
+absent one, so it was removed until a ledger can enforce it. Every budget
+line you can write here is a hard stop.
 
 </details>
 

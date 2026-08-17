@@ -333,12 +333,4 @@ def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
             "budgets.per_run.usd: enabled workflows need a per-run cap "
             "(the LLM gateway hard-stops against it)"
         )
-    monthly = budgets.get("per_role_monthly") or {}
-    hired = _standing_hires(blueprint)
-    for role_name in monthly:
-        if role_name not in hired:
-            problems.append(
-                f"budgets.per_role_monthly.{role_name}: no standing role by "
-                f"that name is hired"
-            )
     return problems

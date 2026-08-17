@@ -93,8 +93,7 @@ def test_existing_agent_ids_are_preserved(blueprint):
     assert pm.agent_id == "pm-original"
 
 
-def test_preview_projects_cost(blueprint):
+def test_preview_reports_the_run_cap(blueprint):
     diff = diff_plan(compile_blueprint(blueprint), EMPTY)
     assert diff.per_run_usd == 5
-    assert diff.projected_monthly_usd == 50  # the lean roster: pm alone
     assert "$5/run" in diff.as_text()

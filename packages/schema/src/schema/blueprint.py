@@ -248,16 +248,6 @@ _BUDGETS = {
             "required": ["usd"],
             "properties": {"usd": {"type": "number", "exclusiveMinimum": 0}},
         },
-        "per_role_monthly": {
-            "type": "object",
-            "additionalProperties": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["usd"],
-                "properties": {"usd": {"type": "number", "exclusiveMinimum": 0}},
-            },
-            "propertyNames": _NAME,
-        },
     },
 }
 

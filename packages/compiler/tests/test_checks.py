@@ -113,11 +113,6 @@ def test_enabled_workflows_need_a_run_budget(blueprint):
     assert any("per_run" in p for p in problems_of(blueprint))
 
 
-def test_monthly_budget_for_an_unhired_role_is_caught(blueprint):
-    blueprint["budgets"]["per_role_monthly"]["sdet"] = {"usd": 10}
-    assert any("sdet" in p for p in problems_of(blueprint))
-
-
 def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
     """The PM cannot call git.open_pr, yet the crew it spawns may.
     Dropping ⊆-parent is deliberate — spawn authority is not a

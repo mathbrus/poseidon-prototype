@@ -132,7 +132,7 @@ def stores():
         COMPANY,
         {
             "namespace": COMPANY,
-            "budgets": {"per_run_usd": 5.0, "per_role_monthly_usd": {}},
+            "budgets": {"per_run_usd": 5.0},
         },
     )
     return audit, ledger, runs, instances, participants, companies

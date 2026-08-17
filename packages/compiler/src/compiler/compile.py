@@ -215,11 +215,6 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
 
 def _budgets(blueprint: dict[str, Any]) -> BudgetRegistration:
     budgets = blueprint.get("budgets") or {}
-    monthly = {
-        role: float(cap["usd"])
-        for role, cap in sorted((budgets.get("per_role_monthly") or {}).items())
-    }
     return BudgetRegistration(
         per_run_usd=float((budgets.get("per_run") or {}).get("usd", 0)),
-        per_role_monthly_usd=monthly,
     )

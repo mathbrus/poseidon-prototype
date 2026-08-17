@@ -25,7 +25,6 @@ class InstanceChange:
 class PlanDiff:
     company: str
     changes: list[InstanceChange] = field(default_factory=list)
-    projected_monthly_usd: float = 0.0
     per_run_usd: float = 0.0
 
     @property
@@ -42,11 +41,7 @@ class PlanDiff:
                 lines.append(f"  {mark} {change.agent_id}")
                 lines.extend(f"      {detail}" for detail in change.details)
             head = "\n".join(lines)
-        return (
-            f"{head}\n"
-            f"  budget: ${self.per_run_usd:g}/run, "
-            f"${self.projected_monthly_usd:g}/month projected"
-        )
+        return f"{head}\n  budget: ${self.per_run_usd:g}/run"
 
 
 def diff_plan(plan: DeploymentPlan, snapshot: RegistrySnapshot) -> PlanDiff:
@@ -54,7 +49,6 @@ def diff_plan(plan: DeploymentPlan, snapshot: RegistrySnapshot) -> PlanDiff:
     result = PlanDiff(
         company=company,
         per_run_usd=plan.budgets.per_run_usd,
-        projected_monthly_usd=sum(plan.budgets.per_role_monthly_usd.values()),
     )
 
     planned = {instance.agent_id: instance for instance in plan.instances}
