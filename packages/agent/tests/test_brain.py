@@ -263,11 +263,11 @@ def test_failing_tests_loop_back_with_report_until_iteration_cap(settings, gatew
     assert "1 failed: test_hello" in report
 
 
-# --- deny path (E2 recovery) ----------------------------------------------------
+# --- deny path (deny-and-recover) -----------------------------------------------
 
 
 def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(settings, gateway):
-    """E2 in the deliver dispatch: the deny (with the rule name) feeds back
+    """Injection recovery in the deliver dispatch: the deny (with the rule name) feeds back
     and the model recovers onto feature/*."""
     llm = ScriptedLLM(
         [

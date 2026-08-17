@@ -38,7 +38,7 @@ def test_converged_company_shows_no_changes(blueprint):
 
 
 def test_a_small_edit_shows_a_minimal_diff(blueprint):
-    """The done-when: change one field, see one line."""
+    """Change one field, see one line."""
     snapshot = live(("pm", "pm", "standard"))
     blueprint["departments"]["roles"]["pm"]["model_tier"] = "frontier"
     diff = diff_plan(compile_blueprint(blueprint, snapshot=snapshot), snapshot)

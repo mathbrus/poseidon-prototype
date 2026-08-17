@@ -1,4 +1,4 @@
-"""S7 app tests: the C6 HTTP surface with an injected task runner."""
+"""The dispatch HTTP surface with an injected task runner."""
 
 import asyncio
 

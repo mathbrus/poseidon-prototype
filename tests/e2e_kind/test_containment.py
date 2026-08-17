@@ -1,4 +1,4 @@
-"""E3 on the cluster, adapted to NetworkPolicy + the egress
+"""Containment on the cluster, adapted to NetworkPolicy + the egress
 proxy: from inside the agent pod only the two gateways answer; no pod in the
 company namespace carries a credential-shaped env var. The sandbox half —
 egress only through the audited proxy, silent NetworkPolicy backstop — is

@@ -1,5 +1,5 @@
 """Activity-side clients: the gateway (MCP + admin endpoint, the worker's
-projected identity token) and the agent's C6 HTTP API. Thin by design —
+projected identity token) and the agent's dispatch HTTP API. Thin by design —
 process-level retries, timeouts and cancellation belong to the workflow,
 not here."""
 
@@ -187,7 +187,7 @@ class GatewayClient:
 
 
 class AgentClient:
-    """The agent's C6 endpoints: dispatch a task, poll its status."""
+    """The agent's dispatch endpoints: dispatch a task, poll its status."""
 
     def __init__(self, url: str) -> None:
         self._http = httpx.AsyncClient(base_url=url.rstrip("/"), timeout=30.0)
@@ -207,7 +207,7 @@ class AgentClient:
         """Idempotent under retry: 409 means the agent already has the run
         (a previous attempt dispatched it before the worker died) — the
         caller proceeds to polling either way. Mode `plan` runs the
-        read-only planner (step 16d) on the planner's own brain host; no
+        read-only planner on the planner's own brain host; no
         credential rides the dispatch — every pod holds its own projected
         token."""
         payload: dict[str, Any] = {"run_id": run_id, "task_text": task_text, "mode": mode}

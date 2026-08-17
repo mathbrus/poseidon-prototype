@@ -1,4 +1,4 @@
-"""Steps 16a + 16b done-when, on the live cluster: a bound ephemeral
+"""Ephemeral identity on the live cluster: a bound ephemeral
 identity — a per-run ServiceAccount whose projected token round-trips the
 real TokenReview path — calls the gateway successfully; a foreign `run_id`
 claim from the same *live* identity is policy-denied; the same call after
@@ -113,7 +113,7 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
         )
         crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
         runs = Runs(registry)
-        runs.start(run_id, "16a identity contract", "implement", None, "hello-saas")
+        runs.start(run_id, "identity contract", "implement", None, "hello-saas")
         sa_name = None
         try:
             bound = asyncio.run(
@@ -160,7 +160,7 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
             assert "denied by policy" not in text, text
             assert "no sandbox registered" in text
 
-            # A foreign run_id claim from a *live* participant (16b): authn
+            # A foreign run_id claim from a *live* participant: authn
             # passes — the row is alive — but the enrichment binds the
             # identity to exactly one run, so policy fails it closed.
             foreign = _call(
@@ -254,7 +254,7 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
             "role": "backend-engineer",
             "crew_template": "feature-delivery",
             "crew_role": "executor",
-            "run_id": "run-16b",
+            "run_id": "run-binding-check",
             "workflow": "implement",
             "tool": "sandbox.exec",
             "args": {},

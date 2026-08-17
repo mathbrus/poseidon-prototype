@@ -13,10 +13,10 @@ credential is the projected token the kubelet mounts, so no credential
 ever rides workflow history or a pod env. Destroy deletes by the
 run+kind label selector.
 
-Everything emits `process-lifecycle` audit events onto the step-13
+Everything emits `process-lifecycle` audit events onto the shared audit
 ingestion contract, so a run's story shows who was bound, provisioned,
-revoked and destroyed, when, under whose authority. Step 16d composes
-these into the fulfill orchestration; nothing here dispatches work.
+revoked and destroyed, when, under whose authority. `fulfill_crew` composes
+these into the fulfill orchestration; nothing else here dispatches work.
 """
 
 import asyncio
@@ -184,7 +184,7 @@ class CrewActivities:
             "MAX_ITERATIONS": str(self._settings.max_iterations),
             "GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token",
         }
-        # The step-23 race guard. `add` above refuses to revive a revoked
+        # The teardown race guard. `add` above refuses to revive a revoked
         # row, which stops a retry that begins after teardown's sweep; this
         # catches the rest — above all a retry still in flight while the
         # run ends, which is what leaked pods in practice.
@@ -248,7 +248,7 @@ class CrewActivities:
     @activity.defn(name="destroy_crew_pods")
     async def destroy_crew_pods(self, run_id: str) -> list[str]:
         """Delete the run's crew pods — by the {run_id, kind} label
-        selector only (the 16c bound). Idempotent; audited per pod. With no
+        selector only — the provisioner's bound. Idempotent; audited per pod. With no
         provisioner configured nothing could ever have been provisioned, so
         compensation is honestly a no-op."""
         if self._provisioner is None:

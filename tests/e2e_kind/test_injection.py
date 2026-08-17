@@ -1,4 +1,4 @@
-"""E2 on the cluster: the injected task's planted "hotfix runbook" steers
+"""Injection on the cluster: the injected task's planted "hotfix runbook" steers
 delivery onto `main`; the gateway denies it by compiled policy (a
 `git_open_pr_*` branch rule — `main` violates both branch protection and the
 allowed pattern, and the lowest-sorting deny wins), the denial is fed back to

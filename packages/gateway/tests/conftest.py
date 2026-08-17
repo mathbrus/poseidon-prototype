@@ -3,7 +3,7 @@ GitHub API behind one httpx.MockTransport, the real MCP app served over an
 in-process ASGI transport, and a local bare git repo standing in for
 TARGET_REPO (real git subprocesses, no network).
 
-Since the step-12 cutover the OPA stub mirrors the *compiled* policy shape:
+The OPA stub mirrors the *compiled* policy shape:
 per-company and platform decision paths, role rules keyed on
 lifecycle+company+role, run binding read from the enriched input — and the
 test tokens resolve through a fake TokenReview (workload identity), because
@@ -136,7 +136,7 @@ class Backends:
                 "feature-delivery",
                 "feature-review",
             ):
-                # The compiled cap and budget denies (step 16d), reading
+                # The compiled cap and budget denies, reading
                 # the enriched input exactly like the real bundle.
                 if policy_input.get("active_spawns", 0) >= 2:
                     return {"allow": False, "rule": "crew_request_over_cap"}
@@ -201,7 +201,7 @@ class Backends:
 
     @staticmethod
     def _github(request: httpx.Request, payload: dict) -> httpx.Response:
-        """Canned GitHub REST answers for the step-15 surface."""
+        """Canned GitHub REST answers for the tool surface."""
         path, method = request.url.path, request.method
 
         def issue(number: int = 7, **overrides) -> dict:

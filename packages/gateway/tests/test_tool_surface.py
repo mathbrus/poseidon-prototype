@@ -1,4 +1,4 @@
-"""The step-15 tool surface through the full gateway pipeline: each new
+"""The whole tool surface through the full gateway pipeline: each
 tool callable by its authorized role and denied (audited) for every other,
 `git.merge_pr` restricted to the platform lifecycle, and `crew.request`
 recording idempotent spawn intent under the conductor identity."""
@@ -239,7 +239,7 @@ async def test_engineer_cannot_request_crews(app, crew_requests):
 async def test_over_cap_crew_request_is_denied_and_audited(
     app, participants, crew_requests, audit
 ):
-    """16d: the conductor's live spawn count rides the decision input and
+    """The conductor's live spawn count rides the decision input and
     the compiled cap denies by rule — a first-class governance event."""
     participants.add("fd-planner-a", "run-a", "pm-1", "feature-delivery", "planner")
     participants.add("fr-reviewer-b", "run-b", "pm-1", "feature-review", "reviewer")

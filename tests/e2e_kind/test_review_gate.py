@@ -1,4 +1,4 @@
-"""Step 20 done-when, on the live cluster: the full chain — intake tickets,
+"""Review on the live cluster: the full chain — intake tickets,
 implement PR, reviewer findings posted, merge gate parked, timer escalation
 observable, API approval, gateway merge — every step correlated by run_id
 in one audit story (MVP exit criterion 3).

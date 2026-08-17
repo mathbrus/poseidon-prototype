@@ -1,4 +1,4 @@
-"""E1 through Temporal: the implement workflow runs end-to-end on kind —
+"""The happy path through Temporal: the implement workflow runs end-to-end on kind —
 agent iterating in a sandbox, real PR on a `feature/*` branch — while the
 orchestrator worker is killed mid-run. Green here proves the happy path
 holds under a worker restart: the restarted worker resumes the workflow,

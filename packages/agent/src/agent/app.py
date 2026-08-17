@@ -1,13 +1,12 @@
-"""Agent HTTP API — contract C6.
+"""The agent's dispatch HTTP API.
 
-POST /task {run_id, task_text, mode?, gateway_token?} -> 202, runs the
+POST /task {run_id, task_text, mode?} -> 202, runs the
 dispatch in a background task (one concurrent run per host);
 GET /task/{run_id} -> {status, pr_url, iterations, error, brief}.
 
 Mode `plan` runs the read-only planner and finishes with
-`brief`; the optional per-dispatch `gateway_token` is how the planner acts
-under its own minted identity while borrowing this brain host
-(the planner gets no pod of its own).
+`brief`; like every mode it acts under the pod's own projected token —
+each crew member runs on its own brain host.
 
 Run with: uvicorn --factory agent.app:create_app
 """

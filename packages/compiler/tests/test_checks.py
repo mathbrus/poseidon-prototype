@@ -22,7 +22,7 @@ def test_workflow_needs_a_hired_conductor(blueprint):
         p for p in problems_of(blueprint) if "conductor" in p and "implement" in p
     ]
     # Two independent guards agree: the general hired-conductor check and
-    # the step-19 spawner-only rule.
+    # the spawner-only rule.
     assert any("not a hired standing role" in p for p in problems)
     assert any("not a hired spawner" in p for p in problems)
 

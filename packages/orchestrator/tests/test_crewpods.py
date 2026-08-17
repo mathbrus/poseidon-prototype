@@ -1,4 +1,4 @@
-"""The 16c surface without a cluster: the pod manifest's containment
+"""The provisioner surface without a cluster: the pod manifest's containment
 posture, and the provision/destroy activities' binding, audit, and
 label-selector discipline (via a fake provisioner)."""
 
@@ -90,7 +90,7 @@ class FakeProvisioner:
     ):
         from orchestrator.crewpods import CrewPodAbandoned, CrewPodHandle
 
-        # Mirrors the real provisioner's step-23 contract: the caller's
+        # Mirrors the real provisioner's race-guard contract: the caller's
         # verdict is consulted immediately before creation, never earlier.
         # A double that skipped it could not catch a guard that stopped
         # being wired up.
@@ -191,7 +191,7 @@ def test_provision_without_a_provisioner_fails_closed(settings, stores):
     assert participants.rows == {}
 
 
-# -- fulfill_crew (the 16d composition) --------------------------------------
+# -- fulfill_crew (the fulfillment composition) ------------------------------
 
 
 class FakePlanHost:

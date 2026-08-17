@@ -49,7 +49,7 @@ def test_connect_failure_raises_gateway_error_fast(monkeypatch):
 
 
 def test_unexpected_stream_arity_fails_cleanly(monkeypatch):
-    """The step-6 incident: a transport yielding a different tuple shape
+    """A past incident: a transport yielding a different tuple shape
     must surface as a plain gateway error, not as an anyio cancel-scope
     crash from whatever task the generator is finalized on."""
     connect(monkeypatch, transport(yields=("read", "write")))

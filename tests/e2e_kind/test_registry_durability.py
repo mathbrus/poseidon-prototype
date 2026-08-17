@@ -1,4 +1,4 @@
-"""Step-8 done-when on the live cluster: a run record and its sandbox
+"""Registry durability on the live cluster: a run record and its sandbox
 registration survive a gateway restart mid-run.
 
 Before the registry, the gateway held sandbox addresses in a process-local

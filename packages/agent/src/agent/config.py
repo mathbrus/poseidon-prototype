@@ -1,4 +1,4 @@
-"""Agent settings: the C7 subset the backend-engineer agent needs.
+"""Agent settings: the env subset the brain host needs.
 
 No secret ever reaches this container: the gateway credential is the
 kubelet-rotated projected token file, the LLM provider key

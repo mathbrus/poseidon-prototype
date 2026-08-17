@@ -9,7 +9,7 @@ cluster deployed with REAL_LLM=1 spends provider tokens.
 Runs go through Temporal: the suite starts the implement
 workflow as a thin client (exactly what `poseidon run` does), and the
 in-cluster orchestrator worker drives the activities. Mid-run, the worker
-pod is killed — the E1 assertions double as the step-3 crash-resume proof.
+pod is killed — the happy-path assertions double as the crash-resume proof.
 
 Run explicitly (excluded from plain `pytest`):
 
@@ -153,7 +153,7 @@ def sandbox_image() -> str:
     read from the worker deployment. Never hardcode `poseidon-sandbox`: the
     bare name means `:latest`, which only ever existed on clusters that
     predate content-addressed tags — a fresh cluster has no such image and
-    the pod dies in ImagePullBackOff (the step-6 stale-`:latest` trap)."""
+    the pod dies in ImagePullBackOff (the stale-`:latest` trap)."""
     proc = subprocess.run(
         [
             "kubectl",
@@ -176,7 +176,7 @@ def sandbox_image() -> str:
 
 def restart_gateway() -> None:
     """Delete the gateway pod and wait for its replacement to be Ready —
-    the step-8 done-when: a run's sandbox registration must survive it."""
+    the durability contract: a run's sandbox registration must survive it."""
     subprocess.run(
         [
             "kubectl",
@@ -340,7 +340,7 @@ async def _execute_implement(
     address: str, run_id: str, task_text: str, kill_worker: bool, timeouts
 ) -> dict:
     """Start implement exactly as `poseidon run` does; optionally kill the
-    worker once the sandbox exists (the step-3 crash-resume proof), then
+    worker once the sandbox exists (the crash-resume proof), then
     await the result."""
     client = await Client.connect(address)
     handle = await client.start_workflow(
@@ -385,13 +385,13 @@ def run_implement(task_file: str, kill_worker: bool, env: dict[str, str]) -> dic
 
 @pytest.fixture(scope="session")
 def implement_run(stack: None, env: dict[str, str]) -> dict:
-    """E1: the happy-path run, with the worker killed mid-run."""
+    """The happy-path run, with the worker killed mid-run."""
     return run_implement("task-happy.md", kill_worker=True, env=env)
 
 
 @pytest.fixture(scope="session")
 def injected_run(stack: None, env: dict[str, str]) -> dict:
-    """E2: the injected task — the planted 'hotfix runbook' steers delivery
+    """The injected task — the planted 'hotfix runbook' steers delivery
     onto `main`, the gateway denies it, the brain recovers onto feature/*."""
     return run_implement("task-injected.md", kill_worker=False, env=env)
 

@@ -1,4 +1,4 @@
-"""Step 18 done-when, on the live cluster: a goal becomes GitHub issues
+"""Intake on the live cluster: a goal becomes GitHub issues
 plus a recorded `crew_requests` row under the PM's authority; the runs row
 links the tickets; and the PM's tool calls appear in the audit story under
 the run's `run_id`. Started exactly as `poseidon run --workflow intake`

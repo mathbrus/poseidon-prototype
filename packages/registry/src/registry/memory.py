@@ -238,7 +238,7 @@ class InMemoryAgentInstances:
 
 class InMemoryRunParticipants:
     """Live ephemeral identities; `active` goes dark on termination — the
-    behaviour the revocation-before-TTL criterion rides on."""
+    behaviour immediate revocation rides on."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}

@@ -13,12 +13,12 @@ Where each criterion is proven:
                   compile's content-addressed revision == the served one)
   2 durable       test_happy_path (kill-worker resume), test_temporal,
                   test_registry_durability, test_crew_fulfillment
-                  (worker-kill crew sweep); HERE: the killed E1 run itself
+                  (worker-kill crew sweep); HERE: the killed happy-path run itself
                   leaked no participant row, no crew pod, no registration
   3 SDLC          test_intake + test_review_gate (intake → implement →
                   review with parked gate, escalation, API approval,
                   platform merge)
-  4 governance    test_injection (E2 on compiled policy), test_governance,
+  4 governance    test_injection (injection vs compiled policy), test_governance,
                   test_injected_conductor, test_egress, test_containment,
                   test_redteam; HERE: all five audit sources are real in
                   this suite execution — nothing seeded
@@ -157,7 +157,8 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
 
 
 def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
-    """E1 kills the worker mid-run; earlier modules assert the *sandbox*
+    """The happy-path fixture kills the worker mid-run; earlier modules
+    assert the *sandbox*
     leaked nothing and prove the crew sweep on a separate run. Here the
     clause is closed on the killed run itself: its participant rows
     are terminated, its crew pod is gone, its sandbox registration is
@@ -253,7 +254,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
         )
         crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
         Runs(registry).start(
-            run_id, "step 25 executor scope check", "implement", None, "hello-saas"
+            run_id, "executor scope check", "implement", None, "hello-saas"
         )
         sa_name = None
         try:

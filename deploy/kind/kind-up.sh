@@ -247,7 +247,7 @@ if [ "$code" != "401" ]; then
   echo "error: gateway answered $code, expected 401 without a token" >&2
   exit 1
 fi
-# Standing agents have no NodePort since step 10: they are reached in-cluster
+# Standing agents have no NodePort: they are reached in-cluster
 # by the orchestrator, and the operator gives each hire its own Service.
 
 echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}"

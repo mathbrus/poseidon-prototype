@@ -1,13 +1,13 @@
-"""Step 10 done-when — and, since the step-12 cutover, the full revocation
-claim: the declarative company lifecycle on kind.
+"""The declarative company lifecycle on kind, and the full revocation
+claim.
 
 apply converges a live company (namespace, RBAC, roster, served bundle);
 a blueprint edit converges as a rollout with no manual steps; deleting the
 Company revokes — namespace gone, bundle 404, a restarted OPA activates
 nothing for the company, and a credential that worked before the teardown
-is refused at the gateway afterwards (the post-teardown denial that was
-deliberately unclaimable at step 10, when the gateway still queried the
-file-loaded poc.rego).
+is refused at the gateway afterwards (a post-teardown denial that only
+became claimable once the gateway queried compiled bundles rather than a
+file-loaded policy).
 
 The module finalizer always re-applies `examples/hello-saas.yaml` and waits
 for convergence, so the rest of the suite finds a healthy company whether
@@ -167,7 +167,7 @@ def test_apply_converges_the_company(stack: None):
     kubectl("-n", COMPANY_NS, "get", "role", "sandbox-provisioner")
     kubectl("-n", COMPANY_NS, "get", "rolebinding", "sandbox-provisioner")
 
-    # The step-19 firing diff, converged: exactly one standing AgentInstance
+    # The firing diff, converged: exactly one standing AgentInstance
     # (the PM conductor) — execution is ephemeral crews, so no standing
     # engineer exists to converge.
     instances = kubectl(
@@ -209,7 +209,7 @@ def test_apply_converges_the_company(stack: None):
 
 
 def test_opa_activated_both_bundles(stack: None):
-    """Compiled bundles are the only served policy (step 12): the company
+    """Compiled bundles are the only served policy: the company
     bundle under its own package, the platform bundle under the reserved
     key — disjoint roots, both active, default-deny entrypoints."""
     revision = bundle_revision_from_cr()
@@ -332,10 +332,10 @@ def test_company_delete_revokes(stack: None, env: dict):
         ).json()
         assert "result" in platform
 
-    # And at the gateway (claimable since step 12): the fired agent's
+    # And at the gateway: the fired agent's
     # ServiceAccount and instance row died with the namespace, so the
     # pre-teardown token is refused once the gateway's short authn cache
-    # (60s) drains — a failed post-teardown call, per the step-10 done-when.
+    # (60s) drains — a failed post-teardown call, as the lifecycle demands.
     deadline = time.monotonic() + 120
     while True:
         after = httpx.get(

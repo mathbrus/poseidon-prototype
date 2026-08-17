@@ -1,4 +1,4 @@
-"""Step 16c done-when, on the live cluster: a crew pod round-trips; RBAC
+"""Crew pods on the live cluster: a crew pod round-trips; RBAC
 provably denies pod creation in the platform namespace; and destruction
 goes through the {run_id, kind} label selector — an unlabeled pod in the
 same namespace survives the sweep.
@@ -115,7 +115,7 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
             AuditStore(registry),
             CrewPodProvisioner(COMPANY_NS),
         )
-        Runs(registry).start(run_id, "16c pod contract", "implement", None, "hello-saas")
+        Runs(registry).start(run_id, "crew pod contract", "implement", None, "hello-saas")
         # An unlabeled bystander in the same namespace: the destroy
         # selector must never touch it.
         subprocess.run(

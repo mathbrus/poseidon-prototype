@@ -155,7 +155,7 @@ def test_service_targets_the_hire():
 
 
 def test_spec_edits_change_the_pod_template():
-    """The step-10 done-when: a blueprint edit (model tier, tool scope) must
+    """The reconciliation contract: a blueprint edit (model tier, tool scope) must
     converge as a rollout, so the spec's tier and tools ride the template."""
     small = resources.agent_deployment({**SPEC, "modelTier": "small"}, "hello-saas")
     frontier = resources.agent_deployment({**SPEC, "modelTier": "frontier"}, "hello-saas")

@@ -214,7 +214,7 @@ class CrewPodProvisioner:
         name = pod_name(agent_id)
         if self._delete_pod(name):
             self._log.info("removed remnant crew pod", extra={"pod": name})
-        # The step-23 guard has to be evaluated *here*, not by the caller
+        # The teardown race guard has to be evaluated *here*, not by the caller
         # before it calls us: removing a remnant waits for that pod to
         # actually terminate, which measured 31 seconds in the failure
         # this closes — ample time for the run's teardown to sweep past a

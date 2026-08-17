@@ -93,7 +93,7 @@ def test_record_artifacts_accumulates(registry: Registry):
 
 
 def test_registration_survives_a_new_accessor(registry: Registry):
-    """The done-when behind resolution row 16: the address outlives the
+    """The durability contract: the address outlives the
     process that recorded it, so a gateway restart mid-run is survivable."""
     SandboxRegistrations(registry).register(
         RUN_ID, "http://10.0.0.1:8000", namespace="hello-saas", job_name="sbx"
@@ -398,7 +398,7 @@ def test_crew_request_is_idempotent_and_expiring(registry: Registry):
 
 
 def test_participant_bind_is_retry_safe_and_sweepable(registry: Registry):
-    """16a contract: a retried bind (same deterministic agent_id) converges
+    """A retried bind (same deterministic agent_id) converges
     on the same row; the per-run sweep revokes every live participant at
     once and reports who it swept."""
     from registry.participants import RunParticipants
@@ -462,9 +462,7 @@ def test_participant_row_resolves_by_service_account(registry: Registry):
         assert row["namespace"] == "hello-saas"
 
         participants.terminate("feature-delivery-executor-X")
-        assert (
-            participants.by_service_account("crew-feature-delivery-executor-x") is None
-        )
+        assert participants.by_service_account("crew-feature-delivery-executor-x") is None
     finally:
         registry.execute(
             "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
@@ -472,7 +470,7 @@ def test_participant_row_resolves_by_service_account(registry: Registry):
 
 
 def test_crew_request_consume_and_spawn_count(registry: Registry):
-    """16d: consume claims a recorded, unexpired request exactly once (the
+    """Consume claims a recorded, unexpired request exactly once (the
     fulfilling run may re-claim its own after a crash); the spawn count is
     distinct live {run, crew} pairs per conductor."""
     from registry.crews import CrewRequests

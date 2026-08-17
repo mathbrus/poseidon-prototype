@@ -248,7 +248,7 @@ class ImplementActivities:
         was provisioned), retire its registration, and write the honest
         terminal run record, which is also the workflow's result."""
         log = self._log.bind(run_id=run_id)
-        # Handle-independent on purpose: at 16d bind precedes provision, so
+        # Handle-independent on purpose: bind precedes provision, so
         # participants can exist even when no sandbox ever did.
         if self._crew is not None:
             try:

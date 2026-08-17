@@ -173,7 +173,7 @@ async def test_rejects_default_to_the_mcp_gateway_source(authenticator, audit):
 
 
 async def test_same_sa_name_in_another_namespace_is_rejected(authenticator, audit):
-    """The step-11 done-when: a token from the wrong namespace is refused
+    """The anti-impersonation contract: a token from the wrong namespace is refused
     even when the ServiceAccount name matches a real instance."""
     assert await authenticator.authenticate("Bearer sa-impostor", "/mcp") is None
     assert rules(audit) == ["authn_namespace_mismatch"]
