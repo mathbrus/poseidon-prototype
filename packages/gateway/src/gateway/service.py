@@ -203,8 +203,7 @@ class GatewayService:
 
         Wrong, stale or revoked `run_id` claims resolve to
         `run_binding_verified: false`, and every run-scoped compiled rule
-        requires the flag — so they fail closed at the policy layer, exactly
-        where `data.runs.assignments` used to catch them.
+        requires the flag — so they fail closed at the policy layer.
         """
         registration = run_row = None
         if run_id:

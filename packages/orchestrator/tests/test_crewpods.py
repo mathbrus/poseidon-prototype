@@ -509,12 +509,11 @@ def test_crew_pod_runs_non_root_with_no_escalation_path():
 
 
 def test_a_run_torn_down_mid_provision_gets_no_pod(settings, stores):
-    """The timing that actually matters: the guard is
-    consulted by the provisioner immediately before creation, not by the
-    activity beforehand. Removing a remnant pod waits for it to terminate
-    (31 s, measured), and a verdict taken before that wait is stale by the
-    time the pod is born — which is how crew pods came to outlive their
-    runs. Here the run is torn down *during* provisioning: no pod."""
+    """The timing that matters: the guard is consulted by the provisioner
+    immediately before creation, not by the activity beforehand — a
+    verdict taken before the remnant-deletion wait is stale by the time
+    the pod is born. Here the run is torn down *during* provisioning:
+    no pod."""
     from orchestrator.crewpods import CrewPodAbandoned
 
     participants, audit = stores

@@ -95,10 +95,7 @@ def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
     """Same rule as the CI image gate, with no exceptions: nothing
     *_TOKEN/*_KEY in any company pod (every agent's credential — standing
     or crew — is a projected token file, not an env var); GPG_KEY only if
-    blanked (the chart empties the python base image's baked-in value).
-    Crew pods used to be the one exemption, carrying a minted JWT as
-    GATEWAY_TOKEN; per-run ServiceAccounts removed it, so the assertion
-    is now unconditional — strictly stronger."""
+    blanked (the chart empties the python base image's baked-in value)."""
     listing = subprocess.run(
         [
             "kubectl",

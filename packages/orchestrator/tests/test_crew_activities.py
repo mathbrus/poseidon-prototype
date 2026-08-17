@@ -61,8 +61,8 @@ def test_bind_writes_the_whole_identity_row(crew, participants, audit):
     assert bound["service_account"] == service_account_name(expected_id)
 
     # The row is what the gateways verify against — the whole identity:
-    # crew coordinates for the compiled crew rules, plus the company,
-    # catalog template and namespace that used to ride JWT claims.
+    # crew coordinates for the compiled crew rules, plus company, catalog
+    # template and namespace.
     row = participants.active(expected_id)
     assert row["run_id"] == RUN_ID
     assert row["parent_agent_id"] == "pm-1"

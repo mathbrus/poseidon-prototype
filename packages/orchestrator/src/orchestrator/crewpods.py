@@ -1,28 +1,25 @@
 """The ephemeral runtime provisioner.
 
-The orchestrator's bounded Kubernetes surface for crew pods — designed,
-not improvised: it creates and deletes **pods and their per-run
-ServiceAccounts only**, in the **company namespace only**, and every
-delete goes through the `{run_id, kind=crew-agent}` label selector, so
-nothing unlabeled (and no sandbox pod sharing the run label) can ever be
-touched. Standing structure stays operator-owned: no Deployments, no
-Services, no CRs. The matching Role rules live in
-`poseidon_operator.resources.sandbox_provisioner_role` — a review
-artifact.
+The orchestrator's bounded Kubernetes surface for crew pods: it creates
+and deletes **pods and their per-run ServiceAccounts only**, in the
+**company namespace only**, and every delete goes through the
+`{run_id, kind=crew-agent}` label selector, so nothing unlabeled (and no
+sandbox pod sharing the run label) can ever be touched. Standing
+structure stays operator-owned: no Deployments, no Services, no CRs. The
+matching Role rules live in
+`poseidon_operator.resources.sandbox_provisioner_role`.
 
 A crew pod is one crew member's brain host: the same agent image a
 standing hire runs, labeled to its run. Every member gets its own pod —
 one principal, one pod, one ServiceAccount — and its credential is the
 audience-scoped projected token the kubelet mounts and rotates, exactly
-the standing-agent posture. No token-shaped env var exists in the pod;
-the gateway resolves the SA name to the member's live `run_participants`
-row. All members share the run's single sandbox through the gateway.
+the standing-agent posture. The gateway resolves the SA name to the
+member's live `run_participants` row. All members share the run's single
+sandbox through the gateway.
 
-Leak story: an orphaned ServiceAccount (a worker dying between teardown
-steps) is inert — its projected tokens die with the pod, and the
-participants row it maps to is revoked by the run's compensation sweep.
-The Temporal teardown anchor collects both; `activeDeadlineSeconds`
-backstops the pod.
+An orphaned ServiceAccount (a worker dying between teardown steps) is
+inert: its projected tokens die with the pod, and the participants row
+it maps to is revoked by the run's compensation sweep.
 """
 
 import time
@@ -63,11 +60,8 @@ DELETE_TIMEOUT_S = 120
 
 def pod_name(agent_id: str) -> str:
     # Lowercased: agent ids embed uppercase ULIDs, pod names are RFC 1123.
-    # The member's ServiceAccount shares this name (one principal, one pod,
-    # one SA). Lowercasing is not invertible, so the SA-name -> agent_id
-    # mapping is *persisted* on the participants row rather than derived:
-    # the gateway looks the row up by this name and reads the canonical
-    # agent_id from it.
+    # Not invertible, so the participants row persists the SA-name ->
+    # agent_id mapping rather than deriving it.
     return f"crew-{agent_id}".lower()[:63].rstrip("-")
 
 
@@ -94,12 +88,9 @@ def crew_pod_manifest(
     the operator's company NetworkPolicies select (gateways-only egress,
     orchestrator-only ingress) and what the destroy selector requires.
 
-    `activeDeadlineSeconds` is the backstop under the teardown race guard,
-    the same device sandboxes use: the guard refuses to provision
-    for a run whose teardown has passed, but a pod created in the last
-    instant before that becomes true has no owner left to collect it. A
-    wall-clock deadline means an orphan stops burning compute on its own
-    instead of living until someone notices.
+    `activeDeadlineSeconds` backstops the teardown race guard: a pod
+    created in the last instant before its run's teardown has no owner
+    left to collect it, so it must stop on its own clock.
     """
     labels = {
         KIND_LABEL: CREW_KIND,
@@ -214,12 +205,10 @@ class CrewPodProvisioner:
         name = pod_name(agent_id)
         if self._delete_pod(name):
             self._log.info("removed remnant crew pod", extra={"pod": name})
-        # The teardown race guard has to be evaluated *here*, not by the caller
-        # before it calls us: removing a remnant waits for that pod to
-        # actually terminate, which measured 31 seconds in the failure
-        # this closes — ample time for the run's teardown to sweep past a
-        # check made beforehand, leaving the pod we are about to create
-        # with nothing left to collect it.
+        # The teardown race guard has to be evaluated *here*, not by the
+        # caller before it calls us: removing a remnant waits for that pod
+        # to actually terminate — long enough for the run's teardown to
+        # sweep past a check made beforehand.
         if still_wanted is not None and not still_wanted():
             raise CrewPodAbandoned(
                 f"run {run_id} was torn down before {name} could be created"

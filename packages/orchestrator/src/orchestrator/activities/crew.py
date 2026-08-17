@@ -162,12 +162,9 @@ class CrewActivities:
         mounts — nothing token-shaped enters the env or workflow history.
 
         spec: {run_id, company, crew_template, member, role_template,
-        parent_agent_id}. The participants row must already exist (the
-        bind activity); re-asserting it here lets a retry after a crash
-        converge on the same identity. A retry that lost the race with its
-        run's teardown raises `ParticipantRevoked` instead — revocation is
-        final, and a pod created past that point would hold
-        a revoked identity with nothing left to collect it.
+        parent_agent_id}. Re-asserting the binding row lets a retry after
+        a crash converge on the same identity; a retry that lost the race
+        with its run's teardown raises `ParticipantRevoked` instead.
         """
         started = time.monotonic()
         provisioner = self._require_provisioner()
@@ -184,24 +181,14 @@ class CrewActivities:
             "MAX_ITERATIONS": str(self._settings.max_iterations),
             "GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token",
         }
-        # The teardown race guard. `add` above refuses to revive a revoked
-        # row, which stops a retry that begins after teardown's sweep; this
-        # catches the rest — above all a retry still in flight while the
-        # run ends, which is what leaked pods in practice.
-        #
-        # Two independent signals, because either alone has a hole: the
-        # participant row (teardown revokes before it destroys, so a
-        # non-active row means the sweep already passed) and the run's own
-        # terminal state (the row can be *re-created* active by this very
-        # activity when something deleted it meanwhile — the run record
-        # cannot). A finalized run must never acquire a new pod.
-        #
-        # Handed to the provisioner rather than checked here, for two
-        # reasons learned the hard way: checking *before* the call leaves
-        # the remnant-deletion wait (measured at 31 s) between verdict and
-        # creation, and checking *after* never runs at all — the workflow's
-        # completion cancels this activity, and the cancellation lands on
-        # the very next await.
+        # The teardown race guard: a retry still in flight while the run
+        # ends must not leak a pod. `still_wanted` checks two signals —
+        # the live participant row and the run's non-terminal state; see
+        # `_collectable_now` for why both are needed. The provisioner
+        # evaluates it immediately before pod creation (not here, where
+        # the verdict would go stale during its remnant-deletion wait, and
+        # not after, where the workflow's completion would cancel this
+        # activity first).
         handle = await asyncio.to_thread(
             lambda: provisioner.provision(
                 agent_id=agent_id,
@@ -230,12 +217,14 @@ class CrewActivities:
 
     def _collectable_now(self, run_id: str, agent_id: str) -> bool:
         """Whether anything provisioned for this run would still be torn
-        down by someone. False once the run's teardown has swept past —
-        seen either as a revoked binding row or as a finalized run.
+        down by someone. False once the run's teardown has swept past.
 
-        Synchronous by design: the provisioner calls it from the worker
-        thread, immediately before creating the pod, so the answer cannot
-        go stale between verdict and creation."""
+        Two signals, because either alone has a hole: a revoked binding
+        row means the sweep already passed (teardown revokes before it
+        destroys), but the row can be re-created by a provision retry —
+        the run's own terminal state cannot. Synchronous: the provisioner
+        calls it from the worker thread, immediately before creating the
+        pod."""
         if self._participants.active(agent_id) is None:
             return False
         if self._runs is None:
