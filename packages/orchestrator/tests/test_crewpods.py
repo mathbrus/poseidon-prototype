@@ -174,6 +174,22 @@ def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisio
     assert event.rule == "crew_pod_provisioned"
 
 
+def test_provision_heartbeats_while_the_pod_comes_up(
+    crew, stores, provisioner, monkeypatch
+):
+    """fulfill_crew provisions one pod per member back to back, and a pod
+    can take longer to come up than the activity heartbeat window —
+    liveness must be signalled during the provision call itself."""
+    import orchestrator.activities.crew as module
+
+    beats: list[int] = []
+    monkeypatch.setattr(module.activity, "in_activity", lambda: True)
+    monkeypatch.setattr(module.activity, "heartbeat", lambda: beats.append(1))
+
+    asyncio.run(crew.provision_crew_pod(dict(SPEC)))
+    assert beats, "no heartbeat during pod provisioning"
+
+
 def test_destroy_audits_each_pod(crew, stores, provisioner):
     _, audit = stores
     deleted = asyncio.run(crew.destroy_crew_pods(RUN_ID))

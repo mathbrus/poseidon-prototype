@@ -189,7 +189,7 @@ class CrewActivities:
         # the verdict would go stale during its remnant-deletion wait, and
         # not after, where the workflow's completion would cancel this
         # activity first).
-        handle = await asyncio.to_thread(
+        handle = await self._heartbeating(
             lambda: provisioner.provision(
                 agent_id=agent_id,
                 run_id=spec["run_id"],
@@ -214,6 +214,21 @@ class CrewActivities:
             "crew pod provisioned", extra={"agent_id": agent_id, "url": handle.url}
         )
         return {"agent_id": agent_id, "pod_name": handle.pod_name, "url": handle.url}
+
+    async def _heartbeating(self, fn: Any) -> Any:
+        """Run a blocking call on a worker thread, heartbeating while it
+        runs. Pod provisioning (remnant wait + image start + readiness)
+        legitimately outlives the activity heartbeat window — and
+        `fulfill_crew` provisions one pod per member back to back — so
+        liveness must be signalled *during* the call, not only between
+        calls."""
+        task = asyncio.ensure_future(asyncio.to_thread(fn))
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=5.0)
+            if activity.in_activity():
+                activity.heartbeat()
+            if done:
+                return task.result()
 
     def _collectable_now(self, run_id: str, agent_id: str) -> bool:
         """Whether anything provisioned for this run would still be torn
