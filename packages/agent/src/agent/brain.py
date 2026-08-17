@@ -407,14 +407,13 @@ def plan_dispatch(
     settings: AgentSettings,
     run_id: str,
     task_text: str,
-    gateway_token: str | None = None,
 ) -> RunResult:
     """Planner mode: survey the
     run's sandbox read-only, produce the task brief, write nothing. The
     planner is LLM-only — one completion, no tool loop — and calls the
-    gateway under its *own* identity (the per-dispatch token), so its
+    gateway under its *own* identity (its pod's projected token), so its
     compiled read-only scope is what policy enforces."""
-    token = gateway_token or settings.resolve_gateway_token()
+    token = settings.resolve_gateway_token()
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
         entries = _survey_entries(bridge, run_id)
     llm = build_llm(settings, run_id, token)

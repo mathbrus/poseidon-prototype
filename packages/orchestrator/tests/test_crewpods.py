@@ -1,20 +1,24 @@
 """The 16c surface without a cluster: the pod manifest's containment
-posture, and the provision/destroy activities' minting, audit, and
+posture, and the provision/destroy activities' binding, audit, and
 label-selector discipline (via a fake provisioner)."""
 
 import asyncio
 
 import pytest
 
-from common import platformjwt
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
-from orchestrator.crewpods import CREW_KIND, crew_pod_manifest, pod_name
+from orchestrator.crewpods import (
+    CREW_KIND,
+    TOKEN_MOUNT_DIR,
+    crew_pod_manifest,
+    pod_name,
+    service_account_name,
+)
 from orchestrator.identity import ephemeral_agent_id
 from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
 
 RUN_ID = "run-01PODS"
-KEY = "unit-test-platform-key"
 
 SPEC = {
     "run_id": RUN_ID,
@@ -36,7 +40,7 @@ def test_manifest_is_contained_and_labeled():
         run_id=RUN_ID,
         company="hello-saas",
         agent_image="poseidon-agent:abc",
-        env={"GATEWAY_TOKEN": "jwt", "MODEL": "mock-brain"},
+        env={"GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token", "MODEL": "mock-brain"},
     )
     labels = manifest["metadata"]["labels"]
     # The kind label puts the pod inside the operator's agent envelope
@@ -46,12 +50,22 @@ def test_manifest_is_contained_and_labeled():
     assert labels["poseidon.io/run-id"] == RUN_ID
 
     spec = manifest["spec"]
+    # The standing-agent identity posture, exactly: the pod's own SA, an
+    # audience-scoped projected token as its only credential, no
+    # API-server token, and nothing token-shaped in the env.
+    assert spec["serviceAccountName"] == service_account_name(agent_id)
     assert spec["automountServiceAccountToken"] is False
     assert spec["enableServiceLinks"] is False
     assert spec["restartPolicy"] == "Never"
+    (volume,) = spec["volumes"]
+    (source,) = volume["projected"]["sources"]
+    assert source["serviceAccountToken"]["audience"] == "poseidon-gateway"
     (container,) = spec["containers"]
+    (mount,) = container["volumeMounts"]
+    assert mount["mountPath"] == TOKEN_MOUNT_DIR and mount["readOnly"] is True
     env = {e["name"]: e["value"] for e in container["env"]}
-    assert env["GATEWAY_TOKEN"] == "jwt"
+    assert env["GATEWAY_TOKEN_FILE"] == f"{TOKEN_MOUNT_DIR}/token"
+    assert "GATEWAY_TOKEN" not in env
     assert env["GPG_KEY"] == ""  # the base image's baked-in value, blanked
     assert container["resources"]["limits"]["memory"] == "1Gi"
 
@@ -91,8 +105,12 @@ class FakeProvisioner:
                 "env": dict(env),
             }
         )
+        # Per-pod URLs, so tests can see which member's brain host a
+        # dispatch actually reached.
         return CrewPodHandle(
-            agent_id=agent_id, pod_name=pod_name(agent_id), url="http://10.0.0.7:8000"
+            agent_id=agent_id,
+            pod_name=pod_name(agent_id),
+            url=f"http://{pod_name(agent_id)}:8000",
         )
 
     def destroy(self, run_id: str) -> list[str]:
@@ -108,7 +126,6 @@ def settings(tmp_path) -> WorkerSettings:
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
         target_repo="github.com/example/repo",
-        platform_jwt_key=KEY,
         agent_image="poseidon-agent:abc123",
         model="mock-brain",
     )
@@ -130,30 +147,31 @@ def crew(settings, stores, provisioner) -> CrewActivities:
     return CrewActivities(settings, participants, audit, provisioner)
 
 
-def test_provision_injects_a_fresh_token_and_binds(crew, stores, provisioner):
+def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisioner):
     participants, audit = stores
     result = asyncio.run(crew.provision_crew_pod(dict(SPEC)))
 
     (created,) = provisioner.provisioned
     assert created["agent_image"] == "poseidon-agent:abc123"
     env = created["env"]
-    # The credential is injected at provision time — and verifiable.
-    claims = platformjwt.verify(KEY, env["GATEWAY_TOKEN"], "poseidon-gateway")
-    assert claims["sub"] == result["agent_id"]
-    assert claims["run_id"] == RUN_ID
+    # No credential in the env: the pod's identity is the projected token
+    # of its own ServiceAccount, mounted by the kubelet.
+    assert env["GATEWAY_TOKEN_FILE"] == f"{TOKEN_MOUNT_DIR}/token"
+    assert "GATEWAY_TOKEN" not in env
     # The brain host's wiring, FQDN'd for the company namespace.
     assert env["MCP_GATEWAY_URL"].startswith("http://mcp-gateway.poseidon-platform")
     assert env["LLM_PROXY_URL"].startswith("http://llm-gateway.poseidon-platform")
 
-    # The binding row exists (a provision retry revives it).
-    assert participants.active(result["agent_id"]) is not None
+    # The binding row exists (a provision retry revives it) and carries
+    # the SA name the gateway resolves.
+    row = participants.active(result["agent_id"])
+    assert row is not None
+    assert row["service_account"] == service_account_name(result["agent_id"])
 
     event = audit.events[-1]
     assert event.source == "process-lifecycle"
     assert event.tool == "lifecycle.provision_pod"
     assert event.rule == "crew_pod_provisioned"
-    # The token never reaches the audit store.
-    assert env["GATEWAY_TOKEN"] not in event.args_digest
 
 
 def test_destroy_audits_each_pod(crew, stores, provisioner):
@@ -189,7 +207,9 @@ class FakePlanHost:
         import httpx
 
         if request.method == "POST" and request.url.path == "/task":
-            self.dispatches.append(_json.loads(request.content))
+            self.dispatches.append(
+                {**_json.loads(request.content), "host": request.url.host}
+            )
             return httpx.Response(202, json={})
         if request.method == "GET" and request.url.path.startswith("/task/"):
             return httpx.Response(
@@ -273,22 +293,25 @@ def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
         )
     )
 
-    # Both members minted with parentage; only the executor got a pod.
+    # Both members bound with parentage — and each got its own pod.
     assert result["members"] == ["executor", "planner"]
     planner_id = ephemeral_agent_id("feature-delivery", "planner", RUN_ID)
     executor_id = ephemeral_agent_id("feature-delivery", "executor", RUN_ID)
     assert participants.active(planner_id)["parent_agent_id"] == "pm-1"
     assert participants.active(executor_id) is not None
-    assert len(provisioner.provisioned) == 1
+    assert {p["agent_id"] for p in provisioner.provisioned} == {
+        planner_id,
+        executor_id,
+    }
     assert result["executor_agent_id"] == executor_id
-    assert result["executor_url"] == "http://10.0.0.7:8000"
+    assert result["executor_url"] == f"http://{pod_name(executor_id)}:8000"
 
-    # The planner borrowed the executor's brain host under its OWN token,
-    # in plan mode, and its brief is the handoff.
+    # The planner ran on its OWN brain host in plan mode, with no
+    # credential riding the dispatch, and its brief is the handoff.
     (dispatch,) = plan_host.dispatches
     assert dispatch["mode"] == "plan"
-    claims = platformjwt.verify(KEY, dispatch["gateway_token"], "poseidon-gateway")
-    assert claims["sub"] == planner_id
+    assert "gateway_token" not in dispatch
+    assert dispatch["host"] == pod_name(planner_id)
     assert result["brief"] == "1. do the thing"
 
     # The request is consumed; a retry converges instead of duplicating.
@@ -324,7 +347,7 @@ def test_fulfill_without_recorded_intent_refuses(fulfill_world):
                 }
             )
         )
-    assert participants.rows == {}  # nothing minted without authority
+    assert participants.rows == {}  # nothing bound without authority
 
 
 # -- record-under-authority ---------------------------------------------------
@@ -427,7 +450,7 @@ def test_workflow_path_denied_by_the_compiled_decision(fulfill_world, monkeypatc
 
     with pytest.raises(RuntimeError, match="crew_request_not_in_may_spawn"):
         asyncio.run(crew.fulfill_crew(_fulfill_spec()))
-    assert participants.rows == {}  # nothing minted on a deny
+    assert participants.rows == {}  # nothing bound on a deny
     assert requests.rows == {}  # and nothing recorded
     event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
     assert event.decision == "deny"
@@ -505,7 +528,7 @@ def test_a_run_torn_down_mid_provision_gets_no_pod(settings, stores):
 
     provisioner = TearsDownMidProvision()
     crew = CrewActivities(settings, participants, audit, provisioner)
-    asyncio.run(crew.mint_participant(dict(SPEC)))
+    asyncio.run(crew.bind_participant(dict(SPEC)))
 
     with pytest.raises(CrewPodAbandoned):
         asyncio.run(crew.provision_crew_pod(dict(SPEC)))

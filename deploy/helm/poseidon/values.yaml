@@ -69,9 +69,6 @@ secrets:
   # Shared HMAC key for per-run egress credentials: egress-proxy and
   # the orchestrator worker only; sandboxes see only their derived credential.
   egressProxyKey: ""
-  # The platform signing key: gateway verifies
-  # platform-signed ephemeral JWTs; the orchestrator mints them.
-  platformJwtKey: ""
 
 # Run configuration (the C7 subset the in-cluster services need).
 run:

@@ -86,7 +86,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
     from orchestrator.config import WorkerSettings
     from registry import AuditStore, RunParticipants, Runs
 
-    from .test_crew_identity import _cluster_secret, _registry
+    from .test_crew_identity import _registry
 
     gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
     # Registration is the orchestrator's platform admin action; `sandbox.*`
@@ -123,16 +123,16 @@ def test_sandbox_registration_survives_a_gateway_restart(
             gateway_token_file=str(token_file),
             mcp_gateway_url=gateway_url,
             target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
-            platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
         )
         crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
         Runs(registry).start(
             run_id, "registry durability", "implement", None, "hello-saas"
         )
+        sa_name = None
         try:
             asyncio.run(register())
-            agent_token = asyncio.run(
-                crew.mint_participant(
+            bound = asyncio.run(
+                crew.bind_participant(
                     {
                         "run_id": run_id,
                         "company": "hello-saas",
@@ -142,7 +142,15 @@ def test_sandbox_registration_survives_a_gateway_restart(
                         "parent_agent_id": "pm-1",
                     }
                 )
-            )["token"]
+            )
+            sa_name = bound["service_account"]
+            subprocess.run(
+                ["kubectl", "-n", COMPANY_NS, "create", "serviceaccount", sa_name],
+                check=True,
+                capture_output=True,
+                timeout=60,
+            )
+            agent_token = projected_token(COMPANY_NS, sa_name)
 
             # The gateway that accepted the registration is now gone.
             restart_gateway()
@@ -161,6 +169,12 @@ def test_sandbox_registration_survives_a_gateway_restart(
             assert "sandbox.list_dir" in tools
         finally:
             backend.destroy(handle)
+            if sa_name:
+                subprocess.run(
+                    ["kubectl", "-n", COMPANY_NS, "delete", "serviceaccount", sa_name],
+                    capture_output=True,
+                    timeout=60,
+                )
             registry.execute(
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )

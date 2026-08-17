@@ -227,10 +227,12 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     """The orchestrator worker's Kubernetes surface — deliberately bounded,
     and a review artifact: it is part of the trusted computing base. Two
     consumers: the k8s_jobs sandbox backend (Jobs + pod reads + exec for
-    workspace delivery) and the crew-pod provisioner (pod
-    create/delete for the ephemeral executor's brain host). Company
+    workspace delivery) and the crew-pod provisioner (pod + ServiceAccount
+    create/delete for each crew member's brain host — the SA is the
+    member's per-run identity, so its lifetime must equal the pod's, which
+    is why it is provisioned here and not operator-reconciled). Company
     namespaces only — the Role is namespaced and operator-reconciled, so
-    the worker can create no pod in the platform namespace; the
+    the worker can create no pod or SA in the platform namespace; the
     run_id+kind label-selector discipline on deletes lives in
     `orchestrator.crewpods` (RBAC cannot express selectors), proven by the
     16c e2e. Never Deployments, Services or CRs: standing structure stays
@@ -253,6 +255,16 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
                 "apiGroups": [""],
                 "resources": ["pods"],
                 # create/delete joined at step 16c for crew pods.
+                "verbs": ["create", "get", "list", "delete"],
+            },
+            {
+                "apiGroups": [""],
+                "resources": ["serviceaccounts"],
+                # Per-run crew identities: one SA per member per run,
+                # created at provision, deleted by the teardown sweep.
+                # Deliberately no RoleBindings here — an SA the worker can
+                # create binds to nothing, so this grants identity, never
+                # authority.
                 "verbs": ["create", "get", "list", "delete"],
             },
             {

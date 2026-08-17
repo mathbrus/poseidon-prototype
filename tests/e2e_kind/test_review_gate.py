@@ -306,7 +306,7 @@ def test_one_story_spans_every_review_source(review_chain: dict) -> None:
     tools = [e["tool"] for e in story]
     for lifecycle_step in (
         "lifecycle.record_request",
-        "lifecycle.mint",
+        "lifecycle.bind",
         "lifecycle.provision_pod",
         "lifecycle.fulfill",
         "lifecycle.revoke",

@@ -92,14 +92,13 @@ def test_agent_reaches_only_the_gateways(stack: None, url: str, want: str) -> No
 
 
 def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
-    """Same rule as the CI image gate: nothing *_TOKEN/*_KEY
-    (a standing agent's credential is a projected token file, not
-    an env var); GPG_KEY only if blanked (the chart empties the python
-    base image's baked-in value). One deliberate exception (step 16c):
-    crew pods carry their minted short-TTL ephemeral identity as
-    GATEWAY_TOKEN — that token IS the pod (run-scoped, registry-revocable
-    before TTL), not a platform secret, and a file mount would need
-    per-run Kubernetes service accounts, which the platform avoids."""
+    """Same rule as the CI image gate, with no exceptions: nothing
+    *_TOKEN/*_KEY in any company pod (every agent's credential — standing
+    or crew — is a projected token file, not an env var); GPG_KEY only if
+    blanked (the chart empties the python base image's baked-in value).
+    Crew pods used to be the one exemption, carrying a minted JWT as
+    GATEWAY_TOKEN; per-run ServiceAccounts removed it, so the assertion
+    is now unconditional — strictly stronger."""
     listing = subprocess.run(
         [
             "kubectl",
@@ -135,8 +134,6 @@ def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:
             for line in env.stdout.splitlines()
             if "=" in line
             for name in [line.split("=", 1)[0]]
-            if (name.endswith("_TOKEN") or name.endswith("_KEY"))
-            and line != "GPG_KEY="
-            and not (name == "GATEWAY_TOKEN" and kind == "crew-agent")
+            if (name.endswith("_TOKEN") or name.endswith("_KEY")) and line != "GPG_KEY="
         ]
         assert not leaked, f"credential-shaped env vars in {pod}: {leaked}"

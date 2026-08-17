@@ -64,6 +64,7 @@ from .test_operator_lifecycle import (
     kubectl,
     port_forward,
 )
+from .test_workload_identity import mint_token
 
 PG_LOCAL_PORT = 15436  # distinct per module: forwards must never collide
 
@@ -226,11 +227,12 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
 def test_live_executor_cannot_exceed_its_compiled_allowlist(
     stack, env: dict, tmp_path
 ) -> None:
-    """Criterion 6's last clause, live: a *real minted* executor —
-    token, participants row, full pipeline — is denied the tools outside
-    its compiled allow-list at the gateway (deny by rule, audited), while
-    its in-scope surface still answers. The planner half of this claim is
-    proven mid-run in test_crew_fulfillment; this is the executor's."""
+    """Criterion 6's last clause, live: a *real bound* executor — its own
+    per-run ServiceAccount, a projected token, a participants row, full
+    pipeline — is denied the tools outside its compiled allow-list at the
+    gateway (deny by rule, audited), while its in-scope surface still
+    answers. The planner half of this claim is proven mid-run in
+    test_crew_fulfillment; this is the executor's."""
     import asyncio
 
     from orchestrator.activities.crew import CrewActivities
@@ -248,16 +250,15 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
             gateway_token_file=str(token_file),
             mcp_gateway_url=gateway_url,
             target_repo=repo,
-            platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
-            ephemeral_ttl_s=900,
         )
         crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
         Runs(registry).start(
             run_id, "step 25 executor scope check", "implement", None, "hello-saas"
         )
+        sa_name = None
         try:
-            minted = asyncio.run(
-                crew.mint_participant(
+            bound = asyncio.run(
+                crew.bind_participant(
                     {
                         "run_id": run_id,
                         "company": "hello-saas",
@@ -268,7 +269,14 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                     }
                 )
             )
-            token = minted["token"]
+            sa_name = bound["service_account"]
+            subprocess.run(
+                ["kubectl", "-n", COMPANY_NS, "create", "serviceaccount", sa_name],
+                check=True,
+                capture_output=True,
+                timeout=60,
+            )
+            token = mint_token(COMPANY_NS, sa_name)
 
             # Positive control: the executor's in-scope surface answers
             # (policy allow; the backend errors because no sandbox exists —
@@ -294,18 +302,24 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                     f"{tool}: {denied.content[0].text}"
                 )
 
-            # Both denies are first-class audit events under the minted
+            # Both denies are first-class audit events under the bound
             # identity — gateway deny, not prompt hope, reconstructable.
             denies = {
                 e["tool"]
                 for e in audit_story(run_id)
                 if e["source"] == "gateway"
                 and e["decision"] == "deny"
-                and e["agent_id"] == minted["agent_id"]
+                and e["agent_id"] == bound["agent_id"]
             }
             assert {"issues.create", "git.merge_pr"} <= denies, denies
         finally:
             asyncio.run(crew.revoke_participants(run_id))
+            if sa_name:
+                subprocess.run(
+                    ["kubectl", "-n", COMPANY_NS, "delete", "serviceaccount", sa_name],
+                    capture_output=True,
+                    timeout=60,
+                )
             registry.execute(
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )

@@ -201,7 +201,7 @@ class ImplementActivities:
     ) -> dict[str, Any]:
         """Dispatch the ephemeral executor on its crew pod and poll until it
         reaches a terminal state, heartbeating every poll. The pod's own
-        GATEWAY_TOKEN (injected at provision) is the credential — no
+        projected ServiceAccount token is the credential — no
         token rides this call or the workflow history. mode="implement"
         works to a completion claim; mode="deliver" is the separate,
         workflow-directed delivery dispatch, only
@@ -248,7 +248,7 @@ class ImplementActivities:
         was provisioned), retire its registration, and write the honest
         terminal run record, which is also the workflow's result."""
         log = self._log.bind(run_id=run_id)
-        # Handle-independent on purpose: at 16d mint precedes provision, so
+        # Handle-independent on purpose: at 16d bind precedes provision, so
         # participants can exist even when no sandbox ever did.
         if self._crew is not None:
             try:

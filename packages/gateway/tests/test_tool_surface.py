@@ -8,14 +8,12 @@ import json
 import pytest
 from conftest import (
     AGENT_TOKEN,
-    JWT_KEY,
     PM_TOKEN,
+    REVIEWER_TOKEN,
     RUNNER_TOKEN,
     audit_events,
     mcp_session,
 )
-
-from common import platformjwt
 
 pytestmark = pytest.mark.anyio
 
@@ -29,20 +27,21 @@ def payload(result) -> dict:
 
 
 def reviewer_token(participants) -> str:
-    """A bound ephemeral reviewer (the review workflow's sdet crew member)."""
-    participants.add("reviewer-01X", RUN_ID, "pm-1", "feature-review", "reviewer")
-    return platformjwt.mint(
-        JWT_KEY,
-        {
-            "sub": "reviewer-01X",
-            "company": "hello-saas",
-            "role": "sdet",
-            "lifecycle": "ephemeral",
-            "run_id": RUN_ID,
-        },
-        "poseidon-gateway",
-        ttl_s=600,
+    """A bound ephemeral reviewer (the review workflow's sdet crew member):
+    its credential is its pod's projected SA token, and the participants
+    row — looked up by SA name — is the whole identity."""
+    participants.add(
+        "reviewer-01X",
+        RUN_ID,
+        "pm-1",
+        "feature-review",
+        "reviewer",
+        company="hello-saas",
+        role_template="sdet",
+        namespace="hello-saas",
+        service_account="crew-reviewer-01x",
     )
+    return REVIEWER_TOKEN
 
 
 # -- issues.* (the PM's surface) --------------------------------------------

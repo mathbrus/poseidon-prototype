@@ -38,7 +38,7 @@ from registry.memory import (
 AGENT_TOKEN = "agent-secret"
 RUNNER_TOKEN = "runner-secret"
 PM_TOKEN = "pm-secret"
-JWT_KEY = "unit-test-platform-key"
+REVIEWER_TOKEN = "reviewer-secret"
 GIT_TOKEN = "git-platform-secret"
 OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
@@ -62,6 +62,7 @@ class FakeReviewer:
         AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
         RUNNER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
         PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
+        REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "crew-reviewer-01x"),
     }
 
     async def review(self, token: str, audience: str) -> ServiceAccount | None:
@@ -290,7 +291,6 @@ def settings() -> GatewaySettings:
         git_token=GIT_TOKEN,
         base_ref="main",
         github_api_url=GITHUB_API_URL,
-        platform_jwt_key=JWT_KEY,
     )
 
 

@@ -1,11 +1,12 @@
 """Crew fulfillment on the live cluster.
 
 The full fulfillment path runs with the real machinery: the PM records
-intent through the gateway (policy-faced), fulfill consumes it, mints the
-crew, provisions the executor's brain-host pod, dispatches the planner on
-it under the planner's own identity, and hands the brief to the executor
-dispatch — which implements the task through the gateway and opens a real
-PR as the *ephemeral* executor, parentage on every decision. Then the
+intent through the gateway (policy-faced), fulfill consumes it, binds the
+crew, provisions each member its own brain-host pod (and per-run
+ServiceAccount), dispatches the planner on its own pod under its own
+identity, and hands the brief to the executor dispatch — which implements
+the task through the gateway and opens a real PR as the *ephemeral*
+executor, parentage on every decision. Then the
 sweep: identities revoked and rows terminal after teardown, including
 worker kill.
 
@@ -37,7 +38,7 @@ from .conftest import (
     sandbox_image,
     temporal_port_forward,
 )
-from .test_crew_identity import _cluster_secret, _registry
+from .test_crew_identity import _registry
 from .test_governance import _call
 from .test_registry_durability import projected_token
 
@@ -68,55 +69,87 @@ def _worker_settings(env: dict, tmp_path, registry_unused=None):
         gateway_token_file=str(token_file),
         mcp_gateway_url=env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080"),
         target_repo=env["TARGET_REPO"],
-        platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
         agent_image=proc.stdout.strip(),
         model="mock-brain",
     )
 
 
 @contextlib.contextmanager
-def _pod_forwarded_agent_client(pod: str):
-    """Route AgentClient's pod-IP URLs through a kubectl port-forward to
-    the (deterministically named) crew pod."""
+def _pod_forwarded_agent_client():
+    """Route AgentClient's pod-IP URLs through kubectl port-forwards to the
+    crew pods those IPs belong to — one forward per pod, since every crew
+    member now runs on its own pod and a dispatch must reach the member it
+    names (the planner's calls must carry the planner's identity)."""
+
+    from urllib.parse import urlparse
 
     from orchestrator import clients
 
-    proc: subprocess.Popen | None = None
+    procs: list[subprocess.Popen] = []
+    port_by_ip: dict[str, int] = {}
 
-    def ensure_forward() -> None:
-        nonlocal proc
-        if proc is not None:
-            return
-        proc = subprocess.Popen(
+    def _pod_for_ip(ip: str) -> str:
+        listing = subprocess.run(
             [
                 "kubectl",
                 "-n",
                 COMPANY_NS,
-                "port-forward",
-                f"pod/{pod}",
-                f"{AGENT_LOCAL_PORT}:8000",
+                "get",
+                "pods",
+                "-o",
+                "jsonpath={range .items[*]}{.metadata.name}|{.status.podIP}{'\\n'}{end}",
             ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        ).stdout.splitlines()
+        for line in listing:
+            name, _, pod_ip = line.partition("|")
+            if pod_ip == ip:
+                return name
+        raise RuntimeError(f"no pod with IP {ip} in {COMPANY_NS}")
+
+    def ensure_forward(ip: str) -> int:
+        if ip in port_by_ip:
+            return port_by_ip[ip]
+        local_port = AGENT_LOCAL_PORT + len(port_by_ip)
+        pod = _pod_for_ip(ip)
+        procs.append(
+            subprocess.Popen(
+                [
+                    "kubectl",
+                    "-n",
+                    COMPANY_NS,
+                    "port-forward",
+                    f"pod/{pod}",
+                    f"{local_port}:8000",
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         )
         deadline = time.monotonic() + 30
         while True:
             try:
-                with socket.create_connection(("127.0.0.1", AGENT_LOCAL_PORT), timeout=1):
-                    return
+                with socket.create_connection(("127.0.0.1", local_port), timeout=1):
+                    break
             except OSError as exc:
                 if time.monotonic() > deadline:
                     raise RuntimeError(
                         "port-forward to the crew pod never came up"
                     ) from exc
                 time.sleep(0.5)
+        port_by_ip[ip] = local_port
+        return local_port
 
     original_init = clients.AgentClient.__init__
 
     def patched(self, url: str) -> None:
         if "svc.cluster.local" not in url and "unused.test" not in url:
-            ensure_forward()
-            url = f"http://127.0.0.1:{AGENT_LOCAL_PORT}"
+            ip = urlparse(url).hostname or ""
+            local_port = ensure_forward(ip)
+            url = f"http://127.0.0.1:{local_port}"
         original_init(self, url)
 
     clients.AgentClient.__init__ = patched
@@ -124,7 +157,7 @@ def _pod_forwarded_agent_client(pod: str):
         yield
     finally:
         clients.AgentClient.__init__ = original_init
-        if proc is not None:
+        for proc in procs:
             proc.terminate()
             proc.wait(timeout=10)
 
@@ -134,7 +167,11 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 ) -> None:
     from orchestrator.activities.crew import CrewActivities
     from orchestrator.clients import AgentClient, GatewayClient
-    from orchestrator.crewpods import CrewPodProvisioner, pod_name
+    from orchestrator.crewpods import (
+        CrewPodProvisioner,
+        pod_name,
+        service_account_name,
+    )
     from orchestrator.identity import ephemeral_agent_id
     from registry import AuditStore, CrewRequests, RunParticipants, Runs
     from registry.bundles import Companies
@@ -193,8 +230,9 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             )
             asyncio.run(_register(gateway_url, orchestrator_token, run_id, handle))
 
-            # 3. Fulfill: consume -> mint -> pod -> planner -> brief.
-            with _pod_forwarded_agent_client(pod_name(executor_id)):
+            # 3. Fulfill: consume -> bind -> a pod per member -> planner
+            #    (on its own pod) -> brief.
+            with _pod_forwarded_agent_client():
                 fulfilled = asyncio.run(
                     crew.fulfill_crew(
                         {
@@ -265,19 +303,10 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             assert any(e["agent_id"] == planner_id for e in crew_events)
 
             # A member outside its compiled allow-list is denied at the
-            # gateway: the read-only planner cannot write.
-            planner_token = asyncio.run(
-                crew.mint_participant(
-                    {
-                        "run_id": run_id,
-                        "company": "hello-saas",
-                        "crew_template": "feature-delivery",
-                        "member": "planner",
-                        "role_template": "backend-engineer",
-                        "parent_agent_id": "pm-1",
-                    }
-                )
-            )["token"]
+            # gateway: the read-only planner cannot write. Its SA exists
+            # (fulfilment provisioned the planner's own pod), so a fresh
+            # projected token is the same credential the pod holds.
+            planner_token = projected_token(COMPANY_NS, service_account_name(planner_id))
             denied = _call(
                 env,
                 planner_token,
@@ -312,7 +341,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     *including* worker kill — the sweep rides the workflow's compensation,
     which Temporal replays on the restarted worker. The workflow stands
     its own crew up (fulfill_crew), so the kill lands on a
-    run with a live minted roster and a crew pod."""
+    run with a live bound roster and crew pods."""
     from temporalio.client import Client
 
     from orchestrator.crewpods import pod_name

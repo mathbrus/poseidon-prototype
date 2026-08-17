@@ -64,11 +64,6 @@ spec:
             {{- include "poseidon.otelEnv" (dict "root" $ "service" "llm-gateway") | nindent 12 }}
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
-            - name: PLATFORM_JWT_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: platform-jwt-key
-                  key: PLATFORM_JWT_KEY
             - name: REGISTRY_DSN
               valueFrom:
                 secretKeyRef:

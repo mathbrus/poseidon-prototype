@@ -1,10 +1,13 @@
 """Workload identity at the gateway.
 
-Projected service-account tokens resolve through a (faked) TokenReview to
-registry-backed identities; platform-signed ephemeral JWTs verify against
-the shared key AND a live participants row; and every rejected token —
-wrong service account, wrong namespace, dead participant, bad signature —
-lands in the audit store under an `authn_*` rule, not just a 401.
+Every credential is a projected service-account token resolving through a
+(faked) TokenReview to a registry-backed identity — standing agents via
+`agent_instances`, ephemeral crew members via a live `run_participants`
+row looked up by ServiceAccount name. The TokenReview may be cached; the
+registry mapping is re-read per call, so a row termination revokes
+immediately. Every rejected token — wrong service account, wrong
+namespace, dead participant — lands in the audit store under an
+`authn_*` rule, not just a 401.
 """
 
 import json
@@ -12,7 +15,6 @@ import json
 import httpx
 import pytest
 
-from common import platformjwt
 from common.authn import Authenticator, ServiceAccount
 from gateway.config import GatewaySettings
 from registry.memory import (
@@ -25,9 +27,10 @@ pytestmark = pytest.mark.anyio
 
 PLATFORM_NS = "poseidon-platform"
 COMPANY_NS = "hello-saas"
-JWT_KEY = "unit-test-platform-key"
 AUD = "poseidon-gateway"
 RUN_ID = "run-01AUTHN"
+CREW_ID = "feature-delivery-executor-run-01AUTHN"
+CREW_SA = f"crew-{CREW_ID}".lower()
 
 
 class FakeReviewer:
@@ -48,7 +51,6 @@ class FakeReviewer:
 def authn_settings() -> GatewaySettings:
     return GatewaySettings(
         platform_namespace=PLATFORM_NS,
-        platform_jwt_key=JWT_KEY,
         token_audience=AUD,
     )
 
@@ -85,7 +87,23 @@ def reviewer() -> FakeReviewer:
             "sa-agent": ServiceAccount(COMPANY_NS, "backend-engineer-1"),
             "sa-stranger": ServiceAccount("default", "default"),
             "sa-impostor": ServiceAccount("evil-ns", "backend-engineer-1"),
+            "sa-crew": ServiceAccount(COMPANY_NS, CREW_SA),
+            "sa-crew-impostor": ServiceAccount("evil-ns", CREW_SA),
         }
+    )
+
+
+def bind_crew_row(participants, run_id: str = RUN_ID) -> None:
+    participants.add(
+        CREW_ID,
+        run_id,
+        "pm-1",
+        "feature-delivery",
+        "executor",
+        company=COMPANY_NS,
+        role_template="backend-engineer",
+        namespace=COMPANY_NS,
+        service_account=CREW_SA,
     )
 
 
@@ -186,86 +204,65 @@ async def test_no_reviewer_fails_closed(authn_settings, audit, instances, partic
     assert rules(audit) == ["authn_unknown_token"]
 
 
-# -- platform-signed ephemeral JWTs -----------------------------------------
+# -- ephemeral crew ServiceAccounts ------------------------------------------
 
 
-def mint(_key: str = JWT_KEY, _ttl: int = 600, **overrides) -> str:
-    claims = {
-        "sub": "executor-01X",
-        "company": COMPANY_NS,
-        "role": "backend-engineer",
-        "lifecycle": "ephemeral",
-        "run_id": RUN_ID,
-        "parent_agent_id": "pm-1",
-        **overrides,
-    }
-    return platformjwt.mint(_key, claims, AUD, ttl_s=_ttl)
-
-
-async def test_ephemeral_jwt_with_live_row_is_accepted(authenticator, participants):
-    participants.add("executor-01X", RUN_ID, "pm-1", "feature-delivery", "executor")
-    identity = await authenticator.authenticate(f"Bearer {mint()}", "/mcp")
+async def test_crew_sa_with_live_row_is_accepted(authenticator, participants):
+    bind_crew_row(participants)
+    identity = await authenticator.authenticate("Bearer sa-crew", "/mcp")
     assert identity is not None
     assert identity.lifecycle == "ephemeral"
-    assert identity.agent_id == "executor-01X"
+    # The row is the whole identity: the canonical agent_id (the SA name
+    # is its lowercased, non-invertible projection), the catalog template
+    # as the policy role, and the crew coordinates and parentage.
+    assert identity.agent_id == CREW_ID
     assert identity.company == COMPANY_NS
-    # role stays the catalog template (the claim);
-    # the crew coordinates and parentage come from the live row.
     assert identity.role == "backend-engineer"
     assert identity.crew_template == "feature-delivery"
     assert identity.crew_role == "executor"
     assert identity.parent_agent_id == "pm-1"
     assert identity.run_id == RUN_ID
+    assert identity.namespace == COMPANY_NS
 
 
-async def test_ephemeral_jwt_without_row_is_rejected(authenticator, audit):
-    """Signature alone must never be enough — no row, no identity."""
-    assert await authenticator.authenticate(f"Bearer {mint()}", "/mcp") is None
-    assert rules(audit) == ["authn_no_live_participant"]
+async def test_crew_sa_without_row_is_rejected(authenticator, audit):
+    """A verified token alone must never be enough — no live row, no
+    identity."""
+    assert await authenticator.authenticate("Bearer sa-crew", "/mcp") is None
+    assert rules(audit) == ["authn_unknown_service_account"]
 
 
 async def test_row_termination_revokes_before_ttl(authenticator, participants, audit):
-    participants.add(
-        "executor-01X", RUN_ID, "pm-1", "feature-delivery", "backend-engineer"
-    )
-    token = mint()
-    assert await authenticator.authenticate(f"Bearer {token}", "/mcp") is not None
+    """The revocation-before-expiry guarantee, cache-shaped: the token is
+    still valid and its TokenReview still cached, but the registry row is
+    re-read on every call — terminating it kills the identity now."""
+    bind_crew_row(participants)
+    assert await authenticator.authenticate("Bearer sa-crew", "/mcp") is not None
 
-    participants.terminate("executor-01X")
-    assert await authenticator.authenticate(f"Bearer {token}", "/mcp") is None
-    assert rules(audit) == ["authn_no_live_participant"]
-
-
-async def test_run_id_mismatch_is_rejected(authenticator, participants, audit):
-    participants.add(
-        "executor-01X", "run-OTHER", "pm-1", "feature-delivery", "backend-engineer"
-    )
-    assert await authenticator.authenticate(f"Bearer {mint()}", "/mcp") is None
-    assert rules(audit) == ["authn_no_live_participant"]
+    participants.terminate(CREW_ID)
+    assert await authenticator.authenticate("Bearer sa-crew", "/mcp") is None
+    assert rules(audit) == ["authn_unknown_service_account"]
 
 
-async def test_forged_signature_is_rejected_and_audited(authenticator, audit):
-    forged = mint(_key="wrong-key")
-    assert await authenticator.authenticate(f"Bearer {forged}", "/mcp") is None
-    assert rules(audit) == ["authn_bad_signature"]
-
-
-async def test_expired_jwt_is_rejected(authenticator, participants, audit):
-    participants.add(
-        "executor-01X", RUN_ID, "pm-1", "feature-delivery", "backend-engineer"
-    )
-    stale = mint(_ttl=-10)
-    assert await authenticator.authenticate(f"Bearer {stale}", "/mcp") is None
-    assert rules(audit) == ["authn_expired"]
-
-
-async def test_platform_jwt_path_disabled_without_key(
-    authn_settings, audit, instances, participants, reviewer
+async def test_crew_sa_in_another_namespace_is_rejected(
+    authenticator, participants, audit
 ):
-    no_key = authn_settings.model_copy(update={"platform_jwt_key": ""})
-    lone = Authenticator(no_key, audit, instances, participants, reviewer=reviewer)
-    assert await lone.authenticate(f"Bearer {mint()}", "/mcp") is None
-    assert rules(audit) == ["authn_platform_jwt_disabled"]
+    """The same anti-impersonation check standing agents get: a same-named
+    ServiceAccount outside the row's recorded namespace maps to nothing."""
+    bind_crew_row(participants)
+    assert await authenticator.authenticate("Bearer sa-crew-impostor", "/mcp") is None
+    assert rules(audit) == ["authn_namespace_mismatch"]
+
+
+async def test_standing_row_deletion_revokes_despite_a_warm_cache(
+    authenticator, instances, audit
+):
+    """The cache proves token->SA only; firing a standing agent (its
+    instance row deleted) bites on the very next call."""
+    assert await authenticator.authenticate("Bearer sa-agent", "/mcp") is not None
+    instances.rows.pop("backend-engineer-1")
+    assert await authenticator.authenticate("Bearer sa-agent", "/mcp") is None
+    assert rules(audit) == ["authn_unknown_service_account"]
 
 
 # -- the TokenReview wire format --------------------------------------------

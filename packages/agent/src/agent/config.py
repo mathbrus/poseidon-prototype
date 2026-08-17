@@ -18,24 +18,20 @@ class AgentSettings(BaseSettings):
     # instance spec). `pm` dispatches run the PM loop;
     # everything else runs the engineer loop.
     role_template: str = "backend-engineer"
-    # The pod's identity, one of two shapes: standing hires mount a
-    # kubelet-rotated projected token file; ephemeral crew
-    # brains receive their minted short-TTL token as GATEWAY_TOKEN at
-    # provision time — env, not file, because it is minted
-    # per run and revoked by registry row, never rotated.
+    # The pod's identity: the kubelet-rotated projected token file its own
+    # ServiceAccount mounts — one shape for standing hires and ephemeral
+    # crew members alike. Crew revocation is a registry row termination,
+    # checked by the gateway per call, not a property of the token.
     gateway_token_file: str = ""
-    gateway_token: str = ""
     target_repo: str
     max_iterations: int = 10
 
     def resolve_gateway_token(self) -> str:
-        # File first: the kubelet keeps it fresh; a task never outlives the
-        # freshly read token's validity window.
+        # Read per call: the kubelet keeps the file fresh; a task never
+        # outlives the freshly read token's validity window.
         if self.gateway_token_file:
             return Path(self.gateway_token_file).read_text().strip()
-        if self.gateway_token:
-            return self.gateway_token
         raise RuntimeError(
-            "no gateway credential: set GATEWAY_TOKEN_FILE (projected token) "
-            "or GATEWAY_TOKEN (minted ephemeral identity)"
+            "no gateway credential: set GATEWAY_TOKEN_FILE to the projected "
+            "service-account token path"
         )

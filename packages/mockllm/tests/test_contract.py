@@ -13,6 +13,7 @@ a real HTTP client, not an injectable ASGI transport.
 import asyncio
 import re
 import socket
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -66,11 +67,13 @@ def mock_llm_url():
 
 
 def settings(llm_url: str, model: str = "mock-brain") -> AgentSettings:
+    token = Path(tempfile.mkdtemp()) / "token"
+    token.write_text("agent-secret")
     return AgentSettings(
         mcp_gateway_url="http://gateway.test:8080",
         llm_proxy_url=llm_url,
         model=model,
-        gateway_token="agent-secret",
+        gateway_token_file=str(token),
         target_repo="example/target",
         max_iterations=3,
     )
@@ -226,9 +229,7 @@ def test_planner_brief_echoes_branch_and_scenario_markers(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        result = plan_dispatch(
-            cfg, "run-mock-plan", task_text, gateway_token="minted-planner"
-        )
+        result = plan_dispatch(cfg, "run-mock-plan", task_text)
     assert result.error is None
     assert "feature/slugify-brief1" in result.brief
     # The planner surveyed read-only — no writes, no tests, no delivery.

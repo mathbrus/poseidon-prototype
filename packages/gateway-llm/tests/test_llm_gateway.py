@@ -33,10 +33,15 @@ def anyio_backend():
     return "asyncio"
 
 
+CREW_TOKEN = "crew-secret"
+
+
 class FakeReviewer:
     async def review(self, token: str, audience: str) -> ServiceAccount | None:
         if token == AGENT_TOKEN:
             return ServiceAccount(COMPANY, "backend-engineer-1")
+        if token == CREW_TOKEN:
+            return ServiceAccount(COMPANY, "crew-executor-01x")
         return None
 
 
@@ -286,40 +291,20 @@ def test_cap_bites_only_at_the_cap(app, stores, upstream):
 def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores):
     """An ephemeral identity is bound to exactly one run; naming another is
     denied and audited before any budget or upstream work."""
-    from common import platformjwt
-
     audit, _, runs, _, participants, _ = stores
     runs.start("run-OTHER", "task", "implement", None, COMPANY)
-    participants.add("executor-01X", "run-OTHER", "pm-1", "feature-delivery", "executor")
-    settings_key = "test-platform-key"
-    # Rebuild the app with the JWT key enabled for this one test.
-    token = platformjwt.mint(
-        settings_key,
-        {
-            "sub": "executor-01X",
-            "company": COMPANY,
-            "role": "backend-engineer",
-            "lifecycle": "ephemeral",
-            "run_id": "run-OTHER",
-        },
-        "poseidon-gateway",
-        ttl_s=600,
+    participants.add(
+        "executor-01X",
+        "run-OTHER",
+        "pm-1",
+        "feature-delivery",
+        "executor",
+        company=COMPANY,
+        role_template="backend-engineer",
+        namespace=COMPANY,
+        service_account="crew-executor-01x",
     )
-    app_with_key = create_app(
-        LlmGatewaySettings(platform_jwt_key=settings_key, default_model="fallback-model"),
-        httpx.AsyncClient(
-            transport=httpx.MockTransport(Upstream().handler),
-            base_url="http://upstream.test",
-        ),
-        audit=audit,
-        ledger=stores[1],
-        runs=runs,
-        instances=stores[3],
-        participants=participants,
-        companies=stores[5],
-        token_reviewer=FakeReviewer(),
-    )
-    resp = call(app_with_key, token=token, run_id=RUN_ID)  # not its run
+    resp = call(app, token=CREW_TOKEN, run_id=RUN_ID)  # not its run
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "llm_foreign_run"
     assert audit.events[-1].rule == "llm_foreign_run"

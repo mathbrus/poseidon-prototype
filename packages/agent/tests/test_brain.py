@@ -205,7 +205,7 @@ def test_plan_prompt_asks_for_the_brief_only(settings, gateway):
     llm = ScriptedLLM([says("1. Write slugify.py")])
 
     with scripted(gateway, llm):
-        plan_dispatch(settings, RUN_ID, TASK, gateway_token="minted")
+        plan_dispatch(settings, RUN_ID, TASK)
 
     messages, tools = llm.requests[0]
     assert tools is None
@@ -355,7 +355,7 @@ def test_planner_produces_the_brief_from_one_completion(settings, gateway):
     llm = ScriptedLLM([says("1. Write slugify.py\n2. Deliver on `feature/x`.")])
 
     with scripted(gateway, llm):
-        result = plan_dispatch(settings, RUN_ID, TASK, gateway_token="minted")
+        result = plan_dispatch(settings, RUN_ID, TASK)
 
     assert result.error is None
     assert result.brief == "1. Write slugify.py\n2. Deliver on `feature/x`."

@@ -75,15 +75,9 @@ spec:
             - name: OPA_URL
               value: http://opa:8181
             # Workload identity: where the orchestrator's
-            # ServiceAccount lives, and the platform signing key for
-            # verifying platform-signed ephemeral JWTs.
+            # ServiceAccount lives.
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
-            - name: PLATFORM_JWT_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: platform-jwt-key
-                  key: PLATFORM_JWT_KEY
             - name: REGISTRY_DSN
               valueFrom:
                 secretKeyRef:

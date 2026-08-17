@@ -15,7 +15,7 @@ import subprocess
 from common.ids import new_run_id
 
 from .conftest import COMPANY_NS, PLATFORM_NS, audit_story
-from .test_crew_identity import _cluster_secret, _registry
+from .test_crew_identity import _registry
 
 WORKER_SA = f"system:serviceaccount:{PLATFORM_NS}:orchestrator-worker"
 
@@ -106,7 +106,6 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
             gateway_token_file=str(token_file),
             mcp_gateway_url=env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080"),
             target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
-            platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
             agent_image=agent_image(),
             model="mock-brain",
         )

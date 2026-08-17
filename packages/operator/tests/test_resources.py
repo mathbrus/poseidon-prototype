@@ -173,13 +173,15 @@ def test_spec_edits_change_the_pod_template():
 
 
 def test_sandbox_provisioner_rbac_is_bounded():
-    """A review artifact: jobs and pods in the company namespace
-    only, pods/exec for workspace delivery, nothing wider."""
+    """A review artifact: jobs, pods and per-run crew ServiceAccounts in
+    the company namespace only, pods/exec for workspace delivery, nothing
+    wider — and no rolebindings verbs, so a created SA binds to nothing
+    (identity, never authority)."""
     role = resources.sandbox_provisioner_role("hello-saas")
     resources_granted = {
         resource for rule in role["rules"] for resource in rule["resources"]
     }
-    assert resources_granted == {"jobs", "pods", "pods/exec"}
+    assert resources_granted == {"jobs", "pods", "serviceaccounts", "pods/exec"}
     binding = resources.sandbox_provisioner_binding("hello-saas")
     (subject,) = binding["subjects"]
     assert subject["name"] == "orchestrator-worker"

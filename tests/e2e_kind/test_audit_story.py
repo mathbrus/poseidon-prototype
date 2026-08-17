@@ -20,14 +20,14 @@ def test_story_covers_the_whole_run(implement_run: dict) -> None:
     tools = {e["tool"] for e in story}
     # The run's arc since step 19: sandbox registered, workspace fetched,
     # the crew stood up (request recorded under the conductor's authority,
-    # members minted, the executor's pod provisioned, fulfillment), files
+    # members bound, their pods provisioned, fulfillment), files
     # written, tests run, work committed, bundle pulled, PR opened, and the
     # crew revoked at teardown.
     assert {
         "/admin/sandboxes",
         "repo.archive",
         "lifecycle.record_request",
-        "lifecycle.mint",
+        "lifecycle.bind",
         "lifecycle.provision_pod",
         "lifecycle.fulfill",
         "sandbox.write_file",

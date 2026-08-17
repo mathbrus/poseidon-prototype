@@ -1,24 +1,30 @@
-"""`run_participants` — ephemeral crew members, one row per minted identity.
+"""`run_participants` — ephemeral crew members, one row per bound identity.
 
 Both halves of the ephemeral-identity contract meet here. The verify half:
-the gateway accepts a platform-signed JWT only while a live row
-backs it. The fulfill half: the orchestrator's mint activity
-creates the row, and revocation is a row termination — effective before the
-token's TTL runs out, terminated on every terminal path (the workflow's
-compensation sweeps the run).
+the gateway resolves a crew member's projected ServiceAccount token to a
+live row (by `service_account`) and builds the caller's identity entirely
+from it — company, catalog template, namespace, crew coordinates. The
+fulfill half: the orchestrator's bind activity creates the row, and
+revocation is a row termination — checked on every call, terminated on
+every terminal path (the workflow's compensation sweeps the run).
 
 The `role` column stores the crew member name — the `crew_role` the
-compiled crew rules key on; the caller's `role` (the catalog template)
-rides the minted JWT's claims.
+compiled crew rules key on; `role_template` carries the catalog template
+the caller's policy role resolves to.
 """
 
 from typing import Any
 
 from registry.db import Registry
 
+_ROW_FIELDS = (
+    "agent_id, run_id, parent_agent_id, crew_template, role,"
+    " company, role_template, namespace, service_account, status"
+)
+
 
 class ParticipantRevoked(Exception):
-    """Raised when a mint would revive an already-revoked binding row —
+    """Raised when a bind would revive an already-revoked binding row —
     i.e. a retry that lost the race with its run's teardown.
     Revocation is final: the caller must abandon the identity, not rebuild
     on it."""
@@ -35,14 +41,18 @@ class RunParticipants:
         parent_agent_id: str,
         crew_template: str,
         role: str,
+        company: str = "",
+        role_template: str = "",
+        namespace: str = "",
+        service_account: str | None = None,
     ) -> None:
         """Create the binding row, or re-assert one that is still active.
-        Upsert on purpose: the mint activity derives a deterministic
+        Upsert on purpose: the bind activity derives a deterministic
         agent_id from {crew, member, run}, so a retry after a worker death
         lands on the same row instead of leaking a second identity.
 
         **Revocation is final**: a terminated row is never
-        revived. The only way to reach a terminated row is to mint after
+        revived. The only way to reach a terminated row is to bind after
         the run's teardown already swept it — a retry racing compensation,
         which must not resurrect an identity the platform has revoked.
         `ParticipantRevoked` tells that caller to stop rather than build on
@@ -52,17 +62,32 @@ class RunParticipants:
             """
             INSERT INTO registry.run_participants
                 (agent_id, run_id, parent_agent_id, crew_template, role,
+                 company, role_template, namespace, service_account,
                  status, terminated_at)
-            VALUES (%s, %s, %s, %s, %s, 'active', NULL)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', NULL)
             ON CONFLICT (agent_id) DO UPDATE SET
                 run_id = EXCLUDED.run_id,
                 parent_agent_id = EXCLUDED.parent_agent_id,
                 crew_template = EXCLUDED.crew_template,
-                role = EXCLUDED.role
+                role = EXCLUDED.role,
+                company = EXCLUDED.company,
+                role_template = EXCLUDED.role_template,
+                namespace = EXCLUDED.namespace,
+                service_account = EXCLUDED.service_account
             WHERE run_participants.status = 'active'
             RETURNING agent_id
             """,
-            (agent_id, run_id, parent_agent_id, crew_template, role),
+            (
+                agent_id,
+                run_id,
+                parent_agent_id,
+                crew_template,
+                role,
+                company,
+                role_template,
+                namespace,
+                service_account,
+            ),
         )
         # No row back means the conflict target existed and was terminated:
         # the WHERE on the DO UPDATE suppressed it.
@@ -73,7 +98,8 @@ class RunParticipants:
 
     def terminate(self, agent_id: str) -> None:
         """Revocation: from this write on, the gateway finds no live
-        row and the identity's tokens are dead — before TTL expiry."""
+        row and the identity's tokens are dead — however long the
+        projected token itself would remain valid."""
         self._db.execute(
             "UPDATE registry.run_participants"
             " SET status = 'terminated', terminated_at = now()"
@@ -113,9 +139,22 @@ class RunParticipants:
         """The live row for an ephemeral identity — None once terminated,
         which is exactly when its token must stop working."""
         rows = self._db.query(
-            "SELECT agent_id, run_id, parent_agent_id, crew_template, role, status"
+            f"SELECT {_ROW_FIELDS}"
             " FROM registry.run_participants"
             " WHERE agent_id = %s AND status = 'active' AND terminated_at IS NULL",
             (agent_id,),
+        )
+        return rows[0] if rows else None
+
+    def by_service_account(self, service_account: str) -> dict[str, Any] | None:
+        """The live row backing a per-run ServiceAccount — what the gateway
+        resolves a TokenReview-verified crew token against. None once the
+        row is terminated: revocation is a registry write, not an expiry."""
+        rows = self._db.query(
+            f"SELECT {_ROW_FIELDS}"
+            " FROM registry.run_participants"
+            " WHERE service_account = %s"
+            "   AND status = 'active' AND terminated_at IS NULL",
+            (service_account,),
         )
         return rows[0] if rows else None
