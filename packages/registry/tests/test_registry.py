@@ -397,8 +397,8 @@ def test_crew_request_is_idempotent_and_expiring(registry: Registry):
         )
 
 
-def test_participant_mint_is_retry_safe_and_sweepable(registry: Registry):
-    """16a contract: a retried mint (same deterministic agent_id) converges
+def test_participant_bind_is_retry_safe_and_sweepable(registry: Registry):
+    """16a contract: a retried bind (same deterministic agent_id) converges
     on the same row; the per-run sweep revokes every live participant at
     once and reports who it swept."""
     from registry.participants import RunParticipants
@@ -425,6 +425,46 @@ def test_participant_mint_is_retry_safe_and_sweepable(registry: Registry):
         ]
         assert participants.active("feature-delivery-planner-x") is None
         assert participants.terminate_for_run(RUN_ID) == []  # idempotent
+    finally:
+        registry.execute(
+            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
+        )
+
+
+def test_participant_row_resolves_by_service_account(registry: Registry):
+    """The row is the whole ephemeral identity: the gateway looks it up by
+    ServiceAccount name and reads company, catalog template, namespace and
+    the canonical agent_id from it — and the lookup goes dark on
+    termination, which is what makes revocation a registry write."""
+    from registry.participants import RunParticipants
+
+    Runs(registry).start(RUN_ID, "task")
+    participants = RunParticipants(registry)
+    try:
+        participants.add(
+            "feature-delivery-executor-X",
+            RUN_ID,
+            "pm-1",
+            "feature-delivery",
+            "executor",
+            company="hello-saas",
+            role_template="backend-engineer",
+            namespace="hello-saas",
+            service_account="crew-feature-delivery-executor-x",
+        )
+        row = participants.by_service_account("crew-feature-delivery-executor-x")
+        assert row is not None
+        # Lowercasing the SA name is not invertible; the canonical id is
+        # read from the row, never derived from the name.
+        assert row["agent_id"] == "feature-delivery-executor-X"
+        assert row["company"] == "hello-saas"
+        assert row["role_template"] == "backend-engineer"
+        assert row["namespace"] == "hello-saas"
+
+        participants.terminate("feature-delivery-executor-X")
+        assert (
+            participants.by_service_account("crew-feature-delivery-executor-x") is None
+        )
     finally:
         registry.execute(
             "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
