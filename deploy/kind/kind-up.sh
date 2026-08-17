@@ -22,6 +22,11 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "error: $ENV_FILE not found — copy $SCRIPT_DIR/.env.example and fill it in" >&2
   exit 1
 fi
+# An explicit invocation-time REAL_LLM must beat the .env: whether a run
+# spends money is a per-invocation decision, and `REAL_LLM=0 kind-up.sh`
+# silently losing to a forgotten REAL_LLM=1 in the file is how a mock test
+# run ends up billing a provider.
+REAL_LLM_ARG=${REAL_LLM-}
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
@@ -29,7 +34,7 @@ set +a
 SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 # The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
 # real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
-REAL_LLM=${REAL_LLM:-0}
+REAL_LLM=${REAL_LLM_ARG:-${REAL_LLM:-0}}
 # The Temporal web UI is a browsable surface over full operator authority
 # (see README §9); it stays out of the cluster unless explicitly asked for.
 TEMPORAL_WEB=${TEMPORAL_WEB:-0}
