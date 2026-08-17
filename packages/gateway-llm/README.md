@@ -14,6 +14,14 @@ development — and a NetworkPolicy admits exactly one caller to that pod:
 this service. The gateway's job is everything a raw proxy would skip:
 authenticate, attribute, budget, route, meter, audit.
 
+The split has been challenged and kept. Folding the key into this
+service would delete a Deployment but not the mass behind it: the proxy
+is also the layer that translates one OpenAI-shaped wire format into
+whatever the configured provider actually speaks, and pulling that (plus
+the key, plus external egress) into the policy-holding chokepoint trades
+one small pod for a fatter trusted computing base. Small enough to
+inspect wins.
+
 ## Why model access is a chokepoint at all
 
 Tool calls are not the only thing a compromised agent can abuse. The

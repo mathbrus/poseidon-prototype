@@ -193,8 +193,14 @@ There are exactly two chokepoint services: the **MCP gateway** (all tool
 use — files, shell, git, issues; the sole holder of the git token) and the
 **LLM gateway** (all model access; it holds no key itself — the provider
 key sits one hop behind it, in an llm-proxy that only the LLM gateway can
-reach). Both authenticate the caller's workload identity, both check
-compiled policy, and both write exactly one audit event per call. The
+reach). That extra hop has been challenged — why not fold the key into
+the gateway? — and kept deliberately: the proxy is also the translation
+layer that lets one OpenAI-shaped wire format reach multiple providers,
+and folding it in would move a large third-party dependency, the provider
+key, and external egress into the small auditable chokepoint. The
+reference-monitor aspiration is "small enough to inspect"; the mass stays
+outside. Both gateways authenticate the caller's workload identity, both
+check compiled policy, and both write exactly one audit event per call. The
 ordering guarantee is *deny before side effect*: a denial is recorded and
 returned before anything happens, while an allowed call acts first and
 then records how the action went.

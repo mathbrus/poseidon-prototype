@@ -37,7 +37,10 @@ probe() {
 }
 
 probe "http://mcp-gateway.$PLATFORM_NS.svc.cluster.local:8080/mcp" reachable
-probe "http://llm-proxy.$PLATFORM_NS.svc.cluster.local:4000/health/liveliness" reachable
+probe "http://llm-gateway.$PLATFORM_NS.svc.cluster.local:4000/health" reachable
+# The llm-proxy is sealed to everyone but the LLM gateway; from an agent
+# pod it must fail at the transport layer (mirrors the e2e containment test).
+probe "http://llm-proxy.$PLATFORM_NS.svc.cluster.local:4000/health/liveliness" blocked
 probe "http://opa.$PLATFORM_NS.svc.cluster.local:8181/health" blocked
 probe "http://1.1.1.1" blocked
 probe "http://api.github.com" blocked
