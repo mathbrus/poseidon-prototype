@@ -43,7 +43,8 @@ applied throughout, and it stings that the substitution loses nothing.
 The inventory, for one merged pull request: a schema validator, a policy
 compiler, golden files, an operator, CRDs, OPA plus a bundle server, two
 gateways, an LLM proxy, an egress proxy, a nine-table registry, Temporal
-with four services of its own, Calico, and a hand-rolled JWT. The
+with four services of its own, and Calico (the hand-rolled JWT this list
+used to end with has since been deleted — see §7). The
 enforcement-to-work ratio is comfortably ten to one. Defensible in a
 governance prototype — that ratio *is* the research object — but the
 following structural complaints survive that defense.
@@ -76,13 +77,13 @@ story" is only comforting if nothing with write access wants the story
 changed.
 
 **Trust is concentrated where the hand-rolling is thickest.** The
-orchestrator holds the JWT signing key, the egress HMAC key, full
-platform identity, and pod-creation rights. The "no LLM in the TCB" claim
-is true and good — but the TCB it protects is large, custom, and includes
-a home-made JWS implementation, a home-made forward proxy, and a
-home-made permission system, each of which exists in maintained,
-battle-tested form elsewhere. Section 9 admits the JWT; it does not admit
-the pattern.
+orchestrator holds the egress HMAC key, full platform identity, and
+pod-creation rights. The "no LLM in the TCB" claim is true and good — but
+the TCB it protects is large, custom, and includes a home-made forward
+proxy and a home-made permission system, each of which exists in
+maintained, battle-tested form elsewhere. (The home-made JWS
+implementation this charge originally led with has since been deleted —
+§7 — which answers the sharpest instance but not the pattern.)
 
 **The null hypothesis goes unaddressed.** A sceptic's alternative stack:
 GitHub branch protection, required reviews, CODEOWNERS, a repo-scoped
@@ -221,50 +222,59 @@ In descending order of return on effort:
 
 ## 7. What I would remove
 
-Criticism that never names a deletion is just commentary. Four, ranked by
-what the deletion buys. The pattern behind all of them: each is either a
-second way of doing something the platform already does well, or a
-declared capability with no enforcement behind it — and the project's
-strength is precisely that declared and real coincide almost everywhere
-else.
+Criticism that never names a deletion is just commentary. Four were
+named, ranked by what the deletion buys. The pattern behind all of them:
+each is either a second way of doing something the platform already does
+well, or a declared capability with no enforcement behind it — and the
+project's strength is precisely that declared and real coincide almost
+everywhere else. This section has since been acted on (2026-08); each
+entry below carries its verdict.
 
-**The hand-rolled platform JWT — by removing its reason to exist.** The
-only reason ephemeral crew members carry a custom credential is the
-borrow posture: planner and executor share one pod, a pod has one
-ServiceAccount, and two principals in one pod need a second credential
-shape. Give the planner its own pod — it is LLM-only and
-`needs_sandbox: false`, the cheapest pod there is — and every principal
-maps to one pod, one SA, one projected token. The entire custom path then
-collapses onto the TokenReview machinery that already exists:
-`platformjwt.py` goes, the JWT half of `authn.py` goes, the orchestrator's
-minting goes, and section 9's "hand-rolled crypto-adjacent primitive"
-admission is deleted rather than mitigated. The participants-row
-revocation stays — it is orthogonal to token format and it is the good
-part. Largest TCB reduction available per line removed; the cost is one
-small extra pod per run.
+**The hand-rolled platform JWT — removed by removing its reason to
+exist.** The only reason ephemeral crew members carried a custom
+credential was the borrow posture: planner and executor shared one pod, a
+pod has one ServiceAccount, and two principals in one pod need a second
+credential shape. The fix was exactly the proposed one: the planner got
+its own pod — it is LLM-only and `needs_sandbox: false`, the cheapest pod
+there is — so every principal now maps to one pod, one per-run SA, one
+projected token, and the entire custom path collapsed onto the
+TokenReview machinery that already existed. `platformjwt.py` is gone, the
+JWT half of `authn.py` is gone, the orchestrator's minting is gone, the
+`platform-jwt-key` Secret is gone, and section 9's "hand-rolled
+crypto-adjacent primitive" admission was deleted rather than mitigated.
+The participants-row revocation stayed — it was always orthogonal to
+token format and it is the good part; it now backs standing and ephemeral
+callers alike, live on every call. As a bonus, the e2e "no token-shaped
+env var in any company pod" assertion lost its one exemption.
 
-**The llm-proxy hop.** The split exists so the provider key lives in a
-container that is not the policy-holder. But the LLM gateway is fully
-trusted anyway, is the *only* permitted caller, and can use the key
-freely through the proxy — so the split buys key-confinement-by-one-hop
-while costing an extra service, an extra image, a NetworkPolicy, and a
-large pinned LiteLLM dependency. Fold the key into the LLM gateway. The
-chokepoint properties — attribution, budgets, audit — all live there
-already; the proxy adds mass, not security.
+**The llm-proxy hop — evaluated, and kept.** The charge was that the
+split buys key-confinement-by-one-hop while costing an extra service, an
+extra image, a NetworkPolicy, and a large pinned LiteLLM dependency. The
+charge undercounts what the hop does: the agents speak one OpenAI-shaped
+wire format, and the proxy is the translation layer that lets that reach
+more than one provider (the project explicitly wants OpenAI *and*
+Anthropic). Folding it in would not delete the mass — it would relocate
+the translation dependency, the provider key, and external egress into
+the small auditable chokepoint, trading one pod for a fatter TCB. The
+reference-monitor aspiration is "small enough to inspect"; the hop stays,
+and the README now states the rationale where it describes the
+chokepoint.
 
-**`per_role_monthly`.** This field contradicts the project's own thesis.
-The pitch is "declared means compiled means enforced" — and here is a
-blueprint field that is declared, validated, previewed, and enforced by
-nothing. In this codebase specifically, unenforced governance
+**`per_role_monthly` — removed.** This field contradicted the project's
+own thesis. The pitch is "declared means compiled means enforced" — and
+here was a blueprint field that was declared, validated, previewed, and
+enforced by nothing. In this codebase specifically, unenforced governance
 configuration is worse than absent governance configuration, because the
-document's credibility *is* the product. Remove it until the ledger can
-enforce it; its current honest name is a comment.
+document's credibility *is* the product. It is gone from the schema
+(fail-closed: a blueprint still declaring it no longer validates) until a
+ledger can enforce it; every budget field you can write today is a hard
+stop.
 
-**`temporal-web` in the default bootstrap.** Section 9 now documents the
-Temporal frontend as the weakest unauthenticated surface in the system —
-and the kind bootstrap deploys a browsable UI over it by default, for
-convenience. Put it behind an opt-in flag. The cheapest risk deletion in
-the repository.
+**`temporal-web` in the default bootstrap — removed.** Section 9
+documents the Temporal frontend as the weakest unauthenticated surface in
+the system — and the kind bootstrap deployed a browsable UI over it by
+default, for convenience. It is now opt-in (`TEMPORAL_WEB=1`). The
+cheapest risk deletion in the repository, taken.
 
 ---
 

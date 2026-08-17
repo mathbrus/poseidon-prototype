@@ -1,7 +1,7 @@
 # common
 
 The shared library every other package imports: caller identity, workload
-authentication, the audit event model, the platform JWT format, run ids,
+authentication, the audit event model, run ids,
 logging, and the pod security posture. It owns the vocabulary the rest of
 the system agrees on, and deliberately owns no policy of its own — nothing
 here decides whether a call is *allowed*, only who is verifiably making it
@@ -19,7 +19,6 @@ when `OTEL_EXPORTER_OTLP_ENDPOINT` is set).
 |---|---|
 | `identity.py` | `Identity` — who a verified credential says is calling: agent_id, role, company, lifecycle, plus the standing caller's namespace and the ephemeral caller's run binding and crew coordinates. Also `bearer_token()`, the Authorization-header parser. |
 | `authn.py` | `Authenticator`: resolves a bearer credential to an `Identity` and audits every rejection. Shared by both gateways so they cannot drift. |
-| `platformjwt.py` | The short-TTL platform JWT: compact JWS, HS256, stdlib only. `mint` / `verify` / `issuer_of`. |
 | `audit.py` | `AuditEvent` — one model, one registry table, one ingestion contract for every enforcement point. |
 | `telemetry.py` | `get_logger(name)`: single-line JSON to stdout, `.bind(...)` for run/agent context. Optional OTLP export behind the `otel` extra. |
 | `podsecurity.py` | The pod/container security context the three Python pod-spec builders share (uid 10001, no privilege escalation, no capabilities, RuntimeDefault seccomp). |
@@ -38,60 +37,45 @@ of who verifiably asked" true (see the deputy discussion in the
 
 The model also records *how* the caller was verified, via `lifecycle`:
 `standing` (a rostered agent with a Kubernetes ServiceAccount),
-`ephemeral` (a crew member minted for one run), or `platform` (the
+`ephemeral` (a crew member bound to one run), or `platform` (the
 orchestrator itself). Compiled policy keys on this field, so the
 distinction that section 3 of the root README calls structural is carried
 by the identity itself, not inferred from naming conventions.
 
-## Two credential shapes, both checked against live state
+## One credential shape, checked against live state
 
-`Authenticator.authenticate` accepts exactly two credential shapes and
-routes between them with `platformjwt.issuer_of` — a deliberately
-*unverified* peek at the `iss` claim, used only to pick a verifier, never
-to grant trust.
+Every credential is a projected Kubernetes ServiceAccount token. The
+`KubeTokenReviewer` posts it to the cluster's TokenReview API with the
+platform's audience; the API server checks signature, expiry, audience,
+and that the ServiceAccount still exists. Any TokenReview error fails
+closed: an unreachable API server must never widen who the gateway
+trusts.
 
-**Platform JWT** (ephemeral crew members). The signature, audience and
-expiry checks are necessary but not sufficient. The verifier then requires
-a live `run_participants` row in the registry:
+A clean answer maps to an identity in one of three ways. The platform
+namespace's orchestrator SA becomes the `platform` lifecycle. Any other
+name resolves through the registry — `agent_instances` for standing
+agents, then `run_participants` by ServiceAccount name for ephemeral crew
+members (crew SA names carry a `crew-` prefix standing ids never use, so
+the lookups cannot shadow each other). Either way the row's recorded
+namespace **must** match the token's: the same SA name in another
+namespace is an impersonation attempt and is refused.
 
-```python
-# Signature alone is never enough: the live participants row is what
-# makes revocation a registry write, effective before TTL expiry.
-row = await asyncio.to_thread(self._participants.active, agent_id)
-if row is None or row["run_id"] != claims.get("run_id"):
-    await self._reject(path, "authn_no_live_participant", agent_id or "unknown")
-    return None
-```
+For an ephemeral caller the row *is* the identity — run binding, crew
+coordinates (`crew_template`, `crew_role`), parentage, company, catalog
+template. A verified token alone is never enough. Why not? Because a
+token can only prove who it was issued to — it cannot say anything about
+what happened since. If a run is torn down or an agent is revoked
+mid-run, every token that identity holds must die *now*, not at expiry.
+Making the live row the second half of the credential turns revocation
+into a registry write, checked on every call — and being live state, a
+stale token cannot smuggle in stale coordinates.
 
-Why not trust the signature alone? Because a signature can only prove the
-token *was* valid when minted — it cannot say anything about what happened
-since. A bearer token, once issued, is out of the platform's hands; if a
-run is torn down or an agent is revoked mid-run, every token that identity
-holds must die *now*, not at TTL expiry. Making the participants row the
-second half of the credential turns revocation into a registry write,
-checked on every call. The row is also where the crew coordinates
-(`crew_template`, `crew_role`) and parentage come from — live state, not
-token claims — so a stale token cannot smuggle in stale coordinates.
-
-**Kubernetes service-account token** (standing agents and the
-orchestrator). The `KubeTokenReviewer` posts the token to the cluster's
-TokenReview API with the platform's audience; the API server checks
-signature, expiry, audience, and that the ServiceAccount still exists. A
-clean answer maps to an identity in one of two ways: the platform
-namespace's orchestrator SA becomes the `platform` lifecycle, and anything
-else must resolve through the registry's `agent_instances` row — whose
-recorded namespace **must** match the token's. The same SA name in another
-namespace is an impersonation attempt and is refused. Any TokenReview
-error fails closed: an unreachable API server must never widen who the
-gateway trusts.
-
-The two paths cache differently, and the asymmetry is the point.
-Successful TokenReviews are cached for `authn_cache_ttl_s` (60s default)
-so the API server sees one review per caller per minute rather than one
-per call — which means revoking a ServiceAccount can take up to a minute
-to bite. The ephemeral path never rides this cache: the participants row
-is re-read on every single call, because immediate revocation is the
-entire reason that row exists.
+The cache is shaped around exactly that property. Successful TokenReviews
+are cached for `authn_cache_ttl_s` (60s default) so the API server sees
+one review per caller per minute rather than one per call — but the cache
+stores only the *ServiceAccount*, never the identity. The registry
+mapping runs on every request, so terminating a participants row (or
+firing a standing agent) bites on the very next call, cache notwithstanding.
 
 Every rejection of a *presented* token is written to the audit store under
 an `authn_*` rule (`authn_namespace_mismatch`, `authn_no_live_participant`,
@@ -99,44 +83,18 @@ an `authn_*` rule (`authn_namespace_mismatch`, `authn_no_live_participant`,
 request with no credential at all gets a 401 and no audit event — probes
 and scanners are noise, not governance signals; only rejected tokens are.
 
-## The platform JWT, and why it is hand-rolled
+## The platform JWT that is no longer here
 
-`platformjwt.py` implements compact JWS with HS256 in ~115 lines of
-standard library. Small on purpose: the token format is load-bearing
-security code, and the root README's stance is that such code should be
-readable in one sitting. The classic JWT vulnerability is baked out rather
-than configured away:
-
-```python
-# The algorithm is pinned, never read from the header: an attacker
-# controls the header, and honoring it is the classic JWT downgrade.
-if header.get("alg") != "HS256":
-    raise TokenError("bad_token")
-if not hmac.compare_digest(signature, _sign(key, signing_input)):
-    raise TokenError("bad_signature")
-```
-
-The verifier never asks the token how it should be verified — `alg: none`
-and RS256-to-HS256 confusion both die at that first check — and the
-comparison is constant-time. `mint` writes `iss`/`aud`/`iat`/`exp` *after*
-merging caller claims, so a caller cannot override the reserved fields.
-`TokenError.reason` is a stable slug (`bad_token`, `bad_signature`,
-`wrong_audience`, `expired`) that the authenticator prefixes with `authn_`
-to form the audit rule — the failure taxonomy is part of the contract, and
-the test suite pins every one of them.
-
-Be honest about the weaknesses. HS256 is symmetric: minter and verifiers
-share one key (`platform-jwt-key`), so any service that can *verify* a
-token could also *mint* one — a gateway compromise is a minting
-compromise. Asymmetric signing would separate those powers. There is no
-key-id header and no rotation story, no `nbf`, no clock leeway. And it is
-still a hand-rolled crypto-adjacent primitive, which is a category of
-thing you should generally not write; the root README lists replacing it
-with a maintained library as a sensible future change (section 9). The
-mitigations are the alg pin, the tiny surface, and the fact that the
-signature is only half the credential anyway. The key never reaches a
-company namespace, so nothing an agent can read allows it to mint an
-identity.
+Ephemeral crew members used to carry a hand-rolled short-TTL platform
+JWT (`platformjwt.py`, compact JWS/HS256 in stdlib), because the planner
+borrowed the executor's pod and two principals in one pod needed a
+second credential shape. Giving every crew member its own pod removed
+the reason to exist: every principal is one pod, one ServiceAccount, one
+projected token, and the whole custom path — the minting, the shared
+symmetric key, the `alg`-pinning care, the "crypto-adjacent primitive
+you should generally not write" admission in the root README — was
+deleted rather than mitigated. The participants-row revocation, which
+was always orthogonal to token format, is the part that stayed.
 
 ## What audience scoping buys
 
@@ -146,9 +104,7 @@ minted by the kubelet with audience `poseidon-gateway` (the default
 with that same audience — so the one token an agent pod holds is useless
 at the Kubernetes API server or anywhere else that checks audiences. Theft
 of the agent's only credential yields the right to *ask the gateway*, and
-nothing more. Platform JWTs carry an `aud` claim checked in `verify`;
-a token minted for a different audience fails with `wrong_audience` before
-its other claims are even considered. Audience scoping is least privilege
+nothing more. Audience scoping is least privilege
 applied to the credential itself: it bounds where a stolen token can be
 replayed, independently of who stole it.
 
@@ -211,10 +167,11 @@ Export stays env-gated at runtime either way.
 - [`gateway`](../gateway/README.md) and
   [`gateway-llm`](../gateway-llm/README.md) both construct an
   `Authenticator`; their settings classes inherit `WorkloadAuthnSettings`.
-- [`orchestrator`](../orchestrator/README.md) is the only minter of
-  platform JWTs (`orchestrator/identity.py` wraps `platformjwt.mint`);
-  both gateways verify. [`registry`](../registry/README.md)'s
-  `RunParticipants.active` is the live-row half of verification.
+- [`orchestrator`](../orchestrator/README.md) binds ephemeral
+  identities (`orchestrator/activities/crew.py` writes the participants
+  row); both gateways resolve them. [`registry`](../registry/README.md)'s
+  `RunParticipants.by_service_account` is the live-row half of
+  verification.
 - `sandbox`, `orchestrator` and `operator` build pod specs from
   `podsecurity`. The Helm chart keeps its own copy of the same posture in
   `deploy/helm/poseidon/templates/_helpers.tpl` — templates cannot import
@@ -228,13 +185,10 @@ Export stays env-gated at runtime either way.
 - `Identity` is only ever produced by `authn`. Nothing else constructs
   one from untrusted input.
 - An ephemeral identity is valid only while its `run_participants` row is
-  live; the row is checked on every call and never cached.
+  live; the registry mapping is re-read on every call — the TokenReview
+  cache stores the ServiceAccount, never the identity.
 - Audit args are digests, never values, and `source` is a closed
   vocabulary.
-- The platform JWT is `alg`-pinned and its reserved claims cannot be
-  overridden at mint time. It is small and hand-rolled on purpose, which
-  is also why it is worth reading before trusting — see section 9 of the
-  [root README](../../README.md).
 - `RUN_AS_UID` (10001) in `podsecurity.py` matches the `useradd` line in
   every Dockerfile at the repo root. They move together.
 
@@ -244,9 +198,8 @@ Export stays env-gated at runtime either way.
 uv run pytest packages/common
 ```
 
-Twenty tests: the audit event shape and its closed vocabularies, the JWT
-mint/verify round trip and every rejection reason (including a forged
-`alg: none` header), logger binding on stdout and through the OTel
+The suite covers the audit event shape and its closed vocabularies,
+logger binding on stdout and through the OTel
 handler, and run-id format and uniqueness. `authn` is exercised end to end
 by the gateway suite (`packages/gateway/tests/test_authn.py`), which has
 the registry doubles and a fake TokenReview to drive it with.

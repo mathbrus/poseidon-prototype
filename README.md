@@ -335,22 +335,28 @@ service receiving that token calls the **TokenReview** API to ask the
 cluster who it belongs to. The answer is authoritative and the token is
 useless anywhere outside its audience.
 
-Poseidon uses two identity shapes:
+Poseidon uses exactly one identity shape: every agent pod — standing or
+ephemeral — mounts a projected token for its own ServiceAccount, scoped
+to the gateway's audience. What differs is which registry table the
+gateway resolves the ServiceAccount against:
 
-- **Standing agents** mount a projected token scoped to the gateway's
-  audience. The gateway resolves the ServiceAccount name to a registry row
-  and — importantly — requires the recorded namespace to *match*. The same
-  SA name in another namespace is an impersonation attempt, and is refused
-  and audited.
-- **Ephemeral crew members** get a short-TTL JWT minted by the orchestrator
-  at pod-creation time. Its signature is necessary but not sufficient: the
-  gateway also requires a live `run_participants` row. Deleting that row
-  revokes the identity **immediately**, without waiting for the token to
-  expire.
+- **Standing agents** map through `agent_instances`, the roster the
+  operator reconciles. The gateway resolves the ServiceAccount name to
+  the row and — importantly — requires the recorded namespace to *match*.
+  The same SA name in another namespace is an impersonation attempt, and
+  is refused and audited.
+- **Ephemeral crew members** get a per-run ServiceAccount created at
+  provision time, mapping through a live `run_participants` row — the
+  row *is* the identity: run binding, crew coordinates, company, catalog
+  template, namespace. A verified token alone is never enough; deleting
+  the row revokes the identity **immediately**, however long the token
+  itself remains valid.
 
-That last point is the one worth internalising. Revocation as a database
-write, checked on every call, is far stronger than revocation as a short
-expiry.
+That last point is the one worth internalising. The TokenReview may be
+cached, but the registry row is re-read on **every call**: revocation as
+a database write is far stronger than revocation as a short expiry — and
+it works the same for firing a standing agent (its row is deleted with
+its ServiceAccount) as for sweeping a crew.
 
 </details>
 
@@ -420,7 +426,7 @@ blueprint with a count, reconciled into a Deployment by the operator, and
 has a stable identity that outlives any run. In the shipped example there is
 exactly one: the PM.
 
-An **ephemeral crew member** exists only inside a run. It is minted when a
+An **ephemeral crew member** exists only inside a run. It is bound when a
 crew is fulfilled, gets a run-scoped identity, and is revoked at teardown.
 It never appears in the roster and leaves no standing structure behind.
 
@@ -527,14 +533,14 @@ from the `run_id` alone.
 | Service | Holds | Responsible for |
 |---|---|---|
 | **operator** | — | Reconciling CRs into namespaces, NetworkPolicies, Deployments, RBAC; persisting bundles. Never runs a process, never creates an ephemeral agent. |
-| **orchestrator** | JWT signing key, egress HMAC key, registry DSN | Temporal workflows, activity sequencing, crew pods, identity minting, the human merge gate. No `GIT_TOKEN`. |
+| **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, crew pods and their per-run ServiceAccounts, identity binding, the human merge gate. No `GIT_TOKEN`, no signing key. |
 | **MCP gateway** | `GIT_TOKEN` | Every tool call: authenticate, decide, audit, act. |
 | **LLM gateway** | — | Every model call: authenticate, attribute to a run, check budget, route by tier, meter. |
 | **llm-proxy** | provider API key | Talking to the actual model provider. Reachable *only* from the LLM gateway. |
 | **egress proxy** | egress HMAC key | The one network route out of a sandbox; allowlist + audit. |
 | **OPA** | — | Answering decision queries from compiled bundles. |
 | **registry** (Postgres) | — | Nine tables, one writer each; the audit and run store. |
-| **agent** | *nothing* | Running the model loop. Its credential is a projected token file or an injected short-TTL JWT. |
+| **agent** | *nothing* | Running the model loop. Its credential is its own ServiceAccount's projected token file — for standing hires and crew members alike. |
 | **sandbox** | *nothing* | Running untrusted workspace code. |
 
 </details>
@@ -561,10 +567,10 @@ dispatches the **PM**. The PM reads the goal, files a ticket through
 
 **Fulfilment.** The implement workflow consumes the recorded request —
 fulfilment never improvises authority; without a recorded, unexpired request
-it refuses. It mints identities for the crew (deterministically from
+it refuses. It binds identities for the crew (deterministically from
 `{crew, member, run}`, so a retry after a crash lands on the same row rather
-than leaking a second identity), provisions the executor's pod with its
-token injected at creation time, and provisions **one sandbox** for the run.
+than leaking a second identity), provisions each member its own pod with its
+own per-run ServiceAccount, and provisions **one sandbox** for the run.
 
 > How does the code get in? Via `repo.archive`, the platform-only sixteenth
 > tool: the *gateway* clones the target repository with its own token,
@@ -573,8 +579,9 @@ token injected at creation time, and provisions **one sandbox** for the run.
 > configured and no credential anywhere in it. There is nothing to steal
 > and nowhere to push.
 
-**Planning.** The planner is dispatched first. It is LLM-only: it borrows
-the executor's pod but calls the gateway under its *own* token, so its
+**Planning.** The planner is dispatched first, on its own pod — the
+cheapest pod there is, since the planner is LLM-only and needs no sandbox
+wiring. It calls the gateway under its own projected token, so its
 read-only compiled scope is what policy enforces. It produces a task brief.
 
 **Implementation.** The executor is dispatched with that brief. It reads,
@@ -846,7 +853,8 @@ terminal path the crew identities, pods, and sandbox go away.
 scripts/acceptance.sh
 ```
 
-91 tests, roughly 18 minutes, against the live cluster. It opens real pull
+The full end-to-end suite, roughly 18 minutes, against the live cluster
+(the exact count is in the pytest summary). It opens real pull
 requests on your disposable repo. This is the suite that proves the claims
 in this document — including the red-team module, which attacks a real
 provisioned sandbox.
@@ -1064,7 +1072,7 @@ since the API server then refuses TokenReview for its tokens.
 
 ## 8. What it can do
 
-Everything here is asserted by the 91-test acceptance suite.
+Everything here is asserted by the end-to-end acceptance suite.
 
 - **Declarative lifecycle.** Compile, preview, apply, edit and tear down a
   company from one document; hiring and firing are diffs; firing revokes
@@ -1166,22 +1174,6 @@ approval artifact is the obvious hardening and is not implemented.
 </details>
 
 <details>
-<summary><b>Hand-rolled JWT</b></summary>
-
-<br>
-
-`packages/common/src/common/platformjwt.py` implements compact JWS with
-HS256 using only the standard library. It is small, `alg`-pinned, and its
-verification is backed by a live registry row rather than the signature
-alone.
-
-It is still a hand-rolled crypto-adjacent primitive, which is a thing you
-should generally not write. Replacing it with a maintained library is a
-sensible future change.
-
-</details>
-
-<details>
 <summary><b>Supply chain: tags, not digests</b></summary>
 
 <br>
@@ -1245,7 +1237,7 @@ deploy/kind/       kind bootstrap, teardown, NetworkPolicy probe, .env
 crds/              Company and AgentInstance CustomResourceDefinitions
 examples/          hello-saas.yaml, Tetris goal/task, and the red-team scenarios
 scripts/           acceptance.sh
-tests/e2e_kind/    the 91-test suite that runs against a live cluster
+tests/e2e_kind/    the acceptance suite that runs against a live cluster
 ```
 
 ### The golden files
@@ -1293,7 +1285,7 @@ and how to test it.
 
 | Package | What it owns |
 |---|---|
-| [`common`](packages/common/README.md) | Identity, workload authn, audit model, platform JWT, pod security posture |
+| [`common`](packages/common/README.md) | Identity, workload authn, audit model, pod security posture |
 | [`schema`](packages/schema/README.md) | The blueprint contract and the role/crew catalogs |
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |

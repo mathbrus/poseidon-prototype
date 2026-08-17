@@ -6,9 +6,11 @@ for ephemeral crew pods, the worker that runs it all, and the `poseidon`
 CLI. The [root README](../../README.md) states the promises; this package
 is where they become control flow.
 
-Two things make it the one to read carefully. It is the **only minter of
-ephemeral identities**, and it owns the **human merge gate** — the single
-point where a person is required before code leaves the system.
+Two things make it the one to read carefully. It is the **only binder of
+ephemeral identities** — the sole writer of `run_participants` rows and
+creator of per-run crew ServiceAccounts — and it owns the **human merge
+gate**, the single point where a person is required before code leaves the
+system.
 
 ## Module map
 
@@ -17,8 +19,8 @@ point where a person is required before code leaves the system.
 | `workflows/` | `intake`, `implement`, `review` — sequencing, timeouts, retries and compensation. Deterministic replay code; no I/O. |
 | `activities/` | The 22 activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
 | `gates/` | `Gate` — a signal-driven wait point with an escalation timer — and the `process-gate` audit event shaping. |
-| `crewpods.py` | The bounded Kubernetes surface for crew pods: **pods only**, in the **company namespace only**, deleted only by label selector. |
-| `identity.py` | Ephemeral identity minting — the fulfill half of the identity contract; the gateways own the verify half. |
+| `crewpods.py` | The bounded Kubernetes surface for crew pods: **pods and their per-run ServiceAccounts only**, in the **company namespace only**, deleted only by label selector. |
+| `identity.py` | Ephemeral identity naming — the fulfill half of the identity contract; the gateways own the verify half. |
 | `clients.py` | `GatewayClient` (MCP + admin routes) and `AgentClient` (dispatch/poll). |
 | `cli/` | `poseidon run\|review\|signal\|status`, `poseidon blueprint compile\|preview\|apply` — documented in [INTERFACES.md](../../INTERFACES.md). |
 | `worker/` | The worker process: registers all three workflows and all activities on the `poseidon-orchestrator` task queue. |
@@ -154,21 +156,22 @@ signal rather than silently retrying against an exhausted cap. Approval
 means the cap was raised — the same text is re-dispatched; anything else
 finalizes the run with the budget error.
 
-## Identity: minted deterministically, revoked by a row
+## Identity: bound deterministically, revoked by a row
 
 Agent ids are deterministic from `{crew, member, run}` —
-`ephemeral_agent_id()` is string concatenation, nothing more — so a mint
-retried after a worker death lands on the *same* participants row and
-signs a fresh token, instead of leaking a second identity. The signed
-JWT's TTL (900 s) is deliberately a backstop: real revocation is
-terminating the `run_participants` row, which the gateways check on every
-call. When a retried mint would revive a row the run's teardown already
-swept, the registry raises `ParticipantRevoked` and the caller abandons
-the identity — revocation is final, and a retry that lost the race with
-teardown must not build on it.
+`ephemeral_agent_id()` is string concatenation, nothing more — so a bind
+retried after a worker death lands on the *same* participants row,
+instead of leaking a second identity. Nothing is signed: the member's
+credential is its own pod's projected ServiceAccount token, and the row —
+which maps the SA name to run, crew coordinates, company and catalog
+template — is what the gateways resolve on every call. Real revocation is
+terminating that row. When a retried bind would revive a row the run's
+teardown already swept, the registry raises `ParticipantRevoked` and the
+caller abandons the identity — revocation is final, and a retry that lost
+the race with teardown must not build on it.
 
 `fulfill_crew` composes the whole fulfilment: consume the recorded crew
-request, mint every member, provision the pod-hosting member, run the
+request, bind every member and give each its own pod, run the
 planner, hand back the brief. Two details carry the design:
 
 - **Fulfilment never improvises authority.** Without a recorded,
@@ -177,27 +180,31 @@ planner, hand back the brief. Two details carry the design:
   compiled decision the `crew.request` *tool* would face allows it: the
   activity evaluates the same bundle at OPA with the same enriched input
   (`may_spawn` narrowing, live spawn count, budget headroom).
-- **The planner needs no pod.** It is LLM-only: it borrows the executor's
-  brain host but is dispatched with its *own* minted token, so its
-  compiled read-only scope is what policy enforces. Its brief replaces
-  the raw task text for the executor dispatch — the orchestrator-fixed
-  graph *is* the planner→executor handoff; there is no free-form chat.
+- **The planner gets the cheapest pod there is.** It is LLM-only and
+  needs no sandbox wiring, but it runs on its own pod under its own
+  ServiceAccount, so its gateway calls carry its own projected token and
+  its compiled read-only scope is what policy enforces. Its brief
+  replaces the raw task text for the executor dispatch — the
+  orchestrator-fixed graph *is* the planner→executor handoff; there is
+  no free-form chat.
 
-Every mint, revoke, provision and destroy lands a `process-lifecycle`
+Every bind, revoke, provision and destroy lands a `process-lifecycle`
 audit event: a run's story shows who existed, when, under whose authority.
 
 ## Crew pods
 
-A crew pod is the ephemeral executor's brain host: the same agent image a
-standing hire runs, labeled to its run, holding its minted identity in
-`GATEWAY_TOKEN`. The token is injected into the pod env **at provision
-time** — that is what keeps it out of Temporal's workflow history, which
+A crew pod is one crew member's brain host: the same agent image a
+standing hire runs, labeled to its run. Its only credential is the
+audience-scoped projected token of its own per-run ServiceAccount,
+mounted by the kubelet — no token-shaped env var exists, and no
+credential ever enters Temporal's workflow history, which
 is persisted and replayed. The manifest mirrors the operator's standing
 posture: no API-server token, no service links, non-root, `GPG_KEY`
 blanked.
 
 The provisioner's Kubernetes surface is bounded by construction: it
-creates and deletes pods only, in the company namespace only, and every
+creates and deletes pods and their labeled ServiceAccounts only, in the
+company namespace only, and every
 delete goes through the `{run_id, kind=crew-agent}` label selector — so
 nothing unlabeled, and no sandbox pod sharing the run label, can ever be
 touched. Standing structure stays operator-owned.
@@ -222,7 +229,7 @@ it there). In order: revoke the run's participants (the identity dies
 first), destroy the crew pods, destroy the sandbox, retire its gateway
 registration, and write the honest terminal run record, which is also the
 workflow's result. The participants sweep is deliberately independent of
-the sandbox handle — minting precedes provisioning, so participants can
+the sandbox handle — binding precedes provisioning, so participants can
 exist even when no sandbox ever did. Cleanup failures are folded into the
 run record as errors rather than masking the outcome: a stale row is a
 governance problem, never a silent one.
@@ -258,8 +265,10 @@ authority there is exactly the caller's own.
 
 ## Credential posture
 
-The worker holds the egress-proxy HMAC key, the platform JWT signing key
-and the registry DSN — **no `GIT_TOKEN`, no provider keys**. Its gateway
+The worker holds the egress-proxy HMAC key
+and the registry DSN — **no `GIT_TOKEN`, no provider keys, no signing
+key** (there is nothing to sign: crew identities are ServiceAccounts,
+bound by registry row). Its gateway
 identity is an audience-scoped projected service-account token, distinct
 from the automounted API-server token the k8s_jobs backend and the
 crew-pod provisioner use: each is useless where the other is needed.
@@ -283,8 +292,8 @@ crew-pod provisioner use: each is useless where the other is needed.
 uv run pytest packages/orchestrator
 ```
 
-63 unit tests cover activity behaviour and retry safety against fakes:
-deterministic minting converging on one row, the crew-pod manifest's
+The unit suite covers activity behaviour and retry safety against fakes:
+deterministic binding converging on one row, the crew-pod manifest's
 containment posture, gate outcomes as audit events, budget-boundary
 refusals, fail-closed config reads, the timeout profiles. Sequencing,
 compensation and durability are workflow concerns, proven live by the

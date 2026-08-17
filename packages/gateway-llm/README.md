@@ -204,8 +204,9 @@ read — a real model legitimately thinks for minutes.
 ## Cross-package interactions
 
 - `common.authn` — the same `Authenticator` the MCP gateway uses:
-  TokenReview for standing agents, platform JWT plus a live
-  `run_participants` row for ephemeral ones.
+  TokenReview for every caller, with standing agents resolved through
+  `agent_instances` and ephemeral crew members through a live
+  `run_participants` row.
 - `registry.BudgetLedger` for metering and the headroom SUM (this
   gateway is the ledger's only writer); `registry.Runs` and `Companies`
   for attribution and the per-run cap; `AgentInstances` for the tier;
