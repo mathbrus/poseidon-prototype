@@ -1103,17 +1103,24 @@ edit as every other authority change.
 
 The loop itself is one durable workflow per company (`conduct-{company}`),
 kept running by the orchestrator worker while the applied blueprint
-declares the section. Each tick reads the open backlog, the in-flight runs
-and today's ledger spend, then either starts the oldest unconsumed issue as
-an implement run — after winning the compiled `conduct.start` decision — or
-idles, recording *why* as an audit event either way (a daily-cap halt is a
-first-class process-gate event, like the per-run budget stop). Removal is
-fail-closed twice over: the tick re-reads the section and stops when it is
-gone, and a tick that somehow survived would still find no `conduct.start`
-rule to match. Issue bodies never feed the tick's decision — only numbers,
-titles and URLs — because the backlog is untrusted input, and the implement
-run resolves the ticket itself under the platform identity like any other
-issue-driven run.
+declares the section. Each tick observes the open backlog, the delivered
+PRs awaiting review, the in-flight runs and today's ledger spend, then
+dispatches the standing PM in a toolless *decide* mode: one action —
+`implement #n`, `review #n`, or `idle` — with a required one-line
+rationale, journaled as a `conduct.decide` audit event (the append-only
+record of *why* the company did what it did; the PM's cross-run state is
+the registry, read fresh each tick — no private memory). The PM proposes
+and the platform disposes: the action set is closed, the target must come
+from the observation, and the start must still win the compiled
+`conduct.start` decision — a poisoned ticket title can at most steer the
+choice between observed candidates, never mint a new one. Idle ticks and
+cap halts record their reason too (a daily-cap halt is a first-class
+process-gate event, like the per-run budget stop). Removal is fail-closed
+twice over: the tick re-reads the section and stops when it is gone, and a
+tick that somehow survived would still find no `conduct.start` rule to
+match. Issue bodies never feed the tick — only numbers, titles and URLs —
+because the backlog is untrusted input, and the implement run resolves the
+ticket itself under the platform identity like any other issue-driven run.
 
 </details>
 

@@ -298,6 +298,48 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
 
 PR_NUMBER_RE = re.compile(r"pull request #(\d+)")
 
+# The conduct decision (mode=decide): one completion, no tools. The
+# observation's sections are parsed by their headers (the orchestrator's
+# decision_prompt composes them); the scripted policy mirrors the decide
+# prompt's own advice — finish before starting: review a delivered PR if
+# one is waiting, else implement the first open ticket, else idle.
+_SECTION_ITEM_RE = re.compile(r"^#(\d+)", re.M)
+
+
+def _section_numbers(text: str, header: str) -> list[int]:
+    _, found, rest = text.partition(header)
+    if not found:
+        return []
+    section = rest.split("\n\n", 1)[0]
+    return [int(n) for n in _SECTION_ITEM_RE.findall(section)]
+
+
+def _startable(text: str) -> str:
+    for line in text.splitlines():
+        if line.startswith("Startable actions:"):
+            return line
+    return ""
+
+
+def _decide_completion(messages: list[dict[str, Any]]) -> MockCompletion:
+    text = _task_text(messages)
+    startable = _startable(text)
+    prs = _section_numbers(text, "Delivered pull requests awaiting review:")
+    tickets = _section_numbers(text, "Open tickets:")
+    if prs and "review" in startable:
+        return _text(
+            f"DECISION: review #{prs[0]}\n"
+            f"RATIONALE: PR #{prs[0]} is delivered and unreviewed; a review "
+            "unblocks the merge gate before new work starts."
+        )
+    if tickets and "implement" in startable:
+        return _text(
+            f"DECISION: implement #{tickets[0]}\n"
+            f"RATIONALE: ticket #{tickets[0]} is the oldest open work and "
+            "nothing is waiting on review."
+        )
+    return _text("DECISION: idle\nRATIONALE: nothing in the observation is startable.")
+
 
 def _review_completion(messages: list[dict[str, Any]]) -> MockCompletion:
     """The reviewer's scripted dispatch: read the PR
@@ -332,6 +374,11 @@ def next_completion(
 ) -> MockCompletion:
     task_text = _task_text(messages)
     offered = _offered(tools)
+
+    # Before the PM check: the decide prompt also addresses the product
+    # manager, but the dispatch is a single toolless completion.
+    if "conduct decision" in _system_text(messages):
+        return _decide_completion(messages)
 
     if "product manager" in _system_text(messages):  # the PM loop
         return _pm_completion(messages)

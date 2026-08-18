@@ -16,6 +16,7 @@ from conftest import (
 
 from agent.brain import (
     build_llm,
+    decide_dispatch,
     deliver_dispatch,
     implement_dispatch,
     plan_dispatch,
@@ -401,3 +402,65 @@ def test_prompt_rendering_survives_stray_braces(tmp_path, settings):
     assert f"Repo: {settings.target_repo}." in rendered
     assert '{"key": "value"}' in rendered
     assert "{not_a_field!r}" in rendered
+
+
+# --- decide mode --------------------------------------------------------------
+
+
+OBSERVATION = (
+    "Conduct tick. Runs in flight: 0. Spent today: $0.00.\n"
+    "Startable actions: implement, review, idle\n\n"
+    "Open tickets:\n#5 — Add slugify\n\n"
+    "Delivered pull requests awaiting review:\n(none)\n\n"
+    "Recent runs:\n(none)\n\n"
+    "Reply with exactly two lines:\n"
+    "DECISION: implement #<n> | review #<n> | idle\n"
+    "RATIONALE: one line saying why."
+)
+
+
+def test_decide_parses_the_two_line_contract(settings, gateway):
+    llm = ScriptedLLM([says("DECISION: implement #5\nRATIONALE: oldest open work.")])
+    with scripted(gateway, llm):
+        result = decide_dispatch(settings, RUN_ID, OBSERVATION)
+    assert result.error is None
+    assert result.decision == {
+        "action": "implement",
+        "target": 5,
+        "rationale": "oldest open work.",
+    }
+    # LLM-only: no tools were offered and no gateway call was made — the
+    # observation is everything the PM may consider.
+    messages, tools = llm.requests[0]
+    assert tools is None
+    assert gateway.calls == []
+    assert "conduct decision" in text_of(messages[0])
+
+
+def test_decide_idle_and_review_shapes(settings, gateway):
+    for reply, expected in [
+        ("DECISION: idle\nRATIONALE: nothing worth starting.", ("idle", None)),
+        ("DECISION: review #7\nRATIONALE: finish first.", ("review", 7)),
+    ]:
+        with scripted(gateway, ScriptedLLM([says(reply)])):
+            result = decide_dispatch(settings, RUN_ID, OBSERVATION)
+        assert (result.decision["action"], result.decision["target"]) == expected
+
+
+def test_decide_without_a_rationale_fails(settings, gateway):
+    """The journal is half the point of asking: an unexplained decision is
+    a failed dispatch, not a silently accepted one."""
+    with scripted(gateway, ScriptedLLM([says("DECISION: implement #5")])):
+        result = decide_dispatch(settings, RUN_ID, OBSERVATION)
+    assert result.decision is None
+    assert "broke the two-line contract" in result.error
+
+
+def test_decide_rejects_prose_and_unknown_actions(settings, gateway):
+    for reply in [
+        "I think we should implement #5 next.",
+        "DECISION: deploy #5\nRATIONALE: ship it.",
+    ]:
+        with scripted(gateway, ScriptedLLM([says(reply)])):
+            result = decide_dispatch(settings, RUN_ID, OBSERVATION)
+        assert result.decision is None and result.error

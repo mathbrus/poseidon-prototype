@@ -587,3 +587,28 @@ def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
         " WHERE run_id = 'run-sp-2'"
     )
     assert BudgetLedger(registry).spent_today("hello-saas") == 2.5
+
+
+def test_delivered_pr_urls_are_done_implement_runs_only(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-pr-1", "implement issue #1", "implement", None, "hello-saas")
+    runs.finish("run-pr-1", "done", pr_url="https://git.test/r/pull/4")
+    runs.start("run-pr-2", "implement issue #2", "implement", None, "hello-saas")
+    runs.finish("run-pr-2", "failed", error="boom")  # no PR, not delivered
+    runs.start("run-pr-3", "implement issue #3", "implement", None, "hello-saas")
+    runs.finish("run-pr-3", "done", pr_url="https://git.test/r/pull/9")
+    runs.start("run-pr-4", "implement issue #4", "implement", None, "other-co")
+    runs.finish("run-pr-4", "done", pr_url="https://git.test/r/pull/8")
+    assert Runs(registry).delivered_pr_urls("hello-saas") == [
+        "https://git.test/r/pull/4",
+        "https://git.test/r/pull/9",
+    ]
+
+
+def test_reviewed_pr_numbers_parses_the_canonical_task(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-rv-1", "review pull request #4", "review", None, "hello-saas")
+    runs.start("run-rv-2", "review pull request #9", "review", None, "hello-saas")
+    runs.finish("run-rv-2", "failed", error="boom")  # every status counts
+    runs.start("run-rv-3", "review pull request #8", "review", None, "other-co")
+    assert Runs(registry).reviewed_pr_numbers("hello-saas") == {4, 9}

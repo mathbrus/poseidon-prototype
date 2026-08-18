@@ -391,6 +391,26 @@ class InMemoryRuns:
                 numbers.add(int(match.group(1)))
         return numbers
 
+    def delivered_pr_urls(self, company: str) -> list[str]:
+        return [
+            r.pr_url
+            for r in self.rows.values()
+            if r.company == company
+            and r.workflow == "implement"
+            and r.status == "done"
+            and r.pr_url
+        ]
+
+    def reviewed_pr_numbers(self, company: str) -> set[int]:
+        numbers = set()
+        for record in self.rows.values():
+            if record.company != company or record.workflow != "review":
+                continue
+            match = re.fullmatch(r"review pull request #(\d+)", record.task)
+            if match:
+                numbers.add(int(match.group(1)))
+        return numbers
+
     def recent(self, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first.
         return list(self.rows.values())[-limit:][::-1]

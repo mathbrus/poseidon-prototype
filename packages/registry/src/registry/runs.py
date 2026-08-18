@@ -164,6 +164,33 @@ class Runs:
         )
         return {int(row["number"]) for row in rows}
 
+    def delivered_pr_urls(self, company: str) -> list[str]:
+        """PRs the company's implement runs have opened and finished with —
+        the review side of the conduct heartbeat's observation, before the
+        already-reviewed set is subtracted."""
+        rows = self._db.query(
+            "SELECT pr_url FROM registry.runs"
+            " WHERE company = %s AND workflow = 'implement'"
+            "   AND status = 'done' AND pr_url IS NOT NULL"
+            " ORDER BY finished_at",
+            (company,),
+        )
+        return [row["pr_url"] for row in rows]
+
+    def reviewed_pr_numbers(self, company: str) -> set[int]:
+        """PRs any review run has ever consumed, parsed from the canonical
+        review-run task (`review pull request #N`) — same rule as issues:
+        every status counts, a failed review is a recorded outcome."""
+        rows = self._db.query(
+            r"SELECT DISTINCT"
+            r" (regexp_match(task, '^review pull request #(\d+)$'))[1]::int"
+            r" AS number FROM registry.runs"
+            r" WHERE company = %s AND workflow = 'review'"
+            r"   AND task ~ '^review pull request #\d+$'",
+            (company,),
+        )
+        return {int(row["number"]) for row in rows}
+
     def recent(self, limit: int = 20) -> list[RunRecord]:
         rows = self._db.query(
             "SELECT * FROM registry.runs ORDER BY created_at DESC LIMIT %s", (limit,)

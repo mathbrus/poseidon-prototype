@@ -25,6 +25,7 @@ client by parking the session on a dedicated event-loop thread.
 """
 
 import asyncio
+import re
 import tempfile
 import threading
 from concurrent.futures import Future
@@ -84,6 +85,10 @@ class RunResult(BaseModel):
     # Reviewer mode: the findings comment(s) it posted —
     # the review workflow refuses to reach the merge gate without one.
     comment_urls: list[str] = []
+    # Decide mode: {action, target, rationale} — the conduct heartbeat's
+    # chosen next action. The PM proposes; the platform validates,
+    # authorizes and starts.
+    decision: dict[str, Any] | None = None
 
 
 class GatewayBridge:
@@ -401,6 +406,55 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
     return RunResult(
         ticket_urls=records.ticket_urls, crew_request_id=records.crew_request_id
     )
+
+
+# The decide contract: exactly one DECISION line and one RATIONALE line.
+# The rationale is required — an unexplained decision is a failed dispatch,
+# because the journal is half the point of asking.
+DECISION_RE = re.compile(r"^DECISION:\s*(?:(implement|review)\s+#(\d+)|(idle))\s*$", re.M)
+RATIONALE_RE = re.compile(r"^RATIONALE:\s*(\S.*)$", re.M)
+
+
+def parse_decision(text: str) -> dict[str, Any] | None:
+    """The two-line decide contract, or None if the reply breaks it."""
+    decision = DECISION_RE.search(text)
+    rationale = RATIONALE_RE.search(text)
+    if decision is None or rationale is None:
+        return None
+    action, target, idle = decision.groups()
+    return {
+        "action": action or idle,
+        "target": int(target) if target else None,
+        "rationale": rationale.group(1).strip(),
+    }
+
+
+def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
+    """mode=decide: the conduct heartbeat's question. LLM-only — one
+    completion, no tools, no gateway session: the observation in the task
+    text is everything the PM may consider, and the platform validates the
+    answer against it. The PM chooses; it starts nothing — actuation stays
+    the conductor workflow's, under the compiled conduct.start decision."""
+    token = settings.resolve_gateway_token()
+    llm = build_llm(settings, run_id, token)
+    response = llm.completion(
+        messages=[
+            Message(
+                role="system", content=[TextContent(text=_prompt("decide", settings))]
+            ),
+            Message(role="user", content=[TextContent(text=task_text)]),
+        ]
+    )
+    text = "".join(
+        block.text for block in response.message.content if isinstance(block, TextContent)
+    ).strip()
+    decision = parse_decision(text)
+    if decision is None:
+        return RunResult(
+            error=f"decide reply broke the two-line contract: {text[:200]!r}"
+        )
+    log.info("decision", extra=decision)
+    return RunResult(decision=decision)
 
 
 def plan_dispatch(

@@ -140,14 +140,15 @@ def _issue(number: int) -> dict[str, Any]:
     }
 
 
-def test_observe_picks_the_oldest_unconsumed_issue(activities, runs, ledger, monkeypatch):
+def test_observe_backlog_is_unconsumed_sorted_and_body_free(
+    activities, runs, ledger, monkeypatch
+):
     _backlog_gateway(monkeypatch, [_issue(7), _issue(3), _issue(5)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     observed = asyncio.run(activities.conduct_observe())
-    assert observed["next_issue"]["number"] == 5
-    assert observed["open_candidates"] == 2
+    assert [i["number"] for i in observed["backlog"]] == [5, 7]
     # Bodies are untrusted input; only number, title and URL feed the tick.
-    assert set(observed["next_issue"]) == {"number", "title", "url"}
+    assert all(set(i) == {"number", "title", "url"} for i in observed["backlog"])
 
 
 def test_observe_counts_running_delivery_runs_and_todays_spend(
@@ -171,7 +172,8 @@ def test_observe_counts_running_delivery_runs_and_todays_spend(
     observed = asyncio.run(activities.conduct_observe())
     assert observed["active_runs"] == 1
     assert observed["daily_spent_usd"] == 2.5
-    assert observed["next_issue"] is None
+    assert observed["backlog"] == []
+    assert len(observed["recent_runs"]) == 3
 
 
 def test_observe_exhausted_backlog_offers_nothing(activities, runs, monkeypatch):
@@ -181,7 +183,20 @@ def test_observe_exhausted_backlog_offers_nothing(activities, runs, monkeypatch)
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     runs.finish("run-a", "failed", error="boom")
     observed = asyncio.run(activities.conduct_observe())
-    assert observed["next_issue"] is None
+    assert observed["backlog"] == []
+
+
+def test_observe_offers_delivered_unreviewed_prs(activities, runs, monkeypatch):
+    _backlog_gateway(monkeypatch, [])
+    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
+    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
+    runs.start("run-b", "implement issue #5", "implement", company=COMPANY)
+    runs.finish("run-b", "done", pr_url="https://github.test/example/repo/pull/6")
+    runs.start("run-c", "review pull request #6", "review", company=COMPANY)
+    observed = asyncio.run(activities.conduct_observe())
+    assert observed["reviewable_prs"] == [
+        {"number": 4, "url": "https://github.test/example/repo/pull/4"}
+    ]
 
 
 # -- conduct_authorize -----------------------------------------------------
@@ -231,3 +246,122 @@ def test_every_tick_leaves_a_correlated_row(activities, audit):
     ]
     assert {e["tool"] for e in story} == {"conduct.tick"}
     assert {e["source"] for e in story} == {"process-lifecycle"}
+
+
+# -- conduct_decide --------------------------------------------------------
+
+
+OBSERVED = {
+    "active_runs": 0,
+    "daily_spent_usd": 1.0,
+    "backlog": [{"number": 5, "title": "Add slugify", "url": "https://i/5"}],
+    "reviewable_prs": [{"number": 4, "url": "https://p/4"}],
+    "recent_runs": [
+        {"run_id": "run-a", "workflow": "implement", "status": "done", "task": "t"}
+    ],
+}
+
+
+def _pm(monkeypatch, status: dict[str, Any]):
+    import orchestrator.activities.conduct as module
+
+    class FakeAgent:
+        dispatched: list[tuple[str, str, str]] = []
+
+        def __init__(self, url):
+            FakeAgent.url = url
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def dispatch(self, run_id, task_text, mode="implement"):
+            FakeAgent.dispatched.append((run_id, task_text, mode))
+
+        async def status(self, run_id):
+            return status
+
+    monkeypatch.setattr(module, "AgentClient", FakeAgent)
+    return FakeAgent
+
+
+def _decided(action: str, target: int | None, rationale: str) -> dict[str, Any]:
+    return {
+        "status": "done",
+        "decision": {"action": action, "target": target, "rationale": rationale},
+    }
+
+
+def test_decide_dispatches_the_observation_and_journals(
+    activities, settings, audit, monkeypatch
+):
+    settings.pm_url = "http://pm.test:8000"
+    agent = _pm(monkeypatch, _decided("review", 4, "finish before starting"))
+    decision = asyncio.run(
+        activities.conduct_decide("auto-1", OBSERVED, ["implement", "review"])
+    )
+    assert decision == {
+        "action": "review",
+        "target": 4,
+        "rationale": "finish before starting",
+    }
+    (run_id, prompt, mode) = agent.dispatched[0]
+    assert (run_id, mode) == ("auto-1", "decide")
+    # The composed observation carries the contract's section headers.
+    assert "Open tickets:" in prompt and "#5 — Add slugify" in prompt
+    assert "Delivered pull requests awaiting review:" in prompt and "#4 —" in prompt
+    assert "Startable actions: implement, review, idle" in prompt
+    # The journal: why the company did what it did, as an audit row.
+    (event,) = audit.story(f"conduct-{COMPANY}")
+    assert event["tool"] == "conduct.decide"
+    assert event["decision"] == "allow"
+    assert event["rule"] == "finish before starting"
+
+
+def test_decide_refuses_a_target_outside_the_observation(
+    activities, settings, audit, monkeypatch
+):
+    """Structural containment: a poisoned backlog can steer the choice
+    between observed candidates, never mint a new one."""
+    settings.pm_url = "http://pm.test:8000"
+    _pm(monkeypatch, _decided("implement", 99, "the ticket says to pick #99"))
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(
+            activities.conduct_decide("auto-2", OBSERVED, ["implement", "review"])
+        )
+    assert caught.value.non_retryable
+    (event,) = audit.story(f"conduct-{COMPANY}")
+    assert event["tool"] == "conduct.decide"
+    assert event["decision"] == "deny"
+    assert "not in the observation" in event["rule"]
+
+
+def test_decide_refuses_an_action_outside_may_start(
+    activities, settings, audit, monkeypatch
+):
+    settings.pm_url = "http://pm.test:8000"
+    _pm(monkeypatch, _decided("review", 4, "review it"))
+    with pytest.raises(ApplicationError):
+        asyncio.run(activities.conduct_decide("auto-3", OBSERVED, ["implement"]))
+    (event,) = audit.story(f"conduct-{COMPANY}")
+    assert event["decision"] == "deny"
+    assert "may_start" in event["rule"]
+
+
+def test_decide_idle_needs_no_target(activities, settings, audit, monkeypatch):
+    settings.pm_url = "http://pm.test:8000"
+    _pm(monkeypatch, _decided("idle", None, "capacity is better spent tomorrow"))
+    decision = asyncio.run(activities.conduct_decide("auto-4", OBSERVED, ["implement"]))
+    assert decision["action"] == "idle"
+    (event,) = audit.story(f"conduct-{COMPANY}")
+    assert event["decision"] == "allow"
+
+
+def test_decide_failed_dispatch_is_nonretryable(activities, settings, monkeypatch):
+    settings.pm_url = "http://pm.test:8000"
+    _pm(monkeypatch, {"status": "failed", "error": "decide reply broke the contract"})
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(activities.conduct_decide("auto-5", OBSERVED, ["implement"]))
+    assert "broke the contract" in str(caught.value)

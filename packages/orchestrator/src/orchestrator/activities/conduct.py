@@ -8,17 +8,29 @@ Retry safety, per activity:
                           platform identity); safe. Only numbers, titles
                           and URLs leave here: issue bodies are untrusted
                           input the implement run reads itself.
+    conduct_decide      — dispatches the PM's decide mode and polls to
+                          terminal; the PM answers 409 while running
+                          (re-attach) like every dispatch. The chosen
+                          action is validated against the observation and
+                          journaled; an invalid decision is non-retryable.
     conduct_authorize   — evaluates the compiled conduct.start decision at
                           OPA and audits it; a re-attempt re-evaluates and
                           re-audits, which is the honest record of what was
                           asked. A deny is non-retryable by construction.
     record_conduct_tick — append-only audit write; a duplicate row is a
                           duplicate heartbeat line, never a wrong one.
+
+Ticket titles flow into the decide prompt and are untrusted, like every
+text an agent reads. Containment is structural, not textual: a poisoned
+title can at most influence *which* observed candidate the PM names —
+the action set is closed, the target must be in the observation, and the
+start must still win the compiled conduct.start decision.
 """
 
 import asyncio
 import hashlib
 import json
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -29,16 +41,54 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import AuditEvent
 from common.telemetry import get_logger
-from orchestrator.clients import GatewayClient
+from orchestrator.clients import AgentClient, GatewayClient
 from orchestrator.config import WorkerSettings
 from registry import AuditStore, BudgetLedger, Runs
 from registry.bundles import Companies
+
+PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
+# The observation is a prompt, not a database dump: enough candidates to
+# choose well, few enough to read.
+BACKLOG_LIMIT = 20
+RECENT_RUNS_LIMIT = 10
+RATIONALE_CLIP = 300
 
 
 def _digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _section(header: str, lines: list[str]) -> str:
+    body = "\n".join(lines) if lines else "(none)"
+    return f"{header}\n{body}"
+
+
+def decision_prompt(observed: dict[str, Any], may_start: list[str]) -> str:
+    """The decide dispatch's user message: the whole observation, composed
+    the same way every tick. The mock brain parses these section headers;
+    changing them is changing a contract."""
+    startable = ", ".join([*may_start, "idle"])
+    tickets = [f"#{i['number']} — {i['title']}" for i in observed.get("backlog") or []]
+    prs = [f"#{p['number']} — {p['url']}" for p in observed.get("reviewable_prs") or []]
+    runs = [
+        f"{r['run_id']} {r['workflow']} {r['status']}: {r['task']}"
+        for r in observed.get("recent_runs") or []
+    ]
+    return "\n\n".join(
+        [
+            f"Conduct tick. Runs in flight: {observed['active_runs']}."
+            f" Spent today: ${observed['daily_spent_usd']:.2f}.\n"
+            f"Startable actions: {startable}",
+            _section("Open tickets:", tickets),
+            _section("Delivered pull requests awaiting review:", prs),
+            _section("Recent runs:", runs),
+            "Reply with exactly two lines:\n"
+            "DECISION: implement #<n> | review #<n> | idle\n"
+            "RATIONALE: one line saying why.",
+        ]
+    )
 
 
 class ConductActivities:
@@ -72,45 +122,137 @@ class ConductActivities:
 
     @activity.defn(name="conduct_observe")
     async def conduct_observe(self) -> dict[str, Any]:
-        """What the tick decides from: in-flight runs and today's spend
-        from the registry, and the oldest open issue no run has consumed —
-        read under the platform identity, like every platform read."""
+        """What the tick decides from — the PM's whole decision basis:
+        in-flight runs, today's spend and the run history from the
+        registry; the unconsumed open backlog and the delivered-but-
+        unreviewed PRs as the candidate actions. Read under the platform
+        identity, like every platform read."""
 
-        def read() -> tuple[int, float, set[int]]:
+        def read() -> tuple[int, float, set[int], list[dict[str, Any]], list[Any]]:
             company = self._settings.company
+            reviewed = self._runs.reviewed_pr_numbers(company)
+            reviewable = []
+            for url in self._runs.delivered_pr_urls(company):
+                match = PR_URL_NUMBER_RE.search(url)
+                if match and int(match.group(1)) not in reviewed:
+                    reviewable.append({"number": int(match.group(1)), "url": url})
             return (
                 self._runs.active_count(company),
                 self._ledger.spent_today(company),
                 self._runs.started_issue_numbers(company),
+                reviewable,
+                self._runs.recent(RECENT_RUNS_LIMIT),
             )
 
-        active_runs, daily_spent, started = await asyncio.to_thread(read)
+        active_runs, daily_spent, started, reviewable, recent = await asyncio.to_thread(
+            read
+        )
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             issues = await gateway.read_open_issues(
                 self._conduct_run_id(), self._settings.target_repo
             )
-        candidates = sorted(
-            (issue for issue in issues if int(issue["number"]) not in started),
-            key=lambda issue: int(issue["number"]),
-        )
-        next_issue = None
-        if candidates:
-            first = candidates[0]
-            next_issue = {
-                "number": int(first["number"]),
-                "title": str(first.get("title") or ""),
-                "url": str(first.get("url") or ""),
-            }
+        backlog = sorted(
+            (
+                {
+                    "number": int(issue["number"]),
+                    "title": str(issue.get("title") or ""),
+                    "url": str(issue.get("url") or ""),
+                }
+                for issue in issues
+                if int(issue["number"]) not in started
+            ),
+            key=lambda issue: issue["number"],
+        )[:BACKLOG_LIMIT]
         observed = {
             "active_runs": active_runs,
             "daily_spent_usd": daily_spent,
-            "open_candidates": len(candidates),
-            "next_issue": next_issue,
+            "backlog": backlog,
+            "reviewable_prs": reviewable,
+            "recent_runs": [
+                {
+                    "run_id": r.run_id,
+                    "workflow": r.workflow,
+                    "status": r.status,
+                    "task": r.task[:80],
+                }
+                for r in recent
+            ],
         }
-        self._log.info("conduct tick observed", extra=observed)
+        self._log.info(
+            "conduct tick observed",
+            extra={
+                "active_runs": active_runs,
+                "daily_spent_usd": daily_spent,
+                "backlog": len(backlog),
+                "reviewable_prs": len(reviewable),
+            },
+        )
         return observed
+
+    @activity.defn(name="conduct_decide")
+    async def conduct_decide(
+        self, run_id: str, observed: dict[str, Any], may_start: list[str]
+    ) -> dict[str, Any]:
+        """Dispatch the PM's decide mode with the observation and validate
+        the answer. The PM proposes; the platform disposes: the action must
+        be in `may_start`, the target must be in the observation, and the
+        rationale is journaled either way — a `conduct.decide` audit event
+        is the append-only record of *why* the company did what it did.
+        The dispatch runs under `run_id` (the run the tick would start), so
+        the decision's own LLM spend is attributed to the work it chose."""
+        if not self._settings.pm_url:
+            raise RuntimeError("PM_URL is not configured on the worker")
+        prompt = decision_prompt(observed, may_start)
+        async with AgentClient(self._settings.pm_url) as agent:
+            await agent.dispatch(run_id, prompt, mode="decide")
+            while True:
+                if activity.in_activity():
+                    activity.heartbeat()
+                status = await agent.status(run_id)
+                if status["status"] != "running":
+                    break
+                await asyncio.sleep(self._settings.poll_interval_s)
+        decision = status.get("decision")
+        if status["status"] != "done" or not decision:
+            raise ApplicationError(
+                f"decide dispatch failed: {status.get('error') or 'no decision'}",
+                non_retryable=True,
+            )
+        problem = self._invalid_reason(decision, observed, may_start)
+        rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
+        await self._emit(
+            run_id=self._conduct_run_id(),
+            tool="conduct.decide",
+            digest=_digest(decision),
+            decision="deny" if problem else "allow",
+            rule=problem or rationale,
+        )
+        if problem:
+            raise ApplicationError(f"decision refused: {problem}", non_retryable=True)
+        self._log.info("conduct decision", extra=decision)
+        return decision
+
+    @staticmethod
+    def _invalid_reason(
+        decision: dict[str, Any], observed: dict[str, Any], may_start: list[str]
+    ) -> str | None:
+        """Structural containment for the decide reply: a closed action
+        set, targets only from the observation. A poisoned ticket title can
+        steer the choice between candidates, never mint a new one."""
+        action, target = decision.get("action"), decision.get("target")
+        if action == "idle":
+            return None
+        if action not in may_start:
+            return f"action {action!r} is not in may_start"
+        candidates = {
+            "implement": {i["number"] for i in observed.get("backlog") or []},
+            "review": {p["number"] for p in observed.get("reviewable_prs") or []},
+        }.get(action, set())
+        if target not in candidates:
+            return f"{action} #{target} is not in the observation"
+        return None
 
     @activity.defn(name="conduct_authorize")
     async def conduct_authorize(
@@ -223,6 +365,7 @@ class ConductActivities:
         return [
             self.conduct_config,
             self.conduct_observe,
+            self.conduct_decide,
             self.conduct_authorize,
             self.record_conduct_tick,
         ]
