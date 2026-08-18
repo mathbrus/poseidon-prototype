@@ -6,9 +6,10 @@
     process-initiated is a first-class recorded request,
     not a bypass) -> dispatch the ephemeral reviewer (mode="review":
     reads the diff via git.read, runs the tests in its own sandbox,
-    posts findings via git.comment) -> MERGE GATE -> approve: the
-    orchestrator merges via git.merge_pr under its platform identity;
-    reject/timeout: honest failure -> teardown.
+    posts findings via git.comment, ends with a structured pass/fail
+    verdict) -> record_verdict (the journaled judgement) -> MERGE GATE ->
+    approve: the orchestrator merges via git.merge_pr under its platform
+    identity; reject/timeout: honest failure -> teardown.
 
 The merge gate is the one human gate, and the sole owner of the
 merge guarantee — merge approval is workflow state, the single named
@@ -22,8 +23,9 @@ the merge itself is a gateway-audited tool call — so one run_id query
 tells the whole story: findings, park, escalation, verdict, merge.
 
 Review is orchestrator-sequenced over HTTP. Reject handling is the honest
-minimum: findings are already on the PR, the run finalizes failed with
-the verdict; a findings-loop/close refinement is deliberately absent.
+minimum for now: findings are already on the PR, the run finalizes failed
+with the gate's verdict; the fail->rework loop is a later step of this
+milestone (#11).
 """
 
 import asyncio
@@ -216,9 +218,23 @@ class ReviewWorkflow:
             )
             if (result or {}).get("error"):
                 raise _ReviewOver()
-            if not (result or {}).get("comment_urls"):
-                error = "reviewer finished without posting findings"
+            if not (result or {}).get("verdict"):
+                error = "reviewer finished without a verdict"
                 raise _ReviewOver()
+            # Journal the verdict before the gate reads anything: an
+            # append-only record of what the review concluded, whatever
+            # the gate then decides — the conduct.decide idiom.
+            await workflow.execute_activity(
+                "record_verdict",
+                args=[
+                    input.run_id,
+                    result["verdict"],
+                    result.get("verdict_summary") or "",
+                    workflow.info().workflow_id,
+                ],
+                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+                retry_policy=STEP_RETRY,
+            )
             # The run record links the PR under review whatever the gate
             # decides — the review happened either way.
             result = dict(result or {})

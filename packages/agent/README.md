@@ -84,7 +84,7 @@ REVIEWER_TOOLS = ["list_dir", "read_file", "exec", "run_tests", "read_pr", "comm
 |---|---|---|
 | `implement` | `ACT_TOOLS` | a completion claim |
 | `deliver` | `DELIVER_TOOLS` | the PR URL |
-| `review` | `REVIEWER_TOOLS` | posted findings |
+| `review` | `REVIEWER_TOOLS` | posted findings + a structured pass/fail verdict |
 | `pm` | `PM_TOOLS` | tickets + recorded crew intent |
 | `plan` | none — one completion, no tool loop | the task brief |
 

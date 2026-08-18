@@ -156,6 +156,37 @@ def test_gate_outcomes_are_process_gate_audit_events(settings, audit):
     assert all(e.workflow == f"review-{RUN_ID}" for e in events)
 
 
+def test_verdicts_are_journaled_audit_events(settings, audit):
+    """The reviewer's structured verdict becomes an append-only
+    process-lifecycle row — the conduct.decide idiom: pass maps to allow,
+    fail to deny, and the one-line summary rides the rule field."""
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    asyncio.run(
+        activities.record_verdict(
+            RUN_ID, "pass", "Suite green; in scope.", f"review-{RUN_ID}"
+        )
+    )
+    asyncio.run(
+        activities.record_verdict(
+            RUN_ID, "fail", "Blocking: criteria unmet.", f"review-{RUN_ID}"
+        )
+    )
+    events = [e for e in audit.events if e.run_id == RUN_ID]
+    assert [(e.decision, e.rule) for e in events] == [
+        ("allow", "Suite green; in scope."),
+        ("deny", "Blocking: criteria unmet."),
+    ]
+    assert all(e.source == "process-lifecycle" for e in events)
+    assert all(e.tool == "review.verdict" for e in events)
+    assert all(e.workflow == f"review-{RUN_ID}" for e in events)
+
+
+def test_record_verdict_requires_an_audit_store(settings):
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    with pytest.raises(RuntimeError, match="audit store"):
+        asyncio.run(activities.record_verdict(RUN_ID, "pass", "s", "wf"))
+
+
 def test_read_pr_keeps_the_shape_and_drops_the_patches(settings, monkeypatch):
     import orchestrator.activities.review as module
 

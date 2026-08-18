@@ -8,6 +8,8 @@ Retry safety, per activity:
     record_gate_outcome — appends an audit event; a retried append
                           duplicates a row, never loses one (the audit
                           store is append-only by design).
+    record_verdict      — appends the reviewer's journaled verdict; same
+                          append-only posture.
     merge_pr            — GitHub's merge endpoint is idempotent for an
                           already-merged PR (it answers 405, surfaced as a
                           backend error the workflow reports honestly).
@@ -176,6 +178,42 @@ class ReviewActivities:
             "gate outcome recorded", extra={"gate": gate, "outcome": kind}
         )
 
+    @activity.defn(name="record_verdict")
+    async def record_verdict(
+        self, run_id: str, verdict: str, summary: str, workflow_id: str
+    ) -> None:
+        """One `source=process-lifecycle` audit event journaling the
+        reviewer's structured verdict — the conduct.decide idiom: the
+        judgement and its one-line why become an append-only row in the
+        run's story, distinct from the gate outcome that acts on it. A
+        retried append duplicates a row, never loses one."""
+        if self._audit is None:
+            raise RuntimeError("review activities constructed without an audit store")
+        payload = {"verdict": verdict, "summary": summary}
+        event = AuditEvent(
+            ts=datetime.now(UTC).isoformat(),
+            run_id=run_id,
+            agent_id="orchestrator",
+            role="platform",
+            tool="review.verdict",
+            args_digest=hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            decision="allow" if verdict == "pass" else "deny",
+            rule=summary[:300],
+            latency_ms=0,
+            backend_status=None,
+            source="process-lifecycle",
+            company=self._settings.company,
+            lifecycle="platform",
+            parent_agent_id="",
+            workflow=workflow_id,
+        )
+        await asyncio.to_thread(self._audit.append, event)
+        self._log.bind(run_id=run_id).info(
+            "verdict recorded", extra={"verdict": verdict}
+        )
+
     @activity.defn(name="merge_pr")
     async def merge_pr(self, run_id: str, pr_number: int) -> dict[str, Any]:
         """The post-gate merge: a gateway tool call under the
@@ -204,5 +242,6 @@ class ReviewActivities:
             self.review_config,
             self.read_pr,
             self.record_gate_outcome,
+            self.record_verdict,
             self.merge_pr,
         ]

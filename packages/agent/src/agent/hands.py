@@ -24,7 +24,7 @@ second context to race with.
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from openhands.sdk import TextContent, register_tool
 from openhands.sdk.tool import ToolDefinition, ToolExecutor
@@ -41,7 +41,15 @@ from agent.gateway_client import ToolCallError
 ACT_TOOLS = ["list_dir", "read_file", "write_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
 PM_TOOLS = ["create_issue", "read_issues", "request_crew"]
-REVIEWER_TOOLS = ["list_dir", "read_file", "exec", "run_tests", "read_pr", "comment_pr"]
+REVIEWER_TOOLS = [
+    "list_dir",
+    "read_file",
+    "exec",
+    "run_tests",
+    "read_pr",
+    "comment_pr",
+    "verdict",
+]
 
 
 class GatewayCaller(Protocol):
@@ -57,6 +65,11 @@ class ToolRecords:
     ticket_urls: list[str] = field(default_factory=list)
     crew_request_id: str | None = None
     comment_urls: list[str] = field(default_factory=list)
+    # Reviewer mode: the structured verdict. The reviewer *proposes*
+    # pass/fail; what a verdict releases is the platform's decision, made
+    # against compiled policy — never this record's.
+    verdict: str | None = None
+    verdict_summary: str | None = None
 
 
 @dataclass
@@ -137,6 +150,15 @@ class ReadPrAction(Action):
 class CommentPrAction(Action):
     number: int = Field(description="Pull request number.")
     body: str = Field(description="The findings: what you checked, what you found.")
+
+
+class VerdictAction(Action):
+    verdict: Literal["pass", "fail"] = Field(
+        description="Your judgement of the change: pass or fail."
+    )
+    summary: str = Field(
+        description="One line grounding the verdict in your findings."
+    )
 
 
 class GatewayObservation(Observation):
@@ -236,6 +258,15 @@ def _read_pr(ctx: HandsContext, a: ReadPrAction) -> dict[str, Any]:
     )
 
 
+def _verdict(ctx: HandsContext, a: VerdictAction) -> dict[str, Any]:
+    """The one local tool: a verdict is the dispatch's return value, not a
+    side effect, so there is nothing for the gateway to mediate. It is
+    captured here like every other record — never parsed out of prose."""
+    ctx.records.verdict = a.verdict
+    ctx.records.verdict_summary = a.summary
+    return {"recorded": a.verdict}
+
+
 def _comment_pr(ctx: HandsContext, a: CommentPrAction) -> dict[str, Any]:
     result = ctx.bridge.call(
         "git.comment",
@@ -311,6 +342,13 @@ _TOOLS: dict[str, tuple[str, type[Action], Any]] = {
         "Post a review comment on the pull request — your findings, in one comment.",
         CommentPrAction,
         _comment_pr,
+    ),
+    "verdict": (
+        "Deliver your verdict on the pull request after posting your "
+        "findings: pass or fail, with a one-line summary. A review without "
+        "a verdict is a failed dispatch.",
+        VerdictAction,
+        _verdict,
     ),
 }
 

@@ -82,7 +82,9 @@ poseidon review PR_NUMBER [--run-id ID] [--detach] [--fast-timeouts]
 
 Starts a review run for an open pull request: a fresh sandbox is
 provisioned from the PR's head ref and an ephemeral reviewer (read-and-
-judge tools only) runs the tests and posts findings. The workflow then
+judge tools only) runs the tests, posts findings, and ends with a
+structured pass/fail verdict the platform journals as an audit event.
+The workflow then
 parks on the **merge gate** until a human answers via `poseidon signal` —
 so `--detach` is the usual mode here, since the gate may hold for hours.
 
