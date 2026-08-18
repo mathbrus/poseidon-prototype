@@ -2,7 +2,7 @@
 
 The blueprint is the one source of truth the compiler turns into
 every enforcement projection. This package owns what a blueprint may say —
-JSON Schema for the eight sections plus the versioned role and crew
+JSON Schema for the nine sections plus the versioned role and crew
 template catalogs — and nothing about what it compiles to.
 """
 

@@ -96,3 +96,23 @@ def test_empty_egress_allowlist_means_zero_egress(blueprint):
     del blueprint["stack"]["toolchain"]["egress_allow"]
     plan = compile_blueprint(blueprint)
     assert plan.infra.egress_proxy_allowlist == ()
+
+
+def test_a_plan_without_conduct_stays_human_started(blueprint):
+    """No conduct section, no heartbeat artifacts anywhere: the applied
+    company behaves exactly as before the section existed."""
+    plan = compile_blueprint(blueprint)
+    assert plan.conduct is None
+    assert plan.as_dict()["conduct"] is None
+    assert "conduct.rego" not in plan.bundle.files
+
+
+def test_conduct_compiles_into_plan_and_bundle(conducted):
+    plan = compile_blueprint(conducted)
+    assert plan.conduct.conductor == "pm"
+    assert plan.conduct.heartbeat_minutes == 30
+    assert plan.conduct.max_concurrent_runs == 1
+    assert plan.conduct.may_start == ("implement",)
+    assert plan.conduct.daily_cap_usd == 20.0
+    assert "conduct.rego" in plan.bundle.files
+    assert plan.as_dict()["conduct"]["may_start"] == ["implement"]

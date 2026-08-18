@@ -1,4 +1,4 @@
-"""JSON Schema for the eight blueprint sections.
+"""JSON Schema for the nine blueprint sections.
 
 Structural validation only. Cross-checks that need the catalogs or a
 registry snapshot (does this template exist, does this workflow node bind to
@@ -236,6 +236,44 @@ _POLICIES = {
     },
 }
 
+# The standing heartbeat's declared authority: cadence, concurrency, what
+# it may start on its own initiative, and a daily hard stop. Opt-in and
+# all-explicit — a company that declares a heartbeat declares every cap,
+# because a defaulted cap is authority nobody wrote down. Absent means what
+# it always meant: runs start only when a human starts one. `intake` is
+# deliberately not startable — goals enter through a human.
+_CONDUCT = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "conductor",
+        "heartbeat_minutes",
+        "max_concurrent_runs",
+        "may_start",
+        "daily_cap",
+    ],
+    "properties": {
+        # The standing role dispatched to decide the next action.
+        "conductor": _NAME,
+        "heartbeat_minutes": {"type": "integer", "minimum": 1},
+        "max_concurrent_runs": {"type": "integer", "minimum": 1},
+        "may_start": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["implement", "review"]},
+            "minItems": 1,
+            "uniqueItems": True,
+        },
+        # Halts *starting*, per calendar day; the per-run hard stop still
+        # governs each run it funds.
+        "daily_cap": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["usd"],
+            "properties": {"usd": {"type": "number", "exclusiveMinimum": 0}},
+        },
+    },
+}
+
 _BUDGETS = {
     "type": "object",
     "additionalProperties": False,
@@ -277,5 +315,6 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "workflows": _WORKFLOWS,
         "policies": _POLICIES,
         "budgets": _BUDGETS,
+        "conduct": _CONDUCT,
     },
 }

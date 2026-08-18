@@ -70,15 +70,10 @@ def _runner():
     return None
 
 
-@pytest.fixture(scope="module")
-def decide(tmp_path_factory, request):
+def _decider(tmp_path_factory, blueprint: dict):
     runner = _runner()
     if runner is None:
         pytest.skip("neither the opa binary nor docker is available")
-    import yaml
-    from conftest import HELLO_SAAS
-
-    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
     plan = compile_blueprint(blueprint)
     bundle = tmp_path_factory.mktemp("bundle")
     for name, body in {**plan.bundle.files, **plan.platform_bundle.files}.items():
@@ -90,6 +85,27 @@ def decide(tmp_path_factory, request):
         return json.loads(proc.stdout)
 
     return run
+
+
+@pytest.fixture(scope="module")
+def decide(tmp_path_factory):
+    import yaml
+    from conftest import HELLO_SAAS
+
+    return _decider(tmp_path_factory, yaml.safe_load(HELLO_SAAS.read_text()))
+
+
+@pytest.fixture(scope="module")
+def decide_conducted(tmp_path_factory):
+    """The same company with a standing heartbeat declared."""
+    import copy
+
+    import yaml
+    from conftest import CONDUCT, HELLO_SAAS
+
+    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
+    blueprint["conduct"] = copy.deepcopy(CONDUCT)
+    return _decider(tmp_path_factory, blueprint)
 
 
 def ephemeral(crew: str, member: str, template: str, **extra) -> dict:
@@ -488,3 +504,71 @@ def test_crew_request_without_budget_headroom_is_denied(decide):
         budget_headroom=False,
     )
     assert decision == {"allow": False, "rule": "crew_request_no_budget"}
+
+
+# -- the conduct heartbeat's start authority ------------------------------
+
+
+def conduct_start(workflow: str, **args) -> dict:
+    return {
+        "company": "hello-saas",
+        "lifecycle": "platform",
+        "tool": "conduct.start",
+        "args": {"workflow": workflow, **args},
+    }
+
+
+def test_no_conduct_section_means_no_unattended_start(decide):
+    """The section is opt-in all the way down to the decision: a company
+    that never declared a heartbeat compiles no conduct rules, so the
+    start decision falls to default deny."""
+    decision = decide(**conduct_start("implement", active_runs=0, daily_spent_usd=0))
+    assert decision == {"allow": False, "rule": "default_deny"}
+
+
+def test_conduct_may_start_a_declared_workflow(decide_conducted):
+    decision = decide_conducted(
+        **conduct_start("implement", active_runs=0, daily_spent_usd=3.5)
+    )
+    assert decision["allow"] is True
+
+
+def test_conduct_may_not_start_an_undeclared_workflow(decide_conducted):
+    decision = decide_conducted(
+        **conduct_start("review", active_runs=0, daily_spent_usd=0)
+    )
+    assert decision == {"allow": False, "rule": "default_deny"}
+
+
+def test_conduct_concurrency_cap_denies(decide_conducted):
+    decision = decide_conducted(
+        **conduct_start("implement", active_runs=1, daily_spent_usd=0)
+    )
+    assert decision["allow"] is False
+    assert decision["rule"] == "conduct_start_over_concurrency"
+
+
+def test_conduct_daily_cap_denies(decide_conducted):
+    decision = decide_conducted(
+        **conduct_start("implement", active_runs=0, daily_spent_usd=20)
+    )
+    assert decision["allow"] is False
+    assert decision["rule"] == "conduct_start_over_daily_cap"
+
+
+def test_conduct_start_fails_closed_without_the_counts(decide_conducted):
+    """Fail-safe defaults: the dangerous condition is the absent input,
+    and absence denies — the changed-paths posture, applied to caps."""
+    decision = decide_conducted(**conduct_start("implement", daily_spent_usd=0))
+    assert decision["allow"] is False
+    assert decision["rule"] == "conduct_start_counts_missing"
+
+
+def test_agents_cannot_claim_conduct_authority(decide_conducted):
+    """conduct.start allows only the platform lifecycle: a standing or
+    ephemeral caller reciting the tool name matches no rule."""
+    decision = decide_conducted(
+        **standing("pm", tool="conduct.start"),
+        args={"workflow": "implement", "active_runs": 0, "daily_spent_usd": 0},
+    )
+    assert decision["allow"] is False

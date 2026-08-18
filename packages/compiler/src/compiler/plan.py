@@ -66,6 +66,19 @@ class BudgetRegistration:
 
 
 @dataclass(frozen=True)
+class ConductConfig:
+    """The standing heartbeat's declared authority. Absent (a plan without
+    one) means what it always meant: runs start only when a human starts
+    one."""
+
+    conductor: str
+    heartbeat_minutes: int
+    max_concurrent_runs: int
+    may_start: tuple[str, ...]
+    daily_cap_usd: float
+
+
+@dataclass(frozen=True)
 class SandboxConstraints:
     """The Job-spec projection of the infra IR: what `provision_sandbox`
     passes as `SandboxPolicy`."""
@@ -122,6 +135,7 @@ class DeploymentPlan:
     # per-company packages keep company roots disjoint, and the platform
     # rules — identical from every blueprint — live under poseidon.platform.
     platform_bundle: RegoBundle
+    conduct: ConductConfig | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Deterministic and JSON-shaped. The diff and the golden tests both
@@ -135,6 +149,7 @@ class DeploymentPlan:
                 "crew_members": [asdict(m) for m in self.crew_members],
                 "workflows": [asdict(w) for w in self.workflows],
                 "budgets": asdict(self.budgets),
+                "conduct": asdict(self.conduct) if self.conduct else None,
                 "infra": asdict(self.infra),
                 "bundle": {"files": dict(sorted(self.bundle.files.items()))},
                 "platform_bundle": {

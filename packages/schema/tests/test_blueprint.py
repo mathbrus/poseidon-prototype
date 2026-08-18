@@ -215,3 +215,54 @@ def test_lean_roster_profile_validates(blueprint):
         "count": 1,
     }
     assert validate_blueprint(standing_executor) is standing_executor
+
+
+# -- the conduct heartbeat -------------------------------------------------
+
+
+def conduct_section() -> dict:
+    return {
+        "conductor": "pm",
+        "heartbeat_minutes": 30,
+        "max_concurrent_runs": 1,
+        "may_start": ["implement", "review"],
+        "daily_cap": {"usd": 20},
+    }
+
+
+def test_conduct_section_validates(blueprint):
+    blueprint["conduct"] = conduct_section()
+    validate_blueprint(blueprint)
+
+
+def test_conduct_is_optional(blueprint):
+    assert "conduct" not in blueprint  # the lean example stays human-started
+    validate_blueprint(blueprint)
+
+
+def test_conduct_declares_every_cap_or_nothing(blueprint):
+    """A defaulted cap is authority nobody wrote down: once the section
+    exists, every field is required."""
+    for field in conduct_section():
+        document = copy.deepcopy(blueprint)
+        document["conduct"] = conduct_section()
+        del document["conduct"][field]
+        assert any("conduct" in p and field in p for p in problems_of(document))
+
+
+def test_conduct_may_not_start_intake(blueprint):
+    """Goals enter through a human; the heartbeat may never feed itself
+    new goals."""
+    blueprint["conduct"] = conduct_section()
+    blueprint["conduct"]["may_start"] = ["intake"]
+    (problem,) = [p for p in problems_of(blueprint) if "intake" in p]
+    assert "conduct.may_start" in problem
+    assert "'implement'" in problem  # the allowed values are shown
+
+
+def test_conduct_typo_is_rejected_not_ignored(blueprint):
+    blueprint["conduct"] = conduct_section()
+    blueprint["conduct"]["heartbeat_mins"] = 5
+    del blueprint["conduct"]["heartbeat_minutes"]
+    problems = problems_of(blueprint)
+    assert any("heartbeat_mins" in p and "spelling" in p for p in problems)

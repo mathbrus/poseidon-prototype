@@ -218,6 +218,54 @@ def _crew_file(
     return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
 
 
+def _conduct_file(company: str, conduct: Any) -> str:
+    """The heartbeat's start authority. `conduct.start` is not a gateway
+    tool: it is the decision the orchestrator's conductor loop must win
+    before starting a workflow on its own initiative. No conduct section
+    compiles no file, so an unattended start with no declared authority
+    falls to the default deny — revocation is a blueprint diff.
+
+    The caps are compiled literals and the live counts ride the input,
+    verified by the caller — the `active_spawns` idiom. Fail-safe defaults:
+    absent counts deny, like the changed-paths rules."""
+    allows = "".join(
+        f'\nallow_rules contains "conduct_start_{_slug(workflow)}" if {{\n'
+        '\tinput.lifecycle == "platform"\n'
+        f'\tinput.company == "{company}"\n'
+        '\tinput.tool == "conduct.start"\n'
+        f'\tinput.args.workflow == "{workflow}"\n'
+        "}\n"
+        for workflow in sorted(conduct.may_start)
+    )
+    denies = (
+        '\ndeny_rules contains "conduct_start_over_concurrency" if {\n'
+        '\tinput.tool == "conduct.start"\n'
+        f"\tinput.args.active_runs >= {int(conduct.max_concurrent_runs)}\n"
+        "}\n"
+        '\ndeny_rules contains "conduct_start_over_daily_cap" if {\n'
+        '\tinput.tool == "conduct.start"\n'
+        f"\tinput.args.daily_spent_usd >= {json.dumps(conduct.daily_cap_usd)}\n"
+        "}\n"
+        # object.get, not a bare reference: negating a builtin over an
+        # undefined reference never fires, so a bare `not is_number(...)`
+        # would fail open on the absent key it exists to catch.
+        '\ndeny_rules contains "conduct_start_counts_missing" if {\n'
+        '\tinput.tool == "conduct.start"\n'
+        '\tnot is_number(object.get(input, ["args", "active_runs"], null))\n'
+        "}\n"
+        '\ndeny_rules contains "conduct_start_spend_missing" if {\n'
+        '\tinput.tool == "conduct.start"\n'
+        '\tnot is_number(object.get(input, ["args", "daily_spent_usd"], null))\n'
+        "}\n"
+    )
+    return (
+        HEADER
+        + f"\npackage {company_package(company)}\n\nimport rego.v1\n"
+        + allows
+        + denies
+    )
+
+
 def _platform_rules(tools: list[str]) -> str:
     return "".join(
         _PLATFORM.format(tool=tool, tool_slug=_slug(tool)) for tool in sorted(tools)
@@ -302,6 +350,7 @@ def build_bundle(
     instances: list[Any],
     crew_members: list[Any],
     policies: dict[str, Any],
+    conduct: Any = None,
 ) -> dict[str, str]:
     """The company bundle: per-role and per-crew-member files, plus the
     company's decision entrypoint and the blueprint's policy rules — all
@@ -327,6 +376,8 @@ def build_bundle(
             company, member.crew, member.member, member.role_template, list(member.tools)
         )
     files["policies.rego"] = _policies_file(company, policies)
+    if conduct is not None:
+        files["conduct.rego"] = _conduct_file(company, conduct)
     return files
 
 

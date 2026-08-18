@@ -18,6 +18,7 @@
     "namespace": "hello-saas",
     "stage": "prototype"
   },
+  "conduct": null,
   "crew_members": [
     {
       "budget_inheritance": "run",

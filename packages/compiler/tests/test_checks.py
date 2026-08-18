@@ -136,3 +136,30 @@ def test_lean_roster_compiles_to_exactly_one_instance(blueprint):
     """The standing roster is the PM alone; execution is ephemeral crews."""
     plan = compile_blueprint(blueprint)
     assert [i.hire for i in plan.instances] == ["pm"]
+
+
+# -- the conduct heartbeat -------------------------------------------------
+
+
+def test_conduct_section_compiles(conducted):
+    assert compile_blueprint(conducted).conduct is not None
+
+
+def test_conduct_conductor_must_be_a_hired_spawner(conducted):
+    conducted["conduct"]["conductor"] = "analyst"
+    (problem,) = [p for p in problems_of(conducted) if "conduct.conductor" in p]
+    assert "not a hired spawner" in problem
+
+
+def test_conduct_may_start_needs_an_enabled_workflow(conducted):
+    conducted["workflows"]["implement"]["enabled"] = False
+    (problem,) = [p for p in problems_of(conducted) if "conduct.may_start" in p]
+    assert "implement" in problem and "enabled" in problem
+
+
+def test_conduct_daily_cap_must_fund_a_run(conducted):
+    """A daily cap below the per-run budget makes the heartbeat dead
+    configuration — an error, like every other dead declaration."""
+    conducted["conduct"]["daily_cap"]["usd"] = 1
+    (problem,) = [p for p in problems_of(conducted) if "conduct.daily_cap" in p]
+    assert "cannot fund a single run" in problem

@@ -1067,6 +1067,45 @@ line you can write here is a hard stop.
 
 </details>
 
+<details>
+<summary><b><code>conduct</code> — the standing heartbeat (opt-in)</b></summary>
+
+<br>
+
+```yaml
+conduct:
+  conductor: pm
+  heartbeat_minutes: 30
+  max_concurrent_runs: 1
+  may_start: [implement, review]
+  daily_cap: {usd: 20}
+```
+
+The one section the shipped example does *not* carry, because absence is a
+meaningful state: no `conduct`, no heartbeat — runs start only when a human
+starts one, which is everything this README described so far.
+
+Declaring it grants the platform a bounded authority to start work on its
+own initiative: every `heartbeat_minutes`, the named conductor is dispatched
+to choose the next action from the backlog, and the chosen workflow may
+start only within `max_concurrent_runs` and under the `daily_cap`. Every
+field is required once the section exists — a defaulted cap is authority
+nobody wrote down — and `intake` is deliberately not startable: goals enter
+through a human.
+
+The caps compile into the company's policy bundle as a `conduct.start`
+decision (deny over-cap, deny absent counts — fail-safe defaults again),
+which is the decision the conductor loop must win before starting anything.
+Only the platform lifecycle can match its allow rules: an agent reciting
+`conduct.start` at the gateway matches nothing, and a blueprint diff that
+removes the section removes the rules, so revocation is the same reviewable
+edit as every other authority change. The loop that ticks this heartbeat is
+the next piece of the [closed-loop milestone](https://github.com/mathbrus/poseidon-prototype/issues/9)
+to land; until it does, applying the section changes what is *permitted*,
+and nothing yet exercises it.
+
+</details>
+
 ### Apply it
 
 ```bash

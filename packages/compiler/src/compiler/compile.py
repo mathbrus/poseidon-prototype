@@ -18,6 +18,7 @@ from compiler.plan import (
     AgentInstanceCR,
     BudgetRegistration,
     CompanyCR,
+    ConductConfig,
     CrewMemberSpec,
     DeploymentPlan,
     RegoBundle,
@@ -82,6 +83,7 @@ def compile_blueprint(
     crew_members = _crew_members(blueprint, crews_catalog)
     workflows = _workflows(blueprint)
     budgets = _budgets(blueprint)
+    conduct = _conduct(blueprint)
     infra = build_infra(blueprint, namespace)
     bundle = RegoBundle(
         files=build_bundle(
@@ -89,6 +91,7 @@ def compile_blueprint(
             instances=list(instances),
             crew_members=list(crew_members),
             policies=blueprint.get("policies") or {},
+            conduct=conduct,
         )
     )
     return DeploymentPlan(
@@ -100,6 +103,7 @@ def compile_blueprint(
         infra=infra,
         bundle=bundle,
         platform_bundle=RegoBundle(files=build_platform_bundle(PLATFORM_SCOPE)),
+        conduct=conduct,
     )
 
 
@@ -214,6 +218,19 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
             )
         )
     return tuple(configs)
+
+
+def _conduct(blueprint: dict[str, Any]) -> ConductConfig | None:
+    conduct = blueprint.get("conduct")
+    if not conduct:
+        return None
+    return ConductConfig(
+        conductor=conduct["conductor"],
+        heartbeat_minutes=int(conduct["heartbeat_minutes"]),
+        max_concurrent_runs=int(conduct["max_concurrent_runs"]),
+        may_start=tuple(sorted(conduct["may_start"])),
+        daily_cap_usd=float(conduct["daily_cap"]["usd"]),
+    )
 
 
 def _budgets(blueprint: dict[str, Any]) -> BudgetRegistration:
