@@ -38,15 +38,25 @@ know which family a run belongs to in order to address it.
 ### `poseidon run`
 
 ```
-poseidon run TASK_FILE [--run-id ID] [--workflow implement|intake]
+poseidon run TARGET [--run-id ID] [--workflow implement|intake]
              [--detach] [--fast-timeouts]
 ```
 
-Starts a run for the task or goal described in `TASK_FILE`.
+Starts a run for the task or goal in `TARGET` — a file path, or a GitHub
+issue number to implement the ticket the company already filed.
 
-- `--workflow implement` (the default) treats the file as a **task** and
-  starts the full delivery pipeline: crew fulfilment, planning,
-  implementation, the platform-run verify gate, and PR delivery.
+- An **all-digits** `TARGET` is an issue number: the workflow resolves the
+  open issue from the target repo under the platform identity and
+  implements it — intake's tickets feed implement directly, with no
+  human-written second spec in between. Issue numbers are implement-only
+  (intake takes a goal file). The issue body is **untrusted input**,
+  exactly like a task file's contents — "the company filed it" does not
+  make it trusted; policy still decides what agents may do. A file
+  literally named `42` can be forced with `./42`.
+- `--workflow implement` (the default) treats a file `TARGET` as a
+  **task** and starts the full delivery pipeline: crew fulfilment,
+  planning, implementation, the platform-run verify gate, and PR
+  delivery.
 - `--workflow intake` treats the file as a **goal** and dispatches the PM
   to scope it into tickets and a recorded crew request.
 - `--run-id` fixes the run id (one is generated when omitted).
@@ -152,7 +162,7 @@ deterministically, one workflow per run: `{family}-{run_id}`.
 
 | Name | Workflow id | Input | What it runs |
 |---|---|---|---|
-| `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text, timeouts=None)` | The delivery pipeline: crew fulfilment, planning, implementation, verify gate, PR. |
+| `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text=None, timeouts=None, issue_number=None)` — exactly one of `task_text` or `issue_number` | The delivery pipeline: crew fulfilment, planning, implementation, verify gate, PR. With `issue_number`, the platform resolves the open issue first and composes the task from it. |
 | `intake` | `intake-{run_id}` | `IntakeInput(run_id, goal_text, timeouts=None)` | The PM scoping a goal into tickets and a recorded crew request. |
 | `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number, timeouts=None)` | Ephemeral review of a PR, then the human merge gate. |
 
@@ -270,7 +280,7 @@ intake.
 | Tool | Arguments | What it does |
 |---|---|---|
 | `issues.create` | `run_id, repo, title, body` | Files a new issue — how a goal becomes tickets. |
-| `issues.read` | `run_id, repo, number=None` | Reads one issue by number, or the open backlog when `number` is omitted. |
+| `issues.read` | `run_id, repo, number=None` | Reads one issue by number (refusing pull requests — those belong to `git.read`), or the open backlog when `number` is omitted. Also in the platform scope: an issue-driven implement run resolves its ticket through this tool. |
 | `issues.update` | `run_id, repo, number, title=None, body=None, state=None` | Edits an issue's title, body, or open/closed state; omitted fields are left untouched. |
 | `issues.comment` | `run_id, repo, number, body` | Comments on an issue. |
 

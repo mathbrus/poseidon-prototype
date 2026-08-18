@@ -337,7 +337,7 @@ def stack(env: dict[str, str]) -> None:
 
 
 async def _execute_implement(
-    address: str, run_id: str, task_text: str, kill_worker: bool, timeouts
+    address: str, input: ImplementInput, kill_worker: bool
 ) -> dict:
     """Start implement exactly as `poseidon run` does; optionally kill the
     worker once the sandbox exists (the crash-resume proof), then
@@ -345,13 +345,13 @@ async def _execute_implement(
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "implement",
-        ImplementInput(run_id=run_id, task_text=task_text, timeouts=timeouts),
-        id=workflow_id(run_id),
+        input,
+        id=workflow_id(input.run_id),
         task_queue=TASK_QUEUE,
     )
     if kill_worker:
         deadline = time.monotonic() + 300
-        while not sandbox_pods(run_id):
+        while not sandbox_pods(input.run_id):
             if time.monotonic() > deadline:
                 raise AssertionError("sandbox never appeared; cannot stage worker kill")
             await asyncio.sleep(2)
@@ -373,13 +373,27 @@ def run_implement(task_file: str, kill_worker: bool, env: dict[str, str]) -> dic
     task_text = (REPO_ROOT / "examples" / task_file).read_text() + (
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    run_id = new_run_id()
-    timeouts = None if env.get("REAL_LLM") == "1" else FAST_TIMEOUTS
+    return _run_implement_input(env, kill_worker, task_text=task_text)
+
+
+def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
+    """One full implement run from a GitHub issue the company filed —
+    what `poseidon run <number>` starts. The issue body must carry the
+    delivery-branch line itself; the harness appends nothing."""
+    return _run_implement_input(env, kill_worker=False, issue_number=issue_number)
+
+
+def _run_implement_input(
+    env: dict[str, str], kill_worker: bool, **source
+) -> dict:
+    input = ImplementInput(
+        run_id=new_run_id(),
+        timeouts=None if env.get("REAL_LLM") == "1" else FAST_TIMEOUTS,
+        **source,
+    )
     with temporal_port_forward() as address:
-        record = asyncio.run(
-            _execute_implement(address, run_id, task_text, kill_worker, timeouts)
-        )
-    assert record["run_id"] == run_id
+        record = asyncio.run(_execute_implement(address, input, kill_worker))
+    assert record["run_id"] == input.run_id
     return record
 
 

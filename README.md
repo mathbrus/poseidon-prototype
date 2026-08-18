@@ -801,12 +801,23 @@ until the run finishes. Success is JSON with `"status": "done"`,
 configures `gates.intake: none`, so there is no signal to send.
 
 Intake and implement are **separate runs**. Fulfilment keys crew requests
-by `run_id`, so implement does not consume the intake row; a human reads
-the tickets and starts implement with a task.
+by `run_id`, so implement does not consume the intake row; a human picks
+which ticket to run — choosing is scheduling — and implement consumes the
+ticket itself.
 
-**Implement.** [`examples/task-tetris.md`](examples/task-tetris.md) is the
-scoped work: `tetris.py` plus `tests/test_tetris.py`, on a `feature/*`
-branch. The default workflow is implement:
+**Implement.** The ticket intake filed *is* the spec — start implement
+from its issue number and the workflow resolves the open issue under the
+platform identity, composes the task from it, and runs the delivery
+pipeline. The issue body is untrusted input, exactly like any task file:
+
+```bash
+uv run poseidon run 42
+```
+
+A file path still works for ad-hoc tasks that never went through intake —
+[`examples/task-tetris.md`](examples/task-tetris.md) is such a spec:
+`tetris.py` plus `tests/test_tetris.py`, on a `feature/*` branch. The
+default workflow is implement:
 
 ```bash
 uv run poseidon run examples/task-tetris.md

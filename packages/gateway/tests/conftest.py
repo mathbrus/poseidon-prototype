@@ -235,6 +235,10 @@ class Backends:
                 ],
             )
         if method == "GET" and "/issues/" in path:
+            # Number 8 is the PR-shaped item (as in the listing above):
+            # GitHub serves PRs from the issues endpoint too.
+            if path.endswith("/8"):
+                return httpx.Response(200, json=issue(number=8, pull_request={"url": "x"}))
             return httpx.Response(200, json=issue())
         if method == "GET" and path.endswith("/files"):
             return httpx.Response(

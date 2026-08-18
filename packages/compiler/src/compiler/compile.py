@@ -42,6 +42,9 @@ PLATFORM_SCOPE = sorted(
         # the review sandbox from it — a read, but the platform's own,
         # like repo.archive.
         "git.read",
+        # The implement workflow resolves an issue-driven run's ticket
+        # before dispatch — the same platform-read posture as git.read.
+        "issues.read",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",
     }

@@ -264,13 +264,10 @@ class GitBackend:
         state is this list plus the runs history."""
         slug = repo_slug(repo)
         if number is not None:
-            return {
-                "issues": [
-                    self._issue_view(
-                        await self._github("GET", f"/repos/{slug}/issues/{number}")
-                    )
-                ]
-            }
+            issue = await self._github("GET", f"/repos/{slug}/issues/{number}")
+            if "pull_request" in issue:
+                raise GitBackendError(f"#{number} is a pull request, not an issue")
+            return {"issues": [self._issue_view(issue)]}
         listing = await self._github("GET", f"/repos/{slug}/issues?state=open")
         # The issues API returns PRs too; the backlog is issues only.
         return {

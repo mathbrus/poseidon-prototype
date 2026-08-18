@@ -35,7 +35,12 @@ async def _client(settings: TemporalSettings) -> Client:
 
 @app.command()
 def run(
-    task_file: Path,
+    target: str = typer.Argument(
+        ...,
+        help="A task/goal file path, or a GitHub issue number to implement"
+        " the ticket the company already filed (use ./42 for a file"
+        " literally named 42)",
+    ),
     run_id: str = typer.Option(None, help="Run id (generated when omitted)"),
     workflow: str = typer.Option(
         "implement",
@@ -50,23 +55,35 @@ def run(
         "(a wedged step then fails in seconds instead of minutes)",
     ),
 ) -> None:
-    """Start a run for the task or goal described in TASK_FILE."""
+    """Start a run for the task or goal in TARGET — a file path, or an
+    issue number to implement the ticket the company already filed."""
     from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 
     settings = TemporalSettings()
-    task_text = task_file.read_text()
     run_id = run_id or new_run_id()
     timeouts = FAST_TIMEOUTS if fast_timeouts else None
-    if workflow == "intake":
-        started_input: object = IntakeInput(
-            run_id=run_id, goal_text=task_text, timeouts=timeouts
+    if workflow == "implement":
+        source = (
+            {"issue_number": int(target)}
+            if target.isdigit()
+            else {"task_text": Path(target).read_text()}
         )
-        wf_id = intake_workflow_id(run_id)
-    elif workflow == "implement":
-        started_input = ImplementInput(
-            run_id=run_id, task_text=task_text, timeouts=timeouts
+        started_input: object = ImplementInput(
+            run_id=run_id, timeouts=timeouts, **source
         )
         wf_id = workflow_id(run_id)
+    elif workflow == "intake":
+        if target.isdigit():
+            typer.echo(
+                "an issue number starts an implement run; intake takes a"
+                " goal file",
+                err=True,
+            )
+            raise typer.Exit(2)
+        started_input = IntakeInput(
+            run_id=run_id, goal_text=Path(target).read_text(), timeouts=timeouts
+        )
+        wf_id = intake_workflow_id(run_id)
     else:
         typer.echo(f"unknown workflow {workflow!r}", err=True)
         raise typer.Exit(2)

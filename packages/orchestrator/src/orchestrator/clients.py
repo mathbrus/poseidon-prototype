@@ -139,6 +139,14 @@ class GatewayClient:
             "git.read", {"run_id": run_id, "repo": repo, "number": number}
         )
 
+    async def read_issue(self, run_id: str, repo: str, number: int) -> dict[str, Any]:
+        """One issue by number for the implement workflow — how the
+        platform resolves the ticket an issue-driven run implements."""
+        result = await self._tool(
+            "issues.read", {"run_id": run_id, "repo": repo, "number": number}
+        )
+        return result["issues"][0]
+
     async def merge_pr(
         self, run_id: str, repo: str, number: int, method: str = "merge"
     ) -> dict[str, Any]:
