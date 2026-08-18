@@ -120,10 +120,11 @@ class ConductWorkflow:
             elif not observed["backlog"] and not observed["reviewable_prs"]:
                 rule = "backlog_empty"
             else:
-                # The run id is minted before the decision so the decide
-                # dispatch's own LLM spend is attributed to the run it
-                # chose to start (an idle tick's spend stays a company-day
-                # line with no run behind it — honest either way).
+                # The run id is minted before the decision: conduct_decide
+                # registers it as the decision's own run so the PM's LLM
+                # call can bind (the gateway rejects an unattributed run),
+                # and a started child reclaims the same id — so the decide
+                # spend lands on the very run the tick chose to start.
                 child_run_id = f"auto-{workflow.uuid4().hex[:8]}"
                 decision = await workflow.execute_activity(
                     "conduct_decide",

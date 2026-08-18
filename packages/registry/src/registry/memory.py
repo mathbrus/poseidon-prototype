@@ -459,5 +459,8 @@ class InMemoryRuns:
         return candidates[-1] if candidates else None
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
-        # Insertion order stands in for created_at, newest first.
-        return list(self.rows.values())[-limit:][::-1]
+        # Insertion order stands in for created_at, newest first; `conduct`
+        # decision rows are not work the company did and never enter the
+        # observation's run history.
+        work = [r for r in self.rows.values() if r.workflow != "conduct"]
+        return work[-limit:][::-1]

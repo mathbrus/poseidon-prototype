@@ -218,7 +218,12 @@ class Runs:
         return {int(row["number"]) for row in rows}
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
+        # `conduct` decision rows exist only so the heartbeat's LLM call can
+        # bind; they are not work the company did, so they never enter the
+        # observation's run history.
         rows = self._db.query(
-            "SELECT * FROM registry.runs ORDER BY created_at DESC LIMIT %s", (limit,)
+            "SELECT * FROM registry.runs WHERE workflow <> 'conduct'"
+            " ORDER BY created_at DESC LIMIT %s",
+            (limit,),
         )
         return [RunRecord.from_row(row) for row in rows]
