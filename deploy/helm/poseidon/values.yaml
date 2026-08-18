@@ -69,11 +69,8 @@ secrets:
   # Shared HMAC key for per-run egress credentials: egress-proxy and
   # the orchestrator worker only; sandboxes see only their derived credential.
   egressProxyKey: ""
-  # The platform signing key: gateway verifies
-  # platform-signed ephemeral JWTs; the orchestrator mints them.
-  platformJwtKey: ""
 
-# Run configuration (the C7 subset the in-cluster services need).
+# Run configuration (the env subset the in-cluster services need).
 run:
   model: gpt-5.6-luna
   targetRepo: github.com/example-org/example-repo
@@ -118,7 +115,7 @@ postgres:
     tag: "16.6"
     pullPolicy: IfNotPresent
   # Superuser for the whole instance: Temporal's schema tool creates its own
-  # databases with it, and the registry (step 8) keeps its `registry` schema
+  # databases with it, and the registry keeps its `registry` schema
   # in the default database of the same name.
   user: poseidon
   storage: 5Gi

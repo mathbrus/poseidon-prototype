@@ -24,7 +24,7 @@ the runtime path reports here (what every enforcement point decided).
 | `agent_instances` | operator | The standing roster, including the namespace workload identity checks against. |
 | `policy_bundles` | operator | The compiled OPA bundle tarball and its revision. |
 | `runs` | orchestrator | The run record: task, status, artifacts, terminal state. |
-| `run_participants` | orchestrator | One row per minted ephemeral identity. Revocation is a row termination. |
+| `run_participants` | orchestrator | One row per bound ephemeral identity — the whole identity, ServiceAccount name included. Revocation is a row termination. |
 | `crew_requests` | gateway **and** orchestrator | Recorded spawn authorization and intent — never fulfillment. |
 | `sandbox_registrations` | gateway | Run → sandbox address. The registration *is* the run binding. |
 | `budget_ledger` | LLM gateway | One spend entry per model call, fully attributed. |
@@ -54,7 +54,7 @@ what is single is the *contract*, not the writer.
 | `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
 | `bundles.py` | `Companies`, `AgentInstances`, `PolicyBundles` — the operator's writes and the reads everyone else does against them, plus deterministic bundle packing. |
 | `runs.py` | `Runs` — the run record and its terminal state. |
-| `participants.py` | `RunParticipants` — minted identities, revocation, the spawn count. |
+| `participants.py` | `RunParticipants` — bound identities, revocation, the spawn count. |
 | `sandboxes.py` | `SandboxRegistrations` — run → sandbox address. |
 | `crews.py` | `CrewRequests` — idempotent, expiring spawn requests. |
 | `ledger.py` | `BudgetLedger` — one ledger with dimensions, never parallel accounts. |
@@ -120,10 +120,13 @@ CREATE TABLE IF NOT EXISTS registry.run_participants (
 );
 ```
 
-The gateway accepts a platform-signed JWT only while a live (`active`,
-unterminated) row backs it, checked on every call. That makes revocation a
-database write: flip `status` to `terminated` and the identity's tokens
-are dead on the next call — before their TTL runs out. Token expiry alone
+The gateway accepts a crew member's ServiceAccount token only while a
+live (`active`, unterminated) row backs it — resolved by
+`service_account` name, checked on every call, and read for everything
+the identity is (company, catalog template, namespace, crew
+coordinates). That makes revocation a database write: flip `status` to
+`terminated` and the identity is dead on the next call — however long
+its projected tokens remain valid. Token expiry alone
 would leave a compromised identity usable for the remainder of its TTL;
 a row check leaves it usable for zero further calls. Teardown uses the
 sweep form, `terminate_for_run`, which revokes every live participant of a
@@ -219,7 +222,7 @@ and audit events are not optional.
   ledger for headroom checks.
 - [`gateway`](../gateway/README.md) writes `sandbox_registrations`,
   `crew_requests` and audit events; reads `agent_instances` (workload
-  identity), `run_participants` (JWT backing and the spawn count) and
+  identity), `run_participants` (ephemeral identity backing and the spawn count) and
   `sandbox_registrations` (run binding).
 - [`gateway-llm`](../gateway-llm/README.md) writes `budget_ledger` and
   audit events; its hard stop compares `spent_for_run` before every call.

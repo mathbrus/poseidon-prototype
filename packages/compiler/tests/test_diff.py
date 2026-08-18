@@ -38,7 +38,7 @@ def test_converged_company_shows_no_changes(blueprint):
 
 
 def test_a_small_edit_shows_a_minimal_diff(blueprint):
-    """The done-when: change one field, see one line."""
+    """Change one field, see one line."""
     snapshot = live(("pm", "pm", "standard"))
     blueprint["departments"]["roles"]["pm"]["model_tier"] = "frontier"
     diff = diff_plan(compile_blueprint(blueprint, snapshot=snapshot), snapshot)
@@ -93,8 +93,7 @@ def test_existing_agent_ids_are_preserved(blueprint):
     assert pm.agent_id == "pm-original"
 
 
-def test_preview_projects_cost(blueprint):
+def test_preview_reports_the_run_cap(blueprint):
     diff = diff_plan(compile_blueprint(blueprint), EMPTY)
     assert diff.per_run_usd == 5
-    assert diff.projected_monthly_usd == 50  # the lean roster: pm alone
     assert "$5/run" in diff.as_text()

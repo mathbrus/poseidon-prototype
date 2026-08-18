@@ -1,4 +1,4 @@
-"""The step-15 tool surface through the full gateway pipeline: each new
+"""The whole tool surface through the full gateway pipeline: each
 tool callable by its authorized role and denied (audited) for every other,
 `git.merge_pr` restricted to the platform lifecycle, and `crew.request`
 recording idempotent spawn intent under the conductor identity."""
@@ -8,14 +8,12 @@ import json
 import pytest
 from conftest import (
     AGENT_TOKEN,
-    JWT_KEY,
     PM_TOKEN,
+    REVIEWER_TOKEN,
     RUNNER_TOKEN,
     audit_events,
     mcp_session,
 )
-
-from common import platformjwt
 
 pytestmark = pytest.mark.anyio
 
@@ -29,20 +27,21 @@ def payload(result) -> dict:
 
 
 def reviewer_token(participants) -> str:
-    """A bound ephemeral reviewer (the review workflow's sdet crew member)."""
-    participants.add("reviewer-01X", RUN_ID, "pm-1", "feature-review", "reviewer")
-    return platformjwt.mint(
-        JWT_KEY,
-        {
-            "sub": "reviewer-01X",
-            "company": "hello-saas",
-            "role": "sdet",
-            "lifecycle": "ephemeral",
-            "run_id": RUN_ID,
-        },
-        "poseidon-gateway",
-        ttl_s=600,
+    """A bound ephemeral reviewer (the review workflow's sdet crew member):
+    its credential is its pod's projected SA token, and the participants
+    row — looked up by SA name — is the whole identity."""
+    participants.add(
+        "reviewer-01X",
+        RUN_ID,
+        "pm-1",
+        "feature-review",
+        "reviewer",
+        company="hello-saas",
+        role_template="sdet",
+        namespace="hello-saas",
+        service_account="crew-reviewer-01x",
     )
+    return REVIEWER_TOKEN
 
 
 # -- issues.* (the PM's surface) --------------------------------------------
@@ -240,7 +239,7 @@ async def test_engineer_cannot_request_crews(app, crew_requests):
 async def test_over_cap_crew_request_is_denied_and_audited(
     app, participants, crew_requests, audit
 ):
-    """16d: the conductor's live spawn count rides the decision input and
+    """The conductor's live spawn count rides the decision input and
     the compiled cap denies by rule — a first-class governance event."""
     participants.add("fd-planner-a", "run-a", "pm-1", "feature-delivery", "planner")
     participants.add("fr-reviewer-b", "run-b", "pm-1", "feature-review", "reviewer")

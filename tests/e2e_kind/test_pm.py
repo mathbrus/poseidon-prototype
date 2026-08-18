@@ -1,4 +1,4 @@
-"""Step 17 done-when, on the live cluster: the operator-deployed PM
+"""The PM on the live cluster: the operator-deployed PM
 responds to a dispatch, files a real ticket on the disposable repo, and
 records crew intent under its own standing identity — through governed
 tools only, no private memory. The denial half ("a PM attempt at
@@ -85,7 +85,7 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
     with _registry() as registry:
         from registry import Runs
 
-        # The dispatching workflow creates the run (step 18); here the test
+        # The dispatching workflow creates the run in production; here the test
         # is the workflow.
         Runs(registry).start(run_id, goal, "intake", None, "hello-saas")
         issue_number = None

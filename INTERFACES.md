@@ -117,8 +117,8 @@ poseidon blueprint preview BLUEPRINT [--live/--no-live]
 ```
 
 Shows what applying the blueprint would change — instances hired and
-fired, in diff form — plus the budget line: the per-run cap and the
-projected monthly cost. Live diffing is the default here, since a preview
+fired, in diff form — plus the budget line: the per-run cap the LLM
+gateway enforces. Live diffing is the default here, since a preview
 against nothing answers no interesting question.
 
 ### `poseidon blueprint apply`
@@ -182,10 +182,11 @@ stop is "an API-visible paused state, never a silent hang."
 ### What guards this surface
 
 Nothing in the surface itself. The Temporal frontend has **no
-authentication of its own**, the kind bootstrap also deploys `temporal-web`
-(a browsable UI over the same authority), and Poseidon's NetworkPolicies
-do not select the Temporal pods — they are installed by Temporal's own
-chart. Two facts keep this honest rather than alarming:
+authentication of its own**, and Poseidon's NetworkPolicies do not select
+the Temporal pods — they are installed by Temporal's own chart. The
+browsable `temporal-web` UI over this same authority is **opt-in**: the
+kind bootstrap deploys it only with `TEMPORAL_WEB=1`. Two facts keep this
+honest rather than alarming:
 
 - **Agents cannot reach it.** Company namespaces are deny-all by
   construction, with holes only toward the two gateways and the egress

@@ -4,7 +4,7 @@ Positive half: the in-cluster callers hold no static token anymore (their
 env is checked structurally) and still authenticate — a token minted for
 the orchestrator's ServiceAccount is accepted, and the standing agent's
 own mounted projected token round-trips against the gateway from inside
-its pod. The E1 suite passing on this cluster is the full-system proof;
+its pod. The happy-path suite passing on this cluster is the full-system proof;
 these tests isolate the credential path.
 
 Negative half: a token from the wrong service account, the wrong
@@ -81,7 +81,7 @@ def wait_for_authn_deny(rule: str, principal: str) -> list[dict[str, Any]]:
 
 
 def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
-    """The step-11 done-when ('all callers authenticate with projected
+    """The workload-identity contract ('all callers authenticate with projected
     tokens') held structurally: neither the worker nor the agent pod
     carries a bearer-token env var, so every green run on this cluster rode
     the projected tokens."""

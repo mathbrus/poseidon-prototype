@@ -211,12 +211,14 @@ def gateway() -> FakeGateway:
 
 
 @pytest.fixture
-def settings() -> AgentSettings:
+def settings(tmp_path) -> AgentSettings:
+    token = tmp_path / "token"
+    token.write_text("agent-secret")
     return AgentSettings(
         mcp_gateway_url="http://gateway.test:8080",
         llm_proxy_url="http://llm.test:4000",
         model="test-model",
-        gateway_token="agent-secret",
+        gateway_token_file=str(token),
         target_repo="example/target",
         max_iterations=3,
     )

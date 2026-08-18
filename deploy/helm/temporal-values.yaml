@@ -1,7 +1,7 @@
 # Self-hosted Temporal — installed alongside the poseidon
 # release into the platform namespace from the official chart, version-pinned
-# in deploy/kind/kind-up.sh (chart 1.6.0 / server 1.31.x). No Temporal Cloud
-# (O3 = B). The same values file serves kind and real clusters.
+# in deploy/kind/kind-up.sh (chart 1.6.0 / server 1.31.x). No Temporal Cloud.
+# The same values file serves kind and real clusters.
 #
 #   helm upgrade --install temporal temporal/temporal --version <pinned> \
 #     -n poseidon-platform -f deploy/helm/temporal-values.yaml
@@ -50,9 +50,12 @@ server:
         - name: default
           retention: 3d
 
-# The UI and in-cluster CLI are debugging conveniences, not platform surface.
+# The in-cluster CLI is a debugging convenience, not platform surface. The
+# web UI is off by default: anything that reaches the Temporal frontend holds
+# full operator authority, and a browsable UI over it is the cheapest such
+# reach — kind-up.sh re-enables it with TEMPORAL_WEB=1 (--set web.enabled=true).
 web:
-  enabled: true
+  enabled: false
 admintools:
   enabled: true
 

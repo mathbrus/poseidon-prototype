@@ -67,7 +67,6 @@ jobs:
             --set secrets.llmApiKey=ci
             --set secrets.postgresPassword=ci
             --set secrets.egressProxyKey=ci
-            --set secrets.platformJwtKey=ci
           )
           helm lint deploy/helm/poseidon "${secrets[@]}"
           helm template deploy/helm/poseidon "${secrets[@]}" >/dev/null

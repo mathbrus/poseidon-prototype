@@ -238,7 +238,7 @@ class InMemoryAgentInstances:
 
 class InMemoryRunParticipants:
     """Live ephemeral identities; `active` goes dark on termination — the
-    behaviour the revocation-before-TTL criterion rides on."""
+    behaviour immediate revocation rides on."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
@@ -250,6 +250,10 @@ class InMemoryRunParticipants:
         parent_agent_id: str,
         crew_template: str,
         role: str,
+        company: str = "",
+        role_template: str = "",
+        namespace: str = "",
+        service_account: str | None = None,
     ) -> None:
         # Upsert like the real accessor — including its finality rule:
         # a retry converges on a live row, but a revoked one is never
@@ -265,6 +269,10 @@ class InMemoryRunParticipants:
             "parent_agent_id": parent_agent_id,
             "crew_template": crew_template,
             "role": role,
+            "company": company,
+            "role_template": role_template,
+            "namespace": namespace,
+            "service_account": service_account,
             "status": "active",
         }
 
@@ -295,6 +303,15 @@ class InMemoryRunParticipants:
     def active(self, agent_id: str) -> dict[str, Any] | None:
         row = self.rows.get(agent_id)
         return row if row is not None and row["status"] == "active" else None
+
+    def by_service_account(self, service_account: str) -> dict[str, Any] | None:
+        for row in self.rows.values():
+            if (
+                row.get("service_account") == service_account
+                and row["status"] == "active"
+            ):
+                return row
+        return None
 
 
 class InMemoryRuns:

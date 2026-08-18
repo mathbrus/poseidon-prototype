@@ -66,20 +66,40 @@ CREATE TABLE IF NOT EXISTS registry.runs (
 );
 
 -- Ephemeral crew members, kept out of agent_instances so hire/fire diffs
--- stay clean. Revocation is a row termination, which is what
--- makes it effective before TTL expiry.
+-- stay clean. Revocation is a row termination, checked live on every
+-- gateway call. The row is the whole identity: the gateway resolves a
+-- crew member's projected ServiceAccount token to this row (by
+-- service_account), and company/role_template/namespace are read from
+-- here — there is no token claim to fall back on.
 CREATE TABLE IF NOT EXISTS registry.run_participants (
     agent_id        text PRIMARY KEY,
     run_id          text NOT NULL REFERENCES registry.runs(run_id) ON DELETE CASCADE,
     parent_agent_id text NOT NULL,
     crew_template   text NOT NULL,
     role            text NOT NULL,
+    company         text NOT NULL DEFAULT '',
+    role_template   text NOT NULL DEFAULT '',
+    -- The company namespace the member's pod and ServiceAccount live in.
+    -- Workload identity verifies a caller's projected token against this:
+    -- the same SA name in any other namespace is rejected.
+    namespace       text NOT NULL DEFAULT '',
+    -- RFC-1123 name of the member's per-run ServiceAccount. The gateway
+    -- looks the row up by this name; lowercasing makes the SA name
+    -- non-invertible, so the mapping lives here rather than in arithmetic.
+    service_account text,
     status          text NOT NULL DEFAULT 'active',
     created_at      timestamptz NOT NULL DEFAULT now(),
     terminated_at   timestamptz
 );
+-- Migrations for databases created before the identity columns existed.
+ALTER TABLE registry.run_participants ADD COLUMN IF NOT EXISTS company         text NOT NULL DEFAULT '';
+ALTER TABLE registry.run_participants ADD COLUMN IF NOT EXISTS role_template   text NOT NULL DEFAULT '';
+ALTER TABLE registry.run_participants ADD COLUMN IF NOT EXISTS namespace       text NOT NULL DEFAULT '';
+ALTER TABLE registry.run_participants ADD COLUMN IF NOT EXISTS service_account text;
 CREATE INDEX IF NOT EXISTS run_participants_run_id_idx
     ON registry.run_participants (run_id);
+CREATE UNIQUE INDEX IF NOT EXISTS run_participants_service_account_idx
+    ON registry.run_participants (service_account);
 
 -- Run -> sandbox address. Deliberately no foreign key: the gateway writes
 -- this row when the orchestrator registers a sandbox, and coupling that

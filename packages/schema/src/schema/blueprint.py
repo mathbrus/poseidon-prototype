@@ -112,7 +112,7 @@ _CREW_MEMBER = {
     "type": "object",
     "additionalProperties": False,
     # The allow-list is explicit per member, always: an implicit scope is
-    # what the compiler check at step 9 refuses to guess.
+    # what the compiler coherence check refuses to guess.
     "required": ["role_template", "tools"],
     "properties": {
         "role_template": _NAME,
@@ -247,16 +247,6 @@ _BUDGETS = {
             "additionalProperties": False,
             "required": ["usd"],
             "properties": {"usd": {"type": "number", "exclusiveMinimum": 0}},
-        },
-        "per_role_monthly": {
-            "type": "object",
-            "additionalProperties": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["usd"],
-                "properties": {"usd": {"type": "number", "exclusiveMinimum": 0}},
-            },
-            "propertyNames": _NAME,
         },
     },
 }

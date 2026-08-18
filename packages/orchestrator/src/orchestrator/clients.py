@@ -1,5 +1,5 @@
 """Activity-side clients: the gateway (MCP + admin endpoint, the worker's
-projected identity token) and the agent's C6 HTTP API. Thin by design —
+projected identity token) and the agent's dispatch HTTP API. Thin by design —
 process-level retries, timeouts and cancellation belong to the workflow,
 not here."""
 
@@ -187,7 +187,7 @@ class GatewayClient:
 
 
 class AgentClient:
-    """The agent's C6 endpoints: dispatch a task, poll its status."""
+    """The agent's dispatch endpoints: dispatch a task, poll its status."""
 
     def __init__(self, url: str) -> None:
         self._http = httpx.AsyncClient(base_url=url.rstrip("/"), timeout=30.0)
@@ -203,16 +203,14 @@ class AgentClient:
         run_id: str,
         task_text: str,
         mode: str = "implement",
-        gateway_token: str | None = None,
     ) -> None:
         """Idempotent under retry: 409 means the agent already has the run
         (a previous attempt dispatched it before the worker died) — the
         caller proceeds to polling either way. Mode `plan` runs the
-        read-only planner (step 16d); the optional token is the planner's
-        own minted identity when it borrows the executor's brain host."""
+        read-only planner on the planner's own brain host; no
+        credential rides the dispatch — every pod holds its own projected
+        token."""
         payload: dict[str, Any] = {"run_id": run_id, "task_text": task_text, "mode": mode}
-        if gateway_token is not None:
-            payload["gateway_token"] = gateway_token
         resp = await self._http.post("/task", json=payload)
         if resp.status_code not in (202, 409):
             raise AgentError(f"task dispatch failed: {resp.status_code} {resp.text}")

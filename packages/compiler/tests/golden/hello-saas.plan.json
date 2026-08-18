@@ -1,8 +1,5 @@
 {
   "budgets": {
-    "per_role_monthly_usd": {
-      "pm": 50.0
-    },
     "per_run_usd": 5.0
   },
   "bundle": {

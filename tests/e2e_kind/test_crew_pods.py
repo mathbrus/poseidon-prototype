@@ -1,4 +1,4 @@
-"""Step 16c done-when, on the live cluster: a crew pod round-trips; RBAC
+"""Crew pods on the live cluster: a crew pod round-trips; RBAC
 provably denies pod creation in the platform namespace; and destruction
 goes through the {run_id, kind} label selector — an unlabeled pod in the
 same namespace survives the sweep.
@@ -15,7 +15,7 @@ import subprocess
 from common.ids import new_run_id
 
 from .conftest import COMPANY_NS, PLATFORM_NS, audit_story
-from .test_crew_identity import _cluster_secret, _registry
+from .test_crew_identity import _registry
 
 WORKER_SA = f"system:serviceaccount:{PLATFORM_NS}:orchestrator-worker"
 
@@ -106,7 +106,6 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
             gateway_token_file=str(token_file),
             mcp_gateway_url=env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080"),
             target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
-            platform_jwt_key=_cluster_secret("platform-jwt-key", "PLATFORM_JWT_KEY"),
             agent_image=agent_image(),
             model="mock-brain",
         )
@@ -116,7 +115,7 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
             AuditStore(registry),
             CrewPodProvisioner(COMPANY_NS),
         )
-        Runs(registry).start(run_id, "16c pod contract", "implement", None, "hello-saas")
+        Runs(registry).start(run_id, "crew pod contract", "implement", None, "hello-saas")
         # An unlabeled bystander in the same namespace: the destroy
         # selector must never touch it.
         subprocess.run(

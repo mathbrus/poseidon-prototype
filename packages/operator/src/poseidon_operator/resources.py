@@ -52,7 +52,7 @@ def default_deny(company_ns: str) -> dict[str, Any]:
 def _agent_kinds_selector() -> dict[str, Any]:
     """Standing hires and ephemeral crew brains share the agent envelope
     (gateways-only egress, orchestrator-only ingress) — selected by kind,
-    so a crew pod (step 16c) is contained the moment it exists."""
+    so a crew pod is contained the moment it exists."""
     return {
         "matchExpressions": [
             {
@@ -227,13 +227,15 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     """The orchestrator worker's Kubernetes surface — deliberately bounded,
     and a review artifact: it is part of the trusted computing base. Two
     consumers: the k8s_jobs sandbox backend (Jobs + pod reads + exec for
-    workspace delivery) and the crew-pod provisioner (pod
-    create/delete for the ephemeral executor's brain host). Company
+    workspace delivery) and the crew-pod provisioner (pod + ServiceAccount
+    create/delete for each crew member's brain host — the SA is the
+    member's per-run identity, so its lifetime must equal the pod's, which
+    is why it is provisioned here and not operator-reconciled). Company
     namespaces only — the Role is namespaced and operator-reconciled, so
-    the worker can create no pod in the platform namespace; the
+    the worker can create no pod or SA in the platform namespace; the
     run_id+kind label-selector discipline on deletes lives in
     `orchestrator.crewpods` (RBAC cannot express selectors), proven by the
-    16c e2e. Never Deployments, Services or CRs: standing structure stays
+    crew-pods e2e. Never Deployments, Services or CRs: standing structure stays
     operator-owned."""
     return {
         "apiVersion": "rbac.authorization.k8s.io/v1",
@@ -252,7 +254,17 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
             {
                 "apiGroups": [""],
                 "resources": ["pods"],
-                # create/delete joined at step 16c for crew pods.
+                # create/delete exist for crew pods.
+                "verbs": ["create", "get", "list", "delete"],
+            },
+            {
+                "apiGroups": [""],
+                "resources": ["serviceaccounts"],
+                # Per-run crew identities: one SA per member per run,
+                # created at provision, deleted by the teardown sweep.
+                # Deliberately no RoleBindings here — an SA the worker can
+                # create binds to nothing, so this grants identity, never
+                # authority.
                 "verbs": ["create", "get", "list", "delete"],
             },
             {
@@ -313,7 +325,7 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
     The spec carries no credential: the pod's only identity is the
     audience-scoped projected token the kubelet mounts and rotates.
     No API-server token is mounted (automount stays off), and no
-    token-shaped env var exists in the pod at all (E3).
+    token-shaped env var exists in the pod at all.
     """
     hire = spec["hire"]
     env = os.environ
@@ -324,7 +336,7 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
         "poseidon.dev/company": spec["company"],
         "poseidon.dev/agent-id": spec["agentId"],
         # In the pod-template labels so a blueprint edit to the tier rolls
-        # the pod — the step-10 done-when — and so it is observable.
+        # the pod — the reconciliation contract — and so it is observable.
         "poseidon.dev/model-tier": spec.get("modelTier", ""),
     }
     return {
@@ -411,7 +423,7 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                                 },
                                 # The python base image bakes this in; blank
                                 # it so no token-shaped value exists in a
-                                # company pod at all (E3).
+                                # company pod at all.
                                 {"name": "GPG_KEY", "value": ""},
                             ],
                             "volumeMounts": [

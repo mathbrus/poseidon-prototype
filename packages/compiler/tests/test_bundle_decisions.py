@@ -301,7 +301,7 @@ def test_unknown_tool_is_denied_by_default(decide):
 
 def test_platform_may_retire_a_sandbox_registration(decide):
     """Both gateway admin routes are in PLATFORM_SCOPE — the DELETE was
-    missing, which would have killed teardown at the step-12 cutover."""
+    missing, which once killed teardown when compiled bundles took over."""
     for tool in ("/admin/sandboxes", "/admin/sandboxes.delete"):
         assert (
             decide(
@@ -460,7 +460,7 @@ def test_crew_request_is_narrowed_to_may_spawn(decide):
 
 
 def test_crew_request_concurrency_cap_denies_by_rule(decide):
-    """16d: the PM's max_concurrent (2 in hello-saas) is a compiled deny
+    """The PM's max_concurrent (2 in hello-saas) is a compiled deny
     keyed on the instance — a first-class governance event, not a
     default-deny shrug. The count rides the enriched input."""
     under = decide(

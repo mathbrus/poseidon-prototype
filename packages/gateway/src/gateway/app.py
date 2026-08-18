@@ -98,9 +98,9 @@ def create_app(
         timeout=httpx.Timeout(30.0, read=630.0)
     )
     opa = OpaClient(settings.opa_url, http_client)
-    # Registry accessors (sandbox registrations, audit events since step 8;
-    # instance/participant reads for workload identity since step 11; run
-    # reads for decision-input enrichment since step 12). Injectable so
+    # Registry accessors (sandbox registrations and audit events;
+    # instance/participant reads for workload identity; run
+    # reads for decision-input enrichment). Injectable so
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.
     accessors = (

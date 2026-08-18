@@ -22,7 +22,7 @@ def test_workflow_needs_a_hired_conductor(blueprint):
         p for p in problems_of(blueprint) if "conductor" in p and "implement" in p
     ]
     # Two independent guards agree: the general hired-conductor check and
-    # the step-19 spawner-only rule.
+    # the spawner-only rule.
     assert any("not a hired standing role" in p for p in problems)
     assert any("not a hired spawner" in p for p in problems)
 
@@ -111,11 +111,6 @@ def test_crew_member_needs_a_real_allow_list(blueprint):
 def test_enabled_workflows_need_a_run_budget(blueprint):
     blueprint["budgets"]["per_run"]["usd"] = 0
     assert any("per_run" in p for p in problems_of(blueprint))
-
-
-def test_monthly_budget_for_an_unhired_role_is_caught(blueprint):
-    blueprint["budgets"]["per_role_monthly"]["sdet"] = {"usd": 10}
-    assert any("sdet" in p for p in problems_of(blueprint))
 
 
 def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):

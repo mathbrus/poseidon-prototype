@@ -1,6 +1,6 @@
 """Unit tests for the implement activities: step behavior and retry safety
 against fakes. Sequencing, compensation and durability are workflow
-concerns, proven live by the kind E1 suite (worker-kill included)."""
+concerns, proven live by the kind e2e suite (worker-kill included)."""
 
 import asyncio
 from typing import Any
@@ -400,8 +400,8 @@ def test_platform_verify_maps_exit_code(activities, monkeypatch):
 def test_teardown_revokes_participants_on_every_terminal_path(
     settings, backend, runs, companies
 ):
-    """16b: the binding rows die with the run — on success, on failure, and
-    with no sandbox handle at all (at 16d mint precedes provision)."""
+    """The binding rows die with the run — on success, on failure, and
+    with no sandbox handle at all (bind precedes provision)."""
     from orchestrator.activities.crew import CrewActivities
     from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
 

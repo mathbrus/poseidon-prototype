@@ -44,11 +44,12 @@ audit table.
 
 Authentication itself lives in `common.authn` (see the
 [common README](../common/README.md)) but is exercised hard by this
-package's `test_authn.py`: projected ServiceAccount tokens resolve through
-Kubernetes TokenReview (cached, one review per token), platform-signed
-ephemeral JWTs additionally require a **live** `run_participants` row —
-signature alone is never enough, so deleting the row revokes the identity
-before the token expires. Every rejected token lands in the audit store
+package's `test_authn.py`: every credential is a projected ServiceAccount
+token resolving through Kubernetes TokenReview (cached, one review per
+token — but the registry mapping is re-read per call), and an ephemeral
+crew member's SA additionally requires a **live** `run_participants` row —
+a verified token alone is never enough, so deleting the row revokes the
+identity however long the token remains valid. Every rejected token lands in the audit store
 under an `authn_*` rule, with one deliberate exception: a request with
 *no* credential gets a 401 but no audit event — probes and scanners send
 no token, and only presented tokens are governance signals.

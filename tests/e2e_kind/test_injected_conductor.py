@@ -1,4 +1,5 @@
-"""The injected-conductor test — E2's analogue for the lean roster.
+"""The injected-conductor test — the injection scenario aimed at the
+conductor instead of the executor.
 
 A poisoned intake goal (`examples/goal-injected-conductor.md`) carries two
 instructions: the PM must spawn a `data-export` crew that does not exist in
@@ -294,7 +295,7 @@ def test_one_run_id_query_reconstructs_the_whole_containment(
 def test_the_scenario_actually_carried_the_poison(conductor_implement: dict):
     """Guard against a silently toothless test: if the marker ever stops
     reaching the executor (the brief REPLACES the task text — the
-    step-19 handoff lesson), the exfiltration would never be attempted and
+    brief-replaces-task-text handoff), the exfiltration would never be attempted and
     every assertion above would pass vacuously."""
     assert CONDUCTOR_MARKER in GOAL_FILE.read_text()
     run_id = conductor_implement["run_id"]

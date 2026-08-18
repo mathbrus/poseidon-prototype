@@ -1,19 +1,22 @@
-"""Crew fulfillment activities: identity minting and pod provisioning.
+"""Crew fulfillment activities: identity binding and pod provisioning.
 
-Mint writes the `run_participants` binding row (the fulfill half of the
-ephemeral-identity contract; the gateways own the verify half)
-and signs the short-TTL platform JWT; revoke terminates rows — the write
-that kills the identity's tokens before their TTL.
+Bind writes the `run_participants` binding row (the fulfill half of the
+ephemeral-identity contract; the gateways own the verify half): the row
+maps the member's per-run ServiceAccount to its run, crew coordinates,
+company and catalog template. Revoke terminates rows — the write that
+kills the identity on its next gateway call, however long its projected
+tokens live.
 
-Provision creates the ephemeral executor's brain-host pod through the
-bounded `CrewPodProvisioner` — the minted token is injected into the pod
-env *here*, at provision time, so it never rides workflow history — and
-destroy deletes by the run+kind label selector.
+Provision creates each crew member's brain-host pod (and its
+ServiceAccount) through the bounded `CrewPodProvisioner`; the pod's only
+credential is the projected token the kubelet mounts, so no credential
+ever rides workflow history or a pod env. Destroy deletes by the
+run+kind label selector.
 
-Everything emits `process-lifecycle` audit events onto the step-13
-ingestion contract, so a run's story shows who was minted, provisioned,
-revoked and destroyed, when, under whose authority. Step 16d composes
-these into the fulfill orchestration; nothing here dispatches work.
+Everything emits `process-lifecycle` audit events onto the shared audit
+ingestion contract, so a run's story shows who was bound, provisioned,
+revoked and destroyed, when, under whose authority. `fulfill_crew` composes
+these into the fulfill orchestration; nothing else here dispatches work.
 """
 
 import asyncio
@@ -30,8 +33,12 @@ from common.audit import AuditEvent
 from common.telemetry import get_logger
 from orchestrator.clients import AgentClient
 from orchestrator.config import WorkerSettings
-from orchestrator.crewpods import CrewPodProvisioner
-from orchestrator.identity import ephemeral_agent_id, mint_ephemeral
+from orchestrator.crewpods import (
+    TOKEN_MOUNT_DIR,
+    CrewPodProvisioner,
+    service_account_name,
+)
+from orchestrator.identity import ephemeral_agent_id
 from registry import AuditStore, RunParticipants
 from registry.crews import request_id
 
@@ -69,63 +76,66 @@ class CrewActivities:
         self._runs = runs
         self._log = get_logger("orchestrator.crew")
 
-    @activity.defn(name="mint_participant")
-    async def mint_participant(self, spec: dict[str, Any]) -> dict[str, Any]:
-        """Bind one crew member to one run and sign its identity.
+    @activity.defn(name="bind_participant")
+    async def bind_participant(self, spec: dict[str, Any]) -> dict[str, Any]:
+        """Bind one crew member to one run: the participants row *is* the
+        identity — it maps the member's per-run ServiceAccount to its run,
+        crew coordinates, company and catalog template, and the gateways
+        resolve the SA against it on every call. Nothing is signed here.
 
         spec: {run_id, company, crew_template, member, role_template,
         parent_agent_id}. Retry-safe: the agent_id derives from
-        {crew, member, run}, so a re-mint lands on the same row and signs a
-        fresh token — one identity, never two. A re-mint after the run's
-        teardown swept the row raises `ParticipantRevoked`: revocation is
-        final.
+        {crew, member, run}, so a re-bind lands on the same row — one
+        identity, never two. A re-bind after the run's teardown swept the
+        row raises `ParticipantRevoked`: revocation is final.
         """
         started = time.monotonic()
         agent_id = ephemeral_agent_id(
             spec["crew_template"], spec["member"], spec["run_id"]
         )
-        minted = mint_ephemeral(
-            self._require_key(),
-            agent_id=agent_id,
-            company=spec["company"],
-            role_template=spec["role_template"],
-            run_id=spec["run_id"],
-            parent_agent_id=spec["parent_agent_id"],
-            ttl_s=self._settings.ephemeral_ttl_s,
-        )
-        await asyncio.to_thread(
-            self._participants.add,
-            agent_id,
-            spec["run_id"],
-            spec["parent_agent_id"],
-            spec["crew_template"],
-            spec["member"],
-        )
+        await asyncio.to_thread(self._bind_row, agent_id, spec)
         await self._emit(
             run_id=spec["run_id"],
             agent_id=agent_id,
             role=spec["role_template"],
             company=spec["company"],
             parent_agent_id=spec["parent_agent_id"],
-            tool="lifecycle.mint",
-            rule="participant_minted",
+            tool="lifecycle.bind",
+            rule="participant_bound",
             digest=_digest({k: v for k, v in spec.items()}),
             started=started,
         )
         self._log.bind(run_id=spec["run_id"]).info(
-            "participant minted", extra={"agent_id": agent_id}
+            "participant bound", extra={"agent_id": agent_id}
         )
         return {
             "agent_id": agent_id,
-            "token": minted.token,
-            "ttl_s": minted.ttl_s,
+            "service_account": service_account_name(agent_id),
         }
+
+    def _bind_row(self, agent_id: str, spec: dict[str, Any]) -> None:
+        """The single place the SA-name <-> agent_id mapping is written.
+        The namespace recorded is where the provisioner puts crew pods and
+        their ServiceAccounts — the gateway refuses the same SA name
+        anywhere else."""
+        self._participants.add(
+            agent_id,
+            spec["run_id"],
+            spec["parent_agent_id"],
+            spec["crew_template"],
+            spec["member"],
+            company=spec["company"],
+            role_template=spec["role_template"],
+            namespace=self._settings.sandbox_namespace,
+            service_account=service_account_name(agent_id),
+        )
 
     @activity.defn(name="revoke_participants")
     async def revoke_participants(self, run_id: str) -> list[str]:
         """Terminate every live participant of the run — the terminal-path
-        sweep. From these writes on, the gateways find no live rows
-        and every minted token of the run is dead, TTL notwithstanding."""
+        sweep. From these writes on, the gateways find no live rows and
+        every crew identity of the run is dead, whatever its projected
+        tokens' remaining validity."""
         started = time.monotonic()
         swept = await asyncio.to_thread(self._participants.terminate_for_run, run_id)
         for agent_id in swept:
@@ -147,40 +157,21 @@ class CrewActivities:
 
     @activity.defn(name="provision_crew_pod")
     async def provision_crew_pod(self, spec: dict[str, Any]) -> dict[str, Any]:
-        """Create the crew member's brain-host pod, minting a fresh
-        token into its env — provision-time injection is what keeps the
-        credential out of workflow history.
+        """Create the crew member's brain-host pod and its ServiceAccount.
+        The pod's only credential is the projected token the kubelet
+        mounts — nothing token-shaped enters the env or workflow history.
 
         spec: {run_id, company, crew_template, member, role_template,
-        parent_agent_id}. The participants row must already exist (the
-        mint activity); re-asserting it here lets a retry after a crash
-        converge on the same identity. A retry that lost the race with its
-        run's teardown raises `ParticipantRevoked` instead — revocation is
-        final, and a pod created past that point would hold
-        a revoked identity with nothing left to collect it.
+        parent_agent_id}. Re-asserting the binding row lets a retry after
+        a crash converge on the same identity; a retry that lost the race
+        with its run's teardown raises `ParticipantRevoked` instead.
         """
         started = time.monotonic()
         provisioner = self._require_provisioner()
         agent_id = ephemeral_agent_id(
             spec["crew_template"], spec["member"], spec["run_id"]
         )
-        minted = mint_ephemeral(
-            self._require_key(),
-            agent_id=agent_id,
-            company=spec["company"],
-            role_template=spec["role_template"],
-            run_id=spec["run_id"],
-            parent_agent_id=spec["parent_agent_id"],
-            ttl_s=self._settings.ephemeral_ttl_s,
-        )
-        await asyncio.to_thread(
-            self._participants.add,
-            agent_id,
-            spec["run_id"],
-            spec["parent_agent_id"],
-            spec["crew_template"],
-            spec["member"],
-        )
+        await asyncio.to_thread(self._bind_row, agent_id, spec)
         platform = self._settings.platform_namespace
         env = {
             "MCP_GATEWAY_URL": f"http://mcp-gateway.{platform}.svc.cluster.local:8080",
@@ -188,27 +179,17 @@ class CrewActivities:
             "MODEL": self._settings.model,
             "TARGET_REPO": self._settings.target_repo,
             "MAX_ITERATIONS": str(self._settings.max_iterations),
-            "GATEWAY_TOKEN": minted.token,
+            "GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token",
         }
-        # The step-23 race guard. `add` above refuses to revive a revoked
-        # row, which stops a retry that begins after teardown's sweep; this
-        # catches the rest — above all a retry still in flight while the
-        # run ends, which is what leaked pods in practice.
-        #
-        # Two independent signals, because either alone has a hole: the
-        # participant row (teardown revokes before it destroys, so a
-        # non-active row means the sweep already passed) and the run's own
-        # terminal state (the row can be *re-created* active by this very
-        # activity when something deleted it meanwhile — the run record
-        # cannot). A finalized run must never acquire a new pod.
-        #
-        # Handed to the provisioner rather than checked here, for two
-        # reasons learned the hard way: checking *before* the call leaves
-        # the remnant-deletion wait (measured at 31 s) between verdict and
-        # creation, and checking *after* never runs at all — the workflow's
-        # completion cancels this activity, and the cancellation lands on
-        # the very next await.
-        handle = await asyncio.to_thread(
+        # The teardown race guard: a retry still in flight while the run
+        # ends must not leak a pod. `still_wanted` checks two signals —
+        # the live participant row and the run's non-terminal state; see
+        # `_collectable_now` for why both are needed. The provisioner
+        # evaluates it immediately before pod creation (not here, where
+        # the verdict would go stale during its remnant-deletion wait, and
+        # not after, where the workflow's completion would cancel this
+        # activity first).
+        handle = await self._heartbeating(
             lambda: provisioner.provision(
                 agent_id=agent_id,
                 run_id=spec["run_id"],
@@ -234,14 +215,31 @@ class CrewActivities:
         )
         return {"agent_id": agent_id, "pod_name": handle.pod_name, "url": handle.url}
 
+    async def _heartbeating(self, fn: Any) -> Any:
+        """Run a blocking call on a worker thread, heartbeating while it
+        runs. Pod provisioning (remnant wait + image start + readiness)
+        legitimately outlives the activity heartbeat window — and
+        `fulfill_crew` provisions one pod per member back to back — so
+        liveness must be signalled *during* the call, not only between
+        calls."""
+        task = asyncio.ensure_future(asyncio.to_thread(fn))
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=5.0)
+            if activity.in_activity():
+                activity.heartbeat()
+            if done:
+                return task.result()
+
     def _collectable_now(self, run_id: str, agent_id: str) -> bool:
         """Whether anything provisioned for this run would still be torn
-        down by someone. False once the run's teardown has swept past —
-        seen either as a revoked binding row or as a finalized run.
+        down by someone. False once the run's teardown has swept past.
 
-        Synchronous by design: the provisioner calls it from the worker
-        thread, immediately before creating the pod, so the answer cannot
-        go stale between verdict and creation."""
+        Two signals, because either alone has a hole: a revoked binding
+        row means the sweep already passed (teardown revokes before it
+        destroys), but the row can be re-created by a provision retry —
+        the run's own terminal state cannot. Synchronous: the provisioner
+        calls it from the worker thread, immediately before creating the
+        pod."""
         if self._participants.active(agent_id) is None:
             return False
         if self._runs is None:
@@ -254,7 +252,7 @@ class CrewActivities:
     @activity.defn(name="destroy_crew_pods")
     async def destroy_crew_pods(self, run_id: str) -> list[str]:
         """Delete the run's crew pods — by the {run_id, kind} label
-        selector only (the 16c bound). Idempotent; audited per pod. With no
+        selector only — the provisioner's bound. Idempotent; audited per pod. With no
         provisioner configured nothing could ever have been provisioned, so
         compensation is honestly a no-op."""
         if self._provisioner is None:
@@ -279,16 +277,16 @@ class CrewActivities:
     @activity.defn(name="fulfill_crew")
     async def fulfill_crew(self, spec: dict[str, Any]) -> dict[str, Any]:
         """The fulfillment composition: consume the recorded request ->
-        mint every member -> pod for the acting member (token injected at
-        provision) -> dispatch the planner on that brain host under its own
-        identity -> hand back the brief for the executor dispatch. The
+        bind every member and give each its own pod (one principal, one
+        pod, one ServiceAccount) -> dispatch the planner on its own brain
+        host -> hand back the brief for the executor dispatch. The
         orchestrator-fixed graph IS the planner->executor handoff; there is
         no free-form crew chat.
 
         spec: {run_id, company, crew_template, conductor, task_text,
         workflow?}. `workflow` names the calling workflow in the recorded
         decision input (implement by default, or review).
-        Retry-safe end to end: consume is idempotent for this run, minting
+        Retry-safe end to end: consume is idempotent for this run, binding
         revives deterministic identities, provisioning replaces remnants.
         """
         run_id = spec["run_id"]
@@ -339,9 +337,14 @@ class CrewActivities:
                 f"applied blueprint defines no members for crew {crew_template!r}"
             )
 
-        minted: dict[str, dict[str, Any]] = {}
-        pod: dict[str, Any] | None = None
-        pod_member: dict[str, Any] | None = None
+        # Every member gets its own pod: identity is per-pod (one
+        # ServiceAccount each), so there is no pod to borrow and no token
+        # to hand around. `needs_sandbox` keeps meaning what it says — the
+        # member works the run's sandbox through the gateway — and the
+        # first such member is the acting executor the workflow dispatches.
+        bound: dict[str, dict[str, Any]] = {}
+        pods: dict[str, dict[str, Any]] = {}
+        executor: dict[str, Any] | None = None
         for member in members:
             member_spec = {
                 "run_id": run_id,
@@ -351,24 +354,24 @@ class CrewActivities:
                 "role_template": member["role_template"],
                 "parent_agent_id": conductor,
             }
-            minted[member["member"]] = await self.mint_participant(member_spec)
-            if member.get("needs_sandbox") and pod is None:
-                pod = await self.provision_crew_pod(member_spec)
-                pod_member = member
-        if pod is None or pod_member is None:
-            raise RuntimeError(f"crew {crew_template!r} has no pod-hosting member")
+            bound[member["member"]] = await self.bind_participant(member_spec)
+            pods[member["member"]] = await self.provision_crew_pod(member_spec)
+            if member.get("needs_sandbox") and executor is None:
+                executor = member
+        if executor is None:
+            raise RuntimeError(f"crew {crew_template!r} has no sandbox-facing member")
+        pod = pods[executor["member"]]
 
-        # The planner (a no-pod member) borrows the acting member's
-        # brain host, under its own identity: its gateway calls carry the
-        # planner's minted token, so its compiled read-only scope binds.
+        # The planner runs on its own brain host under its own identity:
+        # its gateway calls carry its own projected token, so its compiled
+        # read-only scope binds.
         brief = spec["task_text"]
         planner = next((m for m in members if not m.get("needs_sandbox")), None)
         if planner is not None:
             plan_run = await self._dispatch_plan(
-                pod["url"],
+                pods[planner["member"]]["url"],
                 run_id,
                 spec["task_text"],
-                minted[planner["member"]]["token"],
             )
             if plan_run.get("error"):
                 raise RuntimeError(f"planner failed: {plan_run['error']}")
@@ -377,7 +380,7 @@ class CrewActivities:
         await self._emit(
             run_id=run_id,
             agent_id=pod["agent_id"],
-            role=pod_member["role_template"],
+            role=executor["role_template"],
             company=spec["company"],
             parent_agent_id=conductor,
             tool="lifecycle.fulfill",
@@ -390,7 +393,7 @@ class CrewActivities:
             "brief": brief,
             "executor_agent_id": pod["agent_id"],
             "executor_url": pod["url"],
-            "members": sorted(minted),
+            "members": sorted(bound),
         }
 
     async def _authorize_recording(
@@ -466,10 +469,10 @@ class CrewActivities:
             )
 
     async def _dispatch_plan(
-        self, url: str, run_id: str, task_text: str, token: str
+        self, url: str, run_id: str, task_text: str
     ) -> dict[str, Any]:
         async with AgentClient(url) as agent:
-            await agent.dispatch(run_id, task_text, mode="plan", gateway_token=token)
+            await agent.dispatch(run_id, task_text, mode="plan")
             while True:
                 if activity.in_activity():
                     activity.heartbeat()
@@ -485,15 +488,6 @@ class CrewActivities:
                 " one for the company namespace"
             )
         return self._provisioner
-
-    def _require_key(self) -> str:
-        key = self._settings.platform_jwt_key
-        if not key:
-            raise RuntimeError(
-                "PLATFORM_JWT_KEY is not configured — the orchestrator cannot"
-                " mint ephemeral identities without the platform signing key"
-            )
-        return key
 
     async def _emit(
         self,
@@ -532,7 +526,7 @@ class CrewActivities:
 
     def all(self) -> list[Any]:
         return [
-            self.mint_participant,
+            self.bind_participant,
             self.revoke_participants,
             self.provision_crew_pod,
             self.destroy_crew_pods,

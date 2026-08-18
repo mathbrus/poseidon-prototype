@@ -3,7 +3,7 @@ GitHub API behind one httpx.MockTransport, the real MCP app served over an
 in-process ASGI transport, and a local bare git repo standing in for
 TARGET_REPO (real git subprocesses, no network).
 
-Since the step-12 cutover the OPA stub mirrors the *compiled* policy shape:
+The OPA stub mirrors the *compiled* policy shape:
 per-company and platform decision paths, role rules keyed on
 lifecycle+company+role, run binding read from the enriched input — and the
 test tokens resolve through a fake TokenReview (workload identity), because
@@ -38,7 +38,7 @@ from registry.memory import (
 AGENT_TOKEN = "agent-secret"
 RUNNER_TOKEN = "runner-secret"
 PM_TOKEN = "pm-secret"
-JWT_KEY = "unit-test-platform-key"
+REVIEWER_TOKEN = "reviewer-secret"
 GIT_TOKEN = "git-platform-secret"
 OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
@@ -62,6 +62,7 @@ class FakeReviewer:
         AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
         RUNNER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
         PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
+        REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "crew-reviewer-01x"),
     }
 
     async def review(self, token: str, audience: str) -> ServiceAccount | None:
@@ -135,7 +136,7 @@ class Backends:
                 "feature-delivery",
                 "feature-review",
             ):
-                # The compiled cap and budget denies (step 16d), reading
+                # The compiled cap and budget denies, reading
                 # the enriched input exactly like the real bundle.
                 if policy_input.get("active_spawns", 0) >= 2:
                     return {"allow": False, "rule": "crew_request_over_cap"}
@@ -200,7 +201,7 @@ class Backends:
 
     @staticmethod
     def _github(request: httpx.Request, payload: dict) -> httpx.Response:
-        """Canned GitHub REST answers for the step-15 surface."""
+        """Canned GitHub REST answers for the tool surface."""
         path, method = request.url.path, request.method
 
         def issue(number: int = 7, **overrides) -> dict:
@@ -290,7 +291,6 @@ def settings() -> GatewaySettings:
         git_token=GIT_TOKEN,
         base_ref="main",
         github_api_url=GITHUB_API_URL,
-        platform_jwt_key=JWT_KEY,
     )
 
 
@@ -340,7 +340,7 @@ def companies() -> InMemoryCompanies:
         COMPANY,
         {
             "namespace": COMPANY_NS,
-            "budgets": {"per_run_usd": 5.0, "per_role_monthly_usd": {}},
+            "budgets": {"per_run_usd": 5.0},
         },
     )
     return store

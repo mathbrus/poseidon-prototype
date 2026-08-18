@@ -1,6 +1,6 @@
 """`sandbox_registrations` — written by the gateway only.
 
-Replaces the gateway's in-memory `_sandboxes` dict (resolution row 16). The
+Replaces the gateway's former in-memory `_sandboxes` dict. The
 dict was fine while runs were a host-side script; once runs are durable, a
 gateway restart mid-run silently orphaned every sandbox proxy call, and the
 orchestrator had no way to know.

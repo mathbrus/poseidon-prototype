@@ -1,4 +1,4 @@
-"""The platform verify gate on the live cluster: E3 — the executor's
+"""The platform verify gate on the live cluster: the executor's
 completion claim is advisory, the platform's own `sandbox.run_tests` is the
 gate of record.
 

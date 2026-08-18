@@ -1,4 +1,4 @@
-"""S7 app tests: the C6 HTTP surface with an injected task runner."""
+"""The dispatch HTTP surface with an injected task runner."""
 
 import asyncio
 
@@ -163,10 +163,10 @@ async def test_running_run_still_answers_409():
 
 
 async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
-    seen: list[tuple[str, str, str | None]] = []
+    seen: list[tuple[str, str]] = []
 
-    async def planner(run_id: str, task_text: str, token: str | None) -> RunResult:
-        seen.append((run_id, task_text, token))
+    async def planner(run_id: str, task_text: str) -> RunResult:
+        seen.append((run_id, task_text))
         return RunResult(brief="1. read\n2. brief")
 
     async def never(run_id: str, task_text: str) -> RunResult:
@@ -179,7 +179,6 @@ async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
                 "run_id": RUN_ID,
                 "task_text": "scope it",
                 "mode": "plan",
-                "gateway_token": "planner-jwt",
             },
         )
         assert resp.status_code == 202
@@ -187,5 +186,6 @@ async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
 
     assert status["status"] == "done"
     assert status["brief"] == "1. read\n2. brief"
-    # The per-dispatch token is how the planner acts as itself.
-    assert seen == [(RUN_ID, "scope it", "planner-jwt")]
+    # No credential rides the dispatch: the planner's pod holds its own
+    # projected token and acts as itself.
+    assert seen == [(RUN_ID, "scope it")]

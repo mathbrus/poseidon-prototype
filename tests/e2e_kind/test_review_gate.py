@@ -1,4 +1,4 @@
-"""Step 20 done-when, on the live cluster: the full chain — intake tickets,
+"""Review on the live cluster: the full chain — intake tickets,
 implement PR, reviewer findings posted, merge gate parked, timer escalation
 observable, API approval, gateway merge — every step correlated by run_id
 in one audit story (MVP exit criterion 3).
@@ -306,7 +306,7 @@ def test_one_story_spans_every_review_source(review_chain: dict) -> None:
     tools = [e["tool"] for e in story]
     for lifecycle_step in (
         "lifecycle.record_request",
-        "lifecycle.mint",
+        "lifecycle.bind",
         "lifecycle.provision_pod",
         "lifecycle.fulfill",
         "lifecycle.revoke",

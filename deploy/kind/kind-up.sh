@@ -22,6 +22,11 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "error: $ENV_FILE not found — copy $SCRIPT_DIR/.env.example and fill it in" >&2
   exit 1
 fi
+# An explicit invocation-time REAL_LLM must beat the .env: whether a run
+# spends money is a per-invocation decision, and `REAL_LLM=0 kind-up.sh`
+# silently losing to a forgotten REAL_LLM=1 in the file is how a mock test
+# run ends up billing a provider.
+REAL_LLM_ARG=${REAL_LLM-}
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
@@ -29,7 +34,10 @@ set +a
 SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 # The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
 # real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
-REAL_LLM=${REAL_LLM:-0}
+REAL_LLM=${REAL_LLM_ARG:-${REAL_LLM:-0}}
+# The Temporal web UI is a browsable surface over full operator authority
+# (see README §9); it stays out of the cluster unless explicitly asked for.
+TEMPORAL_WEB=${TEMPORAL_WEB:-0}
 if [ "$REAL_LLM" != "1" ]; then
   LLM_API_KEY=${LLM_API_KEY:-mock-unused}
   MODEL=mock-brain
@@ -136,7 +144,6 @@ secrets:
   llmApiKey: "${LLM_API_KEY:?LLM_API_KEY missing from $ENV_FILE}"
   postgresPassword: "${POSTGRES_PASSWORD:-poseidon-dev-postgres}"
   egressProxyKey: "${EGRESS_PROXY_KEY:-poseidon-dev-egress-key}"
-  platformJwtKey: "${PLATFORM_JWT_KEY:-poseidon-dev-platform-jwt-key}"
 run:
   model: "${MODEL:?MODEL missing from $ENV_FILE}"
   targetRepo: "${TARGET_REPO:?TARGET_REPO missing from $ENV_FILE}"
@@ -176,12 +183,19 @@ echo "==> temporal (chart $TEMPORAL_CHART_VERSION)"
 if ! helm repo list 2>/dev/null | grep -q go.temporal.io; then
   helm repo add temporal https://go.temporal.io/helm-charts
 fi
+TEMPORAL_DEPLOYS=(temporal-frontend temporal-history temporal-matching temporal-worker)
+TEMPORAL_VALUES=()
+if [ "$TEMPORAL_WEB" = "1" ]; then
+  TEMPORAL_VALUES=(--set web.enabled=true)
+  TEMPORAL_DEPLOYS+=(temporal-web)
+fi
 helm upgrade --install temporal temporal/temporal \
   --version "$TEMPORAL_CHART_VERSION" \
   --namespace "$PLATFORM_NS" \
   -f deploy/helm/temporal-values.yaml \
+  "${TEMPORAL_VALUES[@]}" \
   --timeout 15m
-for deploy in temporal-frontend temporal-history temporal-matching temporal-worker temporal-web; do
+for deploy in "${TEMPORAL_DEPLOYS[@]}"; do
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
 done
 kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeout=300s
@@ -238,7 +252,7 @@ if [ "$code" != "401" ]; then
   echo "error: gateway answered $code, expected 401 without a token" >&2
   exit 1
 fi
-# Standing agents have no NodePort since step 10: they are reached in-cluster
+# Standing agents have no NodePort: they are reached in-cluster
 # by the orchestrator, and the operator gives each hire its own Service.
 
 echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}"

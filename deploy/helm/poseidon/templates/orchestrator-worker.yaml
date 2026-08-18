@@ -101,13 +101,6 @@ spec:
                 secretKeyRef:
                   name: egress-proxy-key
                   key: EGRESS_PROXY_KEY
-            # The platform signing key: the fulfill
-            # activities mint ephemeral identities with it.
-            - name: PLATFORM_JWT_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: platform-jwt-key
-                  key: PLATFORM_JWT_KEY
             - name: REGISTRY_DSN
               valueFrom:
                 secretKeyRef:

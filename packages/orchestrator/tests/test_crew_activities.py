@@ -1,21 +1,21 @@
-"""Identity minting against doubles: mint binds one deterministic identity
-per {crew, member, run} and signs a verifiable platform JWT; revoke sweeps
-every live participant; both land process-lifecycle audit events; a retried
-mint converges on the same row instead of leaking a second identity — and
-never revives one the run's teardown already revoked."""
+"""Identity binding against doubles: bind writes one deterministic
+participants row per {crew, member, run} — the row *is* the identity the
+gateways resolve a crew ServiceAccount against; revoke sweeps every live
+participant; both land process-lifecycle audit events; a retried bind
+converges on the same row instead of leaking a second identity — and never
+revives one the run's teardown already revoked."""
 
 import asyncio
 
 import pytest
 
-from common import platformjwt
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
+from orchestrator.crewpods import service_account_name
 from orchestrator.identity import ephemeral_agent_id
 from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
 
 RUN_ID = "run-01CREW"
-KEY = "unit-test-platform-key"
 
 SPEC = {
     "run_id": RUN_ID,
@@ -35,8 +35,6 @@ def settings(tmp_path) -> WorkerSettings:
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
         target_repo="github.com/example/repo",
-        platform_jwt_key=KEY,
-        ephemeral_ttl_s=600,
     )
 
 
@@ -55,63 +53,60 @@ def crew(settings, participants, audit) -> CrewActivities:
     return CrewActivities(settings, participants, audit)
 
 
-def test_mint_binds_and_signs_the_51_claims(crew, participants, audit):
-    minted = asyncio.run(crew.mint_participant(dict(SPEC)))
+def test_bind_writes_the_whole_identity_row(crew, participants, audit):
+    bound = asyncio.run(crew.bind_participant(dict(SPEC)))
 
     expected_id = ephemeral_agent_id("feature-delivery", "executor", RUN_ID)
-    assert minted["agent_id"] == expected_id
+    assert bound["agent_id"] == expected_id
+    assert bound["service_account"] == service_account_name(expected_id)
 
-    # The row is what the gateways verify against (their half, steps 11/12).
+    # The row is what the gateways verify against — the whole identity:
+    # crew coordinates for the compiled crew rules, plus company, catalog
+    # template and namespace.
     row = participants.active(expected_id)
     assert row["run_id"] == RUN_ID
     assert row["parent_agent_id"] == "pm-1"
     assert row["crew_template"] == "feature-delivery"
     assert row["role"] == "executor"  # the member name = crew_role
-
-    claims = platformjwt.verify(KEY, minted["token"], "poseidon-gateway")
-    assert claims["sub"] == expected_id
-    assert claims["company"] == "hello-saas"
-    assert claims["role"] == "backend-engineer"  # the catalog template
-    assert claims["lifecycle"] == "ephemeral"
-    assert claims["run_id"] == RUN_ID
-    assert claims["parent_agent_id"] == "pm-1"
+    assert row["company"] == "hello-saas"
+    assert row["role_template"] == "backend-engineer"  # the catalog template
+    assert row["namespace"] == "hello-saas"
+    assert row["service_account"] == service_account_name(expected_id)
 
     (event,) = audit.events
     assert event.source == "process-lifecycle"
-    assert event.tool == "lifecycle.mint" and event.rule == "participant_minted"
+    assert event.tool == "lifecycle.bind" and event.rule == "participant_bound"
     assert event.agent_id == expected_id and event.run_id == RUN_ID
     assert event.parent_agent_id == "pm-1"
-    # The token must never reach the audit store.
-    assert minted["token"] not in event.args_digest
 
 
-def test_retried_mint_converges_on_one_identity(crew, participants):
-    first = asyncio.run(crew.mint_participant(dict(SPEC)))
-    again = asyncio.run(crew.mint_participant(dict(SPEC)))
+def test_retried_bind_converges_on_one_identity(crew, participants):
+    first = asyncio.run(crew.bind_participant(dict(SPEC)))
+    again = asyncio.run(crew.bind_participant(dict(SPEC)))
 
     assert again["agent_id"] == first["agent_id"]
     assert len(participants.rows) == 1
     assert participants.active(first["agent_id"]) is not None
 
 
-def test_a_mint_that_lost_the_race_with_teardown_is_refused(crew, participants):
-    """Revocation is final. A retry that reaches the mint
+def test_a_bind_that_lost_the_race_with_teardown_is_refused(crew, participants):
+    """Revocation is final. A retry that reaches the bind
     after its run's teardown swept the row must not resurrect the identity
     — that is how a crew pod ended up outliving its run, holding a revoked
-    credential with nothing left to collect it."""
+    identity with nothing left to collect it."""
     from registry import ParticipantRevoked
 
-    first = asyncio.run(crew.mint_participant(dict(SPEC)))
+    first = asyncio.run(crew.bind_participant(dict(SPEC)))
     assert participants.terminate_for_run(RUN_ID) == [first["agent_id"]]
 
     with pytest.raises(ParticipantRevoked):
-        asyncio.run(crew.mint_participant(dict(SPEC)))
+        asyncio.run(crew.bind_participant(dict(SPEC)))
     assert participants.active(first["agent_id"]) is None
 
 
 def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):
-    asyncio.run(crew.mint_participant(dict(SPEC)))
-    asyncio.run(crew.mint_participant({**SPEC, "member": "planner"}))
+    asyncio.run(crew.bind_participant(dict(SPEC)))
+    asyncio.run(crew.bind_participant({**SPEC, "member": "planner"}))
     audit.events.clear()
 
     swept = asyncio.run(crew.revoke_participants(RUN_ID))
@@ -134,12 +129,3 @@ def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):
     audit.events.clear()
     assert asyncio.run(crew.revoke_participants(RUN_ID)) == []
     assert audit.events == []
-
-
-def test_mint_without_the_key_fails_closed(settings, participants, audit):
-    keyless = CrewActivities(
-        settings.model_copy(update={"platform_jwt_key": ""}), participants, audit
-    )
-    with pytest.raises(RuntimeError, match="PLATFORM_JWT_KEY"):
-        asyncio.run(keyless.mint_participant(dict(SPEC)))
-    assert participants.rows == {}

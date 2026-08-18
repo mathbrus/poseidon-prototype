@@ -46,11 +46,6 @@ class WorkerSettings(TemporalSettings):
     # injection entirely (proxy-less clusters keep zero egress).
     egress_proxy_url: str = ""
     egress_proxy_key: str = ""
-    # The platform signing key: the orchestrator's
-    # fulfill activities mint short-TTL ephemeral JWTs with it; both
-    # gateways verify. Empty disables minting, never verification.
-    platform_jwt_key: str = ""
-    ephemeral_ttl_s: int = 900
     # Crew-pod provisioning: the agent image the ephemeral
     # executor's brain host runs (content-addressed on kind, like the
     # sandbox image), and the platform namespace for gateway FQDNs.

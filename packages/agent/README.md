@@ -162,35 +162,30 @@ module-level current-context bound by `HandsContext.activate()`, not a
 contextvar. That is safe only because the 409 rule means one dispatch per
 host at a time; there is never a second context to race with.
 
-## The planner borrows this pod
+## The planner's pod is the cheapest one
 
 `mode="plan"` is the one dispatch that is LLM-only: the host surveys the
 sandbox root (one `sandbox.list_dir` call), asks for a single completion
 — no tool loop, no writes — and returns the resulting task brief, which
 the executor's next dispatch carries verbatim.
 
-The planner has no pod of its own. It borrows the executor's brain host,
-but the dispatch carries the planner's own minted token as
-`gateway_token`, and both the survey call and the LLM call run under it.
-Identity travels with the token, not the pod: what policy enforces is the
-planner's compiled read-only scope, regardless of whose container the
-code happens to execute in. The pod is not the principal; the token is.
+The planner runs on its own pod, under its own per-run ServiceAccount —
+one principal, one pod, one projected token, like every other agent. No
+credential rides the dispatch; both the survey call and the LLM call run
+under the pod's own token, so what policy enforces is the planner's
+compiled read-only scope.
 
 ## Credential posture
 
-The pod holds no secret. Its gateway credential arrives in one of two
-shapes (`config.py`, `resolve_gateway_token`):
+The pod holds no secret. Its gateway credential has exactly one shape
+(`config.py`, `resolve_gateway_token`): a kubelet-rotated projected
+service-account token *file*, scoped to the gateway's audience — for
+standing hires and ephemeral crew members alike. It is read fresh at
+each dispatch, so a task never outlives the freshly read token's
+validity window; a crew member's revocation is a registry-row
+termination the gateway checks per call, not a property of the token.
 
-- **Standing hires** (the PM): a kubelet-rotated projected
-  service-account token *file*, scoped to the gateway's audience. It is
-  read fresh at each dispatch, so a task never outlives the freshly read
-  token's validity window.
-- **Ephemeral crew members**: a short-TTL platform JWT injected as
-  `GATEWAY_TOKEN` at pod-creation time — env rather than file, because
-  it is minted per run and revoked by deleting its registry row, never
-  rotated.
-
-Either way the credential is good for exactly one thing: authenticating
+The credential is good for exactly one thing: authenticating
 to the Poseidon gateways. The LLM provider key lives in the llm-proxy,
 the git token in the MCP gateway. The pod specs that deploy this image —
 the operator for standing hires, the orchestrator for crew pods — also

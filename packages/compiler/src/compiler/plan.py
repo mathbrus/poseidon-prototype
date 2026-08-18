@@ -63,7 +63,6 @@ class WorkflowConfig:
 @dataclass(frozen=True)
 class BudgetRegistration:
     per_run_usd: float
-    per_role_monthly_usd: dict[str, float]
 
 
 @dataclass(frozen=True)

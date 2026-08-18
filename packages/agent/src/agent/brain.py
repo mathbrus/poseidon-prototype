@@ -10,7 +10,7 @@ nothing else. Enforced boundaries:
   its sub-agent machinery (`TaskToolSet`) are never installed or registered.
 - The brain starts and stops no sandboxes and owns no process-level
   retries/timeouts/cancellation — the workflow dispatches into this host
-  and waits (C6); `num_retries=1` keeps the SDK from grinding on errors the
+  and waits; `num_retries=1` keeps the SDK from grinding on errors the
   workflow owns (a `budget_exhausted` 429 surfaces immediately).
 - The implement dispatch ends at a completion claim: its tool surface has
   no `open_pr`, its advisory verify (host-driven `sandbox.run_tests`
@@ -19,7 +19,7 @@ nothing else. Enforced boundaries:
   verify gate.
 
 The mode runners are synchronous — the SDK conversation loop is blocking —
-and run in a worker thread under the async C6 app (`asyncio.to_thread`).
+and run in a worker thread under the async dispatch app (`asyncio.to_thread`).
 The `GatewayBridge` gives the executors a sync facade over the async MCP
 client by parking the session on a dedicated event-loop thread.
 """
@@ -295,7 +295,7 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
     only ever dispatched after the platform verify gate passed.
     Commit the sandbox's work on the task's branch, bundle it, open the PR.
     A policy denial comes back as the tool observation so the model can
-    recover (the E2 path)."""
+    recover — deny-and-recover, not deny-and-halt."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
@@ -407,14 +407,13 @@ def plan_dispatch(
     settings: AgentSettings,
     run_id: str,
     task_text: str,
-    gateway_token: str | None = None,
 ) -> RunResult:
     """Planner mode: survey the
     run's sandbox read-only, produce the task brief, write nothing. The
     planner is LLM-only — one completion, no tool loop — and calls the
-    gateway under its *own* identity (the per-dispatch token), so its
+    gateway under its *own* identity (its pod's projected token), so its
     compiled read-only scope is what policy enforces."""
-    token = gateway_token or settings.resolve_gateway_token()
+    token = settings.resolve_gateway_token()
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
         entries = _survey_entries(bridge, run_id)
     llm = build_llm(settings, run_id, token)

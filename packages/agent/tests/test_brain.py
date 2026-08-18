@@ -205,7 +205,7 @@ def test_plan_prompt_asks_for_the_brief_only(settings, gateway):
     llm = ScriptedLLM([says("1. Write slugify.py")])
 
     with scripted(gateway, llm):
-        plan_dispatch(settings, RUN_ID, TASK, gateway_token="minted")
+        plan_dispatch(settings, RUN_ID, TASK)
 
     messages, tools = llm.requests[0]
     assert tools is None
@@ -263,11 +263,11 @@ def test_failing_tests_loop_back_with_report_until_iteration_cap(settings, gatew
     assert "1 failed: test_hello" in report
 
 
-# --- deny path (E2 recovery) ----------------------------------------------------
+# --- deny path (deny-and-recover) -----------------------------------------------
 
 
 def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(settings, gateway):
-    """E2 in the deliver dispatch: the deny (with the rule name) feeds back
+    """Injection recovery in the deliver dispatch: the deny (with the rule name) feeds back
     and the model recovers onto feature/*."""
     llm = ScriptedLLM(
         [
@@ -355,7 +355,7 @@ def test_planner_produces_the_brief_from_one_completion(settings, gateway):
     llm = ScriptedLLM([says("1. Write slugify.py\n2. Deliver on `feature/x`.")])
 
     with scripted(gateway, llm):
-        result = plan_dispatch(settings, RUN_ID, TASK, gateway_token="minted")
+        result = plan_dispatch(settings, RUN_ID, TASK)
 
     assert result.error is None
     assert result.brief == "1. Write slugify.py\n2. Deliver on `feature/x`."

@@ -142,6 +142,3 @@ policies:
 budgets:
   per_run:
     usd: 5
-  per_role_monthly:
-    pm:
-      usd: 50

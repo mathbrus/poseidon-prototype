@@ -18,16 +18,16 @@ def test_story_covers_the_whole_run(implement_run: dict) -> None:
     assert story, "no audit events for the run"
 
     tools = {e["tool"] for e in story}
-    # The run's arc since step 19: sandbox registered, workspace fetched,
+    # The run's whole arc: sandbox registered, workspace fetched,
     # the crew stood up (request recorded under the conductor's authority,
-    # members minted, the executor's pod provisioned, fulfillment), files
+    # members bound, their pods provisioned, fulfillment), files
     # written, tests run, work committed, bundle pulled, PR opened, and the
     # crew revoked at teardown.
     assert {
         "/admin/sandboxes",
         "repo.archive",
         "lifecycle.record_request",
-        "lifecycle.mint",
+        "lifecycle.bind",
         "lifecycle.provision_pod",
         "lifecycle.fulfill",
         "sandbox.write_file",
@@ -40,7 +40,7 @@ def test_story_covers_the_whole_run(implement_run: dict) -> None:
 
 
 def test_delivery_never_precedes_the_platform_verify(implement_run: dict) -> None:
-    """The step-19 gate of record, in the story's own ordering: the
+    """The verify gate of record, in the story's own ordering: the
     platform's green sandbox.run_tests (the orchestrator's platform
     lifecycle) comes before the PR ever opens — delivery is released by
     the gate, not by the executor's claim."""
@@ -74,7 +74,8 @@ def test_happy_path_story_contains_no_denies(implement_run: dict) -> None:
 
 
 def test_one_query_spans_the_runs_real_sources(implement_run: dict) -> None:
-    """The step-13 done-when on real producers only — nothing seeded. A
+    """The one-ingestion-contract claim on real producers only — nothing
+    seeded. A
     happy crewed implement legitimately produces exactly these three
     sources (no gate parks, nothing attempts egress); the sources a happy
     run *cannot* produce are proven on the runs that do produce them —
@@ -92,7 +93,7 @@ def test_one_query_spans_the_runs_real_sources(implement_run: dict) -> None:
 
 
 def test_gateway_events_carry_v2_attribution(implement_run: dict) -> None:
-    """Since step 13 the real pipeline emits v2: every gateway event names
+    """The real pipeline's events are fully attributed: every gateway event names
     its source, and company-caller events carry company + lifecycle."""
     run_id = implement_run["run_id"]
     story = [e for e in audit_story(run_id) if e["source"] == "gateway"]

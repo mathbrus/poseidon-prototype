@@ -1,4 +1,4 @@
-"""The step-12 governance regression, against policy compiled from
+"""The governance regression, against policy compiled from
 `examples/hello-saas.yaml` and *installed* on the live cluster.
 
 Two layers. The OPA half queries the running OPA's decision paths directly
@@ -12,7 +12,7 @@ The lean roster is in force: the standing engineer is
 fired and execution is ephemeral crews, so the executor-side checks here
 use the ephemeral input shape (role + crew_template + crew_role), and
 the firing itself is proven — a standing backend-engineer input finds
-nothing in the compiled bundle. E2-class injection deny + recovery runs in
+nothing in the compiled bundle. Injection deny + recovery runs in
 test_injection.py through the crew executor's deliver dispatch.
 """
 
@@ -246,7 +246,7 @@ def test_denies_are_in_the_audit_story(stack: None) -> None:
     assert int(proc.stdout.strip()) >= 1
 
 
-# -- the step-15 tool surface, live ------------------------------------------
+# -- the whole tool surface, live --------------------------------------------
 
 
 def test_installed_bundle_covers_the_new_tools(stack: None) -> None:

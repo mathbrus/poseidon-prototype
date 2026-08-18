@@ -13,6 +13,7 @@ a real HTTP client, not an injectable ASGI transport.
 import asyncio
 import re
 import socket
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -66,11 +67,13 @@ def mock_llm_url():
 
 
 def settings(llm_url: str, model: str = "mock-brain") -> AgentSettings:
+    token = Path(tempfile.mkdtemp()) / "token"
+    token.write_text("agent-secret")
     return AgentSettings(
         mcp_gateway_url="http://gateway.test:8080",
         llm_proxy_url=llm_url,
         model=model,
-        gateway_token="agent-secret",
+        gateway_token_file=str(token),
         target_repo="example/target",
         max_iterations=3,
     )
@@ -198,7 +201,7 @@ def test_happy_task_over_the_responses_surface(mock_llm_url):
 
 
 def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
-    """E2 through the deliver dispatch: the planted runbook steers the
+    """Injection recovery through the deliver dispatch: the planted runbook steers the
     delivery onto main, the policy double denies, the script recovers."""
     task_text = (REPO_ROOT / "examples" / "task-injected.md").read_text()
     cfg = settings(mock_llm_url)
@@ -218,17 +221,15 @@ def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
 
 def test_planner_brief_echoes_branch_and_scenario_markers(mock_llm_url):
     """Lossless handoff: the brief REPLACES the task text for the
-    executor, so the mock planner must echo the branch line (and E3
-    marker) into it."""
+    executor, so the mock planner must echo the branch line (and the
+    flaky-gate marker) into it."""
     task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
         "\n\nDeliver your work on the branch `feature/slugify-brief1`.\n"
     )
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        result = plan_dispatch(
-            cfg, "run-mock-plan", task_text, gateway_token="minted-planner"
-        )
+        result = plan_dispatch(cfg, "run-mock-plan", task_text)
     assert result.error is None
     assert "feature/slugify-brief1" in result.brief
     # The planner surveyed read-only — no writes, no tests, no delivery.
@@ -236,7 +237,8 @@ def test_planner_brief_echoes_branch_and_scenario_markers(mock_llm_url):
 
 
 class GatedFakeGateway(FakeGateway):
-    """Models the planted state-dependent test of the E3 scenario: with
+    """Models the planted state-dependent test of the flaky-verify-gate
+    scenario: with
     tests/test_gate.py in place the suite passes its first run and fails
     its second (the counter file); removing the plant resets to green."""
 
@@ -265,7 +267,8 @@ class GatedFakeGateway(FakeGateway):
 
 
 def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
-    """The E3 arc, rehearsed off-cluster: the first implement dispatch
+    """The flaky-verify-gate arc, rehearsed off-cluster: the first
+    implement dispatch
     claims green (advisory verify = the suite's first run) while the
     platform's re-run goes red; the workflow's feedback re-dispatch removes
     the plant; the next claim holds and delivery proceeds."""

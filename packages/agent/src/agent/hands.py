@@ -9,8 +9,8 @@ Two mechanisms worth stating:
   base64 bundles never enter the model context.
 
 A gateway denial (`ToolCallError`, carrying the OPA rule name) becomes the
-tool observation text (`ERROR: ...`) — denial-as-tool-result, the E2
-recovery path. The brain's only effectors are these tools: the OpenHands
+tool observation text (`ERROR: ...`) — denial-as-tool-result, the
+deny-and-recover path. The brain's only effectors are these tools: the OpenHands
 built-ins (bash, file editor, browser) are not installed, and the SDK's own
 defaults are control flow only (finish/think).
 
@@ -18,8 +18,8 @@ Tool resolution is lazy — the SDK resolves specs on a worker thread at
 first use — so the per-dispatch context (gateway bridge, run identity,
 result records) is a module-level current-context, not a contextvar:
 `HandsContext.activate()` binds it. One dispatch at a time per brain host
-is the C6 contract (409 on re-dispatch), so there is never a second
-context to race with.
+is the dispatch API's contract (409 on re-dispatch), so there is never a
+second context to race with.
 """
 
 import json
@@ -50,7 +50,7 @@ class GatewayCaller(Protocol):
 
 @dataclass
 class ToolRecords:
-    """What the dispatch reports back on the C6 contract, captured as the
+    """What the dispatch reports back over the dispatch API, captured as the
     executors see results — no parsing of the conversation afterwards."""
 
     pr_url: str | None = None
@@ -325,7 +325,7 @@ class _GatewayExecutor(ToolExecutor):
             result = self._fn(self._ctx, action)
         except ToolCallError as exc:
             # Policy denials and malformed calls feed back as the tool
-            # result — the model sees the rule name and recovers (E2).
+            # result — the model sees the rule name and recovers.
             return GatewayObservation(output=f"ERROR: {exc}")
         return GatewayObservation(output=json.dumps(result))
 

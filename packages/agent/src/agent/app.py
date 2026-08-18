@@ -1,13 +1,12 @@
-"""Agent HTTP API — contract C6.
+"""The agent's dispatch HTTP API.
 
-POST /task {run_id, task_text, mode?, gateway_token?} -> 202, runs the
+POST /task {run_id, task_text, mode?} -> 202, runs the
 dispatch in a background task (one concurrent run per host);
 GET /task/{run_id} -> {status, pr_url, iterations, error, brief}.
 
 Mode `plan` runs the read-only planner and finishes with
-`brief`; the optional per-dispatch `gateway_token` is how the planner acts
-under its own minted identity while borrowing this brain host
-(the planner gets no pod of its own).
+`brief`; like every mode it acts under the pod's own projected token —
+each crew member runs on its own brain host.
 
 Run with: uvicorn --factory agent.app:create_app
 """
@@ -31,9 +30,6 @@ class TaskRequest(BaseModel):
     run_id: str
     task_text: str
     mode: Literal["implement", "plan", "deliver", "review"] = "implement"
-    # The dispatching workflow may hand this task its own identity — the
-    # planner's minted token when the planner borrows the executor's pod.
-    gateway_token: str | None = None
 
 
 class TaskStatus(BaseModel):
@@ -77,11 +73,9 @@ def create_app(
 
     if plan_runner is None:
 
-        async def plan_runner(
-            run_id: str, task_text: str, gateway_token: str | None
-        ) -> RunResult:
+        async def plan_runner(run_id: str, task_text: str) -> RunResult:
             return await asyncio.to_thread(
-                brain.plan_dispatch, _settings(), run_id, task_text, gateway_token
+                brain.plan_dispatch, _settings(), run_id, task_text
             )
 
     async def deliver_runner(run_id: str, task_text: str) -> RunResult:
@@ -104,9 +98,7 @@ def create_app(
         run_log = log.bind(run_id=run_id)
         try:
             if request.mode == "plan":
-                result = await plan_runner(
-                    run_id, request.task_text, request.gateway_token
-                )
+                result = await plan_runner(run_id, request.task_text)
             elif request.mode == "deliver":
                 result = await deliver_runner(run_id, request.task_text)
             elif request.mode == "review":
