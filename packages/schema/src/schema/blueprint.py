@@ -152,15 +152,21 @@ _TOOLS = {
     "propertyNames": _NAME,
 }
 
-# A gate names its resolver; a gate nobody declares is a stop nobody
-# takes. For merge that means the review ends without merging at all —
-# an unattended auto-merge is not a default anyone gets implicitly.
-_INTAKE_GATE = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["resolved_by"],
-    "properties": {"resolved_by": {"type": "string", "enum": ["human"]}},
-}
+# One gate shape: a gate names its resolver, and differs only in which
+# resolvers it allows and what a resolver reads. A gate nobody declares is
+# a stop nobody takes — for merge that means the review ends without
+# merging at all, an unattended auto-merge being no default anyone gets.
+def _gate(resolvers: list[str], extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["resolved_by"],
+        "properties": {
+            "resolved_by": {"type": "string", "enum": resolvers},
+            **(extra or {}),
+        },
+    }
+
 
 # The delegated class a policy-resolved merge may finish on its own:
 # explicit paths and an explicit rework bound, all-explicit like
@@ -177,15 +183,8 @@ _MERGE_DELEGATION = {
     },
 }
 
-_MERGE_GATE = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["resolved_by"],
-    "properties": {
-        "resolved_by": {"type": "string", "enum": ["human", "policy"]},
-        "delegate": _MERGE_DELEGATION,
-    },
-}
+_INTAKE_GATE = _gate(["human"])
+_MERGE_GATE = _gate(["human", "policy"], {"delegate": _MERGE_DELEGATION})
 
 
 def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:

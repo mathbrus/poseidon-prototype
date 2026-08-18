@@ -45,7 +45,8 @@ def merge_gate_problems(document: Any) -> list[str]:
     for name, wf in (workflows if isinstance(workflows, dict) else {}).items():
         if not isinstance(wf, dict):
             continue
-        gate = (wf.get("gates") or {}).get("merge") if isinstance(wf.get("gates"), dict) else None
+        gates = wf.get("gates")
+        gate = gates.get("merge") if isinstance(gates, dict) else None
         if not isinstance(gate, dict):
             continue
         where = f"workflows.{name}.gates.merge"

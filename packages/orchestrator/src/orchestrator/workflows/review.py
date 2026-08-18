@@ -272,19 +272,49 @@ class ReviewWorkflow:
             f" {ticket.get('url')}"
         }
 
-    async def _release(
+    async def _merge_pr(
         self, input: "ReviewInput", timeouts: Timeouts
     ) -> dict[str, Any]:
-        """The policy release: gate outcome first, then the merge under
-        the platform identity — strictly after the compiled allow."""
-        await self._record_gate(input.run_id, "merge", "policy_resolved", timeouts)
-        merged = await workflow.execute_activity(
+        """The merge itself — one platform tool call, issued only after a
+        gate (human or policy) resolved to merge. Both resolvers land here,
+        so there is exactly one place the branch reaches `main`."""
+        return await workflow.execute_activity(
             "merge_pr",
             args=[input.run_id, input.pr_number],
             start_to_close_timeout=timedelta(seconds=timeouts.step_s),
             retry_policy=STEP_RETRY,
         )
-        return {"released": merged}
+
+    async def _human_merge(
+        self, input: "ReviewInput", timeouts: Timeouts
+    ) -> dict[str, Any]:
+        """The human gate: the declared `resolved_by: human` resolver, and
+        the fallback whenever a policy gate declines or its rework chain is
+        spent. Park on the signal, escalate at half the deadline, expire at
+        the end — every transition a process-gate audit event — and return
+        the same `{released}|{error}` shape the policy path does, so the run
+        has one merge-application site."""
+        self._phase = "paused-merge_gate"
+        outcome = await self._merge_gate.wait(
+            timeout=timedelta(seconds=timeouts.merge_gate_s),
+            escalate_after=timedelta(seconds=timeouts.merge_gate_s // 2),
+            on_escalate=lambda: self._record_gate(
+                input.run_id, "merge", "escalated", timeouts
+            ),
+        )
+        self._phase = "running"
+        await self._record_gate(input.run_id, "merge", outcome.kind, timeouts)
+        if outcome.kind != "approved":
+            return {"error": f"merge gate {outcome.kind}"}
+        return {"released": await self._merge_pr(input, timeouts)}
+
+    async def _release(
+        self, input: "ReviewInput", timeouts: Timeouts
+    ) -> dict[str, Any]:
+        """The policy release: gate outcome first, then the merge — strictly
+        after the compiled allow."""
+        await self._record_gate(input.run_id, "merge", "policy_resolved", timeouts)
+        return {"released": await self._merge_pr(input, timeouts)}
 
     async def _record_gate(
         self, run_id: str, gate: str, kind: str, timeouts: Timeouts
@@ -397,49 +427,30 @@ class ReviewWorkflow:
                 # The blueprint declared no merge gate: the findings are
                 # the deliverable and the workflow ends without merging —
                 # an unattended auto-merge is not a default anyone gets
-                # implicitly.
+                # implicitly. (Distinct from a policy gate: no rework, no
+                # park; an advisory review.)
                 raise _ReviewOver()
 
+            # One dispatch, two resolvers with one contract. A policy gate
+            # runs its layers first: a failed layer files a bounded rework
+            # and ends the run (its `error`); an allow releases the merge; a
+            # decline or spent rework chain leaves `{}`, which falls through
+            # to the human gate — the same gate a `resolved_by: human`
+            # review uses, so the human signal resolves every gate and the
+            # override survives delegation.
+            outcome: dict[str, Any] = {}
             if gate.get("resolved_by") == "policy":
-                policy = await self._policy_merge(input, pr, result, gate, timeouts)
-                if policy.get("error"):
-                    error = policy["error"]
+                outcome = await self._policy_merge(input, pr, result, gate, timeouts)
+                if outcome.get("error"):
+                    error = outcome["error"]
                     raise _ReviewOver()
-                if policy.get("released"):
-                    merged = policy["released"]
-                    result["merged"] = True
-                    result["merge_sha"] = merged.get("sha")
+            if not outcome.get("released"):
+                outcome = await self._human_merge(input, timeouts)
+                if outcome.get("error"):
+                    error = outcome["error"]
                     raise _ReviewOver()
-                # Two ways here, both the human's call now: policy
-                # declined a green review (fine work outside the
-                # delegation), or the rework chain is out of attempts.
-                # The human signal resolves every gate, so both fall
-                # through to the ordinary park below.
-
-            # The merge gate: park on the signal, escalate at half
-            # the deadline, expire at the end. Every transition is a
-            # process-gate audit event written through an activity.
-            self._phase = "paused-merge_gate"
-            outcome = await self._merge_gate.wait(
-                timeout=timedelta(seconds=timeouts.merge_gate_s),
-                escalate_after=timedelta(seconds=timeouts.merge_gate_s // 2),
-                on_escalate=lambda: self._record_gate(
-                    input.run_id, "merge", "escalated", timeouts
-                ),
-            )
-            self._phase = "running"
-            await self._record_gate(input.run_id, "merge", outcome.kind, timeouts)
-            if outcome.kind != "approved":
-                error = f"merge gate {outcome.kind}"
-                raise _ReviewOver()
-            merged = await workflow.execute_activity(
-                "merge_pr",
-                args=[input.run_id, input.pr_number],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
-                retry_policy=STEP_RETRY,
-            )
             result["merged"] = True
-            result["merge_sha"] = merged.get("sha")
+            result["merge_sha"] = outcome["released"].get("sha")
         except _ReviewOver:
             pass
         except asyncio.CancelledError:
@@ -462,8 +473,8 @@ class ReviewWorkflow:
 
 class _ReviewOver(Exception):
     """Internal control flow: a terminal verdict (reviewer error, missing
-    findings, gate reject/timeout, or a gate-free finish) skips straight
-    to teardown with whatever result/error is in hand."""
+    verdict, rework filed, gate reject/timeout, or a gate-free finish) skips
+    straight to teardown with whatever result/error is in hand."""
 
 
 __all__ = [

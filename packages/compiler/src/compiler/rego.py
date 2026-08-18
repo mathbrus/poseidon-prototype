@@ -168,6 +168,12 @@ def _decision_file(package: str) -> str:
     return HEADER + _DECISION.format(package=package)
 
 
+def _rego_file(company: str, body: str) -> str:
+    """The preamble every per-company rule file shares: the do-not-edit
+    header, the company package, and the rego.v1 import, then the body."""
+    return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
+
+
 def _role_file(
     company: str,
     hire: str,
@@ -193,7 +199,7 @@ def _role_file(
             body += _OVER_CAP_RULE.format(
                 agent_id=agent_id, cap=int(max_concurrent_spawns)
             )
-    return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
+    return _rego_file(company, body)
 
 
 def _crew_file(
@@ -216,7 +222,7 @@ def _crew_file(
         )
         for tool in sorted(tools)
     )
-    return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
+    return _rego_file(company, body)
 
 
 def _conduct_file(company: str, conduct: Any) -> str:
@@ -259,12 +265,7 @@ def _conduct_file(company: str, conduct: Any) -> str:
         '\tnot is_number(object.get(input, ["args", "daily_spent_usd"], null))\n'
         "}\n"
     )
-    return (
-        HEADER
-        + f"\npackage {company_package(company)}\n\nimport rego.v1\n"
-        + allows
-        + denies
-    )
+    return _rego_file(company, allows + denies)
 
 
 def _merge_gate_file(
@@ -348,7 +349,7 @@ def _merge_gate_file(
         '\tobject.get(input, ["args", "reviewer_independent"], false) != true\n'
         "}\n"
     )
-    return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
+    return _rego_file(company, body)
 
 
 def _platform_rules(tools: list[str]) -> str:
