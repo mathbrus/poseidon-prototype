@@ -46,11 +46,20 @@ _READY_CMD = (
 )
 
 # Runs once after the workspace is unpacked: no remote may survive inside the
-# sandbox, and the base ref must be recorded for later `git bundle` calls.
+# sandbox, the base ref is recorded for later `git bundle` calls, and the
+# platform marker plus build artifacts are kept out of deliveries via
+# `.git/info/exclude` — git's local ignore, never committed, so `git add -A`
+# skips them and the PR diff is exactly the agent's own changes. This is
+# what lets a policy-resolved merge gate confine a delegated class to real
+# source paths; under a human gate the incidental `.poseidon-base` and
+# `__pycache__` files were harmless noise, but the delegated class refuses
+# any path outside it. The marker file still exists on disk for the tool
+# server to read — excluding it from git does not remove it.
 _PREPARE_CMD = (
     "set -e; cd {workspace}; "
     "git remote | xargs -r -n1 git remote remove; "
-    "git rev-parse HEAD > .poseidon-base"
+    "git rev-parse HEAD > .poseidon-base; "
+    "printf '.poseidon-base\\n__pycache__/\\n*.pyc\\n' >> .git/info/exclude"
 )
 
 _UPLOAD_PATH = "/tmp/poseidon-workspace.b64"
