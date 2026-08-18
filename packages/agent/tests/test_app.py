@@ -7,6 +7,7 @@ import pytest
 
 from agent.app import create_app
 from agent.brain import RunResult
+from agent.config import AgentSettings
 
 pytestmark = pytest.mark.anyio
 
@@ -52,6 +53,8 @@ async def test_task_lifecycle_running_then_done():
             "ticket_urls": [],
             "crew_request_id": None,
             "comment_urls": [],
+            "verdict": None,
+            "verdict_summary": None,
             "decision": None,
         }
 
@@ -67,6 +70,8 @@ async def test_task_lifecycle_running_then_done():
         "ticket_urls": [],
         "crew_request_id": None,
         "comment_urls": [],
+        "verdict": None,
+        "verdict_summary": None,
         "decision": None,
     }
     assert seen == [(RUN_ID, "do it")]
@@ -191,3 +196,38 @@ async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
     # No credential rides the dispatch: the planner's pod holds its own
     # projected token and acts as itself.
     assert seen == [(RUN_ID, "scope it")]
+
+
+async def test_review_verdict_flows_through_the_status_api(monkeypatch):
+    """Regression: a review dispatch's structured verdict must survive the
+    HTTP boundary — the workflow reads it from the status response, and a
+    dropped verdict fails every policy- and human-gated merge with
+    'reviewer finished without a verdict'. The internal review runner is
+    wired to brain.review_dispatch, so patch that."""
+    import agent.app as module
+
+    def fake_review(settings, run_id, task_text):
+        return RunResult(
+            comment_urls=["https://pr/1#c-1"],
+            verdict="pass",
+            verdict_summary="Suite green; in scope.",
+        )
+
+    monkeypatch.setattr(module.brain, "review_dispatch", fake_review)
+
+    settings = AgentSettings(
+        mcp_gateway_url="http://gateway.test:8080",
+        llm_proxy_url="http://llm.test:4000",
+        model="test-model",
+        target_repo="example/target",
+    )
+    async with client(create_app(settings=settings)) as http:
+        await http.post(
+            "/task", json={"run_id": RUN_ID, "task_text": "review", "mode": "review"}
+        )
+        status = await poll_until_terminal(http, RUN_ID)
+
+    assert status["status"] == "done"
+    assert status["comment_urls"] == ["https://pr/1#c-1"]
+    assert status["verdict"] == "pass"
+    assert status["verdict_summary"] == "Suite green; in scope."

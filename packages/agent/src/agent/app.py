@@ -41,6 +41,8 @@ class TaskStatus(BaseModel):
     ticket_urls: list[str] = []
     crew_request_id: str | None = None
     comment_urls: list[str] = []
+    verdict: str | None = None
+    verdict_summary: str | None = None
     decision: dict | None = None
 
 
@@ -126,6 +128,8 @@ def create_app(
             ticket_urls=result.ticket_urls,
             crew_request_id=result.crew_request_id,
             comment_urls=result.comment_urls,
+            verdict=result.verdict,
+            verdict_summary=result.verdict_summary,
             decision=result.decision,
         )
         run_log.info("task finished", extra=tasks[run_id].model_dump())
