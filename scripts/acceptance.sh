@@ -53,4 +53,7 @@ cat <<'EOF'
  6 standing/ephemeral      one standing AgentInstance (CRs and registry),
                            scope denies live for PM and executor
  7 kind/real parity        kind half only — real-cluster run deferred
+ 8 unattended loop         conduct heartbeat runs the backlog: one goal in,
+                           one merge approval out; caps + revocation held;
+                           attacker-filed issue dies at the gates
 EOF

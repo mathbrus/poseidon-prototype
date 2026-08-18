@@ -33,6 +33,10 @@ Where each criterion is proven:
                   the kind-specific piece is deploy/kind/kind-up.sh alone.
                   The real-cluster half is deliberately out of scope for
                   now — kind only.
+  8 unattended    test_conduct_redteam (an attacker-filed issue consumed by
+                  the heartbeat dies at the gates) and test_zz_overnight
+                  (the whole arc with two human acts: one goal in, one
+                  merge approval out) — the close-the-loop milestone.
 
 Named `test_zz_*` so pytest collects it last: the five-source assertion
 reads what the whole suite really produced.
