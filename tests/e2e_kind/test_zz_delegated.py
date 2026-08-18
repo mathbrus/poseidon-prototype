@@ -251,10 +251,11 @@ def test_both_quality_layers_were_recorded(delegated_overnight: dict):
     story = audit_story(delegated_overnight["review"]["run_id"])
     verdicts = [e for e in story if e["tool"] == "review.verdict"]
     assert verdicts and verdicts[-1]["decision"] == "allow", verdicts
-    # The decision that started the review is the heartbeat's, journaled.
-    beat = audit_story(delegated_overnight["heartbeat_id"])
+    # The decision that started the review is the heartbeat's, journaled
+    # under this run's own id (conduct.start attributes to the child it
+    # authorizes) — so one run_id query ties the whole arc together.
     assert any(
-        e["tool"] == "conduct.start" and e["decision"] == "allow" for e in beat
+        e["tool"] == "conduct.start" and e["decision"] == "allow" for e in story
     )
 
 
