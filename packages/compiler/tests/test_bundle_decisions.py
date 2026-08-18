@@ -572,3 +572,15 @@ def test_agents_cannot_claim_conduct_authority(decide_conducted):
         args={"workflow": "implement", "active_runs": 0, "daily_spent_usd": 0},
     )
     assert decision["allow"] is False
+
+
+def test_conduct_grants_no_new_path_to_merge(decide_conducted):
+    """Authority not looser: declaring a heartbeat adds start authority for
+    the platform and nothing else — the merge stays reachable only through
+    the platform identity after the human gate, exactly as without it."""
+    as_pm = decide_conducted(**standing("pm", tool="git.merge_pr", args={"number": 4}))
+    assert as_pm["allow"] is False
+    as_platform = decide_conducted(
+        PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
+    )
+    assert as_platform["allow"] is True  # unchanged from the unconducted bundle

@@ -57,27 +57,32 @@ async def ensure_conduct_loop(
     workflow's own config read — it stops itself when the section is gone —
     so this side only ever starts, never kills."""
     while True:
-        try:
-            spec = await asyncio.to_thread(companies.get, settings.company)
-            if (spec or {}).get("conduct"):
-                await client.start_workflow(
-                    "conduct",
-                    ConductInput(
-                        company=settings.company,
-                        tick_interval_s=settings.conduct_tick_interval_s or None,
-                        timeouts=FAST_TIMEOUTS
-                        if settings.conduct_fast_timeouts
-                        else None,
-                    ),
-                    id=conduct_workflow_id(settings.company),
-                    task_queue=settings.task_queue,
-                )
-                log.info("conduct heartbeat started", extra={"company": settings.company})
-        except WorkflowAlreadyStartedError:
-            pass  # the heartbeat is already beating — the normal case
-        except Exception as exc:  # registry or Temporal hiccup: retry next pass
-            log.info("conduct ensure pass failed, retrying", extra={"error": str(exc)})
+        await ensure_conduct_once(client, settings, companies, log)
         await asyncio.sleep(settings.conduct_ensure_interval_s)
+
+
+async def ensure_conduct_once(
+    client: Client, settings: WorkerSettings, companies: Companies, log
+) -> None:
+    """One ensure pass, isolated so a hiccup never kills the loop."""
+    try:
+        spec = await asyncio.to_thread(companies.get, settings.company)
+        if (spec or {}).get("conduct"):
+            await client.start_workflow(
+                "conduct",
+                ConductInput(
+                    company=settings.company,
+                    tick_interval_s=settings.conduct_tick_interval_s or None,
+                    timeouts=FAST_TIMEOUTS if settings.conduct_fast_timeouts else None,
+                ),
+                id=conduct_workflow_id(settings.company),
+                task_queue=settings.task_queue,
+            )
+            log.info("conduct heartbeat started", extra={"company": settings.company})
+    except WorkflowAlreadyStartedError:
+        pass  # the heartbeat is already beating — the normal case
+    except Exception as exc:  # registry or Temporal hiccup: retry next pass
+        log.info("conduct ensure pass failed, retrying", extra={"error": str(exc)})
 
 
 async def main() -> None:
