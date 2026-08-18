@@ -733,3 +733,27 @@ def test_delegation_grants_no_new_path_to_merge_pr(decide_delegated):
     nothing else — git.merge_pr stays unreachable for every company role."""
     as_pm = decide_delegated(**standing("pm", tool="git.merge_pr", args={"number": 4}))
     assert as_pm["allow"] is False
+
+
+def test_the_rework_write_belongs_to_the_platform(decide_delegated):
+    """file_rework files the ticket under the platform identity; the
+    reviewer that produced the findings holds no issues.create at all —
+    a steered reviewer can fail a PR, never flood the backlog itself."""
+    as_platform = decide_delegated(
+        PLATFORM_QUERY,
+        lifecycle="platform",
+        tool="issues.create",
+        run_id="run-1",
+        args={"title": "Rework 1 for PR #41: x", "body": "…"},
+    )
+    assert as_platform["allow"] is True
+    as_reviewer = decide_delegated(
+        **ephemeral(
+            "feature-review",
+            "reviewer",
+            "sdet",
+            tool="issues.create",
+            args={"title": "Rework 1 for PR #41: x", "body": "…"},
+        )
+    )
+    assert as_reviewer["allow"] is False

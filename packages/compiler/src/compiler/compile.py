@@ -46,6 +46,11 @@ PLATFORM_SCOPE = sorted(
         # The implement workflow resolves an issue-driven run's ticket
         # before dispatch — the same platform-read posture as git.read.
         "issues.read",
+        # The review workflow's rework loop files a failed policy-gated
+        # review's findings back into the backlog as a ticket — a platform
+        # write, attributed to the review run, that the conductor then
+        # consumes like any other issue.
+        "issues.create",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",
     }

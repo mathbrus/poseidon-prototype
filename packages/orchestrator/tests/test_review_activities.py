@@ -416,3 +416,142 @@ def test_policy_gate_outcomes_map_to_decisions(settings, audit):
         ("gate_policy_resolved", "allow"),
         ("gate_policy_declined", "deny"),
     ]
+
+
+# -- the rework loop --------------------------------------------------------
+
+
+def test_rework_title_round_trips():
+    from orchestrator.activities.review import REWORK_TITLE_RE, rework_title
+
+    title = rework_title(2, 41, "Add slugify utility")
+    match = REWORK_TITLE_RE.match(title)
+    assert match is not None
+    assert (int(match.group(1)), int(match.group(2))) == (2, 41)
+
+
+class FakeIssueGateway:
+    """A gateway double for the rework activities: serves one issue by
+    number, records created issues."""
+
+    def __init__(self, issues=None):
+        self.issues = issues or {}
+        self.created = []
+
+    def __call__(self, *a, **k):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def read_issue(self, run_id, repo, number):
+        return self.issues[number]
+
+    async def create_issue(self, run_id, repo, title, body):
+        self.created.append({"repo": repo, "title": title, "body": body})
+        return {"url": f"https://git.test/r/issues/{90 + len(self.created)}",
+                "number": 90 + len(self.created)}
+
+
+def _chain(runs, task):
+    """An implement run that delivered PR #41 from the given task."""
+    runs.start("run-impl", task, "implement", "wf-impl", "hello-saas")
+    runs.finish("run-impl", "done", pr_url="https://git.test/r/pulls/41")
+
+
+def test_rework_depth_is_zero_outside_any_chain(settings, monkeypatch):
+    import orchestrator.activities.review as module
+
+    monkeypatch.setattr(module, "GatewayClient", FakeIssueGateway())
+    runs = InMemoryRuns()
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
+    )
+    # No implement run at all.
+    assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
+        "depth": 0,
+        "root_pr": 41,
+    }
+    # An implement run from a free-form task names no ticket to read.
+    _chain(runs, "the task file text")
+    assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
+        "depth": 0,
+        "root_pr": 41,
+    }
+
+
+def test_rework_depth_reads_the_canonical_ticket_title(settings, monkeypatch):
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(
+        issues={7: {"number": 7, "title": "Rework 2 for PR #38: Add slugify"}}
+    )
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _chain(runs, "implement issue #7")
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
+    )
+    assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
+        "depth": 2,
+        "root_pr": 38,
+    }
+
+
+def test_rework_depth_treats_a_plain_ticket_as_depth_zero(settings, monkeypatch):
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(
+        issues={7: {"number": 7, "title": "Implement: add slugify"}}
+    )
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _chain(runs, "implement issue #7")
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
+    )
+    assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
+        "depth": 0,
+        "root_pr": 41,
+    }
+
+
+def test_file_rework_files_the_canonical_ticket_and_records_it(
+    settings, monkeypatch
+):
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway()
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
+    )
+    ticket = asyncio.run(
+        activities.file_rework(
+            RUN_ID,
+            41,
+            38,
+            3,
+            "review verdict failed",
+            "Blocking: criteria unmet.",
+            "Add slugify utility",
+            "https://git.test/r/pulls/41",
+            ["slugify.py", "tests/test_slugify.py"],
+        )
+    )
+    (created,) = gateway.created
+    assert created["title"] == "Rework 3 for PR #38: Add slugify utility"
+    body = created["body"]
+    # The ticket is the rework implementer's whole brief.
+    assert "review verdict failed" in body
+    assert "Blocking: criteria unmet." in body
+    assert "- slugify.py" in body
+    assert RUN_ID in body  # attributed to the review run
+    assert "https://git.test/r/pulls/41" in body
+    # And it lands on the run row, the intake breadcrumb.
+    assert runs.get(RUN_ID).ticket_urls == [ticket["url"]]

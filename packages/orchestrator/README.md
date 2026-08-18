@@ -90,10 +90,16 @@ sandbox (implement's `platform_verify`, one verification concept with two
 callers), the registry-checked reviewer-independence fact, and one
 evaluation of the compiled `merge.resolve` decision: allow releases the
 merge, deny falls back to the human park (good work outside the
-delegation is the human's call), and a failed verdict or red verify fails
-the run. With no merge gate declared, the findings are the deliverable
-and the workflow ends without merging — unattended auto-merge is not a
-default anyone gets implicitly.
+delegation is the human's call). A failed verdict or red verify feeds
+the bounded rework loop: the findings become a backlog ticket filed
+under the platform identity — the conductor consumes it like any other
+issue — and the chain depth rides the canonical `Rework N for PR #R:`
+title, read back by the platform from the failing PR's own lineage. At
+the blueprint's `max_reworks` the PR escalates to the human park with a
+`rework_exhausted` process-gate event instead of looping forever. With
+no merge gate declared, the findings are the deliverable and the
+workflow ends without merging — unattended auto-merge is not a default
+anyone gets implicitly.
 
 Every run begins with `check_budget`: a run born with no headroom under
 the per-run cap fails before anything is dispatched. Enforcement itself

@@ -27,10 +27,14 @@ and the merge itself is a gateway-audited tool call — so one run_id
 query tells the whole story: findings, verdict, checks, resolution,
 merge.
 
-Review is orchestrator-sequenced over HTTP. Reject handling is the honest
-minimum for now: findings are already on the PR, the run finalizes failed
-with the gate's verdict; the fail->rework loop is a later step of this
-milestone (#11).
+Review is orchestrator-sequenced over HTTP. A human reject stays the
+honest minimum: findings are already on the PR, the run finalizes failed
+with the gate's verdict. Under a policy-resolved gate, a failed quality
+layer instead feeds the bounded rework loop: the findings become a
+backlog ticket the conductor consumes, the chain depth rides the
+canonical ticket title (read back by the platform, never trusted from an
+agent), and at `max_reworks` the PR escalates to the human park instead
+of looping forever.
 """
 
 import asyncio
@@ -144,17 +148,20 @@ class ReviewWorkflow:
         input: "ReviewInput",
         pr: dict[str, Any],
         result: dict[str, Any],
+        gate: dict[str, Any],
         timeouts: Timeouts,
     ) -> dict[str, Any]:
         """The policy-resolved path. Quality layers first — a failed
-        verdict or a red platform verify is a failed run (the rework loop
-        consumes those in a later step of #11). Then one evaluation of the
-        compiled merge.resolve decision, carrying the three
-        caller-verified facts (verdict, checks, independence) and the
-        changed paths: allow releases the merge under the platform
-        identity; deny is a *decline*, not a failure — good work outside
-        the delegation falls back to the human signal, so the human
-        override survives delegation by construction.
+        verdict or a red platform verify feeds the bounded rework loop
+        (`_rework`): findings become a backlog ticket the conductor
+        consumes, until the chain is out of attempts and the PR escalates
+        to the human. Then one evaluation of the compiled merge.resolve
+        decision, carrying the three caller-verified facts (verdict,
+        checks, independence) and the changed paths: allow releases the
+        merge under the platform identity; deny is a *decline*, not a
+        failure — good work outside the delegation falls back to the
+        human signal, so the human override survives delegation by
+        construction.
 
         Both the verified tree and the changed paths are pinned at the
         run's start (the sandbox was provisioned from the head ref read
@@ -163,7 +170,14 @@ class ReviewWorkflow:
         assert the head sha."""
         verdict = result["verdict"]
         if verdict != "pass":
-            return {"error": "policy merge gate: review verdict failed"}
+            return await self._rework(
+                input,
+                pr,
+                gate,
+                "review verdict failed",
+                result.get("verdict_summary") or "",
+                timeouts,
+            )
         # The platform's own run of the suite in the review sandbox — the
         # same activity that gates implement delivery: one verification
         # concept, two callers. The reviewer's run_tests was advisory.
@@ -174,7 +188,14 @@ class ReviewWorkflow:
             retry_policy=STEP_RETRY,
         )
         if not verify.get("passed"):
-            return {"error": "policy merge gate: platform verify red"}
+            return await self._rework(
+                input,
+                pr,
+                gate,
+                "platform verify red",
+                (verify.get("output") or "")[-1000:],
+                timeouts,
+            )
         independence = await workflow.execute_activity(
             "reviewer_independent",
             args=[input.run_id, input.pr_number],
@@ -199,6 +220,63 @@ class ReviewWorkflow:
                 input.run_id, "merge", "policy_declined", timeouts
             )
             return {}
+        return await self._release(input, timeouts)
+
+    async def _rework(
+        self,
+        input: "ReviewInput",
+        pr: dict[str, Any],
+        gate: dict[str, Any],
+        reason: str,
+        findings: str,
+        timeouts: Timeouts,
+    ) -> dict[str, Any]:
+        """A failed quality layer feeds the backlog, bounded. The chain
+        depth is read from the failing PR's own lineage (never trusted
+        from an agent); under the blueprint's `max_reworks` the findings
+        become a ticket the conductor consumes, and the run finalizes
+        failed with the ticket on its row. At the bound, the PR escalates
+        to the human instead of looping forever: a `rework_exhausted`
+        process-gate event, then the ordinary human park."""
+        depth = await workflow.execute_activity(
+            "rework_depth",
+            args=[input.run_id, input.pr_number],
+            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
+        if depth["depth"] >= limit:
+            await self._record_gate(
+                input.run_id, "merge", "rework_exhausted", timeouts
+            )
+            return {}
+        ticket = await workflow.execute_activity(
+            "file_rework",
+            args=[
+                input.run_id,
+                input.pr_number,
+                depth["root_pr"],
+                depth["depth"] + 1,
+                reason,
+                findings,
+                pr.get("title") or "",
+                pr.get("url") or "",
+                pr.get("paths") or [],
+            ],
+            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        await self._record_gate(input.run_id, "merge", "rework_filed", timeouts)
+        return {
+            "error": f"policy merge gate: {reason} — rework ticket filed:"
+            f" {ticket.get('url')}"
+        }
+
+    async def _release(
+        self, input: "ReviewInput", timeouts: Timeouts
+    ) -> dict[str, Any]:
+        """The policy release: gate outcome first, then the merge under
+        the platform identity — strictly after the compiled allow."""
         await self._record_gate(input.run_id, "merge", "policy_resolved", timeouts)
         merged = await workflow.execute_activity(
             "merge_pr",
@@ -323,7 +401,7 @@ class ReviewWorkflow:
                 raise _ReviewOver()
 
             if gate.get("resolved_by") == "policy":
-                policy = await self._policy_merge(input, pr, result, timeouts)
+                policy = await self._policy_merge(input, pr, result, gate, timeouts)
                 if policy.get("error"):
                     error = policy["error"]
                     raise _ReviewOver()
@@ -332,9 +410,11 @@ class ReviewWorkflow:
                     result["merged"] = True
                     result["merge_sha"] = merged.get("sha")
                     raise _ReviewOver()
-                # Policy declined a green review: the work is fine but not
-                # delegated. The human signal resolves every gate, so the
-                # decline falls through to the ordinary park below.
+                # Two ways here, both the human's call now: policy
+                # declined a green review (fine work outside the
+                # delegation), or the rework chain is out of attempts.
+                # The human signal resolves every gate, so both fall
+                # through to the ordinary park below.
 
             # The merge gate: park on the signal, escalate at half
             # the deadline, expire at the end. Every transition is a

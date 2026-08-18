@@ -14,6 +14,11 @@ Retry safety, per activity:
     resolve_merge       — re-evaluates the compiled merge.resolve decision
                           and re-audits; the honest record of what was
                           asked (the conduct_authorize posture).
+    rework_depth        — read-only (registry + one gateway issue read);
+                          safe.
+    file_rework         — creates an issue; not idempotent, so a retry can
+                          file a duplicate ticket — a noisy backlog, never
+                          a lost finding.
     merge_pr            — GitHub's merge endpoint is idempotent for an
                           already-merged PR (it answers 405, surfaced as a
                           backend error the workflow reports honestly).
@@ -30,6 +35,7 @@ released the merge.
 import asyncio
 import hashlib
 import json
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -43,6 +49,44 @@ from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from registry import AuditStore, RunParticipants, Runs
 from registry.bundles import AgentInstances, Companies
+
+# The canonical rework-ticket title. The chain depth and the root PR ride
+# the title so the platform can read the bound back without trusting any
+# agent: `rework_depth` parses it from the ticket the failing PR's own
+# implement run consumed, under the platform identity. Forging a higher
+# depth into a hand-filed ticket only escalates to the human sooner — the
+# parse can shrink autonomy, never extend it.
+REWORK_TITLE_RE = re.compile(r"^Rework (\d+) for PR #(\d+)")
+IMPLEMENT_ISSUE_TASK_RE = re.compile(r"^implement issue #(\d+)$")
+
+
+def rework_title(attempt: int, root_pr: int, pr_title: str) -> str:
+    return f"Rework {attempt} for PR #{root_pr}: {pr_title[:80]}"
+
+
+def rework_body(
+    pr_number: int,
+    pr_url: str,
+    reason: str,
+    findings: str,
+    paths: list[str],
+    attempt: int,
+    review_run_id: str,
+) -> str:
+    """The ticket is the rework implementer's whole brief — the implement
+    crew reads tickets, not PRs — so it carries the failure, the findings,
+    and the changed surface."""
+    changed = "\n".join(f"- {p}" for p in paths) or "(none recorded)"
+    return (
+        f"Pull request #{pr_number} ({pr_url}) failed its policy-gated"
+        f" review: {reason}.\n\n"
+        f"Reviewer findings: {findings}\n\n"
+        f"Changed paths under review:\n{changed}\n\n"
+        "Fix the findings and deliver a new pull request with tests."
+        " Acceptance: a review of the new pull request passes.\n\n"
+        f"Filed by the platform for review run {review_run_id}"
+        f" (rework attempt {attempt})."
+    )
 
 
 class ReviewActivities:
@@ -299,6 +343,83 @@ class ReviewActivities:
         self._log.bind(run_id=run_id).info("independence checked", extra=result)
         return result
 
+    @activity.defn(name="rework_depth")
+    async def rework_depth(self, run_id: str, pr_number: int) -> dict[str, Any]:
+        """How many reworks deep this PR's chain already is, plus the
+        chain's root PR — read from the canonical title of the ticket the
+        failing PR's implement run consumed. The rework bound must follow
+        the *chain*, not the single PR: every rework delivers a fresh PR,
+        so a per-PR count would reset to zero each round and the loop
+        would never terminate. A PR outside any chain (fresh work, an
+        unattributable PR, a free-form ticket) is depth 0 with itself as
+        root."""
+
+        def lineage_issue() -> int | None:
+            implement = self._runs.implement_run_for_pr(
+                self._settings.company, pr_number
+            )
+            if implement is None:
+                return None
+            match = IMPLEMENT_ISSUE_TASK_RE.match(implement.task or "")
+            return int(match.group(1)) if match else None
+
+        issue_number = await asyncio.to_thread(lineage_issue)
+        if issue_number is None:
+            return {"depth": 0, "root_pr": pr_number}
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            issue = await gateway.read_issue(
+                run_id, self._settings.target_repo, issue_number
+            )
+        match = REWORK_TITLE_RE.match(str(issue.get("title") or ""))
+        if match is None:
+            return {"depth": 0, "root_pr": pr_number}
+        depth = {"depth": int(match.group(1)), "root_pr": int(match.group(2))}
+        self._log.bind(run_id=run_id).info("rework depth read", extra=depth)
+        return depth
+
+    @activity.defn(name="file_rework")
+    async def file_rework(
+        self,
+        run_id: str,
+        pr_number: int,
+        root_pr: int,
+        attempt: int,
+        reason: str,
+        findings: str,
+        pr_title: str,
+        pr_url: str,
+        paths: list[str],
+    ) -> dict[str, Any]:
+        """File the failed review's findings back into the backlog as a
+        ticket, under the platform identity, and record it on the review
+        run's row (the same `ticket_urls` breadcrumb intake leaves). The
+        conductor consumes it on a later heartbeat like any other issue.
+        Retry honesty: issue creation is not idempotent, so a retried
+        create can file a duplicate ticket — a noisy backlog, never a
+        lost finding."""
+        title = rework_title(attempt, root_pr, pr_title)
+        body = rework_body(
+            pr_number, pr_url, reason, findings, paths, attempt, run_id
+        )
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            issue = await gateway.create_issue(
+                run_id, self._settings.target_repo, title, body
+            )
+        url = str(issue.get("url") or "")
+        if url:
+            await asyncio.to_thread(
+                self._runs.record_artifacts, run_id, None, [url]
+            )
+        self._log.bind(run_id=run_id).info(
+            "rework ticket filed",
+            extra={"url": url, "attempt": attempt, "root_pr": root_pr},
+        )
+        return {"url": url, "number": issue.get("number")}
+
     @activity.defn(name="resolve_merge")
     async def resolve_merge(
         self,
@@ -383,5 +504,7 @@ class ReviewActivities:
             self.record_verdict,
             self.reviewer_independent,
             self.resolve_merge,
+            self.rework_depth,
+            self.file_rework,
             self.merge_pr,
         ]
