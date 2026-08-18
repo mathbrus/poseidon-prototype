@@ -1007,22 +1007,25 @@ workflows:
     conductor: pm
     crew: feature-review
     gates:
-      merge: human_approval
+      merge:
+        resolved_by: human
 ```
 
 Three workflows, one per phase of the SDLC in section 5. `intake` is the
-PM-only scoping pass — no crew, and its gate is explicitly `none`, which is
-a declaration you can read and question rather than an absence you would
-have to discover. `max_verify_retries` bounds how many times a red verify
+PM-only scoping pass — no crew and no gate: a gate is an object naming its
+resolver, and a gate nobody declares is a stop nobody takes.
+`max_verify_retries` bounds how many times a red verify
 re-dispatches the executor before the run fails. `drain` answers a question
 most orchestration designs leave implicit: what happens to a running crew
 when its conductor is being retired? Here, the crew is aborted rather than
 orphaned, with a bounded timeout.
 
-`gates.merge: human_approval` is what makes the review workflow park and
-wait for a person. Gate configuration is read from the compiled plan at
-runtime — never hardcoded — so removing that line is a visible, reviewable
-change to the document, not a code edit buried somewhere.
+`gates.merge.resolved_by: human` is what makes the review workflow park and
+wait for a person; leaving `gates.merge` out entirely means the review ends
+without merging at all — an unattended auto-merge is not a default anyone
+gets implicitly. Gate configuration is read from the compiled plan at
+runtime — never hardcoded — so changing the resolver is a visible,
+reviewable change to the document, not a code edit buried somewhere.
 
 </details>
 

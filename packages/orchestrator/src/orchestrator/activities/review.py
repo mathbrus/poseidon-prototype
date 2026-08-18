@@ -117,7 +117,9 @@ class ReviewActivities:
                 "crew_template": crew_template,
                 "conductor": instance["agent_id"],
                 "conductor_role": instance["role_template"],
-                "merge_gate": (config.get("gates") or {}).get("merge", "none"),
+                # The gate object as the blueprint wrote it (`{resolved_by,
+                # delegate?}`), or None when no merge gate is declared.
+                "merge_gate": (config.get("gates") or {}).get("merge"),
             }
 
         return await asyncio.to_thread(read)

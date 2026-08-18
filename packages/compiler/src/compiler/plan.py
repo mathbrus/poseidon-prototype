@@ -55,7 +55,10 @@ class WorkflowConfig:
     enabled: bool
     conductor: str
     crew: str | None
-    gates: dict[str, str]
+    # Gate objects as the blueprint wrote them: `{resolved_by, delegate?}`.
+    # A gate nobody declares is absent, and absent means the workflow does
+    # not stop there.
+    gates: dict[str, Any]
     max_verify_retries: int
     drain: dict[str, Any]
 

@@ -144,9 +144,7 @@
         "timeout_minutes": 30
       },
       "enabled": true,
-      "gates": {
-        "intake": "none"
-      },
+      "gates": {},
       "max_verify_retries": 2,
       "name": "intake"
     },
@@ -159,7 +157,9 @@
       },
       "enabled": true,
       "gates": {
-        "merge": "human_approval"
+        "merge": {
+          "resolved_by": "human"
+        }
       },
       "max_verify_retries": 2,
       "name": "review"

@@ -33,7 +33,7 @@ REVIEW_SPEC = {
             "enabled": True,
             "conductor": "pm",
             "crew": "feature-review",
-            "gates": {"merge": "human_approval"},
+            "gates": {"merge": {"resolved_by": "human"}},
         },
     ],
 }
@@ -85,11 +85,11 @@ def test_review_config_resolves_crew_conductor_and_gate(settings):
         "crew_template": "feature-review",
         "conductor": "pm-1",
         "conductor_role": "pm",
-        "merge_gate": "human_approval",
+        "merge_gate": {"resolved_by": "human"},
     }
 
 
-def test_review_config_defaults_the_gate_to_none(settings):
+def test_review_config_carries_no_gate_when_none_is_declared(settings):
     spec = {
         "workflows": [
             {
@@ -101,7 +101,7 @@ def test_review_config_defaults_the_gate_to_none(settings):
         ],
     }
     activities = _activities(settings, spec, FakeInstances([PM_ROW]))
-    assert asyncio.run(activities.review_config())["merge_gate"] == "none"
+    assert asyncio.run(activities.review_config())["merge_gate"] is None
 
 
 def test_review_config_fails_closed_without_a_blueprint(settings):

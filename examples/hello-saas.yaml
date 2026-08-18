@@ -98,9 +98,9 @@ tools:
 workflows:
   intake:
     enabled: true
+    # No intake gate declared: goals a human submits dispatch the PM
+    # without a second stop.
     conductor: pm
-    gates:
-      intake: none
   implement:
     enabled: true
     conductor: pm
@@ -116,7 +116,8 @@ workflows:
     gates:
       # The one human gate: the orchestrator merges under
       # its platform identity only after this signal arrives.
-      merge: human_approval
+      merge:
+        resolved_by: human
     drain:
       on_conductor_drain: abort_crew
       timeout_minutes: 30

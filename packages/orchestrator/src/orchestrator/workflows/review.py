@@ -13,7 +13,7 @@
 The merge gate is the one human gate, and the sole owner of the
 merge guarantee — merge approval is workflow state, the single named
 exception to policy-side defense in depth: the workflow parks on the
-`merge` signal exactly when the blueprint configures `gates.merge` — gate
+`merge` signal exactly when the blueprint declares a `gates.merge` — gate
 config comes from the compiled plan, never hardcoded. Nobody home?
 The timer escalates at half the deadline and expires the gate at the end;
 the park is API-visible (`state` query), the escalation and the
@@ -224,12 +224,18 @@ class ReviewWorkflow:
             result = dict(result or {})
             result["pr_url"] = pr["url"]
 
-            if config.get("merge_gate", "none") == "none":
-                # The blueprint configured no human gate: the findings are
+            gate = config.get("merge_gate") or {}
+            if not gate:
+                # The blueprint declared no merge gate: the findings are
                 # the deliverable and the workflow ends without merging —
                 # an unattended auto-merge is not a default anyone gets
                 # implicitly.
                 raise _ReviewOver()
+            # `resolved_by: human` parks on the signal. `policy` parks
+            # there too for now: the structured verdict and the platform
+            # checks it resolves on land later in this milestone (#11),
+            # and until they exist the gate fails closed to the human
+            # rather than open to a merge.
 
             # The merge gate: park on the signal, escalate at half
             # the deadline, expire at the end. Every transition is a

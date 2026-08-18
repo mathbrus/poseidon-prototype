@@ -584,3 +584,126 @@ def test_conduct_grants_no_new_path_to_merge(decide_conducted):
         PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
     )
     assert as_platform["allow"] is True  # unchanged from the unconducted bundle
+
+
+# -- the policy-resolved merge gate ----------------------------------------
+
+
+DELEGATED_MERGE = {
+    "resolved_by": "policy",
+    "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+}
+
+
+@pytest.fixture(scope="module")
+def decide_delegated(tmp_path_factory):
+    """The same company with a policy-resolved merge gate declared."""
+    import copy
+
+    import yaml
+    from conftest import HELLO_SAAS
+
+    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
+    blueprint["workflows"]["review"]["gates"]["merge"] = copy.deepcopy(DELEGATED_MERGE)
+    return _decider(tmp_path_factory, blueprint)
+
+
+def merge_resolve(**args) -> dict:
+    return {
+        "company": "hello-saas",
+        "lifecycle": "platform",
+        "tool": "merge.resolve",
+        "args": args,
+    }
+
+
+def test_no_delegation_means_no_unattended_merge(decide):
+    """Opt-in all the way down to the decision, the conduct.start posture:
+    a human-resolved gate compiles no merge.resolve authority, so the
+    decision falls to default deny."""
+    decision = decide(
+        **merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
+    )
+    assert decision == {"allow": False, "rule": "default_deny"}
+
+
+def test_delegated_merge_resolves_when_both_layers_pass(decide_delegated):
+    decision = decide_delegated(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", "tests/test_a.py"],
+        )
+    )
+    assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
+
+
+def test_a_steered_verdict_alone_merges_nothing(decide_delegated):
+    """The model-free layer is required: a reviewer talked into 'pass'
+    cannot merge past red platform checks."""
+    decision = decide_delegated(
+        **merge_resolve(verdict="pass", checks_green=False, paths=["src/a.py"])
+    )
+    assert decision["allow"] is False
+
+
+def test_green_checks_without_a_passing_verdict_merge_nothing(decide_delegated):
+    decision = decide_delegated(
+        **merge_resolve(verdict="fail", checks_green=True, paths=["src/a.py"])
+    )
+    assert decision["allow"] is False
+
+
+def test_a_path_outside_the_delegated_class_denies(decide_delegated):
+    decision = decide_delegated(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", "deploy/values.yaml"],
+        )
+    )
+    assert decision["allow"] is False
+
+
+def test_merge_resolve_fails_closed_without_the_paths(decide_delegated):
+    """The git.open_pr posture: without the changed paths in the input the
+    class cannot be checked, so the resolve is denied by name."""
+    decision = decide_delegated(**merge_resolve(verdict="pass", checks_green=True))
+    assert decision == {"allow": False, "rule": "merge_resolve_paths_missing"}
+
+
+def test_an_empty_diff_is_not_a_merge_policy_resolves(decide_delegated):
+    decision = decide_delegated(
+        **merge_resolve(verdict="pass", checks_green=True, paths=[])
+    )
+    assert decision["allow"] is False
+
+
+def test_a_carved_out_path_denies_by_name(decide_delegated):
+    """The belt under the compile-time refusal: a changed path under a
+    carve-out denies the resolve whatever the delegated class says."""
+    decision = decide_delegated(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", ".github/workflows/ci.yml"],
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_carved_out_path"}
+
+
+def test_agents_cannot_claim_the_merge_resolve(decide_delegated):
+    """merge.resolve allows only the platform lifecycle: a standing caller
+    reciting the tool name matches no rule."""
+    decision = decide_delegated(
+        **standing("pm", tool="merge.resolve"),
+        args={"verdict": "pass", "checks_green": True, "paths": ["src/a.py"]},
+    )
+    assert decision["allow"] is False
+
+
+def test_delegation_grants_no_new_path_to_merge_pr(decide_delegated):
+    """Authority not looser: the delegation adds the resolve decision and
+    nothing else — git.merge_pr stays unreachable for every company role."""
+    as_pm = decide_delegated(**standing("pm", tool="git.merge_pr", args={"number": 4}))
+    assert as_pm["allow"] is False

@@ -20,6 +20,7 @@ from jsonschema import Draft202012Validator
 
 from schema.blueprint import BLUEPRINT_SCHEMA
 from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES
+from schema.gates import merge_gate_problems
 from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
@@ -189,7 +190,11 @@ def validate_blueprint(document: Any) -> dict[str, Any]:
     # template three sections away. The catalog checks tolerate malformed
     # values (the schema pass reports those) and simply skip what they
     # cannot read.
-    problems = _schema_problems(document) + _catalog_problems(document)
+    problems = (
+        _schema_problems(document)
+        + _catalog_problems(document)
+        + merge_gate_problems(document)
+    )
     if problems:
         raise ValidationError(problems)
     return document

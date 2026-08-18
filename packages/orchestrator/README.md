@@ -68,9 +68,9 @@ finalize_intake`. The PM does the scoping itself through governed tools
 crew tables directly. This is the injection surface for the standing
 conductor: the goal text is untrusted input handed straight to the PM,
 and containment is the compiled policy's job, not the prompt's. The gate
-slot reads the blueprint's `workflows.intake.gates`: configure
-`gates.intake: human_approval` and the workflow parks on the `intake`
-signal before dispatching (the shipped example sets it to `none`).
+slot reads the blueprint's `workflows.intake.gates`: declare
+`gates.intake.resolved_by: human` and the workflow parks on the `intake`
+signal before dispatching (the shipped example declares no intake gate).
 
 **implement** — the crew is the only execution path: `create_run →
 check_budget → implement_config → fetch_workspace → provision_sandbox →

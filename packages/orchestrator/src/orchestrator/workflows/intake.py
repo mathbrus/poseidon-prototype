@@ -16,8 +16,8 @@ policy's (the PM cannot execute, deliver, or spawn outside its may_spawn
 list) — the injected-conductor red-team test enters here.
 
 No human gate by default — but the slot exists and reads the blueprint's
-`workflows.intake.gates` like any other gate: configure
-`gates.intake: human_approval` and the workflow parks on the `intake`
+`workflows.intake.gates` like any other gate: declare
+`gates.intake.resolved_by: human` and the workflow parks on the `intake`
 signal before dispatching the PM.
 """
 
@@ -99,7 +99,7 @@ class IntakeWorkflow:
                 start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
                 retry_policy=STEP_RETRY,
             )
-            if (gates or {}).get("intake", "none") != "none":
+            if ((gates or {}).get("intake") or {}).get("resolved_by") == "human":
                 # The configured gate: park until a human answers or the
                 # escalation deadline lapses. Transitions are
                 # process-gate audit events like every other gate's.
