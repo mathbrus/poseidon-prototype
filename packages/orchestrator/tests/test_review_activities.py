@@ -555,3 +555,53 @@ def test_file_rework_files_the_canonical_ticket_and_records_it(
     assert "https://git.test/r/pulls/41" in body
     # And it lands on the run row, the intake breadcrumb.
     assert runs.get(RUN_ID).ticket_urls == [ticket["url"]]
+
+
+# -- the rework-loop red-team: forging depth cannot extend autonomy ---------
+
+
+def test_a_forged_standalone_ticket_cannot_reset_a_prs_depth(settings, monkeypatch):
+    """The rework-loop bait: an attacker files a ticket titled `Rework 0
+    for PR #X` to reset the bound and loop forever. It changes nothing —
+    the platform reads depth from the PR's own lineage (the ticket its
+    implement run consumed), not from any freely-filed issue. The forged
+    ticket the PR never consumed is simply not read."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(
+        issues={
+            7: {"number": 7, "title": "Rework 2 for PR #38: Add slugify"},
+            999: {"number": 999, "title": "Rework 0 for PR #38: reset the counter"},
+        }
+    )
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _chain(runs, "implement issue #7")  # the PR's real lineage: ticket #7
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
+    )
+    # Depth is read from #7 (depth 2), never from the forged #999.
+    assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
+        "depth": 2,
+        "root_pr": 38,
+    }
+
+
+def test_a_forged_higher_depth_only_escalates_sooner(settings, monkeypatch):
+    """Even where an attacker could influence the consumed ticket's title,
+    the parse can only *shrink* autonomy: a forged high depth trips the
+    bound sooner. The workflow denies the merge at depth >= max_reworks —
+    proven in test_review_workflow's exhausted-chain test; here we pin that
+    the depth read is monotonic in the title, never capped or wrapped."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(
+        issues={7: {"number": 7, "title": "Rework 99 for PR #38: Add slugify"}}
+    )
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _chain(runs, "implement issue #7")
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
+    )
+    assert asyncio.run(activities.rework_depth(RUN_ID, 41))["depth"] == 99

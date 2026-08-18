@@ -352,7 +352,18 @@ class ReviewActivities:
         so a per-PR count would reset to zero each round and the loop
         would never terminate. A PR outside any chain (fresh work, an
         unattributable PR, a free-form ticket) is depth 0 with itself as
-        root."""
+        root.
+
+        Read from the *consumed* ticket, not from any freely-filed one, so
+        a standalone ticket forging a low depth changes nothing (proven in
+        test_review_activities). Recorded gap, not yet closed: the consumed
+        ticket's title is the platform's own `file_rework` output, but the
+        bound trusts that title's integrity — and the PM template holds
+        `issues.update`, so a compromised conductor could edit a rework
+        ticket's depth downward and extend the chain. The durable fix is a
+        depth the platform stores on its own row rather than parses back
+        from a mutable title; deferred to keep this step's surface small,
+        and flagged here so it is a decision, not an oversight."""
 
         def lineage_issue() -> int | None:
             implement = self._runs.implement_run_for_pr(
