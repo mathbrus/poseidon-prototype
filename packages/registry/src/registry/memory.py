@@ -333,6 +333,22 @@ class InMemoryRuns:
     ) -> None:
         # Upsert like the real accessor: a retried start lands on the same
         # row and keeps recorded artifacts, resetting only the run state.
+        # And like the real accessor's one-live-issue-run index: a
+        # *different* run claiming the same live issue task is refused.
+        if workflow == "implement" and task.startswith("implement issue #"):
+            for other in self.rows.values():
+                if (
+                    other.run_id != run_id
+                    and other.company == company
+                    and other.workflow == "implement"
+                    and other.status == "running"
+                    and other.task == task
+                ):
+                    raise RuntimeError(
+                        f"run {run_id!r} refused: another live implement run"
+                        f" already holds {task!r} — one live implement run"
+                        " per issue"
+                    )
         record = self.rows.get(run_id) or RunRecord(run_id=run_id)
         record.task = task
         record.status = "running"

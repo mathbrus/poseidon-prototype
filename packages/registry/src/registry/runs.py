@@ -9,6 +9,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from psycopg.errors import UniqueViolation
+
 from registry.db import Registry
 
 
@@ -73,23 +75,32 @@ class Runs:
         company: str | None = None,
     ) -> None:
         """Create or reset the run row. Retry-safe: an activity re-attempt
-        after a worker death must land on the same row, not a second one."""
-        self._db.execute(
-            """
-            INSERT INTO registry.runs
-                (run_id, task, status, workflow, workflow_id, company)
-            VALUES (%s, %s, 'running', %s, %s, %s)
-            ON CONFLICT (run_id) DO UPDATE SET
-                task = EXCLUDED.task,
-                status = 'running',
-                workflow = EXCLUDED.workflow,
-                workflow_id = EXCLUDED.workflow_id,
-                company = EXCLUDED.company,
-                error = NULL,
-                finished_at = NULL
-            """,
-            (run_id, task, workflow, workflow_id, company),
-        )
+        after a worker death must land on the same row, not a second one —
+        the ON CONFLICT arbiter is run_id, so a retry updates its own row
+        while a *different* run claiming the same live issue task still
+        dies on the one-live-issue-run index."""
+        try:
+            self._db.execute(
+                """
+                INSERT INTO registry.runs
+                    (run_id, task, status, workflow, workflow_id, company)
+                VALUES (%s, %s, 'running', %s, %s, %s)
+                ON CONFLICT (run_id) DO UPDATE SET
+                    task = EXCLUDED.task,
+                    status = 'running',
+                    workflow = EXCLUDED.workflow,
+                    workflow_id = EXCLUDED.workflow_id,
+                    company = EXCLUDED.company,
+                    error = NULL,
+                    finished_at = NULL
+                """,
+                (run_id, task, workflow, workflow_id, company),
+            )
+        except UniqueViolation as exc:
+            raise RuntimeError(
+                f"run {run_id!r} refused: another live implement run already"
+                f" holds {task!r} — one live implement run per issue"
+            ) from exc
 
     def record_artifacts(
         self, run_id: str, pr_url: str | None = None, ticket_urls: list[str] | None = None

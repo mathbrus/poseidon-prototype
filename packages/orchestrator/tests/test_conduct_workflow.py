@@ -7,6 +7,7 @@ Each test scripts a queue of per-tick configs ending in None, so the loop
 always stops itself through the same revocation path production uses —
 every test is therefore also a revocation test."""
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -301,3 +302,47 @@ async def test_revocation_stops_a_running_loop(env):
     assert harness.ticks[0][0] == "started"
     assert harness.ticks[1] == ("stopped", "conduct_section_absent")
     assert result["stopped"].startswith("no conduct section")
+
+
+async def test_heartbeat_survives_worker_death_between_ticks(env):
+    """Kill the worker after a tick started work; a fresh worker picks the
+    parked loop up from Temporal's history and finishes it — with no
+    duplicate child from the replay."""
+    harness = Harness(
+        configs=[CONFIG, None],
+        observations=[observation()],
+        decisions=[{"action": "implement", "target": 5, "rationale": "go"}],
+    )
+    task_queue = f"tq-{uuid.uuid4().hex[:8]}"
+
+    def worker() -> Worker:
+        return Worker(
+            env.client,
+            task_queue=task_queue,
+            workflows=[ConductWorkflow, StubImplement, StubReview],
+            activities=harness.activities(),
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            # No sticky queue: the dead worker's cached-workflow affinity
+            # would otherwise park the post-timer task until a sticky
+            # timeout the frozen test clock never reaches. Production
+            # pays that timeout in real seconds; the proof here is the
+            # handoff itself.
+            max_cached_workflows=0,
+        )
+
+    async with worker():
+        handle = await env.client.start_workflow(
+            "conduct",
+            ConductInput(company=COMPANY, tick_interval_s=1, timeouts=FAST_TIMEOUTS),
+            id=f"conduct-{COMPANY}-{uuid.uuid4().hex[:8]}",
+            task_queue=task_queue,
+        )
+        while not harness.ticks:  # let the first tick finish, then die
+            await asyncio.sleep(0.05)
+    assert harness.ticks[0][0] == "started"
+
+    async with worker():  # a fresh worker: replay, resume, self-stop
+        result = await handle.result()
+    assert result["stopped"].startswith("no conduct section")
+    assert [t[0] for t in harness.ticks] == ["started", "stopped"]
+    assert len(harness.children) == 1  # the replay started nothing twice

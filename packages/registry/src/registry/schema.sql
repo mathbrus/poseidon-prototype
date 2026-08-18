@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     created_at  timestamptz NOT NULL DEFAULT now(),
     finished_at timestamptz
 );
+-- One live implement run per issue. The canonical issue-run task is the
+-- key and the constraint is structural: the conduct heartbeat, a replayed
+-- workflow and a human `poseidon run <n>` cannot race their way into two
+-- live runs for the same ticket — the second insert dies here, not in a
+-- check-then-act. Only running issue-shaped implement runs are
+-- constrained; free-form task runs and finished runs are not.
+CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_issue_run
+    ON registry.runs (company, task)
+    WHERE status = 'running' AND workflow = 'implement'
+      AND task LIKE 'implement issue #%';
 
 -- Ephemeral crew members, kept out of agent_instances so hire/fire diffs
 -- stay clean. Revocation is a row termination, checked live on every

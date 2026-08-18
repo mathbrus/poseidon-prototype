@@ -612,3 +612,25 @@ def test_reviewed_pr_numbers_parses_the_canonical_task(registry: Registry):
     runs.finish("run-rv-2", "failed", error="boom")  # every status counts
     runs.start("run-rv-3", "review pull request #8", "review", None, "other-co")
     assert Runs(registry).reviewed_pr_numbers("hello-saas") == {4, 9}
+
+
+def test_one_live_implement_run_per_issue(registry: Registry):
+    """The partial unique index, end to end: a second live run for the
+    same issue dies structurally; a retry of the same run lands on its own
+    row; a finished run frees the slot; other companies are unaffected."""
+    runs = Runs(registry)
+    runs.start("run-dup-1", "implement issue #7", "implement", None, "hello-saas")
+    with pytest.raises(RuntimeError, match="one live implement run per issue"):
+        runs.start("run-dup-2", "implement issue #7", "implement", None, "hello-saas")
+    runs.start("run-dup-1", "implement issue #7", "implement", None, "hello-saas")
+    runs.finish("run-dup-1", "done")
+    runs.start("run-dup-3", "implement issue #7", "implement", None, "hello-saas")
+    runs.start("run-dup-4", "implement issue #7", "implement", None, "other-co")
+
+
+def test_free_form_tasks_are_not_constrained(registry: Registry):
+    """Only the canonical issue-run task is keyed: two runs of the same
+    task file are two deliberate human acts, not a race."""
+    runs = Runs(registry)
+    runs.start("run-ff-1", "the same task file text", "implement", None, "hello-saas")
+    runs.start("run-ff-2", "the same task file text", "implement", None, "hello-saas")
