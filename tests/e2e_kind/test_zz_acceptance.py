@@ -37,6 +37,11 @@ Where each criterion is proven:
                   the heartbeat dies at the gates) and test_zz_overnight
                   (the whole arc with two human acts: one goal in, one
                   merge approval out) — the close-the-loop milestone.
+  9 merge policy  test_zz_delegated (in-class passing work merges with zero
+                  human commands — the arc runs through the merge) and
+                  test_merge_gate_redteam (a steered reviewer smuggling a
+                  carve-out change is refused by the compiled decision, not
+                  the model) — the gate-of-record milestone.
 
 Named `test_zz_*` so pytest collects it last: the five-source assertion
 reads what the whole suite really produced.

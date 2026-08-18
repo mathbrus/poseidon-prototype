@@ -8,6 +8,17 @@ Retry safety, per activity:
     record_gate_outcome — appends an audit event; a retried append
                           duplicates a row, never loses one (the audit
                           store is append-only by design).
+    record_verdict      — appends the reviewer's journaled verdict; same
+                          append-only posture.
+    reviewer_independent— read-only against the registry; safe.
+    resolve_merge       — re-evaluates the compiled merge.resolve decision
+                          and re-audits; the honest record of what was
+                          asked (the conduct_authorize posture).
+    rework_depth        — read-only (registry + one gateway issue read);
+                          safe.
+    file_rework         — creates an issue; not idempotent, so a retry can
+                          file a duplicate ticket — a noisy backlog, never
+                          a lost finding.
     merge_pr            — GitHub's merge endpoint is idempotent for an
                           already-merged PR (it answers 405, surfaced as a
                           backend error the workflow reports honestly).
@@ -24,6 +35,7 @@ released the merge.
 import asyncio
 import hashlib
 import json
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -34,8 +46,47 @@ from common.audit import AuditEvent
 from common.telemetry import get_logger
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
-from registry import AuditStore, Runs
+from orchestrator.opa import evaluate_decision
+from registry import AuditStore, RunParticipants, Runs
 from registry.bundles import AgentInstances, Companies
+
+# The canonical rework-ticket title. The chain depth and the root PR ride
+# the title so the platform can read the bound back without trusting any
+# agent: `rework_depth` parses it from the ticket the failing PR's own
+# implement run consumed, under the platform identity. Forging a higher
+# depth into a hand-filed ticket only escalates to the human sooner — the
+# parse can shrink autonomy, never extend it.
+REWORK_TITLE_RE = re.compile(r"^Rework (\d+) for PR #(\d+)")
+IMPLEMENT_ISSUE_TASK_RE = re.compile(r"^implement issue #(\d+)$")
+
+
+def rework_title(attempt: int, root_pr: int, pr_title: str) -> str:
+    return f"Rework {attempt} for PR #{root_pr}: {pr_title[:80]}"
+
+
+def rework_body(
+    pr_number: int,
+    pr_url: str,
+    reason: str,
+    findings: str,
+    paths: list[str],
+    attempt: int,
+    review_run_id: str,
+) -> str:
+    """The ticket is the rework implementer's whole brief — the implement
+    crew reads tickets, not PRs — so it carries the failure, the findings,
+    and the changed surface."""
+    changed = "\n".join(f"- {p}" for p in paths) or "(none recorded)"
+    return (
+        f"Pull request #{pr_number} ({pr_url}) failed its policy-gated"
+        f" review: {reason}.\n\n"
+        f"Reviewer findings: {findings}\n\n"
+        f"Changed paths under review:\n{changed}\n\n"
+        "Fix the findings and deliver a new pull request with tests."
+        " Acceptance: a review of the new pull request passes.\n\n"
+        f"Filed by the platform for review run {review_run_id}"
+        f" (rework attempt {attempt})."
+    )
 
 
 class ReviewActivities:
@@ -46,12 +97,14 @@ class ReviewActivities:
         companies: Companies,
         instances: AgentInstances | None = None,
         audit: AuditStore | None = None,
+        participants: RunParticipants | None = None,
     ) -> None:
         self._settings = settings
         self._runs = runs
         self._companies = companies
         self._instances = instances
         self._audit = audit
+        self._participants = participants
         self._log = get_logger("orchestrator.review")
 
     @activity.defn(name="create_review_run")
@@ -117,7 +170,9 @@ class ReviewActivities:
                 "crew_template": crew_template,
                 "conductor": instance["agent_id"],
                 "conductor_role": instance["role_template"],
-                "merge_gate": (config.get("gates") or {}).get("merge", "none"),
+                # The gate object as the blueprint wrote it (`{resolved_by,
+                # delegate?}`), or None when no merge gate is declared.
+                "merge_gate": (config.get("gates") or {}).get("merge"),
             }
 
         return await asyncio.to_thread(read)
@@ -137,8 +192,51 @@ class ReviewActivities:
                 " provision a review sandbox from"
             )
         # The reviewer reads the diff itself (git.read is in its scope);
-        # the workflow only needs the shape, not the patches.
-        return {k: v for k, v in pr.items() if k != "files"}
+        # the workflow only needs the shape, not the patches — plus the
+        # changed paths, which the merge-time class check resolves against.
+        shaped = {k: v for k, v in pr.items() if k != "files"}
+        shaped["paths"] = sorted(
+            {f["path"] for f in pr.get("files") or [] if f.get("path")}
+        )
+        return shaped
+
+    async def _append_event(
+        self,
+        *,
+        run_id: str,
+        tool: str,
+        payload: dict[str, Any],
+        decision: str,
+        rule: str,
+        source: str,
+        workflow_id: str,
+        latency_ms: int = 0,
+    ) -> None:
+        """The one AuditEvent constructor for this module's producers —
+        append-only, so a retried append duplicates a row, never loses
+        one."""
+        if self._audit is None:
+            raise RuntimeError("review activities constructed without an audit store")
+        event = AuditEvent(
+            ts=datetime.now(UTC).isoformat(),
+            run_id=run_id,
+            agent_id="orchestrator",
+            role="platform",
+            tool=tool,
+            args_digest=hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            decision=decision,  # type: ignore[arg-type]
+            rule=rule,
+            latency_ms=latency_ms,
+            backend_status=None,
+            source=source,  # type: ignore[arg-type]
+            company=self._settings.company,
+            lifecycle="platform",
+            parent_agent_id="",
+            workflow=workflow_id,
+        )
+        await asyncio.to_thread(self._audit.append, event)
 
     @activity.defn(name="record_gate_outcome")
     async def record_gate_outcome(
@@ -146,33 +244,230 @@ class ReviewActivities:
     ) -> None:
         """One `source=process-gate` audit event: parked gates,
         escalations and verdicts become first-class rows in the run's
-        story, carrying the workflow id that maps back to run_id."""
-        if self._audit is None:
-            raise RuntimeError("review activities constructed without an audit store")
-        payload = {"gate": gate, "outcome": kind}
-        event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
+        story, carrying the workflow id that maps back to run_id. The
+        policy kinds keep human and policy resolutions distinguishable
+        forever: `policy_resolved` released a merge, `policy_declined`
+        fell back to the human signal."""
+        await self._append_event(
             run_id=run_id,
-            agent_id="orchestrator",
-            role="platform",
             tool=f"gate.{gate}",
-            args_digest=hashlib.sha256(
-                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
-            decision="allow" if kind == "approved" else "deny",
+            payload={"gate": gate, "outcome": kind},
+            decision="allow" if kind in ("approved", "policy_resolved") else "deny",
             rule=f"gate_{kind}",
-            latency_ms=0,
-            backend_status=None,
             source="process-gate",
-            company=self._settings.company,
-            lifecycle="platform",
-            parent_agent_id="",
-            workflow=workflow_id,
+            workflow_id=workflow_id,
         )
-        await asyncio.to_thread(self._audit.append, event)
         self._log.bind(run_id=run_id).info(
             "gate outcome recorded", extra={"gate": gate, "outcome": kind}
         )
+
+    @activity.defn(name="record_verdict")
+    async def record_verdict(
+        self, run_id: str, verdict: str, summary: str, workflow_id: str
+    ) -> None:
+        """One `source=process-lifecycle` audit event journaling the
+        reviewer's structured verdict — the conduct.decide idiom: the
+        judgement and its one-line why become an append-only row in the
+        run's story, distinct from the gate outcome that acts on it."""
+        await self._append_event(
+            run_id=run_id,
+            tool="review.verdict",
+            payload={"verdict": verdict, "summary": summary},
+            decision="allow" if verdict == "pass" else "deny",
+            rule=summary[:300],
+            source="process-lifecycle",
+            workflow_id=workflow_id,
+        )
+        self._log.bind(run_id=run_id).info("verdict recorded", extra={"verdict": verdict})
+
+    @activity.defn(name="reviewer_independent")
+    async def reviewer_independent(self, run_id: str, pr_number: int) -> dict[str, Any]:
+        """The registry-checked fact behind `reviewer_independent`: the
+        review run's identity lineage shares nothing with the lineage of
+        the implement run that delivered the PR — neither an agent_id
+        (impossible while agent_id stays the participants' primary key,
+        but the check is positional, not schema-trusting) nor a crew
+        template: a blueprint may legally bind review to the delivery
+        crew, and that is exactly the self-review this check refuses to
+        call independent. Fail closed on absence — a PR no implement run
+        attributes, or a review with no bound reviewer, is not eligible
+        for a policy-resolved merge (the human signal still is)."""
+
+        def read() -> dict[str, Any]:
+            implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)
+            if implement is None:
+                return {
+                    "independent": False,
+                    "reason": f"no implement run attributes PR #{pr_number}",
+                }
+            if self._participants is None:
+                raise RuntimeError("review activities constructed without participants")
+            reviewers = self._participants.for_run(run_id)
+            implementers = self._participants.for_run(implement.run_id)
+            if not reviewers:
+                return {
+                    "independent": False,
+                    "reason": "no reviewer identity bound to this run",
+                }
+            shared_ids = sorted(
+                {p["agent_id"] for p in reviewers} & {p["agent_id"] for p in implementers}
+            )
+            if shared_ids:
+                return {
+                    "independent": False,
+                    "reason": f"shared identities with {implement.run_id}: "
+                    + ", ".join(shared_ids),
+                }
+            shared_crews = sorted(
+                {p["crew_template"] for p in reviewers}
+                & {p["crew_template"] for p in implementers}
+            )
+            if shared_crews:
+                return {
+                    "independent": False,
+                    "reason": f"crew {', '.join(shared_crews)} both delivered "
+                    f"and reviews this change ({implement.run_id})",
+                }
+            return {"independent": True, "reason": f"lineage {implement.run_id}"}
+
+        result = await asyncio.to_thread(read)
+        self._log.bind(run_id=run_id).info("independence checked", extra=result)
+        return result
+
+    @activity.defn(name="rework_depth")
+    async def rework_depth(self, run_id: str, pr_number: int) -> dict[str, Any]:
+        """How many reworks deep this PR's chain already is, plus the
+        chain's root PR — read from the canonical title of the ticket the
+        failing PR's implement run consumed. The rework bound must follow
+        the *chain*, not the single PR: every rework delivers a fresh PR,
+        so a per-PR count would reset to zero each round and the loop
+        would never terminate. A PR outside any chain (fresh work, an
+        unattributable PR, a free-form ticket) is depth 0 with itself as
+        root.
+
+        Read from the *consumed* ticket, not from any freely-filed one, so
+        a standalone ticket forging a low depth changes nothing (proven in
+        test_review_activities). Recorded gap, not yet closed: the consumed
+        ticket's title is the platform's own `file_rework` output, but the
+        bound trusts that title's integrity — and the PM template holds
+        `issues.update`, so a compromised conductor could edit a rework
+        ticket's depth downward and extend the chain. The durable fix is a
+        depth the platform stores on its own row rather than parses back
+        from a mutable title; deferred to keep this step's surface small,
+        and flagged here so it is a decision, not an oversight."""
+
+        def lineage_issue() -> int | None:
+            implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)
+            if implement is None:
+                return None
+            match = IMPLEMENT_ISSUE_TASK_RE.match(implement.task or "")
+            return int(match.group(1)) if match else None
+
+        issue_number = await asyncio.to_thread(lineage_issue)
+        if issue_number is None:
+            return {"depth": 0, "root_pr": pr_number}
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            issue = await gateway.read_issue(
+                run_id, self._settings.target_repo, issue_number
+            )
+        match = REWORK_TITLE_RE.match(str(issue.get("title") or ""))
+        if match is None:
+            return {"depth": 0, "root_pr": pr_number}
+        depth = {"depth": int(match.group(1)), "root_pr": int(match.group(2))}
+        self._log.bind(run_id=run_id).info("rework depth read", extra=depth)
+        return depth
+
+    @activity.defn(name="file_rework")
+    async def file_rework(
+        self,
+        run_id: str,
+        pr_number: int,
+        root_pr: int,
+        attempt: int,
+        reason: str,
+        findings: str,
+        pr_title: str,
+        pr_url: str,
+        paths: list[str],
+    ) -> dict[str, Any]:
+        """File the failed review's findings back into the backlog as a
+        ticket, under the platform identity, and record it on the review
+        run's row (the same `ticket_urls` breadcrumb intake leaves). The
+        conductor consumes it on a later heartbeat like any other issue.
+        Retry honesty: issue creation is not idempotent, so a retried
+        create can file a duplicate ticket — a noisy backlog, never a
+        lost finding."""
+        title = rework_title(attempt, root_pr, pr_title)
+        body = rework_body(pr_number, pr_url, reason, findings, paths, attempt, run_id)
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            issue = await gateway.create_issue(
+                run_id, self._settings.target_repo, title, body
+            )
+        url = str(issue.get("url") or "")
+        if url:
+            await asyncio.to_thread(self._runs.record_artifacts, run_id, None, [url])
+        self._log.bind(run_id=run_id).info(
+            "rework ticket filed",
+            extra={"url": url, "attempt": attempt, "root_pr": root_pr},
+        )
+        return {"url": url, "number": issue.get("number")}
+
+    @activity.defn(name="resolve_merge")
+    async def resolve_merge(
+        self,
+        run_id: str,
+        verdict: str,
+        checks_green: bool,
+        reviewer_independent: bool,
+        paths: list[str],
+        workflow_id: str,
+    ) -> dict[str, Any]:
+        """Evaluate the compiled `merge.resolve` decision — the
+        conduct_authorize idiom: the caller-verified facts ride the input,
+        the delegated class and carve-outs bind as policy, and the answer
+        is audited either way. Unlike conduct.start, a deny is a routed
+        outcome, not an error: good work outside the delegation falls
+        back to the human signal."""
+        company = self._settings.company
+        decision_input = {
+            "company": company,
+            "agent_id": "orchestrator",
+            "lifecycle": "platform",
+            "parent_agent_id": "",
+            "role": "platform",
+            "run_id": run_id,
+            "workflow": "review",
+            "tool": "merge.resolve",
+            "args": {
+                "verdict": verdict,
+                "checks_green": checks_green,
+                "reviewer_independent": reviewer_independent,
+                "paths": paths,
+            },
+            "run_binding_verified": False,
+        }
+        started = time.monotonic()
+        result = await evaluate_decision(self._settings.opa_url, company, decision_input)
+        allowed = bool(result.get("allow"))
+        await self._append_event(
+            run_id=run_id,
+            tool="merge.resolve",
+            payload=decision_input["args"],
+            decision="allow" if allowed else "deny",
+            rule=str(result.get("rule") or ""),
+            source="process-lifecycle",
+            workflow_id=workflow_id,
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
+        self._log.bind(run_id=run_id).info(
+            "merge resolve evaluated",
+            extra={"allow": allowed, "rule": result.get("rule")},
+        )
+        return {"allow": allowed, "rule": str(result.get("rule") or "")}
 
     @activity.defn(name="merge_pr")
     async def merge_pr(self, run_id: str, pr_number: int) -> dict[str, Any]:
@@ -202,5 +497,10 @@ class ReviewActivities:
             self.review_config,
             self.read_pr,
             self.record_gate_outcome,
+            self.record_verdict,
+            self.reviewer_independent,
+            self.resolve_merge,
+            self.rework_depth,
+            self.file_rework,
             self.merge_pr,
         ]

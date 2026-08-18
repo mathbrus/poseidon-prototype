@@ -76,7 +76,7 @@ The checks run in order; the first match wins:
 | Keyed on | Phase | Scripted behaviour |
 |---|---|---|
 | `"product manager"` in the system prompt | PM | file one ticket, record the crew request, summarize |
-| `comment_pr` offered | reviewer | read the PR diff, run the suite, post one findings comment |
+| `comment_pr` offered | reviewer | read the PR diff, run the suite, post one findings comment, end with a structured pass/fail verdict (fail on `REVIEW_FAIL_MARKER` in the task; injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read) |
 | no tools offered | planner | a single completion: the task brief, echoing the branch line and any scenario marker |
 | tools without `open_pr` | act | write `slugify.py` + its test once, then answer in plain text — which ends the SDK conversation so the host runs the advisory verify |
 | tools with `open_pr` | deliver | commit and open the PR in one batch |

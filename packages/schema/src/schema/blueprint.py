@@ -152,23 +152,52 @@ _TOOLS = {
     "propertyNames": _NAME,
 }
 
-_GATE = {"type": "string", "enum": ["none", "human_approval"]}
 
-_WORKFLOW = {
+# One gate shape: a gate names its resolver, and differs only in which
+# resolvers it allows and what a resolver reads. A gate nobody declares is
+# a stop nobody takes — for merge that means the review ends without
+# merging at all, an unattended auto-merge being no default anyone gets.
+def _gate(resolvers: list[str], extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["resolved_by"],
+        "properties": {
+            "resolved_by": {"type": "string", "enum": resolvers},
+            **(extra or {}),
+        },
+    }
+
+
+# The delegated class a policy-resolved merge may finish on its own:
+# explicit paths and an explicit rework bound, all-explicit like
+# `conduct` — a defaulted bound is authority nobody wrote down. The
+# undelegatable carve-outs live in `schema.gates` and are refused at
+# validate time, whatever the paths here say.
+_MERGE_DELEGATION = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["enabled", "conductor"],
+    "required": ["paths", "max_reworks"],
     "properties": {
+        "paths": {"type": "array", "items": _TEXT, "minItems": 1, "uniqueItems": True},
+        "max_reworks": {"type": "integer", "minimum": 0},
+    },
+}
+
+_INTAKE_GATE = _gate(["human"])
+_MERGE_GATE = _gate(["human", "policy"], {"delegate": _MERGE_DELEGATION})
+
+
+def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
+    """One workflow node. Each names only the gates it actually parks on —
+    a merge gate on intake was never a meaningful thing to write, so it is
+    not a writable thing."""
+    properties: dict[str, Any] = {
         "enabled": {"type": "boolean"},
         # The standing role that spawns/conducts this workflow — never a
         # standing executor (enforced by the compiler).
         "conductor": _NAME,
         "crew": _NAME,
-        "gates": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {"merge": _GATE, "intake": _GATE},
-        },
         # Bounded verify re-dispatches.
         "max_verify_retries": {"type": "integer", "minimum": 0},
         "drain": {
@@ -184,17 +213,29 @@ _WORKFLOW = {
                 "timeout_minutes": {"type": "integer", "minimum": 1},
             },
         },
-    },
-}
+    }
+    if gates:
+        properties["gates"] = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": gates,
+        }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["enabled", "conductor"],
+        "properties": properties,
+    }
+
 
 _WORKFLOWS = {
     "type": "object",
     "additionalProperties": False,
     "minProperties": 1,
     "properties": {
-        "intake": _WORKFLOW,
-        "implement": _WORKFLOW,
-        "review": _WORKFLOW,
+        "intake": _workflow({"intake": _INTAKE_GATE}),
+        "implement": _workflow(None),
+        "review": _workflow({"merge": _MERGE_GATE}),
     },
 }
 

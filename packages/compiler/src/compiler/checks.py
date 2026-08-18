@@ -28,6 +28,7 @@ import re
 from typing import Any
 
 from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES, CrewTemplate, RoleTemplate
+from schema.gates import merge_gate_problems
 from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
@@ -51,6 +52,10 @@ def check(
     problems += _policy_patterns(blueprint)
     problems += _budget_coverage(blueprint)
     problems += _conduct_authority(blueprint, roles)
+    # Document-level like the platform-tool rule, repeated here because the
+    # compiler accepts unvalidated dicts and must fail closed on a
+    # delegation validate_blueprint would have refused.
+    problems += merge_gate_problems(blueprint)
     return problems
 
 

@@ -46,6 +46,11 @@ PLATFORM_SCOPE = sorted(
         # The implement workflow resolves an issue-driven run's ticket
         # before dispatch — the same platform-read posture as git.read.
         "issues.read",
+        # The review workflow's rework loop files a failed policy-gated
+        # review's findings back into the backlog as a ticket — a platform
+        # write, attributed to the review run, that the conductor then
+        # consumes like any other issue.
+        "issues.create",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",
     }
@@ -92,6 +97,7 @@ def compile_blueprint(
             crew_members=list(crew_members),
             policies=blueprint.get("policies") or {},
             conduct=conduct,
+            merge_delegation=_merge_delegation(workflows),
         )
     )
     return DeploymentPlan(
@@ -218,6 +224,17 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
             )
         )
     return tuple(configs)
+
+
+def _merge_delegation(workflows: tuple[WorkflowConfig, ...]) -> dict[str, Any] | None:
+    """The one policy-resolved merge gate's delegation, if any workflow
+    declares one — what `merge.resolve` compiles from. No delegation
+    compiles no rule, so an unattended merge falls to the default deny."""
+    for config in workflows:
+        gate = config.gates.get("merge") or {}
+        if gate.get("resolved_by") == "policy":
+            return gate.get("delegate")
+    return None
 
 
 def _conduct(blueprint: dict[str, Any]) -> ConductConfig | None:

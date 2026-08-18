@@ -54,8 +54,8 @@ def test_pm_holds_no_executor_tools(blueprint):
     assert {"crew.request", "issues.create"} <= pm_tools
 
 
-def test_review_merge_gate_is_human_approval(blueprint):
-    assert blueprint["workflows"]["review"]["gates"]["merge"] == "human_approval"
+def test_review_merge_gate_is_human_resolved(blueprint):
+    assert blueprint["workflows"]["review"]["gates"]["merge"] == {"resolved_by": "human"}
 
 
 def test_planner_is_read_only(blueprint):
@@ -208,6 +208,106 @@ def test_lean_roster_profile_validates(blueprint):
         "count": 1,
     }
     assert validate_blueprint(standing_executor) is standing_executor
+
+
+# -- the merge gate --------------------------------------------------------
+
+
+def delegated_merge() -> dict:
+    return {
+        "resolved_by": "policy",
+        "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+    }
+
+
+def test_policy_resolved_merge_validates(blueprint):
+    blueprint["workflows"]["review"]["gates"]["merge"] = delegated_merge()
+    validate_blueprint(blueprint)
+
+
+def test_the_old_string_gate_shape_is_gone(blueprint):
+    """A gate is an object naming its resolver; the enum spelling does not
+    validate anywhere."""
+    blueprint["workflows"]["review"]["gates"]["merge"] = "human_approval"
+    assert problems_of(blueprint)
+
+
+def test_an_undeclared_merge_gate_is_legal(blueprint):
+    """No gate declared means the review ends without merging — the shape
+    validates; what it means is the workflow's business."""
+    del blueprint["workflows"]["review"]["gates"]
+    validate_blueprint(blueprint)
+
+
+def test_policy_without_a_delegation_is_refused(blueprint):
+    blueprint["workflows"]["review"]["gates"]["merge"] = {"resolved_by": "policy"}
+    (problem,) = [p for p in problems_of(blueprint) if "delegate" in p]
+    assert "authority nobody wrote down" in problem
+
+
+def test_delegation_under_a_human_gate_is_dead_configuration(blueprint):
+    gate = delegated_merge()
+    gate["resolved_by"] = "human"
+    blueprint["workflows"]["review"]["gates"]["merge"] = gate
+    (problem,) = [p for p in problems_of(blueprint) if "dead configuration" in p]
+    assert "delegate" in problem
+
+
+def test_delegation_declares_every_bound_or_nothing(blueprint):
+    """Explicit paths and an explicit rework bound, the conduct stance: a
+    defaulted bound is authority nobody wrote down."""
+    for field in ("paths", "max_reworks"):
+        document = copy.deepcopy(blueprint)
+        gate = delegated_merge()
+        del gate["delegate"][field]
+        document["workflows"]["review"]["gates"]["merge"] = gate
+        assert any(field in p for p in problems_of(document))
+
+
+def test_repo_automation_can_never_be_delegated(blueprint):
+    """A merged PR must not be able to rewrite the surface that governs
+    merging — `.github/` is refused whatever else the delegation says."""
+    gate = delegated_merge()
+    gate["delegate"]["paths"].append(".github/")
+    blueprint["workflows"]["review"]["gates"]["merge"] = gate
+    assert any("can never be delegated" in p for p in problems_of(blueprint))
+
+
+def test_a_broad_prefix_containing_a_carveout_is_refused(blueprint):
+    """Overlap goes both ways: delegating a prefix that contains `.github/`
+    would put the carve-out inside the delegated class."""
+    gate = delegated_merge()
+    gate["delegate"]["paths"] = ["."]
+    blueprint["workflows"]["review"]["gates"]["merge"] = gate
+    assert any("can never be delegated" in p for p in problems_of(blueprint))
+
+
+def test_a_deny_path_can_never_be_delegated(blueprint):
+    """Delegating a path no PR may touch is contradictory configuration,
+    and dead configuration is an error."""
+    blueprint["policies"]["deny_paths"] = [".github/workflows/", "docs/secrets/"]
+    gate = delegated_merge()
+    gate["delegate"]["paths"] = ["docs/"]
+    blueprint["workflows"]["review"]["gates"]["merge"] = gate
+    assert any("deny_paths" in p for p in problems_of(blueprint))
+
+
+def test_intake_gate_names_its_resolver(blueprint):
+    blueprint["workflows"]["intake"]["gates"] = {"intake": {"resolved_by": "human"}}
+    validate_blueprint(blueprint)
+
+
+def test_intake_gate_cannot_be_policy_resolved(blueprint):
+    """Worth-doing governance is its own milestone; the schema names the
+    only resolver intake has."""
+    blueprint["workflows"]["intake"]["gates"] = {"intake": {"resolved_by": "policy"}}
+    assert any("resolved_by" in p and "policy" in p for p in problems_of(blueprint))
+
+
+def test_a_merge_gate_on_intake_is_not_writable(blueprint):
+    """Each workflow names only the gates it actually parks on."""
+    blueprint["workflows"]["intake"]["gates"] = {"merge": {"resolved_by": "human"}}
+    assert any("merge" in p for p in problems_of(blueprint))
 
 
 # -- the conduct heartbeat -------------------------------------------------

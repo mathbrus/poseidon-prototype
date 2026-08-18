@@ -122,6 +122,19 @@ class RunParticipants:
         )
         return [row["agent_id"] for row in rows]
 
+    def for_run(self, run_id: str) -> list[dict[str, Any]]:
+        """Every identity ever bound to a run, terminated rows included —
+        the run's identity lineage. The reviewer-independence check
+        compares lineages, and an implement run's participants are always
+        revoked by the time its PR is reviewed, so an active-only read
+        would vacuously pass the check it exists to make."""
+        return self._db.query(
+            "SELECT agent_id, run_id, crew_template, role, role_template,"
+            " status FROM registry.run_participants WHERE run_id = %s"
+            " ORDER BY agent_id",
+            (run_id,),
+        )
+
     def active_spawn_count(self, parent_agent_id: str) -> int:
         """How many crews the conductor is running right now — distinct
         {run, crew} pairs with live members. What the gateway injects as

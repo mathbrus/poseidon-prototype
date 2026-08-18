@@ -80,7 +80,7 @@ def test_crew_members_are_specs_not_instances(blueprint):
 def test_gate_config_comes_from_the_blueprint(blueprint):
     plan = compile_blueprint(blueprint)
     review = next(w for w in plan.workflows if w.name == "review")
-    assert review.gates["merge"] == "human_approval"
+    assert review.gates["merge"] == {"resolved_by": "human"}
     assert review.drain["on_conductor_drain"] == "abort_crew"
 
 

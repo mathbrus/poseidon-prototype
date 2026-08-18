@@ -160,3 +160,36 @@ def test_conduct_daily_cap_must_fund_a_run(conducted):
     conducted["conduct"]["daily_cap"]["usd"] = 1
     (problem,) = [p for p in problems_of(conducted) if "conduct.daily_cap" in p]
     assert "cannot fund a single run" in problem
+
+
+# -- the merge delegation ---------------------------------------------------
+
+
+def test_delegated_merge_compiles_the_gate_into_the_bundle(blueprint):
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+    }
+    plan = compile_blueprint(blueprint)
+    assert "merge_gate.rego" in plan.bundle.files
+
+
+def test_no_delegation_compiles_no_merge_gate_file(blueprint):
+    """Revocation is a blueprint diff: a human-resolved gate emits no
+    merge.resolve authority at all, so the decision falls to default deny."""
+    assert "merge_gate.rego" not in compile_blueprint(blueprint).bundle.files
+
+
+def test_compiler_fails_closed_on_a_carved_out_delegation(blueprint):
+    """`compile_blueprint` accepts unvalidated dicts — the undelegatable
+    carve-out must refuse here too, not only in validate_blueprint."""
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "delegate": {"paths": [".github/"], "max_reworks": 2},
+    }
+    assert any("can never be delegated" in p for p in problems_of(blueprint))
+
+
+def test_compiler_fails_closed_on_policy_without_a_delegation(blueprint):
+    blueprint["workflows"]["review"]["gates"]["merge"] = {"resolved_by": "policy"}
+    assert any("delegate" in p for p in problems_of(blueprint))

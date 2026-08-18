@@ -53,6 +53,15 @@ BACKLOG_LIMIT = 20
 RECENT_RUNS_LIMIT = 10
 RATIONALE_CLIP = 300
 
+# The decision's own run row. The decide dispatch is an LLM call, and the
+# LLM gateway binds every call to a registry run — so the row must exist
+# before the PM speaks, or every tick dies `llm_unknown_run`. It carries
+# the `conduct` workflow so the observation ignores it (active_count and
+# started_issue_numbers scope to implement/review; recent() filters it),
+# and a started child reclaims the id through its own idempotent create_run.
+DECIDE_WORKFLOW = "conduct"
+DECIDE_TASK = "conduct decision"
+
 
 def _digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
@@ -204,35 +213,57 @@ class ConductActivities:
         the decision's own LLM spend is attributed to the work it chose."""
         if not self._settings.pm_url:
             raise RuntimeError("PM_URL is not configured on the worker")
-        prompt = decision_prompt(observed, may_start)
-        async with AgentClient(self._settings.pm_url) as agent:
-            await agent.dispatch(run_id, prompt, mode="decide")
-            while True:
-                if activity.in_activity():
-                    activity.heartbeat()
-                status = await agent.status(run_id)
-                if status["status"] != "running":
-                    break
-                await asyncio.sleep(self._settings.poll_interval_s)
-        decision = status.get("decision")
-        if status["status"] != "done" or not decision:
-            raise ApplicationError(
-                f"decide dispatch failed: {status.get('error') or 'no decision'}",
-                non_retryable=True,
-            )
-        problem = self._invalid_reason(decision, observed, may_start)
-        rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
-        await self._emit(
-            run_id=self._conduct_run_id(),
-            tool="conduct.decide",
-            digest=_digest(decision),
-            decision="deny" if problem else "allow",
-            rule=problem or rationale,
+        # Register the decision run before the PM's LLM call can bind to it.
+        await asyncio.to_thread(
+            self._runs.start,
+            run_id,
+            DECIDE_TASK,
+            DECIDE_WORKFLOW,
+            self._conduct_run_id(),
+            self._settings.company,
         )
-        if problem:
-            raise ApplicationError(f"decision refused: {problem}", non_retryable=True)
-        self._log.info("conduct decision", extra=decision)
-        return decision
+        terminal, terminal_error = "done", None
+        try:
+            prompt = decision_prompt(observed, may_start)
+            async with AgentClient(self._settings.pm_url) as agent:
+                await agent.dispatch(run_id, prompt, mode="decide")
+                while True:
+                    if activity.in_activity():
+                        activity.heartbeat()
+                    status = await agent.status(run_id)
+                    if status["status"] != "running":
+                        break
+                    await asyncio.sleep(self._settings.poll_interval_s)
+            decision = status.get("decision")
+            if status["status"] != "done" or not decision:
+                raise ApplicationError(
+                    f"decide dispatch failed: {status.get('error') or 'no decision'}",
+                    non_retryable=True,
+                )
+            problem = self._invalid_reason(decision, observed, may_start)
+            rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
+            await self._emit(
+                run_id=self._conduct_run_id(),
+                tool="conduct.decide",
+                digest=_digest(decision),
+                decision="deny" if problem else "allow",
+                rule=problem or rationale,
+            )
+            if problem:
+                raise ApplicationError(f"decision refused: {problem}", non_retryable=True)
+            self._log.info("conduct decision", extra=decision)
+            return decision
+        except BaseException as exc:
+            terminal, terminal_error = "failed", str(exc)[:RATIONALE_CLIP]
+            raise
+        finally:
+            # Tidy the decision row on every exit. A started child reclaims
+            # the id through its own create_run before it runs, so this
+            # finalize never races the run the tick chose — the workflow
+            # sequences decide → authorize → start, all after this returns.
+            await asyncio.to_thread(
+                self._runs.finish, run_id, terminal, error=terminal_error
+            )
 
     @staticmethod
     def _invalid_reason(

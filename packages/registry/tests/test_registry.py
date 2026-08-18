@@ -634,3 +634,34 @@ def test_free_form_tasks_are_not_constrained(registry: Registry):
     runs = Runs(registry)
     runs.start("run-ff-1", "the same task file text", "implement", None, "hello-saas")
     runs.start("run-ff-2", "the same task file text", "implement", None, "hello-saas")
+
+
+def test_implement_run_for_pr_finds_the_lineage(registry: Registry):
+    """The PR's run lineage, keyed the way the conduct observation keys
+    PRs: the number is the URL's tail — and #4 must not match #14."""
+    runs = Runs(registry)
+    runs.start("run-ln-1", "implement issue #1", "implement", None, "hello-saas")
+    runs.finish("run-ln-1", "done", pr_url="https://git.test/r/pull/14")
+    runs.start("run-ln-2", "implement issue #2", "implement", None, "hello-saas")
+    runs.finish("run-ln-2", "done", pr_url="https://git.test/r/pull/4")
+    runs.start("run-ln-3", "implement issue #3", "implement", None, "other-co")
+    runs.finish("run-ln-3", "done", pr_url="https://git.test/r/pull/4")
+    found = Runs(registry).implement_run_for_pr("hello-saas", 4)
+    assert found is not None and found.run_id == "run-ln-2"
+    assert Runs(registry).implement_run_for_pr("hello-saas", 999) is None
+
+
+def test_participants_for_run_includes_terminated_rows(registry: Registry):
+    """The lineage outlives the identities: an implement run's
+    participants are revoked long before its PR is reviewed, and the
+    independence check must still see them."""
+    from registry.participants import RunParticipants
+
+    runs = Runs(registry)
+    runs.start("run-lin-a", "implement issue #5", "implement", None, "hello-saas")
+    participants = RunParticipants(registry)
+    participants.add("lin-exec-1", "run-lin-a", "pm-1", "feature-delivery", "executor")
+    participants.terminate_for_run("run-lin-a")
+    rows = participants.for_run("run-lin-a")
+    assert [(r["agent_id"], r["status"]) for r in rows] == [("lin-exec-1", "terminated")]
+    assert participants.for_run("run-nowhere") == []

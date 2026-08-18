@@ -82,9 +82,13 @@ class RunResult(BaseModel):
     # it recorded — what an intake run links to the run record.
     ticket_urls: list[str] = []
     crew_request_id: str | None = None
-    # Reviewer mode: the findings comment(s) it posted —
-    # the review workflow refuses to reach the merge gate without one.
+    # Reviewer mode: the findings comment(s) it posted, and the structured
+    # verdict — pass/fail plus a one-line summary. The review workflow
+    # refuses to reach the merge gate without a verdict; what the verdict
+    # releases is compiled policy's decision, never the reviewer's.
     comment_urls: list[str] = []
+    verdict: str | None = None
+    verdict_summary: str | None = None
     # Decide mode: {action, target, rationale} — the conduct heartbeat's
     # chosen next action. The PM proposes; the platform validates,
     # authorizes and starts.
@@ -338,10 +342,12 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
 def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
     """The ephemeral reviewer's dispatch: read the
     diff via git.read, execute the suite in the run's sandbox (provisioned
-    from the PR ref), post findings via git.comment. Read-and-judge
+    from the PR ref), post findings via git.comment, and end with the
+    `verdict` tool — pass/fail plus a one-line summary, captured as a
+    record like every other tool result. Read-and-judge
     only: no write_file, no open_pr, and the compiled sdet scope enforces
-    the same at the gateway. A dispatch with no posted findings is a failed
-    review."""
+    the same at the gateway. A dispatch without posted findings or without
+    a verdict is a failed review."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
@@ -362,8 +368,20 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
                 convo.close()
     if not records.comment_urls:
         return RunResult(error="reviewer posted no findings")
-    log.info("review finished", extra={"comments": records.comment_urls})
-    return RunResult(comment_urls=records.comment_urls)
+    if records.verdict is None:
+        return RunResult(
+            error="reviewer finished without a verdict",
+            comment_urls=records.comment_urls,
+        )
+    log.info(
+        "review finished",
+        extra={"comments": records.comment_urls, "verdict": records.verdict},
+    )
+    return RunResult(
+        comment_urls=records.comment_urls,
+        verdict=records.verdict,
+        verdict_summary=records.verdict_summary,
+    )
 
 
 def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:

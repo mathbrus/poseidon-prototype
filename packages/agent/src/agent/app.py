@@ -32,16 +32,13 @@ class TaskRequest(BaseModel):
     mode: Literal["implement", "plan", "deliver", "review", "decide"] = "implement"
 
 
-class TaskStatus(BaseModel):
+class TaskStatus(RunResult):
+    """The dispatch's HTTP shape: exactly the brain's `RunResult` plus a
+    lifecycle `status`. Derived, not mirrored — every result field crosses
+    the boundary automatically, so a new one can never be silently dropped
+    (the failure mode the review verdict once hit)."""
+
     status: Literal["running", "done", "failed"]
-    pr_url: str | None = None
-    iterations: int = 0
-    error: str | None = None
-    brief: str | None = None
-    ticket_urls: list[str] = []
-    crew_request_id: str | None = None
-    comment_urls: list[str] = []
-    decision: dict | None = None
 
 
 def create_app(
@@ -119,14 +116,7 @@ def create_app(
             return
         tasks[run_id] = TaskStatus(
             status="failed" if result.error else "done",
-            pr_url=result.pr_url,
-            iterations=result.iterations,
-            error=result.error,
-            brief=result.brief,
-            ticket_urls=result.ticket_urls,
-            crew_request_id=result.crew_request_id,
-            comment_urls=result.comment_urls,
-            decision=result.decision,
+            **result.model_dump(),
         )
         run_log.info("task finished", extra=tasks[run_id].model_dump())
 

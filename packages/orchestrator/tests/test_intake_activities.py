@@ -40,8 +40,8 @@ def companies() -> InMemoryCompanies:
             "namespace": "hello-saas",
             "budgets": {"per_run_usd": 5.0},
             "workflows": [
-                {"name": "intake", "gates": {"intake": "none"}},
-                {"name": "review", "gates": {"merge": "human_approval"}},
+                {"name": "intake"},
+                {"name": "review", "gates": {"merge": {"resolved_by": "human"}}},
             ],
         },
     )
@@ -97,12 +97,14 @@ def test_budget_boundary_fails_born_exhausted_runs(world):
 
 def test_gate_config_reads_the_applied_blueprint(world, companies):
     intake, _, _ = world
-    assert asyncio.run(intake.intake_gate_config()) == {"intake": "none"}
+    assert asyncio.run(intake.intake_gate_config()) == {}
 
     spec = companies.get("hello-saas")
-    spec["workflows"][0]["gates"] = {"intake": "human_approval"}
+    spec["workflows"][0]["gates"] = {"intake": {"resolved_by": "human"}}
     companies.upsert("hello-saas", spec)
-    assert asyncio.run(intake.intake_gate_config()) == {"intake": "human_approval"}
+    assert asyncio.run(intake.intake_gate_config()) == {
+        "intake": {"resolved_by": "human"}
+    }
 
 
 def test_dispatch_pm_polls_to_terminal(world, monkeypatch):

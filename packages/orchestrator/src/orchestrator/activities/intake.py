@@ -79,7 +79,7 @@ class IntakeActivities:
         return {"cap_usd": cap, "spent_usd": spent}
 
     @activity.defn(name="intake_gate_config")
-    async def intake_gate_config(self) -> dict[str, str]:
+    async def intake_gate_config(self) -> dict[str, Any]:
         """The intake workflow's gate configuration from the applied
         blueprint — the gate slot reads config, never hardcodes."""
         spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}

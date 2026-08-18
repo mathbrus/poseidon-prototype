@@ -119,6 +119,7 @@ async def main() -> None:
         Companies(registry),
         AgentInstances(registry),
         AuditStore(registry),
+        RunParticipants(registry),
     )
     conduct_activities = ConductActivities(
         settings,

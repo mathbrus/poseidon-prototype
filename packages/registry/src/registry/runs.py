@@ -188,6 +188,21 @@ class Runs:
         )
         return [row["pr_url"] for row in rows]
 
+    def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
+        """The implement run that delivered a pull request — the PR's run
+        lineage, keyed the way the conduct observation keys PRs: the number
+        is the URL's tail. The reviewer-independence check reads this; no
+        row means the PR is not the company's own delivered work, which
+        fails the check closed."""
+        rows = self._db.query(
+            "SELECT * FROM registry.runs"
+            " WHERE company = %s AND workflow = 'implement'"
+            "   AND pr_url ~ %s"
+            " ORDER BY finished_at DESC NULLS LAST LIMIT 1",
+            (company, f"/{int(pr_number)}$"),
+        )
+        return RunRecord.from_row(rows[0]) if rows else None
+
     def reviewed_pr_numbers(self, company: str) -> set[int]:
         """PRs any review run has ever consumed, parsed from the canonical
         review-run task (`review pull request #N`) — same rule as issues:
@@ -203,7 +218,12 @@ class Runs:
         return {int(row["number"]) for row in rows}
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
+        # `conduct` decision rows exist only so the heartbeat's LLM call can
+        # bind; they are not work the company did, so they never enter the
+        # observation's run history.
         rows = self._db.query(
-            "SELECT * FROM registry.runs ORDER BY created_at DESC LIMIT %s", (limit,)
+            "SELECT * FROM registry.runs WHERE workflow <> 'conduct'"
+            " ORDER BY created_at DESC LIMIT %s",
+            (limit,),
         )
         return [RunRecord.from_row(row) for row in rows]

@@ -36,6 +36,7 @@ The gateway derives the decision path from the caller: platform lifecycle
 import json
 from typing import Any
 
+from schema.gates import UNDELEGATABLE_PATHS
 from schema.tools import RUN_SCOPED
 
 PLATFORM_PACKAGE = "poseidon.platform"
@@ -167,6 +168,12 @@ def _decision_file(package: str) -> str:
     return HEADER + _DECISION.format(package=package)
 
 
+def _rego_file(company: str, body: str) -> str:
+    """The preamble every per-company rule file shares: the do-not-edit
+    header, the company package, and the rego.v1 import, then the body."""
+    return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
+
+
 def _role_file(
     company: str,
     hire: str,
@@ -192,7 +199,7 @@ def _role_file(
             body += _OVER_CAP_RULE.format(
                 agent_id=agent_id, cap=int(max_concurrent_spawns)
             )
-    return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
+    return _rego_file(company, body)
 
 
 def _crew_file(
@@ -215,7 +222,7 @@ def _crew_file(
         )
         for tool in sorted(tools)
     )
-    return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
+    return _rego_file(company, body)
 
 
 def _conduct_file(company: str, conduct: Any) -> str:
@@ -258,12 +265,91 @@ def _conduct_file(company: str, conduct: Any) -> str:
         '\tnot is_number(object.get(input, ["args", "daily_spent_usd"], null))\n'
         "}\n"
     )
-    return (
-        HEADER
-        + f"\npackage {company_package(company)}\n\nimport rego.v1\n"
-        + allows
-        + denies
+    return _rego_file(company, allows + denies)
+
+
+def _merge_gate_file(
+    company: str, delegation: dict[str, Any], policies: dict[str, Any]
+) -> str:
+    """The policy-resolved merge gate's authority. `merge.resolve` is not a
+    gateway tool: it is the decision the review workflow must win before
+    merging without a human — the `conduct.start` idiom. The three
+    caller-verified facts ride the input (the reviewer's verdict, the
+    platform's own model-free checks, reviewer-independence from the
+    implementer); the delegated class and the carve-outs are compiled
+    literals. No delegation compiles no file, so an unattended merge with
+    no declared class falls to the default deny — revocation is a
+    blueprint diff.
+
+    Fail-safe defaults throughout: the single allow references every input
+    it needs, so a missing fact simply never allows; the named denies
+    restate each requirement negatively so a refusal is a first-class
+    audit story (the rule names the layer that refused), not just an
+    unfired allow."""
+    paths = json.dumps(sorted(delegation.get("paths") or []))
+    carved = json.dumps(
+        sorted({*UNDELEGATABLE_PATHS, *(policies.get("deny_paths") or [])})
     )
+    body = (
+        "\npath_delegated(path) if {\n"
+        f"\tsome delegated in {paths}\n"
+        "\tstartswith(path, delegated)\n"
+        "}\n"
+        '\nallow_rules contains "merge_resolve_delegated" if {\n'
+        '\tinput.lifecycle == "platform"\n'
+        f'\tinput.company == "{company}"\n'
+        '\tinput.tool == "merge.resolve"\n'
+        # The quality layers, verified by the caller and riding the
+        # input: the independent reviewer's verdict, the platform's own
+        # model-free checks, and the registry-checked independence of the
+        # reviewer from the implementer. None alone merges anything.
+        '\tinput.args.verdict == "pass"\n'
+        "\tinput.args.checks_green == true\n"
+        "\tinput.args.reviewer_independent == true\n"
+        # Every changed path fits the delegated class; an empty diff has
+        # nothing to delegate and is not a merge policy can resolve.
+        "\tcount(input.args.paths) > 0\n"
+        "\tevery path in input.args.paths {\n"
+        "\t\tpath_delegated(path)\n"
+        "\t}\n"
+        "}\n"
+        # Path rules fail closed, the git.open_pr idiom: without the
+        # changed paths in the input the class cannot be checked.
+        '\ndeny_rules contains "merge_resolve_paths_missing" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        "\tnot input.args.paths\n"
+        "}\n"
+        # The undelegatable surfaces as a deny — the belt under the
+        # compile-time refusal to delegate them: a changed path under a
+        # carve-out denies the resolve whatever the delegated class says.
+        '\ndeny_rules contains "merge_resolve_carved_out_path" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        f"\tsome carved in {carved}\n"
+        "\tstartswith(path, carved)\n"
+        "}\n"
+        '\ndeny_rules contains "merge_resolve_undelegated_path" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        "\tnot path_delegated(path)\n"
+        "}\n"
+        # Each caller-verified fact restated as a fail-safe named deny:
+        # object.get, never a bare reference, so the absent key denies
+        # rather than leaving the rule unevaluated.
+        '\ndeny_rules contains "merge_resolve_verdict_not_pass" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tobject.get(input, ["args", "verdict"], "") != "pass"\n'
+        "}\n"
+        '\ndeny_rules contains "merge_resolve_checks_not_green" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tobject.get(input, ["args", "checks_green"], false) != true\n'
+        "}\n"
+        '\ndeny_rules contains "merge_resolve_not_independent" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tobject.get(input, ["args", "reviewer_independent"], false) != true\n'
+        "}\n"
+    )
+    return _rego_file(company, body)
 
 
 def _platform_rules(tools: list[str]) -> str:
@@ -351,6 +437,7 @@ def build_bundle(
     crew_members: list[Any],
     policies: dict[str, Any],
     conduct: Any = None,
+    merge_delegation: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """The company bundle: per-role and per-crew-member files, plus the
     company's decision entrypoint and the blueprint's policy rules — all
@@ -378,6 +465,8 @@ def build_bundle(
     files["policies.rego"] = _policies_file(company, policies)
     if conduct is not None:
         files["conduct.rego"] = _conduct_file(company, conduct)
+    if merge_delegation is not None:
+        files["merge_gate.rego"] = _merge_gate_file(company, merge_delegation, policies)
     return files
 
 

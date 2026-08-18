@@ -68,9 +68,9 @@ finalize_intake`. The PM does the scoping itself through governed tools
 crew tables directly. This is the injection surface for the standing
 conductor: the goal text is untrusted input handed straight to the PM,
 and containment is the compiled policy's job, not the prompt's. The gate
-slot reads the blueprint's `workflows.intake.gates`: configure
-`gates.intake: human_approval` and the workflow parks on the `intake`
-signal before dispatching (the shipped example sets it to `none`).
+slot reads the blueprint's `workflows.intake.gates`: declare
+`gates.intake.resolved_by: human` and the workflow parks on the `intake`
+signal before dispatching (the shipped example declares no intake gate).
 
 **implement** — the crew is the only execution path: `create_run →
 check_budget → implement_config → fetch_workspace → provision_sandbox →
@@ -78,14 +78,28 @@ fulfill_crew`, then the dispatch/verify loop below, then the deliver
 dispatch, then teardown. `fulfill_crew` stands the ephemeral roster up
 and hands back the planner's brief plus the executor's crew-pod address.
 
-**review** — PR in, human-gated merge out: read the PR under the platform
+**review** — PR in, gated merge out: read the PR under the platform
 identity, provision a *full* sandbox from its head ref (the reviewer runs
 tests, it does not just read diffs), fulfill a review crew, dispatch the
-ephemeral reviewer (`mode="review"`), then park on the merge gate.
-Approve merges under the platform identity; reject or timeout is an
-honest failure. With no merge gate configured, the findings are the
-deliverable and the workflow ends without merging — unattended auto-merge
-is not a default anyone gets implicitly.
+ephemeral reviewer (`mode="review"`), journal its structured verdict,
+then resolve the merge gate as the blueprint declares. `resolved_by:
+human` parks on the `merge` signal; approve merges under the platform
+identity, reject or timeout is an honest failure. `resolved_by: policy`
+runs the platform's own layers first — the verify re-run in the review
+sandbox (implement's `platform_verify`, one verification concept with two
+callers), the registry-checked reviewer-independence fact, and one
+evaluation of the compiled `merge.resolve` decision: allow releases the
+merge, deny falls back to the human park (good work outside the
+delegation is the human's call). A failed verdict or red verify feeds
+the bounded rework loop: the findings become a backlog ticket filed
+under the platform identity — the conductor consumes it like any other
+issue — and the chain depth rides the canonical `Rework N for PR #R:`
+title, read back by the platform from the failing PR's own lineage. At
+the blueprint's `max_reworks` the PR escalates to the human park with a
+`rework_exhausted` process-gate event instead of looping forever. With
+no merge gate declared, the findings are the deliverable and the
+workflow ends without merging — unattended auto-merge is not a default
+anyone gets implicitly.
 
 Every run begins with `check_budget`: a run born with no headroom under
 the per-run cap fails before anything is dispatched. Enforcement itself

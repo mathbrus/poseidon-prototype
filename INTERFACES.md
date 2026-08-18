@@ -82,7 +82,9 @@ poseidon review PR_NUMBER [--run-id ID] [--detach] [--fast-timeouts]
 
 Starts a review run for an open pull request: a fresh sandbox is
 provisioned from the PR's head ref and an ephemeral reviewer (read-and-
-judge tools only) runs the tests and posts findings. The workflow then
+judge tools only) runs the tests, posts findings, and ends with a
+structured pass/fail verdict the platform journals as an audit event.
+The workflow then
 parks on the **merge gate** until a human answers via `poseidon signal` —
 so `--detach` is the usual mode here, since the gate may hold for hours.
 
@@ -171,7 +173,7 @@ deterministically, one workflow per run: `{family}-{run_id}`.
 |---|---|---|---|
 | `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text=None, timeouts=None, issue_number=None)` — exactly one of `task_text` or `issue_number` | The delivery pipeline: crew fulfilment, planning, implementation, verify gate, PR. With `issue_number`, the platform resolves the open issue first and composes the task from it. |
 | `intake` | `intake-{run_id}` | `IntakeInput(run_id, goal_text, timeouts=None)` | The PM scoping a goal into tickets and a recorded crew request. |
-| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number, timeouts=None)` | Ephemeral review of a PR, then the human merge gate. |
+| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number, timeouts=None)` | Ephemeral review of a PR, then the merge gate — resolved by a human signal or by compiled policy, as the blueprint declares. |
 
 `timeouts=None` keeps the generous real-brain activity bounds (and lets
 old histories replay); the CLI's `--fast-timeouts` passes the mock-brain
@@ -185,10 +187,10 @@ what `poseidon signal` sends.
 
 | Workflow | Signal | Resolves |
 |---|---|---|
-| `intake` | `intake` | The intake gate, when the blueprint configures one (the shipped example sets it to `none`). |
+| `intake` | `intake` | The intake gate, when the blueprint declares `resolved_by: human` (the shipped example declares no intake gate). |
 | `implement` | `budget` | A budget pause: approved means the cap was raised and the run continues; rejected finalizes the run. |
 | `review` | `budget` | Same as in implement. |
-| `review` | `merge` | **The human merge gate.** Approved releases the platform-identity merge; rejected closes the run without merging. |
+| `review` | `merge` | **The merge gate.** Approved releases the platform-identity merge; rejected closes the run without merging. Under `resolved_by: policy` the compiled decision may release the merge itself before the gate ever parks — but this signal still resolves it, so the human override survives delegation (see below). |
 
 ### Queries
 
@@ -218,6 +220,13 @@ But state it plainly, in the spirit of the [root README's section 9](README.md#9
 *delivering a merge-gate verdict requires nothing but network reach to
 port 7233.* On any cluster where the platform namespace is reachable more
 broadly than intended, the merge gate is too.
+
+One qualifier under a delegated gate: an in-class merge needs no signal at
+all — the compiled `merge.resolve` decision releases it, and its authority
+is exactly that decision (the caller-verified verdict, the platform's own
+green checks, reviewer-independence, and the delegated path class), nothing
+more. Frontend reach still matters for the human override and for every
+class the delegation does not cover, which stay signal-resolved.
 
 ---
 
@@ -274,7 +283,7 @@ Typical callers: the executor (all six), the planner (`read_file`,
 | `git.open_pr` | `run_id, repo, branch, title, body, bundle_b64` | The only path by which code leaves the system. The gateway verifies the bundle, applies it to a fresh platform-side clone, extracts the changed paths and feeds them to policy as real arguments (branch protection, `deny_paths`, and path-ownership rules are checked here), then pushes the branch with its own token and opens the PR. |
 | `git.read` | `run_id, repo, number` | Reads a pull request — metadata and diff — for review. |
 | `git.comment` | `run_id, repo, number, body` | Posts a comment on the pull request's conversation; how the reviewer publishes findings. |
-| `git.merge_pr` | `run_id, repo, number, method="merge"` | Merges the pull request. Compiled policy grants this to the platform identity alone, and the orchestrator calls it only after the human merge gate approves. No blueprint can hand it to an agent role. |
+| `git.merge_pr` | `run_id, repo, number, method="merge"` | Merges the pull request. Compiled policy grants this to the platform identity alone, and the orchestrator calls it only after the merge gate resolved to merge — a human approval, or a policy resolution that won the compiled `merge.resolve` decision. No blueprint can hand it to an agent role. |
 
 Typical callers: the executor (`git.open_pr`), the reviewer (`git.read`,
 `git.comment`), the orchestrator (`repo.archive`, `git.merge_pr`).

@@ -98,9 +98,11 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
         assert all("YnVuZGxl" not in text_of(m) for m in messages)
 
 
-def test_review_dispatch_reads_runs_and_comments(settings, gateway):
-    """The reviewer (mode=review): read the diff, execute
-    the suite, post findings — no write tools on the surface."""
+def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
+    """The reviewer (mode=review): read the diff, execute the suite, post
+    findings, end with the structured verdict — no write tools on the
+    surface. The verdict is the one local tool: a record, not a gateway
+    call, so it never appears in the gateway trace."""
     llm = ScriptedLLM(
         [
             calls(tc("read_pr", number=41)),
@@ -112,7 +114,8 @@ def test_review_dispatch_reads_runs_and_comments(settings, gateway):
                     body="Suite green in the review sandbox; no findings.",
                 )
             ),
-            says("Findings posted."),
+            calls(tc("verdict", verdict="pass", summary="Suite green; in scope.")),
+            says("Verdict recorded."),
         ]
     )
 
@@ -123,6 +126,8 @@ def test_review_dispatch_reads_runs_and_comments(settings, gateway):
 
     assert result.error is None
     assert result.comment_urls == [COMMENT_URL]
+    assert result.verdict == "pass"
+    assert result.verdict_summary == "Suite green; in scope."
     assert gateway.tools_called() == [
         "git.read",
         "sandbox.run_tests",
@@ -144,6 +149,30 @@ def test_review_without_findings_fails_the_dispatch(settings, gateway):
 
     assert result.error == "reviewer posted no findings"
     assert result.comment_urls == []
+
+
+def test_review_without_a_verdict_fails_the_dispatch(settings, gateway):
+    """Findings alone no longer finish a review: the structured verdict is
+    the contract, and prose is never parsed for one."""
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc(
+                    "comment_pr",
+                    number=41,
+                    body="Suite green; approving. VERDICT: pass",
+                )
+            ),
+            says("All good."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = review_dispatch(settings, RUN_ID, "Review pull request #41")
+
+    assert result.error == "reviewer finished without a verdict"
+    assert result.comment_urls == [COMMENT_URL]
+    assert result.verdict is None
 
 
 def test_prompt_and_toolsets_per_phase(settings, gateway):
