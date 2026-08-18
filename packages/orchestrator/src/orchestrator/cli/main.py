@@ -68,15 +68,12 @@ def run(
             if target.isdigit()
             else {"task_text": Path(target).read_text()}
         )
-        started_input: object = ImplementInput(
-            run_id=run_id, timeouts=timeouts, **source
-        )
+        started_input: object = ImplementInput(run_id=run_id, timeouts=timeouts, **source)
         wf_id = workflow_id(run_id)
     elif workflow == "intake":
         if target.isdigit():
             typer.echo(
-                "an issue number starts an implement run; intake takes a"
-                " goal file",
+                "an issue number starts an implement run; intake takes a goal file",
                 err=True,
             )
             raise typer.Exit(2)

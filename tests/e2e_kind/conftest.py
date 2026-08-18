@@ -383,9 +383,7 @@ def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
     return _run_implement_input(env, kill_worker=False, issue_number=issue_number)
 
 
-def _run_implement_input(
-    env: dict[str, str], kill_worker: bool, **source
-) -> dict:
+def _run_implement_input(env: dict[str, str], kill_worker: bool, **source) -> dict:
     input = ImplementInput(
         run_id=new_run_id(),
         timeouts=None if env.get("REAL_LLM") == "1" else FAST_TIMEOUTS,

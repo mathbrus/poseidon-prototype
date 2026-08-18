@@ -130,9 +130,7 @@ def _issue_gateway(monkeypatch, issue: dict[str, Any]):
     monkeypatch.setattr(module, "GatewayClient", FakeGateway)
 
 
-def test_read_issue_returns_the_view_and_links_the_ticket(
-    activities, runs, monkeypatch
-):
+def test_read_issue_returns_the_view_and_links_the_ticket(activities, runs, monkeypatch):
     _issue_gateway(
         monkeypatch,
         {
