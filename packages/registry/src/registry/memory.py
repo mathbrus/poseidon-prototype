@@ -296,6 +296,25 @@ class InMemoryRunParticipants:
             self.rows[agent_id]["status"] = "terminated"
         return swept
 
+    def for_run(self, run_id: str) -> list[dict[str, Any]]:
+        # Terminated rows included, like the real accessor: the lineage
+        # outlives the identities.
+        return [
+            {
+                key: row[key]
+                for key in (
+                    "agent_id",
+                    "run_id",
+                    "crew_template",
+                    "role",
+                    "role_template",
+                    "status",
+                )
+            }
+            for row in sorted(self.rows.values(), key=lambda r: r["agent_id"])
+            if row["run_id"] == run_id
+        ]
+
     def active_spawn_count(self, parent_agent_id: str) -> int:
         return len(
             {
@@ -426,6 +445,18 @@ class InMemoryRuns:
             if match:
                 numbers.add(int(match.group(1)))
         return numbers
+
+    def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
+        candidates = [
+            r
+            for r in self.rows.values()
+            if r.company == company
+            and r.workflow == "implement"
+            and r.pr_url
+            and re.search(rf"/{int(pr_number)}$", r.pr_url)
+        ]
+        candidates.sort(key=lambda r: r.finished_at or "")
+        return candidates[-1] if candidates else None
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first.

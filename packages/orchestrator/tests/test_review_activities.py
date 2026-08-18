@@ -13,6 +13,7 @@ from orchestrator.config import WorkerSettings
 from registry.memory import (
     InMemoryAuditStore,
     InMemoryCompanies,
+    InMemoryRunParticipants,
     InMemoryRuns,
 )
 
@@ -70,11 +71,13 @@ def audit() -> InMemoryAuditStore:
     return InMemoryAuditStore()
 
 
-def _activities(settings, spec, instances, audit=None, runs=None):
+def _activities(settings, spec, instances, audit=None, runs=None, participants=None):
     companies = InMemoryCompanies()
     if spec is not None:
         companies.upsert("hello-saas", spec)
-    return ReviewActivities(settings, runs or InMemoryRuns(), companies, instances, audit)
+    return ReviewActivities(
+        settings, runs or InMemoryRuns(), companies, instances, audit, participants
+    )
 
 
 def test_review_config_resolves_crew_conductor_and_gate(settings):
@@ -212,6 +215,9 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(settings, monkeypatch):
     pr = asyncio.run(activities.read_pr(RUN_ID, 41))
     assert pr["head"] == "feature/slugify-x"
     assert "files" not in pr
+    # The changed paths survive the shaping: the merge-time class check
+    # resolves against them.
+    assert pr["paths"] == ["slugify.py"]
 
 
 def test_read_pr_refuses_a_headless_pr(settings, monkeypatch):
@@ -260,3 +266,153 @@ def test_merge_pr_raises_when_the_merge_does_not_land(settings, monkeypatch):
     assert asyncio.run(activities.merge_pr(RUN_ID, 41))["sha"] == "abc123"
     with pytest.raises(RuntimeError, match="did not land"):
         asyncio.run(activities.merge_pr(RUN_ID, 41))
+
+
+# -- reviewer independence --------------------------------------------------
+
+
+def _lineage(runs, participants, *, implement_agents, review_agents):
+    """An implement run that delivered PR #41, a review run for it, and
+    both runs' identity lineages (already revoked, as teardown leaves
+    them)."""
+    runs.start("run-impl", "implement issue #7", "implement", "wf-impl", "hello-saas")
+    runs.finish("run-impl", "done", pr_url="https://git.test/repo/pulls/41")
+    runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
+    for agent_id in implement_agents:
+        participants.add(agent_id, "run-impl", "pm-1", "feature-delivery", "executor")
+    for agent_id in review_agents:
+        participants.add(agent_id, RUN_ID, "pm-1", "feature-review", "reviewer")
+    participants.terminate_for_run("run-impl")
+
+
+def test_disjoint_lineages_are_independent(settings):
+    runs, participants = InMemoryRuns(), InMemoryRunParticipants()
+    _lineage(
+        runs,
+        participants,
+        implement_agents=["exec-impl-1"],
+        review_agents=["rev-1"],
+    )
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs,
+        participants=participants,
+    )
+    result = asyncio.run(activities.reviewer_independent(RUN_ID, 41))
+    assert result["independent"] is True
+    assert "run-impl" in result["reason"]
+
+
+def test_the_delivery_crew_may_not_review_its_own_change(settings):
+    """A blueprint may legally bind review to the delivery crew; the
+    independence fact refuses to call that independent — the crew that
+    wrote the change is grading its own homework, whatever the run ids
+    say."""
+    runs, participants = InMemoryRuns(), InMemoryRunParticipants()
+    runs.start("run-impl", "implement issue #7", "implement", "wf-impl", "hello-saas")
+    runs.finish("run-impl", "done", pr_url="https://git.test/repo/pulls/41")
+    runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
+    participants.add(
+        "exec-impl-1", "run-impl", "pm-1", "feature-delivery", "executor"
+    )
+    participants.terminate_for_run("run-impl")
+    participants.add(
+        "rev-1", RUN_ID, "pm-1", "feature-delivery", "reviewer"
+    )
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs,
+        participants=participants,
+    )
+    result = asyncio.run(activities.reviewer_independent(RUN_ID, 41))
+    assert result["independent"] is False
+    assert "feature-delivery" in result["reason"]
+
+
+def test_an_unattributed_pr_fails_independence_closed(settings):
+    runs, participants = InMemoryRuns(), InMemoryRunParticipants()
+    runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
+    participants.add("rev-1", RUN_ID, "pm-1", "feature-review", "reviewer")
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs,
+        participants=participants,
+    )
+    result = asyncio.run(activities.reviewer_independent(RUN_ID, 41))
+    assert result["independent"] is False
+    assert "no implement run" in result["reason"]
+
+
+def test_a_review_with_no_bound_reviewer_fails_independence_closed(settings):
+    runs, participants = InMemoryRuns(), InMemoryRunParticipants()
+    _lineage(
+        runs, participants, implement_agents=["exec-impl-1"], review_agents=[]
+    )
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs,
+        participants=participants,
+    )
+    result = asyncio.run(activities.reviewer_independent(RUN_ID, 41))
+    assert result["independent"] is False
+    assert "no reviewer identity" in result["reason"]
+
+
+# -- the merge.resolve evaluation ------------------------------------------
+
+
+def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypatch):
+    import orchestrator.activities.review as module
+
+    answers = iter(
+        [
+            {"allow": True, "rule": "merge_resolve_delegated"},
+            {"allow": False, "rule": "merge_resolve_undelegated_path"},
+        ]
+    )
+    seen = []
+
+    async def fake_evaluate(opa_url, company, decision_input):
+        seen.append(decision_input)
+        return next(answers)
+
+    monkeypatch.setattr(module, "evaluate_decision", fake_evaluate)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+
+    released = asyncio.run(
+        activities.resolve_merge(RUN_ID, "pass", True, True, ["src/a.py"], "wf-rev")
+    )
+    declined = asyncio.run(
+        activities.resolve_merge(RUN_ID, "pass", True, True, ["deploy/x"], "wf-rev")
+    )
+    assert released == {"allow": True, "rule": "merge_resolve_delegated"}
+    assert declined == {"allow": False, "rule": "merge_resolve_undelegated_path"}
+
+    # The decision input carries the caller-verified facts, platform-shaped.
+    assert seen[0]["tool"] == "merge.resolve"
+    assert seen[0]["lifecycle"] == "platform"
+    assert seen[0]["args"] == {
+        "verdict": "pass",
+        "checks_green": True,
+        "reviewer_independent": True,
+        "paths": ["src/a.py"],
+    }
+
+    events = [e for e in audit.events if e.tool == "merge.resolve"]
+    assert [(e.decision, e.rule) for e in events] == [
+        ("allow", "merge_resolve_delegated"),
+        ("deny", "merge_resolve_undelegated_path"),
+    ]
+    assert all(e.source == "process-lifecycle" for e in events)
+
+
+def test_policy_gate_outcomes_map_to_decisions(settings, audit):
+    """policy_resolved released a merge (allow); policy_declined fell back
+    to the human signal (deny) — distinguishable from human approvals
+    forever."""
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    for kind in ("policy_resolved", "policy_declined"):
+        asyncio.run(
+            activities.record_gate_outcome(RUN_ID, "merge", kind, f"review-{RUN_ID}")
+        )
+    events = [e for e in audit.events if e.run_id == RUN_ID]
+    assert [(e.rule, e.decision) for e in events] == [
+        ("gate_policy_resolved", "allow"),
+        ("gate_policy_declined", "deny"),
+    ]

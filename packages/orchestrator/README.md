@@ -78,14 +78,22 @@ fulfill_crew`, then the dispatch/verify loop below, then the deliver
 dispatch, then teardown. `fulfill_crew` stands the ephemeral roster up
 and hands back the planner's brief plus the executor's crew-pod address.
 
-**review** — PR in, human-gated merge out: read the PR under the platform
+**review** — PR in, gated merge out: read the PR under the platform
 identity, provision a *full* sandbox from its head ref (the reviewer runs
 tests, it does not just read diffs), fulfill a review crew, dispatch the
-ephemeral reviewer (`mode="review"`), then park on the merge gate.
-Approve merges under the platform identity; reject or timeout is an
-honest failure. With no merge gate configured, the findings are the
-deliverable and the workflow ends without merging — unattended auto-merge
-is not a default anyone gets implicitly.
+ephemeral reviewer (`mode="review"`), journal its structured verdict,
+then resolve the merge gate as the blueprint declares. `resolved_by:
+human` parks on the `merge` signal; approve merges under the platform
+identity, reject or timeout is an honest failure. `resolved_by: policy`
+runs the platform's own layers first — the verify re-run in the review
+sandbox (implement's `platform_verify`, one verification concept with two
+callers), the registry-checked reviewer-independence fact, and one
+evaluation of the compiled `merge.resolve` decision: allow releases the
+merge, deny falls back to the human park (good work outside the
+delegation is the human's call), and a failed verdict or red verify fails
+the run. With no merge gate declared, the findings are the deliverable
+and the workflow ends without merging — unattended auto-merge is not a
+default anyone gets implicitly.
 
 Every run begins with `check_budget`: a run born with no headroom under
 the per-run cap fails before anything is dispatched. Enforcement itself

@@ -11,16 +11,21 @@
     approve: the orchestrator merges via git.merge_pr under its platform
     identity; reject/timeout: honest failure -> teardown.
 
-The merge gate is the one human gate, and the sole owner of the
-merge guarantee — merge approval is workflow state, the single named
-exception to policy-side defense in depth: the workflow parks on the
-`merge` signal exactly when the blueprint declares a `gates.merge` — gate
-config comes from the compiled plan, never hardcoded. Nobody home?
-The timer escalates at half the deadline and expires the gate at the end;
-the park is API-visible (`state` query), the escalation and the
-verdict are `process-gate` audit events written through an activity, and
-the merge itself is a gateway-audited tool call — so one run_id query
-tells the whole story: findings, park, escalation, verdict, merge.
+The merge gate owns the merge guarantee, and the blueprint names its
+resolver — gate config comes from the compiled plan, never hardcoded.
+`resolved_by: human` parks on the `merge` signal. `resolved_by: policy`
+adds the platform's own layers before anything merges: the reviewer's
+journaled verdict, the platform verify re-run in the review sandbox (the
+same activity that gates implement delivery), the registry-checked
+reviewer-independence fact, and one evaluation of the compiled
+merge.resolve decision — allow releases the merge, deny falls back to
+the human signal, so the human override survives delegation. Nobody
+home at a park? The timer escalates at half the deadline and expires the
+gate at the end; the park is API-visible (`state` query), every
+transition is a `process-gate` audit event written through an activity,
+and the merge itself is a gateway-audited tool call — so one run_id
+query tells the whole story: findings, verdict, checks, resolution,
+merge.
 
 Review is orchestrator-sequenced over HTTP. Reject handling is the honest
 minimum for now: findings are already on the PR, the run finalizes failed
@@ -133,6 +138,75 @@ class ReviewWorkflow:
             if outcome.kind != "approved":
                 return result
             self._budget_gate = Gate("budget")
+
+    async def _policy_merge(
+        self,
+        input: "ReviewInput",
+        pr: dict[str, Any],
+        result: dict[str, Any],
+        timeouts: Timeouts,
+    ) -> dict[str, Any]:
+        """The policy-resolved path. Quality layers first — a failed
+        verdict or a red platform verify is a failed run (the rework loop
+        consumes those in a later step of #11). Then one evaluation of the
+        compiled merge.resolve decision, carrying the three
+        caller-verified facts (verdict, checks, independence) and the
+        changed paths: allow releases the merge under the platform
+        identity; deny is a *decline*, not a failure — good work outside
+        the delegation falls back to the human signal, so the human
+        override survives delegation by construction.
+
+        Both the verified tree and the changed paths are pinned at the
+        run's start (the sandbox was provisioned from the head ref read
+        then). A head that moves after review re-opens the gap between
+        reviewed and merged — recorded, not yet closed: merge_pr does not
+        assert the head sha."""
+        verdict = result["verdict"]
+        if verdict != "pass":
+            return {"error": "policy merge gate: review verdict failed"}
+        # The platform's own run of the suite in the review sandbox — the
+        # same activity that gates implement delivery: one verification
+        # concept, two callers. The reviewer's run_tests was advisory.
+        verify = await workflow.execute_activity(
+            "platform_verify",
+            args=[input.run_id],
+            start_to_close_timeout=timedelta(seconds=timeouts.verify_s),
+            retry_policy=STEP_RETRY,
+        )
+        if not verify.get("passed"):
+            return {"error": "policy merge gate: platform verify red"}
+        independence = await workflow.execute_activity(
+            "reviewer_independent",
+            args=[input.run_id, input.pr_number],
+            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            retry_policy=STEP_RETRY,
+        )
+        resolve = await workflow.execute_activity(
+            "resolve_merge",
+            args=[
+                input.run_id,
+                verdict,
+                bool(verify.get("passed")),
+                bool(independence.get("independent")),
+                pr.get("paths") or [],
+                workflow.info().workflow_id,
+            ],
+            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            retry_policy=STEP_RETRY,
+        )
+        if not resolve.get("allow"):
+            await self._record_gate(
+                input.run_id, "merge", "policy_declined", timeouts
+            )
+            return {}
+        await self._record_gate(input.run_id, "merge", "policy_resolved", timeouts)
+        merged = await workflow.execute_activity(
+            "merge_pr",
+            args=[input.run_id, input.pr_number],
+            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        return {"released": merged}
 
     async def _record_gate(
         self, run_id: str, gate: str, kind: str, timeouts: Timeouts
@@ -247,11 +321,20 @@ class ReviewWorkflow:
                 # an unattended auto-merge is not a default anyone gets
                 # implicitly.
                 raise _ReviewOver()
-            # `resolved_by: human` parks on the signal. `policy` parks
-            # there too for now: the structured verdict and the platform
-            # checks it resolves on land later in this milestone (#11),
-            # and until they exist the gate fails closed to the human
-            # rather than open to a merge.
+
+            if gate.get("resolved_by") == "policy":
+                policy = await self._policy_merge(input, pr, result, timeouts)
+                if policy.get("error"):
+                    error = policy["error"]
+                    raise _ReviewOver()
+                if policy.get("released"):
+                    merged = policy["released"]
+                    result["merged"] = True
+                    result["merge_sha"] = merged.get("sha")
+                    raise _ReviewOver()
+                # Policy declined a green review: the work is fine but not
+                # delegated. The human signal resolves every gate, so the
+                # decline falls through to the ordinary park below.
 
             # The merge gate: park on the signal, escalate at half
             # the deadline, expire at the end. Every transition is a

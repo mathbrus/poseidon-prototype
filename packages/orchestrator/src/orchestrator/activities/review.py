@@ -10,6 +10,10 @@ Retry safety, per activity:
                           store is append-only by design).
     record_verdict      — appends the reviewer's journaled verdict; same
                           append-only posture.
+    reviewer_independent— read-only against the registry; safe.
+    resolve_merge       — re-evaluates the compiled merge.resolve decision
+                          and re-audits; the honest record of what was
+                          asked (the conduct_authorize posture).
     merge_pr            — GitHub's merge endpoint is idempotent for an
                           already-merged PR (it answers 405, surfaced as a
                           backend error the workflow reports honestly).
@@ -36,7 +40,8 @@ from common.audit import AuditEvent
 from common.telemetry import get_logger
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
-from registry import AuditStore, Runs
+from orchestrator.opa import evaluate_decision
+from registry import AuditStore, RunParticipants, Runs
 from registry.bundles import AgentInstances, Companies
 
 
@@ -48,12 +53,14 @@ class ReviewActivities:
         companies: Companies,
         instances: AgentInstances | None = None,
         audit: AuditStore | None = None,
+        participants: RunParticipants | None = None,
     ) -> None:
         self._settings = settings
         self._runs = runs
         self._companies = companies
         self._instances = instances
         self._audit = audit
+        self._participants = participants
         self._log = get_logger("orchestrator.review")
 
     @activity.defn(name="create_review_run")
@@ -141,8 +148,51 @@ class ReviewActivities:
                 " provision a review sandbox from"
             )
         # The reviewer reads the diff itself (git.read is in its scope);
-        # the workflow only needs the shape, not the patches.
-        return {k: v for k, v in pr.items() if k != "files"}
+        # the workflow only needs the shape, not the patches — plus the
+        # changed paths, which the merge-time class check resolves against.
+        shaped = {k: v for k, v in pr.items() if k != "files"}
+        shaped["paths"] = sorted(
+            {f["path"] for f in pr.get("files") or [] if f.get("path")}
+        )
+        return shaped
+
+    async def _append_event(
+        self,
+        *,
+        run_id: str,
+        tool: str,
+        payload: dict[str, Any],
+        decision: str,
+        rule: str,
+        source: str,
+        workflow_id: str,
+        latency_ms: int = 0,
+    ) -> None:
+        """The one AuditEvent constructor for this module's producers —
+        append-only, so a retried append duplicates a row, never loses
+        one."""
+        if self._audit is None:
+            raise RuntimeError("review activities constructed without an audit store")
+        event = AuditEvent(
+            ts=datetime.now(UTC).isoformat(),
+            run_id=run_id,
+            agent_id="orchestrator",
+            role="platform",
+            tool=tool,
+            args_digest=hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest(),
+            decision=decision,  # type: ignore[arg-type]
+            rule=rule,
+            latency_ms=latency_ms,
+            backend_status=None,
+            source=source,  # type: ignore[arg-type]
+            company=self._settings.company,
+            lifecycle="platform",
+            parent_agent_id="",
+            workflow=workflow_id,
+        )
+        await asyncio.to_thread(self._audit.append, event)
 
     @activity.defn(name="record_gate_outcome")
     async def record_gate_outcome(
@@ -150,30 +200,19 @@ class ReviewActivities:
     ) -> None:
         """One `source=process-gate` audit event: parked gates,
         escalations and verdicts become first-class rows in the run's
-        story, carrying the workflow id that maps back to run_id."""
-        if self._audit is None:
-            raise RuntimeError("review activities constructed without an audit store")
-        payload = {"gate": gate, "outcome": kind}
-        event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
+        story, carrying the workflow id that maps back to run_id. The
+        policy kinds keep human and policy resolutions distinguishable
+        forever: `policy_resolved` released a merge, `policy_declined`
+        fell back to the human signal."""
+        await self._append_event(
             run_id=run_id,
-            agent_id="orchestrator",
-            role="platform",
             tool=f"gate.{gate}",
-            args_digest=hashlib.sha256(
-                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
-            decision="allow" if kind == "approved" else "deny",
+            payload={"gate": gate, "outcome": kind},
+            decision="allow" if kind in ("approved", "policy_resolved") else "deny",
             rule=f"gate_{kind}",
-            latency_ms=0,
-            backend_status=None,
             source="process-gate",
-            company=self._settings.company,
-            lifecycle="platform",
-            parent_agent_id="",
-            workflow=workflow_id,
+            workflow_id=workflow_id,
         )
-        await asyncio.to_thread(self._audit.append, event)
         self._log.bind(run_id=run_id).info(
             "gate outcome recorded", extra={"gate": gate, "outcome": kind}
         )
@@ -185,34 +224,133 @@ class ReviewActivities:
         """One `source=process-lifecycle` audit event journaling the
         reviewer's structured verdict — the conduct.decide idiom: the
         judgement and its one-line why become an append-only row in the
-        run's story, distinct from the gate outcome that acts on it. A
-        retried append duplicates a row, never loses one."""
-        if self._audit is None:
-            raise RuntimeError("review activities constructed without an audit store")
-        payload = {"verdict": verdict, "summary": summary}
-        event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
+        run's story, distinct from the gate outcome that acts on it."""
+        await self._append_event(
             run_id=run_id,
-            agent_id="orchestrator",
-            role="platform",
             tool="review.verdict",
-            args_digest=hashlib.sha256(
-                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
+            payload={"verdict": verdict, "summary": summary},
             decision="allow" if verdict == "pass" else "deny",
             rule=summary[:300],
-            latency_ms=0,
-            backend_status=None,
             source="process-lifecycle",
-            company=self._settings.company,
-            lifecycle="platform",
-            parent_agent_id="",
-            workflow=workflow_id,
+            workflow_id=workflow_id,
         )
-        await asyncio.to_thread(self._audit.append, event)
         self._log.bind(run_id=run_id).info(
             "verdict recorded", extra={"verdict": verdict}
         )
+
+    @activity.defn(name="reviewer_independent")
+    async def reviewer_independent(
+        self, run_id: str, pr_number: int
+    ) -> dict[str, Any]:
+        """The registry-checked fact behind `reviewer_independent`: the
+        review run's identity lineage shares nothing with the lineage of
+        the implement run that delivered the PR — neither an agent_id
+        (impossible while agent_id stays the participants' primary key,
+        but the check is positional, not schema-trusting) nor a crew
+        template: a blueprint may legally bind review to the delivery
+        crew, and that is exactly the self-review this check refuses to
+        call independent. Fail closed on absence — a PR no implement run
+        attributes, or a review with no bound reviewer, is not eligible
+        for a policy-resolved merge (the human signal still is)."""
+
+        def read() -> dict[str, Any]:
+            implement = self._runs.implement_run_for_pr(
+                self._settings.company, pr_number
+            )
+            if implement is None:
+                return {
+                    "independent": False,
+                    "reason": f"no implement run attributes PR #{pr_number}",
+                }
+            if self._participants is None:
+                raise RuntimeError(
+                    "review activities constructed without participants"
+                )
+            reviewers = self._participants.for_run(run_id)
+            implementers = self._participants.for_run(implement.run_id)
+            if not reviewers:
+                return {
+                    "independent": False,
+                    "reason": "no reviewer identity bound to this run",
+                }
+            shared_ids = sorted(
+                {p["agent_id"] for p in reviewers}
+                & {p["agent_id"] for p in implementers}
+            )
+            if shared_ids:
+                return {
+                    "independent": False,
+                    "reason": f"shared identities with {implement.run_id}: "
+                    + ", ".join(shared_ids),
+                }
+            shared_crews = sorted(
+                {p["crew_template"] for p in reviewers}
+                & {p["crew_template"] for p in implementers}
+            )
+            if shared_crews:
+                return {
+                    "independent": False,
+                    "reason": f"crew {', '.join(shared_crews)} both delivered "
+                    f"and reviews this change ({implement.run_id})",
+                }
+            return {"independent": True, "reason": f"lineage {implement.run_id}"}
+
+        result = await asyncio.to_thread(read)
+        self._log.bind(run_id=run_id).info("independence checked", extra=result)
+        return result
+
+    @activity.defn(name="resolve_merge")
+    async def resolve_merge(
+        self,
+        run_id: str,
+        verdict: str,
+        checks_green: bool,
+        reviewer_independent: bool,
+        paths: list[str],
+        workflow_id: str,
+    ) -> dict[str, Any]:
+        """Evaluate the compiled `merge.resolve` decision — the
+        conduct_authorize idiom: the caller-verified facts ride the input,
+        the delegated class and carve-outs bind as policy, and the answer
+        is audited either way. Unlike conduct.start, a deny is a routed
+        outcome, not an error: good work outside the delegation falls
+        back to the human signal."""
+        company = self._settings.company
+        decision_input = {
+            "company": company,
+            "agent_id": "orchestrator",
+            "lifecycle": "platform",
+            "parent_agent_id": "",
+            "role": "platform",
+            "run_id": run_id,
+            "workflow": "review",
+            "tool": "merge.resolve",
+            "args": {
+                "verdict": verdict,
+                "checks_green": checks_green,
+                "reviewer_independent": reviewer_independent,
+                "paths": paths,
+            },
+            "run_binding_verified": False,
+        }
+        started = time.monotonic()
+        result = await evaluate_decision(self._settings.opa_url, company, decision_input)
+        allowed = bool(result.get("allow"))
+        await self._append_event(
+            run_id=run_id,
+            tool="merge.resolve",
+            payload=decision_input["args"],
+            decision="allow" if allowed else "deny",
+            rule=str(result.get("rule") or ""),
+            source="process-lifecycle",
+            workflow_id=workflow_id,
+            latency_ms=int((time.monotonic() - started) * 1000),
+        )
+        self._log.bind(run_id=run_id).info(
+            "merge resolve evaluated",
+            extra={"allow": allowed, "rule": result.get("rule")},
+        )
+        return {"allow": allowed, "rule": str(result.get("rule") or "")}
 
     @activity.defn(name="merge_pr")
     async def merge_pr(self, run_id: str, pr_number: int) -> dict[str, Any]:
@@ -243,5 +381,7 @@ class ReviewActivities:
             self.read_pr,
             self.record_gate_outcome,
             self.record_verdict,
+            self.reviewer_independent,
+            self.resolve_merge,
             self.merge_pr,
         ]

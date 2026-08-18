@@ -609,6 +609,9 @@ def decide_delegated(tmp_path_factory):
 
 
 def merge_resolve(**args) -> dict:
+    # Independence defaults to true here so each test isolates the layer
+    # it is about; the dedicated test below flips it.
+    args.setdefault("reviewer_independent", True)
     return {
         "company": "hello-saas",
         "lifecycle": "platform",
@@ -644,14 +647,14 @@ def test_a_steered_verdict_alone_merges_nothing(decide_delegated):
     decision = decide_delegated(
         **merge_resolve(verdict="pass", checks_green=False, paths=["src/a.py"])
     )
-    assert decision["allow"] is False
+    assert decision == {"allow": False, "rule": "merge_resolve_checks_not_green"}
 
 
 def test_green_checks_without_a_passing_verdict_merge_nothing(decide_delegated):
     decision = decide_delegated(
         **merge_resolve(verdict="fail", checks_green=True, paths=["src/a.py"])
     )
-    assert decision["allow"] is False
+    assert decision == {"allow": False, "rule": "merge_resolve_verdict_not_pass"}
 
 
 def test_a_path_outside_the_delegated_class_denies(decide_delegated):
@@ -662,7 +665,7 @@ def test_a_path_outside_the_delegated_class_denies(decide_delegated):
             paths=["src/a.py", "deploy/values.yaml"],
         )
     )
-    assert decision["allow"] is False
+    assert decision == {"allow": False, "rule": "merge_resolve_undelegated_path"}
 
 
 def test_merge_resolve_fails_closed_without_the_paths(decide_delegated):
@@ -690,6 +693,29 @@ def test_a_carved_out_path_denies_by_name(decide_delegated):
         )
     )
     assert decision == {"allow": False, "rule": "merge_resolve_carved_out_path"}
+
+
+def test_a_non_independent_review_merges_nothing(decide_delegated):
+    """The registry-checked fact is a required input: a reviewer that
+    shares identity with the implementer (or cannot be attributed at all)
+    denies by name."""
+    decision = decide_delegated(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py"],
+            reviewer_independent=False,
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_not_independent"}
+
+
+def test_independence_fails_closed_when_absent(decide_delegated):
+    """Fail-safe defaults: the dangerous condition is the absent input."""
+    args = merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
+    del args["args"]["reviewer_independent"]
+    decision = decide_delegated(**args)
+    assert decision == {"allow": False, "rule": "merge_resolve_not_independent"}
 
 
 def test_agents_cannot_claim_the_merge_resolve(decide_delegated):

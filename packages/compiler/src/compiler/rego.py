@@ -272,36 +272,44 @@ def _merge_gate_file(
 ) -> str:
     """The policy-resolved merge gate's authority. `merge.resolve` is not a
     gateway tool: it is the decision the review workflow must win before
-    merging without a human — the `conduct.start` idiom. The independent
-    verdict and the platform checks ride the input, verified by the caller;
-    the delegated class and the carve-outs are compiled literals. No
-    delegation compiles no file, so an unattended merge with no declared
-    class falls to the default deny — revocation is a blueprint diff.
+    merging without a human — the `conduct.start` idiom. The three
+    caller-verified facts ride the input (the reviewer's verdict, the
+    platform's own model-free checks, reviewer-independence from the
+    implementer); the delegated class and the carve-outs are compiled
+    literals. No delegation compiles no file, so an unattended merge with
+    no declared class falls to the default deny — revocation is a
+    blueprint diff.
 
     Fail-safe defaults throughout: the single allow references every input
-    it needs, so a missing verdict, check, or path list simply never
-    allows; the named denies exist so a refusal is a first-class audit
-    story, not just an unfired allow."""
+    it needs, so a missing fact simply never allows; the named denies
+    restate each requirement negatively so a refusal is a first-class
+    audit story (the rule names the layer that refused), not just an
+    unfired allow."""
     paths = json.dumps(sorted(delegation.get("paths") or []))
     carved = json.dumps(
         sorted({*UNDELEGATABLE_PATHS, *(policies.get("deny_paths") or [])})
     )
     body = (
+        "\npath_delegated(path) if {\n"
+        f"\tsome delegated in {paths}\n"
+        "\tstartswith(path, delegated)\n"
+        "}\n"
         "\nallow_rules contains \"merge_resolve_delegated\" if {\n"
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
         '\tinput.tool == "merge.resolve"\n'
-        # The two quality layers, verified by the caller and riding the
-        # input: the independent reviewer's verdict and the platform's own
-        # model-free checks. Neither alone merges anything.
+        # The quality layers, verified by the caller and riding the
+        # input: the independent reviewer's verdict, the platform's own
+        # model-free checks, and the registry-checked independence of the
+        # reviewer from the implementer. None alone merges anything.
         '\tinput.args.verdict == "pass"\n'
         "\tinput.args.checks_green == true\n"
+        "\tinput.args.reviewer_independent == true\n"
         # Every changed path fits the delegated class; an empty diff has
         # nothing to delegate and is not a merge policy can resolve.
         "\tcount(input.args.paths) > 0\n"
         "\tevery path in input.args.paths {\n"
-        f"\t\tsome delegated in {paths}\n"
-        "\t\tstartswith(path, delegated)\n"
+        "\t\tpath_delegated(path)\n"
         "\t}\n"
         "}\n"
         # Path rules fail closed, the git.open_pr idiom: without the
@@ -318,6 +326,26 @@ def _merge_gate_file(
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome carved in {carved}\n"
         "\tstartswith(path, carved)\n"
+        "}\n"
+        '\ndeny_rules contains "merge_resolve_undelegated_path" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        "\tnot path_delegated(path)\n"
+        "}\n"
+        # Each caller-verified fact restated as a fail-safe named deny:
+        # object.get, never a bare reference, so the absent key denies
+        # rather than leaving the rule unevaluated.
+        '\ndeny_rules contains "merge_resolve_verdict_not_pass" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tobject.get(input, ["args", "verdict"], "") != "pass"\n'
+        "}\n"
+        '\ndeny_rules contains "merge_resolve_checks_not_green" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tobject.get(input, ["args", "checks_green"], false) != true\n'
+        "}\n"
+        '\ndeny_rules contains "merge_resolve_not_independent" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tobject.get(input, ["args", "reviewer_independent"], false) != true\n'
         "}\n"
     )
     return HEADER + f"\npackage {company_package(company)}\n\nimport rego.v1\n" + body
