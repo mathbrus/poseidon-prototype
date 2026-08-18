@@ -84,7 +84,9 @@ def _backlog_gateway(monkeypatch, issues: list[dict[str, Any]]):
 
 
 def _opa(monkeypatch, allow: bool, rule: str):
-    import orchestrator.activities.conduct as module
+    # The OPA transport lives in orchestrator.opa now (shared with crew
+    # fulfilment); patch it there.
+    import orchestrator.opa as module
 
     class FakeResponse:
         def raise_for_status(self):

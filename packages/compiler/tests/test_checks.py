@@ -32,12 +32,6 @@ def test_workflow_cannot_bind_to_an_unknown_role(blueprint):
     assert any("cto" in p for p in problems_of(blueprint))
 
 
-def test_placeholder_at_count_zero_is_not_a_conductor(blueprint):
-    """A `count: 0` role documents a growth path; nothing may bind to it."""
-    blueprint["workflows"]["intake"]["conductor"] = "analyst"
-    assert any("analyst" in p for p in problems_of(blueprint))
-
-
 def test_unknown_tool_scope_fails_at_compile(blueprint):
     blueprint["tools"]["pm"]["allow"].append("issues.purge")
     assert any("issues.purge" in p for p in problems_of(blueprint))
@@ -50,8 +44,8 @@ def test_platform_tool_cannot_be_granted_to_a_role(blueprint):
 
 
 def test_scope_for_a_role_nobody_uses_is_dead_config(blueprint):
-    blueprint["tools"]["analyst"] = {"allow": ["issues.read"]}
-    assert any("analyst" in p and "never apply" in p for p in problems_of(blueprint))
+    blueprint["tools"]["auditor"] = {"allow": ["issues.read"]}
+    assert any("auditor" in p and "never apply" in p for p in problems_of(blueprint))
 
 
 def test_unknown_role_template_is_a_compile_error(blueprint):
@@ -67,14 +61,16 @@ def test_unknown_crew_name_is_a_compile_error(blueprint):
 
 
 def test_spawn_authority_cannot_be_widened(blueprint):
-    """The analyst template grants no spawn authority; a blueprint granting
-    it anyway is an error, not a silent drop — a workflow might depend on
-    the grant."""
-    blueprint["departments"]["roles"]["analyst"]["may_spawn"] = {
-        "crew": ["feature-delivery"]
+    """Granting a role a crew its template does not permit is an error, not
+    a silent drop — a workflow might depend on the grant. The sdet template
+    grants no spawn authority."""
+    blueprint["departments"]["roles"]["future-lead"] = {
+        "template": "sdet",
+        "count": 0,
+        "may_spawn": {"crew": ["feature-delivery"]},
     }
     (problem,) = [p for p in problems_of(blueprint) if "spawn authority" in p]
-    assert "analyst" in problem
+    assert "future-lead" in problem
 
 
 def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
@@ -146,7 +142,8 @@ def test_conduct_section_compiles(conducted):
 
 
 def test_conduct_conductor_must_be_a_hired_spawner(conducted):
-    conducted["conduct"]["conductor"] = "analyst"
+    # sdet is a real template but crew-only — never a hired standing role.
+    conducted["conduct"]["conductor"] = "sdet"
     (problem,) = [p for p in problems_of(conducted) if "conduct.conductor" in p]
     assert "not a hired spawner" in problem
 

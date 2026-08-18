@@ -413,11 +413,11 @@ def test_workflow_path_records_under_conductor_authority(fulfill_world, monkeypa
     """No recorded request + record_under_authority: the same compiled
     crew.request decision is evaluated at OPA under the conductor's
     input, the recording is audited, and fulfillment proceeds."""
-    import orchestrator.activities.crew as module
+    import orchestrator.opa as opa_module
 
     crew, participants, audit, requests, _ = fulfill_world
     opa = FakeOpa({"allow": True, "rule": "role_pm_crew_request"})
-    monkeypatch.setattr(module, "httpx", opa)
+    monkeypatch.setattr(opa_module, "httpx", opa)
 
     result = asyncio.run(crew.fulfill_crew(_fulfill_spec()))
     assert result["brief"] == "1. do the thing"
@@ -446,11 +446,11 @@ def test_workflow_path_records_under_conductor_authority(fulfill_world, monkeypa
 def test_recording_names_the_calling_workflow(fulfill_world, monkeypatch):
     """The review workflow records under the same authority with its own
     name in the decision input — implement stays the default."""
-    import orchestrator.activities.crew as module
+    import orchestrator.opa as opa_module
 
     crew, _, _, _, _ = fulfill_world
     opa = FakeOpa({"allow": True, "rule": "role_pm_crew_request"})
-    monkeypatch.setattr(module, "httpx", opa)
+    monkeypatch.setattr(opa_module, "httpx", opa)
 
     asyncio.run(crew.fulfill_crew({**_fulfill_spec(), "workflow": "review"}))
     ((_, payload),) = opa.calls
@@ -458,11 +458,11 @@ def test_recording_names_the_calling_workflow(fulfill_world, monkeypatch):
 
 
 def test_workflow_path_denied_by_the_compiled_decision(fulfill_world, monkeypatch):
-    import orchestrator.activities.crew as module
+    import orchestrator.opa as opa_module
 
     crew, participants, audit, requests, _ = fulfill_world
     opa = FakeOpa({"allow": False, "rule": "crew_request_not_in_may_spawn"})
-    monkeypatch.setattr(module, "httpx", opa)
+    monkeypatch.setattr(opa_module, "httpx", opa)
 
     with pytest.raises(RuntimeError, match="crew_request_not_in_may_spawn"):
         asyncio.run(crew.fulfill_crew(_fulfill_spec()))
@@ -475,10 +475,10 @@ def test_workflow_path_denied_by_the_compiled_decision(fulfill_world, monkeypatc
 def test_workflow_path_with_no_policy_installed_fails_closed(fulfill_world, monkeypatch):
     """An empty OPA answer (no compiled bundle active) must refuse, not
     improvise."""
-    import orchestrator.activities.crew as module
+    import orchestrator.opa as opa_module
 
     crew, participants, _, _, _ = fulfill_world
-    monkeypatch.setattr(module, "httpx", FakeOpa(None))
+    monkeypatch.setattr(opa_module, "httpx", FakeOpa(None))
 
     with pytest.raises(RuntimeError, match="no_policy_installed"):
         asyncio.run(crew.fulfill_crew(_fulfill_spec()))

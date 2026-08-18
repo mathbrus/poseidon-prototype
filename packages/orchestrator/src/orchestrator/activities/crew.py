@@ -26,7 +26,6 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 from temporalio import activity
 
 from common.audit import AuditEvent
@@ -39,6 +38,7 @@ from orchestrator.crewpods import (
     service_account_name,
 )
 from orchestrator.identity import ephemeral_agent_id
+from orchestrator.opa import evaluate_decision
 from registry import AuditStore, RunParticipants
 from registry.crews import request_id
 
@@ -421,7 +421,6 @@ class CrewActivities:
             return spawns, headroom
 
         spawns, headroom = await asyncio.to_thread(enrich)
-        slug = company.replace(".", "_").replace("-", "_").replace("/", "_")
         decision_input = {
             "company": company,
             "agent_id": conductor,
@@ -436,17 +435,7 @@ class CrewActivities:
             "active_spawns": spawns,
             "budget_headroom": headroom,
         }
-        async with httpx.AsyncClient(timeout=10.0) as http:
-            resp = await http.post(
-                f"{self._settings.opa_url.rstrip('/')}"
-                f"/v1/data/poseidon/authz/{slug}/decision",
-                json={"input": decision_input},
-            )
-            resp.raise_for_status()
-            result = resp.json().get("result") or {
-                "allow": False,
-                "rule": "no_policy_installed",
-            }
+        result = await evaluate_decision(self._settings.opa_url, company, decision_input)
         started = time.monotonic()
         allowed = bool(result.get("allow"))
         await self._emit(

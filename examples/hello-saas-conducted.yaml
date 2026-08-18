@@ -37,11 +37,6 @@ departments:
       may_spawn:
         crew: [feature-delivery, feature-review]
         max_concurrent: 2
-    # Documents the future standing-monitor growth path; count 0 produces no
-    # instance and exercises no tools.
-    analyst:
-      template: analyst
-      count: 0
 
 crews:
   feature-delivery:

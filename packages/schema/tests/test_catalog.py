@@ -8,8 +8,8 @@ from schema.catalog import CREW_TEMPLATES, MODEL_TIERS, ROLE_TEMPLATES
 from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
-def test_catalog_covers_the_four_mvp_templates():
-    assert set(ROLE_TEMPLATES) == {"pm", "backend-engineer", "sdet", "analyst"}
+def test_catalog_covers_the_mvp_templates():
+    assert set(ROLE_TEMPLATES) == {"pm", "backend-engineer", "sdet"}
 
 
 def test_every_template_scope_is_a_known_tool():
@@ -34,19 +34,6 @@ def test_pm_conducts_but_does_not_execute():
     assert "git.open_pr" not in pm.tools
     # No private memory store: cross-run state is tickets + registry runs.
     assert pm.runtime_hints["memory"] == "none"
-
-
-def test_analyst_is_a_placeholder_with_no_tools():
-    analyst = ROLE_TEMPLATES["analyst"]
-    assert analyst.placeholder_only
-    assert analyst.tools == ()
-
-
-def test_executor_templates_are_not_placeholders():
-    """backend-engineer and sdet stay hireable-in-schema;
-    the lean-roster refusal is a compiler error, not a schema rule."""
-    assert not ROLE_TEMPLATES["backend-engineer"].placeholder_only
-    assert not ROLE_TEMPLATES["sdet"].placeholder_only
 
 
 def test_crew_templates_are_the_two_mvp_crews():

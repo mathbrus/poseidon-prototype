@@ -45,15 +45,15 @@ says "check the spelling, or the section it belongs to".
 The catalog pass is kept deliberately narrow: only what a *document* can
 be wrong about regardless of cluster state. It catches a `template` or
 `crews:` key outside the catalogs, a crew member the template does not
-define, a member whose `role_template` contradicts the catalog's, the
-`analyst` placeholder at a nonzero count, a platform-only tool in any
-allow-list, and a member allow-list wider than the catalog's. Each check
-tolerates malformed values rather than crashing on them — the schema pass
-already reports those — and simply skips what it cannot read.
+define, a member whose `role_template` contradicts the catalog's, a
+platform-only tool in any allow-list, and a member allow-list wider than
+the catalog's. Each check tolerates malformed values rather than crashing
+on them — the schema pass already reports those — and simply skips what it
+cannot read.
 
 ## The role catalog
 
-Four templates, and the set is closed: a blueprint names templates, it
+Three templates, and the set is closed: a blueprint names templates, it
 never defines them. `pm` is the standing conductor — it holds the four
 `issues.*` tools plus `crew.request`, may spawn both crews, and holds no
 executor tools at all: no `sandbox.*`, no `git.open_pr`. Its
@@ -61,8 +61,7 @@ executor tools at all: no `sandbox.*`, no `git.open_pr`. Its
 tickets and registry runs, not a private store. `backend-engineer`
 (sandbox tools plus `git.open_pr`, frontier tier) and `sdet` (sandbox
 plus review tools plus `issues.comment`, standard tier) are crew-member
-material only. `analyst` is a placeholder documenting a future-monitor
-growth path, valid only at `count: 0`.
+material only.
 
 Why a fixed catalog at all? Because the compiler turns each template into
 an agent spec and a per-member Rego bundle, and a template a blueprint
@@ -72,18 +71,11 @@ known artifact, and templates carry tool scopes, model tier and runtime
 hints — never counts, never secrets: how many of a role a company hires
 is the blueprint's business, and credentials never enter a spec at all.
 
-Two of the catalog's rules are enforced in different places, and the
-difference is instructive:
-
-- `analyst` at `count: 0` **is** checked here, via the template's
-  `placeholder_only` flag. It can be, because the rule is a property of
-  the document against the catalog — and because the template exercises
-  no tools, there is nothing for a later relaxation to argue about.
-- The lean-roster rule — no standing `backend-engineer` or `sdet` — is
-  **not** checked here. Whether a hire is a standing executor is a
-  question about the company the plan would deploy, so it is a compiler
-  error, and `test_lean_roster_profile_validates` proves the
-  standing-executor document still validates structurally.
+The lean-roster rule — no standing `backend-engineer` or `sdet` — is
+deliberately **not** checked here. Whether a hire is a standing executor is
+a question about the company the plan would deploy, so it is a compiler
+error, and `test_lean_roster_profile_validates` proves the
+standing-executor document still validates structurally.
 
 ## The crew catalog
 

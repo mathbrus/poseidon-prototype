@@ -940,18 +940,15 @@ departments:
       may_spawn:
         crew: [feature-delivery, feature-review]
         max_concurrent: 2
-    analyst:
-      template: analyst
-      count: 0
 ```
 
 One standing hire: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 
-`analyst` at `count: 0` is a documented growth path that produces no
-instance. Try setting a `backend-engineer` to `count: 1` and the compiler
-refuses: standing executors do not exist here.
+A role at `count: 0` is a documented growth path that produces no instance.
+Try setting a `backend-engineer` to `count: 1` and the compiler refuses:
+standing executors do not exist here.
 
 </details>
 

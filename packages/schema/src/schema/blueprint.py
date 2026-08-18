@@ -6,10 +6,10 @@ a hired conductor, do budgets cover enabled workflows) belong to the
 compiler — the schema's job is to make a document
 well-formed, not to make a company coherent.
 
-Two conventions worth stating once: every object is `additionalProperties:
-false`, so a typo'd key is an error rather than a silently ignored line; and
-`count` is where the lean-roster stance will be enforced, but only the
-`analyst` placeholder is capped structurally here (see catalog.py).
+One convention worth stating once: every object is `additionalProperties:
+false`, so a typo'd key is an error rather than a silently ignored line. The
+lean-roster stance on `count` is the compiler's to enforce, not the
+schema's.
 """
 
 from typing import Any

@@ -35,7 +35,6 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
-import httpx
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -43,6 +42,7 @@ from common.audit import AuditEvent
 from common.telemetry import get_logger
 from orchestrator.clients import AgentClient, GatewayClient
 from orchestrator.config import WorkerSettings
+from orchestrator.opa import evaluate_decision
 from registry import AuditStore, BudgetLedger, Runs
 from registry.bundles import Companies
 
@@ -267,7 +267,6 @@ class ConductActivities:
         The live counts ride the input (the active_spawns idiom); the
         decision is audited either way; a deny ends the tick."""
         company = self._settings.company
-        slug = company.replace(".", "_").replace("-", "_").replace("/", "_")
         decision_input = {
             "company": company,
             "agent_id": "orchestrator",
@@ -285,17 +284,7 @@ class ConductActivities:
             "run_binding_verified": False,
         }
         started = time.monotonic()
-        async with httpx.AsyncClient(timeout=10.0) as http:
-            resp = await http.post(
-                f"{self._settings.opa_url.rstrip('/')}"
-                f"/v1/data/poseidon/authz/{slug}/decision",
-                json={"input": decision_input},
-            )
-            resp.raise_for_status()
-            result = resp.json().get("result") or {
-                "allow": False,
-                "rule": "no_policy_installed",
-            }
+        result = await evaluate_decision(self._settings.opa_url, company, decision_input)
         allowed = bool(result.get("allow"))
         await self._emit(
             run_id=child_run_id,

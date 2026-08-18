@@ -5,14 +5,9 @@ per-member Rego bundles. Templates carry tool scopes, model tier and runtime
 hints — never counts, never secrets: how many of a role a company hires is
 the blueprint's business, and credentials never enter a spec at all.
 
-Two rules the catalog encodes rather than documents:
-
-- `backend-engineer` and `sdet` exist **only** as crew-member material.
-  The schema does not forbid standing counts structurally — the compiler
-  error does.
-- `analyst` is a placeholder documenting the future-monitor growth path and
-  is valid only at `count: 0`. That one *is* structural: it exercises no
-  tools, so there is nothing for a later step to relax.
+One rule the catalog encodes rather than documents: `backend-engineer` and
+`sdet` exist **only** as crew-member material. The schema does not forbid
+standing counts structurally — the compiler error does.
 """
 
 from dataclasses import dataclass, field
@@ -34,8 +29,6 @@ class RoleTemplate:
     model_tier: str
     # Crew templates this role may request, when the blueprint grants them.
     may_spawn: tuple[str, ...] = ()
-    # Valid only at count: 0 (a documented growth path, not a hire).
-    placeholder_only: bool = False
     # Prompt/runtime hints the brain host reads; not policy.
     runtime_hints: dict[str, str] = field(default_factory=dict)
 
@@ -93,17 +86,6 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         tools=tuple(SANDBOX_TOOLS + REVIEW_TOOLS + ["issues.comment"]),
         model_tier="standard",
         runtime_hints={"dispatch": "http", "brain": "review"},
-    ),
-    "analyst": RoleTemplate(
-        name="analyst",
-        summary=(
-            "Placeholder for a future standing monitor. "
-            "Valid only at count: 0 — produces no instance and exercises no "
-            "tools."
-        ),
-        tools=(),
-        model_tier="small",
-        placeholder_only=True,
     ),
 }
 

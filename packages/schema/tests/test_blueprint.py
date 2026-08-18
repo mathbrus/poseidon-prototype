@@ -37,12 +37,11 @@ def test_hello_saas_validates():
 
 
 def test_hello_saas_is_the_lean_profile(blueprint):
-    """The PM is the only standing hire; the analyst placeholder documents
-    growth at count 0; no standing executor exists in the document at
-    all."""
+    """The PM is the only standing hire; no standing executor exists in the
+    document at all."""
     roles = blueprint["departments"]["roles"]
     assert roles["pm"]["count"] == 1
-    assert roles["analyst"]["count"] == 0
+    assert set(roles) == {"pm"}
     assert "backend-engineer" not in roles
 
 
@@ -122,12 +121,6 @@ def test_unknown_role_template_lists_the_catalog(blueprint):
     (problem,) = [p for p in problems_of(blueprint) if "product-manager" in p]
     assert "role catalog" in problem
     assert "pm" in problem and "sdet" in problem
-
-
-def test_analyst_placeholder_cannot_be_hired(blueprint):
-    blueprint["departments"]["roles"]["analyst"]["count"] = 1
-    (problem,) = [p for p in problems_of(blueprint) if "analyst" in p]
-    assert "count: 0" in problem
 
 
 def test_unknown_crew_in_may_spawn_is_caught(blueprint):
