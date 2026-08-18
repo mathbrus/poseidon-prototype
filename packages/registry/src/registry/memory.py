@@ -13,6 +13,7 @@ ten-column projection the Postgres query does. A double with friendlier
 failure modes than the real thing hides exactly the bugs it exists to catch.
 """
 
+import re
 from typing import Any
 
 from common.audit import AuditEvent
@@ -143,6 +144,10 @@ class InMemoryBudgetLedger:
 
     def spent_for_run(self, run_id: str) -> float:
         return float(sum(e["usd"] for e in self.entries if e["run_id"] == run_id))
+
+    def spent_today(self, company: str) -> float:
+        # The fake's day is the fake's lifetime: tests build today's ledger.
+        return float(sum(e["usd"] for e in self.entries if e["company"] == company))
 
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return [dict(e) for e in self.entries if e["run_id"] == run_id]
@@ -366,6 +371,25 @@ class InMemoryRuns:
 
     def get(self, run_id: str) -> RunRecord | None:
         return self.rows.get(run_id)
+
+    def active_count(self, company: str) -> int:
+        return sum(
+            1
+            for r in self.rows.values()
+            if r.company == company
+            and r.status == "running"
+            and r.workflow in ("implement", "review")
+        )
+
+    def started_issue_numbers(self, company: str) -> set[int]:
+        numbers = set()
+        for record in self.rows.values():
+            if record.company != company or record.workflow != "implement":
+                continue
+            match = re.fullmatch(r"implement issue #(\d+)", record.task)
+            if match:
+                numbers.add(int(match.group(1)))
+        return numbers
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first.

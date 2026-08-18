@@ -31,9 +31,16 @@ under the platform's identity, regardless of who invoked the CLI or from
 where. The `blueprint` commands are the exception — `apply` submits custom
 resources with your kubeconfig, and `--live` compiles read the registry.
 
-Workflow ids are `{workflow}-{run_id}` across all three workflow families,
-which is why several commands take a `--workflow` option: the CLI needs to
-know which family a run belongs to in order to address it.
+Workflow ids are `{workflow}-{run_id}` across the three run-shaped workflow
+families, which is why several commands take a `--workflow` option: the CLI
+needs to know which family a run belongs to in order to address it. The
+fourth family is not run-shaped: the conduct heartbeat is one standing
+workflow per company, `conduct-{company}`, started by the worker's ensure
+loop whenever the applied blueprint declares a `conduct` section and
+self-stopping when the section is gone (`poseidon status <company>
+--workflow conduct` inspects it). No human starts it, which is the point —
+and its authority is exactly the compiled `conduct.start` decision, nothing
+more.
 
 ### `poseidon run`
 

@@ -77,6 +77,16 @@ spec:
               value: {{ .Values.companyNamespace | quote }}
             - name: SANDBOX_NAMESPACE
               value: {{ .Values.companyNamespace | quote }}
+            {{- if .Values.orchestrator.conductTickIntervalS }}
+            # Mock-brain e2e only: compress the heartbeat's declared
+            # minutes into seconds. The caps still come from the blueprint.
+            - name: CONDUCT_TICK_INTERVAL_S
+              value: {{ .Values.orchestrator.conductTickIntervalS | quote }}
+            {{- end }}
+            {{- if .Values.orchestrator.conductFastTimeouts }}
+            - name: CONDUCT_FAST_TIMEOUTS
+              value: "1"
+            {{- end }}
             # Deploy-time resolution of the infra IR's logical toolchain
             # image (content-addressed on kind); every other SandboxPolicy
             # value comes from the applied blueprint.

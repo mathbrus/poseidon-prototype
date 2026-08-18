@@ -60,6 +60,19 @@ class BudgetLedger:
         )
         return float(rows[0]["spent"])
 
+    def spent_today(self, company: str) -> float:
+        """The company's attributed spend since UTC midnight — what the
+        conduct heartbeat's daily cap compares against before starting
+        another run."""
+        rows = self._db.query(
+            "SELECT COALESCE(SUM(usd), 0) AS spent"
+            " FROM registry.budget_ledger"
+            " WHERE company = %s AND ts >= date_trunc('day', now() AT TIME ZONE"
+            " 'UTC') AT TIME ZONE 'UTC'",
+            (company,),
+        )
+        return float(rows[0]["spent"])
+
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return self._db.query(
             "SELECT ts, company, run_id, agent_id, parent_agent_id, role,"

@@ -138,6 +138,32 @@ class Runs:
         rows = self._db.query("SELECT * FROM registry.runs WHERE run_id = %s", (run_id,))
         return RunRecord.from_row(rows[0]) if rows else None
 
+    def active_count(self, company: str) -> int:
+        """Runs currently occupying delivery capacity — what the conduct
+        heartbeat compares against `max_concurrent_runs`. Intake is not
+        counted: it files tickets, it does not occupy a crew."""
+        rows = self._db.query(
+            "SELECT COUNT(*) AS n FROM registry.runs"
+            " WHERE company = %s AND status = 'running'"
+            "   AND workflow IN ('implement', 'review')",
+            (company,),
+        )
+        return int(rows[0]["n"])
+
+    def started_issue_numbers(self, company: str) -> set[int]:
+        """Issues any run has ever consumed, parsed from the canonical
+        issue-run task (`implement issue #N`). Every status counts: a
+        failed issue-run is a recorded outcome for a human to read, not an
+        invitation for the heartbeat to retry it forever."""
+        rows = self._db.query(
+            r"SELECT DISTINCT (regexp_match(task, '^implement issue #(\d+)$'))[1]::int"
+            r" AS number FROM registry.runs"
+            r" WHERE company = %s AND workflow = 'implement'"
+            r"   AND task ~ '^implement issue #\d+$'",
+            (company,),
+        )
+        return {int(row["number"]) for row in rows}
+
     def recent(self, limit: int = 20) -> list[RunRecord]:
         rows = self._db.query(
             "SELECT * FROM registry.runs ORDER BY created_at DESC LIMIT %s", (limit,)

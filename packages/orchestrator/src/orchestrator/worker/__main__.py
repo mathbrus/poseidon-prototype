@@ -14,10 +14,12 @@ import signal
 
 from temporalio.api.workflowservice.v1 import DescribeNamespaceRequest
 from temporalio.client import Client
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.worker import Worker
 
 from common.telemetry import get_logger
 from orchestrator.activities import (
+    ConductActivities,
     CrewActivities,
     ImplementActivities,
     IntakeActivities,
@@ -25,7 +27,15 @@ from orchestrator.activities import (
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import CrewPodProvisioner
-from orchestrator.workflows import ImplementWorkflow, IntakeWorkflow, ReviewWorkflow
+from orchestrator.workflows import (
+    ConductInput,
+    ConductWorkflow,
+    ImplementWorkflow,
+    IntakeWorkflow,
+    ReviewWorkflow,
+)
+from orchestrator.workflows.conduct import conduct_workflow_id
+from orchestrator.workflows.implement import FAST_TIMEOUTS
 from registry import (
     AuditStore,
     BudgetLedger,
@@ -36,6 +46,38 @@ from registry import (
 )
 from registry.bundles import AgentInstances, Companies
 from sandbox.backends.k8s_jobs import K8sJobsBackend
+
+
+async def ensure_conduct_loop(
+    client: Client, settings: WorkerSettings, companies: Companies, log
+) -> None:
+    """Reconcile-on-goal for the heartbeat: while the applied blueprint
+    declares a conduct section, the company's `conduct-{company}` workflow
+    is running; start it if it is not. The other half of the loop is the
+    workflow's own config read — it stops itself when the section is gone —
+    so this side only ever starts, never kills."""
+    while True:
+        try:
+            spec = await asyncio.to_thread(companies.get, settings.company)
+            if (spec or {}).get("conduct"):
+                await client.start_workflow(
+                    "conduct",
+                    ConductInput(
+                        company=settings.company,
+                        tick_interval_s=settings.conduct_tick_interval_s or None,
+                        timeouts=FAST_TIMEOUTS
+                        if settings.conduct_fast_timeouts
+                        else None,
+                    ),
+                    id=conduct_workflow_id(settings.company),
+                    task_queue=settings.task_queue,
+                )
+                log.info("conduct heartbeat started", extra={"company": settings.company})
+        except WorkflowAlreadyStartedError:
+            pass  # the heartbeat is already beating — the normal case
+        except Exception as exc:  # registry or Temporal hiccup: retry next pass
+            log.info("conduct ensure pass failed, retrying", extra={"error": str(exc)})
+        await asyncio.sleep(settings.conduct_ensure_interval_s)
 
 
 async def main() -> None:
@@ -73,6 +115,13 @@ async def main() -> None:
         AgentInstances(registry),
         AuditStore(registry),
     )
+    conduct_activities = ConductActivities(
+        settings,
+        Runs(registry),
+        Companies(registry),
+        BudgetLedger(registry),
+        AuditStore(registry),
+    )
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping
     # kubelet crash-loop backoff. The namespace check matters: pollers
@@ -99,20 +148,27 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=settings.task_queue,
-        workflows=[ImplementWorkflow, IntakeWorkflow, ReviewWorkflow],
+        workflows=[ConductWorkflow, ImplementWorkflow, IntakeWorkflow, ReviewWorkflow],
         activities=[
             *activities.all(),
             *crew_activities.all(),
             *intake_activities.all(),
             *review_activities.all(),
+            *conduct_activities.all(),
         ],
     )
     log.info(
         "worker started",
         extra={"address": settings.temporal_address, "task_queue": settings.task_queue},
     )
-    async with worker:
-        await stop.wait()
+    ensure = asyncio.create_task(
+        ensure_conduct_loop(client, settings, Companies(registry), log)
+    )
+    try:
+        async with worker:
+            await stop.wait()
+    finally:
+        ensure.cancel()
     log.info("worker stopped")
 
 

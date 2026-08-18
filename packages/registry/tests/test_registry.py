@@ -540,3 +540,50 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
             "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
         )
         registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (RUN_ID,))
+
+
+# -- the conduct heartbeat's observations ----------------------------------
+
+
+def test_active_count_counts_running_delivery_runs(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-ac-1", "implement issue #1", "implement", None, "hello-saas")
+    runs.start("run-ac-2", "review PR", "review", None, "hello-saas")
+    runs.start("run-ac-3", "a goal", "intake", None, "hello-saas")  # not capacity
+    runs.start("run-ac-4", "implement issue #2", "implement", None, "other-co")
+    runs.start("run-ac-5", "implement issue #9", "implement", None, "hello-saas")
+    runs.finish("run-ac-5", "done")
+    assert Runs(registry).active_count("hello-saas") == 2
+
+
+def test_started_issue_numbers_parses_the_canonical_task(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-in-1", "implement issue #3", "implement", None, "hello-saas")
+    runs.start("run-in-2", "implement issue #12", "implement", None, "hello-saas")
+    runs.finish("run-in-2", "failed", error="boom")  # every status counts
+    runs.start("run-in-3", "a free-form task file", "implement", None, "hello-saas")
+    runs.start("run-in-4", "implement issue #7", "implement", None, "other-co")
+    assert Runs(registry).started_issue_numbers("hello-saas") == {3, 12}
+
+
+def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
+    from registry.ledger import BudgetLedger
+
+    ledger = BudgetLedger(registry)
+    entry = dict(
+        agent_id="executor",
+        parent_agent_id="pm-1",
+        role="backend-engineer",
+        model="mock",
+        prompt_tokens=1,
+        completion_tokens=1,
+    )
+    ledger.record(company="hello-saas", run_id="run-sp-1", usd=2.5, **entry)
+    ledger.record(company="hello-saas", run_id="run-sp-2", usd=1.5, **entry)
+    ledger.record(company="other-co", run_id="run-sp-3", usd=9.0, **entry)
+    # An entry from before today must not count against the daily cap.
+    registry.execute(
+        "UPDATE registry.budget_ledger SET ts = now() - interval '1 day'"
+        " WHERE run_id = 'run-sp-2'"
+    )
+    assert BudgetLedger(registry).spent_today("hello-saas") == 2.5

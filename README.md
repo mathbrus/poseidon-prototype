@@ -1099,10 +1099,21 @@ which is the decision the conductor loop must win before starting anything.
 Only the platform lifecycle can match its allow rules: an agent reciting
 `conduct.start` at the gateway matches nothing, and a blueprint diff that
 removes the section removes the rules, so revocation is the same reviewable
-edit as every other authority change. The loop that ticks this heartbeat is
-the next piece of the [closed-loop milestone](https://github.com/mathbrus/poseidon-prototype/issues/9)
-to land; until it does, applying the section changes what is *permitted*,
-and nothing yet exercises it.
+edit as every other authority change.
+
+The loop itself is one durable workflow per company (`conduct-{company}`),
+kept running by the orchestrator worker while the applied blueprint
+declares the section. Each tick reads the open backlog, the in-flight runs
+and today's ledger spend, then either starts the oldest unconsumed issue as
+an implement run — after winning the compiled `conduct.start` decision — or
+idles, recording *why* as an audit event either way (a daily-cap halt is a
+first-class process-gate event, like the per-run budget stop). Removal is
+fail-closed twice over: the tick re-reads the section and stops when it is
+gone, and a tick that somehow survived would still find no `conduct.start`
+rule to match. Issue bodies never feed the tick's decision — only numbers,
+titles and URLs — because the backlog is untrusted input, and the implement
+run resolves the ticket itself under the platform identity like any other
+issue-driven run.
 
 </details>
 
