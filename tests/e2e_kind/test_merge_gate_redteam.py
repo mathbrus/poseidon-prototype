@@ -96,8 +96,20 @@ def _run_spend(run_id: str) -> float:
     the audit stream (audit events carry no usd)."""
     proc = subprocess.run(
         [
-            "kubectl", "-n", PLATFORM_NS, "exec", "-i", "statefulset/postgres",
-            "--", "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At", "-c",
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "exec",
+            "-i",
+            "statefulset/postgres",
+            "--",
+            "psql",
+            "-U",
+            POSTGRES_USER,
+            "-d",
+            POSTGRES_USER,
+            "-At",
+            "-c",
             "SELECT COALESCE(SUM(usd), 0) FROM registry.budget_ledger"
             f" WHERE run_id = '{run_id}'",
         ],
@@ -242,9 +254,7 @@ def test_merge_resolve_denied_the_carveout_path(redteam: dict):
     assert all(e["decision"] == "deny" for e in resolves)
     assert any(e["rule"] == "merge_resolve_carved_out_path" for e in resolves)
     # And the gate outcome recorded the decline, not an approval.
-    gate_events = [
-        e["rule"] for e in story if e["tool"] == "gate.merge"
-    ]
+    gate_events = [e["rule"] for e in story if e["tool"] == "gate.merge"]
     assert "gate_policy_declined" in gate_events
     assert "gate_policy_resolved" not in gate_events
 

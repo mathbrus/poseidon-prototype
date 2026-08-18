@@ -156,9 +156,7 @@ class VerdictAction(Action):
     verdict: Literal["pass", "fail"] = Field(
         description="Your judgement of the change: pass or fail."
     )
-    summary: str = Field(
-        description="One line grounding the verdict in your findings."
-    )
+    summary: str = Field(description="One line grounding the verdict in your findings.")
 
 
 class GatewayObservation(Observation):

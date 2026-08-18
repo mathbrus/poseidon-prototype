@@ -295,7 +295,7 @@ def _merge_gate_file(
         f"\tsome delegated in {paths}\n"
         "\tstartswith(path, delegated)\n"
         "}\n"
-        "\nallow_rules contains \"merge_resolve_delegated\" if {\n"
+        '\nallow_rules contains "merge_resolve_delegated" if {\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
         '\tinput.tool == "merge.resolve"\n'

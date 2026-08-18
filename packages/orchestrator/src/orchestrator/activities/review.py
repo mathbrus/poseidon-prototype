@@ -278,14 +278,10 @@ class ReviewActivities:
             source="process-lifecycle",
             workflow_id=workflow_id,
         )
-        self._log.bind(run_id=run_id).info(
-            "verdict recorded", extra={"verdict": verdict}
-        )
+        self._log.bind(run_id=run_id).info("verdict recorded", extra={"verdict": verdict})
 
     @activity.defn(name="reviewer_independent")
-    async def reviewer_independent(
-        self, run_id: str, pr_number: int
-    ) -> dict[str, Any]:
+    async def reviewer_independent(self, run_id: str, pr_number: int) -> dict[str, Any]:
         """The registry-checked fact behind `reviewer_independent`: the
         review run's identity lineage shares nothing with the lineage of
         the implement run that delivered the PR — neither an agent_id
@@ -298,18 +294,14 @@ class ReviewActivities:
         for a policy-resolved merge (the human signal still is)."""
 
         def read() -> dict[str, Any]:
-            implement = self._runs.implement_run_for_pr(
-                self._settings.company, pr_number
-            )
+            implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)
             if implement is None:
                 return {
                     "independent": False,
                     "reason": f"no implement run attributes PR #{pr_number}",
                 }
             if self._participants is None:
-                raise RuntimeError(
-                    "review activities constructed without participants"
-                )
+                raise RuntimeError("review activities constructed without participants")
             reviewers = self._participants.for_run(run_id)
             implementers = self._participants.for_run(implement.run_id)
             if not reviewers:
@@ -318,8 +310,7 @@ class ReviewActivities:
                     "reason": "no reviewer identity bound to this run",
                 }
             shared_ids = sorted(
-                {p["agent_id"] for p in reviewers}
-                & {p["agent_id"] for p in implementers}
+                {p["agent_id"] for p in reviewers} & {p["agent_id"] for p in implementers}
             )
             if shared_ids:
                 return {
@@ -366,9 +357,7 @@ class ReviewActivities:
         and flagged here so it is a decision, not an oversight."""
 
         def lineage_issue() -> int | None:
-            implement = self._runs.implement_run_for_pr(
-                self._settings.company, pr_number
-            )
+            implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)
             if implement is None:
                 return None
             match = IMPLEMENT_ISSUE_TASK_RE.match(implement.task or "")
@@ -411,9 +400,7 @@ class ReviewActivities:
         create can file a duplicate ticket — a noisy backlog, never a
         lost finding."""
         title = rework_title(attempt, root_pr, pr_title)
-        body = rework_body(
-            pr_number, pr_url, reason, findings, paths, attempt, run_id
-        )
+        body = rework_body(pr_number, pr_url, reason, findings, paths, attempt, run_id)
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
@@ -422,9 +409,7 @@ class ReviewActivities:
             )
         url = str(issue.get("url") or "")
         if url:
-            await asyncio.to_thread(
-                self._runs.record_artifacts, run_id, None, [url]
-            )
+            await asyncio.to_thread(self._runs.record_artifacts, run_id, None, [url])
         self._log.bind(run_id=run_id).info(
             "rework ticket filed",
             extra={"url": url, "attempt": attempt, "root_pr": root_pr},

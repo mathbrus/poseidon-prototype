@@ -390,9 +390,7 @@ def _observed_text(messages: list[dict[str, Any]]) -> str:
     """Everything the tool observations carried — where diff-borne bait
     (the steered-review marker) arrives."""
     return "".join(
-        _content_text(message)
-        for message in messages
-        if message.get("role") == "tool"
+        _content_text(message) for message in messages if message.get("role") == "tool"
     )
 
 

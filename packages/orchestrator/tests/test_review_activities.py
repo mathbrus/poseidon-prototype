@@ -294,7 +294,10 @@ def test_disjoint_lineages_are_independent(settings):
         review_agents=["rev-1"],
     )
     activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs,
+        settings,
+        REVIEW_SPEC,
+        FakeInstances([PM_ROW]),
+        runs=runs,
         participants=participants,
     )
     result = asyncio.run(activities.reviewer_independent(RUN_ID, 41))
@@ -311,15 +314,14 @@ def test_the_delivery_crew_may_not_review_its_own_change(settings):
     runs.start("run-impl", "implement issue #7", "implement", "wf-impl", "hello-saas")
     runs.finish("run-impl", "done", pr_url="https://git.test/repo/pulls/41")
     runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
-    participants.add(
-        "exec-impl-1", "run-impl", "pm-1", "feature-delivery", "executor"
-    )
+    participants.add("exec-impl-1", "run-impl", "pm-1", "feature-delivery", "executor")
     participants.terminate_for_run("run-impl")
-    participants.add(
-        "rev-1", RUN_ID, "pm-1", "feature-delivery", "reviewer"
-    )
+    participants.add("rev-1", RUN_ID, "pm-1", "feature-delivery", "reviewer")
     activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs,
+        settings,
+        REVIEW_SPEC,
+        FakeInstances([PM_ROW]),
+        runs=runs,
         participants=participants,
     )
     result = asyncio.run(activities.reviewer_independent(RUN_ID, 41))
@@ -332,7 +334,10 @@ def test_an_unattributed_pr_fails_independence_closed(settings):
     runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
     participants.add("rev-1", RUN_ID, "pm-1", "feature-review", "reviewer")
     activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs,
+        settings,
+        REVIEW_SPEC,
+        FakeInstances([PM_ROW]),
+        runs=runs,
         participants=participants,
     )
     result = asyncio.run(activities.reviewer_independent(RUN_ID, 41))
@@ -342,11 +347,12 @@ def test_an_unattributed_pr_fails_independence_closed(settings):
 
 def test_a_review_with_no_bound_reviewer_fails_independence_closed(settings):
     runs, participants = InMemoryRuns(), InMemoryRunParticipants()
-    _lineage(
-        runs, participants, implement_agents=["exec-impl-1"], review_agents=[]
-    )
+    _lineage(runs, participants, implement_agents=["exec-impl-1"], review_agents=[])
     activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs,
+        settings,
+        REVIEW_SPEC,
+        FakeInstances([PM_ROW]),
+        runs=runs,
         participants=participants,
     )
     result = asyncio.run(activities.reviewer_independent(RUN_ID, 41))
@@ -452,8 +458,10 @@ class FakeIssueGateway:
 
     async def create_issue(self, run_id, repo, title, body):
         self.created.append({"repo": repo, "title": title, "body": body})
-        return {"url": f"https://git.test/r/issues/{90 + len(self.created)}",
-                "number": 90 + len(self.created)}
+        return {
+            "url": f"https://git.test/r/issues/{90 + len(self.created)}",
+            "number": 90 + len(self.created),
+        }
 
 
 def _chain(runs, task):
@@ -467,9 +475,7 @@ def test_rework_depth_is_zero_outside_any_chain(settings, monkeypatch):
 
     monkeypatch.setattr(module, "GatewayClient", FakeIssueGateway())
     runs = InMemoryRuns()
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
-    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     # No implement run at all.
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 0,
@@ -492,9 +498,7 @@ def test_rework_depth_reads_the_canonical_ticket_title(settings, monkeypatch):
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _chain(runs, "implement issue #7")
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
-    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 2,
         "root_pr": 38,
@@ -510,27 +514,21 @@ def test_rework_depth_treats_a_plain_ticket_as_depth_zero(settings, monkeypatch)
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _chain(runs, "implement issue #7")
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
-    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 0,
         "root_pr": 41,
     }
 
 
-def test_file_rework_files_the_canonical_ticket_and_records_it(
-    settings, monkeypatch
-):
+def test_file_rework_files_the_canonical_ticket_and_records_it(settings, monkeypatch):
     import orchestrator.activities.review as module
 
     gateway = FakeIssueGateway()
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
-    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     ticket = asyncio.run(
         activities.file_rework(
             RUN_ID,
@@ -577,9 +575,7 @@ def test_a_forged_standalone_ticket_cannot_reset_a_prs_depth(settings, monkeypat
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _chain(runs, "implement issue #7")  # the PR's real lineage: ticket #7
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
-    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     # Depth is read from #7 (depth 2), never from the forged #999.
     assert asyncio.run(activities.rework_depth(RUN_ID, 41)) == {
         "depth": 2,
@@ -601,7 +597,5 @@ def test_a_forged_higher_depth_only_escalates_sooner(settings, monkeypatch):
     monkeypatch.setattr(module, "GatewayClient", gateway)
     runs = InMemoryRuns()
     _chain(runs, "implement issue #7")
-    activities = _activities(
-        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs
-    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     assert asyncio.run(activities.rework_depth(RUN_ID, 41))["depth"] == 99

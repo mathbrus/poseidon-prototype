@@ -470,9 +470,7 @@ async def test_a_human_gate_never_touches_the_policy_machinery(env):
 async def test_a_missing_verdict_fails_before_any_gate(env):
     """The platform-side belt on the step-2 contract: a dispatch that
     somehow reports no verdict reaches no gate and merges nothing."""
-    harness = Harness(
-        merge_gate=POLICY_GATE, dispatch=dispatch_result(verdict=None)
-    )
+    harness = Harness(merge_gate=POLICY_GATE, dispatch=dispatch_result(verdict=None))
     record = await run_review(env.client, harness)
 
     assert harness.verdicts == []

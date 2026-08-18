@@ -660,12 +660,8 @@ def test_participants_for_run_includes_terminated_rows(registry: Registry):
     runs = Runs(registry)
     runs.start("run-lin-a", "implement issue #5", "implement", None, "hello-saas")
     participants = RunParticipants(registry)
-    participants.add(
-        "lin-exec-1", "run-lin-a", "pm-1", "feature-delivery", "executor"
-    )
+    participants.add("lin-exec-1", "run-lin-a", "pm-1", "feature-delivery", "executor")
     participants.terminate_for_run("run-lin-a")
     rows = participants.for_run("run-lin-a")
-    assert [(r["agent_id"], r["status"]) for r in rows] == [
-        ("lin-exec-1", "terminated")
-    ]
+    assert [(r["agent_id"], r["status"]) for r in rows] == [("lin-exec-1", "terminated")]
     assert participants.for_run("run-nowhere") == []

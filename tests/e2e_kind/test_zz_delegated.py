@@ -68,8 +68,21 @@ HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
 def _psql(query: str) -> str:
     proc = subprocess.run(
         [
-            "kubectl", "-n", PLATFORM_NS, "exec", "-i", "statefulset/postgres",
-            "--", "psql", "-U", POSTGRES_USER, "-d", POSTGRES_USER, "-At", "-c", query,
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "exec",
+            "-i",
+            "statefulset/postgres",
+            "--",
+            "psql",
+            "-U",
+            POSTGRES_USER,
+            "-d",
+            POSTGRES_USER,
+            "-At",
+            "-c",
+            query,
         ],
         capture_output=True,
         text=True,
@@ -221,9 +234,9 @@ def test_the_company_implemented_and_reviewed_unattended(delegated_overnight: di
 def test_the_in_class_pr_merged_with_no_human_command(delegated_overnight: dict):
     """The headline: the PR is merged on GitHub, and no human ever touched
     it after the goal. The review run finished done and the PR is merged."""
-    assert delegated_overnight["review"]["status"] == "done", (
-        delegated_overnight["review"]
-    )
+    assert delegated_overnight["review"]["status"] == "done", delegated_overnight[
+        "review"
+    ]
     assert delegated_overnight["merged_pr"]["merged"] is True, (
         "the in-class PR did not merge unattended"
     )
@@ -254,9 +267,7 @@ def test_both_quality_layers_were_recorded(delegated_overnight: dict):
     # The decision that started the review is the heartbeat's, journaled
     # under this run's own id (conduct.start attributes to the child it
     # authorizes) — so one run_id query ties the whole arc together.
-    assert any(
-        e["tool"] == "conduct.start" and e["decision"] == "allow" for e in story
-    )
+    assert any(e["tool"] == "conduct.start" and e["decision"] == "allow" for e in story)
 
 
 def test_the_whole_arc_had_exactly_one_human_act(delegated_overnight: dict):

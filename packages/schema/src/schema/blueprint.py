@@ -152,6 +152,7 @@ _TOOLS = {
     "propertyNames": _NAME,
 }
 
+
 # One gate shape: a gate names its resolver, and differs only in which
 # resolvers it allows and what a resolver reads. A gate nobody declares is
 # a stop nobody takes — for merge that means the review ends without

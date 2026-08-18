@@ -216,9 +216,7 @@ class ReviewWorkflow:
             retry_policy=STEP_RETRY,
         )
         if not resolve.get("allow"):
-            await self._record_gate(
-                input.run_id, "merge", "policy_declined", timeouts
-            )
+            await self._record_gate(input.run_id, "merge", "policy_declined", timeouts)
             return {}
         return await self._release(input, timeouts)
 
@@ -246,9 +244,7 @@ class ReviewWorkflow:
         )
         limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
         if depth["depth"] >= limit:
-            await self._record_gate(
-                input.run_id, "merge", "rework_exhausted", timeouts
-            )
+            await self._record_gate(input.run_id, "merge", "rework_exhausted", timeouts)
             return {}
         ticket = await workflow.execute_activity(
             "file_rework",
@@ -272,9 +268,7 @@ class ReviewWorkflow:
             f" {ticket.get('url')}"
         }
 
-    async def _merge_pr(
-        self, input: "ReviewInput", timeouts: Timeouts
-    ) -> dict[str, Any]:
+    async def _merge_pr(self, input: "ReviewInput", timeouts: Timeouts) -> dict[str, Any]:
         """The merge itself — one platform tool call, issued only after a
         gate (human or policy) resolved to merge. Both resolvers land here,
         so there is exactly one place the branch reaches `main`."""
@@ -308,9 +302,7 @@ class ReviewWorkflow:
             return {"error": f"merge gate {outcome.kind}"}
         return {"released": await self._merge_pr(input, timeouts)}
 
-    async def _release(
-        self, input: "ReviewInput", timeouts: Timeouts
-    ) -> dict[str, Any]:
+    async def _release(self, input: "ReviewInput", timeouts: Timeouts) -> dict[str, Any]:
         """The policy release: gate outcome first, then the merge — strictly
         after the compiled allow."""
         await self._record_gate(input.run_id, "merge", "policy_resolved", timeouts)
