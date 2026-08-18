@@ -56,4 +56,8 @@ cat <<'EOF'
  8 unattended loop         conduct heartbeat runs the backlog: one goal in,
                            one merge approval out; caps + revocation held;
                            attacker-filed issue dies at the gates
+ 9 merge under policy      delegated gate: in-class passing work merges with
+                           zero human commands (test_zz_delegated); steered
+                           reviewer + carve-out PR refused by the platform
+                           (test_merge_gate_redteam)
 EOF

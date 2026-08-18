@@ -615,13 +615,28 @@ inside the trusted gateway.
 
 **Review.** A review run provisions a fresh sandbox from the PR's head ref
 and dispatches an ephemeral reviewer — read-and-judge only, no write tools —
-which runs the tests and posts findings.
+which runs the tests, posts findings, and ends with a structured pass/fail
+verdict the platform journals.
 
-**The human gate.** The workflow parks on the `merge` signal. A person
-approves or rejects. On approval the *orchestrator* merges, under its
-platform identity, via a gateway tool call that policy permits to nobody
-else. Nobody home? An escalation fires at half the deadline and the gate
-expires at the end — all three transitions are first-class audit events.
+**The merge gate.** The blueprint names the gate's resolver, and this is
+where quality becomes something policy owns rather than a human eyeballs.
+Under `resolved_by: human` the workflow parks on the `merge` signal: a
+person approves or rejects, and nobody home fires an escalation at half the
+deadline and expires the gate at the end. Under `resolved_by: policy` the
+platform adds its own layers before anything merges — a re-run of the tests
+in the review sandbox (the *same* verify code the implement gate uses, not
+the reviewer's word for it), a registry-checked confirmation that the
+reviewer's identity is not the implementer's, and a compiled `merge.resolve`
+decision that also checks the change stays inside the delegated path class.
+Only when the independent verdict passed, the platform's own checks are
+green, and the paths are in class does the merge fire — with no human
+command. Anything else is a *decline*, not a merge: a carve-out surface or
+an out-of-class path falls back to the same human `merge` signal, so the
+person's override survives delegation; a failed verdict or red re-run feeds
+a bounded rework loop instead (section 8). Either way the *orchestrator*
+performs the merge, under its platform identity, via a gateway tool call
+that policy permits to nobody else — and every transition, human or policy,
+is a first-class audit event.
 
 **Teardown.** On every terminal path — success, failure, cancellation,
 timeout, worker death — participants are revoked, pods destroyed, the
@@ -639,7 +654,10 @@ declares the cadence and the caps and answers the merge gate. Nothing
 about a run changes — the same fulfilment, verify, delivery, review and
 gate above — only who pressed start. `tests/e2e_kind/test_zz_overnight.py`
 runs the whole arc with exactly two human acts: one goal in, one approval
-out.
+out. When the blueprint also delegates the merge gate (above), the
+approval drops too: `tests/e2e_kind/test_zz_delegated.py` runs the same arc
+with a single human act — one goal in — and the company merges its own
+in-class passing work with no further command.
 
 <details>
 <summary><b>What a blocked attack looks like from the inside</b></summary>
@@ -1023,9 +1041,15 @@ orphaned, with a bounded timeout.
 `gates.merge.resolved_by: human` is what makes the review workflow park and
 wait for a person; leaving `gates.merge` out entirely means the review ends
 without merging at all — an unattended auto-merge is not a default anyone
-gets implicitly. Gate configuration is read from the compiled plan at
-runtime — never hardcoded — so changing the resolver is a visible,
-reviewable change to the document, not a code edit buried somewhere.
+gets implicitly. Setting it to `policy` instead, with a `delegate` block
+naming the path class and a rework bound, hands the merge to the compiled
+decision described in section 5 — `examples/hello-saas-delegated.yaml` is
+the flagship that does this. The `delegate` block cannot name a protected
+surface (`.github/`, the document's own `deny_paths`): the compiler refuses
+it, because a merged PR must never be able to rewrite the rules that govern
+merging. Gate configuration is read from the compiled plan at runtime —
+never hardcoded — so changing the resolver is a visible, reviewable change
+to the document, not a code edit buried somewhere.
 
 </details>
 
@@ -1161,15 +1185,27 @@ Everything here is asserted by the end-to-end acceptance suite.
   identity.
 - **A full SDLC.** Goal → tickets (intake) → implementation with a planner
   and executor crew → platform-run verification → pull request → ephemeral
-  review with posted findings → human-gated merge.
+  review with a posted findings comment and a structured verdict → merge.
+- **Quality as a gate policy owns.** The merge gate resolves the way the
+  blueprint declares. Delegate it, and a change in the declared path class
+  merges only when the independent review passed *and* the platform's own
+  re-run of the tests is green *and* the reviewer's identity is not the
+  implementer's — three facts, no LLM's word taken for any of them; the
+  merge fires with no human command. A failed layer files a bounded rework
+  ticket the heartbeat consumes, and at the rework bound it escalates to
+  the human; a change touching a protected surface (a merged PR must not be
+  able to rewrite the rules that govern merging) is refused by policy and
+  falls back to the human signal. Removing the delegation reverts to
+  human-only merge — revocation is a diff.
 - **Unattended operation under caps.** With a `conduct` section, a standing
   heartbeat runs the backlog itself: it dispatches the PM to choose the
   next action, starts it under compiled policy and declared caps
   (`max_concurrent_runs`, a daily spend cap), journals every decision, and
-  halts visibly at the cap — one goal in, one merge approval out, nothing
-  between started by a human. A poisoned ticket cannot start work outside
-  the observation, and removing the section stops the loop at the next
-  tick.
+  halts visibly at the cap. With a human merge gate that is one goal in and
+  one approval out; with a delegated gate the company merges its own
+  in-class passing work too, so the arc is one goal in and nothing more. A
+  poisoned ticket cannot start work outside the observation, and removing
+  the section stops the loop at the next tick.
 - **Durability.** Kill the orchestrator worker mid-run; Temporal replays it
   and the run completes, with no leaked sandbox, identity, participant row
   or registration.
@@ -1311,6 +1347,40 @@ refused. They assert the platform refused.
   development defaults for the non-credential ones.
 - **One company per cluster** is what has been exercised, though namespacing
   and per-company bundle roots are designed for more.
+
+</details>
+
+<details>
+<summary><b>A delegated merge gate merges without a human — with named residual risk</b></summary>
+
+<br>
+
+Delegating the merge gate hands a real decision to compiled policy, and
+that is authority a human chose to grant in a document they can read and
+revoke. What it does *not* remove is honest to state:
+
+- **Bad-but-tests-green code inside the delegated class still merges.** The
+  platform re-runs the tests and confirms an independent reviewer passed,
+  but neither is a proof of correctness. Code that is wrong in a way its
+  tests do not catch will merge unattended. That is precisely the risk the
+  human accepts by writing the delegation, and the reason the delegated
+  *path class* is narrow and every other class still stops at a person.
+- **The reviewed tree and the merged tree can diverge.** The changed paths
+  and the verified tree are pinned when the review run starts (its sandbox
+  is provisioned from the PR head read then); the merge does not re-assert
+  the head SHA. A PR head that moves between review and merge re-opens the
+  gap between what was reviewed and what lands — recorded, not yet closed.
+- **The rework bound trusts a mutable ticket title.** The rework-chain depth
+  is parsed back from the platform-written ticket title, and the PM role
+  holds `issues.update`; a compromised conductor could edit a depth
+  downward and extend the loop. The durable fix — a depth the platform
+  stores rather than parses — is deferred and flagged in the code, so it is
+  a decision, not an oversight.
+
+The compiled decision does refuse what it claims to: a steered reviewer
+cannot merge a change touching a protected surface, and the red-team suite
+drives exactly that on the cluster. The point of this box is that "policy
+can merge" is a bounded grant with edges worth knowing, not a blank cheque.
 
 </details>
 

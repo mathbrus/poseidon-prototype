@@ -1,12 +1,14 @@
-# hello-saas-delegated — the design-partner company with a
-# POLICY-RESOLVED merge gate. Identical to hello-saas.yaml except that the
-# review workflow's merge gate is delegated to compiled policy for a narrow
-# class of changes: a passing independent review plus the platform's own
-# green checks merges a PR touching only `slugify.py` or `tests/`, with no
-# human command. Everything else — a carve-out surface, an out-of-class
-# path, a failed layer — still stops (a decline falls back to the human
-# `merge` signal; a failed layer feeds the bounded rework loop). Removing
-# the `delegate` block reverts to human-only merge: revocation is a diff.
+# hello-saas-delegated — the flagship autonomous company: a standing
+# heartbeat AND a POLICY-RESOLVED merge gate. Like hello-saas-conducted,
+# the PM runs the backlog on a heartbeat; unlike it, in-class passing work
+# merges under compiled policy with no human command at all. The merge gate
+# is delegated for a narrow class of changes: a passing independent review
+# plus the platform's own green checks merges a PR touching only
+# `slugify.py` or `tests/`. Everything else still stops — a carve-out
+# surface, an out-of-class path, or a decline falls back to the human
+# `merge` signal; a failed quality layer feeds the bounded rework loop.
+# Removing the `delegate` block reverts to human-only merge: revocation is
+# a diff.
 
 apiVersion: poseidon.dev/v1
 
@@ -147,3 +149,14 @@ policies:
 budgets:
   per_run:
     usd: 5
+
+# The standing heartbeat: the flagship delegated company runs its own
+# backlog. In-class passing work merges under compiled policy with no human
+# command; carve-out PRs still park on the human `merge` signal.
+conduct:
+  conductor: pm
+  heartbeat_minutes: 30
+  max_concurrent_runs: 1
+  may_start: [implement, review]
+  daily_cap:
+    usd: 20
