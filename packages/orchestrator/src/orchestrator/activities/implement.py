@@ -9,6 +9,8 @@ Retry safety, per activity:
     provision_sandbox — the backend pre-removes a same-name remnant of a
                         crashed earlier attempt; registration upserts.
     implement_config  — read-only; safe.
+    read_issue        — read plus an idempotent artifact link (COALESCE
+                        upsert of the ticket URL); safe.
     dispatch_executor — the agent answers 409 to a re-dispatch and the
                         activity falls through to polling; if the agent
                         lost the run (restart), the poll raises and the
@@ -132,6 +134,32 @@ class ImplementActivities:
             }
 
         return await asyncio.to_thread(read)
+
+    @activity.defn(name="read_issue")
+    async def read_issue(self, run_id: str, issue_number: int) -> dict[str, Any]:
+        """Issue metadata under the platform identity: title and body seed
+        the dispatch text, the URL lands on the run row. Fail-closed on a
+        closed issue — implement consumes open work, it does not resurrect
+        finished tickets. The body is untrusted input, exactly like a task
+        file's contents."""
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            issue = await gateway.read_issue(
+                run_id, self._settings.target_repo, issue_number
+            )
+        if issue.get("state") != "open":
+            raise RuntimeError(
+                f"issue #{issue_number} is {issue.get('state') or 'unknown'},"
+                " not open — nothing to implement"
+            )
+        await asyncio.to_thread(
+            self._runs.record_artifacts, run_id, ticket_urls=[issue["url"]]
+        )
+        self._log.bind(run_id=run_id).info(
+            "issue resolved", extra={"issue_number": issue_number}
+        )
+        return issue
 
     def _sandbox_policy(self, run_id: str) -> SandboxPolicy:
         """The compiled SandboxPolicy: the applied blueprint's infra IR plus
@@ -303,6 +331,7 @@ class ImplementActivities:
     def all(self) -> list[Any]:
         return [
             self.create_run,
+            self.read_issue,
             self.fetch_workspace,
             self.provision_sandbox,
             self.implement_config,

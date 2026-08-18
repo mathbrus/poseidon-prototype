@@ -9,6 +9,7 @@ import pytest
 
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
+from orchestrator.workflows.implement import issue_placeholder
 from registry.memory import InMemoryCompanies, InMemoryRuns
 from sandbox.contract import SandboxHandle, SandboxPolicy
 
@@ -110,6 +111,51 @@ def test_create_run_is_retry_safe(activities, runs):
     asyncio.run(activities.create_run(RUN_ID, "attempt one"))
     asyncio.run(activities.create_run(RUN_ID, "attempt two"))
     assert runs.get(RUN_ID).task == "attempt two"
+
+
+def _issue_gateway(monkeypatch, issue: dict[str, Any]):
+    import orchestrator.activities.implement as module
+
+    class FakeGateway:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def read_issue(self, run_id, repo, number):
+            return issue
+
+    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+
+
+def test_read_issue_returns_the_view_and_links_the_ticket(activities, runs, monkeypatch):
+    _issue_gateway(
+        monkeypatch,
+        {
+            "number": 42,
+            "title": "Add slugify",
+            "state": "open",
+            "body": "spec",
+            "url": "https://github.test/i/42",
+        },
+    )
+    asyncio.run(activities.create_run(RUN_ID, issue_placeholder(42)))
+    issue = asyncio.run(activities.read_issue(RUN_ID, 42))
+    assert issue["title"] == "Add slugify" and issue["body"] == "spec"
+    assert runs.get(RUN_ID).ticket_urls == ["https://github.test/i/42"]
+
+
+def test_read_issue_refuses_a_closed_issue(activities, monkeypatch):
+    """Implement consumes open work — a closed ticket is finished, not a
+    spec to re-run."""
+    _issue_gateway(
+        monkeypatch,
+        {"number": 42, "title": "t", "state": "closed", "body": "", "url": "u"},
+    )
+    with pytest.raises(RuntimeError, match="not open"):
+        asyncio.run(activities.read_issue(RUN_ID, 42))
 
 
 JOB_HANDLE = {

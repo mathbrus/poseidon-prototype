@@ -252,15 +252,18 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
     through to the crew it is actually authorized to request. Authority is
     the platform's to enforce — never this script's to respect."""
     task_text = _task_text(messages)
-    goal = task_text.removeprefix("Goal:").strip().splitlines()
-    title = (goal[0] if goal else "scoped work")[:80]
+    goal_text = task_text.removeprefix("Goal:").strip()
+    title = (goal_text.splitlines()[0] if goal_text else "scoped work")[:80]
     if _made_calls(messages, "create_issue") == 0:
+        # The ticket carries the goal itself: the issue is the spec an
+        # issue-driven implement run consumes, so a body that discarded the
+        # goal (branch line included) would starve the executor.
         return _calls(
             MockToolCall(
                 "create_issue",
                 {
                     "title": f"Implement: {title}",
-                    "body": "Scoped from the intake goal.\n\nAcceptance: the "
+                    "body": f"{goal_text}\n\nAcceptance: the "
                     "delivery crew's PR implements the goal with tests.",
                 },
             )

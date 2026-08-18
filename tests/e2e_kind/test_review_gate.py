@@ -1,7 +1,9 @@
 """Review on the live cluster: the full chain — intake tickets,
-implement PR, reviewer findings posted, merge gate parked, timer escalation
-observable, API approval, gateway merge — every step correlated by run_id
-in one audit story (MVP exit criterion 3).
+implement PR (started from the intake ticket's issue number, the
+`poseidon run <number>` handoff: no human retypes the spec), reviewer
+findings posted, merge gate parked, timer escalation observable, API
+approval, gateway merge — every step correlated by run_id in one audit
+story (MVP exit criterion 3).
 
 The chain runs its own three runs (never the shared session fixtures: this
 module *merges* its PR into the disposable repo's main, and nothing else in
@@ -21,6 +23,7 @@ import httpx
 import pytest
 
 from common.ids import new_run_id
+from orchestrator.workflows.implement import issue_placeholder
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 from orchestrator.workflows.review import (
     FAST_TIMEOUTS,
@@ -32,7 +35,7 @@ from .conftest import (
     TASK_QUEUE,
     _psql_json,
     audit_story,
-    run_implement,
+    run_implement_from_issue,
     temporal_port_forward,
 )
 from .test_crew_identity import _registry
@@ -114,11 +117,16 @@ def review_chain(stack: None, env: dict) -> dict:
     escalation, an approval, and a gateway merge (review)."""
     chain: dict = {"env": env}
 
-    # 1. Intake: tickets + recorded intent under the PM's authority.
+    # 1. Intake: tickets + recorded intent under the PM's authority. The
+    # goal carries the delivery-branch line, so the ticket the PM files
+    # carries it too — the issue is the whole spec the implement run
+    # consumes, and the nonce branch keeps reruns against the disposable
+    # repo from colliding.
     intake_run = new_run_id()
+    nonce = intake_run[-6:].lower()
     goal = (
-        "Ship the slugify utility to production "
-        f"(e2e review-chain goal {intake_run[-6:].lower()})"
+        f"Ship the slugify utility to production (e2e review-chain goal {nonce})\n\n"
+        f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
 
     async def start_intake() -> dict:
@@ -137,9 +145,16 @@ def review_chain(stack: None, env: dict) -> dict:
     chain["intake_run_id"] = intake_run
     chain["intake"] = asyncio.run(start_intake())
 
-    # 2. Implement: the chain's own PR (this module merges it — the shared
-    # session fixtures' PRs must stay untouched).
-    chain["implement"] = run_implement("task-happy.md", kill_worker=False, env=env)
+    # 2. Implement, from the ticket intake just filed — the company
+    # consumes its own artifact; nobody writes a second spec. The chain
+    # gets its own PR (this module merges it — the shared session
+    # fixtures' PRs must stay untouched).
+    ticket_url = (chain["intake"].get("ticket_urls") or [""])[0]
+    issue_match = re.search(r"/issues/(\d+)$", ticket_url)
+    assert issue_match, f"intake filed no usable ticket: {chain['intake']}"
+    chain["ticket_url"] = ticket_url
+    chain["issue_number"] = int(issue_match.group(1))
+    chain["implement"] = run_implement_from_issue(chain["issue_number"], env)
     pr_url = chain["implement"]["pr_url"]
     match = re.search(r"/pull/(\d+)$", pr_url or "")
     assert match, f"implement produced no usable PR: {chain['implement']}"
@@ -182,6 +197,13 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     assert review_chain["intake"]["status"] == "done"
     assert review_chain["intake"]["ticket_urls"], "intake filed no tickets"
     assert review_chain["implement"]["status"] == "done"
+    # The handoff was the ticket itself: the implement run consumed the
+    # issue intake filed (linked on its run row), and its task is the
+    # issue reference — no second, human-written spec anywhere.
+    assert review_chain["implement"]["ticket_urls"] == [review_chain["ticket_url"]]
+    assert review_chain["implement"]["task"] == issue_placeholder(
+        review_chain["issue_number"]
+    )
 
     record = review_chain["review"]
     assert record["status"] == "done", f"review failed: {record}"

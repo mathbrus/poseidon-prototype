@@ -89,6 +89,33 @@ async def test_pm_runs_the_issue_lifecycle(app, backends, audit):
     assert all(e["agent_id"] == "pm-1" for e in audit_events(audit))
 
 
+async def test_single_issue_read_returns_the_view(app, backends):
+    async with mcp_session(app, PM_TOKEN) as session:
+        result = payload(
+            await session.call_tool(
+                "issues.read", {"run_id": RUN_ID, "repo": REPO, "number": 7}
+            )
+        )
+    assert result["issues"] == [
+        {
+            "number": 7,
+            "title": "an issue",
+            "state": "open",
+            "body": "details",
+            "url": "https://github.test/i/7",
+        }
+    ]
+
+
+async def test_single_issue_read_refuses_a_pull_request(app, backends):
+    # GitHub serves PRs from the issues endpoint; PRs belong to git.read.
+    async with mcp_session(app, PM_TOKEN) as session:
+        result = await session.call_tool(
+            "issues.read", {"run_id": RUN_ID, "repo": REPO, "number": 8}
+        )
+    assert result.isError and "pull request" in result.content[0].text
+
+
 async def test_engineer_is_denied_the_pm_surface(app, audit, backends):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(

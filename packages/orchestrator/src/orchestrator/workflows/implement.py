@@ -33,7 +33,7 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from orchestrator.gates import Gate
 
@@ -104,15 +104,36 @@ FAST_TIMEOUTS = Timeouts(
 
 @dataclass
 class ImplementInput:
+    """Exactly one of `task_text` (a spec handed in directly) or
+    `issue_number` (a GitHub issue the company already filed — resolved by
+    the platform before dispatch) must be set."""
+
     run_id: str
-    task_text: str
+    task_text: str | None = None
     # None keeps the generous real-brain defaults (and old histories replay).
     timeouts: Timeouts | None = None
+    issue_number: int | None = None
 
 
 def workflow_id(run_id: str) -> str:
     """One workflow per run, deterministically named."""
     return f"implement-{run_id}"
+
+
+def issue_placeholder(number: int) -> str:
+    """The run row's task for an issue-driven run: the row is created
+    before the ticket is resolved (so it exists ahead of the platform's
+    gateway call), and the reference — not a pasted body — is what the
+    record keeps."""
+    return f"implement issue #{number}"
+
+
+def issue_task(number: int, title: str, body: str, url: str) -> str:
+    """The dispatch text for an issue-driven run, composed by workflow code
+    from what the platform read — deterministic on replay. The body is
+    untrusted input, exactly like a task file's contents (bodies can run to
+    65k chars; truncation is future work, never done silently)."""
+    return f"Implement issue #{number} ({url}): {title}\n\n{body}"
 
 
 def verify_feedback(brief: str, output: str) -> str:
@@ -209,6 +230,11 @@ class ImplementWorkflow:
 
     @workflow.run
     async def run(self, input: ImplementInput) -> dict[str, Any]:
+        if (input.task_text is None) == (input.issue_number is None):
+            raise ApplicationError(
+                "exactly one of task_text or issue_number must be set",
+                non_retryable=True,
+            )
         timeouts = input.timeouts or Timeouts()
         handle: dict[str, Any] | None = None
         result: dict[str, Any] | None = None
@@ -217,7 +243,10 @@ class ImplementWorkflow:
         try:
             await workflow.execute_activity(
                 "create_run",
-                args=[input.run_id, input.task_text],
+                args=[
+                    input.run_id,
+                    input.task_text or issue_placeholder(input.issue_number),
+                ],
                 start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
                 retry_policy=STEP_RETRY,
             )
@@ -236,6 +265,21 @@ class ImplementWorkflow:
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
+            # The one source of dispatch truth: the file text handed in, or
+            # the ticket the company already filed — fetched under the
+            # platform identity and composed deterministically here.
+            if input.issue_number is not None:
+                issue = await workflow.execute_activity(
+                    "read_issue",
+                    args=[input.run_id, input.issue_number],
+                    start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                    retry_policy=STEP_RETRY,
+                )
+                task_source = issue_task(
+                    issue["number"], issue["title"], issue["body"], issue["url"]
+                )
+            else:
+                task_source = input.task_text
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id],
@@ -262,7 +306,7 @@ class ImplementWorkflow:
                         "crew_template": config["crew_template"],
                         "conductor": config["conductor"],
                         "conductor_role": config["conductor_role"],
-                        "task_text": input.task_text,
+                        "task_text": task_source,
                         "record_under_authority": True,
                     }
                 ],
@@ -305,11 +349,11 @@ class ImplementWorkflow:
 
             # Delivery is workflow-directed (choice 8) and gated: only a
             # green platform verify releases the deliver dispatch. The
-            # original task text rides it so the delivery constraints
-            # (branch, markers) survive verbatim.
+            # source text rides it — not the planner's brief — so the
+            # delivery constraints (branch, markers) survive verbatim.
             if verified and not error and not (result or {}).get("error"):
                 delivery = await self._dispatch(
-                    input.run_id, input.task_text, executor_url, "deliver", timeouts
+                    input.run_id, task_source, executor_url, "deliver", timeouts
                 )
                 if (delivery or {}).get("error"):
                     error = f"delivery failed: {delivery['error']}"
