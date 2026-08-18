@@ -9,6 +9,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from psycopg.errors import UniqueViolation
+
 from registry.db import Registry
 
 
@@ -73,23 +75,32 @@ class Runs:
         company: str | None = None,
     ) -> None:
         """Create or reset the run row. Retry-safe: an activity re-attempt
-        after a worker death must land on the same row, not a second one."""
-        self._db.execute(
-            """
-            INSERT INTO registry.runs
-                (run_id, task, status, workflow, workflow_id, company)
-            VALUES (%s, %s, 'running', %s, %s, %s)
-            ON CONFLICT (run_id) DO UPDATE SET
-                task = EXCLUDED.task,
-                status = 'running',
-                workflow = EXCLUDED.workflow,
-                workflow_id = EXCLUDED.workflow_id,
-                company = EXCLUDED.company,
-                error = NULL,
-                finished_at = NULL
-            """,
-            (run_id, task, workflow, workflow_id, company),
-        )
+        after a worker death must land on the same row, not a second one —
+        the ON CONFLICT arbiter is run_id, so a retry updates its own row
+        while a *different* run claiming the same live issue task still
+        dies on the one-live-issue-run index."""
+        try:
+            self._db.execute(
+                """
+                INSERT INTO registry.runs
+                    (run_id, task, status, workflow, workflow_id, company)
+                VALUES (%s, %s, 'running', %s, %s, %s)
+                ON CONFLICT (run_id) DO UPDATE SET
+                    task = EXCLUDED.task,
+                    status = 'running',
+                    workflow = EXCLUDED.workflow,
+                    workflow_id = EXCLUDED.workflow_id,
+                    company = EXCLUDED.company,
+                    error = NULL,
+                    finished_at = NULL
+                """,
+                (run_id, task, workflow, workflow_id, company),
+            )
+        except UniqueViolation as exc:
+            raise RuntimeError(
+                f"run {run_id!r} refused: another live implement run already"
+                f" holds {task!r} — one live implement run per issue"
+            ) from exc
 
     def record_artifacts(
         self, run_id: str, pr_url: str | None = None, ticket_urls: list[str] | None = None
@@ -137,6 +148,59 @@ class Runs:
     def get(self, run_id: str) -> RunRecord | None:
         rows = self._db.query("SELECT * FROM registry.runs WHERE run_id = %s", (run_id,))
         return RunRecord.from_row(rows[0]) if rows else None
+
+    def active_count(self, company: str) -> int:
+        """Runs currently occupying delivery capacity — what the conduct
+        heartbeat compares against `max_concurrent_runs`. Intake is not
+        counted: it files tickets, it does not occupy a crew."""
+        rows = self._db.query(
+            "SELECT COUNT(*) AS n FROM registry.runs"
+            " WHERE company = %s AND status = 'running'"
+            "   AND workflow IN ('implement', 'review')",
+            (company,),
+        )
+        return int(rows[0]["n"])
+
+    def started_issue_numbers(self, company: str) -> set[int]:
+        """Issues any run has ever consumed, parsed from the canonical
+        issue-run task (`implement issue #N`). Every status counts: a
+        failed issue-run is a recorded outcome for a human to read, not an
+        invitation for the heartbeat to retry it forever."""
+        rows = self._db.query(
+            r"SELECT DISTINCT (regexp_match(task, '^implement issue #(\d+)$'))[1]::int"
+            r" AS number FROM registry.runs"
+            r" WHERE company = %s AND workflow = 'implement'"
+            r"   AND task ~ '^implement issue #\d+$'",
+            (company,),
+        )
+        return {int(row["number"]) for row in rows}
+
+    def delivered_pr_urls(self, company: str) -> list[str]:
+        """PRs the company's implement runs have opened and finished with —
+        the review side of the conduct heartbeat's observation, before the
+        already-reviewed set is subtracted."""
+        rows = self._db.query(
+            "SELECT pr_url FROM registry.runs"
+            " WHERE company = %s AND workflow = 'implement'"
+            "   AND status = 'done' AND pr_url IS NOT NULL"
+            " ORDER BY finished_at",
+            (company,),
+        )
+        return [row["pr_url"] for row in rows]
+
+    def reviewed_pr_numbers(self, company: str) -> set[int]:
+        """PRs any review run has ever consumed, parsed from the canonical
+        review-run task (`review pull request #N`) — same rule as issues:
+        every status counts, a failed review is a recorded outcome."""
+        rows = self._db.query(
+            r"SELECT DISTINCT"
+            r" (regexp_match(task, '^review pull request #(\d+)$'))[1]::int"
+            r" AS number FROM registry.runs"
+            r" WHERE company = %s AND workflow = 'review'"
+            r"   AND task ~ '^review pull request #\d+$'",
+            (company,),
+        )
+        return {int(row["number"]) for row in rows}
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
         rows = self._db.query(

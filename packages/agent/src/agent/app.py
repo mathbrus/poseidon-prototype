@@ -29,7 +29,7 @@ TaskRunner = Callable[[str, str], Awaitable[RunResult]]
 class TaskRequest(BaseModel):
     run_id: str
     task_text: str
-    mode: Literal["implement", "plan", "deliver", "review"] = "implement"
+    mode: Literal["implement", "plan", "deliver", "review", "decide"] = "implement"
 
 
 class TaskStatus(BaseModel):
@@ -41,6 +41,7 @@ class TaskStatus(BaseModel):
     ticket_urls: list[str] = []
     crew_request_id: str | None = None
     comment_urls: list[str] = []
+    decision: dict | None = None
 
 
 def create_app(
@@ -88,6 +89,11 @@ def create_app(
             brain.review_dispatch, _settings(), run_id, task_text
         )
 
+    async def decide_runner(run_id: str, task_text: str) -> RunResult:
+        return await asyncio.to_thread(
+            brain.decide_dispatch, _settings(), run_id, task_text
+        )
+
     log = get_logger("agent", agent_id="backend-engineer-1")
     app = FastAPI(title="poseidon-agent")
     tasks: dict[str, TaskStatus] = {}
@@ -103,6 +109,8 @@ def create_app(
                 result = await deliver_runner(run_id, request.task_text)
             elif request.mode == "review":
                 result = await review_runner(run_id, request.task_text)
+            elif request.mode == "decide":
+                result = await decide_runner(run_id, request.task_text)
             else:
                 result = await task_runner(run_id, request.task_text)
         except Exception as exc:
@@ -118,6 +126,7 @@ def create_app(
             ticket_urls=result.ticket_urls,
             crew_request_id=result.crew_request_id,
             comment_urls=result.comment_urls,
+            decision=result.decision,
         )
         run_log.info("task finished", extra=tasks[run_id].model_dump())
 

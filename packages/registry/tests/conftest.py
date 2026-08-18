@@ -36,3 +36,4 @@ def clean(registry: Registry):
     registry.execute("DELETE FROM registry.sandbox_registrations")
     registry.execute("DELETE FROM registry.run_participants")
     registry.execute("DELETE FROM registry.runs")
+    registry.execute("DELETE FROM registry.budget_ledger")

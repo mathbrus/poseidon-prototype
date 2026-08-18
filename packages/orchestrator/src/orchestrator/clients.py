@@ -147,6 +147,13 @@ class GatewayClient:
         )
         return result["issues"][0]
 
+    async def read_open_issues(self, run_id: str, repo: str) -> list[dict[str, Any]]:
+        """The open backlog for the conduct heartbeat's tick. Only numbers,
+        titles and URLs feed the decision — issue bodies are untrusted
+        input the implement run resolves itself."""
+        result = await self._tool("issues.read", {"run_id": run_id, "repo": repo})
+        return list(result["issues"])
+
     async def merge_pr(
         self, run_id: str, repo: str, number: int, method: str = "merge"
     ) -> dict[str, Any]:

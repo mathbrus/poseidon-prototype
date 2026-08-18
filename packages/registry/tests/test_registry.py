@@ -540,3 +540,97 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
             "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
         )
         registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (RUN_ID,))
+
+
+# -- the conduct heartbeat's observations ----------------------------------
+
+
+def test_active_count_counts_running_delivery_runs(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-ac-1", "implement issue #1", "implement", None, "hello-saas")
+    runs.start("run-ac-2", "review PR", "review", None, "hello-saas")
+    runs.start("run-ac-3", "a goal", "intake", None, "hello-saas")  # not capacity
+    runs.start("run-ac-4", "implement issue #2", "implement", None, "other-co")
+    runs.start("run-ac-5", "implement issue #9", "implement", None, "hello-saas")
+    runs.finish("run-ac-5", "done")
+    assert Runs(registry).active_count("hello-saas") == 2
+
+
+def test_started_issue_numbers_parses_the_canonical_task(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-in-1", "implement issue #3", "implement", None, "hello-saas")
+    runs.start("run-in-2", "implement issue #12", "implement", None, "hello-saas")
+    runs.finish("run-in-2", "failed", error="boom")  # every status counts
+    runs.start("run-in-3", "a free-form task file", "implement", None, "hello-saas")
+    runs.start("run-in-4", "implement issue #7", "implement", None, "other-co")
+    assert Runs(registry).started_issue_numbers("hello-saas") == {3, 12}
+
+
+def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
+    from registry.ledger import BudgetLedger
+
+    ledger = BudgetLedger(registry)
+    entry = dict(
+        agent_id="executor",
+        parent_agent_id="pm-1",
+        role="backend-engineer",
+        model="mock",
+        prompt_tokens=1,
+        completion_tokens=1,
+    )
+    ledger.record(company="hello-saas", run_id="run-sp-1", usd=2.5, **entry)
+    ledger.record(company="hello-saas", run_id="run-sp-2", usd=1.5, **entry)
+    ledger.record(company="other-co", run_id="run-sp-3", usd=9.0, **entry)
+    # An entry from before today must not count against the daily cap.
+    registry.execute(
+        "UPDATE registry.budget_ledger SET ts = now() - interval '1 day'"
+        " WHERE run_id = 'run-sp-2'"
+    )
+    assert BudgetLedger(registry).spent_today("hello-saas") == 2.5
+
+
+def test_delivered_pr_urls_are_done_implement_runs_only(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-pr-1", "implement issue #1", "implement", None, "hello-saas")
+    runs.finish("run-pr-1", "done", pr_url="https://git.test/r/pull/4")
+    runs.start("run-pr-2", "implement issue #2", "implement", None, "hello-saas")
+    runs.finish("run-pr-2", "failed", error="boom")  # no PR, not delivered
+    runs.start("run-pr-3", "implement issue #3", "implement", None, "hello-saas")
+    runs.finish("run-pr-3", "done", pr_url="https://git.test/r/pull/9")
+    runs.start("run-pr-4", "implement issue #4", "implement", None, "other-co")
+    runs.finish("run-pr-4", "done", pr_url="https://git.test/r/pull/8")
+    assert Runs(registry).delivered_pr_urls("hello-saas") == [
+        "https://git.test/r/pull/4",
+        "https://git.test/r/pull/9",
+    ]
+
+
+def test_reviewed_pr_numbers_parses_the_canonical_task(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-rv-1", "review pull request #4", "review", None, "hello-saas")
+    runs.start("run-rv-2", "review pull request #9", "review", None, "hello-saas")
+    runs.finish("run-rv-2", "failed", error="boom")  # every status counts
+    runs.start("run-rv-3", "review pull request #8", "review", None, "other-co")
+    assert Runs(registry).reviewed_pr_numbers("hello-saas") == {4, 9}
+
+
+def test_one_live_implement_run_per_issue(registry: Registry):
+    """The partial unique index, end to end: a second live run for the
+    same issue dies structurally; a retry of the same run lands on its own
+    row; a finished run frees the slot; other companies are unaffected."""
+    runs = Runs(registry)
+    runs.start("run-dup-1", "implement issue #7", "implement", None, "hello-saas")
+    with pytest.raises(RuntimeError, match="one live implement run per issue"):
+        runs.start("run-dup-2", "implement issue #7", "implement", None, "hello-saas")
+    runs.start("run-dup-1", "implement issue #7", "implement", None, "hello-saas")
+    runs.finish("run-dup-1", "done")
+    runs.start("run-dup-3", "implement issue #7", "implement", None, "hello-saas")
+    runs.start("run-dup-4", "implement issue #7", "implement", None, "other-co")
+
+
+def test_free_form_tasks_are_not_constrained(registry: Registry):
+    """Only the canonical issue-run task is keyed: two runs of the same
+    task file are two deliberate human acts, not a race."""
+    runs = Runs(registry)
+    runs.start("run-ff-1", "the same task file text", "implement", None, "hello-saas")
+    runs.start("run-ff-2", "the same task file text", "implement", None, "hello-saas")

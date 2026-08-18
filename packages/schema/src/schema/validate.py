@@ -6,8 +6,8 @@ write instead*. So every error is rendered as a YAML-ish path plus the
 concrete allowed values, and errors are reported together — fixing a
 blueprint one message per run is a bad trade for the author.
 
-Structural checks only. The catalog cross-checks (does this
-template exist, is `analyst` really at count 0) live here too, because they
+Structural checks only. The catalog cross-checks (does this template exist,
+does a crew member's role match the catalog's) live here too, because they
 are properties of the *document* against a versioned catalog; anything
 needing a registry snapshot or a deployment plan is the compiler's.
 """
@@ -83,12 +83,6 @@ def _catalog_problems(document: Any) -> list[str]:
                 f"(known: {known_roles})"
             )
             continue
-        if template.placeholder_only and role.get("count", 0) != 0:
-            problems.append(
-                f"departments.roles.{hire}.count: template "
-                f"{template.name!r} is a placeholder documenting a growth "
-                f"path and is valid only at count: 0"
-            )
         for crew in (role.get("may_spawn") or {}).get("crew") or []:
             if crew not in CREW_TEMPLATES:
                 problems.append(

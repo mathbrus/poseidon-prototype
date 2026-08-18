@@ -52,6 +52,7 @@ async def test_task_lifecycle_running_then_done():
             "ticket_urls": [],
             "crew_request_id": None,
             "comment_urls": [],
+            "decision": None,
         }
 
         release.set()
@@ -66,6 +67,7 @@ async def test_task_lifecycle_running_then_done():
         "ticket_urls": [],
         "crew_request_id": None,
         "comment_urls": [],
+        "decision": None,
     }
     assert seen == [(RUN_ID, "do it")]
 

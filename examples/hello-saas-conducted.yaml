@@ -1,0 +1,148 @@
+# hello-saas-conducted — the design-partner company WITH a standing
+# heartbeat. Identical to hello-saas.yaml except for the `conduct`
+# section: the company starts its own work from the backlog under
+# declared caps, no human starting the next run. Used by the
+# overnight acceptance capstone and the unattended-path red-team.
+
+apiVersion: poseidon.dev/v1
+
+company:
+  name: hello-saas
+  mission: Ship a small SaaS product with an agent company under governance.
+  product: A URL-shortening service with a REST API.
+  stage: prototype
+
+stack:
+  languages: [python]
+  frameworks: [fastapi]
+  repos:
+    - name: app
+      url: github.com/example-org/hello-saas
+      default_branch: main
+  toolchain:
+    image: poseidon-sandbox
+    test_command: pytest -q
+    # Reaches the audited egress proxy only; an empty list
+    # would mean zero egress.
+    egress_allow:
+      - pypi.org
+      - files.pythonhosted.org
+
+departments:
+  roles:
+    pm:
+      template: pm
+      count: 1
+      model_tier: standard
+      may_spawn:
+        crew: [feature-delivery, feature-review]
+        max_concurrent: 2
+
+crews:
+  feature-delivery:
+    members:
+      # LLM-only: reads the run's sandbox, writes nothing, produces the task
+      # brief the executor's dispatch carries verbatim.
+      planner:
+        role_template: backend-engineer
+        needs_sandbox: false
+        tools:
+          - sandbox.read_file
+          - sandbox.list_dir
+          - issues.read
+      executor:
+        role_template: backend-engineer
+        tools:
+          - sandbox.read_file
+          - sandbox.write_file
+          - sandbox.list_dir
+          - sandbox.exec
+          - sandbox.run_tests
+          - sandbox.git_bundle
+          - git.open_pr
+    budget_inheritance: run
+  feature-review:
+    members:
+      reviewer:
+        role_template: sdet
+        tools:
+          - sandbox.read_file
+          - sandbox.list_dir
+          - sandbox.exec
+          - sandbox.run_tests
+          - git.read
+          - git.comment
+          - issues.comment
+    budget_inheritance: run
+
+# Per-role gateway scopes. The PM's list is deliberately narrow: spawn
+# authority is not permission to wield the crew's tools, so
+# no sandbox writes and no git.open_pr appear here.
+tools:
+  pm:
+    allow:
+      - issues.create
+      - issues.read
+      - issues.update
+      - issues.comment
+      - crew.request
+  sdet:
+    allow:
+      - sandbox.read_file
+      - sandbox.list_dir
+      - sandbox.exec
+      - sandbox.run_tests
+      - git.read
+      - git.comment
+      - issues.comment
+
+workflows:
+  intake:
+    enabled: true
+    conductor: pm
+    gates:
+      intake: none
+  implement:
+    enabled: true
+    conductor: pm
+    crew: feature-delivery
+    max_verify_retries: 2
+    drain:
+      on_conductor_drain: abort_crew
+      timeout_minutes: 30
+  review:
+    enabled: true
+    conductor: pm
+    crew: feature-review
+    gates:
+      # The one human gate: the orchestrator merges under
+      # its platform identity only after this signal arrives.
+      merge: human_approval
+    drain:
+      on_conductor_drain: abort_crew
+      timeout_minutes: 30
+
+policies:
+  branch_protection:
+    protected: [main]
+    allowed_pattern: ^feature/[a-z0-9-]+$
+  deny_paths:
+    - .github/workflows/
+  path_ownership:
+    - paths: [tests/]
+      roles: [backend-engineer, sdet]
+  escalation:
+    channel: api
+    timeout_minutes: 60
+
+budgets:
+  per_run:
+    usd: 5
+
+conduct:
+  conductor: pm
+  heartbeat_minutes: 30
+  max_concurrent_runs: 1
+  may_start: [implement, review]
+  daily_cap:
+    usd: 20

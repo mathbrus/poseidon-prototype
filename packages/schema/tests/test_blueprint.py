@@ -37,12 +37,11 @@ def test_hello_saas_validates():
 
 
 def test_hello_saas_is_the_lean_profile(blueprint):
-    """The PM is the only standing hire; the analyst placeholder documents
-    growth at count 0; no standing executor exists in the document at
-    all."""
+    """The PM is the only standing hire; no standing executor exists in the
+    document at all."""
     roles = blueprint["departments"]["roles"]
     assert roles["pm"]["count"] == 1
-    assert roles["analyst"]["count"] == 0
+    assert set(roles) == {"pm"}
     assert "backend-engineer" not in roles
 
 
@@ -122,12 +121,6 @@ def test_unknown_role_template_lists_the_catalog(blueprint):
     (problem,) = [p for p in problems_of(blueprint) if "product-manager" in p]
     assert "role catalog" in problem
     assert "pm" in problem and "sdet" in problem
-
-
-def test_analyst_placeholder_cannot_be_hired(blueprint):
-    blueprint["departments"]["roles"]["analyst"]["count"] = 1
-    (problem,) = [p for p in problems_of(blueprint) if "analyst" in p]
-    assert "count: 0" in problem
 
 
 def test_unknown_crew_in_may_spawn_is_caught(blueprint):
@@ -215,3 +208,54 @@ def test_lean_roster_profile_validates(blueprint):
         "count": 1,
     }
     assert validate_blueprint(standing_executor) is standing_executor
+
+
+# -- the conduct heartbeat -------------------------------------------------
+
+
+def conduct_section() -> dict:
+    return {
+        "conductor": "pm",
+        "heartbeat_minutes": 30,
+        "max_concurrent_runs": 1,
+        "may_start": ["implement", "review"],
+        "daily_cap": {"usd": 20},
+    }
+
+
+def test_conduct_section_validates(blueprint):
+    blueprint["conduct"] = conduct_section()
+    validate_blueprint(blueprint)
+
+
+def test_conduct_is_optional(blueprint):
+    assert "conduct" not in blueprint  # the lean example stays human-started
+    validate_blueprint(blueprint)
+
+
+def test_conduct_declares_every_cap_or_nothing(blueprint):
+    """A defaulted cap is authority nobody wrote down: once the section
+    exists, every field is required."""
+    for field in conduct_section():
+        document = copy.deepcopy(blueprint)
+        document["conduct"] = conduct_section()
+        del document["conduct"][field]
+        assert any("conduct" in p and field in p for p in problems_of(document))
+
+
+def test_conduct_may_not_start_intake(blueprint):
+    """Goals enter through a human; the heartbeat may never feed itself
+    new goals."""
+    blueprint["conduct"] = conduct_section()
+    blueprint["conduct"]["may_start"] = ["intake"]
+    (problem,) = [p for p in problems_of(blueprint) if "intake" in p]
+    assert "conduct.may_start" in problem
+    assert "'implement'" in problem  # the allowed values are shown
+
+
+def test_conduct_typo_is_rejected_not_ignored(blueprint):
+    blueprint["conduct"] = conduct_section()
+    blueprint["conduct"]["heartbeat_mins"] = 5
+    del blueprint["conduct"]["heartbeat_minutes"]
+    problems = problems_of(blueprint)
+    assert any("heartbeat_mins" in p and "spelling" in p for p in problems)

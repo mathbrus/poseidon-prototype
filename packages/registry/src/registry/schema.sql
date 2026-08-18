@@ -45,8 +45,6 @@ CREATE TABLE IF NOT EXISTS registry.agent_instances (
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
--- Migration for databases created before the namespace column existed.
-ALTER TABLE registry.agent_instances ADD COLUMN IF NOT EXISTS namespace text;
 
 -- Runs. The workflow id maps a run to its Temporal workflow; artifacts
 -- (tickets, PR) are recorded against the run.
@@ -64,6 +62,16 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     created_at  timestamptz NOT NULL DEFAULT now(),
     finished_at timestamptz
 );
+-- One live implement run per issue. The canonical issue-run task is the
+-- key and the constraint is structural: the conduct heartbeat, a replayed
+-- workflow and a human `poseidon run <n>` cannot race their way into two
+-- live runs for the same ticket — the second insert dies here, not in a
+-- check-then-act. Only running issue-shaped implement runs are
+-- constrained; free-form task runs and finished runs are not.
+CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_issue_run
+    ON registry.runs (company, task)
+    WHERE status = 'running' AND workflow = 'implement'
+      AND task LIKE 'implement issue #%';
 
 -- Ephemeral crew members, kept out of agent_instances so hire/fire diffs
 -- stay clean. Revocation is a row termination, checked live on every
@@ -91,11 +99,6 @@ CREATE TABLE IF NOT EXISTS registry.run_participants (
     created_at      timestamptz NOT NULL DEFAULT now(),
     terminated_at   timestamptz
 );
--- Migrations for databases created before the identity columns existed.
-ALTER TABLE registry.run_participants ADD COLUMN IF NOT EXISTS company         text NOT NULL DEFAULT '';
-ALTER TABLE registry.run_participants ADD COLUMN IF NOT EXISTS role_template   text NOT NULL DEFAULT '';
-ALTER TABLE registry.run_participants ADD COLUMN IF NOT EXISTS namespace       text NOT NULL DEFAULT '';
-ALTER TABLE registry.run_participants ADD COLUMN IF NOT EXISTS service_account text;
 CREATE INDEX IF NOT EXISTS run_participants_run_id_idx
     ON registry.run_participants (run_id);
 CREATE UNIQUE INDEX IF NOT EXISTS run_participants_service_account_idx
@@ -180,11 +183,5 @@ CREATE TABLE IF NOT EXISTS registry.audit_events (
     parent_agent_id text NOT NULL DEFAULT '',
     workflow        text NOT NULL DEFAULT ''
 );
--- Migrations for databases created before the attribution columns existed.
-ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS source          text NOT NULL DEFAULT 'gateway';
-ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS company         text NOT NULL DEFAULT '';
-ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS lifecycle       text NOT NULL DEFAULT '';
-ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS parent_agent_id text NOT NULL DEFAULT '';
-ALTER TABLE registry.audit_events ADD COLUMN IF NOT EXISTS workflow        text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS audit_events_run_id_ts_idx
     ON registry.audit_events (run_id, ts);

@@ -50,6 +50,7 @@ def check(
     problems += _crew_allow_lists(blueprint, roles, crews)
     problems += _policy_patterns(blueprint)
     problems += _budget_coverage(blueprint)
+    problems += _conduct_authority(blueprint, roles)
     return problems
 
 
@@ -80,11 +81,7 @@ def _lean_roster(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
                 f"{role.get('template')!r} — execution is ephemeral crews; "
                 "hire a conductor and give it may_spawn, or set count: 0"
             )
-    hired_spawners = {
-        name
-        for name, role in _standing_hires(blueprint).items()
-        if (t := roles.get(role.get("template"))) is not None and t.may_spawn
-    }
+    hired_spawners = _hired_spawners(blueprint, roles)
     for name, wf in _enabled_workflows(blueprint).items():
         conductor = wf.get("conductor")
         if conductor and conductor not in hired_spawners:
@@ -93,6 +90,14 @@ def _lean_roster(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
                 "spawner — workflow nodes bind to standing conductors only"
             )
     return problems
+
+
+def _hired_spawners(blueprint: dict[str, Any], roles: dict[str, Any]) -> set[str]:
+    return {
+        name
+        for name, role in _standing_hires(blueprint).items()
+        if (t := roles.get(role.get("template"))) is not None and t.may_spawn
+    }
 
 
 def _hires(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -320,6 +325,41 @@ def _policy_patterns(blueprint: dict[str, Any]) -> list[str]:
             f"regular expression ({exc})"
         ]
     return []
+
+
+def _conduct_authority(
+    blueprint: dict[str, Any], roles: dict[str, RoleTemplate]
+) -> list[str]:
+    """The heartbeat's declared authority must be coherent: a hired spawner
+    to decide, enabled workflows to start, and a daily cap that can fund at
+    least one run — a cap below the per-run budget makes the section dead
+    configuration, and dead configuration is an error, not documentation."""
+    conduct = blueprint.get("conduct")
+    if not conduct:
+        return []
+    problems = []
+    conductor = conduct.get("conductor")
+    if conductor not in _hired_spawners(blueprint, roles):
+        problems.append(
+            f"conduct.conductor: {conductor!r} is not a hired spawner — "
+            "the heartbeat dispatches a standing conductor for its decisions"
+        )
+    enabled = _enabled_workflows(blueprint)
+    for workflow in conduct.get("may_start") or []:
+        if workflow not in enabled:
+            problems.append(
+                f"conduct.may_start: {workflow!r} is not an enabled workflow "
+                "in this blueprint, so the grant could never start anything"
+            )
+    per_run = ((blueprint.get("budgets") or {}).get("per_run") or {}).get("usd") or 0
+    daily = (conduct.get("daily_cap") or {}).get("usd") or 0
+    if daily and per_run and daily < per_run:
+        problems.append(
+            f"conduct.daily_cap.usd: {daily:g} cannot fund a single run "
+            f"(budgets.per_run.usd is {per_run:g}) — the heartbeat could "
+            "never start one"
+        )
+    return problems
 
 
 def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:

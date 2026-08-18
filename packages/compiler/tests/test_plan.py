@@ -38,9 +38,12 @@ def test_compilation_is_deterministic(blueprint):
 # -- what the plan must contain -------------------------------------------
 
 
-def test_standing_roster_excludes_the_placeholder(blueprint):
+def test_standing_roster_is_only_the_count_positive_hires(blueprint):
+    """A `count: 0` role documents a growth path and produces no instance —
+    the roster is the hires with count > 0, the PM alone here."""
+    blueprint["departments"]["roles"]["future-sdet"] = {"template": "sdet", "count": 0}
     plan = compile_blueprint(blueprint)
-    assert "analyst" not in {i.hire for i in plan.instances}
+    assert {i.hire for i in plan.instances} == {"pm"}
 
 
 def test_agent_specs_carry_no_secrets(blueprint):
@@ -96,3 +99,23 @@ def test_empty_egress_allowlist_means_zero_egress(blueprint):
     del blueprint["stack"]["toolchain"]["egress_allow"]
     plan = compile_blueprint(blueprint)
     assert plan.infra.egress_proxy_allowlist == ()
+
+
+def test_a_plan_without_conduct_stays_human_started(blueprint):
+    """No conduct section, no heartbeat artifacts anywhere: the applied
+    company behaves exactly as before the section existed."""
+    plan = compile_blueprint(blueprint)
+    assert plan.conduct is None
+    assert plan.as_dict()["conduct"] is None
+    assert "conduct.rego" not in plan.bundle.files
+
+
+def test_conduct_compiles_into_plan_and_bundle(conducted):
+    plan = compile_blueprint(conducted)
+    assert plan.conduct.conductor == "pm"
+    assert plan.conduct.heartbeat_minutes == 30
+    assert plan.conduct.max_concurrent_runs == 1
+    assert plan.conduct.may_start == ("implement",)
+    assert plan.conduct.daily_cap_usd == 20.0
+    assert "conduct.rego" in plan.bundle.files
+    assert plan.as_dict()["conduct"]["may_start"] == ["implement"]

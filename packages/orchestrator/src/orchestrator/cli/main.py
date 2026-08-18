@@ -152,9 +152,11 @@ def review(
 
 
 def _workflow_id(workflow: str, run_id: str) -> str:
-    """Workflow ids are `{workflow}-{run_id}` across all three workflows
-    — the CLI only needs to know which family a run belongs to."""
-    if workflow not in ("implement", "intake", "review"):
+    """Workflow ids are `{workflow}-{run_id}` for the three run-shaped
+    families. The conduct heartbeat is the exception: one standing workflow
+    per company, `conduct-{company}`, so its `run_id` argument is the
+    company name — the CLI only needs to know which family it belongs to."""
+    if workflow not in ("implement", "intake", "review", "conduct"):
         typer.echo(f"unknown workflow {workflow!r}", err=True)
         raise typer.Exit(2)
     return f"{workflow}-{run_id}"
@@ -168,7 +170,7 @@ def signal(
     payload: str = typer.Option(None, help="Optional payload"),
     workflow: str = typer.Option(
         "implement",
-        help="Which workflow family the run belongs to: implement, intake or review",
+        help="Which workflow family the run belongs to: implement, intake, review or conduct",
     ),
 ) -> None:
     """Send a gate signal to a run's workflow — the HITL verdict path
@@ -190,7 +192,8 @@ def status(
     run_id: str,
     workflow: str = typer.Option(
         "implement",
-        help="Which workflow family the run belongs to: implement, intake or review",
+        help="Which workflow family the run belongs to: implement, intake, review or conduct"
+        " (for conduct, RUN_ID is the company name)",
     ),
 ) -> None:
     """Show the workflow status (and result, when completed) of a run."""

@@ -627,6 +627,20 @@ expires at the end — all three transitions are first-class audit events.
 timeout, worker death — participants are revoked, pods destroyed, the
 sandbox torn down, the registration retired, and the run record written.
 
+**Who starts the next run.** Everything above describes one run, and by
+default a human starts each one. A company whose blueprint declares a
+`conduct` section (section 7) also runs a standing **heartbeat**: one
+durable workflow that wakes on the declared cadence, reads the backlog,
+the delivered-but-unreviewed PRs and the day's spend, dispatches the PM in
+a toolless *decide* mode for one action — implement a ticket, review a PR,
+or idle — and starts it under the compiled `conduct.start` decision and
+the declared caps. The PM proposes; the platform disposes; the human
+declares the cadence and the caps and answers the merge gate. Nothing
+about a run changes — the same fulfilment, verify, delivery, review and
+gate above — only who pressed start. `tests/e2e_kind/test_zz_overnight.py`
+runs the whole arc with exactly two human acts: one goal in, one approval
+out.
+
 <details>
 <summary><b>What a blocked attack looks like from the inside</b></summary>
 
@@ -926,18 +940,15 @@ departments:
       may_spawn:
         crew: [feature-delivery, feature-review]
         max_concurrent: 2
-    analyst:
-      template: analyst
-      count: 0
 ```
 
 One standing hire: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 
-`analyst` at `count: 0` is a documented growth path that produces no
-instance. Try setting a `backend-engineer` to `count: 1` and the compiler
-refuses: standing executors do not exist here.
+A role at `count: 0` is a documented growth path that produces no instance.
+Try setting a `backend-engineer` to `count: 1` and the compiler refuses:
+standing executors do not exist here.
 
 </details>
 
@@ -1067,6 +1078,63 @@ line you can write here is a hard stop.
 
 </details>
 
+<details>
+<summary><b><code>conduct</code> — the standing heartbeat (opt-in)</b></summary>
+
+<br>
+
+```yaml
+conduct:
+  conductor: pm
+  heartbeat_minutes: 30
+  max_concurrent_runs: 1
+  may_start: [implement, review]
+  daily_cap: {usd: 20}
+```
+
+The one section the shipped example does *not* carry, because absence is a
+meaningful state: no `conduct`, no heartbeat — runs start only when a human
+starts one, which is everything this README described so far.
+
+Declaring it grants the platform a bounded authority to start work on its
+own initiative: every `heartbeat_minutes`, the named conductor is dispatched
+to choose the next action from the backlog, and the chosen workflow may
+start only within `max_concurrent_runs` and under the `daily_cap`. Every
+field is required once the section exists — a defaulted cap is authority
+nobody wrote down — and `intake` is deliberately not startable: goals enter
+through a human.
+
+The caps compile into the company's policy bundle as a `conduct.start`
+decision (deny over-cap, deny absent counts — fail-safe defaults again),
+which is the decision the conductor loop must win before starting anything.
+Only the platform lifecycle can match its allow rules: an agent reciting
+`conduct.start` at the gateway matches nothing, and a blueprint diff that
+removes the section removes the rules, so revocation is the same reviewable
+edit as every other authority change.
+
+The loop itself is one durable workflow per company (`conduct-{company}`),
+kept running by the orchestrator worker while the applied blueprint
+declares the section. Each tick observes the open backlog, the delivered
+PRs awaiting review, the in-flight runs and today's ledger spend, then
+dispatches the standing PM in a toolless *decide* mode: one action —
+`implement #n`, `review #n`, or `idle` — with a required one-line
+rationale, journaled as a `conduct.decide` audit event (the append-only
+record of *why* the company did what it did; the PM's cross-run state is
+the registry, read fresh each tick — no private memory). The PM proposes
+and the platform disposes: the action set is closed, the target must come
+from the observation, and the start must still win the compiled
+`conduct.start` decision — a poisoned ticket title can at most steer the
+choice between observed candidates, never mint a new one. Idle ticks and
+cap halts record their reason too (a daily-cap halt is a first-class
+process-gate event, like the per-run budget stop). Removal is fail-closed
+twice over: the tick re-reads the section and stops when it is gone, and a
+tick that somehow survived would still find no `conduct.start` rule to
+match. Issue bodies never feed the tick — only numbers, titles and URLs —
+because the backlog is untrusted input, and the implement run resolves the
+ticket itself under the platform identity like any other issue-driven run.
+
+</details>
+
 ### Apply it
 
 ```bash
@@ -1091,6 +1159,14 @@ Everything here is asserted by the end-to-end acceptance suite.
 - **A full SDLC.** Goal → tickets (intake) → implementation with a planner
   and executor crew → platform-run verification → pull request → ephemeral
   review with posted findings → human-gated merge.
+- **Unattended operation under caps.** With a `conduct` section, a standing
+  heartbeat runs the backlog itself: it dispatches the PM to choose the
+  next action, starts it under compiled policy and declared caps
+  (`max_concurrent_runs`, a daily spend cap), journals every decision, and
+  halts visibly at the cap — one goal in, one merge approval out, nothing
+  between started by a human. A poisoned ticket cannot start work outside
+  the observation, and removing the section stops the loop at the next
+  tick.
 - **Durability.** Kill the orchestrator worker mid-run; Temporal replays it
   and the run completes, with no leaked sandbox, identity, participant row
   or registration.
