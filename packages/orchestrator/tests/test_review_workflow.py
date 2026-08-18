@@ -1,0 +1,482 @@
+"""The merge gate's guardrails, proven at the workflow layer: the real
+ReviewWorkflow runs against Temporal's time-skipping test environment with
+scripted activities — sequencing the activity units cannot see.
+
+What must hold (issue #11, step 5):
+
+- both layers required: a steered pass verdict with red platform checks
+  merges nothing, green checks with a fail verdict merge nothing — each
+  feeds the bounded rework loop instead;
+- a carve-out path parks on the human signal even with perfect layers
+  (the OPA half of the same guarantee is pinned in the compiler's
+  bundle-decision tests);
+- revocation mid-flight: once the live bundle no longer carries the
+  delegation, resolve_merge denies and the run flips to human-only
+  cleanly — config read at run start grants nothing by itself;
+- the human `merge` signal still resolves every gate: overrides a
+  decline, decides an exhausted rework chain, and the human-resolved
+  path never touches the policy machinery at all.
+
+Authority-not-looser is pinned where it lives: `git.merge_pr` ungrantable
+(schema + bundle tests), the conductor's `may_start` enum (schema tests),
+the platform-only rework write (bundle tests).
+"""
+
+import asyncio
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+import pytest
+from temporalio import activity
+from temporalio.client import Client, WorkflowHandle
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from orchestrator.workflows.implement import FAST_TIMEOUTS
+from orchestrator.workflows.review import ReviewInput, ReviewWorkflow
+
+pytestmark = pytest.mark.anyio
+
+RUN_ID = "run-review-wf"
+PR = 41
+
+POLICY_GATE = {
+    "resolved_by": "policy",
+    "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+}
+HUMAN_GATE = {"resolved_by": "human"}
+
+
+def dispatch_result(**overrides: Any) -> dict[str, Any]:
+    result = {
+        "status": "done",
+        "error": None,
+        "comment_urls": ["https://pr/41#c-1"],
+        "verdict": "pass",
+        "verdict_summary": "Suite green; in scope.",
+    }
+    result.update(overrides)
+    return result
+
+
+@dataclass
+class Harness:
+    """Scripted activities + captured effects for one review run."""
+
+    merge_gate: dict[str, Any] | None = None
+    dispatch: dict[str, Any] = field(default_factory=dispatch_result)
+    verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
+    independence: dict[str, Any] = field(
+        default_factory=lambda: {"independent": True, "reason": "lineage run-impl"}
+    )
+    resolve: dict[str, Any] = field(
+        default_factory=lambda: {"allow": True, "rule": "merge_resolve_delegated"}
+    )
+    depth: dict[str, Any] = field(default_factory=lambda: {"depth": 0, "root_pr": PR})
+
+    verify_calls: int = 0
+    independence_calls: int = 0
+    resolve_args: list[list[Any]] = field(default_factory=list)
+    depth_calls: int = 0
+    reworks: list[dict[str, Any]] = field(default_factory=list)
+    verdicts: list[tuple[str, str]] = field(default_factory=list)
+    gate_events: list[str] = field(default_factory=list)
+    merges: list[int] = field(default_factory=list)
+    torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
+        default_factory=list
+    )
+
+    def activities(self) -> list[Any]:
+        harness = self
+
+        @activity.defn(name="create_review_run")
+        async def create_review_run(run_id: str, pr_number: int) -> None: ...
+
+        @activity.defn(name="check_budget")
+        async def check_budget(run_id: str) -> dict[str, Any]:
+            return {"cap_usd": 5.0, "spent_usd": 0.0}
+
+        @activity.defn(name="review_config")
+        async def review_config() -> dict[str, Any]:
+            return {
+                "company": "hello-saas",
+                "crew_template": "feature-review",
+                "conductor": "pm-1",
+                "conductor_role": "pm",
+                "merge_gate": harness.merge_gate,
+            }
+
+        @activity.defn(name="read_pr")
+        async def read_pr(run_id: str, pr_number: int) -> dict[str, Any]:
+            return {
+                "number": pr_number,
+                "title": "Add slugify utility",
+                "head": "feature/slugify-x",
+                "url": f"https://git.test/r/pulls/{pr_number}",
+                "paths": ["src/slugify.py", "tests/test_slugify.py"],
+            }
+
+        @activity.defn(name="fetch_workspace")
+        async def fetch_workspace(run_id: str, ref: str) -> str:
+            return "workspace-tar"
+
+        @activity.defn(name="provision_sandbox")
+        async def provision_sandbox(run_id: str, tar: str) -> dict[str, Any]:
+            return {"sandbox": "sbx-1"}
+
+        @activity.defn(name="fulfill_crew")
+        async def fulfill_crew(request: dict[str, Any]) -> dict[str, Any]:
+            return {"brief": "review it", "executor_url": "http://crew:8000"}
+
+        @activity.defn(name="dispatch_executor")
+        async def dispatch_executor(
+            run_id: str, task_text: str, url: str, mode: str
+        ) -> dict[str, Any]:
+            return dict(harness.dispatch)
+
+        @activity.defn(name="record_verdict")
+        async def record_verdict(
+            run_id: str, verdict: str, summary: str, workflow_id: str
+        ) -> None:
+            harness.verdicts.append((verdict, summary))
+
+        @activity.defn(name="platform_verify")
+        async def platform_verify(run_id: str) -> dict[str, Any]:
+            harness.verify_calls += 1
+            return dict(harness.verify)
+
+        @activity.defn(name="reviewer_independent")
+        async def reviewer_independent(run_id: str, pr_number: int) -> dict[str, Any]:
+            harness.independence_calls += 1
+            return dict(harness.independence)
+
+        @activity.defn(name="resolve_merge")
+        async def resolve_merge(
+            run_id: str,
+            verdict: str,
+            checks_green: bool,
+            independent: bool,
+            paths: list[str],
+            workflow_id: str,
+        ) -> dict[str, Any]:
+            harness.resolve_args.append([verdict, checks_green, independent, paths])
+            return dict(harness.resolve)
+
+        @activity.defn(name="rework_depth")
+        async def rework_depth(run_id: str, pr_number: int) -> dict[str, Any]:
+            harness.depth_calls += 1
+            return dict(harness.depth)
+
+        @activity.defn(name="file_rework")
+        async def file_rework(
+            run_id: str,
+            pr_number: int,
+            root_pr: int,
+            attempt: int,
+            reason: str,
+            findings: str,
+            pr_title: str,
+            pr_url: str,
+            paths: list[str],
+        ) -> dict[str, Any]:
+            harness.reworks.append(
+                {
+                    "root_pr": root_pr,
+                    "attempt": attempt,
+                    "reason": reason,
+                    "findings": findings,
+                }
+            )
+            return {"url": "https://git.test/r/issues/91", "number": 91}
+
+        @activity.defn(name="record_gate_outcome")
+        async def record_gate_outcome(
+            run_id: str, gate: str, kind: str, workflow_id: str
+        ) -> None:
+            harness.gate_events.append(kind)
+
+        @activity.defn(name="merge_pr")
+        async def merge_pr(run_id: str, pr_number: int) -> dict[str, Any]:
+            harness.merges.append(pr_number)
+            return {"merged": True, "sha": "abc123"}
+
+        @activity.defn(name="teardown")
+        async def teardown(
+            run_id: str,
+            handle: dict[str, Any] | None,
+            result: dict[str, Any] | None,
+            error: str | None,
+        ) -> dict[str, Any]:
+            harness.torn_down.append((result, error))
+            # Spread first: the dispatch result carries its own status
+            # field, and the record's status/error must win, like the
+            # real teardown's honest terminal write.
+            return {
+                **(result or {}),
+                "run_id": run_id,
+                "status": "failed" if error else "done",
+                "error": error,
+            }
+
+        return [
+            create_review_run,
+            check_budget,
+            review_config,
+            read_pr,
+            fetch_workspace,
+            provision_sandbox,
+            fulfill_crew,
+            dispatch_executor,
+            record_verdict,
+            platform_verify,
+            reviewer_independent,
+            resolve_merge,
+            rework_depth,
+            file_rework,
+            record_gate_outcome,
+            merge_pr,
+            teardown,
+        ]
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+@pytest.fixture
+async def env():
+    try:
+        environment = await WorkflowEnvironment.start_time_skipping()
+    except Exception as exc:
+        pytest.skip(f"temporal test server unavailable: {exc}")
+    yield environment
+    await environment.shutdown()
+
+
+def review_worker(client: Client, harness: Harness) -> tuple[Worker, str]:
+    task_queue = f"tq-{uuid.uuid4().hex[:8]}"
+    worker = Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[ReviewWorkflow],
+        activities=harness.activities(),
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    )
+    return worker, task_queue
+
+
+async def run_review(client: Client, harness: Harness) -> dict[str, Any]:
+    worker, task_queue = review_worker(client, harness)
+    async with worker:
+        handle = await client.start_workflow(
+            "review",
+            ReviewInput(run_id=RUN_ID, pr_number=PR, timeouts=FAST_TIMEOUTS),
+            id=f"review-{uuid.uuid4().hex[:8]}",
+            task_queue=task_queue,
+        )
+        return await handle.result()
+
+
+async def start_review(client: Client, harness: Harness) -> tuple[Worker, WorkflowHandle]:
+    worker, task_queue = review_worker(client, harness)
+    await worker.__aenter__()
+    handle = await client.start_workflow(
+        "review",
+        ReviewInput(run_id=RUN_ID, pr_number=PR, timeouts=FAST_TIMEOUTS),
+        id=f"review-{uuid.uuid4().hex[:8]}",
+        task_queue=task_queue,
+    )
+    return worker, handle
+
+
+async def wait_for_park(handle: WorkflowHandle) -> None:
+    """Queries and signals do not advance the time-skipping clock, so the
+    park is reached in real time and the gate timers stay unfired until
+    the test awaits the result."""
+    for _ in range(200):
+        if await handle.query("state") == "paused-merge_gate":
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("the review workflow never parked on the merge gate")
+
+
+# -- both layers required ---------------------------------------------------
+
+
+async def test_steered_pass_with_red_checks_merges_nothing(env):
+    """The model-free layer is required: a reviewer talked into 'pass'
+    cannot merge past a red platform verify — the failure feeds the
+    bounded rework loop instead, and policy is never even asked."""
+    harness = Harness(merge_gate=POLICY_GATE, verify={"passed": False, "output": "red"})
+    record = await run_review(env.client, harness)
+
+    assert harness.merges == []
+    assert harness.resolve_args == []  # no OPA evaluation on a red layer
+    assert harness.reworks == [
+        {
+            "root_pr": PR,
+            "attempt": 1,
+            "reason": "platform verify red",
+            "findings": "red",
+        }
+    ]
+    assert harness.gate_events == ["rework_filed"]
+    assert record["status"] == "failed"
+    assert "platform verify red" in record["error"]
+
+
+async def test_green_checks_with_a_fail_verdict_merge_nothing(env):
+    """The independent-judgement layer is required — and a failed verdict
+    short-circuits before the platform spends a verify run on it."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        dispatch=dispatch_result(verdict="fail", verdict_summary="Blocking."),
+    )
+    record = await run_review(env.client, harness)
+
+    assert harness.merges == []
+    assert harness.verify_calls == 0
+    assert harness.resolve_args == []
+    assert harness.reworks == [
+        {
+            "root_pr": PR,
+            "attempt": 1,
+            "reason": "review verdict failed",
+            "findings": "Blocking.",
+        }
+    ]
+    assert harness.gate_events == ["rework_filed"]
+    assert record["status"] == "failed"
+
+
+async def test_both_layers_green_and_allowed_releases_the_merge(env):
+    """The full policy path: verdict journaled, checks green, independence
+    established, compiled allow — the merge happens with no human signal
+    and the gate outcome names the resolver."""
+    harness = Harness(merge_gate=POLICY_GATE)
+    record = await run_review(env.client, harness)
+
+    assert harness.verdicts == [("pass", "Suite green; in scope.")]
+    assert harness.verify_calls == 1
+    assert harness.independence_calls == 1
+    # The compiled decision saw the real facts, changed paths included.
+    assert harness.resolve_args == [
+        ["pass", True, True, ["src/slugify.py", "tests/test_slugify.py"]]
+    ]
+    assert harness.gate_events == ["policy_resolved"]
+    assert harness.merges == [PR]
+    assert record["status"] == "done"
+    assert record["merged"] is True
+    assert record["merge_sha"] == "abc123"
+
+
+# -- carve-outs and revocation park on the human ---------------------------
+
+
+async def test_a_policy_decline_parks_on_the_human_who_can_release(env):
+    """A carve-out (or any out-of-class) deny with perfect layers is a
+    decline, not a failure: the run parks on the human signal, and the
+    human's approval still releases the merge — the override survives
+    delegation."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        resolve={"allow": False, "rule": "merge_resolve_carved_out_path"},
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.gate_events == ["policy_declined"]
+        assert harness.merges == []
+        await handle.signal("merge", args=[True, "the carve-out is fine here"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.gate_events == ["policy_declined", "approved"]
+    assert harness.merges == [PR]
+    assert record["status"] == "done"
+    assert record["merged"] is True
+
+
+async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
+    """Config read at run start grants nothing by itself: once the live
+    bundle no longer carries the delegation (the blueprint diff), the
+    resolve denies and the run is human-only — unanswered, it escalates
+    and expires like any human gate, and nothing merges."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        resolve={"allow": False, "rule": "default_deny"},
+    )
+    record = await run_review(env.client, harness)
+
+    assert harness.merges == []
+    assert harness.gate_events == ["policy_declined", "escalated", "timed_out"]
+    assert record["status"] == "failed"
+    assert "merge gate timed_out" in record["error"]
+
+
+# -- the rework bound and the human's last word -----------------------------
+
+
+async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
+    """At max_reworks the chain stops feeding the backlog: no new ticket,
+    a rework_exhausted process-gate event, and the human decides — here,
+    a rejection, which fails the run honestly with nothing merged."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        dispatch=dispatch_result(verdict="fail", verdict_summary="Still blocking."),
+        depth={"depth": 2, "root_pr": 38},
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.reworks == []
+        assert harness.gate_events == ["rework_exhausted"]
+        await handle.signal("merge", args=[False, "not good enough"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.merges == []
+    assert harness.gate_events == ["rework_exhausted", "rejected"]
+    assert record["status"] == "failed"
+    assert "merge gate rejected" in record["error"]
+
+
+async def test_a_human_gate_never_touches_the_policy_machinery(env):
+    """resolved_by: human is exactly the pre-delegation workflow: no
+    verify re-run, no independence read, no resolve evaluation, no rework
+    counting — park, approve, merge."""
+    harness = Harness(merge_gate=HUMAN_GATE)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        await handle.signal("merge", args=[True, "reviewed"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.verify_calls == 0
+    assert harness.independence_calls == 0
+    assert harness.resolve_args == []
+    assert harness.depth_calls == 0
+    assert harness.gate_events == ["approved"]
+    assert harness.merges == [PR]
+    assert record["merged"] is True
+
+
+async def test_a_missing_verdict_fails_before_any_gate(env):
+    """The platform-side belt on the step-2 contract: a dispatch that
+    somehow reports no verdict reaches no gate and merges nothing."""
+    harness = Harness(
+        merge_gate=POLICY_GATE, dispatch=dispatch_result(verdict=None)
+    )
+    record = await run_review(env.client, harness)
+
+    assert harness.verdicts == []
+    assert harness.merges == []
+    assert harness.gate_events == []
+    assert record["status"] == "failed"
+    assert record["error"] == "reviewer finished without a verdict"
