@@ -1,27 +1,76 @@
 # Poseidon
 
-**An agent company that cannot exceed its authority — because the
-infrastructure will not let it, not because the prompt asked nicely.**
+**An autonomous software company, run by cloud coding agents, that cannot
+exceed its authority — because the infrastructure will not let it, not
+because the prompt asked nicely.**
 
-Poseidon runs LLM coding agents as a small software organisation: a product
-manager that scopes work and files tickets, ephemeral crews that implement
-and review it, and a human who approves the merge. Every one of those agents
-is governed by policy compiled from a single declarative document, enforced
-at chokepoints the agent cannot route around.
+You give Poseidon a charter — a goal to pursue, a budget to stay under, a
+short list of things that must never happen without you. It stands up a
+small software organisation to pursue that goal: a product manager that
+scopes the work and files tickets, ephemeral crews that implement and review
+each change, and a standing heartbeat that decides what to do next and keeps
+going. Real pull requests appear on your repository. You approve the merges
+that matter and watch the rest happen. When you are ready to grant more, the
+company does more of its own SDLC unattended — up to and including merging
+its own passing work — and never one step past the authority you wrote down.
 
-This README is written to be read start to finish. It teaches the ideas
-first, then shows where each one lives in the code. If you have never worked
-with MCP, OPA, or Kubernetes NetworkPolicy, you should still be able to
-follow it — those sections are here to teach you, not to name-drop. Where a
-design decision instantiates a classical result from the security
-literature, the text says so and [section 12](#12-further-reading) collects
-the primary sources; the aim is that this document can carry a seminar on
-agent governance, not just a deployment.
+The distinction in that first sentence is the whole point. Plenty of tools
+let an agent open a pull request. What is hard, and what Poseidon is about,
+is letting a *company of agents work toward a goal on its own* while
+guaranteeing it cannot force-push to `main`, spend past its budget,
+exfiltrate a secret, or act on an instruction hidden in a GitHub issue — not
+because a careful prompt asked it not to, but because the surrounding system
+makes those outcomes impossible and records every attempt.
+
+### The company is the product
+
+Most agent frameworks are factories: hire an agent for one task, get an
+output, tear it down. Poseidon is trying to be a *company* — a control loop
+with memory that observes the world, decides what is worth doing, does it,
+learns, and repeats, for as long as the goals remain. That ambition sets the
+bar in five places, and each one is a section of this document:
+
+- **Autonomy** — the system chooses the next action from a goal and its
+  state; a human declares the gates and the caps but does not stitch the
+  phases together ([§5](#5-anatomy-of-a-run), [§7](#7-the-blueprint-line-by-line)).
+- **Continuity** — standing agents that remember across restarts. Strategy,
+  taste and unfinished work survive a worker dying; durable execution is why
+  ([§3](#3-concepts-you-need), [§5](#5-anatomy-of-a-run)).
+- **Coordination** — many workstreams, shared artifacts, real priorities: a
+  PM sequencing tickets, crews that implement and review, a heartbeat that
+  picks what runs next ([§5](#5-anatomy-of-a-run)).
+- **Quality** — permission is the easy third of governance. The hard two are
+  whether the work was worth doing and whether it is actually good — so the
+  platform, never the agent, is the gate of record for "the tests pass," and
+  the tests themselves can be split off where the implementer cannot rewrite
+  them ([§5](#5-anatomy-of-a-run), [§8](#8-what-it-can-do)).
+- **Authority** — every consequence is decided by policy a human can read,
+  diff and revoke. Injection is assumed; containment is positional; spend is
+  a stop, not a warning ([§2](#2-the-core-idea)).
+
+This is a working prototype, and it is honest about the distance still to
+travel. The destination is a company that lives in the cloud and actuates on
+the real world — customers, mail, money — not just a repository. Today it
+reaches code, under governance, on a local cluster. [§9](#9-what-it-cannot-do)
+is deliberately specific about the gap.
+
+### How to read this document
+
+It is written to be read start to finish. It teaches the ideas first, then
+shows where each one lives in the code. If you have never worked with MCP,
+OPA, or Kubernetes NetworkPolicy, you should still be able to follow it —
+[§3](#3-concepts-you-need) is there to teach you, not to name-drop. If you
+would rather *use* it than understand it first, jump to
+[Getting started](#6-getting-started); if you want to see a company run
+end to end, [Anatomy of a run](#5-anatomy-of-a-run) is the narrated version
+and the full-run walkthrough in [§6](#6-getting-started) is the hands-on one.
 
 > [!NOTE]
-> **Status: working prototype.** Every claim below is exercised by 91
-> end-to-end tests against a real Kubernetes cluster. It has run only on
-> kind (local Kubernetes), never in production, and the
+> **Status: working prototype.** Every capability below is exercised by 149
+> end-to-end tests against a real Kubernetes cluster, and the suite proves
+> its own claims twice over — two consecutive green runs from a clean repo,
+> ending with the cluster asserted quiet. It has run only on kind (local
+> Kubernetes), never in production, and the
 > [limitations](#9-what-it-cannot-do) section is deliberately specific about
 > what that means.
 
@@ -46,11 +95,15 @@ agent governance, not just a deployment.
 
 ## 1. The problem
 
+The vision only works if the autonomy is safe, so start with the thing that
+makes agent autonomy dangerous.
+
 Give a capable coding agent a repository and a shell, and it will do useful
 work. It will also, eventually, do something you did not intend: force-push
 to `main`, install a package from an attacker's index, paste a secret into a
 log, or follow an instruction it found in a GitHub issue rather than the one
-you gave it.
+you gave it. The more autonomy you grant — and a *company* that runs its own
+backlog is a lot of autonomy — the more that matters.
 
 The usual response is to write a better prompt. *"You are a careful engineer.
 Never push to main. Never exfiltrate secrets."*
@@ -731,6 +784,16 @@ working as intended — the containment is positional, not behavioural.
 
 ## 6. Getting started
 
+By the end of this section you will have a company running on a local
+cluster, watched it turn a goal into a merged pull request on a repository
+you own, and — if you enable the heartbeat — seen it start the next piece of
+work on its own. It costs nothing: the default brain is a deterministic mock,
+so you can learn the whole shape of the system before spending a cent on a
+real model.
+
+The path is: install → bring up a cluster → (optionally) point it at a real
+model → run a company. Each step is below.
+
 ### Prerequisites
 
 | Tool | Why |
@@ -762,7 +825,7 @@ uv run pytest packages/common
 for p in packages/*/; do uv run pytest "$p" -q; done
 ```
 
-`packages/registry` reports **28 skipped** without `REGISTRY_DSN`. That is
+`packages/registry` reports **38 skipped** without `REGISTRY_DSN`. That is
 green: those tests exercise real SQL, so they need a real Postgres, and a
 fake would prove nothing.
 
@@ -863,8 +926,8 @@ uv run poseidon run --workflow intake examples/goal-tetris.md
 The CLI prints `started intake-<run_id> (run_id …)` on stderr and blocks
 until the run finishes. Success is JSON with `"status": "done"`,
 `"workflow": "intake"`, one or more `ticket_urls`, and a
-`crew_request_id`. The issues are real on `TARGET_REPO`. hello-saas
-configures `gates.intake: none`, so there is no signal to send.
+`crew_request_id`. The issues are real on `TARGET_REPO`. hello-saas declares
+no intake gate, so there is no signal to send.
 
 Intake and implement are **separate runs**. Fulfilment keys crew requests
 by `run_id`, so implement does not consume the intake row; a human picks
@@ -1049,8 +1112,6 @@ workflows:
   intake:
     enabled: true
     conductor: pm
-    gates:
-      intake: none
   implement:
     enabled: true
     conductor: pm
@@ -1069,8 +1130,10 @@ workflows:
 ```
 
 Three workflows, one per phase of the SDLC in section 5. `intake` is the
-PM-only scoping pass — no crew and no gate: a gate is an object naming its
-resolver, and a gate nobody declares is a stop nobody takes.
+PM-only scoping pass — no crew, and it declares no `gates` block at all: a
+gate is an object naming its resolver, and a gate nobody declares is a stop
+nobody takes, so goals a human submits dispatch the PM without a second
+stop.
 `max_verify_retries` bounds how many times a red verify
 re-dispatches the executor before the run fails. `drain` answers a question
 most orchestration designs leave implicit: what happens to a running crew
@@ -1230,25 +1293,36 @@ since the API server then refuses TokenReview for its tokens.
 
 ## 8. What it can do
 
-Everything here is asserted by the end-to-end acceptance suite.
+This is the product, stated as capabilities rather than architecture — and
+every line is asserted by the end-to-end acceptance suite, not a roadmap.
+Read it as the answer to "what do I actually get?"
 
-- **Declarative lifecycle.** Compile, preview, apply, edit and tear down a
-  company from one document; hiring and firing are diffs; firing revokes
-  identity.
+- **A software company from one document.** Compile, preview, apply, edit and
+  tear down a whole company from a single blueprint; hiring and firing are
+  diffs you read before they happen; firing revokes an agent's identity the
+  moment its row is deleted.
 - **A full SDLC.** Goal → tickets (intake) → implementation with a planner
   and executor crew → platform-run verification → pull request → ephemeral
   review with a posted findings comment and a structured verdict → merge.
-- **Quality as a gate policy owns.** The merge gate resolves the way the
-  blueprint declares. Delegate it, and a change in the declared path class
-  merges only when the independent review passed *and* the platform's own
-  re-run of the tests is green *and* the reviewer's identity is not the
-  implementer's — three facts, no LLM's word taken for any of them; the
-  merge fires with no human command. A failed layer files a bounded rework
-  ticket the heartbeat consumes, and at the rework bound it escalates to
-  the human; a change touching a protected surface (a merged PR must not be
-  able to rewrite the rules that govern merging) is refused by policy and
-  falls back to the human signal. Removing the delegation reverts to
-  human-only merge — revocation is a diff.
+- **Quality as a gate policy owns, not the agent.** The merge gate resolves
+  the way the blueprint declares. Delegate it, and a change in the declared
+  path class merges only when the independent review passed *and* the
+  platform's own re-run of the tests is green *and* the reviewer's identity
+  is not the implementer's — three facts, no LLM's word taken for any of
+  them; the merge fires with no human command. A failed layer files a
+  bounded rework ticket the heartbeat consumes, and at the rework bound it
+  escalates to the human; a change touching a protected surface (a merged PR
+  must not be able to rewrite the rules that govern merging) is refused by
+  policy and falls back to the human signal. Removing the delegation reverts
+  to human-only merge — revocation is a diff.
+- **The oracle the implementer cannot rewrite.** Delegating on "the tests
+  pass" only works if the workstream that writes the code cannot also write
+  the tests that grade it. A blueprint can split off an acceptance-contract
+  tree that a *different* crew authors and only a human merges; the gating
+  fact then becomes that contract *as it stands on the base ref*, run
+  against the new code, so a suite weakened to green launders nothing. The
+  implementer can no longer certify its own work — the containment is
+  positional, tested by a red-team that tries every way around it.
 - **Unattended operation under caps.** With a `conduct` section, a standing
   heartbeat runs the backlog itself: it dispatches the PM to choose the
   next action, starts it under compiled policy and declared caps
