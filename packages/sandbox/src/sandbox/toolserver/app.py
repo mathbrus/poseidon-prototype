@@ -6,8 +6,13 @@ Runs inside the sandbox container and listens for the gateway only:
     POST /files/write {path, content}   -> {ok}
     POST /files/list  {path}            -> {entries: [{name, type}]}
     POST /exec        {cmd, timeout_s}  -> {exit_code, stdout, stderr}
-    POST /tests       {}                -> {exit_code, stdout, stderr}
+    POST /tests       {paths?}          -> {exit_code, stdout, stderr}
     POST /bundle      {branch}          -> {bundle_b64, base_ref}
+
+`/tests` with `paths` appends them to the test command — the platform's
+scoped contract-verify run. Naming the paths explicitly means a pytest
+config that ignores them cannot silently green the run: collecting
+nothing from a named path is a nonzero exit, not a pass.
 
 All paths are resolved inside the workspace (default /workspace, override with
 WORKSPACE_DIR); anything escaping it is HTTP 400. The bundle base ref is read
@@ -16,6 +21,7 @@ from `.poseidon-base`, written at provision time by the sandbox backend.
 
 import base64
 import os
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -53,6 +59,10 @@ class ExecRequest(BaseModel):
 
 class BundleRequest(BaseModel):
     branch: str
+
+
+class TestsRequest(BaseModel):
+    paths: list[str] | None = None
 
 
 def _as_text(data: Any) -> str:
@@ -125,8 +135,14 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         return run_shell(req.cmd, req.timeout_s)
 
     @app.post("/tests")
-    def run_tests() -> dict[str, Any]:
-        return run_shell(os.environ.get("TEST_CMD", DEFAULT_TEST_CMD), TESTS_TIMEOUT_S)
+    def run_tests(req: TestsRequest | None = None) -> dict[str, Any]:
+        cmd = os.environ.get("TEST_CMD", DEFAULT_TEST_CMD)
+        paths = (req.paths if req else None) or []
+        for path in paths:
+            resolve(path)  # workspace containment, like every path input
+        if paths:
+            cmd = " ".join([cmd, *(shlex.quote(p) for p in sorted(paths))])
+        return run_shell(cmd, TESTS_TIMEOUT_S)
 
     @app.post("/bundle")
     def bundle(req: BundleRequest) -> dict[str, Any]:

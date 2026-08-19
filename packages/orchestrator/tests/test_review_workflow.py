@@ -67,6 +67,9 @@ class Harness:
     merge_gate: dict[str, Any] | None = None
     dispatch: dict[str, Any] = field(default_factory=dispatch_result)
     verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
+    contract_paths: list[str] = field(default_factory=list)
+    contract_verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
+    deletions: dict[str, int] | None = None
     independence: dict[str, Any] = field(
         default_factory=lambda: {"independent": True, "reason": "lineage run-impl"}
     )
@@ -76,6 +79,10 @@ class Harness:
     depth: dict[str, Any] = field(default_factory=lambda: {"depth": 0, "root_pr": PR})
 
     verify_calls: int = 0
+    scoped_verifies: list[list[str]] = field(default_factory=list)
+    fetches: list[list[Any]] = field(default_factory=list)
+    provisions: int = 0
+    warns: list[dict[str, int]] = field(default_factory=list)
     independence_calls: int = 0
     resolve_args: list[list[Any]] = field(default_factory=list)
     depth_calls: int = 0
@@ -105,24 +112,38 @@ class Harness:
                 "conductor": "pm-1",
                 "conductor_role": "pm",
                 "merge_gate": harness.merge_gate,
+                "contract_paths": list(harness.contract_paths),
             }
 
         @activity.defn(name="read_pr")
-        async def read_pr(run_id: str, pr_number: int) -> dict[str, Any]:
+        async def read_pr(
+            run_id: str, pr_number: int, contract_paths: list[str]
+        ) -> dict[str, Any]:
             return {
                 "number": pr_number,
                 "title": "Add slugify utility",
                 "head": "feature/slugify-x",
                 "url": f"https://git.test/r/pulls/{pr_number}",
                 "paths": ["src/slugify.py", "tests/test_slugify.py"],
+                "contract_deletions": harness.deletions,
             }
 
+        @activity.defn(name="warn_contract_edit")
+        async def warn_contract_edit(
+            run_id: str, pr_number: int, deletions: dict[str, int], workflow_id: str
+        ) -> None:
+            harness.warns.append(deletions)
+
         @activity.defn(name="fetch_workspace")
-        async def fetch_workspace(run_id: str, ref: str) -> str:
+        async def fetch_workspace(
+            run_id: str, ref: str, overlay_paths: list[str] | None = None
+        ) -> str:
+            harness.fetches.append([ref, overlay_paths])
             return "workspace-tar"
 
         @activity.defn(name="provision_sandbox")
         async def provision_sandbox(run_id: str, tar: str) -> dict[str, Any]:
+            harness.provisions += 1
             return {"sandbox": "sbx-1"}
 
         @activity.defn(name="fulfill_crew")
@@ -142,7 +163,12 @@ class Harness:
             harness.verdicts.append((verdict, summary))
 
         @activity.defn(name="platform_verify")
-        async def platform_verify(run_id: str) -> dict[str, Any]:
+        async def platform_verify(
+            run_id: str, paths: list[str] | None = None
+        ) -> dict[str, Any]:
+            if paths:
+                harness.scoped_verifies.append(list(paths))
+                return dict(harness.contract_verify)
             harness.verify_calls += 1
             return dict(harness.verify)
 
@@ -157,10 +183,13 @@ class Harness:
             verdict: str,
             checks_green: bool,
             independent: bool,
+            contract_green: bool,
             paths: list[str],
             workflow_id: str,
         ) -> dict[str, Any]:
-            harness.resolve_args.append([verdict, checks_green, independent, paths])
+            harness.resolve_args.append(
+                [verdict, checks_green, independent, contract_green, paths]
+            )
             return dict(harness.resolve)
 
         @activity.defn(name="rework_depth")
@@ -224,6 +253,7 @@ class Harness:
             check_budget,
             review_config,
             read_pr,
+            warn_contract_edit,
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
@@ -363,13 +393,101 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     assert harness.independence_calls == 1
     # The compiled decision saw the real facts, changed paths included.
     assert harness.resolve_args == [
-        ["pass", True, True, ["src/slugify.py", "tests/test_slugify.py"]]
+        ["pass", True, True, True, ["src/slugify.py", "tests/test_slugify.py"]]
     ]
     assert harness.gate_events == ["policy_resolved"]
     assert harness.merges == [PR]
     assert record["status"] == "done"
     assert record["merged"] is True
     assert record["merge_sha"] == "abc123"
+
+
+# -- the contract layer ------------------------------------------------------
+
+
+async def test_a_red_contract_verify_feeds_rework_not_the_resolve(env):
+    """The baseline layer is required: head suite green, verdict pass —
+    and the base-ref contract run red still merges nothing. The failure
+    feeds the bounded rework loop, and policy is never even asked."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        contract_paths=["tests/contract/"],
+        contract_verify={"passed": False, "output": "contract red"},
+    )
+    record = await run_review(env.client, harness)
+
+    assert harness.merges == []
+    assert harness.resolve_args == []
+    assert harness.scoped_verifies == [["tests/contract/"]]
+    assert harness.reworks == [
+        {
+            "root_pr": PR,
+            "attempt": 1,
+            "reason": "contract verify red",
+            "findings": "contract red",
+        }
+    ]
+    assert record["status"] == "failed"
+    assert "contract verify red" in record["error"]
+
+
+async def test_a_green_contract_verify_rides_the_resolve(env):
+    """The composed baseline is built and run only when a contract tree is
+    declared: the workspace is re-fetched with the contract overlay, the
+    sandbox re-provisioned, the verify scoped to the contract paths, and
+    the fact rides the compiled decision."""
+    harness = Harness(merge_gate=POLICY_GATE, contract_paths=["tests/contract/"])
+    record = await run_review(env.client, harness)
+
+    # First fetch: the plain head tree for the reviewer. Second: the
+    # composed baseline (head + base-ref contract tree), then a second
+    # provision replacing the sandbox in place.
+    assert harness.fetches == [
+        ["feature/slugify-x", None],
+        ["feature/slugify-x", ["tests/contract/"]],
+    ]
+    assert harness.provisions == 2
+    assert harness.scoped_verifies == [["tests/contract/"]]
+    assert harness.resolve_args == [
+        ["pass", True, True, True, ["src/slugify.py", "tests/test_slugify.py"]]
+    ]
+    assert harness.merges == [PR]
+    assert record["merged"] is True
+
+
+async def test_no_contract_tree_means_no_composed_run(env):
+    """Undeclared means untouched: no overlay fetch, one provision, no
+    scoped verify — the pre-split flow, exactly."""
+    harness = Harness(merge_gate=POLICY_GATE)
+    await run_review(env.client, harness)
+
+    assert harness.fetches == [["feature/slugify-x", None]]
+    assert harness.provisions == 1
+    assert harness.scoped_verifies == []
+
+
+async def test_an_oracle_edit_is_surfaced_before_the_human_park(env):
+    """A diff touching the contract tree gets its deletion facts posted
+    (PR comment + audit event) the moment the platform reads the PR —
+    before any gate, so the human who resolves the park reads them
+    first."""
+    deletions = {
+        "removed_tests": 2,
+        "added_tests": 0,
+        "removed_asserts": 5,
+        "added_asserts": 1,
+    }
+    harness = Harness(merge_gate=HUMAN_GATE, deletions=deletions)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.warns == [deletions]
+        await handle.signal("merge", args=[True, "deliberate spec change"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert record["merged"] is True
 
 
 # -- carve-outs and revocation park on the human ---------------------------

@@ -156,6 +156,36 @@ def test_tests_endpoint_default_is_pytest(
     assert "1 passed" in body["stdout"]
 
 
+def test_tests_endpoint_scopes_to_named_paths(
+    client: TestClient, monkeypatch, workspace: Path
+):
+    """The contract-verify call: `paths` pins the run to named test paths,
+    so the rest of the suite — red or green — never runs."""
+    monkeypatch.delenv("TEST_CMD", raising=False)
+    contract = workspace / "tests" / "contract"
+    contract.mkdir(parents=True)
+    (contract / "test_c.py").write_text("def test_c():\n    assert True\n")
+    (workspace / "test_red.py").write_text("def test_red():\n    assert False\n")
+    body = client.post("/tests", json={"paths": ["tests/contract"]}).json()
+    assert body["exit_code"] == 0
+    assert "1 passed" in body["stdout"]
+
+
+def test_tests_endpoint_missing_named_path_is_red(
+    client: TestClient, monkeypatch, workspace: Path
+):
+    """An empty or absent contract tree is a red fact, not a silent pass:
+    pytest exits nonzero on a named path it cannot collect."""
+    monkeypatch.delenv("TEST_CMD", raising=False)
+    body = client.post("/tests", json={"paths": ["tests/contract"]}).json()
+    assert body["exit_code"] != 0
+
+
+def test_tests_endpoint_refuses_escaping_paths(client: TestClient):
+    resp = client.post("/tests", json={"paths": ["../../etc"]})
+    assert resp.status_code == 400
+
+
 # --- /bundle -------------------------------------------------------------------
 
 

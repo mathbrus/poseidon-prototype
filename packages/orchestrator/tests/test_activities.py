@@ -435,7 +435,7 @@ def test_platform_verify_maps_exit_code(activities, monkeypatch):
         async def __aexit__(self, *a):
             return False
 
-        async def run_tests(self, run_id):
+        async def run_tests(self, run_id, paths=None):
             return {"exit_code": 1, "stdout": "1 failed", "stderr": ""}
 
     monkeypatch.setattr(module, "GatewayClient", FakeGateway)

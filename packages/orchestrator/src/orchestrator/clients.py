@@ -103,11 +103,22 @@ class GatewayClient:
         self._http = None
         self._session = None
 
-    async def fetch_workspace(self, run_id: str, repo: str, ref: str) -> bytes:
+    async def fetch_workspace(
+        self,
+        run_id: str,
+        repo: str,
+        ref: str,
+        overlay_ref: str | None = None,
+        overlay_paths: list[str] | None = None,
+    ) -> bytes:
+        """Archive `ref` — optionally with `overlay_paths` mirrored from
+        `overlay_ref`, the composed tree the contract verify runs on."""
         assert self._session is not None, "use `async with GatewayClient(...)`"
-        result = await self._session.call_tool(
-            "repo.archive", {"run_id": run_id, "repo": repo, "ref": ref}
-        )
+        args: dict[str, Any] = {"run_id": run_id, "repo": repo, "ref": ref}
+        if overlay_ref:
+            args["overlay_ref"] = overlay_ref
+            args["overlay_paths"] = overlay_paths or []
+        result = await self._session.call_tool("repo.archive", args)
         text = "".join(
             block.text for block in result.content if getattr(block, "text", None)
         )
@@ -125,11 +136,17 @@ class GatewayClient:
             raise GatewayError(text or f"{name} failed")
         return json.loads(text)
 
-    async def run_tests(self, run_id: str) -> dict[str, Any]:
+    async def run_tests(
+        self, run_id: str, paths: list[str] | None = None
+    ) -> dict[str, Any]:
         """The platform verify gate:
         `sandbox.run_tests` under the orchestrator's own identity — the
-        gate of record after the brain's completion claim."""
-        return await self._tool("sandbox.run_tests", {"run_id": run_id})
+        gate of record after the brain's completion claim. `paths` scopes
+        the run to named test paths (the contract-verify call)."""
+        args: dict[str, Any] = {"run_id": run_id}
+        if paths:
+            args["paths"] = paths
+        return await self._tool("sandbox.run_tests", args)
 
     async def read_pr(self, run_id: str, repo: str, number: int) -> dict[str, Any]:
         """PR metadata (head ref included) for the review workflow — how
@@ -164,6 +181,16 @@ class GatewayClient:
         input the implement run resolves itself."""
         result = await self._tool("issues.read", {"run_id": run_id, "repo": repo})
         return list(result["issues"])
+
+    async def comment_pr(
+        self, run_id: str, repo: str, number: int, body: str
+    ) -> dict[str, Any]:
+        """A platform comment on a PR — the oracle-edit warning the human
+        reads before resolving the merge signal."""
+        return await self._tool(
+            "git.comment",
+            {"run_id": run_id, "repo": repo, "number": number, "body": body},
+        )
 
     async def merge_pr(
         self, run_id: str, repo: str, number: int, method: str = "merge"

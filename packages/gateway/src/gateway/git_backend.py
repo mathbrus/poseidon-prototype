@@ -68,6 +68,16 @@ def _require_safe_ref(what: str, value: str) -> str:
     return value
 
 
+def _require_safe_overlay_path(value: str) -> str:
+    """An overlay path names a tree inside the clone — the backend removes
+    and re-checks-out at it, so it must never be an option, absolute, or
+    escape the clone via `..` components."""
+    _require_safe_argument("overlay path", value)
+    if value.startswith("/") or ".." in Path(value).parts:
+        raise GitBackendError(f"overlay path {value!r} is not allowed")
+    return value
+
+
 @dataclass
 class PreparedBundle:
     """A verified bundle applied to a platform-side clone, awaiting push."""
@@ -137,18 +147,41 @@ class GitBackend:
 
     # -- repo.archive ---------------------------------------------------------
 
-    async def archive(self, repo: str, ref: str) -> dict[str, Any]:
-        return await asyncio.to_thread(self._archive_sync, repo, ref)
+    async def archive(
+        self,
+        repo: str,
+        ref: str,
+        overlay_ref: str | None = None,
+        overlay_paths: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._archive_sync, repo, ref, overlay_ref, overlay_paths
+        )
 
-    def _archive_sync(self, repo: str, ref: str) -> dict[str, Any]:
+    def _archive_sync(
+        self,
+        repo: str,
+        ref: str,
+        overlay_ref: str | None = None,
+        overlay_paths: list[str] | None = None,
+    ) -> dict[str, Any]:
         _require_safe_ref("ref", ref)
-        self._log.info("archive", extra={"repo": repo_slug(repo), "ref": ref})
+        if overlay_ref is not None:
+            _require_safe_ref("overlay_ref", overlay_ref)
+        for path in overlay_paths or []:
+            _require_safe_overlay_path(path)
+        self._log.info(
+            "archive",
+            extra={"repo": repo_slug(repo), "ref": ref, "overlay_ref": overlay_ref},
+        )
         with tempfile.TemporaryDirectory(prefix="poseidon-archive-") as tmp:
             clone = Path(tmp) / "repo"
             self._git(None, "clone", "--", self._clone_url(repo), str(clone))
             # `<ref> --` pins the argument as a revision, never an option
             # or a path.
             self._git(clone, "checkout", ref, "--")
+            if overlay_ref is not None:
+                self._overlay(clone, overlay_ref, overlay_paths or [])
             # Removing the remote drops the credentialed URL and all
             # remote-tracking refs; nothing secret survives in the archive.
             self._git(clone, "remote", "remove", "origin")
@@ -157,6 +190,27 @@ class GitBackend:
                 for child in sorted(clone.iterdir()):
                     tar.add(child, arcname=child.name)
             return {"archive_b64": base64.b64encode(buf.getvalue()).decode()}
+
+    def _overlay(self, clone: Path, overlay_ref: str, paths: list[str]) -> None:
+        """Mirror `paths` from the overlay ref into the checked-out tree —
+        exactly: the checked-out version is removed first, then the overlay
+        ref's version is taken where it exists, so a path absent there is
+        absent from the composed tree too (an undeleted leftover would let
+        the head's copy impersonate the baseline's)."""
+        for path in paths:
+            target = (clone / path).resolve()
+            if not target.is_relative_to(clone.resolve()):
+                raise GitBackendError(f"overlay path {path!r} escapes the clone")
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+            try:
+                self._git(clone, "checkout", f"origin/{overlay_ref}", "--", path)
+            except GitBackendError as exc:
+                if "did not match any file" not in str(exc):
+                    raise
+                # Absent on the overlay ref: stays absent, honestly.
 
     # -- git.open_pr ----------------------------------------------------------
 

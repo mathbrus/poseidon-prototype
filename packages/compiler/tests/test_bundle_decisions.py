@@ -609,9 +609,11 @@ def decide_delegated(tmp_path_factory):
 
 
 def merge_resolve(**args) -> dict:
-    # Independence defaults to true here so each test isolates the layer
-    # it is about; the dedicated test below flips it.
+    # Independence and the contract fact default to true here so each test
+    # isolates the layer it is about; the dedicated tests below flip them.
+    # (Under a bundle with no contract tree the fact is simply unread.)
     args.setdefault("reviewer_independent", True)
+    args.setdefault("contract_green", True)
     return {
         "company": "hello-saas",
         "lifecycle": "platform",
@@ -921,4 +923,40 @@ def test_the_delegated_class_still_resolves_beside_the_contract_tree(decide_spli
             paths=["src/a.py", "tests/unit/test_a.py"],
         )
     )
+    assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
+
+
+def test_a_red_contract_verify_merges_nothing(decide_split):
+    """The baseline layer is required: a head suite weakened to green
+    cannot launder a merge — the base-ref contract run is its own fact,
+    and red denies by name."""
+    decision = decide_split(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            contract_green=False,
+            paths=["src/a.py"],
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
+
+
+def test_the_contract_fact_fails_closed_when_absent(decide_split):
+    """A declared contract tree prices its fact into the delegation: the
+    absent key denies, the checks_not_green idiom."""
+    args = merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
+    del args["args"]["contract_green"]
+    decision = decide_split(**args)
+    assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
+
+
+def test_no_contract_tree_means_no_contract_fact(decide_delegated):
+    """Vacuous only by declaration: a company without `contract_tests`
+    compiled no contract rule, so the delegation reads exactly the facts
+    it always did — the fact is not a new global requirement."""
+    args = merge_resolve(
+        verdict="pass", checks_green=True, paths=["src/a.py", "tests/test_a.py"]
+    )
+    del args["args"]["contract_green"]
+    decision = decide_delegated(**args)
     assert decision == {"allow": True, "rule": "merge_resolve_delegated"}

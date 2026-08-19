@@ -291,6 +291,13 @@ def _merge_gate_file(
         sorted({*UNDELEGATABLE_PATHS, *(policies.get("deny_paths") or [])})
     )
     contract_paths = sorted((policies.get("contract_tests") or {}).get("paths") or [])
+    # A declared contract tree prices its fact into the delegation: the
+    # allow additionally requires the platform-composed contract verify
+    # (base-ref contract tree over the PR head) to be green. Undeclared,
+    # the fact is vacuously absent — the delegation never promised a spec.
+    contract_requirement = (
+        "\tinput.args.contract_green == true\n" if contract_paths else ""
+    )
     contract_deny = (
         # The oracle never merges with the code it certifies: a changed
         # path under the contract tree denies the resolve by its own name —
@@ -302,6 +309,13 @@ def _merge_gate_file(
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome contract in {json.dumps(contract_paths)}\n"
         "\tstartswith(path, contract)\n"
+        "}\n"
+        # The fact restated as a fail-safe named deny, the checks_not_green
+        # idiom: object.get so the absent key denies rather than leaving
+        # the rule unevaluated.
+        '\ndeny_rules contains "merge_resolve_contract_not_green" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tobject.get(input, ["args", "contract_green"], false) != true\n'
         "}\n"
         if contract_paths
         else ""
@@ -321,7 +335,7 @@ def _merge_gate_file(
         # reviewer from the implementer. None alone merges anything.
         '\tinput.args.verdict == "pass"\n'
         "\tinput.args.checks_green == true\n"
-        "\tinput.args.reviewer_independent == true\n"
+        "\tinput.args.reviewer_independent == true\n" + contract_requirement +
         # Every changed path fits the delegated class; an empty diff has
         # nothing to delegate and is not a merge policy can resolve.
         "\tcount(input.args.paths) > 0\n"

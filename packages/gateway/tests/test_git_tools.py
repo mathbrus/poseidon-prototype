@@ -85,6 +85,54 @@ async def test_platform_archives_repo_stripped_of_remotes(
     assert event["run_id"] == RUN_ID
 
 
+async def test_archive_overlay_composes_the_baseline_tree(target_repo, tmp_path):
+    """The contract-verify baseline: the head ref's code with the overlay
+    paths mirrored *exactly* from the overlay ref — the base's contract
+    file wins over the head's, a head-only file under the overlay path is
+    removed, and an overlay path absent on the base stays absent."""
+    from gateway.config import GatewaySettings
+    from gateway.git_backend import GitBackend
+
+    # main grows a contract tree; a branch tampers with it and changes code.
+    work = tmp_path / "compose-work"
+    git("clone", str(target_repo), str(work))
+    contract = work / "tests" / "contract"
+    contract.mkdir(parents=True)
+    (contract / "test_api.py").write_text("assert 'baseline'\n")
+    git("add", "-A", cwd=work)
+    git("commit", "-m", "contract on main", cwd=work)
+    git("push", "origin", "main", cwd=work)
+    git("checkout", "-b", "feature/tamper", cwd=work)
+    (work / "app.py").write_text("def hello():\n    return 'changed'\n")
+    (contract / "test_api.py").write_text("assert 'gutted'\n")
+    (contract / "test_extra.py").write_text("assert 'head only'\n")
+    (work / "tests" / "contract2").mkdir()
+    (work / "tests" / "contract2" / "test_new.py").write_text("assert 'nowhere'\n")
+    git("add", "-A", cwd=work)
+    git("commit", "-m", "tamper", cwd=work)
+    git("push", "origin", "feature/tamper", cwd=work)
+
+    backend = GitBackend(GatewaySettings(git_token=GIT_TOKEN), http_client=None)
+    result = backend._archive_sync(
+        str(target_repo),
+        "feature/tamper",
+        overlay_ref="main",
+        overlay_paths=["tests/contract/", "tests/contract2/"],
+    )
+    extracted = tmp_path / "composed"
+    with tarfile.open(fileobj=io.BytesIO(base64.b64decode(result["archive_b64"]))) as tar:
+        tar.extractall(extracted, filter="data")
+
+    # Head code survives; the contract tree is the base's, exactly.
+    assert (extracted / "app.py").read_text() == "def hello():\n    return 'changed'\n"
+    assert (
+        extracted / "tests" / "contract" / "test_api.py"
+    ).read_text() == "assert 'baseline'\n"
+    assert not (extracted / "tests" / "contract" / "test_extra.py").exists()
+    # Absent on the base ref: absent from the composed tree, honestly.
+    assert not (extracted / "tests" / "contract2").exists()
+
+
 async def test_agent_token_cannot_archive(app, target_repo, audit):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(
