@@ -60,4 +60,10 @@ cat <<'EOF'
                            zero human commands (test_zz_delegated); steered
                            reviewer + carve-out PR refused by the platform
                            (test_merge_gate_redteam)
+10 split oracle            implementer denied the contract tree, laundered
+                           head suites refused by the base-ref baseline,
+                           gutted spec parked with deletion facts
+                           (test_split_oracle_redteam); contract-then-
+                           implement arc with one human merge, then policy
+                           auto-merge on contract_green (test_zz_delegated)
 EOF
