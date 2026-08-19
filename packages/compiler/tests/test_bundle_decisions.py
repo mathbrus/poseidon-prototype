@@ -879,8 +879,8 @@ def test_the_pm_may_request_the_contract_crew(decide_split):
 
 
 def test_a_declared_owner_passes_the_contract_rule(tmp_path_factory, blueprint):
-    """The rule keys on the role template, the path_ownership posture: a
-    caller the declaration names is not denied by it (whether that template
+    """The rule keys on the role template — a caller keyed on what it *is*:
+    a caller the declaration names is not denied by it (whether that template
     holds `git.open_pr` at all stays the allow-list's business, as ever)."""
     blueprint["policies"]["contract_tests"] = {
         "paths": ["tests/contract/"],

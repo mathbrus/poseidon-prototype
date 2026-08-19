@@ -276,20 +276,6 @@ _POLICIES = {
                 },
             },
         },
-        "path_ownership": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["paths", "roles"],
-                "properties": {
-                    "paths": {"type": "array", "items": _TEXT, "minItems": 1},
-                    # Role templates, not instance ids: path rules name what
-                    # a caller *is*.
-                    "roles": {"type": "array", "items": _NAME, "minItems": 1},
-                },
-            },
-        },
         "escalation": {
             "type": "object",
             "additionalProperties": False,

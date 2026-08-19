@@ -6,8 +6,6 @@ import rego.v1
 
 protected_branches := ["main"]
 
-deny_paths := [".github/workflows/"]
-
 deny_rules contains "git_open_pr_protected_branch" if {
 	input.tool == "git.open_pr"
 	lower(input.args.branch) in protected_branches
@@ -26,6 +24,6 @@ deny_rules contains "git_open_pr_paths_missing" if {
 deny_rules contains "git_open_pr_denied_paths" if {
 	input.tool == "git.open_pr"
 	some path in object.get(input, ["args", "paths"], [])
-	some denied in deny_paths
-	startswith(path, denied)
+	some prefix in [".github/workflows/"]
+	startswith(path, prefix)
 }

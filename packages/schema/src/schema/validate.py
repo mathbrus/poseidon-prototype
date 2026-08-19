@@ -163,8 +163,9 @@ def _catalog_problems(document: Any) -> list[str]:
                 f"tools.{role_name}.allow", scope.get("allow") or []
             )
 
-    # The contract tree's owners are role templates, the path_ownership
-    # posture: an unknown owner would compile a tree nobody can deliver into.
+    # The contract tree's owners are role templates — a caller is keyed on
+    # what it *is*: an unknown owner would compile a tree nobody can deliver
+    # into.
     contract = (document.get("policies") or {}).get("contract_tests")
     roles_declared = contract.get("roles") if isinstance(contract, dict) else None
     for role in roles_declared if isinstance(roles_declared, list) else []:

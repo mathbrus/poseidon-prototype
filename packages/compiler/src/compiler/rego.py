@@ -389,15 +389,36 @@ def _platform_rules(tools: list[str]) -> str:
     )
 
 
+def _open_pr_path_deny(
+    rule: str, paths: list[str], roles: list[str] | None = None
+) -> str:
+    """One prefix-ownership deny over `git.open_pr`, named for its class.
+    Every path rule the blueprint can write is this shape — any changed
+    path under `paths` is refused — so there is one emitter, and the audit
+    row reads the same however the refusal was declared. With `roles` the
+    declared owner templates are exempt (the split oracle's contract tree,
+    a caller keyed on what it *is*); without, the path is denied outright
+    (`deny_paths`)."""
+    owner_clause = f"\tnot input.role in {json.dumps(sorted(roles))}\n" if roles else ""
+    return (
+        f'\ndeny_rules contains "{rule}" if {{\n'
+        '\tinput.tool == "git.open_pr"\n'
+        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        f"\tsome prefix in {json.dumps(sorted(paths))}\n"
+        "\tstartswith(path, prefix)\n"
+        f"{owner_clause}"
+        "}\n"
+    )
+
+
 def _policies_file(company: str, policies: dict[str, Any]) -> str:
-    """Branch protection, deny paths, path ownership and the contract
-    tree — enforceable on real arguments because bundle-apply already
-    gives policy the changed paths."""
+    """Branch protection, deny paths and the contract tree — enforceable on
+    real arguments because bundle-apply already gives policy the changed
+    paths."""
     protection = policies.get("branch_protection") or {}
     protected = protection.get("protected") or []
     pattern = protection.get("allowed_pattern")
     deny_paths = policies.get("deny_paths") or []
-    ownership = policies.get("path_ownership") or []
     contract = policies.get("contract_tests") or {}
     contract_paths = contract.get("paths") or []
 
@@ -408,7 +429,6 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
         # Lowercased at emit time to match the lowercased input below —
         # `protected: [Main]` must still protect `main`.
         f"\nprotected_branches := {json.dumps(sorted({b.lower() for b in protected}))}\n",
-        f"\ndeny_paths := {json.dumps(sorted(deny_paths))}\n",
     ]
     if protected:
         lines.append(
@@ -427,7 +447,7 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
             f"\tnot regex.match({json.dumps(pattern)}, input.args.branch)\n"
             "}\n"
         )
-    if deny_paths or ownership or contract_paths:
+    if deny_paths or contract_paths:
         # Path rules fail closed: without the changed paths in the input
         # they cannot be evaluated, so the call is denied. The gateway
         # always supplies args.paths for git.open_pr (bundle-apply
@@ -439,43 +459,15 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
             "}\n"
         )
     if deny_paths:
-        lines.append(
-            '\ndeny_rules contains "git_open_pr_denied_paths" if {\n'
-            '\tinput.tool == "git.open_pr"\n'
-            '\tsome path in object.get(input, ["args", "paths"], [])\n'
-            "\tsome denied in deny_paths\n"
-            "\tstartswith(path, denied)\n"
-            "}\n"
-        )
+        lines.append(_open_pr_path_deny("git_open_pr_denied_paths", deny_paths))
     if contract_paths:
         # The contract tree is the oracle: only its declared owner
         # templates may deliver into it, so the implementer cannot rewrite
-        # the spec its own work is graded by. Named for the class — the
-        # audit row should say what was refused, not which index fired.
-        roles = json.dumps(sorted(contract.get("roles") or []))
-        paths = json.dumps(sorted(contract_paths))
+        # the spec its own work is graded by.
         lines.append(
-            '\ndeny_rules contains "git_open_pr_contract_tree" if {\n'
-            '\tinput.tool == "git.open_pr"\n'
-            '\tsome path in object.get(input, ["args", "paths"], [])\n'
-            f"\tsome contract in {paths}\n"
-            "\tstartswith(path, contract)\n"
-            f"\tnot input.role in {roles}\n"
-            "}\n"
-        )
-    for index, rule in enumerate(ownership):
-        # Path ownership names role *templates* — what a caller is, not
-        # which instance it happens to be.
-        roles = json.dumps(sorted(rule.get("roles") or []))
-        paths = json.dumps(sorted(rule.get("paths") or []))
-        lines.append(
-            f'\ndeny_rules contains "git_open_pr_path_ownership_{index}" if {{\n'
-            '\tinput.tool == "git.open_pr"\n'
-            f'\tsome path in object.get(input, ["args", "paths"], [])\n'
-            f"\tsome owned in {paths}\n"
-            "\tstartswith(path, owned)\n"
-            f"\tnot input.role in {roles}\n"
-            "}\n"
+            _open_pr_path_deny(
+                "git_open_pr_contract_tree", contract_paths, contract.get("roles") or []
+            )
         )
     return "".join(lines)
 
