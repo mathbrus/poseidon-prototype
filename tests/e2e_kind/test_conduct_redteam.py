@@ -62,6 +62,7 @@ from .conftest import (
     deployed_timeouts,
     heartbeat_ticks,
     quiesce_heartbeat,
+    sweep_repo_debris,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import (
@@ -153,9 +154,15 @@ def _run_spend(run_id: str) -> float:
 
 
 @pytest.fixture(scope="module")
-def conducted(stack: None):
+def conducted(stack: None, repo_baseline: dict):
     """Apply the heartbeat blueprint for this module; restore the pristine
     one after, so later suites run against the human-started company."""
+    # An empty campsite before the conduct blueprint lands: the ensure
+    # loop's bare heartbeat ticks once the moment conduct is declared, and
+    # any open PR or issue an earlier module left becomes its backlog — a
+    # review parked on a day-long gate that holds the one concurrency slot
+    # (#15 step 5 caught this live).
+    sweep_repo_debris(repo_baseline)
     apply_blueprint(CONDUCTED)
     wait_for_convergence()
     yield

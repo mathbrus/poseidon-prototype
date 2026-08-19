@@ -68,6 +68,7 @@ from .conftest import (
     deployed_timeouts,
     quiesce_heartbeat,
     run_implement_from_issue,
+    sweep_repo_debris,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -147,6 +148,12 @@ def delegated(stack: None, repo_baseline: dict):
     layer is red and files a rework — `merge.resolve` would never be
     evaluated, and this red-team would fail for a reason that has nothing
     to do with the carve-out it is about."""
+    # An empty campsite before the conduct blueprint lands: the ensure
+    # loop's bare heartbeat ticks once the moment conduct is declared, and
+    # any open PR or issue an earlier module left becomes its backlog — a
+    # review parked on a day-long gate that holds the one concurrency slot
+    # (#15 step 5 caught this live).
+    sweep_repo_debris(repo_baseline)
     apply_blueprint(DELEGATED)
     wait_for_convergence()
     yield

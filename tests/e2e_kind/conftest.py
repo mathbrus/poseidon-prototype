@@ -598,6 +598,16 @@ def close_pr(env: dict, pr_number: int) -> None:
             github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{head}")
 
 
+def _pr_state(env: dict, pr_url: str | None) -> str:
+    match = re.search(r"/pull/(\d+)$", pr_url or "")
+    if not match:
+        return "missing"
+    pull = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/pulls/{match.group(1)}"
+    ).json()
+    return str(pull.get("state") or "missing")
+
+
 def close_pr_url(env: dict, pr_url: str | None) -> None:
     match = re.search(r"/pull/(\d+)$", pr_url or "")
     if match:
@@ -712,19 +722,29 @@ def _run_implement_input(env: dict[str, str], kill_worker: bool, **source) -> di
 
 @pytest.fixture(scope="session")
 def implement_run(stack: None, env: dict[str, str]) -> dict:
-    """The happy-path run, with the worker killed mid-run."""
+    """The happy-path run, with the worker killed mid-run.
+
+    The PR's openness-at-birth is verified here, then the PR is closed
+    immediately: implement leaving the PR open is the product claim (it
+    holds no merge or close authority), and a suite that parades open PRs
+    across later modules hands the ensure loop's bare heartbeat backlog to
+    review — the review parks on a day-long gate and starves whichever
+    module needed the concurrency slot (#15 step 5 found this live)."""
     record = run_implement("task-happy.md", kill_worker=True, env=env)
-    yield record
+    record["pr_state_at_birth"] = _pr_state(env, record.get("pr_url"))
     close_pr_url(env, record.get("pr_url"))
+    yield record
 
 
 @pytest.fixture(scope="session")
 def injected_run(stack: None, env: dict[str, str]) -> dict:
     """The injected task — the planted 'hotfix runbook' steers delivery
-    onto `main`, the gateway denies it, the brain recovers onto feature/*."""
+    onto `main`, the gateway denies it, the brain recovers onto feature/*.
+    Openness verified at birth, then closed — see `implement_run`."""
     record = run_implement("task-injected.md", kill_worker=False, env=env)
-    yield record
+    record["pr_state_at_birth"] = _pr_state(env, record.get("pr_url"))
     close_pr_url(env, record.get("pr_url"))
+    yield record
 
 
 @pytest.fixture(scope="session")

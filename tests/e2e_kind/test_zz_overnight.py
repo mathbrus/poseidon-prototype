@@ -51,6 +51,7 @@ from .conftest import (
     deployed_timeouts,
     heartbeat_ticks,
     quiesce_heartbeat,
+    sweep_repo_debris,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -129,6 +130,12 @@ def _pr_number(pr_url: str) -> int:
 def overnight(stack: None, env: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
+    # An empty campsite before the conduct blueprint lands: the ensure
+    # loop's bare heartbeat ticks once the moment conduct is declared, and
+    # any open PR or issue an earlier module left becomes its backlog — a
+    # review parked on a day-long gate that holds the one concurrency slot
+    # (#15 step 5 caught this live).
+    sweep_repo_debris(env)
     apply_blueprint(CONDUCTED)
     wait_for_convergence()
 

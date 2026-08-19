@@ -85,6 +85,7 @@ from .conftest import (
     quiesce_heartbeat,
     read_repo_file,
     run_implement_from_issue,
+    sweep_repo_debris,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -234,10 +235,16 @@ def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
 
 
 @pytest.fixture(scope="module")
-def split(stack: None):
+def split(stack: None, repo_baseline: dict):
     """The split declared on the cluster: the delegated blueprint now
     carries `policies.contract_tests` and the contract-authoring crew.
     Restore the pristine company after, so later suites are unaffected."""
+    # An empty campsite before the conduct blueprint lands: the ensure
+    # loop's bare heartbeat ticks once the moment conduct is declared, and
+    # any open PR or issue an earlier module left becomes its backlog — a
+    # review parked on a day-long gate that holds the one concurrency slot
+    # (#15 step 5 caught this live).
+    sweep_repo_debris(repo_baseline)
     apply_blueprint(DELEGATED)
     wait_for_convergence()
     yield
