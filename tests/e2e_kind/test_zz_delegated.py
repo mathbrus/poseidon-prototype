@@ -58,6 +58,7 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    delete_repo_file,
     deployed_timeouts,
     run_implement_from_issue,
     temporal_port_forward,
@@ -137,10 +138,16 @@ def _pr_number(pr_url: str) -> int:
 
 
 @pytest.fixture(scope="module")
-def delegated_overnight(stack: None, env: dict) -> dict:
+def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
     """One goal in, then nothing: drive intake, start the heartbeat, and
     let the company implement, review, and MERGE its own in-class PR with
-    no further command. Hand back every artifact for the assertions."""
+    no further command. Hand back every artifact for the assertions.
+
+    Depends on the session `repo_baseline`: the delegated blueprint declares
+    `contract_tests`, so the unattended merge needs the contract tree on the
+    base ref — without it the composed verify is red and the arc reworks
+    instead of merging."""
+    env = repo_baseline
     apply_blueprint(DELEGATED)
     wait_for_convergence()
 
@@ -305,23 +312,6 @@ def test_the_whole_arc_had_exactly_one_human_act(delegated_overnight: dict):
 # the ordered pair.
 
 
-def _read_file(env: dict, path: str) -> dict | None:
-    resp = _github(env, "GET", f"/repos/{_slug(env)}/contents/{path}")
-    return resp.json() if resp.status_code == 200 else None
-
-
-def _delete_file(env: dict, path: str, message: str) -> None:
-    existing = _read_file(env, path)
-    if not existing:
-        return
-    _github(
-        env,
-        "DELETE",
-        f"/repos/{_slug(env)}/contents/{path}",
-        json={"message": message, "sha": existing["sha"]},
-    )
-
-
 def _issue_title(env: dict, number: int) -> str:
     return (
         _github(env, "GET", f"/repos/{_slug(env)}/issues/{number}").json().get("title")
@@ -361,18 +351,21 @@ def _drive_review(pr_number: int, approve: bool | None) -> tuple[str, dict]:
 
 
 @pytest.fixture(scope="module")
-def contract_first(stack: None, env: dict) -> dict:
+def contract_first(stack: None, repo_baseline: dict) -> dict:
     """One goal in, one contract merge out. Reset `main` to the pre-contract
     state, submit a contract-first goal, and let the platform run the whole
     arc: the PM files the ordered pair, the contract crew authors the spec,
     its PR parks for the single human merge, and then the implementation
     auto-merges on a green base-ref contract — no other command."""
+    env = repo_baseline
     apply_blueprint(DELEGATED)
     wait_for_convergence()
-    # Pre-contract baseline: the tree is declared but not yet on `main`, so an
-    # implementation cannot merge until the spec lands — which is the whole
-    # point of sequencing the contract first.
-    _delete_file(env, CONTRACT_TEST_PATH, "capstone: reset to pre-contract state")
+    # The declared deviation from the session baseline: the tree is declared
+    # by the blueprint but deleted from `main`, so an implementation cannot
+    # merge until the spec lands — which is the whole point of sequencing
+    # the contract first. The arc itself puts the tree back (the one human
+    # merge), so the module exits at baseline.
+    delete_repo_file(env, CONTRACT_TEST_PATH, "capstone: reset to pre-contract state")
 
     run_id = new_run_id()
     nonce = run_id[-6:].lower()

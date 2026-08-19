@@ -19,6 +19,7 @@ Run explicitly (excluded from plain `pytest`):
 """
 
 import asyncio
+import base64
 import contextlib
 import functools
 import json
@@ -36,6 +37,12 @@ import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
+from mockllm.brain import (
+    CONTRACT_TEST_PATH,
+    CONTRACT_TESTS_PY,
+    SLUGIFY_PY,
+    TEST_SLUGIFY_PY,
+)
 from orchestrator.workflows.implement import (
     FAST_TIMEOUTS,
     ImplementInput,
@@ -460,6 +467,108 @@ def deployed_timeouts() -> Timeouts | None:
     suite, it wedges it for a day on the first unanswered gate. None means
     the workflow defaults: the patience a paid brain deserves."""
     return FAST_TIMEOUTS if "mockllm" in deployed_brain_image() else None
+
+
+# --- the repo-state contract (#15 step 2) -----------------------------------
+#
+# TARGET_REPO@main is suite-managed state with one owner: this baseline.
+# Before it existed, the suite's green depended on residue — a contract
+# tree an *earlier run's* module happened to leave behind — and a fresh
+# disposable repo broke test_merge_gate_redteam outright. Modules that
+# need a different shape declare the deviation against this baseline and
+# put it back (the contract-first capstone deletes the tree its arc
+# re-merges); nobody depends on what a previous run left.
+
+
+def github_api(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
+    return httpx.request(
+        method,
+        f"https://api.github.com{path}",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {env['GIT_TOKEN']}",
+        },
+        timeout=30,
+        **kwargs,
+    )
+
+
+def target_slug(env: dict) -> str:
+    return "/".join(env["TARGET_REPO"].split("/")[-2:])
+
+
+def read_repo_file(env: dict, path: str) -> dict | None:
+    """The file's API record at `main` (sha included, for a write), or None
+    when it is absent."""
+    resp = github_api(env, "GET", f"/repos/{target_slug(env)}/contents/{path}")
+    return resp.json() if resp.status_code == 200 else None
+
+
+def put_repo_file(env: dict, path: str, content: str, message: str) -> None:
+    """Idempotent write at `main`: a file already carrying exactly this
+    content is left alone, so re-establishing the baseline on a clean repo
+    makes no commits."""
+    existing = read_repo_file(env, path)
+    body = {
+        "message": message,
+        "content": base64.b64encode(content.encode()).decode(),
+    }
+    if existing:
+        if base64.b64decode(existing["content"]).decode() == content:
+            return
+        body["sha"] = existing["sha"]
+    resp = github_api(env, "PUT", f"/repos/{target_slug(env)}/contents/{path}", json=body)
+    assert resp.status_code in (200, 201), f"seeding {path} failed: {resp.text}"
+
+
+def delete_repo_file(env: dict, path: str, message: str) -> None:
+    existing = read_repo_file(env, path)
+    if not existing:
+        return
+    resp = github_api(
+        env,
+        "DELETE",
+        f"/repos/{target_slug(env)}/contents/{path}",
+        json={"message": message, "sha": existing["sha"]},
+    )
+    assert resp.status_code == 200, f"removing {path} failed: {resp.text}"
+
+
+# The declared shape of main: the mock brain's own canonical texts, so the
+# baseline is exactly what the company itself delivers — the implementation,
+# the implementer's unit tree, and the human-merged acceptance contract the
+# composed contract verify replays against every PR head.
+REPO_BASELINE: dict[str, str] = {
+    "slugify.py": SLUGIFY_PY,
+    "tests/unit/test_slugify.py": TEST_SLUGIFY_PY,
+    CONTRACT_TEST_PATH: CONTRACT_TESTS_PY,
+}
+
+# Shapes the baseline refuses to inherit: the pre-split test tree (deleted
+# by #13's no-compat rule — at a path no laundering veil ignores, it breaks
+# head suites for the wrong reason) and root-level collection config (a
+# merged pytest.ini/conftest.py would neuter every later run's suite the
+# way the red-team's veils neuter one PR's).
+REPO_PRUNED: tuple[str, ...] = (
+    "tests/test_slugify.py",
+    "tests/test_gate.py",
+    "pytest.ini",
+    "conftest.py",
+    "gate-counter.txt",
+)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def repo_baseline(env: dict[str, str]) -> dict[str, str]:
+    """Establish the declared shape of TARGET_REPO@main once per session —
+    autouse, so a standalone module run gets the same contract the full
+    suite does and a fresh disposable repo needs no manual seeding.
+    Idempotent: a repo already at baseline gets reads, not commits."""
+    for path, content in REPO_BASELINE.items():
+        put_repo_file(env, path, content, f"suite baseline: {path}")
+    for path in REPO_PRUNED:
+        delete_repo_file(env, path, f"suite baseline: prune {path}")
+    return env
 
 
 def _run_implement_input(env: dict[str, str], kill_worker: bool, **source) -> dict:

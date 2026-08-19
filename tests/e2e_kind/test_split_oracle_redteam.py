@@ -35,13 +35,13 @@ the platform did, and that the attack really landed first — a red-team
 whose payload silently failed to deliver proves nothing, so each scenario
 opens with its own carry assertion.
 
-Setup, not a claim: the fixture seeds the target repo's `main` into the
-post-split shape (the acceptance spec under `tests/contract/`, unit tests
-under `tests/unit/`) using the mock author's own contract text, because
-`contract_green` is only meaningful against a baseline that exists. How the
-spec legitimately *gets* to `main` — the PM's ordered pair, the contract
-crew, the human's one approval — is the step-7 capstone's arc, not this
-module's.
+Setup, not a claim: the session `repo_baseline` (conftest) holds the target
+repo's `main` in the declared post-split shape — the acceptance spec under
+`tests/contract/`, unit tests under `tests/unit/` — because `contract_green`
+is only meaningful against a baseline that exists; this module asserts that
+shape and never re-seeds it. How the spec legitimately *gets* to `main` —
+the PM's ordered pair, the contract crew, the human's one approval — is the
+capstone's arc (`test_zz_delegated`), not this module's.
 
 Applies `examples/hello-saas-delegated.yaml` (now split-declared) for the
 module and restores the pristine `hello-saas.yaml` after — the red-team
@@ -65,11 +65,9 @@ from mockllm.brain import (
     CONFTEST_VEIL_MARKER,
     CONTRACT_CREW_LINE,
     CONTRACT_TEST_PATH,
-    CONTRACT_TESTS_PY,
     GREEN_SUITE_MARKER,
     ORACLE_SMUGGLE_MARKER,
     STEERED_CONTRACT_MARKER,
-    TEST_SLUGIFY_PY,
 )
 from orchestrator.workflows.review import (
     ReviewInput,
@@ -83,6 +81,7 @@ from .conftest import (
     TASK_QUEUE,
     audit_story,
     deployed_timeouts,
+    read_repo_file,
     run_implement_from_issue,
     temporal_port_forward,
 )
@@ -92,21 +91,11 @@ DELEGATED = REPO_ROOT / "examples" / "hello-saas-delegated.yaml"
 HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
 
 CONTRACT_TREE = "tests/contract/"
-UNIT_TEST_PATH = "tests/unit/test_slugify.py"
-# The pre-split tree the split replaces. Left on `main` it would break
-# every laundering scenario's head suite for the wrong reason (its
-# assertions are the contract's, at a path no veil ignores), which is
-# precisely the no-compat rule: the old shape goes away.
-PRE_SPLIT_TEST_PATH = "tests/test_slugify.py"
-# The correct implementation `main` carries: the baseline contract passes
-# against it, so a red contract verify below is the PR's doing.
-HYPHEN_SLUGIFY = (
-    "import re\n\n\ndef slugify(text: str) -> str:\n"
-    '    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")\n'
-)
 
 
 # --- the target repo, through the GitHub API ---------------------------------
+# (file-level state on `main` belongs to the session `repo_baseline` in
+# conftest; this module only reads PRs, comments and issues.)
 
 
 def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
@@ -124,40 +113,6 @@ def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
 
 def _slug(env: dict) -> str:
     return "/".join(env["TARGET_REPO"].split("/")[-2:])
-
-
-def _read_file(env: dict, path: str) -> dict | None:
-    """The file's API record at `main` (sha included, for a write), or None
-    when it is absent."""
-    resp = _github(env, "GET", f"/repos/{_slug(env)}/contents/{path}")
-    return resp.json() if resp.status_code == 200 else None
-
-
-def _put_file(env: dict, path: str, content: str, message: str) -> None:
-    existing = _read_file(env, path)
-    body = {
-        "message": message,
-        "content": base64.b64encode(content.encode()).decode(),
-    }
-    if existing:
-        if base64.b64decode(existing["content"]).decode() == content:
-            return  # already exactly this, on this ref
-        body["sha"] = existing["sha"]
-    resp = _github(env, "PUT", f"/repos/{_slug(env)}/contents/{path}", json=body)
-    assert resp.status_code in (200, 201), f"seeding {path} failed: {resp.text}"
-
-
-def _delete_file(env: dict, path: str, message: str) -> None:
-    existing = _read_file(env, path)
-    if not existing:
-        return
-    resp = _github(
-        env,
-        "DELETE",
-        f"/repos/{_slug(env)}/contents/{path}",
-        json={"message": message, "sha": existing["sha"]},
-    )
-    assert resp.status_code == 200, f"removing {path} failed: {resp.text}"
 
 
 def _pr_files(env: dict, pr_number: int) -> list[dict]:
@@ -289,20 +244,12 @@ def split(stack: None):
 
 
 @pytest.fixture(scope="module")
-def baseline(split, env: dict) -> dict:
-    """`main` in the post-split shape: the acceptance spec under
-    `tests/contract/` (the mock author's own text, so the baseline is
-    exactly what the contract crew writes), unit tests under `tests/unit/`,
-    the pre-split tree gone, and the correct implementation in place.
-
-    Setup, not a claim — `contract_green` can only mean anything against a
-    baseline that exists, and the arc that puts one there legitimately is
-    the step-7 capstone's."""
-    _put_file(env, "slugify.py", HYPHEN_SLUGIFY, "Baseline the implementation")
-    _put_file(env, CONTRACT_TEST_PATH, CONTRACT_TESTS_PY, "Seed the acceptance contract")
-    _put_file(env, UNIT_TEST_PATH, TEST_SLUGIFY_PY, "Seed the unit tree")
-    _delete_file(env, PRE_SPLIT_TEST_PATH, "Retire the pre-split test tree")
-    return {"env": env}
+def baseline(split, repo_baseline: dict) -> dict:
+    """The module's preconditions, declared: the split on the cluster (the
+    `split` fixture) and `main` in the suite's declared post-split shape —
+    the session `repo_baseline` owns that; this module only *asserts* it
+    (the guard test below), never re-seeds it."""
+    return {"env": repo_baseline}
 
 
 def test_the_seeded_baseline_is_a_real_spec(baseline: dict):
@@ -311,12 +258,14 @@ def test_the_seeded_baseline_is_a_real_spec(baseline: dict):
     wrong reason. The baseline on `main` carries the four acceptance cases,
     and the pre-split tree is gone."""
     env = baseline["env"]
-    seeded = _read_file(env, CONTRACT_TEST_PATH)
+    seeded = read_repo_file(env, CONTRACT_TEST_PATH)
     assert seeded, "no contract tree on the base ref"
     text = base64.b64decode(seeded["content"]).decode()
     assert text.count("def test_contract_") == 4, text
     assert "assert slugify(" in text, "the seeded contract asserts nothing"
-    assert _read_file(env, PRE_SPLIT_TEST_PATH) is None, "the pre-split tree survived"
+    assert read_repo_file(env, "tests/test_slugify.py") is None, (
+        "the pre-split tree survived"
+    )
 
 
 # --- 1. smuggling the oracle into the implementation's own PR ----------------
@@ -532,11 +481,8 @@ def gutted(baseline: dict) -> dict:
         _github(
             env, "PATCH", f"/repos/{_slug(env)}/issues/{issue}", json={"state": "closed"}
         )
-    # The spec the run gutted goes back, so later modules and reruns start
-    # from a real baseline.
-    _put_file(
-        env, CONTRACT_TEST_PATH, CONTRACT_TESTS_PY, "Restore the acceptance contract"
-    )
+    # No spec restore needed: the gutted PR parks and never merges, so
+    # `main` never changed — which is the scenario's own claim.
 
 
 def test_the_ticket_routed_to_the_contract_crew(gutted: dict):

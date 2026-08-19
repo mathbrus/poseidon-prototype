@@ -134,10 +134,17 @@ def _injected_body(nonce: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def delegated(stack: None):
+def delegated(stack: None, repo_baseline: dict):
     """Apply the delegated-merge blueprint for this module; restore the
     pristine one after, so later suites run against the human-gated
-    company."""
+    company.
+
+    Depends on the session `repo_baseline` because the delegated blueprint
+    declares `contract_tests` (#13): this module's review runs the composed
+    contract verify, and without the contract tree on the base ref that
+    layer is red and files a rework — `merge.resolve` would never be
+    evaluated, and this red-team would fail for a reason that has nothing
+    to do with the carve-out it is about."""
     apply_blueprint(DELEGATED)
     wait_for_convergence()
     yield
