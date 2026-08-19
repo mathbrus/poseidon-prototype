@@ -224,9 +224,14 @@ broadly than intended, the merge gate is too.
 One qualifier under a delegated gate: an in-class merge needs no signal at
 all — the compiled `merge.resolve` decision releases it, and its authority
 is exactly that decision (the caller-verified verdict, the platform's own
-green checks, reviewer-independence, and the delegated path class), nothing
-more. Frontend reach still matters for the human override and for every
-class the delegation does not cover, which stay signal-resolved.
+green checks, reviewer-independence, the delegated path class, and — when
+the company declares a contract tree — `contract_green`, the base-ref
+contract tree run against the PR head), nothing more. Every one of those is
+a platform-computed value passed as a real argument, so adversarial prose in
+the diff cannot rewrite it; a company with no `contract_tests` declared
+never has the contract fact read. Frontend reach still matters for the human
+override and for every class the delegation does not cover, which stay
+signal-resolved.
 
 ---
 
@@ -269,7 +274,7 @@ participant of the very run it names.
 | `sandbox.write_file` | `run_id, path, content` | Creates or overwrites one file in the workspace. |
 | `sandbox.list_dir` | `run_id, path` | Lists a workspace directory. |
 | `sandbox.exec` | `run_id, cmd, timeout_s=60` | Runs a shell command in the sandbox and returns its output and exit code. The command runs with no credentials, no cluster API, and the egress proxy as its only route out. |
-| `sandbox.run_tests` | `run_id` | Runs the blueprint's `test_command` (the sandbox's `TEST_CMD`) and returns the result. Agents may call it to check their work; the verify gate of record is the orchestrator's own separate invocation. |
+| `sandbox.run_tests` | `run_id, paths?` | Runs the blueprint's `test_command` (the sandbox's `TEST_CMD`) and returns the result. Agents may call it to check their work; the verify gate of record is the orchestrator's own separate invocation. With `paths`, the run is scoped to those test paths — the platform's contract-verify call, where collecting nothing from a named path is a red exit, not a silent pass, so a config that ignores the tree cannot green it. |
 | `sandbox.git_bundle` | `run_id, branch` | Produces a git bundle of the named branch's commits since the recorded base ref, base64-encoded. This is how work leaves the sandbox: as verifiable content, not as a push. |
 
 Typical callers: the executor (all six), the planner (`read_file`,
@@ -279,8 +284,8 @@ Typical callers: the executor (all six), the planner (`read_file`,
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `repo.archive` | `run_id, repo, ref` | Clones `repo` at `ref` with the platform token, strips the remote (and with it the credentialed URL), and returns the workspace as a base64 tarball. Platform lifecycle only: this is how code enters a sandbox during fulfilment. |
-| `git.open_pr` | `run_id, repo, branch, title, body, bundle_b64` | The only path by which code leaves the system. The gateway verifies the bundle, applies it to a fresh platform-side clone, extracts the changed paths and feeds them to policy as real arguments (branch protection, `deny_paths`, and path-ownership rules are checked here), then pushes the branch with its own token and opens the PR. |
+| `repo.archive` | `run_id, repo, ref, overlay_ref?, overlay_paths?` | Clones `repo` at `ref` with the platform token, strips the remote (and with it the credentialed URL), and returns the workspace as a base64 tarball. With `overlay_paths`, those paths are mirrored from `overlay_ref` over the checkout — removed first, then re-checked-out, so a head-only file cannot impersonate the baseline: this is how the platform composes the contract-verify tree (PR-head code, the contract tree from the base ref). Platform lifecycle only: this is how code enters a sandbox during fulfilment. |
+| `git.open_pr` | `run_id, repo, branch, title, body, bundle_b64` | The only path by which code leaves the system. The gateway verifies the bundle, applies it to a fresh platform-side clone, extracts the changed paths and feeds them to policy as real arguments (branch protection, `deny_paths`, path-ownership and the `contract_tests` owner rule are checked here — an implementer PRing the contract tree dies as `git_open_pr_contract_tree`), then pushes the branch with its own token and opens the PR. |
 | `git.read` | `run_id, repo, number` | Reads a pull request — metadata and diff — for review. |
 | `git.comment` | `run_id, repo, number, body` | Posts a comment on the pull request's conversation; how the reviewer publishes findings. |
 | `git.merge_pr` | `run_id, repo, number, method="merge"` | Merges the pull request. Compiled policy grants this to the platform identity alone, and the orchestrator calls it only after the merge gate resolved to merge — a human approval, or a policy resolution that won the compiled `merge.resolve` decision. No blueprint can hand it to an agent role. |

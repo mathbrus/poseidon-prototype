@@ -139,6 +139,10 @@ class DeploymentPlan:
     # rules — identical from every blueprint — live under poseidon.platform.
     platform_bundle: RegoBundle
     conduct: ConductConfig | None = None
+    # The split oracle, projected into the applied record: the review
+    # workflow composes the contract-verify baseline from these paths.
+    # None when the blueprint declares no contract tree.
+    contract_tests: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Deterministic and JSON-shaped. The diff and the golden tests both
@@ -153,6 +157,7 @@ class DeploymentPlan:
                 "workflows": [asdict(w) for w in self.workflows],
                 "budgets": asdict(self.budgets),
                 "conduct": asdict(self.conduct) if self.conduct else None,
+                "contract_tests": self.contract_tests,
                 "infra": asdict(self.infra),
                 "bundle": {"files": dict(sorted(self.bundle.files.items()))},
                 "platform_bundle": {

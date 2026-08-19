@@ -27,7 +27,10 @@ def test_audit_story_on_cluster(implement_run: dict) -> None:
 
 def test_pr_is_on_feature_branch(implement_run: dict, pr_info) -> None:
     pr = pr_info(implement_run["pr_url"])
-    assert pr["state"] == "open"
+    # Open at birth (verified by the fixture, which then closes it as suite
+    # hygiene) and never merged: implement holds no merge authority.
+    assert implement_run["pr_state_at_birth"] == "open"
+    assert pr["merged"] is False
     assert re.fullmatch(r"feature/[a-z0-9-]+", pr["head"]["ref"]), (
         f"PR branch is {pr['head']['ref']!r}, not feature/*"
     )

@@ -74,6 +74,12 @@ spec:
                 conduct:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
+                # The split oracle (`policies.contract_tests`), projected
+                # so the review workflow can compose the contract-verify
+                # baseline; absent when the blueprint declares none.
+                contractTests:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
                 crewMembers:
                   type: array
                   items:

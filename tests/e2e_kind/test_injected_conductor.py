@@ -28,7 +28,6 @@ import hashlib
 import json
 import re
 
-import httpx
 import pytest
 
 from common.ids import new_run_id
@@ -39,7 +38,6 @@ from mockllm.brain import (
     FORBIDDEN_CREW,
     FORBIDDEN_CREW_REASON,
 )
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 
 from .conftest import (
@@ -47,25 +45,15 @@ from .conftest import (
     TASK_QUEUE,
     _psql_json,
     audit_story,
+    close_pr_url,
+    deployed_timeouts,
+    github_api,
     run_implement,
     temporal_port_forward,
 )
 from .test_crew_identity import _registry
 
 GOAL_FILE = REPO_ROOT / "examples" / "goal-injected-conductor.md"
-
-
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
 
 
 def _egress_digest(host: str, port: int) -> str:
@@ -111,7 +99,7 @@ def conductor_intake(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
                 id=intake_workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )
@@ -125,7 +113,7 @@ def conductor_intake(stack: None, env: dict) -> dict:
         match = re.search(r"/issues/(\d+)$", url)
         if match:
             with contextlib.suppress(Exception):
-                _github(
+                github_api(
                     env,
                     "PATCH",
                     f"/repos/{slug}/issues/{match.group(1)}",
@@ -142,7 +130,9 @@ def conductor_intake(stack: None, env: dict) -> dict:
 def conductor_implement(stack: None, env: dict) -> dict:
     """The payload half: a delivery run whose brief carries the planted
     'publish the workspace' instruction."""
-    return run_implement("goal-injected-conductor.md", kill_worker=False, env=env)
+    record = run_implement("goal-injected-conductor.md", kill_worker=False, env=env)
+    yield record
+    close_pr_url(env, record.get("pr_url"))
 
 
 # --- the conductor half: spawn authority is closed ----------------------------

@@ -24,7 +24,6 @@ import time
 
 from common.ids import new_run_id
 from orchestrator.workflows.implement import (
-    FAST_TIMEOUTS,
     ImplementInput,
     workflow_id,
 )
@@ -35,6 +34,7 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    deployed_timeouts,
     sandbox_image,
     temporal_port_forward,
 )
@@ -360,7 +360,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
             wf = await client.start_workflow(
                 "implement",
                 ImplementInput(
-                    run_id=run_id, task_text=task_text, timeouts=FAST_TIMEOUTS
+                    run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()
                 ),
                 id=workflow_id(run_id),
                 task_queue=TASK_QUEUE,

@@ -5,9 +5,12 @@ policy — the one grant that lets the company finish its own delivery.
 Some surfaces must never sit inside that grant: a change to the
 repository's own automation (`.github/`) is a change to what runs with
 the repository's authority, so delegating it would let a merged PR
-rewrite the rules that govern merging. The carve-out is a property of
-the shape, refused at validate time and compiled into the bundle as a
-deny — never a convention.
+rewrite the rules that govern merging. The blueprint's declared contract
+tree (`policies.contract_tests`) is the same shape one level up — the
+oracle that certifies delegated work must not merge under the delegation
+it certifies. The carve-out is a property of the shape, refused at
+validate time and compiled into the bundle as a deny — never a
+convention.
 
 Shared by `schema.validate` (the document pass) and `compiler.checks`
 (the compiler accepts unvalidated dicts and must fail closed on the same
@@ -28,6 +31,12 @@ def _overlaps(a: str, b: str) -> bool:
     return a.startswith(b) or b.startswith(a)
 
 
+def _contract_paths(document: Any) -> list[str]:
+    section = (document.get("policies") or {}).get("contract_tests")
+    paths = section.get("paths") if isinstance(section, dict) else None
+    return [p for p in paths if isinstance(p, str)] if isinstance(paths, list) else []
+
+
 def merge_gate_problems(document: Any) -> list[str]:
     """Document-level merge-gate coherence, tolerant of malformed values
     (the schema pass reports those): a policy resolver declares its class,
@@ -41,6 +50,7 @@ def merge_gate_problems(document: Any) -> list[str]:
         for p in (document.get("policies") or {}).get("deny_paths") or []
         if isinstance(p, str)
     ]
+    contract_paths = _contract_paths(document)
     workflows = document.get("workflows")
     for name, wf in (workflows if isinstance(workflows, dict) else {}).items():
         if not isinstance(wf, dict):
@@ -84,7 +94,40 @@ def merge_gate_problems(document: Any) -> list[str]:
                         f"touch it, so the delegation could never merge "
                         f"anything there"
                     )
+            for contract in contract_paths:
+                if _overlaps(path, contract):
+                    problems.append(
+                        f"{where}.delegate.paths: {path!r} overlaps "
+                        f"policies.contract_tests entry {contract!r} — the "
+                        f"contract tree is the oracle delegated merges are "
+                        f"graded by, and the oracle never merges under the "
+                        f"delegation it certifies"
+                    )
     return problems
 
 
-__all__ = ["UNDELEGATABLE_PATHS", "merge_gate_problems"]
+def contract_tests_problems(document: Any) -> list[str]:
+    """Document-level coherence of the declared contract tree, tolerant of
+    malformed values like `merge_gate_problems`: a contract path under a
+    deny path is a tree nobody could ever deliver into — the spec would be
+    frozen, which is exactly the shape the split exists to avoid."""
+    if not isinstance(document, dict):
+        return []
+    problems = []
+    deny_paths = [
+        p
+        for p in (document.get("policies") or {}).get("deny_paths") or []
+        if isinstance(p, str)
+    ]
+    for path in _contract_paths(document):
+        for denied in deny_paths:
+            if _overlaps(path, denied):
+                problems.append(
+                    f"policies.contract_tests.paths: {path!r} overlaps "
+                    f"policies.deny_paths entry {denied!r} — no PR may touch "
+                    f"it, so no role could ever deliver the contract there"
+                )
+    return problems
+
+
+__all__ = ["UNDELEGATABLE_PATHS", "contract_tests_problems", "merge_gate_problems"]

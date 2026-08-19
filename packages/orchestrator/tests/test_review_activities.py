@@ -89,6 +89,7 @@ def test_review_config_resolves_crew_conductor_and_gate(settings):
         "conductor": "pm-1",
         "conductor_role": "pm",
         "merge_gate": {"resolved_by": "human"},
+        "contract_paths": [],
     }
 
 
@@ -218,6 +219,85 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(settings, monkeypatch):
     # The changed paths survive the shaping: the merge-time class check
     # resolves against them.
     assert pr["paths"] == ["slugify.py"]
+    # No contract tree in play: no deletion facts to surface.
+    assert pr["contract_deletions"] is None
+
+
+def test_contract_deletions_counts_straight_off_the_patch():
+    """The model-free deletion facts: test functions and assertions
+    removed/added on the contract tree, plain string counting — diff
+    headers (`---`/`+++`) never counted as removals/additions."""
+    from orchestrator.activities.review import contract_deletions
+
+    files = [
+        {
+            "path": "tests/contract/test_api.py",
+            "patch": (
+                "--- a/tests/contract/test_api.py\n"
+                "+++ b/tests/contract/test_api.py\n"
+                "-def test_shortens_urls():\n"
+                "-    assert shorten('x') == 'y'\n"
+                "-    assert resolve('y') == 'x'\n"
+                "+async def test_shortens_urls():\n"
+                "+    assert True\n"
+                " context line\n"
+            ),
+        },
+        # Outside the contract tree: never counted, whatever it deletes.
+        {"path": "tests/unit/test_x.py", "patch": "-def test_gone():\n-    assert 1\n"},
+    ]
+    assert contract_deletions(files, ["tests/contract/"]) == {
+        "removed_tests": 1,
+        "added_tests": 1,
+        "removed_asserts": 2,
+        "added_asserts": 1,
+    }
+
+
+def test_contract_deletions_is_none_when_the_tree_is_untouched():
+    from orchestrator.activities.review import contract_deletions
+
+    files = [{"path": "slugify.py", "patch": "-assert False\n"}]
+    assert contract_deletions(files, ["tests/contract/"]) is None
+    assert contract_deletions(files, []) is None
+
+
+def test_warn_contract_edit_posts_and_audits(settings, audit, monkeypatch):
+    """Both channels at once: the platform comment the human reads before
+    resolving the merge signal, and the audit row carrying the counts."""
+    import orchestrator.activities.review as module
+
+    comments: list[tuple[int, str]] = []
+
+    class FakeGateway:
+        def __init__(self, *a, **k): ...
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def comment_pr(self, run_id, repo, number, body):
+            comments.append((number, body))
+            return {"url": "https://pr/41#c-9"}
+
+    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    deletions = {
+        "removed_tests": 2,
+        "added_tests": 0,
+        "removed_asserts": 5,
+        "added_asserts": 1,
+    }
+    asyncio.run(activities.warn_contract_edit(RUN_ID, 41, deletions, "wf-rev"))
+
+    (number, body) = comments[0]
+    assert number == 41
+    assert "Contract tree edited" in body
+    assert "−2" in body and "−5" in body
+    (event,) = [e for e in audit.events if e.tool == "review.contract_edit"]
+    assert "removed_tests=2" in event.rule
+    assert event.source == "process-lifecycle"
 
 
 def test_read_pr_refuses_a_headless_pr(settings, monkeypatch):
@@ -382,10 +462,10 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
 
     released = asyncio.run(
-        activities.resolve_merge(RUN_ID, "pass", True, True, ["src/a.py"], "wf-rev")
+        activities.resolve_merge(RUN_ID, "pass", True, True, True, ["src/a.py"], "wf-rev")
     )
     declined = asyncio.run(
-        activities.resolve_merge(RUN_ID, "pass", True, True, ["deploy/x"], "wf-rev")
+        activities.resolve_merge(RUN_ID, "pass", True, True, True, ["deploy/x"], "wf-rev")
     )
     assert released == {"allow": True, "rule": "merge_resolve_delegated"}
     assert declined == {"allow": False, "rule": "merge_resolve_undelegated_path"}
@@ -397,6 +477,7 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
         "verdict": "pass",
         "checks_green": True,
         "reviewer_independent": True,
+        "contract_green": True,
         "paths": ["src/a.py"],
     }
 

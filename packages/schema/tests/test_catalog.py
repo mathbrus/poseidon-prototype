@@ -9,7 +9,7 @@ from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
 def test_catalog_covers_the_mvp_templates():
-    assert set(ROLE_TEMPLATES) == {"pm", "backend-engineer", "sdet"}
+    assert set(ROLE_TEMPLATES) == {"pm", "backend-engineer", "sdet", "contract-author"}
 
 
 def test_every_template_scope_is_a_known_tool():
@@ -29,15 +29,23 @@ def test_every_template_names_a_real_model_tier():
 
 def test_pm_conducts_but_does_not_execute():
     pm = ROLE_TEMPLATES["pm"]
-    assert set(pm.may_spawn) == {"feature-delivery", "feature-review"}
+    assert set(pm.may_spawn) == {
+        "contract-authoring",
+        "feature-delivery",
+        "feature-review",
+    }
     assert not any(t.startswith("sandbox.") for t in pm.tools)
     assert "git.open_pr" not in pm.tools
     # No private memory store: cross-run state is tickets + registry runs.
     assert pm.runtime_hints["memory"] == "none"
 
 
-def test_crew_templates_are_the_two_mvp_crews():
-    assert set(CREW_TEMPLATES) == {"feature-delivery", "feature-review"}
+def test_crew_templates_are_the_catalog_crews():
+    assert set(CREW_TEMPLATES) == {
+        "contract-authoring",
+        "feature-delivery",
+        "feature-review",
+    }
 
 
 def test_feature_delivery_is_planner_plus_one_executor():
@@ -75,3 +83,19 @@ def test_executor_can_deliver_and_reviewer_cannot():
     assert "git.open_pr" in executor.tools
     assert "git.open_pr" not in reviewer.tools
     assert {"git.read", "git.comment"} <= set(reviewer.tools)
+
+
+def test_contract_authoring_is_one_deliver_capable_author():
+    """The spec's author delivers through the same governed `git.open_pr`
+    as any change — deliver-capable unlike `sdet`, and a distinct template
+    so `policies.contract_tests` can fence the tree to it, crew-request
+    rows never collide with a same-run delivery crew, and reviewer
+    independence (keyed on crew_template) holds against it for free."""
+    members = CREW_TEMPLATES["contract-authoring"].members
+    assert set(members) == {"author"}
+    author = members["author"]
+    assert author.role_template == "contract-author"
+    assert author.needs_sandbox is True  # the acting executor at fulfill
+    assert "git.open_pr" in author.tools
+    assert "git.open_pr" in ROLE_TEMPLATES["contract-author"].tools
+    assert "git.open_pr" not in ROLE_TEMPLATES["sdet"].tools

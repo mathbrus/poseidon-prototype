@@ -9,6 +9,7 @@ from gateway.git_backend import (
     GitBackend,
     GitBackendError,
     _require_safe_argument,
+    _require_safe_overlay_path,
     _require_safe_ref,
 )
 
@@ -84,3 +85,30 @@ def test_safe_argument_rejects_option_shaped_values():
     with pytest.raises(GitBackendError):
         _require_safe_argument("repo", "--mirror")
     assert _require_safe_argument("repo", "github.com/o/r") == "github.com/o/r"
+
+
+# --- overlay paths (the composed-archive tree) -------------------------------
+
+
+@pytest.mark.parametrize("path", ["tests/contract/", "tests/contract", "specs/api.py"])
+def test_ordinary_overlay_paths_pass(path):
+    assert _require_safe_overlay_path(path) == path
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "--help",  # option-shaped
+        "/etc/passwd",  # absolute
+        "../outside",  # escapes the clone
+        "tests/../../outside",  # escapes via the middle
+        "has space",
+        "",
+    ],
+)
+def test_dangerous_overlay_paths_are_refused(path):
+    """The backend removes and re-checks-out at overlay paths, so a path
+    that is an option, absolute, or `..`-escaping must never reach git or
+    the filesystem."""
+    with pytest.raises(GitBackendError):
+        _require_safe_overlay_path(path)

@@ -20,7 +20,7 @@ from jsonschema import Draft202012Validator
 
 from schema.blueprint import BLUEPRINT_SCHEMA
 from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES
-from schema.gates import merge_gate_problems
+from schema.gates import contract_tests_problems, merge_gate_problems
 from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
@@ -163,6 +163,18 @@ def _catalog_problems(document: Any) -> list[str]:
                 f"tools.{role_name}.allow", scope.get("allow") or []
             )
 
+    # The contract tree's owners are role templates — a caller is keyed on
+    # what it *is*: an unknown owner would compile a tree nobody can deliver
+    # into.
+    contract = (document.get("policies") or {}).get("contract_tests")
+    roles_declared = contract.get("roles") if isinstance(contract, dict) else None
+    for role in roles_declared if isinstance(roles_declared, list) else []:
+        if isinstance(role, str) and role not in ROLE_TEMPLATES:
+            problems.append(
+                f"policies.contract_tests.roles: {role!r} is not in the role "
+                f"catalog (known: {known_roles})"
+            )
+
     return problems
 
 
@@ -194,6 +206,7 @@ def validate_blueprint(document: Any) -> dict[str, Any]:
         _schema_problems(document)
         + _catalog_problems(document)
         + merge_gate_problems(document)
+        + contract_tests_problems(document)
     )
     if problems:
         raise ValidationError(problems)

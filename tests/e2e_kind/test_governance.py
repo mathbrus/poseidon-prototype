@@ -141,20 +141,6 @@ def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
         )
         assert ci_paths == {"allow": False, "rule": "git_open_pr_denied_paths"}
 
-        # Path ownership: tests/ belongs to engineer+sdet templates; any
-        # other role touching it is denied by the ownership rule.
-        foreign = _decide(
-            base,
-            COMPANY_DECISION,
-            standing(
-                "pm",
-                "git.open_pr",
-                args={"branch": "feature/x", "paths": ["tests/test_x.py"]},
-            ),
-        )
-        assert foreign["allow"] is False
-        assert foreign["rule"].startswith("git_open_pr_path_ownership")
-
         # Tenancy: another company's caller finds nothing in this package.
         alien = _decide(
             base, COMPANY_DECISION, executor("sandbox.exec", company="evil-corp")

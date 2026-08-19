@@ -64,6 +64,59 @@ def rework_title(attempt: int, root_pr: int, pr_title: str) -> str:
     return f"Rework {attempt} for PR #{root_pr}: {pr_title[:80]}"
 
 
+def contract_deletions(
+    files: list[dict[str, Any]], contract_paths: list[str]
+) -> dict[str, int] | None:
+    """The model-free deletion facts for a diff that touches the contract
+    tree: test functions and assertions removed/added, counted straight off
+    the patch text — plain string counting, no model, so adversarial prose
+    cannot rewrite it. None when the diff leaves the contract tree alone."""
+    counts = {
+        "removed_tests": 0,
+        "added_tests": 0,
+        "removed_asserts": 0,
+        "added_asserts": 0,
+    }
+    touched = False
+    for f in files:
+        path = f.get("path") or ""
+        if not any(path.startswith(prefix) for prefix in contract_paths):
+            continue
+        touched = True
+        for line in (f.get("patch") or "").splitlines():
+            if line.startswith("-") and not line.startswith("---"):
+                kind = "removed"
+            elif line.startswith("+") and not line.startswith("+++"):
+                kind = "added"
+            else:
+                continue
+            content = line[1:].lstrip()
+            if content.startswith("def test_") or content.startswith("async def test_"):
+                counts[f"{kind}_tests"] += 1
+            if content.startswith("assert ") or content == "assert":
+                counts[f"{kind}_asserts"] += 1
+    return counts if touched else None
+
+
+def contract_edit_comment(deletions: dict[str, int]) -> str:
+    """The human-facing warning, posted on the PR by the platform: the
+    merge signal's reader sees what the oracle edit removes before they
+    approve it."""
+    return (
+        "**Contract tree edited.** This pull request changes the "
+        "contract/acceptance tests the delegated merge gate is graded by, "
+        "so it never merges under policy — it parks on the human `merge` "
+        "signal.\n\n"
+        f"- test functions: −{deletions['removed_tests']} "
+        f"/ +{deletions['added_tests']}\n"
+        f"- assertions: −{deletions['removed_asserts']} "
+        f"/ +{deletions['added_asserts']}\n\n"
+        "Counted by the platform from the diff. A net loss of tests or "
+        "assertions weakens the spec every future delegated merge is "
+        "graded by — approve deliberately."
+    )
+
+
 def rework_body(
     pr_number: int,
     pr_url: str,
@@ -173,12 +226,20 @@ class ReviewActivities:
                 # The gate object as the blueprint wrote it (`{resolved_by,
                 # delegate?}`), or None when no merge gate is declared.
                 "merge_gate": (config.get("gates") or {}).get("merge"),
+                # The declared contract tree's paths ([] when the company
+                # declares none): what the deletion facts and the composed
+                # contract verify resolve against.
+                "contract_paths": sorted(
+                    (spec.get("contractTests") or {}).get("paths") or []
+                ),
             }
 
         return await asyncio.to_thread(read)
 
     @activity.defn(name="read_pr")
-    async def read_pr(self, run_id: str, pr_number: int) -> dict[str, Any]:
+    async def read_pr(
+        self, run_id: str, pr_number: int, contract_paths: list[str] | None = None
+    ) -> dict[str, Any]:
         """PR metadata under the platform identity: the head ref is what
         the review sandbox is provisioned from, the title and URL
         seed the reviewer's task text and the run record."""
@@ -193,10 +254,15 @@ class ReviewActivities:
             )
         # The reviewer reads the diff itself (git.read is in its scope);
         # the workflow only needs the shape, not the patches — plus the
-        # changed paths, which the merge-time class check resolves against.
+        # changed paths, which the merge-time class check resolves against,
+        # and the model-free deletion facts when the diff edits the
+        # contract tree.
         shaped = {k: v for k, v in pr.items() if k != "files"}
         shaped["paths"] = sorted(
             {f["path"] for f in pr.get("files") or [] if f.get("path")}
+        )
+        shaped["contract_deletions"] = contract_deletions(
+            pr.get("files") or [], contract_paths or []
         )
         return shaped
 
@@ -416,6 +482,41 @@ class ReviewActivities:
         )
         return {"url": url, "number": issue.get("number")}
 
+    @activity.defn(name="warn_contract_edit")
+    async def warn_contract_edit(
+        self,
+        run_id: str,
+        pr_number: int,
+        deletions: dict[str, int],
+        workflow_id: str,
+    ) -> None:
+        """The oracle-edit surfacing, both channels at once: a platform
+        comment on the PR (what the human reads before resolving the merge
+        signal) and a `review.contract_edit` audit event carrying the same
+        counts — a gutted spec must be impossible to approve silently."""
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            await gateway.comment_pr(
+                run_id,
+                self._settings.target_repo,
+                pr_number,
+                contract_edit_comment(deletions),
+            )
+        await self._append_event(
+            run_id=run_id,
+            tool="review.contract_edit",
+            payload=deletions,
+            decision="allow",
+            rule="contract_edit:"
+            + ",".join(f"{k}={v}" for k, v in sorted(deletions.items())),
+            source="process-lifecycle",
+            workflow_id=workflow_id,
+        )
+        self._log.bind(run_id=run_id).info(
+            "contract edit surfaced", extra={"pr_number": pr_number, **deletions}
+        )
+
     @activity.defn(name="resolve_merge")
     async def resolve_merge(
         self,
@@ -423,6 +524,7 @@ class ReviewActivities:
         verdict: str,
         checks_green: bool,
         reviewer_independent: bool,
+        contract_green: bool,
         paths: list[str],
         workflow_id: str,
     ) -> dict[str, Any]:
@@ -446,6 +548,11 @@ class ReviewActivities:
                 "verdict": verdict,
                 "checks_green": checks_green,
                 "reviewer_independent": reviewer_independent,
+                # The composed-baseline fact: the contract tree as it
+                # stands on the base ref, run against this PR's head.
+                # Vacuously true only when no contract tree is declared —
+                # the compiled rule then never reads it.
+                "contract_green": contract_green,
                 "paths": paths,
             },
             "run_binding_verified": False,
@@ -499,6 +606,7 @@ class ReviewActivities:
             self.record_gate_outcome,
             self.record_verdict,
             self.reviewer_independent,
+            self.warn_contract_edit,
             self.resolve_merge,
             self.rework_depth,
             self.file_rework,

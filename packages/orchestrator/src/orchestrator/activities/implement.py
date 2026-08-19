@@ -189,18 +189,31 @@ class ImplementActivities:
         )
 
     @activity.defn(name="fetch_workspace")
-    async def fetch_workspace(self, run_id: str, ref: str | None = None) -> bytes:
+    async def fetch_workspace(
+        self,
+        run_id: str,
+        ref: str | None = None,
+        overlay_paths: list[str] | None = None,
+    ) -> bytes:
         """Archive the target repo at `ref` — the configured base ref by
         default; the review workflow passes the PR head ref instead
-        (the review sandbox is a full sandbox from the PR ref)."""
+        (the review sandbox is a full sandbox from the PR ref). With
+        `overlay_paths`, those paths are mirrored from the configured base
+        ref over the checkout: the composed tree the contract verify runs —
+        head code, the contract tree as it stands on the base ref."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             workspace_tar = await gateway.fetch_workspace(
-                run_id, self._settings.target_repo, ref or self._settings.base_ref
+                run_id,
+                self._settings.target_repo,
+                ref or self._settings.base_ref,
+                self._settings.base_ref if overlay_paths else None,
+                overlay_paths,
             )
         self._log.bind(run_id=run_id).info(
-            "workspace fetched", extra={"bytes": len(workspace_tar)}
+            "workspace fetched",
+            extra={"bytes": len(workspace_tar), "overlay_paths": overlay_paths},
         )
         return workspace_tar
 
@@ -248,18 +261,26 @@ class ImplementActivities:
                 await asyncio.sleep(self._settings.poll_interval_s)
 
     @activity.defn(name="platform_verify")
-    async def platform_verify(self, run_id: str) -> dict[str, Any]:
+    async def platform_verify(
+        self, run_id: str, paths: list[str] | None = None
+    ) -> dict[str, Any]:
         """The gate of record: the platform
         runs the sandbox's test suite under the orchestrator's own
         identity. The executor's claim is advisory; this result is what
-        delivery hangs on."""
+        delivery hangs on. One verification concept, parameterized by
+        scope: no `paths` runs the whole suite (implement's verify loop,
+        review's hygiene run); with `paths` the run is pinned to those
+        test paths — the contract verify, where collecting nothing from a
+        named path is a red exit, not a silent pass."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            result = await gateway.run_tests(run_id)
+            result = await gateway.run_tests(run_id, paths)
         passed = result.get("exit_code") == 0
         output = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".strip()
-        self._log.bind(run_id=run_id).info("platform verify", extra={"passed": passed})
+        self._log.bind(run_id=run_id).info(
+            "platform verify", extra={"passed": passed, "paths": paths}
+        )
         return {"passed": passed, "output": output[-4000:]}
 
     @activity.defn(name="teardown")

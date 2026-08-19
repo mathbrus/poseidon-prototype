@@ -4,7 +4,7 @@
 # merges under compiled policy with no human command at all. The merge gate
 # is delegated for a narrow class of changes: a passing independent review
 # plus the platform's own green checks merges a PR touching only
-# `slugify.py` or `tests/`. Everything else still stops — a carve-out
+# `slugify.py` or the unit-test tree. Everything else still stops — a carve-out
 # surface, an out-of-class path, or a decline falls back to the human
 # `merge` signal; a failed quality layer feeds the bounded rework loop.
 # Removing the `delegate` block reverts to human-only merge: revocation is
@@ -41,10 +41,28 @@ departments:
       count: 1
       model_tier: standard
       may_spawn:
-        crew: [feature-delivery, feature-review]
+        crew: [contract-authoring, feature-delivery, feature-review]
         max_concurrent: 2
 
 crews:
+  # The oracle's authors: one deliver-capable member, no planner — the
+  # contract ticket the PM files IS the brief. A crew of its own is what
+  # makes the split positional: `contract-author` is not a template the
+  # delivery crew contains, so the implementer cannot be the hand that
+  # writes the spec it is graded by.
+  contract-authoring:
+    members:
+      author:
+        role_template: contract-author
+        tools:
+          - sandbox.read_file
+          - sandbox.write_file
+          - sandbox.list_dir
+          - sandbox.exec
+          - sandbox.run_tests
+          - sandbox.git_bundle
+          - git.open_pr
+    budget_inheritance: run
   feature-delivery:
     members:
       # LLM-only: reads the run's sandbox, writes nothing, produces the task
@@ -127,7 +145,11 @@ workflows:
       merge:
         resolved_by: policy
         delegate:
-          paths: [slugify.py, tests/]
+          # The unit-test tree only — never the whole of tests/: the
+          # contract/acceptance tree is the oracle delegated merges are
+          # graded by, and the oracle never rides the delegation it
+          # certifies.
+          paths: [slugify.py, tests/unit/]
           max_reworks: 1
     drain:
       on_conductor_drain: abort_crew
@@ -139,9 +161,21 @@ policies:
     allowed_pattern: ^feature/[a-z0-9-]+$
   deny_paths:
     - .github/workflows/
-  path_ownership:
-    - paths: [tests/]
-      roles: [backend-engineer, sdet]
+  # The split oracle. This tree is the acceptance spec delegated merges are
+  # graded by, so it comes from different hands and merges under different
+  # authority than the code it certifies:
+  #   - only `contract-author` may `git.open_pr` into it — the implementer's
+  #     attempt dies at the gateway, named, and the PR never exists;
+  #   - it can never be delegated (a `delegate.paths` overlap is a
+  #     validate-time error), so an oracle edit always parks on the human
+  #     `merge` signal with the platform's deletion facts on the PR;
+  #   - and the gating fact is this tree as it stands on `main`, run against
+  #     the PR head — a head suite weakened to green launders nothing.
+  # Deleting this block reverts to one implementer-owned tree: the split is
+  # authority, so revoking it is a diff.
+  contract_tests:
+    paths: [tests/contract/]
+    roles: [contract-author]
   escalation:
     channel: api
     timeout_minutes: 60

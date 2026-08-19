@@ -205,8 +205,15 @@ def create_app(
         )
 
     @mcp.tool(name="sandbox.run_tests")
-    async def sandbox_run_tests(run_id: str, ctx: Context) -> dict[str, Any]:
-        return await sandbox_call(ctx, "sandbox.run_tests", {"run_id": run_id})
+    async def sandbox_run_tests(
+        run_id: str, ctx: Context, paths: list[str] | None = None
+    ) -> dict[str, Any]:
+        # `paths` scopes the run to named test paths — the platform's
+        # contract-verify call; the whole-suite run stays the default.
+        args: dict[str, Any] = {"run_id": run_id}
+        if paths:
+            args["paths"] = paths
+        return await sandbox_call(ctx, "sandbox.run_tests", args)
 
     @mcp.tool(name="sandbox.git_bundle")
     async def sandbox_git_bundle(
@@ -218,9 +225,20 @@ def create_app(
 
     @mcp.tool(name="repo.archive")
     async def repo_archive(
-        run_id: str, repo: str, ref: str, ctx: Context
+        run_id: str,
+        repo: str,
+        ref: str,
+        ctx: Context,
+        overlay_ref: str | None = None,
+        overlay_paths: list[str] | None = None,
     ) -> dict[str, Any]:
-        return await service.archive_repo(identity_of(ctx), run_id, repo, ref)
+        # The composed tree: `ref`'s code with `overlay_paths` mirrored
+        # from `overlay_ref` — how the platform builds the baseline the
+        # contract verify runs (head code, the contract tree as it stands
+        # on the base ref).
+        return await service.archive_repo(
+            identity_of(ctx), run_id, repo, ref, overlay_ref, overlay_paths
+        )
 
     @mcp.tool(name="git.open_pr")
     async def git_open_pr(

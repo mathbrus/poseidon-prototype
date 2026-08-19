@@ -51,6 +51,11 @@ PLATFORM_SCOPE = sorted(
         # write, attributed to the review run, that the conductor then
         # consumes like any other issue.
         "issues.create",
+        # The oracle-edit warning: when a PR's diff touches the contract
+        # tree, the platform posts the model-free deletion facts on the PR
+        # so the human resolving the merge signal reads them first — a
+        # gutted spec must be impossible to approve silently.
+        "git.comment",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",
     }
@@ -110,6 +115,7 @@ def compile_blueprint(
         bundle=bundle,
         platform_bundle=RegoBundle(files=build_platform_bundle(PLATFORM_SCOPE)),
         conduct=conduct,
+        contract_tests=(blueprint.get("policies") or {}).get("contract_tests"),
     )
 
 

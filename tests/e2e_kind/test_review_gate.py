@@ -19,14 +19,12 @@ import contextlib
 import re
 import time
 
-import httpx
 import pytest
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import issue_placeholder
+from orchestrator.workflows.implement import Timeouts, issue_placeholder
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 from orchestrator.workflows.review import (
-    FAST_TIMEOUTS,
     ReviewInput,
     review_workflow_id,
 )
@@ -35,7 +33,11 @@ from .conftest import (
     TASK_QUEUE,
     _psql_json,
     audit_story,
+    close_pr,
+    deployed_timeouts,
+    github_api,
     run_implement_from_issue,
+    target_slug,
     temporal_port_forward,
 )
 from .test_crew_identity import _registry
@@ -47,23 +49,6 @@ def _reviewer_id(run_id: str) -> str:
     return ephemeral_agent_id("feature-review", "reviewer", run_id)
 
 
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
-
-
-def _repo_slug(env: dict) -> str:
-    return "/".join(env["TARGET_REPO"].split("/")[-2:])
-
-
 async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -> dict:
     """Start review detached, watch it park on the merge gate, wait for the
     escalation to land in the audit store, then approve — the exact HITL
@@ -73,7 +58,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "review",
-        ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=FAST_TIMEOUTS),
+        ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()),
         id=review_workflow_id(run_id),
         task_queue=TASK_QUEUE,
     )
@@ -92,7 +77,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
 
     # Nobody answers: the timer escalates at merge_gate_s/2 and the
     # escalation is a real process-gate row — observable, not a log line.
-    deadline = time.monotonic() + FAST_TIMEOUTS.merge_gate_s
+    deadline = time.monotonic() + (deployed_timeouts() or Timeouts()).merge_gate_s
     escalated = False
     while time.monotonic() < deadline:
         if any(
@@ -136,7 +121,9 @@ def review_chain(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=intake_run, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(
+                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
+                ),
                 id=intake_workflow_id(intake_run),
                 task_queue=TASK_QUEUE,
             )
@@ -171,14 +158,16 @@ def review_chain(stack: None, env: dict) -> dict:
 
     yield chain
 
-    # The intake leg's leftovers, exactly as test_intake cleans its own;
-    # the review artifacts stay — they are what the assertions read.
-    slug = _repo_slug(env)
+    # The intake leg's leftovers, exactly as test_intake cleans its own.
+    # The merged PR's branch goes too; the merge itself is what the
+    # assertions read, and it survives the branch.
+    close_pr(env, chain["pr_number"])
+    slug = target_slug(env)
     for url in chain["intake"].get("ticket_urls") or []:
         number = re.search(r"/issues/(\d+)$", url)
         if number:
             with contextlib.suppress(Exception):
-                _github(
+                github_api(
                     env,
                     "PATCH",
                     f"/repos/{slug}/issues/{number.group(1)}",
@@ -211,8 +200,8 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     assert record["pr_url"] == review_chain["pr_url"]
 
     env = review_chain["env"]
-    pr = _github(
-        env, "GET", f"/repos/{_repo_slug(env)}/pulls/{review_chain['pr_number']}"
+    pr = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/pulls/{review_chain['pr_number']}"
     )
     assert pr.status_code == 200
     assert pr.json()["merged"] is True, "the gateway merge never landed"
@@ -242,10 +231,10 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
 
     # The findings comment is really on the PR.
     env = review_chain["env"]
-    comments = _github(
+    comments = github_api(
         env,
         "GET",
-        f"/repos/{_repo_slug(env)}/issues/{review_chain['pr_number']}/comments",
+        f"/repos/{target_slug(env)}/issues/{review_chain['pr_number']}/comments",
     )
     assert comments.status_code == 200
     assert any("test suite" in c["body"] for c in comments.json()), (

@@ -16,10 +16,16 @@ resolver — gate config comes from the compiled plan, never hardcoded.
 `resolved_by: human` parks on the `merge` signal. `resolved_by: policy`
 adds the platform's own layers before anything merges: the reviewer's
 journaled verdict, the platform verify re-run in the review sandbox (the
-same activity that gates implement delivery), the registry-checked
-reviewer-independence fact, and one evaluation of the compiled
-merge.resolve decision — allow releases the merge, deny falls back to
-the human signal, so the human override survives delegation. Nobody
+same activity that gates implement delivery), the contract verify when a
+contract tree is declared (the base ref's contract tests, composed over
+the PR head and run scoped — a baseline nothing in the PR can rewrite),
+the registry-checked reviewer-independence fact, and one evaluation of
+the compiled merge.resolve decision — allow releases the merge, deny
+falls back to the human signal, so the human override survives
+delegation. A diff touching the contract tree itself skips the layers
+entirely: it can never policy-merge (the compiled carve-out), so the
+gate declines up front and the PR parks on the human with the
+deletion facts already posted — a decline, not a failure. Nobody
 home at a park? The timer escalates at half the deadline and expires the
 gate at the end; the park is API-visible (`state` query), every
 transition is a `process-gate` audit event written through an activity,
@@ -148,26 +154,51 @@ class ReviewWorkflow:
         input: "ReviewInput",
         pr: dict[str, Any],
         result: dict[str, Any],
-        gate: dict[str, Any],
+        config: dict[str, Any],
         timeouts: Timeouts,
     ) -> dict[str, Any]:
-        """The policy-resolved path. Quality layers first — a failed
-        verdict or a red platform verify feeds the bounded rework loop
-        (`_rework`): findings become a backlog ticket the conductor
+        """The policy-resolved path. A diff touching the declared contract
+        tree declines up front: the compiled carve-out denies its resolve
+        whatever the facts say (pinned in the bundle tests), and the
+        workflow knows the same thing positionally — the blueprint-declared
+        tree against the platform-read diff — so no verify run is spent and
+        no rework ticket is filed on a PR only the human can merge. It
+        parks on the `merge` signal with the deletion facts already posted.
+
+        Everything else: quality layers first — a failed verdict, a red
+        platform verify, or a red contract verify feeds the bounded rework
+        loop (`_rework`): findings become a backlog ticket the conductor
         consumes, until the chain is out of attempts and the PR escalates
         to the human. Then one evaluation of the compiled merge.resolve
-        decision, carrying the three caller-verified facts (verdict,
-        checks, independence) and the changed paths: allow releases the
+        decision, carrying the caller-verified facts (verdict, checks,
+        independence, contract) and the changed paths: allow releases the
         merge under the platform identity; deny is a *decline*, not a
-        failure — good work outside the delegation falls back to the
-        human signal, so the human override survives delegation by
-        construction.
+        failure — good work outside the delegation falls back to the human
+        signal, so the human override survives delegation by construction.
 
         Both the verified tree and the changed paths are pinned at the
         run's start (the sandbox was provisioned from the head ref read
         then). A head that moves after review re-opens the gap between
         reviewed and merged — recorded, not yet closed: merge_pr does not
         assert the head sha."""
+        gate = config.get("merge_gate") or {}
+        contract_paths = config.get("contract_paths") or []
+        if any(
+            path.startswith(prefix)
+            for path in pr.get("paths") or []
+            for prefix in contract_paths
+        ):
+            # An oracle edit is the human's to merge, full stop — the
+            # compiled carve-out would deny the resolve whatever the facts
+            # say, and the workflow reads the same verdict positionally
+            # from the declared tree and the platform-read diff. Declining
+            # here spends no verify run and files no rework ticket a
+            # contract PR could never consume (its paths are exactly the
+            # ones the implementer crew cannot deliver); at bootstrap it
+            # also keeps the first contract PR off the composed baseline,
+            # which has no tree to run yet. Decline, not failure: park.
+            await self._record_gate(input.run_id, "merge", "policy_declined", timeouts)
+            return {}
         verdict = result["verdict"]
         if verdict != "pass":
             return await self._rework(
@@ -196,6 +227,43 @@ class ReviewWorkflow:
                 (verify.get("output") or "")[-1000:],
                 timeouts,
             )
+        # The contract layer, when the company declares a contract tree:
+        # the platform composes head code with the contract tree as it
+        # stands on the base ref and runs exactly those tests. The head
+        # suite (hygiene, above) can be weakened by the PR; nothing in
+        # this baseline came from the PR, so it cannot. Re-provisioning
+        # replaces the reviewer's finished sandbox in place — the same
+        # deterministic name, so teardown's compensation is unchanged.
+        contract_green = True
+        if contract_paths:
+            composed = await workflow.execute_activity(
+                "fetch_workspace",
+                args=[input.run_id, pr["head"], contract_paths],
+                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                retry_policy=STEP_RETRY,
+            )
+            await workflow.execute_activity(
+                "provision_sandbox",
+                args=[input.run_id, composed],
+                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                retry_policy=STEP_RETRY,
+            )
+            contract = await workflow.execute_activity(
+                "platform_verify",
+                args=[input.run_id, contract_paths],
+                start_to_close_timeout=timedelta(seconds=timeouts.verify_s),
+                retry_policy=STEP_RETRY,
+            )
+            contract_green = bool(contract.get("passed"))
+            if not contract_green:
+                return await self._rework(
+                    input,
+                    pr,
+                    gate,
+                    "contract verify red",
+                    (contract.get("output") or "")[-1000:],
+                    timeouts,
+                )
         independence = await workflow.execute_activity(
             "reviewer_independent",
             args=[input.run_id, input.pr_number],
@@ -209,6 +277,7 @@ class ReviewWorkflow:
                 verdict,
                 bool(verify.get("passed")),
                 bool(independence.get("independent")),
+                contract_green,
                 pr.get("paths") or [],
                 workflow.info().workflow_id,
             ],
@@ -346,10 +415,25 @@ class ReviewWorkflow:
             )
             pr = await workflow.execute_activity(
                 "read_pr",
-                args=[input.run_id, input.pr_number],
+                args=[input.run_id, input.pr_number, config.get("contract_paths") or []],
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
+            # An oracle edit is surfaced the moment it is seen — a platform
+            # comment on the PR plus an audit event — so whoever resolves
+            # the eventual human park reads the deletion facts first.
+            if pr.get("contract_deletions"):
+                await workflow.execute_activity(
+                    "warn_contract_edit",
+                    args=[
+                        input.run_id,
+                        input.pr_number,
+                        pr["contract_deletions"],
+                        workflow.info().workflow_id,
+                    ],
+                    start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                    retry_policy=STEP_RETRY,
+                )
             # A full sandbox from the PR ref — the reviewer runs
             # things, it does not just read diffs. Reuses the implement
             # provisioning verbatim.
@@ -432,7 +516,7 @@ class ReviewWorkflow:
             # override survives delegation.
             outcome: dict[str, Any] = {}
             if gate.get("resolved_by") == "policy":
-                outcome = await self._policy_merge(input, pr, result, gate, timeouts)
+                outcome = await self._policy_merge(input, pr, result, config, timeouts)
                 if outcome.get("error"):
                     error = outcome["error"]
                     raise _ReviewOver()

@@ -31,13 +31,11 @@ import re
 import subprocess
 import time
 
-import httpx
 import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
 from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 from orchestrator.workflows.review import review_workflow_id
 
@@ -48,6 +46,12 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    close_pr,
+    deployed_timeouts,
+    github_api,
+    heartbeat_ticks,
+    quiesce_heartbeat,
+    sweep_repo_debris,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -103,19 +107,6 @@ def _await_run(task: str, terminal: bool, deadline_s: int = 1800) -> dict:
     raise AssertionError(f"run {task!r} never {'finished' if terminal else 'started'}")
 
 
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
-
-
 def _pr_number(pr_url: str) -> int:
     match = re.search(r"/pull/(\d+)$", pr_url or "")
     assert match, f"not a PR url: {pr_url!r}"
@@ -126,6 +117,12 @@ def _pr_number(pr_url: str) -> int:
 def overnight(stack: None, env: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
+    # An empty campsite before the conduct blueprint lands: the ensure
+    # loop's bare heartbeat ticks once the moment conduct is declared, and
+    # any open PR or issue an earlier module left becomes its backlog — a
+    # review parked on a day-long gate that holds the one concurrency slot
+    # (#15 step 5 caught this live).
+    sweep_repo_debris(env)
     apply_blueprint(CONDUCTED)
     wait_for_convergence()
 
@@ -148,7 +145,9 @@ def overnight(stack: None, env: dict) -> dict:
             # --- human act 1: one goal in --------------------------------
             intake_handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=intake_run, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(
+                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
+                ),
                 id=intake_workflow_id(intake_run),
                 task_queue=TASK_QUEUE,
             )
@@ -165,7 +164,7 @@ def overnight(stack: None, env: dict) -> dict:
             beat = await client.start_workflow(
                 "conduct",
                 ConductInput(
-                    company=COMPANY_NS, tick_interval_s=3, timeouts=FAST_TIMEOUTS
+                    company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
                 task_queue=TASK_QUEUE,
@@ -196,7 +195,7 @@ def overnight(stack: None, env: dict) -> dict:
                     await asyncio.sleep(2)
                 else:
                     raise AssertionError("the unattended review never parked to merge")
-                result["parked_pr"] = _github(
+                result["parked_pr"] = github_api(
                     env,
                     "GET",
                     f"/repos/{'/'.join(env['TARGET_REPO'].split('/')[-2:])}/pulls/{pr_number}",
@@ -216,8 +215,9 @@ def overnight(stack: None, env: dict) -> dict:
     yield result
 
     slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
+    close_pr(env, result.get("pr_number") or 0)
     with contextlib.suppress(Exception):
-        _github(
+        github_api(
             env,
             "PATCH",
             f"/repos/{slug}/issues/{result.get('issue_number')}",
@@ -225,20 +225,32 @@ def overnight(stack: None, env: dict) -> dict:
         )
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
+    quiesce_heartbeat()
 
 
 def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     """No human ran the implement: the heartbeat consumed the intake ticket
-    and produced a PR, under an auto-minted run id."""
+    and produced a PR, under an auto-minted run id. Asserted on the run and
+    on this heartbeat's own attributable ticks — never on winning a race
+    against the ensure loop's bare heartbeat (#15 step 4)."""
     implement = overnight["implement"]
     assert implement["run_id"].startswith("auto-"), implement["run_id"]
     assert implement["workflow"] == "implement"
     assert implement["status"] == "done"
     assert implement["pr_url"]
-    # The decision that started it is the heartbeat's, journaled.
-    beat = audit_story(overnight["heartbeat_id"])
-    assert any(e["tool"] == "conduct.decide" for e in beat)
-    assert any(e["tool"] == "conduct.start" and e["decision"] == "allow" for e in beat)
+    # The authorized start is journaled under the run it started — the
+    # compiled conduct.start decision attributes to the child, whichever
+    # heartbeat asked.
+    story = audit_story(implement["run_id"])
+    assert any(e["tool"] == "conduct.start" and e["decision"] == "allow" for e in story)
+    # And it was THIS test's heartbeat that started it: the tick that
+    # names the child run carries the writing workflow's own id.
+    started = [
+        t
+        for t in heartbeat_ticks(overnight["heartbeat_id"])
+        if t["decision"] == "allow" and implement["run_id"] in (t["rule"] or "")
+    ]
+    assert started, "this heartbeat never recorded starting the implement"
 
 
 def test_the_company_reviewed_its_own_pr_unattended(overnight: dict):
@@ -260,7 +272,7 @@ def test_the_single_human_verdict_completes_delivery(overnight: dict):
     """One approval out: the merge signal releases the gateway merge, the
     review run finishes, and the PR is merged."""
     assert overnight["review_record"]["status"] == "done", overnight["review_record"]
-    pull = _github(
+    pull = github_api(
         overnight["env"],
         "GET",
         f"/repos/{'/'.join(overnight['env']['TARGET_REPO'].split('/')[-2:])}/pulls/{overnight['pr_number']}",

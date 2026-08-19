@@ -28,7 +28,7 @@ import re
 from typing import Any
 
 from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES, CrewTemplate, RoleTemplate
-from schema.gates import merge_gate_problems
+from schema.gates import contract_tests_problems, merge_gate_problems
 from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
@@ -56,6 +56,8 @@ def check(
     # compiler accepts unvalidated dicts and must fail closed on a
     # delegation validate_blueprint would have refused.
     problems += merge_gate_problems(blueprint)
+    problems += contract_tests_problems(blueprint)
+    problems += _contract_roles(blueprint, roles)
     return problems
 
 
@@ -311,6 +313,21 @@ def _crew_allow_lists(
                     f"{catalog_member.role_template!r} for this member"
                 )
     return problems
+
+
+def _contract_roles(
+    blueprint: dict[str, Any], roles: dict[str, RoleTemplate]
+) -> list[str]:
+    """The contract tree's owners name catalog role templates — checked
+    against the *injected* catalog like hires are. An unknown owner would
+    compile a tree nobody can ever deliver into: the spec frozen by typo."""
+    contract = (blueprint.get("policies") or {}).get("contract_tests") or {}
+    return [
+        f"policies.contract_tests.roles: {role!r} is not in the role "
+        f"catalog (known: {', '.join(sorted(roles))})"
+        for role in contract.get("roles") or []
+        if role not in roles
+    ]
 
 
 def _policy_patterns(blueprint: dict[str, Any]) -> list[str]:

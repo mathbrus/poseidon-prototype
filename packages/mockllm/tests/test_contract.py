@@ -164,7 +164,7 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
         claim = implement_dispatch(cfg, "run-mock-e1", task_text)
     assert claim.error is None
     assert claim.pr_url is None  # the brain never self-delivers
-    assert set(gateway.files) == {"slugify.py", "tests/test_slugify.py"}
+    assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
     assert not any(tool == "git.open_pr" for tool, _ in gateway.calls)
 
     with bridged(gateway):
@@ -190,7 +190,7 @@ def test_happy_task_over_the_responses_surface(mock_llm_url):
         claim = implement_dispatch(cfg, "run-mock-resp", task_text)
     assert claim.error is None
     assert claim.pr_url is None
-    assert set(gateway.files) == {"slugify.py", "tests/test_slugify.py"}
+    assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
 
     with bridged(gateway):
         delivered = deliver_dispatch(cfg, "run-mock-resp", task_text)
@@ -247,14 +247,16 @@ class GatedFakeGateway(FakeGateway):
         self.test_runs = 0
 
     async def call(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
-        if tool == "sandbox.exec" and "rm -f tests/test_gate.py" in args.get("cmd", ""):
+        if tool == "sandbox.exec" and "rm -f tests/unit/test_gate.py" in args.get(
+            "cmd", ""
+        ):
             self.calls.append((tool, dict(args)))
-            self.files.pop("tests/test_gate.py", None)
+            self.files.pop("tests/unit/test_gate.py", None)
             self.test_runs = 0  # the counter file is removed with it
             return {"exit_code": 0, "stdout": "", "stderr": ""}
         if tool == "sandbox.run_tests":
             self.calls.append((tool, dict(args)))
-            if "tests/test_gate.py" in self.files:
+            if "tests/unit/test_gate.py" in self.files:
                 self.test_runs += 1
                 if self.test_runs == 2:
                     return {
@@ -281,7 +283,7 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     with bridged(gateway):
         claim = implement_dispatch(cfg, "run-mock-e3", task_text)
     assert claim.error is None and claim.pr_url is None
-    assert "tests/test_gate.py" in gateway.files
+    assert "tests/unit/test_gate.py" in gateway.files
 
     # The platform verify gate (the suite's second run) goes red.
     platform_red = asyncio.run(gateway.call("sandbox.run_tests", {}))
@@ -299,7 +301,7 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     with bridged(gateway):
         reclaim = implement_dispatch(cfg, "run-mock-e3", feedback)
     assert reclaim.error is None
-    assert "tests/test_gate.py" not in gateway.files
+    assert "tests/unit/test_gate.py" not in gateway.files
 
     # The platform's re-verify is green; only now is delivery dispatched.
     assert (asyncio.run(gateway.call("sandbox.run_tests", {})))["exit_code"] == 0

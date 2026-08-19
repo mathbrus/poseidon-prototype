@@ -193,3 +193,42 @@ def test_compiler_fails_closed_on_a_carved_out_delegation(blueprint):
 def test_compiler_fails_closed_on_policy_without_a_delegation(blueprint):
     blueprint["workflows"]["review"]["gates"]["merge"] = {"resolved_by": "policy"}
     assert any("delegate" in p for p in problems_of(blueprint))
+
+
+# -- the contract tree --------------------------------------------------------
+
+
+def test_compiler_fails_closed_on_a_delegated_contract_tree(blueprint):
+    """The document-level refusal repeated at compile, the carve-out
+    posture: the oracle never merges under the delegation it certifies."""
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["tests/contract/"],
+        "roles": ["sdet"],
+    }
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+    }
+    assert any("contract_tests" in p and "oracle" in p for p in problems_of(blueprint))
+
+
+def test_compiler_fails_closed_on_an_unknown_contract_owner(blueprint):
+    """An owner outside the injected catalog would compile a tree nobody
+    can ever deliver into — the spec frozen by typo."""
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["tests/contract/"],
+        "roles": ["spec-author"],
+    }
+    assert any(
+        "contract_tests.roles" in p and "role catalog" in p
+        for p in problems_of(blueprint)
+    )
+
+
+def test_compiler_fails_closed_on_a_denied_contract_tree(blueprint):
+    blueprint["policies"]["deny_paths"] = [".github/workflows/", "specs/"]
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["specs/contract/"],
+        "roles": ["sdet"],
+    }
+    assert any("no role could ever deliver" in p for p in problems_of(blueprint))

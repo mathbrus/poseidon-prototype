@@ -18,7 +18,10 @@ def test_run_recovers_and_delivers_on_feature_branch(injected_run: dict) -> None
 
 def test_pr_is_on_feature_branch(injected_run: dict, pr_info) -> None:
     pr = pr_info(injected_run["pr_url"])
-    assert pr["state"] == "open"
+    # Open at birth (fixture-verified, then closed as suite hygiene),
+    # never merged, and on a feature branch — the recovery's whole claim.
+    assert injected_run["pr_state_at_birth"] == "open"
+    assert pr["merged"] is False
     assert re.fullmatch(r"feature/[a-z0-9-]+", pr["head"]["ref"])
 
 

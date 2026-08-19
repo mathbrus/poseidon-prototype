@@ -609,9 +609,11 @@ def decide_delegated(tmp_path_factory):
 
 
 def merge_resolve(**args) -> dict:
-    # Independence defaults to true here so each test isolates the layer
-    # it is about; the dedicated test below flips it.
+    # Independence and the contract fact default to true here so each test
+    # isolates the layer it is about; the dedicated tests below flip them.
+    # (Under a bundle with no contract tree the fact is simply unread.)
     args.setdefault("reviewer_independent", True)
+    args.setdefault("contract_green", True)
     return {
         "company": "hello-saas",
         "lifecycle": "platform",
@@ -757,3 +759,335 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
         )
     )
     assert as_reviewer["allow"] is False
+
+
+# -- the split oracle: the contract tree -------------------------------------
+
+
+CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
+
+CONTRACT_CREW = {
+    "members": {
+        "author": {
+            "role_template": "contract-author",
+            "tools": [
+                "sandbox.read_file",
+                "sandbox.write_file",
+                "sandbox.list_dir",
+                "sandbox.exec",
+                "sandbox.run_tests",
+                "sandbox.git_bundle",
+                "git.open_pr",
+            ],
+        }
+    },
+    "budget_inheritance": "run",
+}
+
+
+@pytest.fixture(scope="module")
+def decide_split(tmp_path_factory):
+    """The company with the oracle split declared: a protected contract
+    tree owned by the contract-authoring crew's template, beside a
+    delegated class that cannot contain it."""
+    import copy
+
+    import yaml
+    from conftest import HELLO_SAAS
+
+    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
+    blueprint["policies"]["contract_tests"] = copy.deepcopy(CONTRACT_TESTS)
+    blueprint["crews"]["contract-authoring"] = copy.deepcopy(CONTRACT_CREW)
+    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append(
+        "contract-authoring"
+    )
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
+    }
+    return _decider(tmp_path_factory, blueprint)
+
+
+def test_the_implementer_cannot_pr_the_contract_tree(decide_split):
+    """`git.open_pr` into the contract tree dies at the gateway for any
+    role outside the declared owners — the PR never exists, and the audit
+    row names the class, not an index."""
+    decision = decide_split(
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={
+                "branch": "feature/x",
+                "paths": ["slugify.py", "tests/contract/test_api.py"],
+            },
+        )
+    )
+    assert decision == {"allow": False, "rule": "git_open_pr_contract_tree"}
+
+
+def test_unit_tests_stay_the_implementers(decide_split):
+    """The split, not a freeze: everything outside the contract tree is
+    ordinary code the implementer still owns end to end."""
+    decision = decide_split(
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={
+                "branch": "feature/x",
+                "paths": ["slugify.py", "tests/unit/test_slugify.py"],
+            },
+        )
+    )
+    assert decision["allow"] is True
+
+
+def test_the_contract_author_delivers_into_the_contract_tree(decide_split):
+    """The split's positive half: the contract-authoring crew's author —
+    a distinct, deliver-capable template — opens the contract PR through
+    the same governed `git.open_pr` as any change."""
+    decision = decide_split(
+        **ephemeral(
+            "contract-authoring",
+            "author",
+            "contract-author",
+            tool="git.open_pr",
+            args={
+                "branch": "feature/slugify-contract",
+                "paths": ["tests/contract/test_slugify.py"],
+            },
+        )
+    )
+    assert decision["allow"] is True
+
+
+def test_the_pm_may_request_the_contract_crew(decide_split):
+    """`may_spawn` bounds the second crew like the first: granted in this
+    blueprint, so the request is allowed; the ungranted-template deny is
+    `test_crew_request_is_narrowed_to_may_spawn`'s, unchanged."""
+    decision = decide_split(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "contract-authoring", "reason": "author contract"},
+        )
+    )
+    assert decision["allow"] is True
+
+
+def test_a_declared_owner_passes_the_contract_rule(tmp_path_factory, blueprint):
+    """The rule keys on the role template — a caller keyed on what it *is*:
+    a caller the declaration names is not denied by it (whether that template
+    holds `git.open_pr` at all stays the allow-list's business, as ever)."""
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["tests/contract/"],
+        "roles": ["backend-engineer"],
+    }
+    decision = _eval_bundle(
+        tmp_path_factory,
+        blueprint,
+        "contract-owner",
+        ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/x", "paths": ["tests/contract/test_api.py"]},
+        ),
+    )
+    assert decision["allow"] is True
+
+
+def test_a_contract_path_never_policy_merges(decide_split):
+    """Every fact green and the resolve still denies by the class's own
+    name: oracle edits never auto-merge with the code they certify — they
+    park on the human `merge` signal like any carve-out."""
+    decision = decide_split(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", "tests/contract/test_api.py"],
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_contract_path"}
+
+
+def test_the_delegated_class_still_resolves_beside_the_contract_tree(decide_split):
+    decision = decide_split(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", "tests/unit/test_a.py"],
+        )
+    )
+    assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
+
+
+def test_a_red_contract_verify_merges_nothing(decide_split):
+    """The baseline layer is required: a head suite weakened to green
+    cannot launder a merge — the base-ref contract run is its own fact,
+    and red denies by name."""
+    decision = decide_split(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            contract_green=False,
+            paths=["src/a.py"],
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
+
+
+def test_the_contract_fact_fails_closed_when_absent(decide_split):
+    """A declared contract tree prices its fact into the delegation: the
+    absent key denies, the checks_not_green idiom."""
+    args = merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
+    del args["args"]["contract_green"]
+    decision = decide_split(**args)
+    assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
+
+
+def test_no_contract_tree_means_no_contract_fact(decide_delegated):
+    """Vacuous only by declaration: a company without `contract_tests`
+    compiled no contract rule, so the delegation reads exactly the facts
+    it always did — the fact is not a new global requirement."""
+    args = merge_resolve(
+        verdict="pass", checks_green=True, paths=["src/a.py", "tests/test_a.py"]
+    )
+    del args["args"]["contract_green"]
+    decision = decide_delegated(**args)
+    assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
+
+
+# -- the split's authority is not looser, and it revokes like authority ------
+
+
+def test_the_contract_author_cannot_merge(decide_split):
+    """Authority not looser: the new deliver-capable template gains
+    `git.open_pr` into its tree and nothing else — `git.merge_pr` stays
+    platform-only beside the split, exactly as before it."""
+    as_author = decide_split(
+        **ephemeral(
+            "contract-authoring",
+            "author",
+            "contract-author",
+            tool="git.merge_pr",
+            args={"number": 4},
+        )
+    )
+    assert as_author["allow"] is False
+    as_platform = decide_split(
+        PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
+    )
+    assert as_platform["allow"] is True
+
+
+def test_deny_paths_still_bind_the_contract_author(decide_split):
+    """The blueprint's deny_paths outrank every grant for the new role
+    too: owning the contract tree buys no reach into a denied surface."""
+    decision = decide_split(
+        **ephemeral(
+            "contract-authoring",
+            "author",
+            "contract-author",
+            tool="git.open_pr",
+            args={
+                "branch": "feature/x-contract",
+                "paths": [".github/workflows/ci.yml", "tests/contract/test_api.py"],
+            },
+        )
+    )
+    assert decision == {"allow": False, "rule": "git_open_pr_denied_paths"}
+
+
+def test_the_contract_crew_rides_the_spawn_caps(decide_split):
+    """`may_spawn` caps and the budget stop bind the second crew exactly
+    as the first: over the concurrency cap or without headroom, the
+    contract-authoring request denies by rule — spawning the spec's
+    author is governed spend like any other."""
+    over = decide_split(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "contract-authoring", "reason": "author contract"},
+        ),
+        agent_id="pm-1",
+        active_spawns=2,
+        budget_headroom=True,
+    )
+    assert over == {"allow": False, "rule": "crew_request_over_cap"}
+    broke = decide_split(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "contract-authoring", "reason": "author contract"},
+        ),
+        agent_id="pm-1",
+        active_spawns=0,
+        budget_headroom=False,
+    )
+    assert broke == {"allow": False, "rule": "crew_request_no_budget"}
+
+
+@pytest.fixture(scope="module")
+def decide_revoked(tmp_path_factory):
+    """`decide_split`'s company after the human revokes the split: the
+    same blueprint with `policies.contract_tests` deleted — one diff,
+    recompiled. The crew and its spawn grant may outlive the declaration;
+    the tree's special authority may not."""
+    import copy
+
+    import yaml
+    from conftest import HELLO_SAAS
+
+    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
+    blueprint["crews"]["contract-authoring"] = copy.deepcopy(CONTRACT_CREW)
+    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append(
+        "contract-authoring"
+    )
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
+    }
+    return _decider(tmp_path_factory, blueprint)
+
+
+def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
+    """The split is authority, so it revokes like authority: with the
+    declaration gone the ownership deny is gone — the implementer reaches
+    the tree again — and the delegation reads exactly the facts it did
+    before the split, the contract fact no longer priced in."""
+    reopened = decide_revoked(
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/x", "paths": ["tests/contract/test_api.py"]},
+        )
+    )
+    assert reopened["allow"] is True
+
+    args = merge_resolve(
+        verdict="pass", checks_green=True, paths=["src/a.py", "tests/unit/test_a.py"]
+    )
+    del args["args"]["contract_green"]
+    resolved = decide_revoked(**args)
+    assert resolved == {"allow": True, "rule": "merge_resolve_delegated"}
+
+
+def test_revocation_leaves_the_tree_undelegated_not_unguarded(decide_revoked):
+    """No looseness through the diff either: the revoked tree is ordinary
+    code outside the delegated class, so its merges still park on the
+    human — by class membership now, not by carve-out."""
+    decision = decide_revoked(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", "tests/contract/test_api.py"],
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_undelegated_path"}
