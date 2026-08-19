@@ -327,30 +327,33 @@ def _issue_title(env: dict, number: int) -> str:
     )
 
 
-async def _drive_review(pr_number: int, approve: bool | None) -> tuple[str, dict]:
+def _drive_review(pr_number: int, approve: bool | None) -> tuple[str, dict]:
     """One policy-gated review of `pr_number`. With `approve` None, await the
     terminal state with no signal — an in-class PR must auto-merge on its own.
     With `approve` a bool, wait for the merge-gate park and deliver that human
     verdict — the one human act the contract PR needs."""
     run_id = new_run_id()
-    with temporal_port_forward() as address:
-        client = await Client.connect(address)
-        handle = await client.start_workflow(
-            "review",
-            ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=FAST_TIMEOUTS),
-            id=review_workflow_id(run_id),
-            task_queue=TASK_QUEUE,
-        )
-        if approve is not None:
-            for _ in range(240):
-                if await handle.query("state") == "paused-merge_gate":
-                    break
-                await asyncio.sleep(0.25)
-            else:
-                raise AssertionError(f"review of #{pr_number} never parked on merge")
-            await handle.signal("merge", args=[approve, "capstone: spec approved"])
-        record = await asyncio.wait_for(handle.result(), timeout=900)
-    return run_id, record
+
+    async def drive() -> dict:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = await client.start_workflow(
+                "review",
+                ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=FAST_TIMEOUTS),
+                id=review_workflow_id(run_id),
+                task_queue=TASK_QUEUE,
+            )
+            if approve is not None:
+                for _ in range(240):
+                    if await handle.query("state") == "paused-merge_gate":
+                        break
+                    await asyncio.sleep(0.25)
+                else:
+                    raise AssertionError(f"review of #{pr_number} never parked on merge")
+                await handle.signal("merge", args=[approve, "capstone: spec approved"])
+            return await asyncio.wait_for(handle.result(), timeout=900)
+
+    return run_id, asyncio.run(drive())
 
 
 @pytest.fixture(scope="module")
