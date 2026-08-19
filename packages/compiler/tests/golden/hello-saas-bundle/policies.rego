@@ -29,11 +29,3 @@ deny_rules contains "git_open_pr_denied_paths" if {
 	some denied in deny_paths
 	startswith(path, denied)
 }
-
-deny_rules contains "git_open_pr_path_ownership_0" if {
-	input.tool == "git.open_pr"
-	some path in object.get(input, ["args", "paths"], [])
-	some owned in ["tests/"]
-	startswith(path, owned)
-	not input.role in ["backend-engineer", "sdet"]
-}

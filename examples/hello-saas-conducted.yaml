@@ -129,9 +129,6 @@ policies:
     allowed_pattern: ^feature/[a-z0-9-]+$
   deny_paths:
     - .github/workflows/
-  path_ownership:
-    - paths: [tests/]
-      roles: [backend-engineer, sdet]
   escalation:
     channel: api
     timeout_minutes: 60

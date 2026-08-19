@@ -276,10 +276,10 @@ def _merge_gate_file(
     merging without a human — the `conduct.start` idiom. The three
     caller-verified facts ride the input (the reviewer's verdict, the
     platform's own model-free checks, reviewer-independence from the
-    implementer); the delegated class and the carve-outs are compiled
-    literals. No delegation compiles no file, so an unattended merge with
-    no declared class falls to the default deny — revocation is a
-    blueprint diff.
+    implementer); the delegated class, the carve-outs and the contract
+    tree are compiled literals. No delegation compiles no file, so an
+    unattended merge with no declared class falls to the default deny —
+    revocation is a blueprint diff.
 
     Fail-safe defaults throughout: the single allow references every input
     it needs, so a missing fact simply never allows; the named denies
@@ -289,6 +289,22 @@ def _merge_gate_file(
     paths = json.dumps(sorted(delegation.get("paths") or []))
     carved = json.dumps(
         sorted({*UNDELEGATABLE_PATHS, *(policies.get("deny_paths") or [])})
+    )
+    contract_paths = sorted((policies.get("contract_tests") or {}).get("paths") or [])
+    contract_deny = (
+        # The oracle never merges with the code it certifies: a changed
+        # path under the contract tree denies the resolve by its own name —
+        # the belt under the validate-time refusal to delegate it, kept
+        # separate from the generic carve-out so the audit row names the
+        # class that refused.
+        '\ndeny_rules contains "merge_resolve_contract_path" if {\n'
+        '\tinput.tool == "merge.resolve"\n'
+        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        f"\tsome contract in {json.dumps(contract_paths)}\n"
+        "\tstartswith(path, contract)\n"
+        "}\n"
+        if contract_paths
+        else ""
     )
     body = (
         "\npath_delegated(path) if {\n"
@@ -333,10 +349,11 @@ def _merge_gate_file(
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         "\tnot path_delegated(path)\n"
         "}\n"
+        + contract_deny
         # Each caller-verified fact restated as a fail-safe named deny:
         # object.get, never a bare reference, so the absent key denies
         # rather than leaving the rule unevaluated.
-        '\ndeny_rules contains "merge_resolve_verdict_not_pass" if {\n'
+        + '\ndeny_rules contains "merge_resolve_verdict_not_pass" if {\n'
         '\tinput.tool == "merge.resolve"\n'
         '\tobject.get(input, ["args", "verdict"], "") != "pass"\n'
         "}\n"
@@ -359,14 +376,16 @@ def _platform_rules(tools: list[str]) -> str:
 
 
 def _policies_file(company: str, policies: dict[str, Any]) -> str:
-    """Branch protection, deny paths and path ownership — enforceable on
-    real arguments because bundle-apply already gives policy the changed
-    paths."""
+    """Branch protection, deny paths, path ownership and the contract
+    tree — enforceable on real arguments because bundle-apply already
+    gives policy the changed paths."""
     protection = policies.get("branch_protection") or {}
     protected = protection.get("protected") or []
     pattern = protection.get("allowed_pattern")
     deny_paths = policies.get("deny_paths") or []
     ownership = policies.get("path_ownership") or []
+    contract = policies.get("contract_tests") or {}
+    contract_paths = contract.get("paths") or []
 
     lines = [
         HEADER,
@@ -394,7 +413,7 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
             f"\tnot regex.match({json.dumps(pattern)}, input.args.branch)\n"
             "}\n"
         )
-    if deny_paths or ownership:
+    if deny_paths or ownership or contract_paths:
         # Path rules fail closed: without the changed paths in the input
         # they cannot be evaluated, so the call is denied. The gateway
         # always supplies args.paths for git.open_pr (bundle-apply
@@ -412,6 +431,22 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
             '\tsome path in object.get(input, ["args", "paths"], [])\n'
             "\tsome denied in deny_paths\n"
             "\tstartswith(path, denied)\n"
+            "}\n"
+        )
+    if contract_paths:
+        # The contract tree is the oracle: only its declared owner
+        # templates may deliver into it, so the implementer cannot rewrite
+        # the spec its own work is graded by. Named for the class — the
+        # audit row should say what was refused, not which index fired.
+        roles = json.dumps(sorted(contract.get("roles") or []))
+        paths = json.dumps(sorted(contract_paths))
+        lines.append(
+            '\ndeny_rules contains "git_open_pr_contract_tree" if {\n'
+            '\tinput.tool == "git.open_pr"\n'
+            '\tsome path in object.get(input, ["args", "paths"], [])\n'
+            f"\tsome contract in {paths}\n"
+            "\tstartswith(path, contract)\n"
+            f"\tnot input.role in {roles}\n"
             "}\n"
         )
     for index, rule in enumerate(ownership):

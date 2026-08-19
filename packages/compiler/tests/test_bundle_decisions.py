@@ -757,3 +757,112 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
         )
     )
     assert as_reviewer["allow"] is False
+
+
+# -- the split oracle: the contract tree -------------------------------------
+
+
+CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["sdet"]}
+
+
+@pytest.fixture(scope="module")
+def decide_split(tmp_path_factory):
+    """The company with the oracle split declared: a protected contract
+    tree beside a delegated class that cannot contain it."""
+    import copy
+
+    import yaml
+    from conftest import HELLO_SAAS
+
+    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
+    blueprint["policies"]["contract_tests"] = copy.deepcopy(CONTRACT_TESTS)
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
+    }
+    return _decider(tmp_path_factory, blueprint)
+
+
+def test_the_implementer_cannot_pr_the_contract_tree(decide_split):
+    """`git.open_pr` into the contract tree dies at the gateway for any
+    role outside the declared owners — the PR never exists, and the audit
+    row names the class, not an index."""
+    decision = decide_split(
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={
+                "branch": "feature/x",
+                "paths": ["slugify.py", "tests/contract/test_api.py"],
+            },
+        )
+    )
+    assert decision == {"allow": False, "rule": "git_open_pr_contract_tree"}
+
+
+def test_unit_tests_stay_the_implementers(decide_split):
+    """The split, not a freeze: everything outside the contract tree is
+    ordinary code the implementer still owns end to end."""
+    decision = decide_split(
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={
+                "branch": "feature/x",
+                "paths": ["slugify.py", "tests/unit/test_slugify.py"],
+            },
+        )
+    )
+    assert decision["allow"] is True
+
+
+def test_a_declared_owner_passes_the_contract_rule(tmp_path_factory, blueprint):
+    """The rule keys on the role template, the path_ownership posture: a
+    caller the declaration names is not denied by it (whether that template
+    holds `git.open_pr` at all stays the allow-list's business, as ever)."""
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["tests/contract/"],
+        "roles": ["backend-engineer"],
+    }
+    decision = _eval_bundle(
+        tmp_path_factory,
+        blueprint,
+        "contract-owner",
+        ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/x", "paths": ["tests/contract/test_api.py"]},
+        ),
+    )
+    assert decision["allow"] is True
+
+
+def test_a_contract_path_never_policy_merges(decide_split):
+    """Every fact green and the resolve still denies by the class's own
+    name: oracle edits never auto-merge with the code they certify — they
+    park on the human `merge` signal like any carve-out."""
+    decision = decide_split(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", "tests/contract/test_api.py"],
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_contract_path"}
+
+
+def test_the_delegated_class_still_resolves_beside_the_contract_tree(decide_split):
+    decision = decide_split(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", "tests/unit/test_a.py"],
+        )
+    )
+    assert decision == {"allow": True, "rule": "merge_resolve_delegated"}

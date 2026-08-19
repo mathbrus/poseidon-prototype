@@ -4,7 +4,7 @@
 # merges under compiled policy with no human command at all. The merge gate
 # is delegated for a narrow class of changes: a passing independent review
 # plus the platform's own green checks merges a PR touching only
-# `slugify.py` or `tests/`. Everything else still stops — a carve-out
+# `slugify.py` or the unit-test tree. Everything else still stops — a carve-out
 # surface, an out-of-class path, or a decline falls back to the human
 # `merge` signal; a failed quality layer feeds the bounded rework loop.
 # Removing the `delegate` block reverts to human-only merge: revocation is
@@ -127,7 +127,11 @@ workflows:
       merge:
         resolved_by: policy
         delegate:
-          paths: [slugify.py, tests/]
+          # The unit-test tree only — never the whole of tests/: the
+          # contract/acceptance tree is the oracle delegated merges are
+          # graded by, and the oracle never rides the delegation it
+          # certifies.
+          paths: [slugify.py, tests/unit/]
           max_reworks: 1
     drain:
       on_conductor_drain: abort_crew
@@ -139,9 +143,6 @@ policies:
     allowed_pattern: ^feature/[a-z0-9-]+$
   deny_paths:
     - .github/workflows/
-  path_ownership:
-    - paths: [tests/]
-      roles: [backend-engineer, sdet]
   escalation:
     channel: api
     timeout_minutes: 60

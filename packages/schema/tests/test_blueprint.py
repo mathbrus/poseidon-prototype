@@ -292,6 +292,66 @@ def test_a_deny_path_can_never_be_delegated(blueprint):
     assert any("deny_paths" in p for p in problems_of(blueprint))
 
 
+# -- the contract tree -------------------------------------------------------
+
+
+def contract_tests_section() -> dict:
+    return {"paths": ["tests/contract/"], "roles": ["sdet"]}
+
+
+def test_a_declared_contract_tree_validates(blueprint):
+    blueprint["policies"]["contract_tests"] = contract_tests_section()
+    validate_blueprint(blueprint)
+
+
+def test_the_contract_tree_can_never_be_delegated(blueprint):
+    """The oracle never merges under the delegation it certifies — refused
+    at validate time, whatever else the delegated class says."""
+    blueprint["policies"]["contract_tests"] = contract_tests_section()
+    gate = delegated_merge()
+    gate["delegate"]["paths"] = ["src/", "tests/contract/api/"]
+    blueprint["workflows"]["review"]["gates"]["merge"] = gate
+    assert any("contract_tests" in p and "oracle" in p for p in problems_of(blueprint))
+
+
+def test_a_prefix_containing_the_contract_tree_is_refused(blueprint):
+    """Overlap goes both ways, the `.github/` posture: delegating `tests/`
+    would put the contract tree inside the delegated class."""
+    blueprint["policies"]["contract_tests"] = contract_tests_section()
+    blueprint["workflows"]["review"]["gates"]["merge"] = delegated_merge()
+    assert any("contract_tests" in p for p in problems_of(blueprint))
+
+
+def test_a_contract_tree_under_a_deny_path_is_refused(blueprint):
+    """A contract path no PR may touch is a spec nobody could ever
+    deliver — frozen by configuration, which the split exists to avoid."""
+    blueprint["policies"]["deny_paths"] = [".github/workflows/", "specs/"]
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["specs/contract/"],
+        "roles": ["sdet"],
+    }
+    assert any("no role could ever deliver" in p for p in problems_of(blueprint))
+
+
+def test_contract_owners_name_catalog_templates(blueprint):
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["tests/contract/"],
+        "roles": ["spec-author"],
+    }
+    assert any(
+        "contract_tests.roles" in p and "role catalog" in p
+        for p in problems_of(blueprint)
+    )
+
+
+def test_the_contract_tree_declares_paths_and_owners_or_nothing(blueprint):
+    for field in ("paths", "roles"):
+        document = copy.deepcopy(blueprint)
+        document["policies"]["contract_tests"] = contract_tests_section()
+        del document["policies"]["contract_tests"][field]
+        assert any(field in p for p in problems_of(document))
+
+
 def test_intake_gate_names_its_resolver(blueprint):
     blueprint["workflows"]["intake"]["gates"] = {"intake": {"resolved_by": "human"}}
     validate_blueprint(blueprint)

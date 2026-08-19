@@ -252,6 +252,30 @@ _POLICIES = {
             },
         },
         "deny_paths": {"type": "array", "items": _TEXT, "uniqueItems": True},
+        # The split oracle: the contract/acceptance tree and the role
+        # templates that may deliver into it. Compiles to a `git.open_pr`
+        # deny for every other role and joins the merge carve-outs — the
+        # code that certifies a change never auto-merges with it, and the
+        # implementer cannot rewrite the spec its own work is graded by.
+        "contract_tests": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["paths", "roles"],
+            "properties": {
+                "paths": {
+                    "type": "array",
+                    "items": _TEXT,
+                    "minItems": 1,
+                    "uniqueItems": True,
+                },
+                "roles": {
+                    "type": "array",
+                    "items": _NAME,
+                    "minItems": 1,
+                    "uniqueItems": True,
+                },
+            },
+        },
         "path_ownership": {
             "type": "array",
             "items": {
