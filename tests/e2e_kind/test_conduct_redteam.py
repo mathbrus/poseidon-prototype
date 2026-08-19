@@ -50,7 +50,6 @@ from temporalio.client import Client
 
 from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST
 from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 
 from .conftest import (
     COMPANY_NS,
@@ -59,6 +58,7 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    deployed_timeouts,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import (
@@ -186,7 +186,7 @@ def unattended_run(conducted, env: dict) -> dict:
             handle = await client.start_workflow(
                 "conduct",
                 ConductInput(
-                    company=COMPANY_NS, tick_interval_s=3, timeouts=FAST_TIMEOUTS
+                    company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
                 task_queue=TASK_QUEUE,

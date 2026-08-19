@@ -12,10 +12,15 @@ import re
 import httpx
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 
-from .conftest import TASK_QUEUE, _psql_json, audit_story, temporal_port_forward
+from .conftest import (
+    TASK_QUEUE,
+    _psql_json,
+    audit_story,
+    deployed_timeouts,
+    temporal_port_forward,
+)
 from .test_crew_identity import _registry
 
 
@@ -46,7 +51,7 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
                 id=intake_workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )

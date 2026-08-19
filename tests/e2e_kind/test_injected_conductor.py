@@ -39,7 +39,6 @@ from mockllm.brain import (
     FORBIDDEN_CREW,
     FORBIDDEN_CREW_REASON,
 )
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 
 from .conftest import (
@@ -47,6 +46,7 @@ from .conftest import (
     TASK_QUEUE,
     _psql_json,
     audit_story,
+    deployed_timeouts,
     run_implement,
     temporal_port_forward,
 )
@@ -111,7 +111,7 @@ def conductor_intake(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
                 id=intake_workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )

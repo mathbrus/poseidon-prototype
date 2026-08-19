@@ -20,7 +20,9 @@ Run explicitly (excluded from plain `pytest`):
 
 import asyncio
 import contextlib
+import functools
 import json
+import os
 import secrets
 import socket
 import subprocess
@@ -384,25 +386,15 @@ def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
     return _run_implement_input(env, kill_worker=False, issue_number=issue_number)
 
 
-def deployed_timeouts() -> Timeouts | None:
-    """The timeout profile for the brain the cluster is *running*, read from
-    the deployment rather than from `.env`.
-
-    Sizing depends on the brain: the mock answers in milliseconds, a paid
-    model legitimately takes minutes, and the slow profile's gate deadlines
-    are hours (`budget_gate_s` 3600, `merge_gate_s` 86400). Those are not
-    upper bounds a fast run slips under — the park tests *wait them out* —
-    so reading the wrong brain does not merely slow the suite, it wedges it
-    for a day on the first unanswered gate.
-
-    `.env` is the wrong source for that answer: `kind-up.sh` deliberately
-    lets an invocation-time `REAL_LLM=0` beat the file, so a cluster
-    brought up on the mock from an `.env` that says otherwise is a normal,
-    supported state — and the file then describes a brain that is not
-    there. The deployment is the fact; the flag is a claim. (CLAUDE.md's
-    cluster rule, generalized: check what is actually deployed.)
-
-    Falls back to the `.env` claim only when the cluster cannot be read."""
+@functools.lru_cache(maxsize=1)
+def deployed_brain_image() -> str:
+    """The LLM proxy image the cluster actually runs — the fact `.env`'s
+    `REAL_LLM` flag merely claims. `kind-up.sh` deliberately lets an
+    invocation-time `REAL_LLM=0` beat the file, so a mock cluster under a
+    `REAL_LLM=1` `.env` is a normal, supported state; the deployment is the
+    one source that cannot describe a brain that is not there. Cached for
+    the session: the deployment does not change under a running suite.
+    Empty when the cluster cannot answer."""
     proc = subprocess.run(
         [
             "kubectl",
@@ -417,9 +409,57 @@ def deployed_timeouts() -> Timeouts | None:
         text=True,
         timeout=30,
     )
-    if proc.returncode != 0:
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def paid_brain_problem(image: str, allow: str | None) -> str | None:
+    """Why the session must not run, or None. This suite dispatches real
+    LLM calls; against a paid brain those bill a provider, which is a spend
+    decision no test run may make implicitly (twice it did — 2026-08-17 and
+    2026-08-19 — while the rule lived only in prose). Pure, so the refusal
+    logic is pinned without a cluster. Fail-safe defaults: an unreadable
+    brain refuses too — the dangerous condition is the absent input."""
+    if not image:
+        return (
+            f"cannot read the deployed brain (deployment/llm-proxy in {PLATFORM_NS});"
+            " refusing to run against an unverified brain —"
+            " is the cluster up? deploy/kind/kind-up.sh"
+        )
+    if "mockllm" in image:
         return None
-    return FAST_TIMEOUTS if "mockllm" in proc.stdout else None
+    if allow == "1":
+        return None
+    return (
+        f"the cluster runs a PAID brain ({image}): e2e runs would bill a provider."
+        " Redeploy on the mock (REAL_LLM=0 deploy/kind/kind-up.sh), or set"
+        " POSEIDON_ALLOW_PAID=1 to spend deliberately."
+    )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def paid_brain_guard() -> None:
+    """The LLM-cost rule, enforced rather than asked nicely: the session
+    fails before the first dispatch unless the deployed brain is the mock
+    or the operator opted into spending with POSEIDON_ALLOW_PAID=1."""
+    problem = paid_brain_problem(
+        deployed_brain_image(), os.environ.get("POSEIDON_ALLOW_PAID")
+    )
+    if problem:
+        pytest.fail(problem)
+
+
+def deployed_timeouts() -> Timeouts | None:
+    """The timeout profile for the brain the cluster is *running* — every
+    workflow input in the suite sizes from this, never from `.env`.
+
+    Sizing depends on the brain: the mock answers in milliseconds, a paid
+    model legitimately takes minutes, and the default profile's gate
+    deadlines are hours (`budget_gate_s` 3600, `merge_gate_s` 86400).
+    Those are not upper bounds a fast run slips under — the park tests
+    *wait them out* — so reading the wrong brain does not merely slow the
+    suite, it wedges it for a day on the first unanswered gate. None means
+    the workflow defaults: the patience a paid brain deserves."""
+    return FAST_TIMEOUTS if "mockllm" in deployed_brain_image() else None
 
 
 def _run_implement_input(env: dict[str, str], kill_worker: bool, **source) -> dict:

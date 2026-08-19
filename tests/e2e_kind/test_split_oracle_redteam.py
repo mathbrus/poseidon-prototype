@@ -72,7 +72,6 @@ from mockllm.brain import (
     TEST_SLUGIFY_PY,
 )
 from orchestrator.workflows.review import (
-    FAST_TIMEOUTS,
     ReviewInput,
     review_workflow_id,
 )
@@ -83,6 +82,7 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    deployed_timeouts,
     run_implement_from_issue,
     temporal_port_forward,
 )
@@ -257,7 +257,7 @@ def _pr_number_of(record: dict) -> int:
 def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
     """One policy-gated review of `pr_number`, driven to a terminal state
     with no human on the `merge` signal: a decline falls back to the human
-    park, which — unanswered — escalates and expires under FAST_TIMEOUTS."""
+    park, which — unanswered — escalates and expires under the mock brain's fast profile."""
     run_id = new_run_id()
 
     async def drive() -> dict:
@@ -265,7 +265,9 @@ def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "review",
-                ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=FAST_TIMEOUTS),
+                ReviewInput(
+                    run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
+                ),
                 id=review_workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )

@@ -23,10 +23,9 @@ import httpx
 import pytest
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import issue_placeholder
+from orchestrator.workflows.implement import Timeouts, issue_placeholder
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 from orchestrator.workflows.review import (
-    FAST_TIMEOUTS,
     ReviewInput,
     review_workflow_id,
 )
@@ -35,6 +34,7 @@ from .conftest import (
     TASK_QUEUE,
     _psql_json,
     audit_story,
+    deployed_timeouts,
     run_implement_from_issue,
     temporal_port_forward,
 )
@@ -73,7 +73,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "review",
-        ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=FAST_TIMEOUTS),
+        ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()),
         id=review_workflow_id(run_id),
         task_queue=TASK_QUEUE,
     )
@@ -92,7 +92,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
 
     # Nobody answers: the timer escalates at merge_gate_s/2 and the
     # escalation is a real process-gate row — observable, not a log line.
-    deadline = time.monotonic() + FAST_TIMEOUTS.merge_gate_s
+    deadline = time.monotonic() + (deployed_timeouts() or Timeouts()).merge_gate_s
     escalated = False
     while time.monotonic() < deadline:
         if any(
@@ -136,7 +136,9 @@ def review_chain(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=intake_run, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(
+                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
+                ),
                 id=intake_workflow_id(intake_run),
                 task_queue=TASK_QUEUE,
             )

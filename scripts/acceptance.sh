@@ -35,6 +35,27 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$GATEWAY_URL/mcp" ||
   echo "gateway at $GATEWAY_URL answered '$code' (expected 401 without a token)" >&2
   exit 1
 }
+# The LLM-cost rule, enforced at the door: the suite's own session guard
+# (tests/e2e_kind/conftest.py, paid_brain_guard) refuses a paid brain too,
+# but failing here is seconds cheaper and names the fix. The check reads
+# the *deployment* — what the cluster runs — never .env's REAL_LLM claim.
+BRAIN=$(kubectl -n poseidon-platform get deployment/llm-proxy \
+  -o 'jsonpath={.spec.template.spec.containers[0].image}' 2>/dev/null || true)
+if [ -z "$BRAIN" ]; then
+  echo "cannot read the deployed brain (deployment/llm-proxy) — refusing to run unverified" >&2
+  exit 1
+fi
+case "$BRAIN" in
+*mockllm*) ;;
+*)
+  if [ "${POSEIDON_ALLOW_PAID:-}" != "1" ]; then
+    echo "deployed brain is '$BRAIN' (not the mock): this suite would bill a provider." >&2
+    echo "redeploy with REAL_LLM=0 deploy/kind/kind-up.sh, or set POSEIDON_ALLOW_PAID=1 to spend deliberately." >&2
+    exit 1
+  fi
+  echo "== PAID brain ($BRAIN): POSEIDON_ALLOW_PAID=1 set, spending deliberately"
+  ;;
+esac
 
 echo "== MVP acceptance against $(kubectl config current-context)"
 uv run pytest tests/e2e_kind -m e2e_kind "$@"

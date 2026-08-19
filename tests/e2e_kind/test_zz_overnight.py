@@ -37,7 +37,6 @@ from temporalio.client import Client
 
 from common.ids import new_run_id
 from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 from orchestrator.workflows.review import review_workflow_id
 
@@ -48,6 +47,7 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    deployed_timeouts,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -148,7 +148,9 @@ def overnight(stack: None, env: dict) -> dict:
             # --- human act 1: one goal in --------------------------------
             intake_handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=intake_run, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(
+                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
+                ),
                 id=intake_workflow_id(intake_run),
                 task_queue=TASK_QUEUE,
             )
@@ -165,7 +167,7 @@ def overnight(stack: None, env: dict) -> dict:
             beat = await client.start_workflow(
                 "conduct",
                 ConductInput(
-                    company=COMPANY_NS, tick_interval_s=3, timeouts=FAST_TIMEOUTS
+                    company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
                 task_queue=TASK_QUEUE,

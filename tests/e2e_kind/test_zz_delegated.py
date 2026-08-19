@@ -48,7 +48,6 @@ from temporalio.client import Client
 from common.ids import new_run_id
 from mockllm.brain import CONTRACT_GOAL_MARKER, CONTRACT_TEST_PATH
 from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 from orchestrator.workflows.review import ReviewInput, review_workflow_id
 
@@ -59,6 +58,7 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    deployed_timeouts,
     run_implement_from_issue,
     temporal_port_forward,
 )
@@ -160,7 +160,9 @@ def delegated_overnight(stack: None, env: dict) -> dict:
             # --- the one human act: one goal in --------------------------
             intake_handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=intake_run, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(
+                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
+                ),
                 id=intake_workflow_id(intake_run),
                 task_queue=TASK_QUEUE,
             )
@@ -177,7 +179,7 @@ def delegated_overnight(stack: None, env: dict) -> dict:
             beat = await client.start_workflow(
                 "conduct",
                 ConductInput(
-                    company=COMPANY_NS, tick_interval_s=3, timeouts=FAST_TIMEOUTS
+                    company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
                 task_queue=TASK_QUEUE,
@@ -296,7 +298,7 @@ def test_the_whole_arc_had_exactly_one_human_act(delegated_overnight: dict):
 #
 # It is driven with explicit workflow starts rather than the heartbeat, so
 # the human-in-the-middle step is deterministic (the contract review parks on
-# a 60s FAST_TIMEOUTS gate; a heartbeat racing it for the single concurrency
+# a 60s fast-profile gate; a heartbeat racing it for the single concurrency
 # slot is exactly the flake this capstone must not have). The unattended
 # *sequencing* — that the PM files contract-then-implement with no command
 # between — is asserted where it is observable: the one intake dispatch files
@@ -339,7 +341,9 @@ def _drive_review(pr_number: int, approve: bool | None) -> tuple[str, dict]:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "review",
-                ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=FAST_TIMEOUTS),
+                ReviewInput(
+                    run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
+                ),
                 id=review_workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )
@@ -384,7 +388,7 @@ def contract_first(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
                 id=intake_workflow_id(run_id),
                 task_queue=TASK_QUEUE,
             )

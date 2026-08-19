@@ -23,8 +23,8 @@ from temporalio.client import Client
 
 from common.ids import new_run_id
 from orchestrator.workflows.implement import (
-    FAST_TIMEOUTS,
     ImplementInput,
+    Timeouts,
     workflow_id,
 )
 
@@ -34,6 +34,7 @@ from .conftest import (
     TASK_QUEUE,
     _psql_json,
     audit_story,
+    deployed_timeouts,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import (
@@ -83,7 +84,7 @@ async def _run_until_paused_then_reject(
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "implement",
-        ImplementInput(run_id=run_id, task_text=task_text, timeouts=FAST_TIMEOUTS),
+        ImplementInput(run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()),
         id=workflow_id(run_id),
         task_queue=TASK_QUEUE,
     )
@@ -99,7 +100,7 @@ async def _run_until_paused_then_reject(
     # event fires at half the gate deadline (45s on the fast profile). Wait
     # for it before answering, exactly like the merge-gate e2e does: the
     # escalation path proves itself on every run.
-    deadline = time.monotonic() + FAST_TIMEOUTS.budget_gate_s - 5
+    deadline = time.monotonic() + (deployed_timeouts() or Timeouts()).budget_gate_s - 5
     while True:
         escalated = [
             e

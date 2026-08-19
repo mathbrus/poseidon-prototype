@@ -54,7 +54,6 @@ from mockllm.brain import (
     STEERED_REVIEW_MARKER,
 )
 from orchestrator.workflows.review import (
-    FAST_TIMEOUTS,
     ReviewInput,
     review_workflow_id,
 )
@@ -65,6 +64,7 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    deployed_timeouts,
     run_implement_from_issue,
     temporal_port_forward,
 )
@@ -151,7 +151,7 @@ def redteam(delegated, env: dict) -> dict:
     policy-gated review of it to a terminal state. No human touches the
     merge signal, so the run must terminate itself: the carve-out decline
     falls back to the human park, which — unanswered — escalates and times
-    out under FAST_TIMEOUTS."""
+    out under the mock brain's fast profile."""
     nonce = secrets.token_hex(3)
     slug = _slug(env)
     created = _github(
@@ -181,7 +181,7 @@ def redteam(delegated, env: dict) -> dict:
             handle = await client.start_workflow(
                 "review",
                 ReviewInput(
-                    run_id=review_run, pr_number=pr_number, timeouts=FAST_TIMEOUTS
+                    run_id=review_run, pr_number=pr_number, timeouts=deployed_timeouts()
                 ),
                 id=review_workflow_id(review_run),
                 task_queue=TASK_QUEUE,
