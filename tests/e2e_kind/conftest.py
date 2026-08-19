@@ -4,7 +4,9 @@ These tests run against the kind cluster brought up by
 `deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
 GIT_TOKEN and a disposable TARGET_REPO. They open real pull requests on
 that repo. The LLM is the deterministic mock by default (free); only a
-cluster deployed with REAL_LLM=1 spends provider tokens.
+cluster deployed with REAL_LLM=1 spends provider tokens — and what the
+suite believes about that comes from the deployment, not the file (see
+`deployed_timeouts`).
 
 Runs go through Temporal: the suite starts the implement
 workflow as a thin client (exactly what `poseidon run` does), and the
@@ -35,6 +37,7 @@ from common.ids import new_run_id
 from orchestrator.workflows.implement import (
     FAST_TIMEOUTS,
     ImplementInput,
+    Timeouts,
     workflow_id,
 )
 
@@ -364,10 +367,8 @@ def run_implement(task_file: str, kill_worker: bool, env: dict[str, str]) -> dic
     pins the delivery branch so reruns against the same disposable repo
     never collide on an existing branch or open PR.
 
-    Timeouts follow the brain the cluster was deployed with (REAL_LLM in
-    .env, the same switch kind-up.sh reads): against the mock, the fast
-    profile turns a wedged activity into a failure in seconds rather than
-    minutes of retrying — a red suite should not cost half an hour.
+    Timeouts follow the brain the cluster was actually deployed with — see
+    `deployed_timeouts`.
     """
     nonce = secrets.token_hex(3)
     task_text = (REPO_ROOT / "examples" / task_file).read_text() + (
@@ -383,10 +384,48 @@ def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
     return _run_implement_input(env, kill_worker=False, issue_number=issue_number)
 
 
+def deployed_timeouts() -> Timeouts | None:
+    """The timeout profile for the brain the cluster is *running*, read from
+    the deployment rather than from `.env`.
+
+    Sizing depends on the brain: the mock answers in milliseconds, a paid
+    model legitimately takes minutes, and the slow profile's gate deadlines
+    are hours (`budget_gate_s` 3600, `merge_gate_s` 86400). Those are not
+    upper bounds a fast run slips under — the park tests *wait them out* —
+    so reading the wrong brain does not merely slow the suite, it wedges it
+    for a day on the first unanswered gate.
+
+    `.env` is the wrong source for that answer: `kind-up.sh` deliberately
+    lets an invocation-time `REAL_LLM=0` beat the file, so a cluster
+    brought up on the mock from an `.env` that says otherwise is a normal,
+    supported state — and the file then describes a brain that is not
+    there. The deployment is the fact; the flag is a claim. (CLAUDE.md's
+    cluster rule, generalized: check what is actually deployed.)
+
+    Falls back to the `.env` claim only when the cluster cannot be read."""
+    proc = subprocess.run(
+        [
+            "kubectl",
+            "-n",
+            PLATFORM_NS,
+            "get",
+            "deployment/llm-proxy",
+            "-o",
+            "jsonpath={.spec.template.spec.containers[0].image}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if proc.returncode != 0:
+        return None
+    return FAST_TIMEOUTS if "mockllm" in proc.stdout else None
+
+
 def _run_implement_input(env: dict[str, str], kill_worker: bool, **source) -> dict:
     input = ImplementInput(
         run_id=new_run_id(),
-        timeouts=None if env.get("REAL_LLM") == "1" else FAST_TIMEOUTS,
+        timeouts=deployed_timeouts(),
         **source,
     )
     with temporal_port_forward() as address:
