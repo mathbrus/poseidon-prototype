@@ -627,6 +627,26 @@ def sweep_repo_debris(env: dict) -> None:
                 break
             for name in stale:
                 github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{name}")
+        # Open issues are backlog: the conduct observation reads them, and a
+        # leftover from a fixture that died before its teardown would be the
+        # lowest-numbered ticket the next session's heartbeat picks first.
+        while True:
+            issues = [
+                i
+                for i in github_api(
+                    env, "GET", f"/repos/{slug}/issues?state=open&per_page=100"
+                ).json()
+                if "pull_request" not in i
+            ]
+            if not issues:
+                break
+            for issue in issues:
+                github_api(
+                    env,
+                    "PATCH",
+                    f"/repos/{slug}/issues/{issue['number']}",
+                    json={"state": "closed"},
+                )
 
 
 @pytest.fixture(scope="session", autouse=True)
