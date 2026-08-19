@@ -42,6 +42,14 @@ Where each criterion is proven:
                   test_merge_gate_redteam (a steered reviewer smuggling a
                   carve-out change is refused by the compiled decision, not
                   the model) — the gate-of-record milestone.
+ 10 split oracle  test_split_oracle_redteam (the implementer cannot PR the
+                  contract tree, cannot launder a red baseline to green two
+                  ways, and a steered contract author's gutted spec parks on
+                  a human with its deletions counted) and test_zz_delegated's
+                  contract arc (the PM files contract-then-implement, the
+                  contract PR parks for one human merge, then in-class work
+                  auto-merges on a green base-ref contract) — the milestone
+                  that makes the delegation honest about its own rubric.
 
 Named `test_zz_*` so pytest collects it last: the five-source assertion
 reads what the whole suite really produced.

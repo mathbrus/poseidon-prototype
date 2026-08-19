@@ -46,9 +46,11 @@ import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
+from mockllm.brain import CONTRACT_GOAL_MARKER, CONTRACT_TEST_PATH
 from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
 from orchestrator.workflows.implement import FAST_TIMEOUTS
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
+from orchestrator.workflows.review import ReviewInput, review_workflow_id
 
 from .conftest import (
     COMPANY_NS,
@@ -57,6 +59,7 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    run_implement_from_issue,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -281,3 +284,239 @@ def test_the_whole_arc_had_exactly_one_human_act(delegated_overnight: dict):
     assert not any(
         e["source"] == "process-gate" and e["rule"] == "gate_approved" for e in story
     ), "the merge was released by a human, not policy"
+
+
+# --- the contract-first arc: split-oracle capstone (#13 step 7) -------------
+#
+# The delegated arc above proves in-class work merges unattended. This proves
+# the shape the split oracle adds: the company writes the *spec* first, under
+# different hands and different authority, and only then implements against
+# it. The whole arc has exactly one human act — the merge of the contract PR
+# — and everything else is the platform's.
+#
+# It is driven with explicit workflow starts rather than the heartbeat, so
+# the human-in-the-middle step is deterministic (the contract review parks on
+# a 60s FAST_TIMEOUTS gate; a heartbeat racing it for the single concurrency
+# slot is exactly the flake this capstone must not have). The unattended
+# *sequencing* — that the PM files contract-then-implement with no command
+# between — is asserted where it is observable: the one intake dispatch files
+# the ordered pair.
+
+
+def _read_file(env: dict, path: str) -> dict | None:
+    resp = _github(env, "GET", f"/repos/{_slug(env)}/contents/{path}")
+    return resp.json() if resp.status_code == 200 else None
+
+
+def _delete_file(env: dict, path: str, message: str) -> None:
+    existing = _read_file(env, path)
+    if not existing:
+        return
+    _github(
+        env,
+        "DELETE",
+        f"/repos/{_slug(env)}/contents/{path}",
+        json={"message": message, "sha": existing["sha"]},
+    )
+
+
+def _issue_title(env: dict, number: int) -> str:
+    return (
+        _github(env, "GET", f"/repos/{_slug(env)}/issues/{number}").json().get("title")
+        or ""
+    )
+
+
+async def _drive_review(pr_number: int, approve: bool | None) -> tuple[str, dict]:
+    """One policy-gated review of `pr_number`. With `approve` None, await the
+    terminal state with no signal — an in-class PR must auto-merge on its own.
+    With `approve` a bool, wait for the merge-gate park and deliver that human
+    verdict — the one human act the contract PR needs."""
+    run_id = new_run_id()
+    with temporal_port_forward() as address:
+        client = await Client.connect(address)
+        handle = await client.start_workflow(
+            "review",
+            ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=FAST_TIMEOUTS),
+            id=review_workflow_id(run_id),
+            task_queue=TASK_QUEUE,
+        )
+        if approve is not None:
+            for _ in range(240):
+                if await handle.query("state") == "paused-merge_gate":
+                    break
+                await asyncio.sleep(0.25)
+            else:
+                raise AssertionError(f"review of #{pr_number} never parked on merge")
+            await handle.signal("merge", args=[approve, "capstone: spec approved"])
+        record = await asyncio.wait_for(handle.result(), timeout=900)
+    return run_id, record
+
+
+@pytest.fixture(scope="module")
+def contract_first(stack: None, env: dict) -> dict:
+    """One goal in, one contract merge out. Reset `main` to the pre-contract
+    state, submit a contract-first goal, and let the platform run the whole
+    arc: the PM files the ordered pair, the contract crew authors the spec,
+    its PR parks for the single human merge, and then the implementation
+    auto-merges on a green base-ref contract — no other command."""
+    apply_blueprint(DELEGATED)
+    wait_for_convergence()
+    # Pre-contract baseline: the tree is declared but not yet on `main`, so an
+    # implementation cannot merge until the spec lands — which is the whole
+    # point of sequencing the contract first.
+    _delete_file(env, CONTRACT_TEST_PATH, "capstone: reset to pre-contract state")
+
+    run_id = new_run_id()
+    nonce = run_id[-6:].lower()
+    goal = (
+        f"Ship the slugify utility with an acceptance contract "
+        f"({CONTRACT_GOAL_MARKER}; capstone {nonce})\n\n"
+        f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
+    )
+    result: dict = {"env": env}
+
+    async def intake() -> list[str]:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = await client.start_workflow(
+                "intake",
+                IntakeInput(run_id=run_id, goal_text=goal, timeouts=FAST_TIMEOUTS),
+                id=intake_workflow_id(run_id),
+                task_queue=TASK_QUEUE,
+            )
+            record = await asyncio.wait_for(handle.result(), timeout=600)
+            return record.get("ticket_urls") or []
+
+    ticket_urls = asyncio.run(intake())
+    numbers = [
+        int(m.group(1)) for u in ticket_urls if (m := re.search(r"/issues/(\d+)$", u))
+    ]
+    titled = {n: _issue_title(env, n) for n in numbers}
+    result["ticket_titles"] = titled
+    contract_issue = next(n for n, t in titled.items() if t.startswith("Contract:"))
+    implement_issue = next(n for n, t in titled.items() if t.startswith("Implement:"))
+
+    # --- the contract phase: author the spec, one human merges it ----------
+    contract_impl = run_implement_from_issue(contract_issue, env)
+    result["contract_implement"] = contract_impl
+    contract_pr = _pr_number(contract_impl["pr_url"])
+    result["contract_pr"] = contract_pr
+    c_review_run, c_review = _drive_review(contract_pr, approve=True)
+    result["contract_review_run_id"] = c_review_run
+    result["contract_review"] = c_review
+
+    # --- the implement phase: no human command at all ----------------------
+    impl = run_implement_from_issue(implement_issue, env)
+    result["implement"] = impl
+    impl_pr = _pr_number(impl["pr_url"])
+    result["implement_pr"] = impl_pr
+    i_review_run, i_review = _drive_review(impl_pr, approve=None)
+    result["implement_review_run_id"] = i_review_run
+    result["implement_review"] = i_review
+
+    result["contract_merged"] = _github(
+        env, "GET", f"/repos/{_slug(env)}/pulls/{contract_pr}"
+    ).json()
+    result["implement_merged"] = _github(
+        env, "GET", f"/repos/{_slug(env)}/pulls/{impl_pr}"
+    ).json()
+
+    yield result
+
+    for issue in (contract_issue, implement_issue):
+        with contextlib.suppress(Exception):
+            _github(
+                env,
+                "PATCH",
+                f"/repos/{_slug(env)}/issues/{issue}",
+                json={"state": "closed"},
+            )
+    apply_blueprint(HELLO_SAAS)
+    wait_for_convergence()
+
+
+def test_the_pm_filed_contract_then_implement(contract_first: dict):
+    """The unattended sequencing: one intake dispatch filed exactly two
+    tickets — the contract first, the implementation second — each naming its
+    own crew. No human command sat between the phases."""
+    titles = contract_first["ticket_titles"]
+    assert len(titles) == 2, titles
+    assert sum(t.startswith("Contract:") for t in titles.values()) == 1
+    assert sum(t.startswith("Implement:") for t in titles.values()) == 1
+
+
+def test_the_contract_was_authored_by_the_contract_crew(contract_first: dict):
+    """The spec came from different hands: the authoring run's participants
+    are the contract-authoring crew, a template the delivery crew does not
+    contain — positional independence, not a promise."""
+    run_id = contract_first["contract_implement"]["run_id"]
+    crews = _psql(
+        "SELECT COALESCE(json_agg(DISTINCT crew_template), '[]') "
+        f"FROM registry.run_participants WHERE run_id = '{run_id}'"
+    )
+    assert json.loads(crews) == ["contract-authoring"], crews
+
+
+def test_the_contract_pr_needed_the_one_human_merge(contract_first: dict):
+    """Positional containment at merge: the contract PR could not
+    policy-merge, so it parked and the human's approval is what merged it —
+    the spec changes under a person's hand, by construction."""
+    story = audit_story(contract_first["contract_review_run_id"])
+    rules = [e["rule"] for e in story if e["tool"] == "gate.merge"]
+    assert "gate_policy_declined" in rules, rules
+    assert "gate_approved" in rules, rules
+    assert "gate_policy_resolved" not in rules, rules
+    assert contract_first["contract_merged"]["merged"] is True, (
+        "the contract never landed"
+    )
+
+
+def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict):
+    """The payoff: with the spec now on `main`, the implementation merged
+    with no human command — the compiled decision released it, and the
+    base-ref contract run against the head is what made it safe."""
+    review = contract_first["implement_review"]
+    story = audit_story(contract_first["implement_review_run_id"])
+    assert review["status"] == "done", review
+    assert contract_first["implement_merged"]["merged"] is True, (
+        "in-class work did not merge"
+    )
+    gate_rules = [e["rule"] for e in story if e["tool"] == "gate.merge"]
+    assert "gate_policy_resolved" in gate_rules, gate_rules
+    assert "gate_approved" not in gate_rules, (
+        "a human approval sneaked into the implement merge"
+    )
+    resolves = [e for e in story if e["tool"] == "merge.resolve"]
+    assert resolves and resolves[-1]["decision"] == "allow", resolves
+    assert resolves[-1]["rule"] == "merge_resolve_delegated", resolves[-1]
+
+
+def test_the_whole_arc_had_exactly_one_human_act(contract_first: dict):
+    """The milestone claim as an invariant: across both phases, the only
+    human command was the contract merge. The implementation's merge was
+    policy's, and nothing else asked for a person."""
+    impl_story = audit_story(contract_first["implement_review_run_id"])
+    assert not any(
+        e["source"] == "process-gate" and e["rule"] == "gate_approved" for e in impl_story
+    ), "the implementation was merged by a human, not policy"
+    assert any(e["tool"] == "git.merge_pr" for e in impl_story), (
+        "no unattended merge happened"
+    )
+
+
+def test_the_contract_arc_stayed_within_budget(contract_first: dict):
+    """Bounded money across all four runs of the arc."""
+    for key in (
+        "contract_implement",
+        "implement",
+    ):
+        run_id = contract_first[key]["run_id"]
+        spend = float(
+            _psql(
+                "SELECT COALESCE(SUM(usd), 0) FROM registry.budget_ledger "
+                f"WHERE run_id = '{run_id}'"
+            )
+            or 0
+        )
+        assert 0 <= spend < 5.0, f"{key} overspent: {spend}"

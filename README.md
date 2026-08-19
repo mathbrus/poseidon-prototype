@@ -618,6 +618,23 @@ and dispatches an ephemeral reviewer — read-and-judge only, no write tools —
 which runs the tests, posts findings, and ends with a structured pass/fail
 verdict the platform journals.
 
+**The split oracle.** There is a subtlety the merge gate has to answer, and
+it is not about the code — it is about the *rubric*. If green tests are what
+lets policy merge unattended, then the workstream that writes the code must
+not also own the tests that certify it, or it grades its own homework one
+level up. A blueprint that declares `policies.contract_tests` splits the
+tree: a contract/acceptance tree (e.g. `tests/contract/`) that only a
+`contract-author` role may `git.open_pr` into — the implementer's attempt
+dies at the gateway with `git_open_pr_contract_tree` named in the audit row,
+the same positional refusal a `pm` PRing `tests/` gets — versus everything
+else under `tests/`, which is ordinary unit-test code the implementer still
+owns end to end. The PM sequences the phases (write the contract, then
+implement against it) by filing an ordered pair of tickets to two different
+crews; humans declare the paths and the owning role in the document, and the
+compiler enforces both. And because the contract tree joins the merge
+carve-out, an oracle edit can never ride the delegation it certifies — a
+contract PR always parks on a human, exactly like a `.github/` change.
+
 **The merge gate.** The blueprint names the gate's resolver, and this is
 where quality becomes something policy owns rather than a human eyeballs.
 Under `resolved_by: human` the workflow parks on the `merge` signal: a
@@ -628,15 +645,29 @@ in the review sandbox (the *same* verify code the implement gate uses, not
 the reviewer's word for it), a registry-checked confirmation that the
 reviewer's identity is not the implementer's, and a compiled `merge.resolve`
 decision that also checks the change stays inside the delegated path class.
+When the company declares a contract tree there is a second, decisive
+platform fact: `contract_green`. The platform composes the PR head's code
+with the contract tree *as it stands on the base ref* — the reviewed head
+supplies the code, but the oracle comes from `main` — and runs exactly those
+tests, scoped, under its own identity. Nothing in that baseline came from
+the PR, so a head suite weakened to green, a skip marker, or a `conftest`
+that neuters collection launders nothing: the code either satisfies the spec
+the human already approved, or it does not merge. (One verification concept,
+parameterized by which tree it runs; the head-suite run stays as hygiene.)
 Only when the independent verdict passed, the platform's own checks are
-green, and the paths are in class does the merge fire — with no human
-command. Anything else is a *decline*, not a merge: a carve-out surface or
-an out-of-class path falls back to the same human `merge` signal, so the
-person's override survives delegation; a failed verdict or red re-run feeds
-a bounded rework loop instead (section 8). Either way the *orchestrator*
-performs the merge, under its platform identity, via a gateway tool call
-that policy permits to nobody else — and every transition, human or policy,
-is a first-class audit event.
+green, *the contract baseline is green*, and the paths are in class does the
+merge fire — with no human command. Anything else is a *decline*, not a
+merge: a carve-out surface, an out-of-class path, or the contract tree
+itself falls back to the same human `merge` signal, so the person's override
+survives delegation; a failed verdict, a red re-run, or a red contract feeds
+a bounded rework loop instead (section 8). A diff that touches the contract
+tree declines up front, before any layer is spent — an oracle edit is the
+human's to merge by construction, and the platform posts model-free
+deletion facts (test functions and assertions removed, counted off the
+diff) on the PR so a gutted spec cannot be approved silently. Either way the
+*orchestrator* performs the merge, under its platform identity, via a
+gateway tool call that policy permits to nobody else — and every transition,
+human or policy, is a first-class audit event.
 
 **Teardown.** On every terminal path — success, failure, cancellation,
 timeout, worker death — participants are revoked, pods destroyed, the
@@ -1045,9 +1076,10 @@ gets implicitly. Setting it to `policy` instead, with a `delegate` block
 naming the path class and a rework bound, hands the merge to the compiled
 decision described in section 5 — `examples/hello-saas-delegated.yaml` is
 the flagship that does this. The `delegate` block cannot name a protected
-surface (`.github/`, the document's own `deny_paths`): the compiler refuses
-it, because a merged PR must never be able to rewrite the rules that govern
-merging. Gate configuration is read from the compiled plan at runtime —
+surface (`.github/`, the document's own `deny_paths`, or a declared
+`contract_tests` tree): the compiler refuses it, because a merged PR must
+never be able to rewrite the rules — or the tests — that govern merging.
+Gate configuration is read from the compiled plan at runtime —
 never hardcoded — so changing the resolver is a visible, reviewable change
 to the document, not a code edit buried somewhere.
 
@@ -1064,9 +1096,9 @@ policies:
     protected: [main]
     allowed_pattern: ^feature/[a-z0-9-]+$
   deny_paths: [.github/workflows/]
-  path_ownership:
-    - paths: [tests/]
-      roles: [backend-engineer, sdet]
+  contract_tests:
+    paths: [tests/contract/]
+    roles: [contract-author]
   escalation:
     channel: api
     timeout_minutes: 60
@@ -1079,6 +1111,18 @@ These compile into deny rules evaluated against **real arguments**. Because
 the gateway computes the changed paths before querying policy, a rule about
 `.github/workflows/` is enforceable rather than advisory — an agent cannot
 modify the CI that checks it.
+
+`contract_tests` declares the split oracle: the acceptance tree a delegated
+merge is graded by, and the role templates that may deliver into it. Its
+consequences are deliberately positional and are described in full in
+section 5 — only `contract-author` may `git.open_pr` into the tree (the
+implementer's attempt dies at the gateway, named), the tree can never be
+delegated (a `delegate.paths` overlap is a compile error, the same refusal
+`.github/` gets), and the gating merge fact becomes the tree *as it stands
+on the base ref* run against the PR head. It is opt-in: a company that
+declares no `contract_tests` compiles no such rules and merges exactly as
+before. Removing the block reverts to one implementer-owned tree — the
+split is authority, so revoking it is a diff.
 
 The path rules also fail closed: without the changed paths in the input they
 *cannot* be evaluated, so the call is denied rather than allowed by default.
@@ -1359,12 +1403,21 @@ Delegating the merge gate hands a real decision to compiled policy, and
 that is authority a human chose to grant in a document they can read and
 revoke. What it does *not* remove is honest to state:
 
-- **Bad-but-tests-green code inside the delegated class still merges.** The
-  platform re-runs the tests and confirms an independent reviewer passed,
-  but neither is a proof of correctness. Code that is wrong in a way its
-  tests do not catch will merge unattended. That is precisely the risk the
-  human accepts by writing the delegation, and the reason the delegated
-  *path class* is narrow and every other class still stops at a person.
+- **Code that satisfies the human-approved contract but is wrong in ways
+  the contract does not test still merges.** This is the residual after the
+  split oracle (section 5) narrows the earlier, broader one. The platform no
+  longer takes the implementer's own suite as the rubric: the gating fact is
+  the contract tree as it stands on `main`, authored by a different crew and
+  merged under a human's hand, run against the PR head. So an implementer
+  can no longer weaken the oracle to launder a merge. What remains is that a
+  contract is only as good as the human who approved it — a spec that is
+  vacuous, or simply silent about the bug, will pass, and the code merges
+  unattended. That is the authority the human exercised by merging the
+  contract, and it is why a contract PR always stops at a person and arrives
+  with the platform's deletion facts attached. Making the spec *provably*
+  adequate (mutation testing, coverage floors) is deliberately out of scope
+  — this milestone makes it tamper-evident and independently authored, not
+  proven sufficient.
 - **The reviewed tree and the merged tree can diverge.** The changed paths
   and the verified tree are pinned when the review run starts (its sandbox
   is provisioned from the PR head read then); the merge does not re-assert
@@ -1378,9 +1431,12 @@ revoke. What it does *not* remove is honest to state:
   a decision, not an oversight.
 
 The compiled decision does refuse what it claims to: a steered reviewer
-cannot merge a change touching a protected surface, and the red-team suite
-drives exactly that on the cluster. The point of this box is that "policy
-can merge" is a bounded grant with edges worth knowing, not a blank cheque.
+cannot merge a change touching a protected surface, an implementer cannot
+PR the contract tree or launder a red baseline to green, and a steered
+contract author's gutted spec parks on a human with its deletions counted —
+`test_split_oracle_redteam` drives exactly these on the cluster. The point
+of this box is that "policy can merge" is a bounded grant with edges worth
+knowing, not a blank cheque.
 
 </details>
 
@@ -1395,7 +1451,7 @@ packages/          eleven workspace packages (see the reference below)
 deploy/helm/       the Poseidon chart, plus Temporal's values
 deploy/kind/       kind bootstrap, teardown, NetworkPolicy probe, .env
 crds/              Company and AgentInstance CustomResourceDefinitions
-examples/          hello-saas.yaml, Tetris goal/task, and the red-team scenarios
+examples/          hello-saas.yaml, hello-saas-delegated.yaml (the split), Tetris, red-team scenarios
 scripts/           acceptance.sh
 tests/e2e_kind/    the acceptance suite that runs against a live cluster
 ```

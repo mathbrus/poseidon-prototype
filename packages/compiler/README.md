@@ -140,7 +140,20 @@ property of the tool, not of its name prefix.
 `_policies_file` compiles `policies:` into deny rules over real
 arguments: protected branches (lowercased at emit time, so
 `protected: [Main]` still denies `main`), a branch-name regex, denied
-path prefixes, and path ownership keyed on role *templates*. Path rules
+path prefixes, path ownership keyed on role *templates*, and — when
+`contract_tests` is declared — the split oracle. The contract tree emits
+two class-named rules: `git_open_pr_contract_tree` denies a
+`git.open_pr` touching the tree for any role template outside its
+declared owners (the same `startswith`-over-prefix emission as path
+ownership, reused), and `merge_resolve_contract_path` denies a policy
+merge whose diff touches the tree whatever the facts say, so the oracle
+never rides the delegation it certifies. The tree also joins the merge
+carve-out set (`UNDELEGATABLE_PATHS ∪ deny_paths ∪ contract_tests.paths`,
+composed at the one point `_merge_gate_file` already owns), and when it
+is declared the merge allow additionally requires `input.args.contract_green`
+with a fail-closed `merge_resolve_contract_not_green` deny. Rules are
+named by class, not by index, because `min(deny_rules)` reporting makes
+the rule name the audit row's reason. Path rules
 fail closed: a `git.open_pr` whose input carries no `args.paths` hits
 `git_open_pr_paths_missing`, because a rule that cannot be evaluated
 must not default to allow. String values are emitted with `json.dumps`,
