@@ -639,6 +639,24 @@ def repo_sweeper(env: dict[str, str]):
     sweep_repo_debris(env)
 
 
+def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
+    """The conduct-ledger rows this exact heartbeat wrote. Every heartbeat
+    of a company journals under the shared `conduct-{company}` run id, but
+    each tick row carries the writing workflow's own id in the `workflow`
+    column — so this is attributable to one heartbeat even while the ensure
+    loop runs a second one beside it. Assert on these, never on
+    `audit_story(<your heartbeat id>)`: the decide/tick ledger was never
+    keyed by the nonce'd test ids, and winning a race is not a claim
+    (#15 step 4)."""
+    from orchestrator.workflows.conduct import conduct_workflow_id
+
+    return [
+        e
+        for e in audit_story(conduct_workflow_id(COMPANY_NS))
+        if e["tool"] == "conduct.tick" and e["workflow"] == heartbeat_id
+    ]
+
+
 def quiesce_heartbeat() -> None:
     """Terminate the ensure loop's bare `conduct-{company}` heartbeat after
     a module restores the pristine blueprint. Revocation-by-diff still

@@ -49,6 +49,7 @@ from .conftest import (
     audit_story,
     close_pr,
     deployed_timeouts,
+    heartbeat_ticks,
     quiesce_heartbeat,
     temporal_port_forward,
 )
@@ -235,16 +236,27 @@ def overnight(stack: None, env: dict) -> dict:
 
 def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     """No human ran the implement: the heartbeat consumed the intake ticket
-    and produced a PR, under an auto-minted run id."""
+    and produced a PR, under an auto-minted run id. Asserted on the run and
+    on this heartbeat's own attributable ticks — never on winning a race
+    against the ensure loop's bare heartbeat (#15 step 4)."""
     implement = overnight["implement"]
     assert implement["run_id"].startswith("auto-"), implement["run_id"]
     assert implement["workflow"] == "implement"
     assert implement["status"] == "done"
     assert implement["pr_url"]
-    # The decision that started it is the heartbeat's, journaled.
-    beat = audit_story(overnight["heartbeat_id"])
-    assert any(e["tool"] == "conduct.decide" for e in beat)
-    assert any(e["tool"] == "conduct.start" and e["decision"] == "allow" for e in beat)
+    # The authorized start is journaled under the run it started — the
+    # compiled conduct.start decision attributes to the child, whichever
+    # heartbeat asked.
+    story = audit_story(implement["run_id"])
+    assert any(e["tool"] == "conduct.start" and e["decision"] == "allow" for e in story)
+    # And it was THIS test's heartbeat that started it: the tick that
+    # names the child run carries the writing workflow's own id.
+    started = [
+        t
+        for t in heartbeat_ticks(overnight["heartbeat_id"])
+        if t["decision"] == "allow" and implement["run_id"] in (t["rule"] or "")
+    ]
+    assert started, "this heartbeat never recorded starting the implement"
 
 
 def test_the_company_reviewed_its_own_pr_unattended(overnight: dict):
