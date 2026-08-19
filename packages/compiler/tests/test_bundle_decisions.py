@@ -960,3 +960,134 @@ def test_no_contract_tree_means_no_contract_fact(decide_delegated):
     del args["args"]["contract_green"]
     decision = decide_delegated(**args)
     assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
+
+
+# -- the split's authority is not looser, and it revokes like authority ------
+
+
+def test_the_contract_author_cannot_merge(decide_split):
+    """Authority not looser: the new deliver-capable template gains
+    `git.open_pr` into its tree and nothing else — `git.merge_pr` stays
+    platform-only beside the split, exactly as before it."""
+    as_author = decide_split(
+        **ephemeral(
+            "contract-authoring",
+            "author",
+            "contract-author",
+            tool="git.merge_pr",
+            args={"number": 4},
+        )
+    )
+    assert as_author["allow"] is False
+    as_platform = decide_split(
+        PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
+    )
+    assert as_platform["allow"] is True
+
+
+def test_deny_paths_still_bind_the_contract_author(decide_split):
+    """The blueprint's deny_paths outrank every grant for the new role
+    too: owning the contract tree buys no reach into a denied surface."""
+    decision = decide_split(
+        **ephemeral(
+            "contract-authoring",
+            "author",
+            "contract-author",
+            tool="git.open_pr",
+            args={
+                "branch": "feature/x-contract",
+                "paths": [".github/workflows/ci.yml", "tests/contract/test_api.py"],
+            },
+        )
+    )
+    assert decision == {"allow": False, "rule": "git_open_pr_denied_paths"}
+
+
+def test_the_contract_crew_rides_the_spawn_caps(decide_split):
+    """`may_spawn` caps and the budget stop bind the second crew exactly
+    as the first: over the concurrency cap or without headroom, the
+    contract-authoring request denies by rule — spawning the spec's
+    author is governed spend like any other."""
+    over = decide_split(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "contract-authoring", "reason": "author contract"},
+        ),
+        agent_id="pm-1",
+        active_spawns=2,
+        budget_headroom=True,
+    )
+    assert over == {"allow": False, "rule": "crew_request_over_cap"}
+    broke = decide_split(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "contract-authoring", "reason": "author contract"},
+        ),
+        agent_id="pm-1",
+        active_spawns=0,
+        budget_headroom=False,
+    )
+    assert broke == {"allow": False, "rule": "crew_request_no_budget"}
+
+
+@pytest.fixture(scope="module")
+def decide_revoked(tmp_path_factory):
+    """`decide_split`'s company after the human revokes the split: the
+    same blueprint with `policies.contract_tests` deleted — one diff,
+    recompiled. The crew and its spawn grant may outlive the declaration;
+    the tree's special authority may not."""
+    import copy
+
+    import yaml
+    from conftest import HELLO_SAAS
+
+    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
+    blueprint["crews"]["contract-authoring"] = copy.deepcopy(CONTRACT_CREW)
+    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append(
+        "contract-authoring"
+    )
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
+    }
+    return _decider(tmp_path_factory, blueprint)
+
+
+def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
+    """The split is authority, so it revokes like authority: with the
+    declaration gone the ownership deny is gone — the implementer reaches
+    the tree again — and the delegation reads exactly the facts it did
+    before the split, the contract fact no longer priced in."""
+    reopened = decide_revoked(
+        **ephemeral(
+            "feature-delivery",
+            "executor",
+            "backend-engineer",
+            tool="git.open_pr",
+            args={"branch": "feature/x", "paths": ["tests/contract/test_api.py"]},
+        )
+    )
+    assert reopened["allow"] is True
+
+    args = merge_resolve(
+        verdict="pass", checks_green=True, paths=["src/a.py", "tests/unit/test_a.py"]
+    )
+    del args["args"]["contract_green"]
+    resolved = decide_revoked(**args)
+    assert resolved == {"allow": True, "rule": "merge_resolve_delegated"}
+
+
+def test_revocation_leaves_the_tree_undelegated_not_unguarded(decide_revoked):
+    """No looseness through the diff either: the revoked tree is ordinary
+    code outside the delegated class, so its merges still park on the
+    human — by class membership now, not by carve-out."""
+    decision = decide_revoked(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=["src/a.py", "tests/contract/test_api.py"],
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_undelegated_path"}

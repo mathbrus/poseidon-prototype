@@ -2,7 +2,7 @@
 ReviewWorkflow runs against Temporal's time-skipping test environment with
 scripted activities — sequencing the activity units cannot see.
 
-What must hold (issue #11, step 5):
+What must hold (issue #11 step 5; the split-oracle items are #13 step 5):
 
 - both layers required: a steered pass verdict with red platform checks
   merges nothing, green checks with a fail verdict merge nothing — each
@@ -15,7 +15,13 @@ What must hold (issue #11, step 5):
   cleanly — config read at run start grants nothing by itself;
 - the human `merge` signal still resolves every gate: overrides a
   decline, decides an exhausted rework chain, and the human-resolved
-  path never touches the policy machinery at all.
+  path never touches the policy machinery at all;
+- a contract-tree PR is the human's to merge by construction: the gate
+  declines before spending any layer — no verify run, no composed
+  baseline, no resolve evaluation, no rework ticket — and the human's
+  approval still releases it (the OPA carve-out deny is pinned in the
+  compiler's bundle tests; step 3's tests above pin the contract fact's
+  place in the layers for every other diff).
 
 Authority-not-looser is pinned where it lives: `git.merge_pr` ungrantable
 (schema + bundle tests), the conductor's `may_start` enum (schema tests),
@@ -67,6 +73,9 @@ class Harness:
     merge_gate: dict[str, Any] | None = None
     dispatch: dict[str, Any] = field(default_factory=dispatch_result)
     verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
+    pr_paths: list[str] = field(
+        default_factory=lambda: ["src/slugify.py", "tests/test_slugify.py"]
+    )
     contract_paths: list[str] = field(default_factory=list)
     contract_verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
     deletions: dict[str, int] | None = None
@@ -124,7 +133,7 @@ class Harness:
                 "title": "Add slugify utility",
                 "head": "feature/slugify-x",
                 "url": f"https://git.test/r/pulls/{pr_number}",
-                "paths": ["src/slugify.py", "tests/test_slugify.py"],
+                "paths": list(harness.pr_paths),
                 "contract_deletions": harness.deletions,
             }
 
@@ -488,6 +497,87 @@ async def test_an_oracle_edit_is_surfaced_before_the_human_park(env):
         await worker.__aexit__(None, None, None)
 
     assert record["merged"] is True
+
+
+# -- a contract-tree PR is the human's to merge, before any layer -----------
+
+
+async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
+    """The workflow-layer half of the carve-out guarantee: a PR touching
+    the declared contract tree can never policy-merge, so the gate
+    declines positionally — a perfect verdict is journaled, then no verify
+    run, no composed baseline, no resolve evaluation, no rework ticket —
+    and the run parks on the human, who reads the deletion facts posted
+    before the park. At bootstrap this is also what keeps the first
+    contract PR off a composed baseline that has no tree to run yet."""
+    deletions = {
+        "removed_tests": 0,
+        "added_tests": 4,
+        "removed_asserts": 0,
+        "added_asserts": 4,
+    }
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        contract_paths=["tests/contract/"],
+        pr_paths=["tests/contract/test_slugify_contract.py"],
+        deletions=deletions,
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.verdicts == [("pass", "Suite green; in scope.")]
+        assert harness.warns == [deletions]
+        assert harness.verify_calls == 0
+        assert harness.scoped_verifies == []
+        assert harness.fetches == [["feature/slugify-x", None]]
+        assert harness.provisions == 1
+        assert harness.independence_calls == 0
+        assert harness.resolve_args == []
+        assert harness.depth_calls == 0
+        assert harness.reworks == []
+        assert harness.gate_events == ["policy_declined"]
+        assert harness.merges == []
+        await handle.signal("merge", args=[True, "the spec change is deliberate"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    # The human's approval is the one authority that merges an oracle
+    # edit — and it still works, findings and facts already on the PR.
+    assert harness.gate_events == ["policy_declined", "approved"]
+    assert harness.merges == [PR]
+    assert record["status"] == "done"
+    assert record["merged"] is True
+
+
+async def test_a_rejected_contract_pr_fails_honestly(env):
+    """The other half of the human's authority over the spec: a rejection
+    merges nothing and the run finalizes failed — a gutted contract never
+    slips through by timeout or default."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        contract_paths=["tests/contract/"],
+        pr_paths=["tests/contract/test_slugify_contract.py"],
+        deletions={
+            "removed_tests": 4,
+            "added_tests": 1,
+            "removed_asserts": 4,
+            "added_asserts": 1,
+        },
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        await handle.signal("merge", args=[False, "the trim guts the spec"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.merges == []
+    assert harness.reworks == []
+    assert harness.gate_events == ["policy_declined", "rejected"]
+    assert record["status"] == "failed"
+    assert "merge gate rejected" in record["error"]
 
 
 # -- carve-outs and revocation park on the human ---------------------------
