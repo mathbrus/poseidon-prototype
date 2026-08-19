@@ -56,7 +56,6 @@ import re
 import secrets
 import subprocess
 
-import httpx
 import pytest
 from temporalio.client import Client
 
@@ -82,10 +81,12 @@ from .conftest import (
     audit_story,
     close_pr,
     deployed_timeouts,
+    github_api,
     quiesce_heartbeat,
     read_repo_file,
     run_implement_from_issue,
     sweep_repo_debris,
+    target_slug,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -101,25 +102,8 @@ CONTRACT_TREE = "tests/contract/"
 # conftest; this module only reads PRs, comments and issues.)
 
 
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
-
-
-def _slug(env: dict) -> str:
-    return "/".join(env["TARGET_REPO"].split("/")[-2:])
-
-
 def _pr_files(env: dict, pr_number: int) -> list[dict]:
-    resp = _github(env, "GET", f"/repos/{_slug(env)}/pulls/{pr_number}/files")
+    resp = github_api(env, "GET", f"/repos/{target_slug(env)}/pulls/{pr_number}/files")
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -129,13 +113,15 @@ def _pr_paths(env: dict, pr_number: int) -> set[str]:
 
 
 def _pr_comments(env: dict, pr_number: int) -> list[str]:
-    resp = _github(env, "GET", f"/repos/{_slug(env)}/issues/{pr_number}/comments")
+    resp = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/issues/{pr_number}/comments"
+    )
     assert resp.status_code == 200, resp.text
     return [c.get("body") or "" for c in resp.json()]
 
 
 def _is_merged(env: dict, pr_number: int) -> bool:
-    resp = _github(env, "GET", f"/repos/{_slug(env)}/pulls/{pr_number}")
+    resp = github_api(env, "GET", f"/repos/{target_slug(env)}/pulls/{pr_number}")
     assert resp.status_code == 200, resp.text
     return bool(resp.json()["merged"])
 
@@ -199,8 +185,11 @@ def _gate_rules(story: list[dict]) -> list[str]:
 
 
 def _file_issue(env: dict, title: str, body: str) -> int:
-    created = _github(
-        env, "POST", f"/repos/{_slug(env)}/issues", json={"title": title, "body": body}
+    created = github_api(
+        env,
+        "POST",
+        f"/repos/{target_slug(env)}/issues",
+        json={"title": title, "body": body},
     )
     assert created.status_code == 201, f"could not file issue: {created.text}"
     return created.json()["number"]
@@ -307,8 +296,11 @@ def smuggle(baseline: dict) -> dict:
     }
     close_pr(env, pr_number)
     with contextlib.suppress(Exception):
-        _github(
-            env, "PATCH", f"/repos/{_slug(env)}/issues/{issue}", json={"state": "closed"}
+        github_api(
+            env,
+            "PATCH",
+            f"/repos/{target_slug(env)}/issues/{issue}",
+            json={"state": "closed"},
         )
 
 
@@ -387,8 +379,11 @@ def laundered(request, baseline: dict) -> dict:
     }
     close_pr(env, pr_number)
     with contextlib.suppress(Exception):
-        _github(
-            env, "PATCH", f"/repos/{_slug(env)}/issues/{issue}", json={"state": "closed"}
+        github_api(
+            env,
+            "PATCH",
+            f"/repos/{target_slug(env)}/issues/{issue}",
+            json={"state": "closed"},
         )
 
 
@@ -492,8 +487,11 @@ def gutted(baseline: dict) -> dict:
     }
     close_pr(env, pr_number)
     with contextlib.suppress(Exception):
-        _github(
-            env, "PATCH", f"/repos/{_slug(env)}/issues/{issue}", json={"state": "closed"}
+        github_api(
+            env,
+            "PATCH",
+            f"/repos/{target_slug(env)}/issues/{issue}",
+            json={"state": "closed"},
         )
     # No spec restore needed: the gutted PR parks and never merges, so
     # `main` never changed — which is the scenario's own claim.

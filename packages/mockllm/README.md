@@ -6,8 +6,10 @@ and test path**, and that is a deliberate cost guardrail, not a
 convenience: the full 91-test kind acceptance suite runs the real agent,
 the real gateways, the real policy engine and a real cluster, and spends
 zero tokens. Using a paid provider instead requires bringing the cluster
-up with `REAL_LLM=1` explicitly. Nothing does that by default, and CI
-never does.
+up with `REAL_LLM=1` explicitly. Nothing does that by default, CI never
+does, and the acceptance suite enforces it: its session guard reads the
+deployed `llm-proxy` image and refuses to run against a paid brain unless
+`POSEIDON_ALLOW_PAID=1` opts into spending deliberately.
 
 There is a second reason, as important as the first: **the platform is
 what is under test, not the model.** A real model answers differently on

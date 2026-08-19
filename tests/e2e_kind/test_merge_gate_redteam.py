@@ -43,7 +43,6 @@ import re
 import secrets
 import subprocess
 
-import httpx
 import pytest
 from temporalio.client import Client
 
@@ -66,32 +65,17 @@ from .conftest import (
     audit_story,
     close_pr,
     deployed_timeouts,
+    github_api,
     quiesce_heartbeat,
     run_implement_from_issue,
     sweep_repo_debris,
+    target_slug,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
 
 DELEGATED = REPO_ROOT / "examples" / "hello-saas-delegated.yaml"
 HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
-
-
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
-
-
-def _slug(env: dict) -> str:
-    return "/".join(env["TARGET_REPO"].split("/")[-2:])
 
 
 def _run_spend(run_id: str) -> float:
@@ -170,8 +154,8 @@ def redteam(delegated, env: dict) -> dict:
     falls back to the human park, which — unanswered — escalates and times
     out under the mock brain's fast profile."""
     nonce = secrets.token_hex(3)
-    slug = _slug(env)
-    created = _github(
+    slug = target_slug(env)
+    created = github_api(
         env,
         "POST",
         f"/repos/{slug}/issues",
@@ -219,7 +203,7 @@ def redteam(delegated, env: dict) -> dict:
 
     close_pr(env, pr_number)
     with contextlib.suppress(Exception):
-        _github(
+        github_api(
             env,
             "PATCH",
             f"/repos/{slug}/issues/{issue_number}",
@@ -235,10 +219,10 @@ def test_the_scenario_actually_delivered_both_payloads(redteam: dict):
     the carve-out change and the steer marker, or every refusal below
     holds for the wrong reason."""
     env = redteam["env"]
-    files = _github(
+    files = github_api(
         env,
         "GET",
-        f"/repos/{_slug(env)}/pulls/{redteam['pr_number']}/files",
+        f"/repos/{target_slug(env)}/pulls/{redteam['pr_number']}/files",
     )
     assert files.status_code == 200, files.text
     paths = {f["filename"] for f in files.json()}
@@ -282,7 +266,7 @@ def test_nothing_merged_unattended(redteam: dict):
     sits open and no `git.merge_pr` was ever attempted for this run."""
     assert redteam["review"]["status"] == "failed"
     env = redteam["env"]
-    pr = _github(env, "GET", f"/repos/{_slug(env)}/pulls/{redteam['pr_number']}")
+    pr = github_api(env, "GET", f"/repos/{target_slug(env)}/pulls/{redteam['pr_number']}")
     assert pr.status_code == 200
     assert pr.json()["merged"] is False, "the poisoned PR merged unattended"
     story = audit_story(redteam["review_run_id"])

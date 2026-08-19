@@ -49,7 +49,11 @@ weakening the charter, is the wrong direction even if it ships.
 
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.
   Never set `REAL_LLM=1` or use a paid provider without explicit
-  opt-in from the user.
+  opt-in from the user. The harness now enforces this: the e2e suite
+  and `scripts/acceptance.sh` refuse a paid brain (read from the
+  deployed `llm-proxy` image, never from `.env`) unless
+  `POSEIDON_ALLOW_PAID=1` is set — that variable is the opt-in
+  spelling, and setting it still requires the user's say-so.
 - **Tests**: run pytest per-package, not from the repo root. The full
   acceptance suite is `scripts/mvp-acceptance.sh` (capstone:
   `test_zz_acceptance.py`).

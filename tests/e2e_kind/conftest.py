@@ -1,21 +1,55 @@
-"""Fixtures for the kind e2e suite.
+"""Fixtures for the kind e2e suite — and the suite's contract with its
+environment (#15).
 
 These tests run against the kind cluster brought up by
 `deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
 GIT_TOKEN and a disposable TARGET_REPO. They open real pull requests on
-that repo. The LLM is the deterministic mock by default (free); only a
-cluster deployed with REAL_LLM=1 spends provider tokens — and what the
-suite believes about that comes from the deployment, not the file (see
-`deployed_timeouts`).
-
-Runs go through Temporal: the suite starts the implement
-workflow as a thin client (exactly what `poseidon run` does), and the
-in-cluster orchestrator worker drives the activities. Mid-run, the worker
-pod is killed — the happy-path assertions double as the crash-resume proof.
+that repo. Runs go through Temporal: the suite starts workflows as a thin
+client (exactly what `poseidon run` does), and the in-cluster orchestrator
+worker drives the activities.
 
 Run explicitly (excluded from plain `pytest`):
 
     uv run pytest tests/e2e_kind -m e2e_kind
+
+The suite holds itself to the same discipline the product has — declared
+state, enforced stops, verified quiet — via four session-level guarantees:
+
+- **The brain of record** (`paid_brain_guard`, autouse): the session fails
+  before the first dispatch unless the deployed `llm-proxy` image is the
+  mock, or `POSEIDON_ALLOW_PAID=1` opts into spending. What the suite
+  believes about the brain comes from the deployment, never from `.env`'s
+  `REAL_LLM` claim — `kind-up.sh` deliberately lets an invocation-time
+  `REAL_LLM=0` beat the file. Every timer follows the same fact
+  (`deployed_timeouts`): the fast profile for the mock, the workflow
+  defaults for a paid brain.
+- **The repo-state contract** (`repo_baseline`, autouse): TARGET_REPO@main
+  is suite-managed state with one owner. The baseline seeds the declared
+  post-split shape from the mock brain's own canonical texts and prunes
+  what it refuses to inherit (the pre-split test tree; root pytest.ini or
+  conftest.py, whose merged form would neuter every later run's
+  collection). Idempotent — a repo already at baseline gets reads, not
+  commits. No module may depend on what a previous run left behind.
+- **A clean campsite** (`close_pr`, `sweep_repo_debris`, `repo_sweeper`,
+  `quiesce_heartbeat`): debris feeds contention — the ensure loop's bare
+  heartbeat treats any open PR or issue as reviewable backlog, and one
+  parked review holds `max_concurrent_runs`' whole slot for a day. So a
+  fixture closes the PRs it opened the moment their openness has been
+  verified; a module that applies a conduct-declaring blueprint sweeps
+  BEFORE the apply (the bare heartbeat ticks once, immediately) and
+  terminates the bare heartbeat after the pristine restore; the session
+  sweeper catches whatever a failure path dropped.
+- **Quiet, asserted** (`test_zzz_quiet`, collecting last): when the suite
+  exits green, no workflow is running and no run is non-terminal — a
+  failing assertion, not a person asking.
+
+What a new module owes: declare repo preconditions against `repo_baseline`
+(and put deviations back); close every PR it opens and delete the branch
+(`close_pr`); if it applies a conduct-declaring blueprint, sweep before
+the apply and `quiesce_heartbeat()` after the pristine restore; and anchor
+assertions on runs and gate events — attributable whichever heartbeat
+acted (`heartbeat_ticks`) — never on winning a race against the ensure
+loop.
 """
 
 import asyncio

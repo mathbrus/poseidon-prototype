@@ -10,9 +10,13 @@
 # real cluster exists, the intent is that this same script runs unchanged
 # against its context.
 #
-# Cost: zero LLM spend — the cluster deploys the deterministic mock brain
-# unless it was brought up with REAL_LLM=1. Opens real PRs on the
-# disposable TARGET_REPO from deploy/kind/.env.
+# Cost: zero LLM spend, enforced — the preflight below and the suite's own
+# session guard both refuse a paid brain (read from the deployed llm-proxy
+# image, never from .env's REAL_LLM claim) unless POSEIDON_ALLOW_PAID=1
+# opts into spending deliberately. Opens real PRs on the disposable
+# TARGET_REPO from deploy/kind/.env; the suite seeds, sweeps, and asserts
+# the repo and cluster quiet itself (tests/e2e_kind/conftest.py documents
+# the contract).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

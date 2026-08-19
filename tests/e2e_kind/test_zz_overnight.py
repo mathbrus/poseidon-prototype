@@ -31,7 +31,6 @@ import re
 import subprocess
 import time
 
-import httpx
 import pytest
 from temporalio.client import Client
 
@@ -49,6 +48,7 @@ from .conftest import (
     audit_story,
     close_pr,
     deployed_timeouts,
+    github_api,
     heartbeat_ticks,
     quiesce_heartbeat,
     sweep_repo_debris,
@@ -105,19 +105,6 @@ def _await_run(task: str, terminal: bool, deadline_s: int = 1800) -> dict:
             return run
         time.sleep(5)
     raise AssertionError(f"run {task!r} never {'finished' if terminal else 'started'}")
-
-
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
 
 
 def _pr_number(pr_url: str) -> int:
@@ -208,7 +195,7 @@ def overnight(stack: None, env: dict) -> dict:
                     await asyncio.sleep(2)
                 else:
                     raise AssertionError("the unattended review never parked to merge")
-                result["parked_pr"] = _github(
+                result["parked_pr"] = github_api(
                     env,
                     "GET",
                     f"/repos/{'/'.join(env['TARGET_REPO'].split('/')[-2:])}/pulls/{pr_number}",
@@ -230,7 +217,7 @@ def overnight(stack: None, env: dict) -> dict:
     slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
     close_pr(env, result.get("pr_number") or 0)
     with contextlib.suppress(Exception):
-        _github(
+        github_api(
             env,
             "PATCH",
             f"/repos/{slug}/issues/{result.get('issue_number')}",
@@ -285,7 +272,7 @@ def test_the_single_human_verdict_completes_delivery(overnight: dict):
     """One approval out: the merge signal releases the gateway merge, the
     review run finishes, and the PR is merged."""
     assert overnight["review_record"]["status"] == "done", overnight["review_record"]
-    pull = _github(
+    pull = github_api(
         overnight["env"],
         "GET",
         f"/repos/{'/'.join(overnight['env']['TARGET_REPO'].split('/')[-2:])}/pulls/{overnight['pr_number']}",

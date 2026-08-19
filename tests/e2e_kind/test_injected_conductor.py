@@ -28,7 +28,6 @@ import hashlib
 import json
 import re
 
-import httpx
 import pytest
 
 from common.ids import new_run_id
@@ -48,25 +47,13 @@ from .conftest import (
     audit_story,
     close_pr_url,
     deployed_timeouts,
+    github_api,
     run_implement,
     temporal_port_forward,
 )
 from .test_crew_identity import _registry
 
 GOAL_FILE = REPO_ROOT / "examples" / "goal-injected-conductor.md"
-
-
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
 
 
 def _egress_digest(host: str, port: int) -> str:
@@ -126,7 +113,7 @@ def conductor_intake(stack: None, env: dict) -> dict:
         match = re.search(r"/issues/(\d+)$", url)
         if match:
             with contextlib.suppress(Exception):
-                _github(
+                github_api(
                     env,
                     "PATCH",
                     f"/repos/{slug}/issues/{match.group(1)}",

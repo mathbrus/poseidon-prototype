@@ -19,7 +19,6 @@ import contextlib
 import re
 import time
 
-import httpx
 import pytest
 
 from common.ids import new_run_id
@@ -36,7 +35,9 @@ from .conftest import (
     audit_story,
     close_pr,
     deployed_timeouts,
+    github_api,
     run_implement_from_issue,
+    target_slug,
     temporal_port_forward,
 )
 from .test_crew_identity import _registry
@@ -46,23 +47,6 @@ def _reviewer_id(run_id: str) -> str:
     from orchestrator.identity import ephemeral_agent_id
 
     return ephemeral_agent_id("feature-review", "reviewer", run_id)
-
-
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
-
-
-def _repo_slug(env: dict) -> str:
-    return "/".join(env["TARGET_REPO"].split("/")[-2:])
 
 
 async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -> dict:
@@ -178,12 +162,12 @@ def review_chain(stack: None, env: dict) -> dict:
     # The merged PR's branch goes too; the merge itself is what the
     # assertions read, and it survives the branch.
     close_pr(env, chain["pr_number"])
-    slug = _repo_slug(env)
+    slug = target_slug(env)
     for url in chain["intake"].get("ticket_urls") or []:
         number = re.search(r"/issues/(\d+)$", url)
         if number:
             with contextlib.suppress(Exception):
-                _github(
+                github_api(
                     env,
                     "PATCH",
                     f"/repos/{slug}/issues/{number.group(1)}",
@@ -216,8 +200,8 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     assert record["pr_url"] == review_chain["pr_url"]
 
     env = review_chain["env"]
-    pr = _github(
-        env, "GET", f"/repos/{_repo_slug(env)}/pulls/{review_chain['pr_number']}"
+    pr = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/pulls/{review_chain['pr_number']}"
     )
     assert pr.status_code == 200
     assert pr.json()["merged"] is True, "the gateway merge never landed"
@@ -247,10 +231,10 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
 
     # The findings comment is really on the PR.
     env = review_chain["env"]
-    comments = _github(
+    comments = github_api(
         env,
         "GET",
-        f"/repos/{_repo_slug(env)}/issues/{review_chain['pr_number']}/comments",
+        f"/repos/{target_slug(env)}/issues/{review_chain['pr_number']}/comments",
     )
     assert comments.status_code == 200
     assert any("test suite" in c["body"] for c in comments.json()), (

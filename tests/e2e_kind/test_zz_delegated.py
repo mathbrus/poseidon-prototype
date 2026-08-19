@@ -41,7 +41,6 @@ import re
 import subprocess
 import time
 
-import httpx
 import pytest
 from temporalio.client import Client
 
@@ -61,9 +60,11 @@ from .conftest import (
     close_pr,
     delete_repo_file,
     deployed_timeouts,
+    github_api,
     quiesce_heartbeat,
     run_implement_from_issue,
     sweep_repo_debris,
+    target_slug,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -115,23 +116,6 @@ def _await_run(task: str, terminal: bool, deadline_s: int = 1800) -> dict:
             return run
         time.sleep(5)
     raise AssertionError(f"run {task!r} never {'finished' if terminal else 'started'}")
-
-
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
-
-
-def _slug(env: dict) -> str:
-    return "/".join(env["TARGET_REPO"].split("/")[-2:])
 
 
 def _pr_number(pr_url: str) -> int:
@@ -224,18 +208,18 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
     asyncio.run(drive())
 
     # The merged PR, read after the arc completed.
-    result["merged_pr"] = _github(
-        env, "GET", f"/repos/{_slug(env)}/pulls/{result['pr_number']}"
+    result["merged_pr"] = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/pulls/{result['pr_number']}"
     ).json()
 
     yield result
 
     close_pr(env, result.get("pr_number") or 0)
     with contextlib.suppress(Exception):
-        _github(
+        github_api(
             env,
             "PATCH",
-            f"/repos/{_slug(env)}/issues/{result.get('issue_number')}",
+            f"/repos/{target_slug(env)}/issues/{result.get('issue_number')}",
             json={"state": "closed"},
         )
     apply_blueprint(HELLO_SAAS)
@@ -325,7 +309,9 @@ def test_the_whole_arc_had_exactly_one_human_act(delegated_overnight: dict):
 
 def _issue_title(env: dict, number: int) -> str:
     return (
-        _github(env, "GET", f"/repos/{_slug(env)}/issues/{number}").json().get("title")
+        github_api(env, "GET", f"/repos/{target_slug(env)}/issues/{number}")
+        .json()
+        .get("title")
         or ""
     )
 
@@ -432,11 +418,11 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     result["implement_review_run_id"] = i_review_run
     result["implement_review"] = i_review
 
-    result["contract_merged"] = _github(
-        env, "GET", f"/repos/{_slug(env)}/pulls/{contract_pr}"
+    result["contract_merged"] = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/pulls/{contract_pr}"
     ).json()
-    result["implement_merged"] = _github(
-        env, "GET", f"/repos/{_slug(env)}/pulls/{impl_pr}"
+    result["implement_merged"] = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/pulls/{impl_pr}"
     ).json()
 
     yield result
@@ -446,10 +432,10 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
             close_pr(env, pr)
     for issue in (contract_issue, implement_issue):
         with contextlib.suppress(Exception):
-            _github(
+            github_api(
                 env,
                 "PATCH",
-                f"/repos/{_slug(env)}/issues/{issue}",
+                f"/repos/{target_slug(env)}/issues/{issue}",
                 json={"state": "closed"},
             )
     apply_blueprint(HELLO_SAAS)

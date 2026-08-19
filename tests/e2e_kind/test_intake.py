@@ -9,8 +9,6 @@ import asyncio
 import contextlib
 import re
 
-import httpx
-
 from common.ids import new_run_id
 from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
 
@@ -19,22 +17,10 @@ from .conftest import (
     _psql_json,
     audit_story,
     deployed_timeouts,
+    github_api,
     temporal_port_forward,
 )
 from .test_crew_identity import _registry
-
-
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
 
 
 def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> None:
@@ -70,7 +56,7 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
         assert match, record["ticket_urls"]
         issue_number = int(match.group(1))
         slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
-        issue = _github(env, "GET", f"/repos/{slug}/issues/{issue_number}")
+        issue = github_api(env, "GET", f"/repos/{slug}/issues/{issue_number}")
         assert issue.status_code == 200 and issue.json()["state"] == "open"
 
         # The recorded, expiring request under the PM's authority — the
@@ -100,7 +86,7 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
         if issue_number is not None:
             slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
             with contextlib.suppress(Exception):
-                _github(
+                github_api(
                     env,
                     "PATCH",
                     f"/repos/{slug}/issues/{issue_number}",

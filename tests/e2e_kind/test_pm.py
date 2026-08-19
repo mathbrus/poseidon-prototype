@@ -17,7 +17,7 @@ import httpx
 
 from common.ids import new_run_id
 
-from .conftest import COMPANY_NS, _psql_json, audit_story
+from .conftest import COMPANY_NS, _psql_json, audit_story, github_api
 from .test_crew_identity import _registry
 
 PM_LOCAL_PORT = 18002
@@ -44,19 +44,6 @@ def _pm_forward():
     finally:
         proc.terminate()
         proc.wait(timeout=10)
-
-
-def _github(env: dict, method: str, path: str, **kwargs) -> httpx.Response:
-    return httpx.request(
-        method,
-        f"https://api.github.com{path}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {env['GIT_TOKEN']}",
-        },
-        timeout=30,
-        **kwargs,
-    )
 
 
 def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
@@ -111,7 +98,7 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
             assert match, status["ticket_urls"]
             issue_number = int(match.group(1))
             slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
-            issue = _github(env, "GET", f"/repos/{slug}/issues/{issue_number}")
+            issue = github_api(env, "GET", f"/repos/{slug}/issues/{issue_number}")
             assert issue.status_code == 200
             assert issue.json()["state"] == "open"
             assert goal[:40] in issue.json()["title"] + issue.json()["body"]
@@ -142,7 +129,7 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
             if issue_number is not None:
                 slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
                 with contextlib.suppress(Exception):
-                    _github(
+                    github_api(
                         env,
                         "PATCH",
                         f"/repos/{slug}/issues/{issue_number}",

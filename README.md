@@ -828,11 +828,14 @@ MODEL=anthropic/claude-sonnet-4-5
 
 Re-run `kind-up.sh` after every provider or model change.
 
-Do not point `scripts/acceptance.sh` at a paid provider: ninety-one tests
-against a live model will spend money and the suite asserts mock-brain
-behaviour, not model quality. The command reference is in
-[INTERFACES.md](INTERFACES.md). Once the real model is up, the walkthrough
-below is the full SDLC.
+Do not point `scripts/acceptance.sh` at a paid provider: the suite asserts
+mock-brain behaviour, not model quality, and against a live model it would
+spend money — so it refuses to run. Both the script's preflight and the
+suite's own session guard read the *deployed* `llm-proxy` image (never
+`.env`'s `REAL_LLM` claim) and fail fast on a paid brain unless
+`POSEIDON_ALLOW_PAID=1` deliberately opts into spending. The command
+reference is in [INTERFACES.md](INTERFACES.md). Once the real model is up,
+the walkthrough below is the full SDLC.
 
 ### A full run: a small Tetris app
 
@@ -927,11 +930,16 @@ terminal path the crew identities, pods, and sandbox go away.
 scripts/acceptance.sh
 ```
 
-The full end-to-end suite, roughly 18 minutes, against the live cluster
-(the exact count is in the pytest summary). It opens real pull
-requests on your disposable repo. This is the suite that proves the claims
-in this document — including the red-team module, which attacks a real
-provisioned sandbox.
+The full end-to-end suite, under an hour, against the live cluster (the
+exact count is in the pytest summary). It opens real pull requests on your
+disposable repo — and owns that repo's state entirely: it seeds `main` to
+a declared baseline, closes every PR and branch it creates, and finishes
+by *asserting* the cluster is quiet, so two consecutive runs are green
+with nothing done between them and a fresh disposable repo needs no
+manual setup (`tests/e2e_kind/conftest.py` documents the contract). This
+is the suite that proves the claims in this document — including the
+red-team modules, which attack a real provisioned sandbox and a real
+compiled merge gate.
 
 ```bash
 deploy/kind/kind-down.sh    # when you are done
