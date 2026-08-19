@@ -34,6 +34,7 @@ from .conftest import (
     TASK_QUEUE,
     _psql_json,
     audit_story,
+    close_pr,
     deployed_timeouts,
     run_implement_from_issue,
     temporal_port_forward,
@@ -173,8 +174,10 @@ def review_chain(stack: None, env: dict) -> dict:
 
     yield chain
 
-    # The intake leg's leftovers, exactly as test_intake cleans its own;
-    # the review artifacts stay — they are what the assertions read.
+    # The intake leg's leftovers, exactly as test_intake cleans its own.
+    # The merged PR's branch goes too; the merge itself is what the
+    # assertions read, and it survives the branch.
+    close_pr(env, chain["pr_number"])
     slug = _repo_slug(env)
     for url in chain["intake"].get("ticket_urls") or []:
         number = re.search(r"/issues/(\d+)$", url)

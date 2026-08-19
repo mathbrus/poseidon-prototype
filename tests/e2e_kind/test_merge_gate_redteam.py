@@ -64,7 +64,9 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    close_pr,
     deployed_timeouts,
+    quiesce_heartbeat,
     run_implement_from_issue,
     temporal_port_forward,
 )
@@ -150,6 +152,7 @@ def delegated(stack: None, repo_baseline: dict):
     yield
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
+    quiesce_heartbeat()
 
 
 @pytest.fixture(scope="module")
@@ -207,6 +210,7 @@ def redteam(delegated, env: dict) -> dict:
         "review": review,
     }
 
+    close_pr(env, pr_number)
     with contextlib.suppress(Exception):
         _github(
             env,

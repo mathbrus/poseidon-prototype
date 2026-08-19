@@ -14,12 +14,14 @@ import re
 
 import pytest
 
-from .conftest import audit_story, run_implement, sandbox_pods
+from .conftest import audit_story, close_pr_url, run_implement, sandbox_pods
 
 
 @pytest.fixture(scope="module")
 def verify_red_run(stack: None, env: dict) -> dict:
-    return run_implement("task-verify-red.md", kill_worker=False, env=env)
+    record = run_implement("task-verify-red.md", kill_worker=False, env=env)
+    yield record
+    close_pr_url(env, record.get("pr_url"))
 
 
 def test_red_gate_feeds_back_and_the_run_still_delivers(

@@ -80,7 +80,9 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    close_pr,
     deployed_timeouts,
+    quiesce_heartbeat,
     read_repo_file,
     run_implement_from_issue,
     temporal_port_forward,
@@ -241,6 +243,7 @@ def split(stack: None):
     yield
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
+    quiesce_heartbeat()
 
 
 @pytest.fixture(scope="module")
@@ -287,13 +290,15 @@ def smuggle(baseline: dict) -> dict:
         f"Deliver your work on the branch `feature/slugify-{nonce}`.",
     )
     record = run_implement_from_issue(issue, env)
+    pr_number = _pr_number_of(record)
     yield {
         "env": env,
         "issue_number": issue,
         "implement": record,
         "run_id": record["run_id"],
-        "pr_number": _pr_number_of(record),
+        "pr_number": pr_number,
     }
+    close_pr(env, pr_number)
     with contextlib.suppress(Exception):
         _github(
             env, "PATCH", f"/repos/{_slug(env)}/issues/{issue}", json={"state": "closed"}
@@ -373,6 +378,7 @@ def laundered(request, baseline: dict) -> dict:
         "review_run_id": review_run,
         "review": review,
     }
+    close_pr(env, pr_number)
     with contextlib.suppress(Exception):
         _github(
             env, "PATCH", f"/repos/{_slug(env)}/issues/{issue}", json={"state": "closed"}
@@ -477,6 +483,7 @@ def gutted(baseline: dict) -> dict:
         "review_run_id": review_run,
         "review": review,
     }
+    close_pr(env, pr_number)
     with contextlib.suppress(Exception):
         _github(
             env, "PATCH", f"/repos/{_slug(env)}/issues/{issue}", json={"state": "closed"}

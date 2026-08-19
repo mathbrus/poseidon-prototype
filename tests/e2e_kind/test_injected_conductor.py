@@ -46,6 +46,7 @@ from .conftest import (
     TASK_QUEUE,
     _psql_json,
     audit_story,
+    close_pr_url,
     deployed_timeouts,
     run_implement,
     temporal_port_forward,
@@ -142,7 +143,9 @@ def conductor_intake(stack: None, env: dict) -> dict:
 def conductor_implement(stack: None, env: dict) -> dict:
     """The payload half: a delivery run whose brief carries the planted
     'publish the workspace' instruction."""
-    return run_implement("goal-injected-conductor.md", kill_worker=False, env=env)
+    record = run_implement("goal-injected-conductor.md", kill_worker=False, env=env)
+    yield record
+    close_pr_url(env, record.get("pr_url"))
 
 
 # --- the conductor half: spawn authority is closed ----------------------------

@@ -58,8 +58,10 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    close_pr,
     delete_repo_file,
     deployed_timeouts,
+    quiesce_heartbeat,
     run_implement_from_issue,
     temporal_port_forward,
 )
@@ -221,6 +223,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
 
     yield result
 
+    close_pr(env, result.get("pr_number") or 0)
     with contextlib.suppress(Exception):
         _github(
             env,
@@ -230,6 +233,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
         )
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
+    quiesce_heartbeat()
 
 
 def test_the_company_implemented_and_reviewed_unattended(delegated_overnight: dict):
@@ -424,6 +428,9 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
 
     yield result
 
+    for pr in (result.get("contract_pr"), result.get("implement_pr")):
+        if pr:
+            close_pr(env, pr)
     for issue in (contract_issue, implement_issue):
         with contextlib.suppress(Exception):
             _github(
@@ -434,6 +441,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
             )
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
+    quiesce_heartbeat()
 
 
 def test_the_pm_filed_contract_then_implement(contract_first: dict):

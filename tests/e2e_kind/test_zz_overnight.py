@@ -47,7 +47,9 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    close_pr,
     deployed_timeouts,
+    quiesce_heartbeat,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
@@ -218,6 +220,7 @@ def overnight(stack: None, env: dict) -> dict:
     yield result
 
     slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
+    close_pr(env, result.get("pr_number") or 0)
     with contextlib.suppress(Exception):
         _github(
             env,
@@ -227,6 +230,7 @@ def overnight(stack: None, env: dict) -> dict:
         )
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
+    quiesce_heartbeat()
 
 
 def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):

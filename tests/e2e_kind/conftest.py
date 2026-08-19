@@ -24,6 +24,7 @@ import contextlib
 import functools
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -571,6 +572,94 @@ def repo_baseline(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+# --- leave the campsite clean (#15 step 3) -----------------------------------
+#
+# Debris feeds contention: the ensure loop's bare heartbeat treats any open
+# PR as reviewable backlog, so PRs a module leaves behind become another
+# module's race. Fixtures close the PRs they opened the moment they are
+# done with them; the session sweeper catches what inline tests and failure
+# paths drop; and modules that applied a conduct-declaring blueprint
+# terminate the bare heartbeat their apply caused, instead of leaving it
+# asleep for up to heartbeat_minutes after the pristine restore.
+
+
+def close_pr(env: dict, pr_number: int) -> None:
+    """Close one pull request (a no-op when it merged) and delete its head
+    branch. Cleanup only — never lets an API hiccup mask the test outcome."""
+    with contextlib.suppress(Exception):
+        slug = target_slug(env)
+        pull = github_api(env, "GET", f"/repos/{slug}/pulls/{pr_number}").json()
+        if pull.get("state") == "open":
+            github_api(
+                env, "PATCH", f"/repos/{slug}/pulls/{pr_number}", json={"state": "closed"}
+            )
+        head = (pull.get("head") or {}).get("ref") or ""
+        if head.startswith("feature/"):
+            github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{head}")
+
+
+def close_pr_url(env: dict, pr_url: str | None) -> None:
+    match = re.search(r"/pull/(\d+)$", pr_url or "")
+    if match:
+        close_pr(env, int(match.group(1)))
+
+
+def sweep_repo_debris(env: dict) -> None:
+    """Close every open PR and delete every feature/* branch — the
+    stragglers per-fixture cleanup cannot see (PRs born inside test bodies,
+    fixtures that died before their teardown)."""
+    with contextlib.suppress(Exception):
+        slug = target_slug(env)
+        while True:
+            prs = github_api(
+                env, "GET", f"/repos/{slug}/pulls?state=open&per_page=100"
+            ).json()
+            if not prs:
+                break
+            for pull in prs:
+                close_pr(env, pull["number"])
+        while True:
+            branches = github_api(
+                env, "GET", f"/repos/{slug}/branches?per_page=100"
+            ).json()
+            stale = [b["name"] for b in branches if b["name"].startswith("feature/")]
+            if not stale:
+                break
+            for name in stale:
+                github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{name}")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def repo_sweeper(env: dict[str, str]):
+    """The session's last word on repo debris: whatever ran, the disposable
+    repo exits with no open PRs and no feature/* branches — so debris never
+    grows across runs, and the next session's bare heartbeat finds no
+    backlog to steal."""
+    yield
+    sweep_repo_debris(env)
+
+
+def quiesce_heartbeat() -> None:
+    """Terminate the ensure loop's bare `conduct-{company}` heartbeat after
+    a module restores the pristine blueprint. Revocation-by-diff still
+    stops it on its own — the product claim, pinned at the workflow layer
+    (`test_revocation_stops_a_running_loop`) — but on the blueprint's
+    `heartbeat_minutes` cadence, which leaves a competitor asleep through
+    the next module's arc. The campsite rule wants the quiet now, and
+    verified: call this after the pristine apply, so the ensure loop has
+    nothing to restart."""
+    from orchestrator.workflows.conduct import conduct_workflow_id
+
+    async def terminate() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = client.get_workflow_handle(conduct_workflow_id(COMPANY_NS))
+            with contextlib.suppress(Exception):
+                await handle.terminate("suite teardown: pristine blueprint restored")
+
+    asyncio.run(terminate())
+
+
 def _run_implement_input(env: dict[str, str], kill_worker: bool, **source) -> dict:
     input = ImplementInput(
         run_id=new_run_id(),
@@ -586,14 +675,18 @@ def _run_implement_input(env: dict[str, str], kill_worker: bool, **source) -> di
 @pytest.fixture(scope="session")
 def implement_run(stack: None, env: dict[str, str]) -> dict:
     """The happy-path run, with the worker killed mid-run."""
-    return run_implement("task-happy.md", kill_worker=True, env=env)
+    record = run_implement("task-happy.md", kill_worker=True, env=env)
+    yield record
+    close_pr_url(env, record.get("pr_url"))
 
 
 @pytest.fixture(scope="session")
 def injected_run(stack: None, env: dict[str, str]) -> dict:
     """The injected task — the planted 'hotfix runbook' steers delivery
     onto `main`, the gateway denies it, the brain recovers onto feature/*."""
-    return run_implement("task-injected.md", kill_worker=False, env=env)
+    record = run_implement("task-injected.md", kill_worker=False, env=env)
+    yield record
+    close_pr_url(env, record.get("pr_url"))
 
 
 @pytest.fixture(scope="session")

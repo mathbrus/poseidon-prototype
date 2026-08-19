@@ -58,7 +58,9 @@ from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
     audit_story,
+    close_pr_url,
     deployed_timeouts,
+    quiesce_heartbeat,
     temporal_port_forward,
 )
 from .test_operator_lifecycle import (
@@ -158,6 +160,7 @@ def conducted(stack: None):
     yield
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
+    quiesce_heartbeat()
 
 
 @pytest.fixture(scope="module")
@@ -209,6 +212,7 @@ def unattended_run(conducted, env: dict) -> dict:
 
     yield {**record, "issue_number": issue_number}
 
+    close_pr_url(env, (record.get("child") or {}).get("pr_url"))
     with contextlib.suppress(Exception):
         _github(
             env,
