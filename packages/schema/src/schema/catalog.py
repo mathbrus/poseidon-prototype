@@ -64,7 +64,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         ),
         tools=tuple(ISSUE_TOOLS + CREW_TOOLS),
         model_tier="standard",
-        may_spawn=("feature-delivery", "feature-review"),
+        may_spawn=("contract-authoring", "feature-delivery", "feature-review"),
         runtime_hints={
             "memory": "none",  # cross-run state is tickets + registry runs
             "dispatch": "http",
@@ -86,6 +86,21 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         tools=tuple(SANDBOX_TOOLS + REVIEW_TOOLS + ["issues.comment"]),
         model_tier="standard",
         runtime_hints={"dispatch": "http", "brain": "review"},
+    ),
+    # Deliver-capable on purpose, unlike `sdet`: the contract tree is
+    # delivered through the same governed `git.open_pr` as any change, and
+    # `policies.contract_tests` is what fences who may touch it. A distinct
+    # template (not `backend-engineer`) is what lets that fence name the
+    # spec's author without naming the implementer.
+    "contract-author": RoleTemplate(
+        name="contract-author",
+        summary=(
+            "Writes the contract/acceptance tests a slice is graded by. "
+            "Crew-member material only, like every executor."
+        ),
+        tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
+        model_tier="frontier",
+        runtime_hints={"dispatch": "http", "brain": "coding"},
     ),
 }
 
@@ -118,6 +133,22 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
             "reviewer": CrewMember(
                 role_template="sdet",
                 tools=tuple(SANDBOX_TOOLS + REVIEW_TOOLS + ["issues.comment"]),
+            ),
+        },
+    ),
+    # One author, no planner: the contract ticket IS the brief. A distinct
+    # crew template is load-bearing twice over — the crew-request row keys
+    # on `sha256(conductor|crew_template|run_id)`, so a same-template
+    # second crew in one run would collide onto one row, and reviewer
+    # independence rejects on shared `crew_template`, so the spec's author
+    # stays positionally independent of implementer and reviewer alike.
+    "contract-authoring": CrewTemplate(
+        name="contract-authoring",
+        summary="One contract author delivering the acceptance tests for a slice.",
+        members={
+            "author": CrewMember(
+                role_template="contract-author",
+                tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
             ),
         },
     ),

@@ -762,13 +762,32 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
 # -- the split oracle: the contract tree -------------------------------------
 
 
-CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["sdet"]}
+CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
+
+CONTRACT_CREW = {
+    "members": {
+        "author": {
+            "role_template": "contract-author",
+            "tools": [
+                "sandbox.read_file",
+                "sandbox.write_file",
+                "sandbox.list_dir",
+                "sandbox.exec",
+                "sandbox.run_tests",
+                "sandbox.git_bundle",
+                "git.open_pr",
+            ],
+        }
+    },
+    "budget_inheritance": "run",
+}
 
 
 @pytest.fixture(scope="module")
 def decide_split(tmp_path_factory):
     """The company with the oracle split declared: a protected contract
-    tree beside a delegated class that cannot contain it."""
+    tree owned by the contract-authoring crew's template, beside a
+    delegated class that cannot contain it."""
     import copy
 
     import yaml
@@ -776,6 +795,10 @@ def decide_split(tmp_path_factory):
 
     blueprint = yaml.safe_load(HELLO_SAAS.read_text())
     blueprint["policies"]["contract_tests"] = copy.deepcopy(CONTRACT_TESTS)
+    blueprint["crews"]["contract-authoring"] = copy.deepcopy(CONTRACT_CREW)
+    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append(
+        "contract-authoring"
+    )
     blueprint["workflows"]["review"]["gates"]["merge"] = {
         "resolved_by": "policy",
         "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
@@ -815,6 +838,39 @@ def test_unit_tests_stay_the_implementers(decide_split):
                 "branch": "feature/x",
                 "paths": ["slugify.py", "tests/unit/test_slugify.py"],
             },
+        )
+    )
+    assert decision["allow"] is True
+
+
+def test_the_contract_author_delivers_into_the_contract_tree(decide_split):
+    """The split's positive half: the contract-authoring crew's author —
+    a distinct, deliver-capable template — opens the contract PR through
+    the same governed `git.open_pr` as any change."""
+    decision = decide_split(
+        **ephemeral(
+            "contract-authoring",
+            "author",
+            "contract-author",
+            tool="git.open_pr",
+            args={
+                "branch": "feature/slugify-contract",
+                "paths": ["tests/contract/test_slugify.py"],
+            },
+        )
+    )
+    assert decision["allow"] is True
+
+
+def test_the_pm_may_request_the_contract_crew(decide_split):
+    """`may_spawn` bounds the second crew like the first: granted in this
+    blueprint, so the request is allowed; the ungranted-template deny is
+    `test_crew_request_is_narrowed_to_may_spawn`'s, unchanged."""
+    decision = decide_split(
+        **standing(
+            "pm",
+            tool="crew.request",
+            args={"crew_template": "contract-authoring", "reason": "author contract"},
         )
     )
     assert decision["allow"] is True

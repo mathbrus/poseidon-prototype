@@ -27,6 +27,7 @@ LLM gateway's `budget_exhausted` marker.
 """
 
 import asyncio
+import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -134,6 +135,25 @@ def issue_task(number: int, title: str, body: str, url: str) -> str:
     untrusted input, exactly like a task file's contents (bodies can run to
     65k chars; truncation is future work, never done silently)."""
     return f"Implement issue #{number} ({url}): {title}\n\n{body}"
+
+
+# A ticket names the crew that should fulfill it with a trailer line
+# (`Crew: contract-authoring`); without one, the workflow's configured
+# crew fulfills it — the perennial contract, not a fallback. The name
+# grammar is the blueprint's `_NAME`.
+TICKET_CREW_RE = re.compile(r"^Crew:\s*([a-z0-9][a-z0-9-]*)\s*$", re.MULTILINE)
+
+
+def ticket_crew(task_source: str) -> str | None:
+    """The crew the task names, parsed deterministically by workflow code.
+    The *last* match wins: the trailer is written by whoever filed the
+    ticket, and goal text quoted above it is untrusted input — a poisoned
+    goal must not outrank the filer's own trailer. What the named crew can
+    actually be is policy's to decide: fulfillment re-evaluates the
+    compiled `crew.request` decision, so a ticket naming a template the
+    blueprint never granted dies there, audited."""
+    matches = TICKET_CREW_RE.findall(task_source)
+    return matches[-1] if matches else None
 
 
 def verify_feedback(brief: str, output: str) -> str:
@@ -303,7 +323,12 @@ class ImplementWorkflow:
                     {
                         "run_id": input.run_id,
                         "company": config["company"],
-                        "crew_template": config["crew_template"],
+                        # The ticket names its crew; the workflow's
+                        # configured crew fulfills unnamed work. Compiled
+                        # policy bounds either through the same
+                        # crew.request decision at fulfill time.
+                        "crew_template": ticket_crew(task_source)
+                        or config["crew_template"],
                         "conductor": config["conductor"],
                         "conductor_role": config["conductor_role"],
                         "task_text": task_source,

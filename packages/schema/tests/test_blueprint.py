@@ -296,7 +296,7 @@ def test_a_deny_path_can_never_be_delegated(blueprint):
 
 
 def contract_tests_section() -> dict:
-    return {"paths": ["tests/contract/"], "roles": ["sdet"]}
+    return {"paths": ["tests/contract/"], "roles": ["contract-author"]}
 
 
 def test_a_declared_contract_tree_validates(blueprint):
