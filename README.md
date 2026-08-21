@@ -878,13 +878,14 @@ working as intended — the containment is positional, not behavioural.
 
 By the end of this section you will have a company running on a local
 cluster, watched it turn a goal into a merged pull request on a repository
-you own, and — if you enable the heartbeat — seen it start the next piece of
-work on its own. It costs nothing: the default brain is a deterministic mock,
-so you can learn the whole shape of the system before spending a cent on a
-real model.
+you own, and — if you grant it the authority — seen it start its own work
+on a heartbeat and merge its own passing changes. It costs nothing: the
+default brain is a deterministic mock, so you can learn the whole shape of
+the system before spending a cent on a real model.
 
-The path is: install → bring up a cluster → (optionally) point it at a real
-model → run a company. Each step is below.
+The path: install → bring up a cluster → configure the company →
+(optionally) point it at a real model → drive a run yourself → hand over
+the keys, one at a time. Each step is below.
 
 ### Prerequisites
 
@@ -941,6 +942,42 @@ applies the CRDs, and applies the example blueprint.
 > brain by default, so the full end-to-end suite spends zero LLM tokens.
 > A real provider is opt-in — see [Use a real LLM](#use-a-real-llm) — and
 > CI never turns it on.
+
+### Configure the company
+
+A company's entire configuration is its blueprint — one YAML document
+declaring the roster, crews, tools, workflows, gates, budgets and policies.
+There is no second configuration surface: anything the platform enforces,
+you change by editing the document and re-applying it.
+[Section 7](#7-the-blueprint-line-by-line) reads the shipped document line
+by line; this section is about operating it.
+
+The bootstrap applies [`examples/hello-saas.yaml`](examples/hello-saas.yaml)
+for you. The repo ships the same company in three profiles, each granting
+one more piece of authority than the last:
+
+| Blueprint | Adds | Division of labour |
+|---|---|---|
+| [`hello-saas.yaml`](examples/hello-saas.yaml) | — | A human starts every run and answers every merge. |
+| [`hello-saas-conducted.yaml`](examples/hello-saas-conducted.yaml) | a `conduct` section | The company starts its own runs on a heartbeat; a human feeds goals in and answers merges. |
+| [`hello-saas-delegated.yaml`](examples/hello-saas-delegated.yaml) | a policy-resolved merge gate and a contract tree | In-class passing work merges itself; a human feeds goals in and keeps the carve-outs and the oracle. |
+
+All three declare the same company name, so moving between them changes the
+running company in place — and moving back is the same command with the
+earlier file. Revocation is a diff:
+
+```bash
+uv run poseidon blueprint preview examples/hello-saas-conducted.yaml  # what would change
+uv run poseidon blueprint apply examples/hello-saas-conducted.yaml --yes
+```
+
+`preview` diffs the compiled plan against the live registry, so hiring,
+firing and every authority change are visible before they happen. To make
+the company yours, edit the document — the mission, the sandbox image and
+test command, the `egress_allow` list, the budgets, the gate resolvers —
+and re-apply. Mistakes fail at compile time with a readable error: a
+standing executor, an undeclared tool, or a delegated path overlapping a
+protected surface is refused before anything reaches the cluster.
 
 ### Use a real LLM
 
@@ -1007,9 +1044,11 @@ Leave a Temporal port-forward up for every CLI command. Do not pass
 kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233
 ```
 
-**Intake.** A goal is untrusted text handed to the PM. The PM files
-tickets and records a `feature-delivery` crew request; it cannot write
-code. [`examples/goal-tetris.md`](examples/goal-tetris.md) is that goal:
+#### 1. Intake
+
+A goal is untrusted text handed to the PM. The PM files tickets and
+records a `feature-delivery` crew request; it cannot write code.
+[`examples/goal-tetris.md`](examples/goal-tetris.md) is that goal:
 
 ```bash
 uv run poseidon run --workflow intake examples/goal-tetris.md
@@ -1026,10 +1065,12 @@ by `run_id`, so implement does not consume the intake row; a human picks
 which ticket to run — choosing is scheduling — and implement consumes the
 ticket itself.
 
-**Implement.** The ticket intake filed *is* the spec — start implement
-from its issue number and the workflow resolves the open issue under the
-platform identity, composes the task from it, and runs the delivery
-pipeline. The issue body is untrusted input, exactly like any task file:
+#### 2. Implement
+
+The ticket intake filed *is* the spec — start implement from its issue
+number and the workflow resolves the open issue under the platform
+identity, composes the task from it, and runs the delivery pipeline. The
+issue body is untrusted input, exactly like any task file:
 
 ```bash
 uv run poseidon run 42
@@ -1054,10 +1095,12 @@ If the per-run budget (`budgets.per_run.usd: 5` in the blueprint) trips,
 the run parks in `paused-budget_exhausted`. Raise the cap, re-apply, then
 `uv run poseidon signal <run_id> budget --approved --workflow implement`.
 
-**Review.** Implement stops at an open PR. Review provisions a fresh
-sandbox from the PR head, dispatches a read-and-judge reviewer, and parks
-on the merge gate — so `--detach` is the usual mode. The number is the
-trailing integer of `pr_url`:
+#### 3. Review and merge
+
+Implement stops at an open PR. Review provisions a fresh sandbox from the
+PR head, dispatches a reviewer that holds no repository-writing tools, and
+parks on the merge gate — so `--detach` is the usual mode. The number is
+the trailing integer of `pr_url`:
 
 ```bash
 uv run poseidon review <pr-number> --detach
@@ -1078,6 +1121,91 @@ uv run poseidon signal <review_run_id> merge --workflow review
 Watch a live run with `kubectl -n poseidon-platform logs -f deploy/orchestrator-worker`
 and `kubectl -n hello-saas get pods -w`. Teardown is guaranteed: on every
 terminal path the crew identities, pods, and sandbox go away.
+
+### Hand over the keys: the heartbeat
+
+Everything so far had you pressing start. To let the company run its own
+backlog, apply the conducted profile:
+
+```bash
+uv run poseidon blueprint apply examples/hello-saas-conducted.yaml --yes
+```
+
+No command starts the heartbeat — that is the point. The orchestrator
+worker notices that the applied blueprint now declares a `conduct` section
+and starts one durable workflow, `conduct-hello-saas`, on its own. Every
+`heartbeat_minutes` (30 in the example — the cadence is yours to declare)
+a tick:
+
+1. **Observes** the open backlog, the delivered-but-unreviewed PRs, the
+   in-flight runs and today's spend.
+2. **Dispatches the PM in a toolless *decide* mode** for exactly one
+   action — implement a ticket, review a PR, or idle — with a required
+   one-line rationale, journaled as a `conduct.decide` audit event.
+3. **Starts the chosen run** only if it wins the compiled `conduct.start`
+   decision: within `max_concurrent_runs`, under the `daily_cap`, and only
+   a workflow on the `may_start` list. `intake` is deliberately not on
+   that list — goals always enter through a human.
+
+Your job shrinks to two acts: feed goals in
+(`poseidon run --workflow intake …`) and answer merge gates. Watch it work:
+
+```bash
+uv run poseidon status hello-saas --workflow conduct   # the standing workflow
+kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
+```
+
+To take the keys back, apply a blueprint without the section —
+`hello-saas.yaml` — and the heartbeat stops itself: each tick re-reads the
+applied blueprint and exits when the section is gone, and the compiled
+`conduct.start` rules vanish with it. `tests/e2e_kind/test_zz_overnight.py`
+runs this arrangement end to end with exactly two human acts: one goal in,
+one approval out.
+
+### Hand over the merge: the delegated gate
+
+The one human act each run still needs is the merge approval. The flagship
+profile delegates it — narrowly:
+
+```bash
+uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
+```
+
+Three things change relative to the conducted profile:
+
+- `gates.merge.resolved_by` becomes `policy`, with a `delegate` block
+  naming the path class the company may merge on its own
+  (`slugify.py`, `tests/unit/`) and a rework bound (`max_reworks: 1`).
+- A `policies.contract_tests` block declares the oracle: `tests/contract/`
+  holds the acceptance spec delegated merges are graded by, and it can
+  never be delegated.
+- A new `contract-authoring` crew — the only role that may deliver into
+  the contract tree — joins the PM's `may_spawn` list, so contract-first
+  work can be sequenced.
+
+Now a review run of an in-class PR no longer parks. When the independent
+verdict passed, the platform's own re-run of the tests and the contract
+baseline are green, and every changed path is in class, the orchestrator
+merges with no human command —
+[section 5](#the-merge-gate-human-or-policy) lists the facts and the
+fallbacks. Everything else still stops for you: an out-of-class path, a
+carve-out surface, and any edit to the contract tree park on the same
+`merge` signal you answered above, and a failed quality layer feeds the
+bounded rework loop instead.
+
+> [!NOTE]
+> The delegated class is yours to declare, and the example's is scoped to
+> the acceptance suite's product (`slugify.py`). A Tetris PR from the
+> walkthrough above touches `tetris.py` — out of class, so it declines to
+> your `merge` signal. Edit `delegate.paths` to name the paths you are
+> willing to see merge on green.
+
+With both keys handed over, the human surface is a single act:
+`tests/e2e_kind/test_zz_delegated.py` proves the arc — one goal in, and
+the company scopes, implements, reviews and merges its own in-class
+passing work, every decision on the audit record. Taking the merge back is
+the same diff in reverse: re-apply the conducted profile and every merge
+parks on you again.
 
 ### Run the acceptance suite
 
