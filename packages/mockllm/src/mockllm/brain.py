@@ -959,14 +959,16 @@ def next_completion(
     if "comment_pr" in offered:  # the reviewer loop
         return _review_completion(messages)
 
+    # The planner reads with the same tools an executor holds, so its
+    # prompt, not its tool surface, is what tells it apart.
+    if "planner" in _system_text(messages):
+        return _plan_completion(task_text)
+
     # The contract author's dispatch — both phases: its task is the ticket
     # whose trailer names the crew, in act (the executor toolset without
     # open_pr) and deliver alike.
-    if CONTRACT_CREW_LINE in task_text and offered:
+    if CONTRACT_CREW_LINE in task_text:
         return _contract_author_completion(messages, offered, task_text)
-
-    if not offered:  # plan: the planner is offered no tools
-        return _plan_completion(task_text)
 
     if "open_pr" not in offered:  # act
         return _act_completion(messages, task_text)

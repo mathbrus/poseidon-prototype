@@ -41,6 +41,7 @@ from openhands.sdk import (
     ConversationExecutionStatus,
     LLMSummarizingCondenser,
 )
+from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.llm import Message, TextContent
 from pydantic import BaseModel, SecretStr
 
@@ -49,6 +50,7 @@ from agent.gateway_client import McpGateway, ToolCallError
 from agent.hands import (
     ACT_TOOLS,
     DELIVER_TOOLS,
+    PLAN_TOOLS,
     PM_TOOLS,
     REVIEWER_TOOLS,
     HandsContext,
@@ -75,6 +77,9 @@ PROMPT_SECTIONS = {
 PM_STEP_CAP = 10
 # SDK steps allowed within one act cycle before tests are forced to run.
 ACT_STEP_CAP = 20
+# The planner reads a handful of files and answers; the cap keeps a
+# survey from becoming an implementation.
+PLAN_STEP_CAP = 8
 # Condensation is real context machinery for a real model; the sizes keep it
 # far out of reach of the short deterministic e2e conversations.
 CONDENSER_MAX_SIZE = 120
@@ -472,23 +477,22 @@ def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     return RunResult(decision=decision)
 
 
-def plan_dispatch(
-    settings: AgentSettings,
-    run_id: str,
-    task_text: str,
-) -> RunResult:
-    """Planner mode: survey the
-    run's sandbox read-only, produce the task brief, write nothing. The
-    planner is LLM-only — one completion, no tool loop — and calls the
-    gateway under its *own* identity (its pod's projected token), so its
-    compiled read-only scope is what policy enforces."""
-    token = settings.resolve_gateway_token()
-    llm = build_llm(settings, run_id, token)
-    with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
-        entries = _survey_entries(bridge, run_id)
-    brief = _completion(
-        llm, _prompt("plan", settings, llm.model), _plan_prompt(task_text, entries)
-    )
+def plan_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
+    """Planner mode: read the run's sandbox, write nothing, answer with
+    the task brief. The loop offers only the read tools — the planner's
+    compiled scope is read-only, and it calls the gateway under its own
+    pod's token, so policy enforces the same. The brief is the agent's
+    final text, whether it ended with a plain reply or `finish`."""
+    with _session(settings, run_id, "plan", PLAN_TOOLS, PLAN_STEP_CAP) as (
+        convo,
+        bridge,
+        _,
+    ):
+        convo.send_message(_plan_prompt(task_text, _survey_entries(bridge, run_id)))
+        convo.run()
+        if convo.state.execution_status == ConversationExecutionStatus.ERROR:
+            return RunResult(error=f"planner did not finish within {PLAN_STEP_CAP} steps")
+        brief = get_agent_final_response(convo.state.events).strip()
     if not brief:
         return RunResult(error="planner produced an empty brief")
     return RunResult(brief=brief)

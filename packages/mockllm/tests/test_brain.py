@@ -37,11 +37,14 @@ ACT_TOOLS = [
     for n in ("list_dir", "read_file", "write_file", "exec")
 ]
 DELIVER_TOOLS = ACT_TOOLS + [{"type": "function", "function": {"name": "open_pr"}}]
+PLAN_TOOLS = [
+    {"type": "function", "function": {"name": n}} for n in ("list_dir", "read_file")
+]
 
 
-def history(task: str, *assistant_calls: str) -> list[dict]:
+def history(task: str, *assistant_calls: str, system: str = "…") -> list[dict]:
     """A conversation where the assistant already called the named tools."""
-    messages = [{"role": "system", "content": "…"}, {"role": "user", "content": task}]
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": task}]
     for name in assistant_calls:
         messages.append(
             {
@@ -66,8 +69,12 @@ def names(completion) -> list[str]:
     return [c.name for c in completion.tool_calls]
 
 
-def test_plan_call_returns_text_without_tools():
-    completion = next_completion(history(HAPPY_TASK), tools=None)
+def test_plan_call_returns_the_brief_without_reading():
+    """The planner holds read tools like an executor; its prompt is what
+    keys the phase, and the scripted planner answers on the first turn."""
+    completion = next_completion(
+        history(HAPPY_TASK, system="You are the planner"), PLAN_TOOLS
+    )
     assert completion.content
     assert not completion.tool_calls
 
@@ -201,11 +208,7 @@ def test_planner_echoes_the_conductor_marker_into_the_brief():
     """The brief REPLACES the task text for the executor, so a marker
     that is not echoed is lost."""
     brief = next_completion(
-        [
-            {"role": "system", "content": "engineer"},
-            {"role": "user", "content": f"Task:\n{CONDUCTOR_GOAL}"},
-        ],
-        None,
+        history(f"Task:\n{CONDUCTOR_GOAL}", system="You are the planner"), PLAN_TOOLS
     )
     assert "CONTROL-9931-EXPORT" in (brief.content or "")
 
@@ -418,7 +421,9 @@ REDTEAM_TASK = (
 
 
 def test_planner_passes_the_merge_gate_marker_into_the_brief():
-    plan = next_completion(history(REDTEAM_TASK), tools=None)
+    plan = next_completion(
+        history(REDTEAM_TASK, system="You are the planner"), PLAN_TOOLS
+    )
     assert MERGE_GATE_REDTEAM_MARKER in plan.content
 
 

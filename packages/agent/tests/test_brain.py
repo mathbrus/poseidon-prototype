@@ -231,19 +231,20 @@ def test_review_prompt_is_the_reviewers(settings, gateway):
 
 
 def test_plan_prompt_asks_for_the_brief_only(settings, gateway):
-    """The planner's single completion asks for the brief and never tells
-    the model to carry the work out."""
+    """The planner's loop holds the read tools and nothing else, and its
+    prompt asks for the brief without ever telling the model to carry the
+    work out."""
     llm = ScriptedLLM([says("1. Write slugify.py")])
 
     with scripted(gateway, llm):
         plan_dispatch(settings, RUN_ID, TASK)
 
-    messages, tools = llm.requests[0]
-    assert tools is None
+    messages, _ = llm.requests[0]
+    assert set(llm.offered(0)) - {"finish", "think"} == {"list_dir", "read_file"}
     system = text_of(messages[0])
     user = text_of(messages[1])
     assert "brief" in system
-    assert "open_pr" not in system
+    assert "open_pr" not in system and "write_file" not in system
     assert "carry it out" not in system and "carry it out" not in user
     assert "numbered brief" in user
 
@@ -380,29 +381,58 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
 # --- planner mode ---------------------------------------------------------------
 
 
-def test_planner_produces_the_brief_from_one_completion(settings, gateway):
-    """mode=plan: one survey, one completion, no tool loop — the brief the
-    executor's dispatch carries verbatim."""
-    llm = ScriptedLLM([says("1. Write slugify.py\n2. Deliver on `feature/x`.")])
+def test_planner_reads_then_answers_with_the_brief(settings, gateway):
+    """mode=plan: a survey, a few reads, then the brief — the agent's
+    final text, which the executor's dispatch carries verbatim."""
+    llm = ScriptedLLM(
+        [
+            calls(tc("read_file", path="README.md")),
+            says("1. Write slugify.py\n2. Deliver on `feature/x`."),
+        ]
+    )
 
     with scripted(gateway, llm):
         result = plan_dispatch(settings, RUN_ID, TASK)
 
     assert result.error is None
     assert result.brief == "1. Write slugify.py\n2. Deliver on `feature/x`."
-    assert gateway.tools_called() == ["sandbox.list_dir"]  # read-only survey
-    messages, tools = llm.requests[0]
-    assert tools is None  # a completion, not a tool loop
-    assert TASK in text_of(messages[1])
+    assert gateway.tools_called() == ["sandbox.list_dir", "sandbox.read_file"]
+    assert TASK in text_of(llm.requests[0][0][1])
+
+
+def test_planner_brief_may_arrive_through_finish(settings, gateway):
+    llm = ScriptedLLM([calls(tc("finish", message="1. Write slugify.py"))])
+
+    with scripted(gateway, llm):
+        result = plan_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert result.brief == "1. Write slugify.py"
 
 
 def test_planner_empty_brief_is_an_error(settings, gateway):
-    llm = ScriptedLLM([says("")])
+    """Finishing with nothing to say is not a brief. (An empty plain
+    reply never reaches here: the SDK re-prompts on it until the step
+    cap, which is the error above.)"""
+    llm = ScriptedLLM([calls(tc("finish", message=""))])
 
     with scripted(gateway, llm):
         result = plan_dispatch(settings, RUN_ID, TASK)
 
     assert result.error == "planner produced an empty brief"
+
+
+def test_planner_that_never_answers_is_an_error(settings, gateway):
+    """A planner that only reads until the step cap has no brief to give."""
+    from agent.brain import PLAN_STEP_CAP
+
+    llm = ScriptedLLM([calls(tc("read_file", path="README.md"))] * PLAN_STEP_CAP)
+
+    with scripted(gateway, llm):
+        result = plan_dispatch(settings, RUN_ID, TASK)
+
+    assert result.brief is None
+    assert result.error == f"planner did not finish within {PLAN_STEP_CAP} steps"
 
 
 # --- the LLM client shape -------------------------------------------------------
