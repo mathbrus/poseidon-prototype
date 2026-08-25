@@ -592,11 +592,15 @@ name = "compiler"
 version = "0.1.0"
 source = { editable = "packages/compiler" }
 dependencies = [
+    { name = "common" },
     { name = "schema" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "schema", editable = "packages/schema" }]
+requires-dist = [
+    { name = "common", editable = "packages/common" },
+    { name = "schema", editable = "packages/schema" },
+]
 
 [[package]]
 name = "cryptography"

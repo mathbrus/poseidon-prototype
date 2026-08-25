@@ -176,10 +176,9 @@ syntax an author actually writes.)
   scope, compiler-owned and company-independent, so it compiles identically
   from every blueprint and every operator upsert lands the same revision.
 
-The gateway derives the decision path from the caller, so its
-`company_decision_path` and this package's `company_package` must produce
-the same slug. `packages/gateway/tests/test_slug_invariant.py` pins that;
-divergence would fail closed but silently.
+The package name, and the slug transform inside it, come from
+`common.policy` — the same module the gateway and the orchestrator derive
+their decision paths from, so a bundle is always written where it is read.
 
 ## Coherence checks as a design surface
 

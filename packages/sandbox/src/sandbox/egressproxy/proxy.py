@@ -22,16 +22,14 @@ one `run_id` query returns the whole story.
 import asyncio
 import base64
 import contextlib
-import hashlib
-import json
 import time
-from datetime import UTC, datetime
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from common.audit import AuditEvent
+from common.audit import AuditEvent, args_digest
 from common.telemetry import get_logger
-from registry import AuditStore
+from registry import AuditStore, SandboxRegistrations
+from registry.bundles import Companies
 from sandbox.egressproxy.credentials import verify
 
 DEFAULT_PORT = 3128
@@ -53,7 +51,9 @@ class RegistryAllowlist:
     access; briefly cached so a chatty `pip install` costs two queries, not
     two per connection."""
 
-    def __init__(self, sandboxes, companies, ttl_s: float = 10.0) -> None:
+    def __init__(
+        self, sandboxes: SandboxRegistrations, companies: Companies, ttl_s: float = 10.0
+    ) -> None:
         self._sandboxes = sandboxes
         self._companies = companies
         self._ttl = ttl_s
@@ -75,11 +75,6 @@ class RegistryAllowlist:
         self._cache = {k: v for k, v in self._cache.items() if v[1] > time.monotonic()}
         self._cache[run_id] = (hosts, time.monotonic() + self._ttl)
         return hosts
-
-
-def _digest(payload: dict) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class EgressProxy:
@@ -296,14 +291,13 @@ class EgressProxy:
         backend_status: str | None,
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id="egress-proxy",
             # The enforcement point is the `source` field —
             # role is a caller property this producer does not have.
             role="",
             tool="sandbox.egress",
-            args_digest=_digest({"host": host, "port": port}),
+            args_digest=args_digest({"host": host, "port": port}),
             decision=decision,
             rule=rule,
             latency_ms=int((time.monotonic() - started) * 1000),

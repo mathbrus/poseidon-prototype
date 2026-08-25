@@ -377,7 +377,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
                         "get",
                         "pods",
                         "-l",
-                        f"poseidon.dev/kind=crew-agent,poseidon.io/run-id={run_id}",
+                        f"poseidon.dev/kind=crew-agent,poseidon.dev/run-id={run_id}",
                         "-o",
                         "jsonpath={.items[*].metadata.name}",
                     ],

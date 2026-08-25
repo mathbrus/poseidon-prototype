@@ -97,11 +97,11 @@ async def main() -> None:
         settings,
         RunParticipants(registry),
         AuditStore(registry),
-        CrewPodProvisioner(settings.sandbox_namespace),
         CrewRequests(registry),
         Companies(registry),
         BudgetLedger(registry),
         Runs(registry),
+        provisioner=CrewPodProvisioner(settings.sandbox_namespace),
     )
     activities = ImplementActivities(
         settings,

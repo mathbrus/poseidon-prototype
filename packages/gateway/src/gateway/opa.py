@@ -1,25 +1,15 @@
 """OPA client: decision queries against operator-installed compiled bundles.
 
-The decision path is per caller: company callers query
-their company's package (`poseidon/authz/<slug>/decision`), the platform
-lifecycle queries `poseidon/platform/decision`. Nothing is ever pushed into
-OPA — run binding rides as enrichment the gateway injects into the
-decision *input*.
+The decision path is per caller (`common.policy`): company callers query
+their company's package, the platform lifecycle queries the platform
+bundle. Nothing is ever pushed into OPA — run binding rides as enrichment
+the gateway injects into the decision *input*.
 """
 
 from typing import Any
 
 import httpx
 from pydantic import BaseModel
-
-PLATFORM_DECISION_PATH = "poseidon/platform/decision"
-
-
-def company_decision_path(company: str) -> str:
-    """Mirrors the compiler's `company_package` slug — the two must stay
-    equal or every decision for the company lands on an empty document."""
-    slug = company.replace(".", "_").replace("-", "_").replace("/", "_")
-    return f"poseidon/authz/{slug}/decision"
 
 
 class Decision(BaseModel):

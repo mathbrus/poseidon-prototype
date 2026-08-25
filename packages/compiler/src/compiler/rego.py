@@ -28,14 +28,15 @@ Two bundles per apply:
     scope is compiler-owned and company-independent, so it compiles
     identically from every blueprint and every operator upsert lands the
     same revision.
-The gateway derives the decision path from the caller: platform lifecycle
--> poseidon/platform/decision, else poseidon/authz/<slug>/decision — its
-`_company_slug` must stay equal to `company_slug` here.
+The package names and the slug transform come from `common.policy`, which
+is also where the gateway and the orchestrator derive the decision paths
+they query.
 """
 
 import json
 from typing import Any
 
+from common.policy import company_package, rego_slug
 from schema.gates import UNDELEGATABLE_PATHS
 from schema.tools import RUN_SCOPED
 
@@ -134,16 +135,6 @@ allow_rules contains "platform_{tool_slug}" if {{
 """
 
 
-def _slug(value: str) -> str:
-    return value.replace(".", "_").replace("-", "_").replace("/", "_")
-
-
-def company_package(company: str) -> str:
-    """The company bundle's Rego package — and therefore its OPA bundle
-    root and the gateway's decision path for the company's callers."""
-    return f"poseidon.authz.{_slug(company)}"
-
-
 def _run_binding(tool: str) -> str:
     """RUN_SCOPED tools additionally require a verified run binding — a role
     allow-list without it reopens cross-run tool use. Membership is
@@ -185,11 +176,11 @@ def _role_file(
 ) -> str:
     body = "".join(
         _ROLE_RULE.format(
-            hire=_slug(hire),
+            hire=rego_slug(hire),
             template=template,
             company=company,
             tool=tool,
-            tool_slug=_slug(tool),
+            tool_slug=rego_slug(tool),
             extra=_role_extra(tool, may_spawn),
         )
         for tool in sorted(tools)
@@ -208,16 +199,16 @@ def _crew_file(
     body = "".join(
         _CREW_RULE.format(
             crew=crew,
-            crew_slug=_slug(crew),
+            crew_slug=rego_slug(crew),
             # Raw in the value comparison — `run_participants.crew_role`
             # stores the member name as written; slugged only in the rule
             # name, like `crew` and `template`.
             member=member,
-            member_slug=_slug(member),
+            member_slug=rego_slug(member),
             template=template,
             company=company,
             tool=tool,
-            tool_slug=_slug(tool),
+            tool_slug=rego_slug(tool),
             extra=_run_binding(tool),
         )
         for tool in sorted(tools)
@@ -236,7 +227,7 @@ def _conduct_file(company: str, conduct: Any) -> str:
     verified by the caller — the `active_spawns` idiom. Fail-safe defaults:
     absent counts deny, like the changed-paths rules."""
     allows = "".join(
-        f'\nallow_rules contains "conduct_start_{_slug(workflow)}" if {{\n'
+        f'\nallow_rules contains "conduct_start_{rego_slug(workflow)}" if {{\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
         '\tinput.tool == "conduct.start"\n'
@@ -385,7 +376,7 @@ def _merge_gate_file(
 
 def _platform_rules(tools: list[str]) -> str:
     return "".join(
-        _PLATFORM.format(tool=tool, tool_slug=_slug(tool)) for tool in sorted(tools)
+        _PLATFORM.format(tool=tool, tool_slug=rego_slug(tool)) for tool in sorted(tools)
     )
 
 
@@ -489,7 +480,7 @@ def build_bundle(
         by_hire.setdefault(instance.hire, []).append(instance)
     for hire, hire_instances in by_hire.items():
         first = hire_instances[0]
-        files[f"role_{_slug(hire)}.rego"] = _role_file(
+        files[f"role_{rego_slug(hire)}.rego"] = _role_file(
             company,
             hire,
             first.role_template,
@@ -499,7 +490,7 @@ def build_bundle(
             first.max_concurrent_spawns,
         )
     for member in crew_members:
-        name = f"crew_{_slug(member.crew)}_{_slug(member.member)}.rego"
+        name = f"crew_{rego_slug(member.crew)}_{rego_slug(member.member)}.rego"
         files[name] = _crew_file(
             company, member.crew, member.member, member.role_template, list(member.tools)
         )

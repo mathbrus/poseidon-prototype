@@ -30,8 +30,8 @@ import re
 
 import pytest
 
+from common.audit import args_digest
 from common.ids import new_run_id
-from gateway.service import args_digest
 from mockllm.brain import (
     CONDUCTOR_MARKER,
     EXFIL_HOST,

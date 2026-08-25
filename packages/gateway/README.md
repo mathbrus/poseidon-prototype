@@ -119,10 +119,9 @@ if result is None:
 
 And the decision path itself is per caller: platform identities query
 `poseidon/platform/decision`, company callers query
-`poseidon/authz/<slug>/decision`. The slug transform is implemented
-independently here and in `compiler.rego.company_package`; divergence
-would fail closed but *silently*, which is why
-`tests/test_slug_invariant.py` exists to make it loud.
+`poseidon/authz/<slug>/decision`. Both paths, and the slug transform the
+compiler emits bundles under, come from `common.policy` — one definition,
+so the gateway cannot query a document the compiler never wrote.
 
 ## Module map
 

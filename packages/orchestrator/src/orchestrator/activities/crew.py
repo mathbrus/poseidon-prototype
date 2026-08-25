@@ -20,15 +20,12 @@ these into the fulfill orchestration; nothing else here dispatches work.
 """
 
 import asyncio
-import hashlib
-import json
 import time
-from datetime import UTC, datetime
 from typing import Any
 
 from temporalio import activity
 
-from common.audit import AuditEvent
+from common.audit import AuditEvent, args_digest
 from common.telemetry import get_logger
 from orchestrator.clients import AgentClient
 from orchestrator.config import WorkerSettings
@@ -39,13 +36,9 @@ from orchestrator.crewpods import (
 )
 from orchestrator.identity import ephemeral_agent_id
 from orchestrator.opa import evaluate_decision
-from registry import AuditStore, RunParticipants
+from registry import AuditStore, BudgetLedger, CrewRequests, RunParticipants, Runs
+from registry.bundles import Companies
 from registry.crews import request_id
-
-
-def _digest(payload: dict[str, Any]) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class CrewActivities:
@@ -54,11 +47,11 @@ class CrewActivities:
         settings: WorkerSettings,
         participants: RunParticipants,
         audit: AuditStore,
+        crew_requests: CrewRequests,
+        companies: Companies,
+        ledger: BudgetLedger,
+        runs: Runs,
         provisioner: CrewPodProvisioner | None = None,
-        crew_requests: Any = None,
-        companies: Any = None,
-        ledger: Any = None,
-        runs: Any = None,
     ) -> None:
         self._settings = settings
         self._participants = participants
@@ -102,7 +95,7 @@ class CrewActivities:
             parent_agent_id=spec["parent_agent_id"],
             tool="lifecycle.bind",
             rule="participant_bound",
-            digest=_digest({k: v for k, v in spec.items()}),
+            digest=args_digest(spec),
             started=started,
         )
         self._log.bind(run_id=spec["run_id"]).info(
@@ -147,7 +140,7 @@ class CrewActivities:
                 parent_agent_id="",
                 tool="lifecycle.revoke",
                 rule="participant_revoked",
-                digest=_digest({"run_id": run_id}),
+                digest=args_digest({"run_id": run_id}),
                 started=started,
             )
         self._log.bind(run_id=run_id).info(
@@ -207,7 +200,7 @@ class CrewActivities:
             parent_agent_id=spec["parent_agent_id"],
             tool="lifecycle.provision_pod",
             rule="crew_pod_provisioned",
-            digest=_digest({k: v for k, v in spec.items()}),
+            digest=args_digest(spec),
             started=started,
         )
         self._log.bind(run_id=spec["run_id"]).info(
@@ -242,8 +235,6 @@ class CrewActivities:
         pod."""
         if self._participants.active(agent_id) is None:
             return False
-        if self._runs is None:
-            return True
         record = self._runs.get(run_id)
         # A missing run row is not evidence of finalization (the e2e
         # fixtures delete rows); only an explicitly terminal one is.
@@ -269,7 +260,7 @@ class CrewActivities:
                 parent_agent_id="",
                 tool="lifecycle.destroy_pod",
                 rule="crew_pod_destroyed",
-                digest=_digest({"run_id": run_id}),
+                digest=args_digest({"run_id": run_id}),
                 started=started,
             )
         return deleted
@@ -385,7 +376,7 @@ class CrewActivities:
             parent_agent_id=conductor,
             tool="lifecycle.fulfill",
             rule="crew_fulfilled",
-            digest=_digest({"crew_template": crew_template, "request_id": rid}),
+            digest=args_digest({"crew_template": crew_template, "request_id": rid}),
             started=started,
         )
         return {
@@ -416,7 +407,7 @@ class CrewActivities:
             spec = self._companies.get(company) or {}
             cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
             headroom = True
-            if cap > 0 and self._ledger is not None:
+            if cap > 0:
                 headroom = self._ledger.spent_for_run(run_id) < cap
             return spawns, headroom
 
@@ -446,7 +437,7 @@ class CrewActivities:
             parent_agent_id="",
             tool="lifecycle.record_request",
             rule=str(result.get("rule") or ""),
-            digest=_digest({"crew_template": crew_template}),
+            digest=args_digest({"crew_template": crew_template}),
             started=started,
             decision="allow" if allowed else "deny",
             lifecycle="standing",
@@ -494,7 +485,6 @@ class CrewActivities:
         lifecycle: str = "ephemeral",
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id=agent_id,
             role=role,

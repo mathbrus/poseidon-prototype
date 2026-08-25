@@ -449,11 +449,24 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     """The binding rows die with the run — on success, on failure, and
     with no sandbox handle at all (bind precedes provision)."""
     from orchestrator.activities.crew import CrewActivities
-    from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
+    from registry.memory import (
+        InMemoryAuditStore,
+        InMemoryBudgetLedger,
+        InMemoryCrewRequests,
+        InMemoryRunParticipants,
+    )
 
     participants = InMemoryRunParticipants()
     audit = InMemoryAuditStore()
-    crew = CrewActivities(settings, participants, audit)
+    crew = CrewActivities(
+        settings,
+        participants,
+        audit,
+        InMemoryCrewRequests(),
+        companies,
+        InMemoryBudgetLedger(),
+        runs,
+    )
     activities = ImplementActivities(settings, backend, runs, companies, crew)
 
     participants.add(

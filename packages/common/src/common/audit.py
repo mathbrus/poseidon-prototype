@@ -12,17 +12,29 @@ orchestrator's fulfill machinery (identity mint/revoke, crew-pod
 provisioning); and the process gates.
 """
 
-from typing import Literal
+import hashlib
+import json
+from datetime import UTC, datetime
+from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 Source = Literal[
     "gateway", "llm-gateway", "sandbox-infra", "process-gate", "process-lifecycle"
 ]
 
 
+def args_digest(payload: dict[str, Any]) -> str:
+    """The audit form of a call's arguments: a sha256 over their canonical
+    JSON. Every producer digests the same way, so one query correlates a
+    denied call with its retry — and nothing of the arguments themselves is
+    ever stored."""
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 class AuditEvent(BaseModel):
-    ts: str
+    ts: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     run_id: str
     agent_id: str
     role: str

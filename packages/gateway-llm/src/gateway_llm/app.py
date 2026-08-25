@@ -20,10 +20,7 @@ Run with: uvicorn --factory gateway_llm.app:create_app
 """
 
 import asyncio
-import hashlib
-import json
 import time
-from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -32,7 +29,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from common.audit import AuditEvent
+from common.audit import AuditEvent, args_digest
 from common.authn import Authenticator, Reviewer, default_reviewer
 from common.identity import LIFECYCLE_EPHEMERAL, Identity
 from common.telemetry import get_logger
@@ -159,7 +156,6 @@ def create_app(
         backend_status: str | None,
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id=identity.agent_id,
             role=identity.role,
@@ -198,9 +194,7 @@ def create_app(
         started = time.monotonic()
         body = await request.json()
         # Digest, never content: audit must not become a leak channel.
-        digest = hashlib.sha256(
-            json.dumps(digest_fields(body), sort_keys=True).encode()
-        ).hexdigest()
+        digest = args_digest(digest_fields(body))
 
         # -- run attribution (mandatory; no anonymous passthrough) ---------
         run_id = request.headers.get(RUN_HEADER, "").strip()

@@ -44,7 +44,7 @@ class CrewPodAbandoned(Exception):
 AGENT_PORT = 8000
 CREW_KIND = "crew-agent"
 KIND_LABEL = "poseidon.dev/kind"
-RUN_ID_LABEL = "poseidon.io/run-id"
+RUN_ID_LABEL = "poseidon.dev/run-id"
 # Mirrors the operator's standing-agent constants
 # (poseidon_operator.resources): same audience, same mount, one
 # verification path at the gateways.

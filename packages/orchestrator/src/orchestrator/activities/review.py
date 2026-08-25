@@ -33,16 +33,13 @@ released the merge.
 """
 
 import asyncio
-import hashlib
-import json
 import re
 import time
-from datetime import UTC, datetime
 from typing import Any
 
 from temporalio import activity
 
-from common.audit import AuditEvent
+from common.audit import AuditEvent, args_digest
 from common.telemetry import get_logger
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
@@ -148,9 +145,9 @@ class ReviewActivities:
         settings: WorkerSettings,
         runs: Runs,
         companies: Companies,
-        instances: AgentInstances | None = None,
-        audit: AuditStore | None = None,
-        participants: RunParticipants | None = None,
+        instances: AgentInstances,
+        audit: AuditStore,
+        participants: RunParticipants,
     ) -> None:
         self._settings = settings
         self._runs = runs
@@ -203,16 +200,14 @@ class ReviewActivities:
                     " have refused this blueprint"
                 )
             conductor_hire = config["conductor"]
-            instance = None
-            if self._instances is not None:
-                instance = next(
-                    (
-                        i
-                        for i in self._instances.for_company(self._settings.company)
-                        if i.get("hire") == conductor_hire
-                    ),
-                    None,
-                )
+            instance = next(
+                (
+                    i
+                    for i in self._instances.for_company(self._settings.company)
+                    if i.get("hire") == conductor_hire
+                ),
+                None,
+            )
             if instance is None:
                 raise RuntimeError(
                     f"no standing instance for conductor hire"
@@ -281,17 +276,12 @@ class ReviewActivities:
         """The one AuditEvent constructor for this module's producers —
         append-only, so a retried append duplicates a row, never loses
         one."""
-        if self._audit is None:
-            raise RuntimeError("review activities constructed without an audit store")
         event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id="orchestrator",
             role="platform",
             tool=tool,
-            args_digest=hashlib.sha256(
-                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
+            args_digest=args_digest(payload),
             decision=decision,  # type: ignore[arg-type]
             rule=rule,
             latency_ms=latency_ms,
@@ -366,8 +356,6 @@ class ReviewActivities:
                     "independent": False,
                     "reason": f"no implement run attributes PR #{pr_number}",
                 }
-            if self._participants is None:
-                raise RuntimeError("review activities constructed without participants")
             reviewers = self._participants.for_run(run_id)
             implementers = self._participants.for_run(implement.run_id)
             if not reviewers:
