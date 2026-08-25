@@ -20,6 +20,7 @@ from agent.brain import (
     deliver_dispatch,
     implement_dispatch,
     plan_dispatch,
+    pm_dispatch,
     review_dispatch,
 )
 from agent.hands import REVIEWER_TOOLS
@@ -493,3 +494,51 @@ def test_decide_rejects_prose_and_unknown_actions(settings, gateway):
         with scripted(gateway, ScriptedLLM([says(reply)])):
             result = decide_dispatch(settings, RUN_ID, OBSERVATION)
         assert result.decision is None and result.error
+
+
+# --- prompt composition ---------------------------------------------------------
+
+
+def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
+    """The mode's own procedure opens the system prompt; the OpenHands
+    sections that fit the mode's use of the workspace follow it: a
+    dispatch that writes code gets the file and code-quality guidance, a
+    reader gets efficiency only, the PM gets no workspace advice at all."""
+    llm = ScriptedLLM([says("nothing to do")])
+    with scripted(gateway, llm):
+        implement_dispatch(settings, RUN_ID, TASK)
+    system = text_of(llm.requests[0][0][0])
+    assert system.startswith("# Poseidon executor")
+    assert "<EFFICIENCY>" in system
+    assert "<FILE_SYSTEM_GUIDELINES>" in system
+    assert "<CODE_QUALITY>" in system
+    assert "file_fix.py" in system  # the no-suffixed-copies rule, verbatim
+    assert "<PULL_REQUESTS>" not in system  # the SDK's PR workflow is not ours
+    assert "OpenHands agent" not in system  # nor its identity
+
+    llm = ScriptedLLM([says("nothing to say")])
+    with scripted(gateway, llm):
+        review_dispatch(settings, RUN_ID, "Review pull request #41")
+    system = text_of(llm.requests[0][0][0])
+    assert "<EFFICIENCY>" in system
+    assert "<FILE_SYSTEM_GUIDELINES>" not in system
+
+    llm = ScriptedLLM([says("done")])
+    with scripted(gateway, llm):
+        pm_dispatch(settings, RUN_ID, "goal")
+    system = text_of(llm.requests[0][0][0])
+    assert system.startswith("You are the product manager")
+    assert "<EFFICIENCY>" not in system
+
+
+def test_model_family_guidance_follows_the_model():
+    """The SDK's per-family block renders for a model it recognises and
+    stays out for one it does not (the mock brain)."""
+    from agent.prompting import CODING_SECTIONS, compose
+
+    claude = compose("# procedure", CODING_SECTIONS, "anthropic/claude-sonnet-4-5")
+    assert claude.startswith("# procedure\n\n<EFFICIENCY>")
+    assert "<IMPORTANT>" in claude
+    mock = compose("# procedure", CODING_SECTIONS, "openai/mock-brain")
+    assert "<IMPORTANT>" not in mock
+    assert "<CODE_QUALITY>" in mock

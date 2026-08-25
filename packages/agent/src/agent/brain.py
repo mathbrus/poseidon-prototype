@@ -55,11 +55,22 @@ from agent.hands import (
     ToolRecords,
     hands,
 )
+from agent.prompting import CODING_SECTIONS, MODEL_SECTIONS, READING_SECTIONS, compose
 from common.telemetry import get_logger
 
 # One prompt file per dispatch mode: each phase is told what it actually
 # is, and the operating procedure matches the tool surface it is offered.
+# The SDK's heuristic sections follow the procedure, chosen by what the
+# mode does with the workspace.
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+PROMPT_SECTIONS = {
+    "implement": CODING_SECTIONS,
+    "deliver": CODING_SECTIONS,
+    "review": READING_SECTIONS,
+    "plan": READING_SECTIONS,
+    "pm": MODEL_SECTIONS,
+    "decide": MODEL_SECTIONS,
+}
 # The PM's whole dispatch is a handful of tool calls; the cap is a backstop.
 PM_STEP_CAP = 10
 # SDK steps allowed within one act cycle before tests are forced to run.
@@ -207,8 +218,10 @@ def _render_prompt(path: Path, settings: AgentSettings) -> str:
     return path.read_text().replace("{target_repo}", settings.target_repo)
 
 
-def _prompt(name: str, settings: AgentSettings) -> str:
-    return _render_prompt(PROMPTS_DIR / f"{name}.md", settings)
+def _prompt(name: str, settings: AgentSettings, model: str) -> str:
+    """The mode's system prompt: its procedure, then the SDK sections."""
+    procedure = _render_prompt(PROMPTS_DIR / f"{name}.md", settings)
+    return compose(procedure, PROMPT_SECTIONS[name], model)
 
 
 def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
@@ -259,12 +272,13 @@ def _session(
     conversation is closed on the way out, whatever happened inside."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
+    llm = build_llm(settings, run_id, token)
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
         ctx = HandsContext(bridge, settings, run_id, records)
         with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
             convo = _build_conversation(
-                build_llm(settings, run_id, token),
-                _prompt(prompt, settings),
+                llm,
+                _prompt(prompt, settings, llm.model),
                 tools,
                 ctx,
                 workspace,
@@ -276,11 +290,9 @@ def _session(
                 convo.close()
 
 
-def _completion(
-    settings: AgentSettings, run_id: str, token: str, system_prompt: str, user_text: str
-) -> str:
+def _completion(llm: LLM, system_prompt: str, user_text: str) -> str:
     """One tool-less completion: the text the model answered with."""
-    response = build_llm(settings, run_id, token).completion(
+    response = llm.completion(
         messages=[
             Message(role="system", content=[TextContent(text=system_prompt)]),
             Message(role="user", content=[TextContent(text=user_text)]),
@@ -449,8 +461,8 @@ def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     text is everything the PM may consider, and the platform validates the
     answer against it. The PM chooses; it starts nothing — actuation stays
     the conductor workflow's, under the compiled conduct.start decision."""
-    token = settings.resolve_gateway_token()
-    text = _completion(settings, run_id, token, _prompt("decide", settings), task_text)
+    llm = build_llm(settings, run_id, settings.resolve_gateway_token())
+    text = _completion(llm, _prompt("decide", settings, llm.model), task_text)
     decision = parse_decision(text)
     if decision is None:
         return RunResult(
@@ -471,14 +483,11 @@ def plan_dispatch(
     gateway under its *own* identity (its pod's projected token), so its
     compiled read-only scope is what policy enforces."""
     token = settings.resolve_gateway_token()
+    llm = build_llm(settings, run_id, token)
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
         entries = _survey_entries(bridge, run_id)
     brief = _completion(
-        settings,
-        run_id,
-        token,
-        _prompt("plan", settings),
-        _plan_prompt(task_text, entries),
+        llm, _prompt("plan", settings, llm.model), _plan_prompt(task_text, entries)
     )
     if not brief:
         return RunResult(error="planner produced an empty brief")

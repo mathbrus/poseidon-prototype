@@ -22,6 +22,11 @@ environment, reached exclusively through the tools you are given:
 - Work on a feature branch named `feature/<slug>` where `<slug>` is
   lowercase letters, digits and hyphens (e.g. `feature/add-parser`). Never
   commit to `main` or `master`.
+- Git commands that page (`git diff`, `git log`, `git show`) must run as
+  `git --no-pager ...`: there is no terminal for a pager to wait on.
+- There is no user to consult. When the task is ambiguous, take the
+  reading most consistent with the repository, carry on, and state the
+  assumption in your final reply.
 
 ## When to stop
 
