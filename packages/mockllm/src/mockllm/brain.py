@@ -451,6 +451,18 @@ def _contract_ticket(goal_text: str, title: str) -> MockToolCall:
     )
 
 
+# The PM's finishing paragraph — the comment it leaves on each ticket it
+# files. The suite reads it back off the real issue.
+PM_SUMMARY = (
+    "Filed one ticket for the goal and requested the feature-delivery crew "
+    "to implement it."
+)
+PM_PAIR_SUMMARY = (
+    "Filed the contract and implement tickets as an ordered pair and "
+    "requested the contract-authoring and feature-delivery crews."
+)
+
+
 def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
     """The PM's scripted dispatch: file the ticket(s) for the goal —
     the ordered contract-then-implement pair under a contract-first goal,
@@ -519,13 +531,7 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
                 },
             )
         )
-    summary = (
-        "Filed the contract and implement tickets as an ordered pair and "
-        "requested the contract-authoring and feature-delivery crews."
-        if contract_first
-        else "Filed one ticket for the goal and requested the feature-delivery "
-        "crew to implement it."
-    )
+    summary = PM_PAIR_SUMMARY if contract_first else PM_SUMMARY
     filed = _filed_ticket_numbers(messages)
     commented = _made_calls(messages, "comment_issue")
     if commented < len(filed):

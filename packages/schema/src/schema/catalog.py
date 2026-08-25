@@ -58,9 +58,9 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
     "pm": RoleTemplate(
         name="pm",
         summary=(
-            "Standing conductor: scopes goals, writes and reads tickets, "
-            "requests crews. Holds no executor tools — the PM cannot open a "
-            "pull request or write in a sandbox."
+            "Standing conductor: scopes goals, writes, reads and comments "
+            "tickets, requests crews. Holds no executor tools — the PM cannot "
+            "open a pull request or write in a sandbox."
         ),
         tools=tuple(ISSUE_TOOLS + CREW_TOOLS),
         model_tier="standard",

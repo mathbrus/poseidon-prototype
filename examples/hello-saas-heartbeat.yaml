@@ -76,7 +76,8 @@ crews:
 
 # Per-role gateway scopes. The PM's list is deliberately narrow: spawn
 # authority is not permission to wield the crew's tools, so
-# no sandbox writes and no git.open_pr appear here.
+# no sandbox writes and no git.open_pr appear here. issues.comment is how
+# the PM leaves its intake summary on the tickets it files.
 tools:
   pm:
     allow:

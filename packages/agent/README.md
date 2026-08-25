@@ -69,7 +69,10 @@ owns all three.
 `review`, `decide`. A sixth loop hides behind the default: a pod deployed
 with `ROLE_TEMPLATE=pm` routes default-mode dispatches to the PM runtime
 instead of the engineer loop — the PM is a different standing instance of
-the same image, not a different mode of the same agent.
+the same image, not a different mode of the same agent. The PM's dispatch
+ends only once its one-paragraph summary is a comment on every ticket it
+filed: a ticket without one is an unfinished dispatch, reported as such
+with the tickets still linked.
 
 Two status-code rules carry real semantics:
 
@@ -89,7 +92,7 @@ From `hands.py`, verbatim:
 ACT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
 PLAN_TOOLS = ["list_dir", "read_file"]
-PM_TOOLS = ["create_issue", "read_issues", "request_crew"]
+PM_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
 REVIEWER_TOOLS = [
     "list_dir",
     "read_file",
@@ -106,7 +109,7 @@ REVIEWER_TOOLS = [
 | `implement` | `ACT_TOOLS` | a completion claim |
 | `deliver` | `DELIVER_TOOLS` | the PR URL |
 | `review` | `REVIEWER_TOOLS` | posted findings + a structured pass/fail verdict |
-| `pm` | `PM_TOOLS` | tickets + recorded crew intent |
+| `pm` | `PM_TOOLS` | tickets + recorded crew intent + the PM's summary, commented on each ticket |
 | `plan` | `PLAN_TOOLS` | the task brief — the agent's final text |
 | `decide` | none — one completion, no tool loop | one action per heartbeat tick, with its rationale |
 

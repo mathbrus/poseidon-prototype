@@ -1,7 +1,7 @@
 """The PM on the live cluster: the operator-deployed PM
-responds to a dispatch, files a real ticket on the disposable repo, and
-records crew intent under its own standing identity — through governed
-tools only, no private memory. The denial half ("a PM attempt at
+responds to a dispatch, files a real ticket on the disposable repo, posts
+its summary on that ticket, and records crew intent under its own standing
+identity — through governed tools only, no private memory. The denial half ("a PM attempt at
 sandbox.exec or git.open_pr is denied at the gateway and audited") is
 proven by test_governance.py::test_pm_is_denied_executor_tools_at_the_gateway
 and the installed-bundle checks; this file proves the affirmative half.
@@ -14,6 +14,7 @@ import time
 import httpx
 
 from common.ids import new_run_id
+from mockllm.brain import PM_SUMMARY
 
 from .cluster import COMPANY_NS, audit_story, kubectl, port_forward, psql_json, registry
 from .conftest import github_api, target_slug
@@ -67,6 +68,14 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
             assert issue.json()["state"] == "open"
             assert goal[:40] in issue.json()["title"] + issue.json()["body"]
 
+            # The PM's finishing paragraph lives on the ticket, and the
+            # dispatch reports the comment it posted as a fact it saw.
+            comments = github_api(
+                env, "GET", f"/repos/{target_slug(env)}/issues/{issue_number}/comments"
+            ).json()
+            assert [c["body"] for c in comments] == [PM_SUMMARY], comments
+            assert status["comment_urls"] == [comments[0]["html_url"]]
+
             assert status["crew_request_id"], "no crew intent recorded"
             rows = psql_json(
                 "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
@@ -82,7 +91,7 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
             # Every PM decision in the story, as the standing pm-1.
             story = [e for e in audit_story(run_id) if e["source"] == "gateway"]
             tools = [e["tool"] for e in story]
-            assert "issues.create" in tools and "crew.request" in tools
+            assert {"issues.create", "crew.request", "issues.comment"} <= set(tools)
             for event in story:
                 assert event["agent_id"] == "pm-1"
                 assert event["lifecycle"] == "standing"
