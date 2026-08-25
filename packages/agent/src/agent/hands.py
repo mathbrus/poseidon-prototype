@@ -388,7 +388,11 @@ _DEFINITION_CLASSES: dict[str, type[ToolDefinition]] = {
     )
     for tool_name in _TOOLS
 }
-assert all(cls.name == tool_name for tool_name, cls in _DEFINITION_CLASSES.items())
+for _tool_name, _cls in _DEFINITION_CLASSES.items():
+    if _cls.name != _tool_name:
+        raise RuntimeError(
+            f"tool class {_cls.__name__} resolves to {_cls.name!r}, not {_tool_name!r}"
+        )
 
 
 class PoseidonHands(ToolDefinition):

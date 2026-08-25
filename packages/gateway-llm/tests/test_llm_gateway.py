@@ -5,10 +5,12 @@ and audited (source=llm-gateway), and the per-run cap a hard stop with a
 distinguishable error."""
 
 import asyncio
+from dataclasses import dataclass
 
 import httpx
 import pytest
 
+from common.audit import args_digest
 from common.authn import ServiceAccount
 from gateway_llm.app import create_app
 from gateway_llm.config import LlmGatewaySettings
@@ -116,8 +118,18 @@ def upstream() -> Upstream:
     return Upstream()
 
 
+@dataclass
+class Stores:
+    audit: InMemoryAuditStore
+    ledger: InMemoryBudgetLedger
+    runs: InMemoryRuns
+    instances: InMemoryAgentInstances
+    participants: InMemoryRunParticipants
+    companies: InMemoryCompanies
+
+
 @pytest.fixture
-def stores():
+def stores() -> Stores:
     audit = InMemoryAuditStore()
     ledger = InMemoryBudgetLedger()
     runs = InMemoryRuns()
@@ -140,12 +152,11 @@ def stores():
             "budgets": {"per_run_usd": 5.0},
         },
     )
-    return audit, ledger, runs, instances, participants, companies
+    return Stores(audit, ledger, runs, instances, participants, companies)
 
 
 @pytest.fixture
 def app(stores, upstream):
-    audit, ledger, runs, instances, participants, companies = stores
     settings = LlmGatewaySettings(
         tier_models='{"frontier": "big-model", "standard": "small-model"}',
         default_model="fallback-model",
@@ -157,12 +168,12 @@ def app(stores, upstream):
             transport=httpx.MockTransport(upstream.handler),
             base_url="http://upstream.test",
         ),
-        audit=audit,
-        ledger=ledger,
-        runs=runs,
-        instances=instances,
-        participants=participants,
-        companies=companies,
+        audit=stores.audit,
+        ledger=stores.ledger,
+        runs=stores.runs,
+        instances=stores.instances,
+        participants=stores.participants,
+        companies=stores.companies,
         token_reviewer=FakeReviewer(),
     )
 
@@ -209,28 +220,36 @@ def call(
     return asyncio.run(go())
 
 
-def test_unauthenticated_call_is_rejected(app):
-    assert call(app, token=None).status_code == 401
-    assert call(app, token="garbage").status_code == 401
+# Every guard holds on both completion surfaces: same chokepoint, different
+# wire shape.
+SURFACES = ["/chat/completions", "/v1/responses"]
 
 
-def test_unattributed_call_is_rejected_and_audited(app, stores):
-    audit = stores[0]
-    resp = call(app, run_id=None)
+@pytest.mark.parametrize("path", SURFACES)
+def test_unauthenticated_call_is_rejected(app, path):
+    assert call(app, token=None, path=path).status_code == 401
+    assert call(app, token="garbage", path=path).status_code == 401
+
+
+@pytest.mark.parametrize("path", SURFACES)
+def test_unattributed_call_is_rejected_and_audited(app, stores, path):
+    audit = stores.audit
+    resp = call(app, run_id=None, path=path)
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "llm_unattributed"
     assert audit.events[-1].rule == "llm_unattributed"
     assert audit.events[-1].source == "llm-gateway"
 
 
-def test_unknown_run_is_rejected(app, stores):
-    resp = call(app, run_id="run-nobody-started")
+@pytest.mark.parametrize("path", SURFACES)
+def test_unknown_run_is_rejected(app, stores, path):
+    resp = call(app, run_id="run-nobody-started", path=path)
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "llm_unknown_run"
 
 
 def test_tier_routes_the_model_and_meters_the_ledger(app, stores, upstream):
-    audit, ledger = stores[0], stores[1]
+    audit, ledger = stores.audit, stores.ledger
     resp = call(app)
     assert resp.status_code == 200
 
@@ -252,8 +271,9 @@ def test_tier_routes_the_model_and_meters_the_ledger(app, stores, upstream):
     assert event.company == COMPANY and event.workflow == "implement"
 
 
-def test_exhausted_cap_hard_stops_with_a_distinguishable_error(app, stores):
-    audit, ledger = stores[0], stores[1]
+@pytest.mark.parametrize("path", SURFACES)
+def test_exhausted_cap_hard_stops_with_a_distinguishable_error(app, stores, path):
+    audit, ledger = stores.audit, stores.ledger
     ledger.record(
         company=COMPANY,
         run_id=RUN_ID,
@@ -266,7 +286,7 @@ def test_exhausted_cap_hard_stops_with_a_distinguishable_error(app, stores):
         usd=5.0,
     )
 
-    resp = call(app)
+    resp = call(app, path=path)
     assert resp.status_code == 429
     error = resp.json()["error"]
     assert error["code"] == "budget_exhausted"
@@ -281,7 +301,7 @@ def test_exhausted_cap_hard_stops_with_a_distinguishable_error(app, stores):
 
 def test_cap_bites_only_at_the_cap(app, stores, upstream):
     """Below the cap calls flow and spend accrues call by call."""
-    ledger = stores[1]
+    ledger = stores.ledger
     for _ in range(3):
         assert call(app).status_code == 200
     assert len(ledger.entries_for_run(RUN_ID)) == 3
@@ -291,7 +311,7 @@ def test_cap_bites_only_at_the_cap(app, stores, upstream):
 def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores):
     """An ephemeral identity is bound to exactly one run; naming another is
     denied and audited before any budget or upstream work."""
-    audit, _, runs, _, participants, _ = stores
+    audit, runs, participants = stores.audit, stores.runs, stores.participants
     runs.start("run-OTHER", "task", "implement", None, COMPANY)
     participants.add(
         "executor-01X",
@@ -313,7 +333,7 @@ def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores):
 def test_uncapped_company_is_not_blocked(app, stores, upstream):
     """A blueprint with no per-run cap meters without stopping — metering
     and enforcement are separable, silence is not."""
-    companies = stores[5]
+    companies = stores.companies
     companies.upsert(COMPANY, {"namespace": COMPANY, "budgets": {"per_run_usd": 0}})
     assert call(app).status_code == 200
 
@@ -326,7 +346,7 @@ def test_uncapped_company_is_not_blocked(app, stores, upstream):
 
 @pytest.mark.parametrize("path", ["/responses", "/v1/responses"])
 def test_responses_routes_the_tier_forwards_and_meters(app, stores, upstream, path):
-    audit, ledger = stores[0], stores[1]
+    audit, ledger = stores.audit, stores.ledger
     resp = call(app, path=path)
     assert resp.status_code == 200
     assert resp.json()["object"] == "response"
@@ -347,37 +367,6 @@ def test_responses_routes_the_tier_forwards_and_meters(app, stores, upstream, pa
     assert event.source == "llm-gateway" and event.tool == "llm.responses"
 
 
-def test_responses_guards_match_chat_completions(app, stores):
-    """The Responses surface refuses unauthenticated, unattributed and
-    foreign-run calls exactly as chat completions does."""
-    assert call(app, token=None, path="/v1/responses").status_code == 401
-    resp = call(app, run_id=None, path="/v1/responses")
-    assert resp.status_code == 400
-    assert resp.json()["error"]["code"] == "llm_unattributed"
-    resp = call(app, run_id="run-nobody-started", path="/v1/responses")
-    assert resp.status_code == 403
-    assert resp.json()["error"]["code"] == "llm_unknown_run"
-
-
-def test_responses_cap_is_the_same_hard_stop(app, stores):
-    ledger = stores[1]
-    ledger.record(
-        company=COMPANY,
-        run_id=RUN_ID,
-        agent_id="backend-engineer-1",
-        parent_agent_id="",
-        role="backend-engineer",
-        model="big-model",
-        prompt_tokens=1,
-        completion_tokens=1,
-        usd=5.0,
-    )
-    resp = call(app, path="/v1/responses")
-    assert resp.status_code == 429
-    assert resp.json()["error"]["code"] == "budget_exhausted"
-    assert len(ledger.entries_for_run(RUN_ID)) == 1  # no new spend
-
-
 def test_responses_digest_never_contains_prompt_text(app, stores, upstream):
     """A string `input` digests as one item; the audit event carries a hash,
     never content."""
@@ -387,6 +376,7 @@ def test_responses_digest_never_contains_prompt_text(app, stores, upstream):
         body={"model": "m", "input": "secret workspace contents"},
     )
     assert resp.status_code == 200
-    event = stores[0].events[-1]
-    assert "secret" not in event.args_digest
-    assert len(event.args_digest) == 64  # sha256 hex, nothing else
+    event = stores.audit.events[-1]
+    # The digest is over the request's *shape* — the model and how many
+    # input items — never its text.
+    assert event.args_digest == args_digest({"model": "m", "input": 1})

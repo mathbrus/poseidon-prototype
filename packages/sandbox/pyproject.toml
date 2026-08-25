@@ -16,8 +16,8 @@ dependencies = [
 # a database driver or registry credentials. The egress proxy is a platform
 # service, so it also gets the OTel extra (the toolserver image does not).
 egress = [
-    "registry",
     "common[otel]",
+    "registry",
 ]
 
 # The prebaked in-sandbox toolchain (Dockerfile.sandbox): the test runner

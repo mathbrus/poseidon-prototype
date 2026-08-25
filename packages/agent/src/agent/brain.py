@@ -28,7 +28,9 @@ import asyncio
 import re
 import tempfile
 import threading
+from collections.abc import Iterator
 from concurrent.futures import Future
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -247,11 +249,14 @@ def _plan_prompt(task_text: str, entries: str) -> str:
     )
 
 
-def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """mode=implement: the SDK loop acts (read/write/list/exec, never
-    open_pr), the host runs the ADVISORY verify between turns, and advisory
-    green ends the dispatch with a completion claim. The gate of record is
-    the platform's own `sandbox.run_tests` in the implement workflow."""
+@contextmanager
+def _session(
+    settings: AgentSettings, run_id: str, prompt: str, tools: list[str], max_steps: int
+) -> Iterator[tuple[Conversation, GatewayBridge, ToolRecords]]:
+    """One dispatch's machinery: a gateway session under the pod's own
+    token, a scratch workspace, and an SDK conversation on the mode's
+    prompt and tool surface. The records capture every tool result; the
+    conversation is closed on the way out, whatever happened inside."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
@@ -259,44 +264,70 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
         with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
             convo = _build_conversation(
                 build_llm(settings, run_id, token),
-                _prompt("implement", settings),
-                ACT_TOOLS,
+                _prompt(prompt, settings),
+                tools,
                 ctx,
                 workspace,
-                max_steps=ACT_STEP_CAP,
+                max_steps=max_steps,
             )
             try:
-                convo.send_message(
-                    _act_prompt(task_text, _survey_entries(bridge, run_id))
-                )
-                iterations = 0
-                while True:
-                    convo.run()
-                    if convo.state.execution_status == ConversationExecutionStatus.ERROR:
-                        return RunResult(
-                            iterations=iterations,
-                            error=f"agent loop failed after {iterations} verify cycles",
-                        )
-                    iterations += 1
-                    try:
-                        result = bridge.call("sandbox.run_tests", {"run_id": run_id})
-                    except ToolCallError as exc:
-                        result = {"exit_code": -1, "stdout": "", "stderr": str(exc)}
-                    passed = result.get("exit_code") == 0
-                    log.info("verify", extra={"iteration": iterations, "passed": passed})
-                    if passed:
-                        # Advisory green = the completion claim: the platform
-                        # verify is the gate of record, and the workflow
-                        # directs delivery in a separate dispatch.
-                        return RunResult(iterations=iterations)
-                    if iterations >= settings.max_iterations:
-                        return RunResult(
-                            iterations=iterations,
-                            error=(f"tests still failing after {iterations} iterations"),
-                        )
-                    convo.send_message(_test_report(result) + "\n\nFix the failures.")
+                yield convo, bridge, records
             finally:
                 convo.close()
+
+
+def _completion(
+    settings: AgentSettings, run_id: str, token: str, system_prompt: str, user_text: str
+) -> str:
+    """One tool-less completion: the text the model answered with."""
+    response = build_llm(settings, run_id, token).completion(
+        messages=[
+            Message(role="system", content=[TextContent(text=system_prompt)]),
+            Message(role="user", content=[TextContent(text=user_text)]),
+        ]
+    )
+    return "".join(
+        block.text for block in response.message.content if isinstance(block, TextContent)
+    ).strip()
+
+
+def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
+    """mode=implement: the SDK loop acts (read/write/list/exec, never
+    open_pr), the host runs the ADVISORY verify between turns, and advisory
+    green ends the dispatch with a completion claim. The gate of record is
+    the platform's own `sandbox.run_tests` in the implement workflow."""
+    with _session(settings, run_id, "implement", ACT_TOOLS, ACT_STEP_CAP) as (
+        convo,
+        bridge,
+        _,
+    ):
+        convo.send_message(_act_prompt(task_text, _survey_entries(bridge, run_id)))
+        iterations = 0
+        while True:
+            convo.run()
+            if convo.state.execution_status == ConversationExecutionStatus.ERROR:
+                return RunResult(
+                    iterations=iterations,
+                    error=f"agent loop failed after {iterations} verify cycles",
+                )
+            iterations += 1
+            try:
+                result = bridge.call("sandbox.run_tests", {"run_id": run_id})
+            except ToolCallError as exc:
+                result = {"exit_code": -1, "stdout": "", "stderr": str(exc)}
+            passed = result.get("exit_code") == 0
+            log.info("verify", extra={"iteration": iterations, "passed": passed})
+            if passed:
+                # Advisory green = the completion claim: the platform verify
+                # is the gate of record, and the workflow directs delivery
+                # in a separate dispatch.
+                return RunResult(iterations=iterations)
+            if iterations >= settings.max_iterations:
+                return RunResult(
+                    iterations=iterations,
+                    error=f"tests still failing after {iterations} iterations",
+                )
+            convo.send_message(_test_report(result) + "\n\nFix the failures.")
 
 
 def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
@@ -305,32 +336,22 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
     Commit the sandbox's work on the task's branch, bundle it, open the PR.
     A policy denial comes back as the tool observation so the model can
     recover — deny-and-recover, not deny-and-halt."""
-    token = settings.resolve_gateway_token()
-    records = ToolRecords()
-    with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
-        ctx = HandsContext(bridge, settings, run_id, records)
-        with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
-            convo = _build_conversation(
-                build_llm(settings, run_id, token),
-                _prompt("deliver", settings),
-                DELIVER_TOOLS,
-                ctx,
-                workspace,
-                # One SDK step is one delivery attempt (commit + open_pr);
-                # the injected scenario must fit attempt-deny-recover.
-                max_steps=max(settings.max_iterations, 4),
-            )
-            try:
-                convo.send_message(
-                    f"Task:\n{task_text}\n\n"
-                    "The platform has verified your work in the sandbox: the "
-                    "test suite is green. Deliver it now — commit your changes "
-                    "on the task's feature/<slug> branch and open the pull "
-                    "request with the open_pr tool."
-                )
-                convo.run()
-            finally:
-                convo.close()
+    # One SDK step is one delivery attempt (commit + open_pr); the injected
+    # scenario must fit attempt-deny-recover.
+    max_steps = max(settings.max_iterations, 4)
+    with _session(settings, run_id, "deliver", DELIVER_TOOLS, max_steps) as (
+        convo,
+        _,
+        records,
+    ):
+        convo.send_message(
+            f"Task:\n{task_text}\n\n"
+            "The platform has verified your work in the sandbox: the "
+            "test suite is green. Deliver it now — commit your changes "
+            "on the task's feature/<slug> branch and open the pull "
+            "request with the open_pr tool."
+        )
+        convo.run()
     if records.pr_url is None:
         return RunResult(
             error="agent stopped without opening a pull request", iterations=1
@@ -348,24 +369,14 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     only: no write_file, no open_pr, and the compiled sdet scope enforces
     the same at the gateway. A dispatch without posted findings or without
     a verdict is a failed review."""
-    token = settings.resolve_gateway_token()
-    records = ToolRecords()
-    with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
-        ctx = HandsContext(bridge, settings, run_id, records)
-        with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
-            convo = _build_conversation(
-                build_llm(settings, run_id, token),
-                _prompt("review", settings),
-                REVIEWER_TOOLS,
-                ctx,
-                workspace,
-                max_steps=settings.max_iterations * 2,
-            )
-            try:
-                convo.send_message(f"Task:\n{task_text}")
-                convo.run()
-            finally:
-                convo.close()
+    max_steps = settings.max_iterations * 2
+    with _session(settings, run_id, "review", REVIEWER_TOOLS, max_steps) as (
+        convo,
+        _,
+        records,
+    ):
+        convo.send_message(f"Task:\n{task_text}")
+        convo.run()
     if not records.comment_urls:
         return RunResult(error="reviewer posted no findings")
     if records.verdict is None:
@@ -390,25 +401,10 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
     private memory: the backlog and the run history are the PM's only
     cross-run state. Executor-tool refusal is the
     gateway's job; a deny surfaces as a tool observation the model sees."""
-    token = settings.resolve_gateway_token()
-    records = ToolRecords()
-    with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
-        ctx = HandsContext(bridge, settings, run_id, records)
-        with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
-            convo = _build_conversation(
-                build_llm(settings, run_id, token),
-                _prompt("pm", settings),
-                PM_TOOLS,
-                ctx,
-                workspace,
-                max_steps=PM_STEP_CAP,
-            )
-            try:
-                convo.send_message(f"Goal:\n{task_text}")
-                convo.run()
-                capped = convo.state.execution_status == ConversationExecutionStatus.ERROR
-            finally:
-                convo.close()
+    with _session(settings, run_id, "pm", PM_TOOLS, PM_STEP_CAP) as (convo, _, records):
+        convo.send_message(f"Goal:\n{task_text}")
+        convo.run()
+        capped = convo.state.execution_status == ConversationExecutionStatus.ERROR
     if capped:
         return RunResult(
             error=f"PM did not finish within {PM_STEP_CAP} steps",
@@ -454,18 +450,7 @@ def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     answer against it. The PM chooses; it starts nothing — actuation stays
     the conductor workflow's, under the compiled conduct.start decision."""
     token = settings.resolve_gateway_token()
-    llm = build_llm(settings, run_id, token)
-    response = llm.completion(
-        messages=[
-            Message(
-                role="system", content=[TextContent(text=_prompt("decide", settings))]
-            ),
-            Message(role="user", content=[TextContent(text=task_text)]),
-        ]
-    )
-    text = "".join(
-        block.text for block in response.message.content if isinstance(block, TextContent)
-    ).strip()
+    text = _completion(settings, run_id, token, _prompt("decide", settings), task_text)
     decision = parse_decision(text)
     if decision is None:
         return RunResult(
@@ -488,18 +473,13 @@ def plan_dispatch(
     token = settings.resolve_gateway_token()
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
         entries = _survey_entries(bridge, run_id)
-    llm = build_llm(settings, run_id, token)
-    response = llm.completion(
-        messages=[
-            Message(role="system", content=[TextContent(text=_prompt("plan", settings))]),
-            Message(
-                role="user", content=[TextContent(text=_plan_prompt(task_text, entries))]
-            ),
-        ]
+    brief = _completion(
+        settings,
+        run_id,
+        token,
+        _prompt("plan", settings),
+        _plan_prompt(task_text, entries),
     )
-    brief = "".join(
-        block.text for block in response.message.content if isinstance(block, TextContent)
-    ).strip()
     if not brief:
         return RunResult(error="planner produced an empty brief")
     return RunResult(brief=brief)

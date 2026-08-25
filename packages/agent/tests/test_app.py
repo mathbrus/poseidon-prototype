@@ -7,7 +7,6 @@ import pytest
 
 from agent.app import create_app
 from agent.brain import RunResult
-from agent.config import AgentSettings
 
 pytestmark = pytest.mark.anyio
 
@@ -39,7 +38,7 @@ async def test_task_lifecycle_running_then_done():
         await release.wait()
         return RunResult(pr_url="https://github.test/pull/1", iterations=2)
 
-    async with client(create_app(task_runner=runner)) as http:
+    async with client(create_app(runners={"implement": runner})) as http:
         resp = await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
         assert resp.status_code == 202
 
@@ -81,7 +80,7 @@ async def test_run_result_error_maps_to_failed():
     async def runner(run_id: str, task_text: str) -> RunResult:
         return RunResult(iterations=3, error="tests still failing after 3 iterations")
 
-    async with client(create_app(task_runner=runner)) as http:
+    async with client(create_app(runners={"implement": runner})) as http:
         await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
         status = await poll_until_terminal(http, RUN_ID)
 
@@ -94,7 +93,7 @@ async def test_runner_crash_maps_to_failed():
     async def runner(run_id: str, task_text: str) -> RunResult:
         raise RuntimeError("gateway unreachable")
 
-    async with client(create_app(task_runner=runner)) as http:
+    async with client(create_app(runners={"implement": runner})) as http:
         await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
         status = await poll_until_terminal(http, RUN_ID)
 
@@ -106,7 +105,7 @@ async def test_unknown_run_is_404():
     async def runner(run_id: str, task_text: str) -> RunResult:
         return RunResult()
 
-    async with client(create_app(task_runner=runner)) as http:
+    async with client(create_app(runners={"implement": runner})) as http:
         resp = await http.get("/task/run-GHOST")
     assert resp.status_code == 404
 
@@ -118,7 +117,7 @@ async def test_duplicate_run_id_is_409():
         await started.wait()
         return RunResult(pr_url="https://pr", iterations=1)
 
-    async with client(create_app(task_runner=runner)) as http:
+    async with client(create_app(runners={"implement": runner})) as http:
         first = await http.post("/task", json={"run_id": RUN_ID, "task_text": "a"})
         second = await http.post("/task", json={"run_id": RUN_ID, "task_text": "b"})
         started.set()
@@ -140,7 +139,7 @@ async def test_terminal_run_restarts_on_redispatch():
             return RunResult(error="budget_exhausted: cap reached")
         return RunResult(pr_url="https://github.test/pull/2", iterations=1)
 
-    async with client(create_app(task_runner=runner)) as http:
+    async with client(create_app(runners={"implement": runner})) as http:
         first = await http.post("/task", json={"run_id": RUN_ID, "task_text": "one"})
         assert first.status_code == 202
         status = await poll_until_terminal(http, RUN_ID)
@@ -161,7 +160,7 @@ async def test_running_run_still_answers_409():
         await release.wait()
         return RunResult()
 
-    async with client(create_app(task_runner=runner)) as http:
+    async with client(create_app(runners={"implement": runner})) as http:
         await http.post("/task", json={"run_id": RUN_ID, "task_text": "one"})
         conflict = await http.post("/task", json={"run_id": RUN_ID, "task_text": "again"})
         assert conflict.status_code == 409
@@ -179,7 +178,7 @@ async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
     async def never(run_id: str, task_text: str) -> RunResult:
         raise AssertionError("implement runner must not run in plan mode")
 
-    async with client(create_app(task_runner=never, plan_runner=planner)) as http:
+    async with client(create_app(runners={"implement": never, "plan": planner})) as http:
         resp = await http.post(
             "/task",
             json={
@@ -198,30 +197,20 @@ async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
     assert seen == [(RUN_ID, "scope it")]
 
 
-async def test_review_verdict_flows_through_the_status_api(monkeypatch):
-    """Regression: a review dispatch's structured verdict must survive the
-    HTTP boundary — the workflow reads it from the status response, and a
+async def test_review_verdict_flows_through_the_status_api():
+    """A review dispatch's structured verdict must survive the HTTP
+    boundary — the workflow reads it from the status response, and a
     dropped verdict fails every policy- and human-gated merge with
-    'reviewer finished without a verdict'. The internal review runner is
-    wired to brain.review_dispatch, so patch that."""
-    import agent.app as module
+    'reviewer finished without a verdict'."""
 
-    def fake_review(settings, run_id, task_text):
+    async def fake_review(run_id, task_text):
         return RunResult(
             comment_urls=["https://pr/1#c-1"],
             verdict="pass",
             verdict_summary="Suite green; in scope.",
         )
 
-    monkeypatch.setattr(module.brain, "review_dispatch", fake_review)
-
-    settings = AgentSettings(
-        mcp_gateway_url="http://gateway.test:8080",
-        llm_proxy_url="http://llm.test:4000",
-        model="test-model",
-        target_repo="example/target",
-    )
-    async with client(create_app(settings=settings)) as http:
+    async with client(create_app(runners={"review": fake_review})) as http:
         await http.post(
             "/task", json={"run_id": RUN_ID, "task_text": "review", "mode": "review"}
         )
