@@ -45,6 +45,16 @@ before.
 A change that only furnishes the cage, or that buys capability by
 weakening the charter, is the wrong direction even if it ships.
 
+## The tree is not the vision
+
+This file is the source of truth. The repo is not always caught up —
+the project is moving through phases, and leftovers from earlier ones
+remain. Old names, old control flow, old assumptions.
+
+When you find something incoherent with this vision, stop and ask.
+Do not paper over it, do not reinterpret it into the new world, do
+not silently delete it. We will sort it out together.
+
 ## Working rules
 
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.
@@ -65,3 +75,9 @@ weakening the charter, is the wrong direction even if it ships.
   pods running old code — check what's actually deployed.
 - **"Converged"** for the control plane includes OPA bundle
   activation, not just pods being Ready.
+- **Comments**: write them for a reader who does not know the
+  implementation plan. Never mention phases, contract IDs (C2, C4,
+  …), or how the code used to work. If you find such comments, strip
+  them as you touch the file — they are debris, not documentation.
+- **Leftovers**: if code, docs, or names contradict the vision above,
+  ask immediately. Do not guess which world they belong to.
