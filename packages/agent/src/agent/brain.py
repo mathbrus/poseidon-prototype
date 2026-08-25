@@ -92,11 +92,13 @@ class RunResult(BaseModel):
     # it recorded — what an intake run links to the run record.
     ticket_urls: list[str] = []
     crew_request_id: str | None = None
-    # Reviewer mode: the findings comment(s) it posted, and the structured
-    # verdict — pass/fail plus a one-line summary. The review workflow
-    # refuses to reach the merge gate without a verdict; what the verdict
-    # releases is compiled policy's decision, never the reviewer's.
+    # The comments a dispatch posted: the reviewer's findings on the PR,
+    # or the PM's summary on the ticket(s) it filed.
     comment_urls: list[str] = []
+    # Reviewer mode: the structured verdict — pass/fail plus a one-line
+    # summary. The review workflow refuses to reach the merge gate without
+    # a verdict; what the verdict releases is compiled policy's decision,
+    # never the reviewer's.
     verdict: str | None = None
     verdict_summary: str | None = None
     # Decide mode: {action, target, rationale} — the heartbeat's
@@ -509,31 +511,39 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
 
 
 def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """The PM runtime: scope a goal, file tickets, record
-    crew intent — through governed tools only. No sandbox, no delivery, no
-    private memory: the backlog and the run history are the PM's only
-    cross-run state. Executor-tool refusal is the
-    gateway's job; a deny surfaces as a tool observation the model sees."""
+    """The PM runtime: scope a goal, file tickets, record crew intent, and
+    leave a one-paragraph summary as a comment on each ticket filed — all
+    through governed tools. No sandbox, no delivery, no private memory: the
+    backlog is the PM's cross-run state, and the summary comment is what a
+    later reader of that backlog finds. A dispatch that filed tickets but
+    posted no summary is a failed dispatch — the tickets are still reported,
+    so they stay linked to the run. Executor-tool refusal is the gateway's
+    job; a deny surfaces as a tool observation the model sees."""
     with _session(settings, run_id, "pm", PM_TOOLS, PM_STEP_CAP) as s:
         convo, records = s.convo, s.records
         convo.send_message(f"Goal:\n{task_text}")
         convo.run()
         failure = _loop_failure(convo)
+    partial = dict(
+        ticket_urls=records.ticket_urls,
+        crew_request_id=records.crew_request_id,
+        comment_urls=records.comment_urls,
+    )
     if failure:
-        return RunResult(
-            error=failure,
-            ticket_urls=records.ticket_urls,
-            crew_request_id=records.crew_request_id,
-        )
+        return RunResult(error=failure, **partial)
     if not records.ticket_urls:
         return RunResult(error="PM filed no ticket for the goal")
+    if not records.comment_urls:
+        return RunResult(error="PM filed tickets without posting its summary", **partial)
     log.info(
         "pm finished",
-        extra={"tickets": records.ticket_urls, "crew_request": records.crew_request_id},
+        extra={
+            "tickets": records.ticket_urls,
+            "crew_request": records.crew_request_id,
+            "comments": records.comment_urls,
+        },
     )
-    return RunResult(
-        ticket_urls=records.ticket_urls, crew_request_id=records.crew_request_id
-    )
+    return RunResult(**partial)
 
 
 # The decide contract: exactly one DECISION line and one RATIONALE line.

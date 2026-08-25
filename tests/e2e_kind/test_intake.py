@@ -1,7 +1,7 @@
 """Intake on the live cluster: a goal becomes GitHub issues
-plus a recorded `crew_requests` row under the PM's authority; the runs row
-links the tickets; and the PM's tool calls appear in the audit story under
-the run's `run_id`. Started exactly as `poseidon run --workflow intake`
+carrying the PM's summary comment, plus a recorded `crew_requests` row
+under the PM's authority; the runs row links the tickets; and the PM's
+tool calls appear in the audit story under the run's `run_id`. Started exactly as `poseidon run --workflow intake`
 starts it — a thin Temporal client; the in-cluster worker drives the PM.
 """
 
@@ -10,6 +10,7 @@ import contextlib
 import re
 
 from common.ids import new_run_id
+from mockllm.brain import PM_SUMMARY
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.intake import IntakeInput
 
@@ -52,6 +53,13 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
         issue = github_api(env, "GET", f"/repos/{target_slug(env)}/issues/{issue_number}")
         assert issue.status_code == 200 and issue.json()["state"] == "open"
 
+        # The PM's finishing paragraph is on the ticket, for whoever picks
+        # it up — the mock brain's one-sentence summary, posted by pm-1.
+        comments = github_api(
+            env, "GET", f"/repos/{target_slug(env)}/issues/{issue_number}/comments"
+        ).json()
+        assert [c["body"] for c in comments] == [PM_SUMMARY], comments
+
         # The recorded, expiring request under the PM's authority — the
         # intake -> implement handoff a later implement run consumes.
         rows = psql_json(
@@ -69,7 +77,7 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
         # The PM's tool calls are the run's story.
         story = [e for e in audit_story(run_id) if e["source"] == "gateway"]
         tools = [e["tool"] for e in story]
-        assert "issues.create" in tools and "crew.request" in tools
+        assert {"issues.create", "crew.request", "issues.comment"} <= set(tools)
         for event in story:
             assert event["agent_id"] == "pm-1"
             assert event["lifecycle"] == "standing"

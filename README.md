@@ -416,7 +416,10 @@ flowchart LR
 A goal arrives as untrusted text (`poseidon run --workflow intake goal.md`).
 The orchestrator creates a run row, checks the budget has headroom, and
 dispatches the standing **PM**. The PM reads the goal, files a ticket
-through `issues.create`, and records a crew request through `crew.request`.
+through `issues.create`, records a crew request through `crew.request`, and
+leaves its one-paragraph summary of what it set up as a comment on the
+ticket through `issues.comment` — the ticket, not the run log, is where the
+company remembers why the work exists.
 
 > [!NOTE]
 > The goal text is handed straight to an LLM, injection and all. If it

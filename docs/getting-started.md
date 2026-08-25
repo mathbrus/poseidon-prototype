@@ -173,8 +173,9 @@ kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233
 
 #### 1. Intake
 
-A goal is untrusted text handed to the PM. The PM files tickets and
-records a `feature-delivery` crew request; it cannot write code.
+A goal is untrusted text handed to the PM. The PM files tickets, comments
+its summary of the scoping on each, and records a `feature-delivery` crew
+request; it cannot write code.
 [`examples/goal-tetris.md`](../examples/goal-tetris.md) is that goal:
 
 ```bash
@@ -184,8 +185,9 @@ uv run poseidon run --workflow intake examples/goal-tetris.md
 The CLI prints `started intake-<run_id> (run_id …)` on stderr and blocks
 until the run finishes. Success is JSON with `"status": "done"`,
 `"workflow": "intake"`, one or more `ticket_urls`, and a
-`crew_request_id`. The issues are real on `TARGET_REPO`. hello-saas declares
-no intake gate, so there is no signal to send.
+`crew_request_id`. The issues are real on `TARGET_REPO`, each with the PM's
+summary as its first comment. hello-saas declares no intake gate, so there
+is no signal to send.
 
 Intake and implement are **separate runs**. Fulfilment keys crew requests
 by `run_id`, so implement does not consume the intake row; a human picks

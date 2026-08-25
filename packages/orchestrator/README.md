@@ -65,8 +65,9 @@ Two visible consequences:
 **intake** — goal text in, tickets and recorded crew intent out:
 `create_intake_run → check_budget → [gate slot] → dispatch_pm →
 finalize_intake`. The PM does the scoping itself through governed tools
-(`issues.*`, `crew.request`); the workflow never touches GitHub or the
-crew tables directly. This is the injection surface for the standing
+(`issues.*`, `crew.request`) — files the tickets, records the crew request,
+and comments its summary on each ticket; the workflow never touches GitHub
+or the crew tables directly. This is the injection surface for the standing
 conductor: the goal text is untrusted input handed straight to the PM,
 and containment is the compiled policy's job, not the prompt's. The gate
 slot reads the blueprint's `workflows.intake.gates`: declare

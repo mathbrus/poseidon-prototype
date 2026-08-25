@@ -22,6 +22,7 @@ from agent.gateway_client import ToolCallError
 RUN_ID = "run-01TESTULID"
 PR_URL = "https://github.test/example/target/pull/7"
 COMMENT_URL = "https://github.test/example/target/pull/7#issuecomment-1"
+ISSUE_COMMENT_URL = "https://github.test/example/target/issues/7#issuecomment-2"
 FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 
 _ids = count(1)
@@ -168,6 +169,8 @@ class FakeGateway:
                 }
             case "git.comment":
                 return {"url": COMMENT_URL}
+            case "issues.comment":
+                return {"url": ISSUE_COMMENT_URL}
             case "issues.create":
                 return {
                     "number": 7,
