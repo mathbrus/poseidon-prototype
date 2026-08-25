@@ -45,7 +45,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
-    { name = "openhands-sdk", specifier = "==1.40.0" },
+    { name = "openhands-sdk", specifier = "==1.43.1" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 
@@ -2060,7 +2060,7 @@ wheels = [
 
 [[package]]
 name = "openhands-sdk"
-version = "1.40.0"
+version = "1.43.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "agent-client-protocol" },
@@ -2070,6 +2070,7 @@ dependencies = [
     { name = "filelock" },
     { name = "httpx", extra = ["socks"] },
     { name = "joserfc" },
+    { name = "jsonschema" },
     { name = "litellm" },
     { name = "lmnr" },
     { name = "pillow" },
@@ -2081,9 +2082,9 @@ dependencies = [
     { name = "tree-sitter-bash" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/77/aa90f74e61a1f134eac60d69f66ca32aa4e720945fd61fc6bf434b7de3df/openhands_sdk-1.40.0.tar.gz", hash = "sha256:5413dac766759ff48159a51fb6b50ab4ad3ce9bc77ce29c4d820adcdc66d815c", size = 652519, upload-time = "2026-08-01T02:40:49.969Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c3/5a/431fdd37a06cb58df6d67509e244155eeb487ec11618484262b41421c28f/openhands_sdk-1.43.1.tar.gz", hash = "sha256:6ca98ce05792d29fdacf6b591c3dc931fc10ea0f55cc0f0c5eeb2a856d33fcfc", size = 694338, upload-time = "2026-08-21T22:00:54.578Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/30/ee77d0dbd68b16dc760422212ba23f8eb9139875200474e3cddd99f84c40/openhands_sdk-1.40.0-py3-none-any.whl", hash = "sha256:1c252c27ea5a2d8310b3b3c4a1a119e1d9a8c764f7cee527e43cbcc90a53dbd8", size = 779344, upload-time = "2026-08-01T02:40:45.662Z" },
+    { url = "https://files.pythonhosted.org/packages/97/c8/f239dbeabc9a30db1a83d6f2050cf1bc645d01e5dac72674e9cbf4e7643f/openhands_sdk-1.43.1-py3-none-any.whl", hash = "sha256:f84d4d0bdf12ece8f15402f37c183f6871d68ab511edfb2c33c46db2cbbbedac", size = 828264, upload-time = "2026-08-21T22:00:49.297Z" },
 ]
 
 [[package]]
