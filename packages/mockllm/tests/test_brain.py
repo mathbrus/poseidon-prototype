@@ -151,30 +151,39 @@ CONDUCTOR_GOAL = (
 )
 PM_TOOLS = [
     {"type": "function", "function": {"name": n}}
-    for n in ("create_issue", "read_issues", "request_crew")
+    for n in ("create_issue", "read_issues", "request_crew", "comment_issue")
 ]
+FIRST_TICKET = 7
 
 
 def pm_history(goal: str, *assistant_calls: str) -> list[dict]:
+    """A PM history: every create_issue observation names its ticket
+    number (7, 8, ...), the way the gateway's reply does."""
     messages = [
         {"role": "system", "content": "You are the product manager of acme."},
         {"role": "user", "content": goal},
     ]
-    for name in assistant_calls:
+    filed = 0
+    for i, name in enumerate(assistant_calls):
+        call_id = f"c{i}"
         messages.append(
             {
                 "role": "assistant",
                 "content": None,
                 "tool_calls": [
                     {
-                        "id": "c",
+                        "id": call_id,
                         "type": "function",
                         "function": {"name": name, "arguments": "{}"},
                     }
                 ],
             }
         )
-        messages.append({"role": "tool", "tool_call_id": "c", "content": "{}"})
+        observation = "{}"
+        if name == "create_issue":
+            observation = json.dumps({"number": FIRST_TICKET + filed, "state": "open"})
+            filed += 1
+        messages.append({"role": "tool", "tool_call_id": call_id, "content": observation})
     return messages
 
 
@@ -484,6 +493,48 @@ def test_contract_first_goal_requests_both_crews_in_order():
         PM_TOOLS,
     )
     assert impl_req.tool_calls[0].arguments["crew_template"] == "feature-delivery"
+
+
+def test_pm_posts_its_summary_on_each_ticket_then_stops():
+    """After the crew request(s): one comment_issue per ticket filed, each
+    addressed by the number read back from the create_issue observation,
+    then the plain-text stop."""
+    plain = "Goal:\nAdd a /stats endpoint."
+    comment = next_completion(pm_history(plain, "create_issue", "request_crew"), PM_TOOLS)
+    assert names(comment) == ["comment_issue"]
+    assert comment.tool_calls[0].arguments["number"] == FIRST_TICKET
+    assert (
+        "requested the feature-delivery crew" in comment.tool_calls[0].arguments["body"]
+    )
+    done = next_completion(
+        pm_history(plain, "create_issue", "request_crew", "comment_issue"), PM_TOOLS
+    )
+    assert done.tool_calls == [] and done.content
+
+    pair_filed = ("create_issue", "create_issue", "request_crew", "request_crew")
+    first = next_completion(pm_history(CONTRACT_GOAL, *pair_filed), PM_TOOLS)
+    assert first.tool_calls[0].arguments["number"] == FIRST_TICKET
+    second = next_completion(
+        pm_history(CONTRACT_GOAL, *pair_filed, "comment_issue"), PM_TOOLS
+    )
+    assert second.tool_calls[0].arguments["number"] == FIRST_TICKET + 1
+    assert "ordered pair" in second.tool_calls[0].arguments["body"]
+    done = next_completion(
+        pm_history(CONTRACT_GOAL, *pair_filed, "comment_issue", "comment_issue"),
+        PM_TOOLS,
+    )
+    assert done.tool_calls == []
+
+
+def test_poisoned_pm_summarizes_after_recovering():
+    """The denied request and the authorized one both count as made; the
+    comment comes only once the authorized crew is requested."""
+    comment = next_completion(
+        pm_history(CONDUCTOR_GOAL, "create_issue", "request_crew", "request_crew"),
+        PM_TOOLS,
+    )
+    assert names(comment) == ["comment_issue"]
+    assert comment.tool_calls[0].arguments["number"] == FIRST_TICKET
 
 
 def test_a_plain_goal_still_files_a_single_delivery_ticket():

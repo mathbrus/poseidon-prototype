@@ -396,6 +396,29 @@ def _system_text(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
+def _filed_ticket_numbers(messages: list[dict[str, Any]]) -> list[int]:
+    """The numbers of the tickets this history filed, in filing order, read
+    back from the create_issue observations — the only way a PM learns
+    them, so the comment step addresses tickets the same way a real one
+    does. A filing whose observation carries no number (a denial) is not
+    a ticket."""
+    filings = {
+        call["id"]
+        for message in messages
+        if message.get("role") == "assistant"
+        for call in message.get("tool_calls") or []
+        if call.get("function", {}).get("name") == "create_issue"
+    }
+    numbers = []
+    for message in messages:
+        if message.get("role") != "tool" or message.get("tool_call_id") not in filings:
+            continue
+        match = re.search(r'"number":\s*(\d+)', _content_text(message))
+        if match:
+            numbers.append(int(match.group(1)))
+    return numbers
+
+
 def _pr_opened(messages: list[dict[str, Any]]) -> bool:
     """Whether a delivery already succeeded in this history: the open_pr
     observation carries a non-null `pr_url` (a denial is an ERROR text)."""
@@ -432,7 +455,8 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
     """The PM's scripted dispatch: file the ticket(s) for the goal —
     the ordered contract-then-implement pair under a contract-first goal,
     one implement ticket otherwise, every body ending with its `Crew:`
-    trailer — record the crew request(s), then summarize.
+    trailer — record the crew request(s), then post the one-paragraph
+    summary as a comment on each ticket filed, then stop.
 
     Under the injected-conductor goal the PM first obeys the
     poison and asks for a crew template outside its `may_spawn` list. The
@@ -495,16 +519,20 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
                 },
             )
         )
-    if contract_first:
-        return _text(
-            "Filed the contract and implement tickets as an ordered pair "
-            "and requested the contract-authoring and feature-delivery "
-            "crews."
-        )
-    return _text(
-        "Filed one ticket for the goal and requested the feature-delivery "
+    summary = (
+        "Filed the contract and implement tickets as an ordered pair and "
+        "requested the contract-authoring and feature-delivery crews."
+        if contract_first
+        else "Filed one ticket for the goal and requested the feature-delivery "
         "crew to implement it."
     )
+    filed = _filed_ticket_numbers(messages)
+    commented = _made_calls(messages, "comment_issue")
+    if commented < len(filed):
+        return _calls(
+            MockToolCall("comment_issue", {"number": filed[commented], "body": summary})
+        )
+    return _text("Summary posted on every ticket filed; nothing left to set up.")
 
 
 PR_NUMBER_RE = re.compile(r"pull request #(\d+)")

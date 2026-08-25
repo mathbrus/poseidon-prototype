@@ -44,7 +44,7 @@ from common.text import numbered_lines
 ACT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
 PLAN_TOOLS = ["list_dir", "read_file"]
-PM_TOOLS = ["create_issue", "read_issues", "request_crew"]
+PM_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
 REVIEWER_TOOLS = [
     "list_dir",
     "read_file",
@@ -73,6 +73,7 @@ class ToolRecords:
     pr_url: str | None = None
     ticket_urls: list[str] = field(default_factory=list)
     crew_request_id: str | None = None
+    # The reviewer's findings on the PR, or the PM's summary on its tickets.
     comment_urls: list[str] = field(default_factory=list)
     # Reviewer mode: the structured verdict. The reviewer *proposes*
     # pass/fail; what a verdict releases is the platform's decision, made
@@ -184,6 +185,14 @@ class ReadPrAction(Action):
 class CommentPrAction(Action):
     number: int = Field(description="Pull request number.")
     body: str = Field(description="The findings: what you checked, what you found.")
+
+
+class CommentIssueAction(Action):
+    number: int = Field(description="Ticket number, as create_issue's reply named it.")
+    body: str = Field(
+        description="One paragraph: what you set up for this ticket and why, "
+        "written for whoever picks it up."
+    )
 
 
 class VerdictAction(Action):
@@ -330,19 +339,31 @@ def _verdict(ctx: HandsContext, a: VerdictAction) -> dict[str, Any]:
     return {"recorded": a.verdict}
 
 
-def _comment_pr(ctx: HandsContext, a: CommentPrAction) -> dict[str, Any]:
-    result = ctx.bridge.call(
-        "git.comment",
-        {
-            "run_id": ctx.run_id,
-            "repo": ctx.settings.target_repo,
-            "number": int(a.number),
-            "body": a.body,
-        },
-    )
-    if result.get("url"):
-        ctx.records.comment_urls.append(result["url"])
-    return result
+def _comment_via(
+    tool: str,
+) -> Callable[[HandsContext, CommentPrAction | CommentIssueAction], dict[str, Any]]:
+    """The reviewer's findings go on the pull request, the PM's summary on
+    the ticket. GitHub serves both from one endpoint; the gateway polices
+    them as two tools, so each role holds only the one its blueprint
+    grants. Either way the posted comment's URL is a recorded fact."""
+
+    def comment(
+        ctx: HandsContext, a: CommentPrAction | CommentIssueAction
+    ) -> dict[str, Any]:
+        result = ctx.bridge.call(
+            tool,
+            {
+                "run_id": ctx.run_id,
+                "repo": ctx.settings.target_repo,
+                "number": int(a.number),
+                "body": a.body,
+            },
+        )
+        if result.get("url"):
+            ctx.records.comment_urls.append(result["url"])
+        return result
+
+    return comment
 
 
 def _as_json(action: Action, result: dict[str, Any]) -> str:
@@ -437,7 +458,13 @@ _TOOLS: dict[str, ToolSpec] = {
     "comment_pr": ToolSpec(
         "Post a review comment on the pull request — your findings, in one comment.",
         CommentPrAction,
-        _comment_pr,
+        _comment_via("git.comment"),
+    ),
+    "comment_issue": ToolSpec(
+        "Post your one-paragraph summary of what you set up as a comment on "
+        "a ticket you filed. Every ticket you file gets one.",
+        CommentIssueAction,
+        _comment_via("issues.comment"),
     ),
     "verdict": ToolSpec(
         "Deliver your verdict on the pull request after posting your "
