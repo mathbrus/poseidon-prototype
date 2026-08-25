@@ -1,8 +1,8 @@
-"""MCP client for the gateway (contract C3).
+"""MCP client for the gateway.
 
-The graph depends only on `call(tool, args) -> dict`; a gateway tool error
+The brain depends only on `call(tool, args) -> dict`; a gateway tool error
 (policy denial, backend failure) raises `ToolCallError` carrying the error
-text — which includes the OPA rule name on a deny, so the graph can surface
+text — which includes the OPA rule name on a deny, so the brain can surface
 it to the model.
 """
 

@@ -1,5 +1,5 @@
-"""Unit tests for the deterministic brain: phase sequencing for both
-scenarios on synthetic graph histories, branch parsing, and the canned
+"""Unit tests for the deterministic brain: phase sequencing for every
+scripted scenario on synthetic histories, branch parsing, and the canned
 slugify implementation actually satisfying the task's assertions."""
 
 import json
@@ -444,7 +444,7 @@ def test_act_stops_after_the_one_write_batch():
     assert done.tool_calls == [] and done.content
 
 
-# -- the split-oracle scenarios (#13) ---------------------------------------
+# -- the contract-first scenarios -------------------------------------------
 
 CONTRACT_GOAL = (
     f"Goal:\nAdd a slugify utility ({CONTRACT_GOAL_MARKER}).\n\n"
@@ -485,8 +485,8 @@ def test_contract_first_goal_requests_both_crews_in_order():
 
 
 def test_a_plain_goal_still_files_a_single_delivery_ticket():
-    """No contract marker: the pre-split single-ticket path, now with the
-    delivery crew named by trailer."""
+    """No contract marker: a single delivery ticket, its crew named by
+    trailer."""
     completion = next_completion(pm_history("Goal:\nAdd a /stats endpoint."), PM_TOOLS)
     assert completion.tool_calls[0].arguments["title"].startswith("Implement:")
     assert "Crew: feature-delivery" in completion.tool_calls[0].arguments["body"]

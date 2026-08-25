@@ -102,8 +102,8 @@ allow_rules contains "crew_{crew_slug}_{member_slug}_{tool_slug}" if {{
 
 # Spawn authority is bounded by the conductor's concurrency cap and the
 # run's budget headroom — both riding the enriched *input* (the gateway
-# counts live spawns and checks the ledger; no OPA data pushes). Note what
-# is absent: any child-⊆-parent scope check.
+# counts live spawns and checks the ledger; no OPA data pushes). There is
+# deliberately no child-⊆-parent scope check (see `checks`).
 _OVER_CAP_RULE = """
 # {agent_id}: at most {cap} concurrent crews (spawn denials are
 # first-class governance events).
@@ -396,8 +396,8 @@ def _open_pr_path_deny(
     Every path rule the blueprint can write is this shape — any changed
     path under `paths` is refused — so there is one emitter, and the audit
     row reads the same however the refusal was declared. With `roles` the
-    declared owner templates are exempt (the split oracle's contract tree,
-    a caller keyed on what it *is*); without, the path is denied outright
+    declared owner templates are exempt (the contract tree — a caller keyed
+    on what it *is*); without, the path is denied outright
     (`deny_paths`)."""
     owner_clause = f"\tnot input.role in {json.dumps(sorted(roles))}\n" if roles else ""
     return (

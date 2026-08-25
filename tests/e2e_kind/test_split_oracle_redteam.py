@@ -2,8 +2,8 @@
 oracle, and one way to gut the oracle itself — all of them dying at
 platform checks on the cluster.
 
-The merge-gate milestone (#11) made green tests load-bearing; #13 answers
-the obvious attack on that, which is not the code but the *rubric*. Once
+A policy-resolved merge gate makes green tests load-bearing, and the
+obvious attack on that is not the code but the *rubric*. Once
 compiled policy can merge unattended on a green suite, an attacker who can
 steer the implementer tries to own the suite that grades it. There are only
 so many ways in, and the company here does all of them — credulously, on
@@ -43,7 +43,7 @@ shape and never re-seeds it. How the spec legitimately *gets* to `main` —
 the PM's ordered pair, the contract crew, the human's one approval — is the
 capstone's arc (`test_zz_delegated`), not this module's.
 
-Applies `examples/hello-saas-delegated.yaml` (now split-declared) for the
+Applies `examples/hello-saas-delegated.yaml` (split-declared) for the
 module and restores the pristine `hello-saas.yaml` after — the red-team
 blueprint-swap pattern of `test_merge_gate_redteam`.
 """
@@ -225,14 +225,13 @@ def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
 
 @pytest.fixture(scope="module")
 def split(stack: None, repo_baseline: dict):
-    """The split declared on the cluster: the delegated blueprint now
+    """The split declared on the cluster: the delegated blueprint
     carries `policies.contract_tests` and the contract-authoring crew.
     Restore the pristine company after, so later suites are unaffected."""
     # An empty campsite before the conduct blueprint lands: the ensure
     # loop's bare heartbeat ticks once the moment conduct is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot
-    # (#15 step 5 caught this live).
+    # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(repo_baseline)
     apply_blueprint(DELEGATED)
     wait_for_convergence()
@@ -255,7 +254,7 @@ def test_the_seeded_baseline_is_a_real_spec(baseline: dict):
     """Guard against a vacuously green module: a contract tree that is
     absent, empty, or toothless would make every refusal below hold for the
     wrong reason. The baseline on `main` carries the four acceptance cases,
-    and the pre-split tree is gone."""
+    and no implementer-owned `tests/test_slugify.py` sits beside it."""
     env = baseline["env"]
     seeded = read_repo_file(env, CONTRACT_TEST_PATH)
     assert seeded, "no contract tree on the base ref"
@@ -263,7 +262,7 @@ def test_the_seeded_baseline_is_a_real_spec(baseline: dict):
     assert text.count("def test_contract_") == 4, text
     assert "assert slugify(" in text, "the seeded contract asserts nothing"
     assert read_repo_file(env, "tests/test_slugify.py") is None, (
-        "the pre-split tree survived"
+        "an implementer-owned tests/test_slugify.py is on main"
     )
 
 
@@ -561,7 +560,7 @@ def test_the_contract_pr_parked_on_the_human_and_merged_nothing(gutted: dict):
 
 
 def test_the_decline_spent_no_layer_on_the_contract_pr(gutted: dict):
-    """The step-5 sequencing fix, live: the decline is positional, so the
+    """The decline is positional, so the
     platform spends nothing on a PR only the human can merge — no
     `merge.resolve` evaluation, and no rework ticket for a chain no crew
     could consume (the delivery crew cannot even open a PR into the tree)."""

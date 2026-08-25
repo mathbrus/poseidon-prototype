@@ -65,16 +65,15 @@ what is single is the *contract*, not the writer.
 
 There is no migration job and no ordering requirement. Every service calls
 `open_registry()` at startup, which applies `schema.sql` — every statement
-is `IF NOT EXISTS` (plus `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for
-columns added after first release), so services migrate in any order, on
-every restart, concurrently. Concurrency is real: `CREATE TABLE IF NOT
+is `IF NOT EXISTS`, so services migrate in any order, on every restart,
+concurrently. Concurrency is real: `CREATE TABLE IF NOT
 EXISTS` can still collide in Postgres, so `migrate()` serializes under one
 advisory lock.
 
 The lock is transaction-scoped (`pg_advisory_xact_lock`), not
 session-scoped, and `db.py` explains why: a failing DDL aborts the
 transaction, and a session lock taken inside it would survive the rollback
-on a pooled connection while the unlock call could no longer run — wedging
+on a pooled connection while the unlock call cannot run — wedging
 every other service's `migrate()` until the pool recycles.
 
 The schema also lives *inside* the Postgres instance deployed for
@@ -114,6 +113,10 @@ CREATE TABLE IF NOT EXISTS registry.run_participants (
     parent_agent_id text NOT NULL,
     crew_template   text NOT NULL,
     role            text NOT NULL,
+    company         text NOT NULL DEFAULT '',
+    role_template   text NOT NULL DEFAULT '',
+    namespace       text NOT NULL DEFAULT '',
+    service_account text,
     status          text NOT NULL DEFAULT 'active',
     created_at      timestamptz NOT NULL DEFAULT now(),
     terminated_at   timestamptz
@@ -237,13 +240,14 @@ REGISTRY_DSN=postgresql://poseidon:...@127.0.0.1:5432/poseidon uv run pytest pac
 ```
 
 **These tests skip without `REGISTRY_DSN`**, which is expected on a laptop
-— `uv run pytest packages/registry` reports 28 skipped and that is green.
+— `uv run pytest packages/registry` reports every test skipped, and that
+is green.
 The SQL is the thing under test — upsert convergence, the revocation
 `WHERE` clause, the cross-source `story` query — so a fake would test
 nothing. CI provides a Postgres service container; locally,
 `kubectl -n poseidon-platform port-forward svc/postgres 5432:5432` against
-the kind cluster works. (Four of the 28, the pure bundle-packing tests in
-`test_bundles.py`, need no database at all; they skip anyway because the
+the kind cluster works. (The pure bundle-packing tests in
+`test_bundles.py` need no database at all; they skip anyway because the
 suite-wide cleanup fixture depends on the database session fixture.)
 
 As everywhere in this repo, run pytest per package, never repo-wide.

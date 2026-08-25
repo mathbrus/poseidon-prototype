@@ -141,7 +141,9 @@ property of the tool, not of its name prefix.
 arguments: protected branches (lowercased at emit time, so
 `protected: [Main]` still denies `main`), a branch-name regex, denied
 path prefixes, path ownership keyed on role *templates*, and — when
-`contract_tests` is declared — the split oracle. The contract tree emits
+`contract_tests` is declared — the split oracle: an acceptance-test tree
+authored by a crew other than the implementer, so the tests that grade a
+change and the change itself never share an author. The contract tree emits
 two class-named rules: `git_open_pr_contract_tree` denies a
 `git.open_pr` touching the tree for any role template outside its
 declared owners (the same `startswith`-over-prefix emission as path
@@ -157,9 +159,9 @@ the rule name the audit row's reason. Path rules
 fail closed: a `git.open_pr` whose input carries no `args.paths` hits
 `git_open_pr_paths_missing`, because a rule that cannot be evaluated
 must not default to allow. String values are emitted with `json.dumps`,
-never raw interpolation — a pattern containing a backtick once
-terminated the raw Rego literal and spliced text into the bundle
-(`test_pattern_with_a_backtick_cannot_inject_policy` pins the fix).
+never raw interpolation, so a pattern containing a backtick cannot
+terminate the raw Rego literal and splice text into the bundle
+(`test_pattern_with_a_backtick_cannot_inject_policy` pins it).
 `allowed_pattern` is also regex-validated at compile time — a malformed
 pattern would otherwise surface as an OPA bundle-load failure long after
 apply. (Python's `re` is not OPA's RE2, but it rejects the same broken
@@ -181,7 +183,7 @@ divergence would fail closed but silently.
 
 ## Coherence checks as a design surface
 
-`checks.check()` runs ten passes and returns *every* problem, which
+`checks.check()` runs every coherence pass and returns *every* problem, which
 `CompileError` renders as one list — so a broken blueprint is fixed in one
 round trip, not one error per attempt. The messages are written to be
 sufficient to fix the document: what is wrong, where, and what is allowed
@@ -259,7 +261,7 @@ No Dockerfile of its own; it ships inside the orchestrator image.
 uv run pytest packages/compiler
 ```
 
-60 tests (run per package, never repo-wide). `test_purity.py` is the
+Run per package. `test_purity.py` is the
 unusual one: it proves the compiler performs no I/O beyond its
 arguments, so "apply is the only mutation of enforcement" is
 mechanically checked. `test_bundle_decisions.py` loads the emitted

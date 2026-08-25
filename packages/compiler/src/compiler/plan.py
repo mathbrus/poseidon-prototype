@@ -139,7 +139,7 @@ class DeploymentPlan:
     # rules — identical from every blueprint — live under poseidon.platform.
     platform_bundle: RegoBundle
     conduct: ConductConfig | None = None
-    # The split oracle, projected into the applied record: the review
+    # The contract tree, projected into the applied record: the review
     # workflow composes the contract-verify baseline from these paths.
     # None when the blueprint declares no contract tree.
     contract_tests: dict[str, Any] | None = None

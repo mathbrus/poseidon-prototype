@@ -3,9 +3,8 @@ all — with zero human commands.
 
 The overnight capstone (`test_zz_overnight`) proved the company runs its
 backlog to the human merge gate: two human acts, one goal in and one
-approval out. This is the milestone (#11) that removes the second act for a
-declared class of work. Under a policy-resolved merge gate, the whole arc
-has exactly *one* human act:
+approval out. A policy-resolved merge gate removes the second act for a
+declared class of work, so the whole arc has exactly *one* human act:
 
   1. `poseidon run <goal> --workflow intake` — one goal in.
 
@@ -13,7 +12,7 @@ Everything after is the standing heartbeat's: it implements the ticket
 intake filed (a PR appears), reviews the delivered PR, and — because the
 change is in the delegated class, the independent review passed, and the
 platform's own checks are green — merges it. No approval, no signal, no
-command. The autonomy now runs through the merge.
+command. The autonomy runs through the merge.
 
 What the platform still refuses is proven where it is exact and cheap, not
 by paying for more unattended cluster runs here:
@@ -138,8 +137,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
     # An empty campsite before the conduct blueprint lands: the ensure
     # loop's bare heartbeat ticks once the moment conduct is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot
-    # (#15 step 5 caught this live).
+    # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(env)
     apply_blueprint(DELEGATED)
     wait_for_convergence()
@@ -278,7 +276,7 @@ def test_both_quality_layers_were_recorded(delegated_overnight: dict):
 
 
 def test_the_whole_arc_had_exactly_one_human_act(delegated_overnight: dict):
-    """The milestone claim, as an invariant: implement and review both ran
+    """The claim, as an invariant: implement and review both ran
     under auto- ids, the merge happened, and it was released by policy —
     never by a human gate signal. The only human act was the intake goal."""
     assert delegated_overnight["implement"]["run_id"].startswith("auto-")
@@ -290,7 +288,7 @@ def test_the_whole_arc_had_exactly_one_human_act(delegated_overnight: dict):
     ), "the merge was released by a human, not policy"
 
 
-# --- the contract-first arc: split-oracle capstone (#13 step 7) -------------
+# --- the contract-first arc: the split oracle's capstone --------------------
 #
 # The delegated arc above proves in-class work merges unattended. This proves
 # the shape the split oracle adds: the company writes the *spec* first, under
@@ -358,8 +356,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     # An empty campsite before the conduct blueprint lands: the ensure
     # loop's bare heartbeat ticks once the moment conduct is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot
-    # (#15 step 5 caught this live).
+    # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(env)
     apply_blueprint(DELEGATED)
     wait_for_convergence()
@@ -500,7 +497,7 @@ def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict
 
 
 def test_the_whole_arc_had_exactly_one_human_act(contract_first: dict):
-    """The milestone claim as an invariant: across both phases, the only
+    """The claim as an invariant: across both phases, the only
     human command was the contract merge. The implementation's merge was
     policy's, and nothing else asked for a person."""
     impl_story = audit_story(contract_first["implement_review_run_id"])

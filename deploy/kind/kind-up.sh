@@ -35,8 +35,8 @@ SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 # The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
 # real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
 REAL_LLM=${REAL_LLM_ARG:-${REAL_LLM:-0}}
-# The Temporal web UI is a browsable surface over full operator authority
-# (see README §9); it stays out of the cluster unless explicitly asked for.
+# The Temporal web UI is a browsable surface over full operator authority;
+# it stays out of the cluster unless explicitly asked for.
 TEMPORAL_WEB=${TEMPORAL_WEB:-0}
 if [ "$REAL_LLM" != "1" ]; then
   LLM_API_KEY=${LLM_API_KEY:-mock-unused}

@@ -32,8 +32,7 @@ class WorkerSettings(TemporalSettings):
     target_repo: str
     base_ref: str = "main"
     # The bootstrap company this worker executes runs for, and its
-    # namespace (where sandbox Jobs land). Single-company wiring; goes
-    # per-run at a later step.
+    # namespace (where sandbox Jobs land). One worker serves one company.
     company: str = "hello-saas"
     sandbox_namespace: str = "hello-saas"
     # Deploy-time resolution of the infra IR's *logical* toolchain image:

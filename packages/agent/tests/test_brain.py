@@ -152,7 +152,7 @@ def test_review_without_findings_fails_the_dispatch(settings, gateway):
 
 
 def test_review_without_a_verdict_fails_the_dispatch(settings, gateway):
-    """Findings alone no longer finish a review: the structured verdict is
+    """Findings alone do not finish a review: the structured verdict is
     the contract, and prose is never parsed for one."""
     llm = ScriptedLLM(
         [
@@ -176,7 +176,7 @@ def test_review_without_a_verdict_fails_the_dispatch(settings, gateway):
 
 
 def test_prompt_and_toolsets_per_phase(settings, gateway):
-    """The implement dispatch never offers delivery tools (choice 8): the
+    """The implement dispatch never offers delivery tools: the
     act surface is the read/write set and the loop ends at the claim —
     open_pr exists only in the separate deliver dispatch, and the implement
     prompt does not even mention it."""
@@ -216,8 +216,8 @@ def test_deliver_prompt_names_the_delivery_tool(settings, gateway):
 
 
 def test_review_prompt_is_the_reviewers(settings, gateway):
-    """The reviewer is told it is a reviewer — comment_pr procedure, not the
-    engineer identity the shared prompt used to assert."""
+    """The reviewer is told it is a reviewer — comment_pr procedure, not an
+    engineer identity."""
     llm = ScriptedLLM([says("nothing to say")])
 
     with scripted(gateway, llm):

@@ -1,9 +1,9 @@
 """The compiled bundle, evaluated by the real policy engine.
 
 Golden files pin what we emit; these pin what it *decides* — which is the
-part that matters. Every case here is an exit criterion or a threat from the
-overview, so a refactor of the emitter that quietly widens a scope fails
-here rather than in production.
+part that matters. Every case here is a governance guarantee or a threat, so
+a refactor of the emitter that quietly widens a scope fails here rather
+than in production.
 
 Needs the `opa` binary or Docker; skips when neither is present so a laptop
 without them still gets a green run (CI has Docker).
@@ -48,7 +48,7 @@ def _runner():
                 "-i",
                 # As the invoking user, so reading the bundle directory does
                 # not depend on the image's default uid matching whoever ran
-                # the tests. (It silently did locally and did not on CI.)
+                # the tests.
                 "--user",
                 f"{os.getuid()}:{os.getgid()}",
                 "-v",
@@ -316,8 +316,8 @@ def test_unknown_tool_is_denied_by_default(decide):
 
 
 def test_platform_may_retire_a_sandbox_registration(decide):
-    """Both gateway admin routes are in PLATFORM_SCOPE — the DELETE was
-    missing, which once killed teardown when compiled bundles took over."""
+    """Both gateway admin routes are in PLATFORM_SCOPE — teardown needs the
+    DELETE as much as fulfilment needs the POST."""
     for tool in ("/admin/sandboxes", "/admin/sandboxes.delete"):
         assert (
             decide(
@@ -371,9 +371,9 @@ def _eval_bundle(tmp_path_factory, blueprint, name, input_fields) -> dict:
 
 
 def test_bundle_without_policies_still_loads(tmp_path_factory, blueprint):
-    """`policies` is optional; a blueprint without it used to emit a bundle
-    OPA refused to load (`deny_rules` unsafe var) — the entrypoint now
-    declares both rule sets."""
+    """`policies` is optional: the entrypoint declares both rule sets, so a
+    blueprint without it still emits a bundle OPA loads (no `deny_rules`
+    unsafe var)."""
     del blueprint["policies"]
     decision = _eval_bundle(
         tmp_path_factory,
@@ -385,8 +385,8 @@ def test_bundle_without_policies_still_loads(tmp_path_factory, blueprint):
 
 
 def test_pattern_with_a_backtick_cannot_inject_policy(tmp_path_factory, blueprint):
-    """The allowed_pattern is emitted as a JSON-escaped string; a backtick
-    used to terminate the raw literal and splice text into the bundle."""
+    """The allowed_pattern is emitted as a JSON-escaped string, so a backtick
+    cannot terminate the raw literal and splice text into the bundle."""
     blueprint["policies"]["branch_protection"]["allowed_pattern"] = "^feature/`x.*"
     decision = _eval_bundle(
         tmp_path_factory,
@@ -424,8 +424,8 @@ def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
 
 def test_crew_rule_compares_the_raw_member_name():
     """`run_participants.crew_role` stores the member name as written; only
-    rule *names* are slugged. A slugged comparison silently disabled every
-    rule of a hyphenated member."""
+    rule *names* are slugged. A slugged comparison would silently disable
+    every rule of a hyphenated member."""
     from compiler.plan import CrewMemberSpec
     from compiler.rego import build_bundle
 
@@ -583,7 +583,7 @@ def test_conduct_grants_no_new_path_to_merge(decide_conducted):
     as_platform = decide_conducted(
         PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
     )
-    assert as_platform["allow"] is True  # unchanged from the unconducted bundle
+    assert as_platform["allow"] is True  # same as the unconducted bundle
 
 
 # -- the policy-resolved merge gate ----------------------------------------
@@ -761,7 +761,7 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
     assert as_reviewer["allow"] is False
 
 
-# -- the split oracle: the contract tree -------------------------------------
+# -- the contract tree --------------------------------------------------------
 
 
 CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
@@ -962,13 +962,13 @@ def test_no_contract_tree_means_no_contract_fact(decide_delegated):
     assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
 
 
-# -- the split's authority is not looser, and it revokes like authority ------
+# -- the contract tree's authority is not looser, and it revokes like authority
 
 
 def test_the_contract_author_cannot_merge(decide_split):
-    """Authority not looser: the new deliver-capable template gains
-    `git.open_pr` into its tree and nothing else — `git.merge_pr` stays
-    platform-only beside the split, exactly as before it."""
+    """Authority not looser: the deliver-capable contract-author template
+    gains `git.open_pr` into its tree and nothing else — `git.merge_pr`
+    stays platform-only."""
     as_author = decide_split(
         **ephemeral(
             "contract-authoring",
@@ -986,8 +986,8 @@ def test_the_contract_author_cannot_merge(decide_split):
 
 
 def test_deny_paths_still_bind_the_contract_author(decide_split):
-    """The blueprint's deny_paths outrank every grant for the new role
-    too: owning the contract tree buys no reach into a denied surface."""
+    """The blueprint's deny_paths outrank every grant for the contract
+    author too: owning the contract tree buys no reach into a denied surface."""
     decision = decide_split(
         **ephemeral(
             "contract-authoring",
@@ -1034,8 +1034,8 @@ def test_the_contract_crew_rides_the_spawn_caps(decide_split):
 
 @pytest.fixture(scope="module")
 def decide_revoked(tmp_path_factory):
-    """`decide_split`'s company after the human revokes the split: the
-    same blueprint with `policies.contract_tests` deleted — one diff,
+    """`decide_split`'s company after the human revokes the contract tree:
+    the same blueprint with `policies.contract_tests` deleted — one diff,
     recompiled. The crew and its spawn grant may outlive the declaration;
     the tree's special authority may not."""
     import copy
@@ -1056,10 +1056,10 @@ def decide_revoked(tmp_path_factory):
 
 
 def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
-    """The split is authority, so it revokes like authority: with the
-    declaration gone the ownership deny is gone — the implementer reaches
-    the tree again — and the delegation reads exactly the facts it did
-    before the split, the contract fact no longer priced in."""
+    """The contract tree is authority, so it revokes like authority: with
+    the declaration gone the ownership deny is gone — the implementer
+    reaches the tree again — and the delegation reads the facts of an
+    undeclared company, the contract fact not priced in."""
     reopened = decide_revoked(
         **ephemeral(
             "feature-delivery",

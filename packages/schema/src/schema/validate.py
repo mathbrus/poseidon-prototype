@@ -66,7 +66,7 @@ def _catalog_problems(document: Any) -> list[str]:
 
     Kept narrow on purpose: only what a *document* can be wrong about
     regardless of cluster state. Workflow-node binding, budget coverage and
-    the lean-roster stance are compiler checks (steps 9 and 19).
+    the lean-roster stance are compiler checks.
     """
     problems = []
     known_roles = ", ".join(sorted(ROLE_TEMPLATES))

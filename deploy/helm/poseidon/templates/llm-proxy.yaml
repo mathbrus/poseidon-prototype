@@ -43,7 +43,7 @@ spec:
               path: /health/liveliness
               port: 4000
             periodSeconds: 5
-            # LiteLLM takes a while to come up (Compose used a 30s grace).
+            # LiteLLM takes a while to come up.
             initialDelaySeconds: 10
             failureThreshold: 12
           livenessProbe:

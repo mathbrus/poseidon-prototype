@@ -66,8 +66,8 @@ end to end, [Anatomy of a run](#5-anatomy-of-a-run) is the narrated version
 and the full-run walkthrough in [§6](#6-getting-started) is the hands-on one.
 
 > [!NOTE]
-> **Status: working prototype.** Every capability below is exercised by 149
-> end-to-end tests against a real Kubernetes cluster, and the suite proves
+> **Status: working prototype.** Every capability below is exercised by the
+> end-to-end suite against a real Kubernetes cluster, and the suite proves
 > its own claims twice over — two consecutive green runs from a clean repo,
 > ending with the cluster asserted quiet. It has run only on kind (local
 > Kubernetes), never in production, and the
@@ -246,14 +246,14 @@ There are exactly two chokepoint services: the **MCP gateway** (all tool
 use — files, shell, git, issues; the sole holder of the git token) and the
 **LLM gateway** (all model access; it holds no key itself — the provider
 key sits one hop behind it, in an llm-proxy that only the LLM gateway can
-reach). That extra hop has been challenged — why not fold the key into
-the gateway? — and kept deliberately: the proxy is also the translation
+reach). That extra hop is deliberate: the proxy is also the translation
 layer that lets one OpenAI-shaped wire format reach multiple providers,
-and folding it in would move a large third-party dependency, the provider
-key, and external egress into the small auditable chokepoint. The
-reference-monitor aspiration is "small enough to inspect"; the mass stays
-outside. Both gateways authenticate the caller's workload identity, both
-check compiled policy, and both write exactly one audit event per call. The
+and folding it into the gateway would move a large third-party
+dependency, the provider key, and external egress into the small
+auditable chokepoint. The reference-monitor aspiration is "small enough
+to inspect"; the mass stays outside. Both gateways authenticate the
+caller's workload identity, both check compiled policy, and both write
+exactly one audit event per call. The
 ordering guarantee is *deny before side effect*: a denial is recorded and
 returned before anything happens, while an allowed call acts first and
 then records how the action went.
@@ -785,8 +785,8 @@ runs exactly those tests, scoped, under its own identity. Nothing in that
 baseline came from the PR, so a head suite weakened to green, a skip
 marker, or a `conftest` that neuters collection launders nothing: the code
 either satisfies the spec the human already approved, or it does not
-merge. (One verification concept, parameterized by which tree it runs; the
-head-suite run stays as hygiene.) On any PR that edits the contract tree,
+merge. (The head suite still runs, as hygiene; the contract run is the
+gate.) On any PR that edits the contract tree,
 the platform also posts model-free deletion facts — test functions and
 assertions removed, counted off the diff — so a gutted spec cannot be
 approved silently.
@@ -918,9 +918,9 @@ uv run pytest packages/common
 for p in packages/*/; do uv run pytest "$p" -q; done
 ```
 
-`packages/registry` reports **38 skipped** without `REGISTRY_DSN`. That is
-green: those tests exercise real SQL, so they need a real Postgres, and a
-fake would prove nothing.
+`packages/registry` reports every test skipped without `REGISTRY_DSN`.
+That is green: those tests exercise real SQL, so they need a real
+Postgres, and a fake would prove nothing.
 
 ### Bring up the cluster
 
@@ -1183,7 +1183,7 @@ Three things change relative to the conducted profile:
   the contract tree — joins the PM's `may_spawn` list, so contract-first
   work can be sequenced.
 
-Now a review run of an in-class PR no longer parks. When the independent
+A review run of an in-class PR does not park. When the independent
 verdict passed, the platform's own re-run of the tests and the contract
 baseline are green, and every changed path is in class, the orchestrator
 merges with no human command —
@@ -1430,13 +1430,11 @@ recorded outcome rather than a silent hang.
 it produces a distinguishable error, an audit event, an escalation, and an
 API-visible paused state — never silent degradation to a cheaper model.
 
-It is also the *only* budget field the schema accepts, and that is a
-deliberate deletion rather than a gap. An earlier revision declared a
-`per_role_monthly` cap that the compiler validated and `preview` projected
-— but nothing enforced. In a document whose credibility rests on "declared
-means compiled means enforced," an unenforced field is worse than an
-absent one, so it was removed until a ledger can enforce it. Every budget
-line you can write here is a hard stop.
+It is also the *only* budget field the schema accepts, and that is
+deliberate rather than a gap. In a document whose credibility rests on
+"declared means compiled means enforced," an unenforced field is worse
+than an absent one, so no cap appears here until a ledger enforces it.
+Every budget line you can write here is a hard stop.
 
 </details>
 
@@ -1541,7 +1539,7 @@ Read it as the answer to "what do I actually get?"
   tree that a *different* crew authors and only a human merges; the gating
   fact then becomes that contract *as it stands on the base ref*, run
   against the new code, so a suite weakened to green launders nothing. The
-  implementer can no longer certify its own work — the containment is
+  implementer cannot certify its own work — the containment is
   positional, tested by a red-team that tries every way around it.
 - **Unattended operation under caps.** With a `conduct` section, a standing
   heartbeat runs the backlog itself: it dispatches the PM to choose the
@@ -1621,10 +1619,9 @@ own chart and are selected by none of Poseidon's NetworkPolicies. What
 keeps agents away from it is the company namespaces' deny-all envelope,
 not any policy of its own; what keeps humans away is cluster access
 control. On a cluster where the platform namespace is reachable more
-broadly than intended, the merge gate is too. The one mitigation taken:
-the browsable UI over this authority no longer ships by default —
-`temporal-web` is deployed only when the bootstrap is run with
-`TEMPORAL_WEB=1`.
+broadly than intended, the merge gate is too. The one mitigation: the
+browsable UI over this authority, `temporal-web`, is deployed only when
+the bootstrap is run with `TEMPORAL_WEB=1`.
 
 </details>
 
@@ -1687,10 +1684,10 @@ refused. They assert the platform refused.
   assumes kind, and the acceptance script is cluster-neutral, but "should
   work" is not "has worked."
 - **Single replica** for every service; no HA, no leader election.
-- **Placeholder secrets are gone but dev secrets remain.** The chart now
-  *requires* every secret value — a bare `helm install` fails rather than
-  deploying a placeholder signing key — but the kind bootstrap supplies
-  development defaults for the non-credential ones.
+- **Dev secrets remain.** The chart *requires* every secret value — a
+  bare `helm install` fails rather than deploying a placeholder — but the
+  kind bootstrap supplies development defaults for the non-credential
+  ones.
 - **One company per cluster** is what has been exercised, though namespacing
   and per-company bundle roots are designed for more.
 
@@ -1706,19 +1703,19 @@ that is authority a human chose to grant in a document they can read and
 revoke. What it does *not* remove is honest to state:
 
 - **Code that satisfies the human-approved contract but is wrong in ways
-  the contract does not test still merges.** This is the residual after the
-  split oracle (section 5) narrows the earlier, broader one. The platform no
-  longer takes the implementer's own suite as the rubric: the gating fact is
-  the contract tree as it stands on `main`, authored by a different crew and
-  merged under a human's hand, run against the PR head. So an implementer
-  can no longer weaken the oracle to launder a merge. What remains is that a
+  the contract does not test still merges.** This is the residual the
+  split oracle (section 5) leaves. The platform does not take the
+  implementer's own suite as the rubric: the gating fact is the contract
+  tree as it stands on `main`, authored by a different crew and merged
+  under a human's hand, run against the PR head. So an implementer cannot
+  weaken the oracle to launder a merge. What remains is that a
   contract is only as good as the human who approved it — a spec that is
   vacuous, or simply silent about the bug, will pass, and the code merges
   unattended. That is the authority the human exercised by merging the
   contract, and it is why a contract PR always stops at a person and arrives
   with the platform's deletion facts attached. Making the spec *provably*
   adequate (mutation testing, coverage floors) is deliberately out of scope
-  — this milestone makes it tamper-evident and independently authored, not
+  — the contract tree is tamper-evident and independently authored, not
   proven sufficient.
 - **The reviewed tree and the merged tree can diverge.** The changed paths
   and the verified tree are pinned when the review run starts (its sandbox
@@ -1751,9 +1748,9 @@ knowing, not a blank cheque.
 ```
 packages/          eleven workspace packages (see the reference below)
 deploy/helm/       the Poseidon chart, plus Temporal's values
-deploy/kind/       kind bootstrap, teardown, NetworkPolicy probe, .env
+deploy/kind/       kind bootstrap, teardown, .env
 crds/              Company and AgentInstance CustomResourceDefinitions
-examples/          hello-saas.yaml, hello-saas-delegated.yaml (the split), Tetris, red-team scenarios
+examples/          hello-saas.yaml, -conducted.yaml, -delegated.yaml (the three company profiles), Tetris, red-team scenarios
 scripts/           acceptance.sh
 tests/e2e_kind/    the acceptance suite that runs against a live cluster
 ```

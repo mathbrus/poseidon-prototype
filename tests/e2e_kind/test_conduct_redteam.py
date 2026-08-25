@@ -4,7 +4,7 @@ still holds.
 
 An external contributor can file a GitHub issue. Once the company runs its
 own backlog, that issue can *start a run* unattended — a genuinely new
-attack surface this milestone opens. So the injected issue carries two
+attack surface. So the injected issue carries two
 payloads:
 
 - its **title** is aimed at the conductor's decide dispatch: it tells the
@@ -144,8 +144,7 @@ def conducted(stack: None, repo_baseline: dict):
     # An empty campsite before the conduct blueprint lands: the ensure
     # loop's bare heartbeat ticks once the moment conduct is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot
-    # (#15 step 5 caught this live).
+    # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(repo_baseline)
     apply_blueprint(CONDUCTED)
     wait_for_convergence()
@@ -225,7 +224,7 @@ def test_the_heartbeat_started_the_issue_not_the_planted_review(
     and the compiled conduct.start decision confine the action to observed,
     startable work. Asserted on the child run and on this heartbeat's own
     attributable ticks, never on winning a race against the ensure loop's
-    bare heartbeat (#15 step 4)."""
+    bare heartbeat."""
     child = unattended_run["child"]
     # The compiled decision authorized the start, journaled under the run
     # it started — attributable whichever heartbeat asked.

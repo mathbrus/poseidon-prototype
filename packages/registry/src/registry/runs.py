@@ -1,8 +1,7 @@
 """The `runs` table — written by the orchestrator only.
 
-Successor of `runs/<id>/manifest.json`. The activities that used to write
-files write rows; the shape is deliberately the same so the workflow's
-terminal record (and the CLI's output) does not change meaning.
+One row per run: its task, workflow, status and artifacts. The row is the
+workflow's terminal record and what the CLI prints when a run completes.
 """
 
 import json

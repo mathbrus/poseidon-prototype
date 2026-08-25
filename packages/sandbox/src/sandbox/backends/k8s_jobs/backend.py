@@ -1,5 +1,4 @@
-"""Kubernetes-Jobs implementation of the SandboxBackend contract — the
-default backend.
+"""Kubernetes-Jobs implementation of the SandboxBackend contract.
 
 One Job per run in the company namespace: resource caps and
 activeDeadlineSeconds come from the SandboxPolicy, the toolserver image runs
@@ -51,10 +50,10 @@ _READY_CMD = (
 # `.git/info/exclude` — git's local ignore, never committed, so `git add -A`
 # skips them and the PR diff is exactly the agent's own changes. This is
 # what lets a policy-resolved merge gate confine a delegated class to real
-# source paths; under a human gate the incidental `.poseidon-base` and
-# `__pycache__` files were harmless noise, but the delegated class refuses
-# any path outside it. The marker file still exists on disk for the tool
-# server to read — excluding it from git does not remove it.
+# source paths: it refuses any path outside that class, so an incidental
+# `.poseidon-base` or `__pycache__` in the diff would park the merge. The
+# marker file still exists on disk for the tool server to read — excluding
+# it from git does not remove it.
 _PREPARE_CMD = (
     "set -e; cd {workspace}; "
     "git remote | xargs -r -n1 git remote remove; "

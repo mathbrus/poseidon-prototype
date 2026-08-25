@@ -1,4 +1,4 @@
-"""The governance regression, against policy compiled from
+"""Governance, against policy compiled from
 `examples/hello-saas.yaml` and *installed* on the live cluster.
 
 Two layers. The OPA half queries the running OPA's decision paths directly
@@ -8,11 +8,10 @@ binding, cross-company tenancy, the platform scope. The gateway half drives
 real calls with projected workload tokens through the whole pipeline:
 authn -> registry enrichment -> compiled decision -> audit.
 
-The lean roster is in force: the standing engineer is
-fired and execution is ephemeral crews, so the executor-side checks here
-use the ephemeral input shape (role + crew_template + crew_role), and
-the firing itself is proven — a standing backend-engineer input finds
-nothing in the compiled bundle. Injection deny + recovery runs in
+The roster is lean: the PM is the only standing hire and execution is
+ephemeral crews, so the executor-side checks here use the ephemeral input
+shape (role + crew_template + crew_role), and a standing backend-engineer
+input finds nothing in the compiled bundle. Injection deny + recovery runs in
 test_injection.py through the crew executor's deliver dispatch.
 """
 
@@ -70,7 +69,7 @@ def executor(
     company: str = "hello-saas",
 ) -> dict[str, Any]:
     """The crew executor's input shape — the only execution identity
-    now that the standing backend-engineer role is retired."""
+    there is no standing backend-engineer role."""
     return {
         "company": company,
         "agent_id": "feature-delivery-executor-run-gov",
@@ -105,7 +104,7 @@ def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
 
         # Provable in policy: a standing
         # backend-engineer finds nothing in the compiled bundle — the role
-        # exists only as crew members now.
+        # exists only as crew members.
         fired = _decide(
             base, COMPANY_DECISION, standing("backend-engineer", "sandbox.exec")
         )
@@ -235,8 +234,8 @@ def test_denies_are_in_the_audit_story(stack: None) -> None:
 # -- the whole tool surface, live --------------------------------------------
 
 
-def test_installed_bundle_covers_the_new_tools(stack: None) -> None:
-    """Per-role scoping for the grown surface: PM owns issues + crew
+def test_installed_bundle_scopes_issue_review_and_crew_tools(stack: None) -> None:
+    """Per-role scoping beyond the sandbox tools: PM owns issues + crew
     intent, the reviewer owns the review tools, nobody else does — and
     crew.request is narrowed to the conductor's may_spawn list."""
     with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:

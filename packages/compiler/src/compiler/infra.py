@@ -10,8 +10,8 @@ from compiler.plan import InfraIR, NetworkPolicyProjection, SandboxConstraints
 
 DEFAULT_IMAGE = "poseidon-sandbox"
 DEFAULT_WORKSPACE = "/workspace"
-# Resource shape for one coding sandbox. Per-stack tuning is a V1 concern;
-# what matters at MVP is that the caps exist and come from one place.
+# Resource shape for one coding sandbox: the caps exist and come from one
+# place; the blueprint does not tune them per stack.
 DEFAULT_CPU = "1"
 DEFAULT_MEMORY = "1Gi"
 DEFAULT_DISK = "2Gi"

@@ -14,7 +14,7 @@ development — and a NetworkPolicy admits exactly one caller to that pod:
 this service. The gateway's job is everything a raw proxy would skip:
 authenticate, attribute, budget, route, meter, audit.
 
-The split has been challenged and kept. Folding the key into this
+The split is deliberate. Folding the key into this
 service would delete a Deployment but not the mass behind it: the proxy
 is also the layer that translates one OpenAI-shaped wire format into
 whatever the configured provider actually speaks, and pulling that (plus
@@ -225,13 +225,16 @@ read — a real model legitimately thinks for minutes.
 uv run pytest packages/gateway-llm
 ```
 
-Eight tests run the pipeline against in-memory registry doubles
+The suite runs the pipeline against in-memory registry doubles
 (`registry.memory`) and a stubbed OpenAI-shaped upstream: rejected
 without authn, rejected and audited without attribution, unknown and
 foreign runs refused, tier routing overriding the requested model,
 every forwarded call metered and audited, the cap a hard stop with a
 distinguishable error and no new spend, spend accruing call by call
 below the cap, and an uncapped company metered without being stopped.
+The Responses surface is held to the same contract: routing, metering,
+every guard and the hard stop over `/responses`, with digests that
+never carry prompt text.
 
 ## Invariants
 

@@ -3,10 +3,11 @@ workflows and their activities, runs until terminated.
 
     python -m orchestrator.worker
 
-Deployed in the platform namespace. Credentials: the orchestrator bearer
-token only (env) — no GIT_TOKEN, no provider keys. Sandboxes are Kubernetes
-Jobs in the company namespace; the worker's ServiceAccount
-carries the matching bounded Role, its only Kubernetes-API surface.
+Deployed in the platform namespace. Credentials: its projected
+service-account token (GATEWAY_TOKEN_FILE) and the egress-proxy HMAC key —
+no GIT_TOKEN, no provider keys. Sandboxes are Kubernetes Jobs in the
+company namespace; the worker's ServiceAccount carries the matching bounded
+Role, its only Kubernetes-API surface.
 """
 
 import asyncio

@@ -25,37 +25,37 @@ the coding heuristics. Nothing else crosses the boundary:
   side of the gateway; the SDK never touches it directly.
 
 The only tools the model ever sees are the Hands adapters below, and each
-one resolves to a gateway MCP call. The same adopt-or-borrow discipline
-governed the runtime side: the external sandbox runtime OpenShell was
-evaluated and **not adopted** — its posture was borrowed and its backend
-removed (see [sandbox](../sandbox/README.md), "On OpenShell"). Both
-decisions follow one rule: third-party code may think for the agent, but
-only Poseidon code may act for it.
+one resolves to a gateway MCP call. One rule governs the boundary:
+third-party code may think for the agent, but only Poseidon code may act
+for it.
 
 ## Module map
 
 | Module | Owns |
 |---|---|
-| `app.py` | The HTTP API (contract C6): `POST /task`, `GET /task/{run_id}`. |
+| `app.py` | The HTTP API: `POST /task`, `GET /task/{run_id}`. |
 | `brain.py` | The mode runners, the SDK conversation setup, `GatewayBridge`. |
 | `hands.py` | The model-facing tool schemas, each resolving to a gateway call. |
 | `gateway_client.py` | The async MCP client (`McpGateway`, `ToolCallError`). |
 | `config.py` | Settings, including gateway-credential resolution. |
-| `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`), edited as prose. |
+| `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. |
 
 ## Dispatch: the /task API
 
 The orchestrator's workflows drive this host through one small API.
-`POST /task {run_id, task_text, mode?, gateway_token?}` answers 202 and
-runs the dispatch on a background task; `GET /task/{run_id}` reports
-`{status, pr_url, iterations, error, brief, ticket_urls,
-crew_request_id, comment_urls}`. The workflow polls — the brain owns no
+`POST /task {run_id, task_text, mode?}` answers 202 and runs the
+dispatch on a background task; `GET /task/{run_id}` reports `status`
+plus every field of the brain's `RunResult` (`pr_url`, `iterations`,
+`error`, `brief`, `ticket_urls`, `crew_request_id`, `comment_urls`,
+`verdict`, `verdict_summary`, `decision`) — the HTTP shape is derived
+from the result type, so a new field cannot be dropped at the
+boundary. The workflow polls — the brain owns no
 process-level retries, timeouts or cancellation, because Temporal already
 owns all three.
 
 `mode` selects the runner: `implement` (the default), `plan`, `deliver`,
-`review`. A fifth loop hides behind the default: a pod deployed with
-`ROLE_TEMPLATE=pm` routes default-mode dispatches to the PM runtime
+`review`, `decide`. A sixth loop hides behind the default: a pod deployed
+with `ROLE_TEMPLATE=pm` routes default-mode dispatches to the PM runtime
 instead of the engineer loop — the PM is a different standing instance of
 the same image, not a different mode of the same agent.
 
@@ -69,7 +69,7 @@ Two status-code rules carry real semantics:
   is lifted, the workflow re-dispatches the same `run_id`; if that
   answered 409 too, it would poll a stale failure forever.
 
-## Four tool surfaces, five runners
+## Four tool surfaces, six runners
 
 From `hands.py`, verbatim:
 
@@ -77,7 +77,15 @@ From `hands.py`, verbatim:
 ACT_TOOLS = ["list_dir", "read_file", "write_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
 PM_TOOLS = ["create_issue", "read_issues", "request_crew"]
-REVIEWER_TOOLS = ["list_dir", "read_file", "exec", "run_tests", "read_pr", "comment_pr"]
+REVIEWER_TOOLS = [
+    "list_dir",
+    "read_file",
+    "exec",
+    "run_tests",
+    "read_pr",
+    "comment_pr",
+    "verdict",
+]
 ```
 
 | Runner | Tools | Ends at |
@@ -87,6 +95,7 @@ REVIEWER_TOOLS = ["list_dir", "read_file", "exec", "run_tests", "read_pr", "comm
 | `review` | `REVIEWER_TOOLS` | posted findings + a structured pass/fail verdict |
 | `pm` | `PM_TOOLS` | tickets + recorded crew intent |
 | `plan` | none — one completion, no tool loop | the task brief |
+| `decide` | none — one completion, no tool loop | one conduct action with its rationale |
 
 **Delivery before verification is structurally impossible.** The
 implement surface has no `open_pr` at all. `implement_dispatch` seeds the
@@ -238,7 +247,7 @@ pods run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
 uv run pytest packages/agent
 ```
 
-28 tests. The unit suite drives the **production** SDK loops: only the
+The unit suite drives the **production** SDK loops: only the
 two transports are replaced — a scripted litellm patch stands in for the
 model, and a fake gateway behind a sync fake bridge mimics real policy
 behaviour, feature-branch rule included — so allow, deny and recovery

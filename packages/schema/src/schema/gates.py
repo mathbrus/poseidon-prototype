@@ -14,7 +14,7 @@ convention.
 
 Shared by `schema.validate` (the document pass) and `compiler.checks`
 (the compiler accepts unvalidated dicts and must fail closed on the same
-problems) — the platform-only tool rule's arrangement.
+problems).
 """
 
 from typing import Any
@@ -110,7 +110,7 @@ def contract_tests_problems(document: Any) -> list[str]:
     """Document-level coherence of the declared contract tree, tolerant of
     malformed values like `merge_gate_problems`: a contract path under a
     deny path is a tree nobody could ever deliver into — the spec would be
-    frozen, which is exactly the shape the split exists to avoid."""
+    frozen by configuration."""
     if not isinstance(document, dict):
         return []
     problems = []

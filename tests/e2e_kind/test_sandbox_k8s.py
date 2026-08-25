@@ -3,7 +3,7 @@ provision/destroy round-trips (Job + toolserver in the company namespace),
 and the policy deadline kills a runaway sandbox.
 
 The full sandbox.* proxy path through the gateway is proven by the happy-path suite
-(test_happy_path), which now runs on this backend end-to-end.
+(test_happy_path), which runs on this backend end-to-end.
 
 Pod IPs are not routable from the host, so in-pod probes ride the exec API —
 the same path the backend itself uses for workspace delivery.

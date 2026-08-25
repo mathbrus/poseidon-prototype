@@ -419,8 +419,8 @@ class ReviewActivities:
         `issues.update`, so a compromised conductor could edit a rework
         ticket's depth downward and extend the chain. The durable fix is a
         depth the platform stores on its own row rather than parses back
-        from a mutable title; deferred to keep this step's surface small,
-        and flagged here so it is a decision, not an oversight."""
+        from a mutable title; flagged here so it is a decision, not an
+        oversight."""
 
         def lineage_issue() -> int | None:
             implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)

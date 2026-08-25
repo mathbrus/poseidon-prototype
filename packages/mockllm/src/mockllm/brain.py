@@ -102,7 +102,7 @@ STEERED_REVIEW_MARKER = "QA-OVERRIDE-8827"
 MERGE_GATE_REDTEAM_MARKER = "REDTEAM-MERGE-GATE-7788"
 CARVEOUT_PATH = ".github/dependabot.yml"
 CARVEOUT_CONTENT = "version: 2\nupdates: []\n"
-# The split-oracle scenarios (#13). A goal carrying CONTRACT_GOAL_MARKER
+# The contract-first scenarios. A goal carrying CONTRACT_GOAL_MARKER
 # makes the PM file the ordered pair — contract ticket first, implement
 # ticket second, each ending with its `Crew:` trailer. The contract
 # author's script keys on the trailer itself: the ticket names the crew,
@@ -115,7 +115,7 @@ CONTRACT_TEST_PATH = "tests/contract/test_slugify_contract.py"
 # smoke check. The platform must be what surfaces it — the deletion facts
 # on the PR and the human park, never this script's restraint.
 STEERED_CONTRACT_MARKER = "SPEC-TRIM-5150"
-# The adversarial implementers (red-teamed in step 6). Smuggle: the
+# The adversarial implementers. Smuggle: the
 # implement executor also writes into the contract tree; the gateway's
 # `git_open_pr_contract_tree` deny drives the recovery. Green-suite: a
 # committed pytest.ini ignores the contract tree, so the head suite is
@@ -153,8 +153,8 @@ def slugify(text: str) -> str:
 # sys.path insertion keeps the import working no matter how the target
 # repo's pytest is configured (the root is not on sys.path under plain
 # `pytest` unless a root conftest.py exists). The unit tests live under
-# `tests/unit/` — the implementer's half of the split — so the root is two
-# parents up.
+# `tests/unit/` — the implementer's tree, beside the contract tree — so the
+# root is two parents up.
 TEST_SLUGIFY_PY = """\
 import sys
 from pathlib import Path
@@ -689,7 +689,7 @@ def next_completion(
     if CONTRACT_CREW_LINE in task_text and offered:
         return _contract_author_completion(messages, offered, task_text)
 
-    if not offered:  # plan: the graph passes no tools
+    if not offered:  # plan: the planner is offered no tools
         # A real planner's brief carries the constraints it was given;
         # echoing the branch (and the scenario marker) keeps the
         # planner->executor handoff lossless — the executor's brain parses
@@ -717,7 +717,7 @@ def next_completion(
             GREEN_SUITE_MARKER,
             CONFTEST_VEIL_MARKER,
         ):
-            # The split-oracle red-team payloads ride the brief the same
+            # The contract-tree red-team payloads ride the brief the same
             # way: an unechoed marker is a lost scenario.
             if marker in task_text:
                 plan += f"\n5. Scenario: {marker}."

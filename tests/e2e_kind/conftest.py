@@ -1,5 +1,5 @@
 """Fixtures for the kind e2e suite — and the suite's contract with its
-environment (#15).
+environment.
 
 These tests run against the kind cluster brought up by
 `deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
@@ -26,7 +26,8 @@ state, enforced stops, verified quiet — via four session-level guarantees:
 - **The repo-state contract** (`repo_baseline`, autouse): TARGET_REPO@main
   is suite-managed state with one owner. The baseline seeds the declared
   post-split shape from the mock brain's own canonical texts and prunes
-  what it refuses to inherit (the pre-split test tree; root pytest.ini or
+  what it refuses to inherit (an implementer-owned test tree beside the
+  contract tree; root pytest.ini or
   conftest.py, whose merged form would neuter every later run's
   collection). Idempotent — a repo already at baseline gets reads, not
   commits. No module may depend on what a previous run left behind.
@@ -198,9 +199,8 @@ def run_record(run_id: str) -> dict[str, Any] | None:
 def sandbox_image() -> str:
     """The content-addressed sandbox image this cluster actually carries,
     read from the worker deployment. Never hardcode `poseidon-sandbox`: the
-    bare name means `:latest`, which only ever existed on clusters that
-    predate content-addressed tags — a fresh cluster has no such image and
-    the pod dies in ImagePullBackOff (the stale-`:latest` trap)."""
+    bare name means `:latest`, which no kind-up.sh cluster carries — the
+    pod dies in ImagePullBackOff."""
     proc = subprocess.run(
         [
             "kubectl",
@@ -457,8 +457,7 @@ def deployed_brain_image() -> str:
 def paid_brain_problem(image: str, allow: str | None) -> str | None:
     """Why the session must not run, or None. This suite dispatches real
     LLM calls; against a paid brain those bill a provider, which is a spend
-    decision no test run may make implicitly (twice it did — 2026-08-17 and
-    2026-08-19 — while the rule lived only in prose). Pure, so the refusal
+    decision no test run may make implicitly. Pure, so the refusal
     logic is pinned without a cluster. Fail-safe defaults: an unreadable
     brain refuses too — the dangerous condition is the absent input."""
     if not image:
@@ -504,12 +503,12 @@ def deployed_timeouts() -> Timeouts | None:
     return FAST_TIMEOUTS if "mockllm" in deployed_brain_image() else None
 
 
-# --- the repo-state contract (#15 step 2) -----------------------------------
+# --- the repo-state contract ------------------------------------------------
 #
 # TARGET_REPO@main is suite-managed state with one owner: this baseline.
-# Before it existed, the suite's green depended on residue — a contract
-# tree an *earlier run's* module happened to leave behind — and a fresh
-# disposable repo broke test_merge_gate_redteam outright. Modules that
+# Without it a module's green would depend on residue — a contract tree
+# an *earlier run's* module happened to leave behind — and a fresh
+# disposable repo would carry no contract tree at all. Modules that
 # need a different shape declare the deviation against this baseline and
 # put it back (the contract-first capstone deletes the tree its arc
 # re-merges); nobody depends on what a previous run left.
@@ -579,8 +578,8 @@ REPO_BASELINE: dict[str, str] = {
     CONTRACT_TEST_PATH: CONTRACT_TESTS_PY,
 }
 
-# Shapes the baseline refuses to inherit: the pre-split test tree (deleted
-# by #13's no-compat rule — at a path no laundering veil ignores, it breaks
+# Shapes the baseline refuses to inherit: an implementer-owned test tree
+# beside the contract tree (at a path no laundering veil ignores, it breaks
 # head suites for the wrong reason) and root-level collection config (a
 # merged pytest.ini/conftest.py would neuter every later run's suite the
 # way the red-team's veils neuter one PR's).
@@ -606,7 +605,7 @@ def repo_baseline(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
-# --- leave the campsite clean (#15 step 3) -----------------------------------
+# --- leave the campsite clean ------------------------------------------------
 #
 # Debris feeds contention: the ensure loop's bare heartbeat treats any open
 # PR as reviewable backlog, so PRs a module leaves behind become another
@@ -710,8 +709,7 @@ def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
     column — so this is attributable to one heartbeat even while the ensure
     loop runs a second one beside it. Assert on these, never on
     `audit_story(<your heartbeat id>)`: the decide/tick ledger was never
-    keyed by the nonce'd test ids, and winning a race is not a claim
-    (#15 step 4)."""
+    keyed by the nonce'd test ids, and winning a race is not a claim."""
     from orchestrator.workflows.conduct import conduct_workflow_id
 
     return [
@@ -763,7 +761,7 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
     holds no merge or close authority), and a suite that parades open PRs
     across later modules hands the ensure loop's bare heartbeat backlog to
     review — the review parks on a day-long gate and starves whichever
-    module needed the concurrency slot (#15 step 5 found this live)."""
+    module needed the concurrency slot."""
     record = run_implement("task-happy.md", kill_worker=True, env=env)
     record["pr_state_at_birth"] = _pr_state(env, record.get("pr_url"))
     close_pr_url(env, record.get("pr_url"))

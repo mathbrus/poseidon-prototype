@@ -92,7 +92,7 @@ class IntakeActivities:
     async def dispatch_pm(self, run_id: str, goal_text: str) -> dict[str, Any]:
         """Dispatch the standing PM to scope the goal and poll to terminal —
         the PM files tickets and records the crew request itself, through
-        governed tools (steps 15/17)."""
+        governed tools."""
         if not self._settings.pm_url:
             raise RuntimeError("PM_URL is not configured on the worker")
         async with AgentClient(self._settings.pm_url) as agent:
@@ -112,7 +112,7 @@ class IntakeActivities:
         self, run_id: str, result: dict[str, Any] | None, error: str | None
     ) -> dict[str, Any]:
         """Link the tickets to the run record and write the honest terminal
-        state ('run record links ticket URLs')."""
+        state."""
         result = result or {}
         ticket_urls = list(result.get("ticket_urls") or [])
         if ticket_urls:

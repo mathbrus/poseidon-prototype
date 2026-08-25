@@ -204,7 +204,7 @@ for convergence. Policies get a stricter treatment:
 ```python
 def upsert_network_policy(self, namespace: str, body: dict[str, Any]) -> None:
     """Replace, never merge-patch: a policy's selector shape can change
-    (matchLabels -> matchExpressions at step 16c), and a merge would
+    (matchLabels to matchExpressions, say), and a merge would
     keep both — an impossible AND that silently deselects every pod
     the policy was meant to cover."""
 ```

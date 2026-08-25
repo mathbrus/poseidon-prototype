@@ -1,4 +1,4 @@
-"""S5 gateway core tests: auth, policy pipeline, audit, sandbox proxying.
+"""Gateway core tests: auth, policy pipeline, audit, sandbox proxying.
 
 OPA and the sandbox tool server are stubbed behind an httpx.MockTransport
 (see conftest); the MCP surface is exercised through a real MCP client over
@@ -91,7 +91,7 @@ async def test_bound_agent_call_is_proxied_to_sandbox(app, backends, audit):
         )
 
     assert tool_payload(result)["content"] == "hello from sandbox"
-    # run_id is registry routing, not a sandbox arg (contract C4).
+    # run_id is registry routing, not a sandbox arg.
     assert backends.sandbox_calls == [("/files/read", {"path": "README.md"})]
 
     event = audit_events(audit)[-1]
@@ -112,7 +112,7 @@ async def test_bound_agent_call_is_proxied_to_sandbox(app, backends, audit):
     assert decision_input["run_binding_verified"] is True
 
 
-async def test_all_six_sandbox_tools_map_to_c4_routes(app, backends):
+async def test_all_six_sandbox_tools_map_to_tool_server_routes(app, backends):
     await register_sandbox(app, RUN_ID)
 
     calls = [

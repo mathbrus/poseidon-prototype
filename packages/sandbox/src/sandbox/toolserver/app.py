@@ -1,4 +1,4 @@
-"""Sandbox tool server — contract C4.
+"""Sandbox tool server.
 
 Runs inside the sandbox container and listens for the gateway only:
 

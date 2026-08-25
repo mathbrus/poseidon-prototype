@@ -78,7 +78,7 @@ def _worker_settings(env: dict, tmp_path, registry_unused=None):
 def _pod_forwarded_agent_client():
     """Route AgentClient's pod-IP URLs through kubectl port-forwards to the
     crew pods those IPs belong to — one forward per pod, since every crew
-    member now runs on its own pod and a dispatch must reach the member it
+    member runs on its own pod and a dispatch must reach the member it
     names (the planner's calls must carry the planner's identity)."""
 
     from urllib.parse import urlparse
@@ -426,10 +426,9 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     # cancelled fulfillment retry can be mid-`provision` in a worker thread
     # when the workflow returns — `asyncio.to_thread` cannot interrupt it —
     # so a doomed pod may appear for a few seconds and then be collected.
-    # The bound is what keeps this honest: the leak this test exists to
-    # catch — a provision landing past teardown with nothing left to
-    # collect it — left pods Running indefinitely — minutes, not
-    # seconds — so a real regression still fails here.
+    # The bound keeps this honest: the leak this test exists to catch — a
+    # provision landing past teardown with nothing left to collect it —
+    # leaves pods Running indefinitely, so a real leak still fails here.
     deadline = time.monotonic() + 90
     while True:
         pods = subprocess.run(

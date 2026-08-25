@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# Runs the MVP acceptance suite (tests/e2e_kind in full) in one command.
+# Runs the acceptance suite (tests/e2e_kind in full) in one command.
 # Its capstone module (test_zz_acceptance.py) documents which module
-# proves which criterion.
+# proves which claim.
 #
-# The suite itself is cluster-neutral: it reaches the cluster through the
-# current kubectl context, deploy/kind/.env, and the gateway URL in it.
-# Today it runs against kind (deploy/kind/kind-up.sh is the bring-up); the
-# real-cluster run is deliberately deferred (kind-only for now) — when a
-# real cluster exists, the intent is that this same script runs unchanged
-# against its context.
+# The suite is cluster-neutral: it reaches the cluster through the current
+# kubectl context, deploy/kind/.env, and the gateway URL in it;
+# deploy/kind/kind-up.sh is the kind bring-up.
 #
 # Cost: zero LLM spend, enforced — the preflight below and the suite's own
 # session guard both refuse a paid brain (read from the deployed llm-proxy
@@ -61,12 +58,12 @@ case "$BRAIN" in
   ;;
 esac
 
-echo "== MVP acceptance against $(kubectl config current-context)"
+echo "== Acceptance suite against $(kubectl config current-context)"
 uv run pytest tests/e2e_kind -m e2e_kind "$@"
 
 cat <<'EOF'
 
-== Acceptance criteria: all scripted checks green ==
+== What the suite proved ==
  1 declarative lifecycle   compile/preview/apply/edit/teardown+revocation
  2 durable                 kill-worker resume; nothing leaked (sandbox,
                            identity, participant row, registration)
@@ -77,7 +74,8 @@ cat <<'EOF'
                            {run, parent, participant, role} attribution
  6 standing/ephemeral      one standing AgentInstance (CRs and registry),
                            scope denies live for PM and executor
- 7 kind/real parity        kind half only — real-cluster run deferred
+ 7 cluster-neutral         kubectl context + .env only; kind-up.sh is the
+                           one kind-specific piece
  8 unattended loop         conduct heartbeat runs the backlog: one goal in,
                            one merge approval out; caps + revocation held;
                            attacker-filed issue dies at the gates

@@ -1,7 +1,7 @@
 [project]
 name = "poseidon"
 version = "0.1.0"
-description = "Poseidon — agent companies under declarative governance (MVP)"
+description = "Poseidon — agent companies under declarative governance"
 requires-python = ">=3.12"
 dependencies = [
     "common",

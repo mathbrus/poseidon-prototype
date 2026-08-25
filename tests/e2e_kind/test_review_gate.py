@@ -3,7 +3,7 @@ implement PR (started from the intake ticket's issue number, the
 `poseidon run <number>` handoff: no human retypes the spec), reviewer
 findings posted, merge gate parked, timer escalation observable, API
 approval, gateway merge — every step correlated by run_id in one audit
-story (MVP exit criterion 3).
+story.
 
 The chain runs its own three runs (never the shared session fixtures: this
 module *merges* its PR into the disposable repo's main, and nothing else in
@@ -181,7 +181,7 @@ def review_chain(stack: None, env: dict) -> dict:
 
 
 def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
-    """MVP exit criterion 3, end to end: tickets, PR, findings, approval,
+    """The full chain, end to end: tickets, PR, findings, approval,
     merge — and the PR really is merged on GitHub."""
     assert review_chain["intake"]["status"] == "done"
     assert review_chain["intake"]["ticket_urls"], "intake filed no tickets"
@@ -215,7 +215,7 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
     reviewer = _reviewer_id(run_id)
     story = audit_story(run_id)
     # Parentage is the gateway pipeline's enrichment (participants row →
-    # v2 attribution); lifecycle.revoke rows legitimately carry no parent.
+    # parent attribution); lifecycle.revoke rows legitimately carry no parent.
     reviewer_events = [
         e for e in story if e["agent_id"] == reviewer and e["source"] == "gateway"
     ]

@@ -86,7 +86,7 @@ def test_gate_config_comes_from_the_blueprint(blueprint):
 
 def test_infra_ir_feeds_both_consumers_from_one_list(blueprint):
     """The sandbox caps and the proxy allowlist are projections of one
-    IR — hand-authoring either is the bug this replaces."""
+    IR — hand-authoring either would be a bug."""
     plan = compile_blueprint(blueprint)
     assert plan.infra.sandbox.egress_allow == plan.infra.egress_proxy_allowlist
     assert plan.infra.sandbox.image == "poseidon-sandbox"
@@ -103,7 +103,7 @@ def test_empty_egress_allowlist_means_zero_egress(blueprint):
 
 def test_a_plan_without_conduct_stays_human_started(blueprint):
     """No conduct section, no heartbeat artifacts anywhere: the applied
-    company behaves exactly as before the section existed."""
+    company is human-started."""
     plan = compile_blueprint(blueprint)
     assert plan.conduct is None
     assert plan.as_dict()["conduct"] is None

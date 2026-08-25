@@ -1,12 +1,10 @@
 """Registry durability on the live cluster: a run record and its sandbox
 registration survive a gateway restart mid-run.
 
-Before the registry, the gateway held sandbox addresses in a process-local
-dict. That was fine while a run was a host-side script, but once runs became
-durable a gateway restart silently orphaned every in-flight run's
-`sandbox.*` calls — the workflow kept going and every tool call failed with
-"no sandbox registered". This test kills the gateway between provisioning a
-sandbox and using it.
+A gateway that kept sandbox addresses in process memory would silently
+orphan every in-flight run's `sandbox.*` calls on restart — the workflow
+keeps going and every tool call fails with "no sandbox registered". This
+test kills the gateway between provisioning a sandbox and using it.
 """
 
 import io
@@ -56,7 +54,7 @@ def workspace_tar(tmp_path: Path) -> bytes:
 def projected_token(namespace: str, service_account: str) -> str:
     """Workload identity: mint the same kind of
     audience-scoped projected token the kubelet mounts, for the real
-    ServiceAccounts — the static bearer tokens are gone."""
+    ServiceAccounts."""
     proc = subprocess.run(
         [
             "kubectl",
@@ -155,10 +153,9 @@ def test_sandbox_registration_survives_a_gateway_restart(
             # The gateway that accepted the registration is now gone.
             restart_gateway()
 
-            # A brand-new process serves the run's sandbox calls from the
-            # registry rather than from a dict it never had a chance to
-            # fill (and the participants row — the executor's binding —
-            # survived with it).
+            # A brand-new gateway process serves the run's sandbox calls
+            # from the registry (and the participants row — the executor's
+            # binding — survived with it).
             result = asyncio.run(read_through_gateway(agent_token))
             assert not result.isError, result.content
             assert "hello.txt" in result.content[0].text
@@ -182,8 +179,8 @@ def test_sandbox_registration_survives_a_gateway_restart(
 
 
 def test_run_records_live_in_the_registry(implement_run: dict):
-    """The `runs` table replaced runs/<id>/manifest.json: the workflow's
-    terminal record is a row, and the workflow id maps back to it."""
+    """The workflow's terminal record is a `runs` row, and the workflow id
+    maps back to it."""
     record = run_record(implement_run["run_id"])
     assert record is not None, "no run row for a completed run"
     assert record["status"] == "done"

@@ -14,7 +14,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
-Optional OTel export (the anytime-track adoption): when
+Optional OTel export: when
 .Values.telemetry.otlpEndpoint is set, platform services get the standard
 SDK variables and common/telemetry.py attaches the OTLP log exporter next
 to the always-on stdout JSON. Usage:

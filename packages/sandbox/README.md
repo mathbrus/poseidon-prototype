@@ -246,12 +246,12 @@ never carries a database driver or registry credentials.
   its audit events; **compiler** produces the infra IR the policy and
   allowlist are projections of.
 
-## On OpenShell
+## One backend
 
-An external sandbox runtime, OpenShell, was evaluated against this
-contract and **not adopted**. The posture it suggested was borrowed; the
-backend was removed rather than carried as dead code. The evaluation and
-the removal are in git history if the reasoning is needed again.
+`k8s_jobs` is the only backend. The `SandboxBackend` Protocol exists for
+the seam, not for a second runtime: provisioning takes a compiled
+`SandboxPolicy` — the compiler's infra IR — and never hand-authored
+values, and the Protocol is what pins that shape.
 
 ## Tests
 

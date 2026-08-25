@@ -59,7 +59,8 @@ web:
 admintools:
   enabled: true
 
-# Compatibility shims for pre-1.30 images — off, we run 1.31.
+# The chart's compatibility shims for Temporal 1.29 images; the images
+# deployed here are 1.31, which need neither.
 shims:
   dockerize: false
   elasticsearchTool: false

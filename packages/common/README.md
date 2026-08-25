@@ -83,19 +83,6 @@ an `authn_*` rule (`authn_namespace_mismatch`, `authn_no_live_participant`,
 request with no credential at all gets a 401 and no audit event — probes
 and scanners are noise, not governance signals; only rejected tokens are.
 
-## The platform JWT that is no longer here
-
-Ephemeral crew members used to carry a hand-rolled short-TTL platform
-JWT (`platformjwt.py`, compact JWS/HS256 in stdlib), because the planner
-borrowed the executor's pod and two principals in one pod needed a
-second credential shape. Giving every crew member its own pod removed
-the reason to exist: every principal is one pod, one ServiceAccount, one
-projected token, and the whole custom path — the minting, the shared
-symmetric key, the `alg`-pinning care, the "crypto-adjacent primitive
-you should generally not write" admission in the root README — was
-deleted rather than mitigated. The participants-row revocation, which
-was always orthogonal to token format, is the part that stayed.
-
 ## What audience scoping buys
 
 Every credential here names its intended consumer. Projected SA tokens are

@@ -147,7 +147,7 @@ def test_story_is_one_run_in_order(registry: Registry):
     assert [e["tool"] for e in story] == ["repo.archive", "sandbox.exec"]
 
 
-def test_story_spans_all_four_sources(registry: Registry):
+def test_story_spans_every_source(registry: Registry):
     """Gateway, sandbox-infra, llm-gateway and process-gate events for one
     run answer a single `run_id`-correlated query, attribution included."""
     audit = AuditStore(registry)
@@ -507,9 +507,9 @@ def test_crew_request_consume_and_spawn_count(registry: Registry):
 def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry):
     """The only way to mint onto a terminated row is to be a
     retry that lost the race with its run's teardown. Reviving it would
-    resurrect an identity the platform revoked — and, in the case that
-    surfaced this, leave a crew pod holding it with nothing left to collect
-    the pod. Revocation is final; the late caller is told to stop."""
+    resurrect an identity the platform revoked — and leave a crew pod
+    holding it with nothing left to collect the pod. Revocation is final;
+    the late caller is told to stop."""
     from registry.participants import ParticipantRevoked, RunParticipants
 
     Runs(registry).start(RUN_ID, "task")

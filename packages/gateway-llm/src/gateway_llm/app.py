@@ -5,7 +5,7 @@ Pipeline per completion call:
     workload authn (common.authn — same credentials as the MCP gateway)
     -> run attribution: X-Poseidon-Run-Id must name a known run of the
        caller's company (ephemeral callers additionally must be bound to
-       exactly that run) — anonymous or unattributed passthrough is gone
+       exactly that run) — there is no anonymous or unattributed passthrough
     -> budget headroom: the applied blueprint's per-run cap against the
        ledger SUM; exhausted -> a distinguishable `budget_exhausted` error,
        audited, never silent degradation (enforcement is local here,
@@ -202,7 +202,7 @@ def create_app(
             json.dumps(digest_fields(body), sort_keys=True).encode()
         ).hexdigest()
 
-        # -- run attribution (mandatory; anonymous passthrough is gone) ----
+        # -- run attribution (mandatory; no anonymous passthrough) ---------
         run_id = request.headers.get(RUN_HEADER, "").strip()
         if not run_id:
             await emit(

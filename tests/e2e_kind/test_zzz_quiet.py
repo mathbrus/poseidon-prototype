@@ -1,10 +1,10 @@
-"""The suite's exit contract: quiet, asserted (#15 step 3).
+"""The suite's exit contract: quiet, asserted.
 
-"Suite finished" and "cluster quiet" used to differ by up to
-`heartbeat_minutes`: a module that applied a conduct-declaring blueprint
-left the ensure loop's bare heartbeat asleep behind it, and a killed run
-left workflows parked on day-long gates. Both were found by a person
-asking "is something still running?" — the wrong detector. This module
+"Suite finished" and "cluster quiet" can differ by up to
+`heartbeat_minutes`: a module that applies a conduct-declaring blueprint
+leaves the ensure loop's bare heartbeat asleep behind it, and a killed run
+leaves workflows parked on day-long gates. A person asking "is something
+still running?" is the wrong detector for either. This module
 collects last (`zzz`) and makes the quiet a failing assertion instead:
 when the suite exits green, nothing is in flight anywhere the platform
 can account for it.

@@ -5,9 +5,7 @@ apply converges a live company (namespace, RBAC, roster, served bundle);
 a blueprint edit converges as a rollout with no manual steps; deleting the
 Company revokes — namespace gone, bundle 404, a restarted OPA activates
 nothing for the company, and a credential that worked before the teardown
-is refused at the gateway afterwards (a post-teardown denial that only
-became claimable once the gateway queried compiled bundles rather than a
-file-loaded policy).
+is refused at the gateway afterwards.
 
 The module finalizer always re-applies `examples/hello-saas.yaml` and waits
 for convergence, so the rest of the suite finds a healthy company whether
@@ -114,8 +112,7 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
     # Converged includes *policy*: after a teardown + re-apply (and
     # possibly an OPA restart), OPA needs a poll cycle (5-15s) to activate
     # the company bundle. Tests that run right after a finalizer re-apply
-    # otherwise land in a no_policy_installed window — a real flake that
-    # bit both test_pm and the crew suite.
+    # otherwise land in a no_policy_installed window.
     with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
         deadline = time.monotonic() + 120
         while True:
@@ -191,7 +188,7 @@ def test_apply_converges_the_company(stack: None):
     ).stdout.split()
     assert deployments == ["pm"], f"unexpected standing deployments: {deployments}"
 
-    # Status is really written (the pruned-by-schema regression).
+    # Status is really written, not pruned by the CRD's status schema.
     revision = bundle_revision_from_cr()
     assert revision, "Company status.bundleRevision is empty"
     phase = kubectl(
@@ -245,8 +242,8 @@ def test_opa_activated_both_bundles(stack: None):
 
 
 def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
-    """The plan's named example: change the PM's model tier, re-apply,
-    observe a rollout with no manual steps."""
+    """Change the PM's model tier, re-apply, observe a rollout with no
+    manual steps."""
     document = yaml.safe_load(HELLO_SAAS.read_text())
     assert document["departments"]["roles"]["pm"]["model_tier"] != "small"
     document["departments"]["roles"]["pm"]["model_tier"] = "small"

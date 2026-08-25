@@ -348,8 +348,8 @@ def test_responses_routes_the_tier_forwards_and_meters(app, stores, upstream, pa
 
 
 def test_responses_guards_match_chat_completions(app, stores):
-    """No unauthenticated, unattributed or foreign-run passthrough opened up
-    with the new surface."""
+    """The Responses surface refuses unauthenticated, unattributed and
+    foreign-run calls exactly as chat completions does."""
     assert call(app, token=None, path="/v1/responses").status_code == 401
     resp = call(app, run_id=None, path="/v1/responses")
     assert resp.status_code == 400

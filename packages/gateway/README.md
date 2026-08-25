@@ -241,7 +241,7 @@ proves the server is up.
 uv run pytest packages/gateway
 ```
 
-79 tests, a few seconds, no network and no cluster. The suite runs the
+A few seconds, no network and no cluster. The suite runs the
 real ASGI app through a real MCP client over an in-process transport;
 OPA, the sandbox tool server and GitHub are one scriptable
 `httpx.MockTransport` (the OPA stub mirrors the *compiled* policy shape)

@@ -35,8 +35,7 @@ class TaskRequest(BaseModel):
 class TaskStatus(RunResult):
     """The dispatch's HTTP shape: exactly the brain's `RunResult` plus a
     lifecycle `status`. Derived, not mirrored — every result field crosses
-    the boundary automatically, so a new one can never be silently dropped
-    (the failure mode the review verdict once hit)."""
+    the boundary automatically, so a new one can never be silently dropped."""
 
     status: Literal["running", "done", "failed"]
 

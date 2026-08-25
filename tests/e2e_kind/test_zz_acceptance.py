@@ -1,11 +1,11 @@
-"""MVP acceptance: the exit criteria, scripted.
+"""The acceptance suite's index and capstone.
 
 The acceptance suite is the whole of `tests/e2e_kind` (one command:
 `scripts/acceptance.sh`, or `uv run pytest tests/e2e_kind -m e2e_kind`).
 This module is its capstone: the clauses no earlier module asserts,
 plus the cross-suite claims that only make sense once everything else ran.
 
-Where each criterion is proven:
+What the suite proves, and where:
 
   1 declarative   test_operator_lifecycle (apply / edit / teardown with the
                   failed post-teardown call); HERE: compile and preview as
@@ -29,27 +29,25 @@ Where each criterion is proven:
                   test_workload_identity; HERE: the registry's roster
                   agrees, and a live minted executor is denied outside its
                   compiled allow-list at the gateway
-  7 parity        the suite is cluster-neutral (kubectl context + .env);
-                  the kind-specific piece is deploy/kind/kind-up.sh alone.
-                  The real-cluster half is deliberately out of scope for
-                  now — kind only.
+  7 cluster-      the suite reaches the cluster through the kubectl
+    neutral       context and .env alone; the kind-specific piece is
+                  deploy/kind/kind-up.sh.
   8 unattended    test_conduct_redteam (an attacker-filed issue consumed by
                   the heartbeat dies at the gates) and test_zz_overnight
                   (the whole arc with two human acts: one goal in, one
-                  merge approval out) — the close-the-loop milestone.
+                  merge approval out).
   9 merge policy  test_zz_delegated (in-class passing work merges with zero
                   human commands — the arc runs through the merge) and
                   test_merge_gate_redteam (a steered reviewer smuggling a
                   carve-out change is refused by the compiled decision, not
-                  the model) — the gate-of-record milestone.
+                  the model).
  10 split oracle  test_split_oracle_redteam (the implementer cannot PR the
                   contract tree, cannot launder a red baseline to green two
                   ways, and a steered contract author's gutted spec parks on
                   a human with its deletions counted) and test_zz_delegated's
                   contract arc (the PM files contract-then-implement, the
                   contract PR parks for one human merge, then in-class work
-                  auto-merges on a green base-ref contract) — the milestone
-                  that makes the delegation honest about its own rubric.
+                  auto-merges on a green base-ref contract).
 
 Named `test_zz_*` so pytest collects it last: the five-source assertion
 reads what the whole suite really produced.
@@ -94,7 +92,7 @@ ALL_SOURCES = {
 }
 
 
-# -- criterion 1: compile → preview, scripted, against the live cluster ------
+# -- 1 declarative: compile → preview, scripted, against the live cluster ------
 
 
 def _blueprint_cli(args: list[str], dsn: str) -> subprocess.CompletedProcess:
@@ -170,7 +168,7 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
     )
 
 
-# -- criterion 2: the killed run's own leak check ----------------------------
+# -- 2 durable: the killed run's own leak check ------------------------------
 
 
 def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
@@ -210,7 +208,7 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         assert row["terminated_at"], f"leaked sandbox registration: {row}"
 
 
-# -- criterion 6: the roster, from the registry's point of view --------------
+# -- 6 lean roster: the roster, from the registry's point of view --------------
 
 
 def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
@@ -344,7 +342,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
             registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
-# -- criterion 4: every audit source, real, in this suite execution ---------
+# -- 4 governance: every audit source, real, in this suite execution ---------
 
 
 def _events_since(fence: str) -> list[dict[str, Any]]:

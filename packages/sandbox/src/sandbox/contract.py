@@ -1,8 +1,9 @@
-"""SandboxBackend contract — the frozen sandbox seam.
+"""SandboxBackend contract — the seam between the compiled policy and a runtime.
 
-The narrow seam behind which sandbox runtimes are swapped: `k8s_jobs` is
-the default. `provision` takes a compiled policy argument; `SandboxPolicy`
-values come from the applied blueprint's infrastructure policy IR.
+One implementation exists today (`k8s_jobs`); the Protocol is kept because
+it is what the compiler's infrastructure IR targets. `provision` takes a
+compiled policy argument; `SandboxPolicy` values come from the applied
+blueprint's infrastructure policy IR.
 """
 
 from typing import Protocol

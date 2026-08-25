@@ -111,7 +111,7 @@ class ImplementInput:
 
     run_id: str
     task_text: str | None = None
-    # None keeps the generous real-brain defaults (and old histories replay).
+    # None keeps the generous real-brain defaults.
     timeouts: Timeouts | None = None
     issue_number: int | None = None
 
@@ -372,7 +372,7 @@ class ImplementWorkflow:
                     break
                 task_text = verify_feedback(brief, verify["output"])
 
-            # Delivery is workflow-directed (choice 8) and gated: only a
+            # Delivery is workflow-directed and gated: only a
             # green platform verify releases the deliver dispatch. The
             # source text rides it — not the planner's brief — so the
             # delivery constraints (branch, markers) survive verbatim.

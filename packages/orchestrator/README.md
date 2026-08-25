@@ -1,6 +1,6 @@
 # orchestrator
 
-The durable spine: three Temporal workflows, the 22 activities they
+The durable spine: four Temporal workflows, the activities they
 sequence, the process gates they park on, the bounded Kubernetes surface
 for ephemeral crew pods, the worker that runs it all, and the `poseidon`
 CLI. The [root README](../../README.md) states the promises; this package
@@ -16,14 +16,14 @@ system.
 
 | Path | Owns |
 |---|---|
-| `workflows/` | `intake`, `implement`, `review` — sequencing, timeouts, retries and compensation. Deterministic replay code; no I/O. |
-| `activities/` | The 22 activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
+| `workflows/` | `intake`, `implement`, `review`, `conduct` — sequencing, timeouts, retries and compensation. Deterministic replay code; no I/O. |
+| `activities/` | The activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
 | `gates/` | `Gate` — a signal-driven wait point with an escalation timer — and the `process-gate` audit event shaping. |
 | `crewpods.py` | The bounded Kubernetes surface for crew pods: **pods and their per-run ServiceAccounts only**, in the **company namespace only**, deleted only by label selector. |
 | `identity.py` | Ephemeral identity naming — the fulfill half of the identity contract; the gateways own the verify half. |
 | `clients.py` | `GatewayClient` (MCP + admin routes) and `AgentClient` (dispatch/poll). |
 | `cli/` | `poseidon run\|review\|signal\|status`, `poseidon blueprint compile\|preview\|apply` — documented in [INTERFACES.md](../../INTERFACES.md). |
-| `worker/` | The worker process: registers all three workflows and all activities on the `poseidon-orchestrator` task queue. |
+| `worker/` | The worker process: registers all four workflows and all activities on the `poseidon-orchestrator` task queue, and runs the ensure loop that keeps each company's conduct heartbeat alive. |
 | `config.py` | `TemporalSettings` (all a client needs) and `WorkerSettings` (what activities need). |
 
 ## Workflow code is replayed, not run once
@@ -57,9 +57,9 @@ Two visible consequences:
   import). The workflow modules import nothing from `activities/`; that
   seam is what an engine swap would use, and it lets activities be shared
   across workflows — `check_budget` is defined once (in the intake
-  module) and called by all three.
+  module) and called by every run-shaped workflow.
 
-## The three workflows
+## The four workflows
 
 **intake** — goal text in, tickets and recorded crew intent out:
 `create_intake_run → check_budget → [gate slot] → dispatch_pm →
@@ -100,6 +100,32 @@ the blueprint's `max_reworks` the PR escalates to the human park with a
 no merge gate declared, the findings are the deliverable and the
 workflow ends without merging — unattended auto-merge is not a default
 anyone gets implicitly.
+
+**conduct** — the company's standing heartbeat, and the one workflow no
+human starts: `conduct_config → conduct_observe → conduct_decide (the
+PM) → conduct_authorize → start child run → record_conduct_tick → sleep
+→ continue-as-new`. It is not run-shaped: there is exactly one per
+company, `conduct-{company}`, and the worker's ensure loop starts it
+whenever the applied blueprint declares a `conduct` section. Each tick
+re-reads that section from the registry and stops when it is gone, so
+revoking the heartbeat is a blueprint diff, effective at the next tick.
+`conduct_observe` gathers the backlog, delivered-but-unreviewed PRs,
+run history, capacity and spend — numbers, titles and URLs only; issue
+bodies are untrusted input the implement run reads itself.
+`conduct_decide` dispatches the standing conductor in `mode="decide"`
+with that observation and gets back one action with a required
+rationale, journaled as a `conduct.decide` audit event. The PM proposes
+and the platform disposes: the action set is closed, the target must
+come from the observation, and `conduct_authorize` evaluates the
+compiled `conduct.start` decision at OPA before the tick starts
+anything — the caps (`max_concurrent_runs`, `daily_cap_usd`, the
+`may_start` list) are checked in the workflow for the honest audit
+reason and again by policy for the refusal that does not depend on this
+code. A started child run is abandoned, not supervised: ticks are
+heartbeats, and progress and gates belong to the run. Every tick
+outcome — started, idle and why, refused and why — is an audit event
+under the `conduct-{company}` run id, and the daily-cap halt is a
+`process-gate` event like a per-run budget stop.
 
 Every run begins with `check_budget`: a run born with no headroom under
 the per-run cap fails before anything is dispatched. Enforcement itself

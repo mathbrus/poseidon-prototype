@@ -340,7 +340,7 @@ def test_privilege_inside_the_sandbox_buys_nothing(target: Target) -> None:
     (no token, no API, no metadata, no host mount, no foreign processes)
     hold regardless of uid, and egress stays confined to the audited proxy.
 
-    The sandbox now runs unprivileged as well: uid 10001, no
+    The sandbox also runs unprivileged: uid 10001, no
     privilege-escalation path, no capabilities. That is defence in depth on
     top of the containment above, not a replacement for it — which is why
     every assertion in this suite is written to hold at any uid."""

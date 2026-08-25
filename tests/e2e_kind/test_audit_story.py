@@ -1,4 +1,4 @@
-"""E4 on the cluster: the whole story of a run is reconstructable by
+"""The audit story on the cluster: the whole story of a run is reconstructable by
 `run_id` alone — every enforcement decision the platform made, in order,
 from one query. That is literally one query: the gateway and the egress
 proxy both write the registry `audit_events` table.
@@ -92,7 +92,7 @@ def test_one_query_spans_the_runs_real_sources(implement_run: dict) -> None:
     assert all(e["run_id"] == run_id for e in story)
 
 
-def test_gateway_events_carry_v2_attribution(implement_run: dict) -> None:
+def test_gateway_events_carry_full_attribution(implement_run: dict) -> None:
     """The real pipeline's events are fully attributed: every gateway event names
     its source, and company-caller events carry company + lifecycle."""
     run_id = implement_run["run_id"]

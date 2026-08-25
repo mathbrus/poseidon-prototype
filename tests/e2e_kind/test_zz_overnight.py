@@ -1,6 +1,6 @@
 """The overnight capstone: the company works while nobody watches.
 
-This is the milestone's headline demo — the moment Poseidon stops being a
+This is the headline demo — the moment Poseidon stops being a
 pipeline you operate and becomes a company you supervise. The whole run has
 exactly two human acts:
 
@@ -120,8 +120,7 @@ def overnight(stack: None, env: dict) -> dict:
     # An empty campsite before the conduct blueprint lands: the ensure
     # loop's bare heartbeat ticks once the moment conduct is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot
-    # (#15 step 5 caught this live).
+    # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(env)
     apply_blueprint(CONDUCTED)
     wait_for_convergence()
@@ -232,7 +231,7 @@ def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     """No human ran the implement: the heartbeat consumed the intake ticket
     and produced a PR, under an auto-minted run id. Asserted on the run and
     on this heartbeat's own attributable ticks — never on winning a race
-    against the ensure loop's bare heartbeat (#15 step 4)."""
+    against the ensure loop's bare heartbeat."""
     implement = overnight["implement"]
     assert implement["run_id"].startswith("auto-"), implement["run_id"]
     assert implement["workflow"] == "implement"

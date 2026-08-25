@@ -10,18 +10,19 @@ plan — which is exactly what lets an author validate a blueprint on a
 laptop, and lets every other package trust that a document it receives has
 already survived this gate.
 
-A blueprint is a YAML mapping with `apiVersion: poseidon.dev/v1` and eight
+A blueprint is a YAML mapping with `apiVersion: poseidon.dev/v1` and nine
 sections: `company`, `stack`, `departments`, `crews`, `tools`, `workflows`,
-`policies`, `budgets`. All are required except `policies` — a company
-without guardrails is a choice you make visibly, not a default you fall
-into by omission. The document format itself is introduced line by line in
+`policies`, `budgets`, `conduct`. All are required except `policies` and
+`conduct` — a company without guardrails is a choice you make visibly, not
+a default you fall into by omission, and a company with no standing
+heartbeat is simply one no heartbeat drives. The document format itself is introduced line by line in
 the [root README, section 7](../../README.md#7-the-blueprint-line-by-line).
 
 ## Module map
 
 | Module | Owns |
 |---|---|
-| `blueprint.py` | The JSON Schema (draft 2020-12) for the eight sections. Structure only; the tool enum is the one place it borrows from a catalog. |
+| `blueprint.py` | The JSON Schema (draft 2020-12) for the nine sections. Structure only; the tool enum is the one place it borrows from a catalog. |
 | `validate.py` | `validate_blueprint` / `load_blueprint`, plus the catalog cross-checks. Errors are rendered as a path and the allowed values, and reported all together. |
 | `catalog.py` | `ROLE_TEMPLATES` and `CREW_TEMPLATES`: what a blueprint may hire and spawn, with each template's tool scope, model tier and runtime hints. |
 | `tools.py` | The 16-name gateway tool surface, plus the two sets policy keys on: `PLATFORM_ONLY` and `RUN_SCOPED`. |
@@ -53,15 +54,17 @@ cannot read.
 
 ## The role catalog
 
-Three templates, and the set is closed: a blueprint names templates, it
+Four templates, and the set is closed: a blueprint names templates, it
 never defines them. `pm` is the standing conductor — it holds the four
-`issues.*` tools plus `crew.request`, may spawn both crews, and holds no
+`issues.*` tools plus `crew.request`, may spawn crews, and holds no
 executor tools at all: no `sandbox.*`, no `git.open_pr`. Its
 `runtime_hints` include `memory: "none"`, because cross-run state is
 tickets and registry runs, not a private store. `backend-engineer`
-(sandbox tools plus `git.open_pr`, frontier tier) and `sdet` (sandbox
-plus review tools plus `issues.comment`, standard tier) are crew-member
-material only.
+(sandbox tools plus `git.open_pr`, frontier tier), `sdet` (sandbox plus
+review tools plus `issues.comment`, standard tier) and `contract-author`
+(sandbox tools plus `git.open_pr`, frontier tier — the one template that
+may deliver into a declared contract tree) are crew-member material
+only.
 
 Why a fixed catalog at all? Because the compiler turns each template into
 an agent spec and a per-member Rego bundle, and a template a blueprint
@@ -79,13 +82,14 @@ standing-executor document still validates structurally.
 
 ## The crew catalog
 
-Two crew templates: `feature-delivery` (a planner plus one coding
-executor) and `feature-review` (one reviewer, run against a sandbox
-provisioned from the PR ref). Crew names, member names and each member's
-`role_template` in a blueprint must all match the catalog — a `crews:`
-key outside it used to validate cleanly and then resolve against nothing
-in the compiler, which is the failure mode these cross-checks exist to
-kill.
+Three crew templates: `feature-delivery` (a planner plus one coding
+executor), `feature-review` (one reviewer, run against a sandbox
+provisioned from the PR ref) and `contract-authoring` (one contract
+author, no planner — the contract ticket is the brief). Crew names,
+member names and each member's `role_template` in a blueprint must all
+match the catalog: a `crews:` key outside it would validate structurally
+and then resolve against nothing in the compiler, which is the failure
+mode these cross-checks exist to kill.
 
 The planner is the catalog's most deliberate member:
 
@@ -196,7 +200,7 @@ the schema and the catalogs.
 uv run pytest packages/schema
 ```
 
-37 tests, sub-second, no cluster. `test_blueprint.py` proves the shipped
+Sub-second, no cluster. `test_blueprint.py` proves the shipped
 `examples/hello-saas.yaml` validates and that representative invalid
 documents fail with messages that say *where* and *what to write
 instead* — the invalid cases assert on message content, not just on the

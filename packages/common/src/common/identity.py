@@ -5,11 +5,10 @@ plus what the verifier learned on the way: the standing caller's namespace
 (for run-binding enrichment), and the ephemeral caller's run binding and
 crew coordinates from its live `run_participants` row.
 
-Produced exclusively by `common.authn` from a workload credential: a
-projected Kubernetes service-account token (standing agents, the
-orchestrator) or a platform-signed ephemeral JWT. Shared by both
-gateways — the MCP gateway and the LLM gateway verify the same identities.
-There are no static bearer tokens.
+Produced exclusively by `common.authn` from one credential shape: a
+projected Kubernetes service-account token, verified through TokenReview.
+Shared by both gateways — the MCP gateway and the LLM gateway verify the
+same identities.
 """
 
 from pydantic import BaseModel

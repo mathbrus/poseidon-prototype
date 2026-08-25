@@ -239,8 +239,8 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
     from .test_operator_lifecycle import port_forward
 
     with port_forward("opa", 18183, 8181) as base:
-        # Nothing was ever pushed: the old assignments document does not
-        # exist, and nothing else lives outside the served bundles.
+        # Nothing was ever pushed: no run-assignment document exists, and
+        # nothing lives outside the served bundles.
         pushed = httpx.get(f"{base}/v1/data/runs", timeout=10).json()
         assert "result" not in pushed or not pushed["result"], (
             f"OPA carries pushed run data: {pushed}"

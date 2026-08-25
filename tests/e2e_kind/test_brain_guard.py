@@ -1,4 +1,4 @@
-"""The brain-of-record guardrail, pinned (#15 step 1).
+"""The brain-of-record guardrail, pinned.
 
 The refusal logic itself is pure (`paid_brain_problem`), so its edges are
 asserted without a cluster; the live half — that the session-level fixture

@@ -10,10 +10,9 @@ a few document-level checks (template existence, tool vocabulary) are
 repeated here — the compiler must fail closed on an unvalidated input, not
 KeyError halfway through emission.
 
-Deliberately absent: the child-⊆-parent scope check. It was dropped with the
-lean roster — a conducting PM is not a capability supersystem,
-and keeping ⊆ would force the PM's declared allows to become the union of
-every crew member's scope. Spawn authority is `may_spawn` plus the crew
+Deliberately absent: a child-⊆-parent scope check. A conducting PM is not a
+capability supersystem, and ⊆ would force the PM's declared allows to become
+the union of every crew member's scope. Spawn authority is `may_spawn` plus the crew
 template plus budget and concurrency caps; tool authority is the member's
 own compiled allow-list.
 

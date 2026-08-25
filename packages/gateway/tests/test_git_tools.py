@@ -1,4 +1,4 @@
-"""S6 gateway git-tool tests: repo.archive and git.open_pr.
+"""Gateway git-tool tests: repo.archive and git.open_pr.
 
 TARGET_REPO is a local bare repo fixture (file path URL) and GitHub is an
 httpx-mock stub; git subprocesses are real, the network is never touched.
@@ -80,8 +80,8 @@ async def test_platform_archives_repo_stripped_of_remotes(
     assert event["tool"] == "repo.archive" and event["role"] == "platform"
     assert event["decision"] == "allow" and event["rule"] == "platform_repo.archive"
     assert event["backend_status"] == "ok"
-    # Attributable like every other step — the E4 story has no hole at the
-    # workspace fetch.
+    # Attributable like every other step — the run's story has no hole at
+    # the workspace fetch.
     assert event["run_id"] == RUN_ID
 
 

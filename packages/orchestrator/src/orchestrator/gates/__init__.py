@@ -122,5 +122,5 @@ def gate_audit_event(
         "parent_agent_id": "",
         "workflow": workflow_id,
     }
-    workflow.logger.info("process-gate outcome (audit stub): %s", event)
+    workflow.logger.info("process-gate outcome: %s", event)
     return event
