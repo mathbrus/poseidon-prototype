@@ -17,11 +17,8 @@ from temporalio.client import Client, WorkflowExecutionStatus
 from common.ids import new_run_id
 from orchestrator.cli.blueprint import app as blueprint_app
 from orchestrator.config import TemporalSettings
-from orchestrator.workflows.implement import (
-    FAST_TIMEOUTS,
-    ImplementInput,
-    workflow_id,
-)
+from orchestrator.workflows import ImplementInput, IntakeInput, ReviewInput
+from orchestrator.workflows.base import FAMILIES, FAST_TIMEOUTS, workflow_id
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 app.add_typer(blueprint_app, name="blueprint")
@@ -57,9 +54,6 @@ def run(
 ) -> None:
     """Start a run for the task or goal in TARGET — a file path, or an
     issue number to implement the ticket the company already filed."""
-    from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
-
-    settings = TemporalSettings()
     run_id = run_id or new_run_id()
     timeouts = FAST_TIMEOUTS if fast_timeouts else None
     if workflow == "implement":
@@ -69,7 +63,6 @@ def run(
             else {"task_text": Path(target).read_text()}
         )
         started_input: object = ImplementInput(run_id=run_id, timeouts=timeouts, **source)
-        wf_id = workflow_id(run_id)
     elif workflow == "intake":
         if target.isdigit():
             typer.echo(
@@ -80,29 +73,10 @@ def run(
         started_input = IntakeInput(
             run_id=run_id, goal_text=Path(target).read_text(), timeouts=timeouts
         )
-        wf_id = intake_workflow_id(run_id)
     else:
         typer.echo(f"unknown workflow {workflow!r}", err=True)
         raise typer.Exit(2)
-
-    async def _run() -> dict | None:
-        client = await _client(settings)
-        handle = await client.start_workflow(
-            workflow,
-            started_input,
-            id=wf_id,
-            task_queue=settings.task_queue,
-        )
-        typer.echo(f"started {handle.id} (run_id {run_id})", err=True)
-        if detach:
-            return None
-        return await handle.result()
-
-    record = asyncio.run(_run())
-    if record is not None:
-        typer.echo(json.dumps(record, indent=2))
-        if record.get("status") != "done":
-            sys.exit(1)
+    _start(workflow, run_id, started_input, detach)
 
 
 @app.command()
@@ -121,22 +95,26 @@ def review(
     ),
 ) -> None:
     """Start a review run for the pull request."""
-    from orchestrator.workflows.review import ReviewInput, review_workflow_id
-
-    settings = TemporalSettings()
     run_id = run_id or new_run_id()
     started_input = ReviewInput(
         run_id=run_id,
         pr_number=pr_number,
         timeouts=FAST_TIMEOUTS if fast_timeouts else None,
     )
+    _start("review", run_id, started_input, detach)
+
+
+def _start(family: str, run_id: str, started_input: object, detach: bool) -> None:
+    """Start the workflow; unless detached, wait for the run record, print
+    it, and exit non-zero when the run did not finish `done`."""
+    settings = TemporalSettings()
 
     async def _run() -> dict | None:
         client = await _client(settings)
         handle = await client.start_workflow(
-            "review",
+            family,
             started_input,
-            id=review_workflow_id(run_id),
+            id=workflow_id(family, run_id),
             task_queue=settings.task_queue,
         )
         typer.echo(f"started {handle.id} (run_id {run_id})", err=True)
@@ -152,14 +130,12 @@ def review(
 
 
 def _workflow_id(workflow: str, run_id: str) -> str:
-    """Workflow ids are `{workflow}-{run_id}` for the three run-shaped
-    families. The conduct heartbeat is the exception: one standing workflow
-    per company, `conduct-{company}`, so its `run_id` argument is the
-    company name — the CLI only needs to know which family it belongs to."""
-    if workflow not in ("implement", "intake", "review", "conduct"):
+    """The workflow a `--workflow` family and a run id address; for the
+    conduct heartbeat the run id argument is the company name."""
+    if workflow not in FAMILIES:
         typer.echo(f"unknown workflow {workflow!r}", err=True)
         raise typer.Exit(2)
-    return f"{workflow}-{run_id}"
+    return workflow_id(workflow, run_id)
 
 
 @app.command()

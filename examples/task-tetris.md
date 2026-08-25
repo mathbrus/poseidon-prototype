@@ -1,3 +1,4 @@
+<!-- A hand-run demo for a real model: the mock brain scripts nothing for it. -->
 # Task: Tetris engine
 
 Add a small, self-contained Tetris engine to this repository, using only the

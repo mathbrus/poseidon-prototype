@@ -9,7 +9,6 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from orchestrator.config import WorkerSettings
 from orchestrator.worker.__main__ import ensure_conduct_once
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 from registry.memory import InMemoryCompanies
 
 pytestmark = pytest.mark.anyio
@@ -17,7 +16,6 @@ pytestmark = pytest.mark.anyio
 COMPANY = "hello-saas"
 
 
-@pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
@@ -43,6 +41,7 @@ def settings(**overrides: Any) -> WorkerSettings:
     return WorkerSettings(
         mcp_gateway_url="http://gateway.test:8080",
         target_repo="github.com/example/repo",
+        agent_image="poseidon-agent:abc123",
         company=COMPANY,
         **overrides,
     )
@@ -65,20 +64,6 @@ async def test_declared_section_starts_the_heartbeat():
     # No override: the blueprint's declared cadence stands.
     assert call["input"].tick_interval_s is None
     assert call["input"].timeouts is None
-
-
-async def test_e2e_knobs_ride_the_input():
-    client, companies = FakeTemporal(), InMemoryCompanies()
-    companies.upsert(COMPANY, {"conduct": {"heartbeat_minutes": 30}})
-    await ensure_conduct_once(
-        client,
-        settings(conduct_tick_interval_s=5, conduct_fast_timeouts=True),
-        companies,
-        Quiet(),
-    )
-    (call,) = client.started
-    assert call["input"].tick_interval_s == 5
-    assert call["input"].timeouts == FAST_TIMEOUTS
 
 
 async def test_already_beating_is_the_normal_case():

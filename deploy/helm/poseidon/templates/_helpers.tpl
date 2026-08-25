@@ -14,19 +14,58 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
-Optional OTel export (the anytime-track adoption): when
-.Values.telemetry.otlpEndpoint is set, platform services get the standard
-SDK variables and common/telemetry.py attaches the OTLP log exporter next
-to the always-on stdout JSON. Usage:
-  {{ include "poseidon.otelEnv" (dict "root" . "service" "mcp-gateway") }}
+A ServiceAccount bound to system:auth-delegator — what a service that
+verifies callers' projected tokens through the TokenReview API needs.
+Usage:
+  {{ include "poseidon.authDelegator" (dict "root" . "name" "mcp-gateway") }}
 */}}
-{{- define "poseidon.otelEnv" -}}
-{{- if .root.Values.telemetry.otlpEndpoint }}
-- name: OTEL_EXPORTER_OTLP_ENDPOINT
-  value: {{ .root.Values.telemetry.otlpEndpoint | quote }}
-- name: OTEL_SERVICE_NAME
-  value: {{ .service | quote }}
+{{- define "poseidon.authDelegator" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .name }}
+  labels:
+    {{- include "poseidon.labels" .root | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: poseidon-{{ .name }}-auth-delegator
+  labels:
+    {{- include "poseidon.labels" .root | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ .name }}
+    namespace: {{ .root.Release.Namespace }}
 {{- end }}
+
+{{/*
+Scratch space for a read-only root filesystem: the volume (pod level) and
+its mount (container level).
+*/}}
+{{- define "poseidon.scratchVolume" -}}
+- name: tmp
+  emptyDir: {}
+{{- end }}
+
+{{- define "poseidon.scratchMount" -}}
+- name: tmp
+  mountPath: /tmp
+{{- end }}
+
+{{/*
+The registry DSN, for the services that read or write it.
+*/}}
+{{- define "poseidon.registryDsnEnv" -}}
+- name: REGISTRY_DSN
+  valueFrom:
+    secretKeyRef:
+      name: registry-credentials
+      key: REGISTRY_DSN
 {{- end }}
 
 {{/*

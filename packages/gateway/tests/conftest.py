@@ -6,8 +6,7 @@ TARGET_REPO (real git subprocesses, no network).
 The OPA stub mirrors the *compiled* policy shape:
 per-company and platform decision paths, role rules keyed on
 lifecycle+company+role, run binding read from the enriched input — and the
-test tokens resolve through a fake TokenReview (workload identity), because
-the static token map no longer exists."""
+test tokens resolve through a fake TokenReview (workload identity)."""
 
 import base64
 import json

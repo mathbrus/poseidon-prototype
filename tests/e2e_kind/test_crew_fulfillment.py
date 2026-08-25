@@ -10,7 +10,7 @@ executor, parentage on every decision. Then the
 sweep: identities revoked and rows terminal after teardown, including
 worker kill.
 
-Pod IPs are not host-routable on kind, so AgentClient is shimmed through
+Pod IPs are not host-routable on kind, so AgentClient is routed through
 `kubectl port-forward` (which bypasses NetworkPolicy by design — it rides
 the kubelet, not the pod network).
 """
@@ -18,154 +18,87 @@ the kubelet, not the pod network).
 import asyncio
 import contextlib
 import secrets
-import socket
-import subprocess
 import time
+from urllib.parse import urlparse
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import (
-    ImplementInput,
-    workflow_id,
-)
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.implement import ImplementInput
 
-from .conftest import (
+from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
-    REPO_ROOT,
-    TASK_QUEUE,
     audit_story,
-    deployed_timeouts,
+    crew_activities,
+    gateway_url,
+    kill_worker_pod,
+    kubectl,
+    mcp_call,
+    port_forward,
+    projected_token,
+    registry,
+    run_kubectl,
     sandbox_image,
     temporal_port_forward,
+    worker_settings,
 )
-from .test_crew_identity import _registry
-from .test_governance import _call
-from .test_registry_durability import projected_token
-
-AGENT_LOCAL_PORT = 18001
-
-
-def _worker_settings(env: dict, tmp_path, registry_unused=None):
-    from orchestrator.config import WorkerSettings
-
-    token_file = tmp_path / "unused"
-    token_file.write_text("unused")
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "get",
-            "deployment/orchestrator-worker",
-            "-o",
-            'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="AGENT_IMAGE")].value}',
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
-    return WorkerSettings(
-        gateway_token_file=str(token_file),
-        mcp_gateway_url=env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080"),
-        target_repo=env["TARGET_REPO"],
-        agent_image=proc.stdout.strip(),
-        model="mock-brain",
-    )
+from .conftest import REPO_ROOT, TASK_QUEUE, deployed_timeouts
 
 
 @contextlib.contextmanager
 def _pod_forwarded_agent_client():
     """Route AgentClient's pod-IP URLs through kubectl port-forwards to the
     crew pods those IPs belong to — one forward per pod, since every crew
-    member now runs on its own pod and a dispatch must reach the member it
-    names (the planner's calls must carry the planner's identity)."""
-
-    from urllib.parse import urlparse
-
+    member runs on its own pod and a dispatch must reach the member it
+    names (the planner's calls must carry the planner's identity). Only a
+    URL naming a company-namespace pod IP is rewritten; anything else
+    reaches AgentClient untouched."""
     from orchestrator import clients
 
-    procs: list[subprocess.Popen] = []
+    stack = contextlib.ExitStack()
     port_by_ip: dict[str, int] = {}
 
-    def _pod_for_ip(ip: str) -> str:
-        listing = subprocess.run(
-            [
-                "kubectl",
-                "-n",
-                COMPANY_NS,
-                "get",
-                "pods",
-                "-o",
-                "jsonpath={range .items[*]}{.metadata.name}|{.status.podIP}{'\\n'}{end}",
-            ],
-            capture_output=True,
-            text=True,
+    def pods_by_ip() -> dict[str, str]:
+        listing = kubectl(
+            "-n",
+            COMPANY_NS,
+            "get",
+            "pods",
+            "-o",
+            "jsonpath={range .items[*]}{.metadata.name}|{.status.podIP}{'\\n'}{end}",
             timeout=30,
-            check=True,
-        ).stdout.splitlines()
-        for line in listing:
-            name, _, pod_ip = line.partition("|")
-            if pod_ip == ip:
-                return name
-        raise RuntimeError(f"no pod with IP {ip} in {COMPANY_NS}")
+        ).splitlines()
+        return {
+            ip: name for name, _, ip in (line.partition("|") for line in listing) if ip
+        }
 
-    def ensure_forward(ip: str) -> int:
-        if ip in port_by_ip:
-            return port_by_ip[ip]
-        local_port = AGENT_LOCAL_PORT + len(port_by_ip)
-        pod = _pod_for_ip(ip)
-        procs.append(
-            subprocess.Popen(
-                [
-                    "kubectl",
-                    "-n",
-                    COMPANY_NS,
-                    "port-forward",
-                    f"pod/{pod}",
-                    f"{local_port}:8000",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+    def local_url(url: str) -> str:
+        ip = urlparse(url).hostname or ""
+        if ip not in port_by_ip:
+            pod = pods_by_ip().get(ip)
+            if pod is None:
+                return url
+            port_by_ip[ip] = stack.enter_context(
+                port_forward(f"pod/{pod}", 8000, namespace=COMPANY_NS)
             )
-        )
-        deadline = time.monotonic() + 30
-        while True:
-            try:
-                with socket.create_connection(("127.0.0.1", local_port), timeout=1):
-                    break
-            except OSError as exc:
-                if time.monotonic() > deadline:
-                    raise RuntimeError(
-                        "port-forward to the crew pod never came up"
-                    ) from exc
-                time.sleep(0.5)
-        port_by_ip[ip] = local_port
-        return local_port
+        return f"http://127.0.0.1:{port_by_ip[ip]}"
 
     original_init = clients.AgentClient.__init__
 
     def patched(self, url: str) -> None:
-        if "svc.cluster.local" not in url and "unused.test" not in url:
-            ip = urlparse(url).hostname or ""
-            local_port = ensure_forward(ip)
-            url = f"http://127.0.0.1:{local_port}"
-        original_init(self, url)
+        original_init(self, local_url(url))
 
     clients.AgentClient.__init__ = patched
     try:
-        yield
+        with stack:
+            yield
     finally:
         clients.AgentClient.__init__ = original_init
-        for proc in procs:
-            proc.terminate()
-            proc.wait(timeout=10)
 
 
 def test_crew_delivers_a_pr_under_ephemeral_identity(
     stack: None, env: dict, tmp_path, pr_info
 ) -> None:
-    from orchestrator.activities.crew import CrewActivities
     from orchestrator.clients import AgentClient, GatewayClient
     from orchestrator.crewpods import (
         CrewPodProvisioner,
@@ -173,38 +106,31 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
         service_account_name,
     )
     from orchestrator.identity import ephemeral_agent_id
-    from registry import AuditStore, CrewRequests, RunParticipants, Runs
-    from registry.bundles import Companies
-    from sandbox.backends.k8s_jobs import K8sJobsBackend
+    from registry import Runs
+    from sandbox.k8s_jobs import K8sJobsBackend
 
     run_id = new_run_id()
     nonce = secrets.token_hex(3)
     task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
+    mcp = gateway_url(env)
     orchestrator_token = projected_token(PLATFORM_NS, "orchestrator-worker")
     executor_id = ephemeral_agent_id("feature-delivery", "executor", run_id)
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     handle = None
 
-    with _registry() as registry:
-        settings = _worker_settings(env, tmp_path)
-        crew = CrewActivities(
-            settings,
-            RunParticipants(registry),
-            AuditStore(registry),
-            CrewPodProvisioner(COMPANY_NS),
-            CrewRequests(registry),
-            Companies(registry),
+    with registry() as client:
+        crew = crew_activities(
+            client, worker_settings(env, tmp_path), CrewPodProvisioner(COMPANY_NS)
         )
-        Runs(registry).start(run_id, task_text, "implement", None, "hello-saas")
+        Runs(client).start(run_id, task_text, "implement", None, "hello-saas")
         try:
             # 1. The PM records intent through the gateway — same row, same
             #    policy as any spawn; may_spawn/cap/budget checks all
             #    faced here.
             pm_token = projected_token(COMPANY_NS, "pm-1")
-            recorded = _call(
+            recorded = mcp_call(
                 env,
                 pm_token,
                 "crew.request",
@@ -219,16 +145,14 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             # 2. The run's single sandbox, exactly as implement provisions
             #    it (both members share it through the gateway).
             workspace = asyncio.run(
-                _fetch_workspace(
-                    gateway_url, orchestrator_token, run_id, env["TARGET_REPO"]
-                )
+                _fetch_workspace(mcp, orchestrator_token, run_id, env["TARGET_REPO"])
             )
             handle = backend.provision(
                 run_id,
                 workspace,
                 _sandbox_policy(sandbox_image()),
             )
-            asyncio.run(_register(gateway_url, orchestrator_token, run_id, handle))
+            asyncio.run(_register(mcp, orchestrator_token, run_id, handle))
 
             # 3. Fulfill: consume -> bind -> a pod per member -> planner
             #    (on its own pod) -> brief.
@@ -269,7 +193,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 
                 # The platform's own verify is green before delivery.
                 async def platform_verify() -> dict:
-                    async with GatewayClient(gateway_url, orchestrator_token) as g:
+                    async with GatewayClient(mcp, orchestrator_token) as g:
                         return await g.run_tests(run_id)
 
                 verdict = asyncio.run(platform_verify())
@@ -307,7 +231,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             # (fulfilment provisioned the planner's own pod), so a fresh
             # projected token is the same credential the pod holds.
             planner_token = projected_token(COMPANY_NS, service_account_name(planner_id))
-            denied = _call(
+            denied = mcp_call(
                 env,
                 planner_token,
                 "sandbox.write_file",
@@ -324,16 +248,16 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
         finally:
             if handle is not None:
                 with contextlib.suppress(Exception):
-                    asyncio.run(_unregister(gateway_url, orchestrator_token, run_id))
+                    asyncio.run(_unregister(mcp, orchestrator_token, run_id))
                 backend.destroy(handle)
             asyncio.run(crew.destroy_crew_pods(run_id))
-            registry.execute(
+            client.execute(
                 "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
             )
-            registry.execute(
+            client.execute(
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )
-            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+            client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 def test_worker_kill_leaks_no_crew(stack: None) -> None:
@@ -362,89 +286,61 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
                 ImplementInput(
                     run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()
                 ),
-                id=workflow_id(run_id),
+                id=workflow_id("implement", run_id),
                 task_queue=TASK_QUEUE,
             )
             # Wait for the fulfillment's own crew pod — the kill then lands
             # on a run with live ephemeral identities to sweep.
             deadline = time.monotonic() + 300
-            while True:
-                pods = subprocess.run(
-                    [
-                        "kubectl",
-                        "-n",
-                        COMPANY_NS,
-                        "get",
-                        "pods",
-                        "-l",
-                        f"poseidon.dev/kind=crew-agent,poseidon.io/run-id={run_id}",
-                        "-o",
-                        "jsonpath={.items[*].metadata.name}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if pods.stdout.strip():
-                    break
+            while not kubectl(
+                "-n",
+                COMPANY_NS,
+                "get",
+                "pods",
+                "-l",
+                f"poseidon.dev/kind=crew-agent,poseidon.dev/run-id={run_id}",
+                "-o",
+                "jsonpath={.items[*].metadata.name}",
+                timeout=30,
+            ):
                 if time.monotonic() > deadline:
                     raise AssertionError("the workflow never provisioned a crew pod")
                 await asyncio.sleep(2)
             # Kill the worker mid-run; the replay finishes the run and its
             # teardown on the replacement pod.
-            subprocess.run(
-                [
-                    "kubectl",
-                    "-n",
-                    PLATFORM_NS,
-                    "delete",
-                    "pod",
-                    "-l",
-                    "app=orchestrator-worker",
-                    "--wait=false",
-                ],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
+            kill_worker_pod()
             return await asyncio.wait_for(wf.result(), timeout=900)
 
     record = asyncio.run(run())
     assert record["run_id"] == run_id
 
     # Nothing leaked: the row is terminal and the pod is gone.
-    with _registry() as registry:
-        rows = registry.query(
+    with registry() as client:
+        rows = client.query(
             "SELECT status FROM registry.run_participants WHERE agent_id = %s",
             (executor_id,),
         )
         assert rows and rows[0]["status"] == "terminated", rows
-        registry.execute(
+        client.execute(
             "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
         )
     # "Survived" means still there, not still there *this instant*. A
     # cancelled fulfillment retry can be mid-`provision` in a worker thread
     # when the workflow returns — `asyncio.to_thread` cannot interrupt it —
     # so a doomed pod may appear for a few seconds and then be collected.
-    # The bound is what keeps this honest: the leak this test exists to
-    # catch — a provision landing past teardown with nothing left to
-    # collect it — left pods Running indefinitely — minutes, not
-    # seconds — so a real regression still fails here.
+    # The bound keeps this honest: the leak this test exists to catch — a
+    # provision landing past teardown with nothing left to collect it —
+    # leaves pods Running indefinitely, so a real leak still fails here.
     deadline = time.monotonic() + 90
     while True:
-        pods = subprocess.run(
-            [
-                "kubectl",
-                "-n",
-                COMPANY_NS,
-                "get",
-                "pod",
-                pod_name(executor_id),
-                "-o",
-                "name",
-            ],
-            capture_output=True,
-            text=True,
+        pods = run_kubectl(
+            "-n",
+            COMPANY_NS,
+            "get",
+            "pod",
+            pod_name(executor_id),
+            "-o",
+            "name",
             timeout=30,
         )
         if pods.returncode != 0:

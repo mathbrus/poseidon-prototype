@@ -7,7 +7,7 @@ import tarfile
 
 import pytest
 
-from registry.bundles import pack
+from registry import pack
 
 
 def manifest_of(tarball: bytes) -> dict:
@@ -18,7 +18,7 @@ def manifest_of(tarball: bytes) -> dict:
 def test_roots_come_from_the_package_declarations():
     """OPA bundle activation erases everything under the roots that the
     bundle does not supply. Company packages are per-company and the
-    platform package is its own bundle; a root any wider (the old hardcoded
+    platform package is its own bundle; a root any wider (say, a bare
     `poseidon`) would erase whatever another bundle owns on the first
     poll and take every gateway decision with it."""
     tarball, _revision = pack(

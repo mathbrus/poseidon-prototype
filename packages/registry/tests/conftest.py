@@ -29,11 +29,19 @@ def registry() -> Registry:
 
 @pytest.fixture(autouse=True)
 def clean(registry: Registry):
-    """Each test owns the tables it touches; ordering follows the foreign
-    key from run_participants to runs."""
+    """Every table starts empty for the next test — all nine, so no test
+    needs its own cleanup; run_participants goes before runs (the foreign
+    key)."""
     yield
-    registry.execute("DELETE FROM registry.audit_events")
-    registry.execute("DELETE FROM registry.sandbox_registrations")
-    registry.execute("DELETE FROM registry.run_participants")
-    registry.execute("DELETE FROM registry.runs")
-    registry.execute("DELETE FROM registry.budget_ledger")
+    for table in (
+        "audit_events",
+        "sandbox_registrations",
+        "crew_requests",
+        "run_participants",
+        "runs",
+        "budget_ledger",
+        "agent_instances",
+        "policy_bundles",
+        "companies",
+    ):
+        registry.execute(f"DELETE FROM registry.{table}")

@@ -91,6 +91,7 @@
       ],
       "image": "poseidon-sandbox",
       "memory": "1Gi",
+      "test_command": "pytest -q",
       "workspace_dir": "/workspace"
     }
   },

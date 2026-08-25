@@ -1,4 +1,5 @@
-"""Platform-side git operations behind the two egress tools (contract C3).
+"""Platform-side git and GitHub operations behind the repository, pull-request
+and issue tools.
 
 `repo.archive` clones the target repo with the platform token, strips the
 remote (and with it the credentialed URL), and returns the workspace as a
@@ -218,7 +219,7 @@ class GitBackend:
         """Verify the bundle and apply it to a fresh platform-side clone.
 
         Runs before the policy decision so the changed paths can be part of
-        the C2 policy input; nothing here leaves the gateway host.
+        the policy input; nothing here leaves the gateway host.
         """
         return await asyncio.to_thread(self._prepare_sync, repo, branch, bundle_b64)
 

@@ -22,16 +22,13 @@ one `run_id` query returns the whole story.
 import asyncio
 import base64
 import contextlib
-import hashlib
-import json
 import time
-from datetime import UTC, datetime
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from common.audit import AuditEvent
+from common.audit import AuditEvent, args_digest
 from common.telemetry import get_logger
-from registry import AuditStore
+from registry import AuditStore, Companies, SandboxRegistrations
 from sandbox.egressproxy.credentials import verify
 
 DEFAULT_PORT = 3128
@@ -53,7 +50,9 @@ class RegistryAllowlist:
     access; briefly cached so a chatty `pip install` costs two queries, not
     two per connection."""
 
-    def __init__(self, sandboxes, companies, ttl_s: float = 10.0) -> None:
+    def __init__(
+        self, sandboxes: SandboxRegistrations, companies: Companies, ttl_s: float = 10.0
+    ) -> None:
         self._sandboxes = sandboxes
         self._companies = companies
         self._ttl = ttl_s
@@ -75,11 +74,6 @@ class RegistryAllowlist:
         self._cache = {k: v for k, v in self._cache.items() if v[1] > time.monotonic()}
         self._cache[run_id] = (hosts, time.monotonic() + self._ttl)
         return hosts
-
-
-def _digest(payload: dict) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class EgressProxy:
@@ -118,25 +112,14 @@ class EgressProxy:
     async def _serve(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
+        """One connection: head -> probe -> target -> authenticate ->
+        allowlist -> connect -> tunnel. Every refusal is audited under the
+        claimed run before the response goes out."""
         started = time.monotonic()
-        try:
-            head = await asyncio.wait_for(
-                reader.readuntil(b"\r\n\r\n"), timeout=HEAD_TIMEOUT_S
-            )
-        except (asyncio.IncompleteReadError, TimeoutError, asyncio.LimitOverrunError):
+        request = await self._read_request(reader, writer)
+        if request is None:
             return
-        lines = head.decode("latin-1").split("\r\n")
-        try:
-            method, target, _version = lines[0].split(" ", 2)
-        except ValueError:
-            self._respond(writer, "400 Bad Request")
-            return
-        headers = {
-            key.strip().lower(): value.strip()
-            for line in lines[1:]
-            if ":" in line
-            for key, _, value in [line.partition(":")]
-        }
+        method, target, header_lines, headers = request
 
         if target.startswith("/"):  # origin-form: only the kubelet probe
             status = (
@@ -147,14 +130,7 @@ class EgressProxy:
             self._respond(writer, status, b"ok" if status.startswith("200") else b"")
             return
 
-        if method == "CONNECT":
-            host, _, port_text = target.rpartition(":")
-            port = int(port_text) if port_text.isdigit() else 443
-        else:
-            url = urlsplit(target)
-            host = url.hostname or ""
-            port = url.port or 80
-
+        host, port = self._destination(method, target)
         run_id, rule = self._authenticate(headers)
         if rule is not None:
             await self._audit(run_id, host, port, "deny", rule, started, None)
@@ -193,13 +169,49 @@ class EgressProxy:
                 writer.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
                 await writer.drain()
             else:
-                upstream_writer.write(self._rewrite(method, target, lines[1:]))
+                upstream_writer.write(self._rewrite(method, target, header_lines))
                 await upstream_writer.drain()
             await self._tunnel(reader, writer, upstream_reader, upstream_writer)
         finally:
             with contextlib.suppress(Exception):
                 upstream_writer.close()
                 await upstream_writer.wait_closed()
+
+    async def _read_request(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> tuple[str, str, list[str], dict[str, str]] | None:
+        """The request head as (method, target, raw header lines, parsed
+        headers) — None when the client sent nothing usable, with a 400
+        already written if there was a head to refuse."""
+        try:
+            head = await asyncio.wait_for(
+                reader.readuntil(b"\r\n\r\n"), timeout=HEAD_TIMEOUT_S
+            )
+        except (asyncio.IncompleteReadError, TimeoutError, asyncio.LimitOverrunError):
+            return None
+        lines = head.decode("latin-1").split("\r\n")
+        try:
+            method, target, _version = lines[0].split(" ", 2)
+        except ValueError:
+            self._respond(writer, "400 Bad Request")
+            return None
+        headers = {
+            key.strip().lower(): value.strip()
+            for line in lines[1:]
+            if ":" in line
+            for key, _, value in [line.partition(":")]
+        }
+        return method, target, lines[1:], headers
+
+    @staticmethod
+    def _destination(method: str, target: str) -> tuple[str, int]:
+        """The host and port a request wants: CONNECT names them directly,
+        absolute-form HTTP carries them in the URL."""
+        if method == "CONNECT":
+            host, _, port_text = target.rpartition(":")
+            return host, int(port_text) if port_text.isdigit() else 443
+        url = urlsplit(target)
+        return url.hostname or "", url.port or 80
 
     def _authenticate(self, headers: dict[str, str]) -> tuple[str, str | None]:
         """Returns (run_id, deny_rule); deny_rule None means verified. The
@@ -296,14 +308,13 @@ class EgressProxy:
         backend_status: str | None,
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id="egress-proxy",
             # The enforcement point is the `source` field —
             # role is a caller property this producer does not have.
             role="",
             tool="sandbox.egress",
-            args_digest=_digest({"host": host, "port": port}),
+            args_digest=args_digest({"host": host, "port": port}),
             decision=decision,
             rule=rule,
             latency_ms=int((time.monotonic() - started) * 1000),

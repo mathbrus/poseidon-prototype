@@ -33,22 +33,21 @@ released the merge.
 """
 
 import asyncio
-import hashlib
-import json
 import re
 import time
-from datetime import UTC, datetime
 from typing import Any
 
 from temporalio import activity
 
-from common.audit import AuditEvent
+from common.audit import args_digest
 from common.telemetry import get_logger
+from orchestrator.activities.blueprint import workflow_config
+from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
-from registry import AuditStore, RunParticipants, Runs
-from registry.bundles import AgentInstances, Companies
+from orchestrator.workflows.base import workflow_id
+from registry import AgentInstances, AuditStore, Companies, RunParticipants, Runs
 
 # The canonical rework-ticket title. The chain depth and the root PR ride
 # the title so the platform can read the bound back without trusting any
@@ -148,9 +147,9 @@ class ReviewActivities:
         settings: WorkerSettings,
         runs: Runs,
         companies: Companies,
-        instances: AgentInstances | None = None,
-        audit: AuditStore | None = None,
-        participants: RunParticipants | None = None,
+        instances: AgentInstances,
+        audit: AuditStore,
+        participants: RunParticipants,
     ) -> None:
         self._settings = settings
         self._runs = runs
@@ -162,14 +161,12 @@ class ReviewActivities:
 
     @activity.defn(name="create_review_run")
     async def create_review_run(self, run_id: str, pr_number: int) -> None:
-        from orchestrator.workflows.review import review_workflow_id
-
         await asyncio.to_thread(
             self._runs.start,
             run_id,
             f"review pull request #{pr_number}",
             "review",
-            review_workflow_id(run_id),
+            workflow_id("review", run_id),
             self._settings.company,
         )
         self._log.bind(run_id=run_id).info(
@@ -185,44 +182,12 @@ class ReviewActivities:
         Fail-closed, like implement_config."""
 
         def read() -> dict[str, Any]:
-            spec = self._companies.get(self._settings.company) or {}
-            config = next(
-                (w for w in spec.get("workflows") or [] if w.get("name") == "review"),
-                None,
+            config, conductor = workflow_config(
+                self._companies, self._instances, self._settings.company, "review"
             )
-            if config is None or not config.get("enabled", False):
-                raise RuntimeError(
-                    f"company {self._settings.company!r} has no enabled"
-                    " review workflow in its applied blueprint"
-                )
-            crew_template = config.get("crew")
-            if not crew_template:
-                raise RuntimeError(
-                    "review workflow binds no crew — the reviewer is an"
-                    " ephemeral crew member; the compiler should"
-                    " have refused this blueprint"
-                )
-            conductor_hire = config["conductor"]
-            instance = None
-            if self._instances is not None:
-                instance = next(
-                    (
-                        i
-                        for i in self._instances.for_company(self._settings.company)
-                        if i.get("hire") == conductor_hire
-                    ),
-                    None,
-                )
-            if instance is None:
-                raise RuntimeError(
-                    f"no standing instance for conductor hire"
-                    f" {conductor_hire!r} — is the company converged?"
-                )
+            spec = self._companies.get(self._settings.company) or {}
             return {
-                "company": self._settings.company,
-                "crew_template": crew_template,
-                "conductor": instance["agent_id"],
-                "conductor_role": instance["role_template"],
+                **conductor,
                 # The gate object as the blueprint wrote it (`{resolved_by,
                 # delegate?}`), or None when no merge gate is declared.
                 "merge_gate": (config.get("gates") or {}).get("merge"),
@@ -278,31 +243,20 @@ class ReviewActivities:
         workflow_id: str,
         latency_ms: int = 0,
     ) -> None:
-        """The one AuditEvent constructor for this module's producers —
-        append-only, so a retried append duplicates a row, never loses
+        """Append-only, so a retried append duplicates a row, never loses
         one."""
-        if self._audit is None:
-            raise RuntimeError("review activities constructed without an audit store")
-        event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
+        await record_event(
+            self._audit,
             run_id=run_id,
-            agent_id="orchestrator",
-            role="platform",
             tool=tool,
-            args_digest=hashlib.sha256(
-                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-            ).hexdigest(),
-            decision=decision,  # type: ignore[arg-type]
+            digest=args_digest(payload),
+            decision=decision,
             rule=rule,
-            latency_ms=latency_ms,
-            backend_status=None,
-            source=source,  # type: ignore[arg-type]
+            source=source,
             company=self._settings.company,
-            lifecycle="platform",
-            parent_agent_id="",
             workflow=workflow_id,
+            latency_ms=latency_ms,
         )
-        await asyncio.to_thread(self._audit.append, event)
 
     @activity.defn(name="record_gate_outcome")
     async def record_gate_outcome(
@@ -366,8 +320,6 @@ class ReviewActivities:
                     "independent": False,
                     "reason": f"no implement run attributes PR #{pr_number}",
                 }
-            if self._participants is None:
-                raise RuntimeError("review activities constructed without participants")
             reviewers = self._participants.for_run(run_id)
             implementers = self._participants.for_run(implement.run_id)
             if not reviewers:
@@ -419,8 +371,8 @@ class ReviewActivities:
         `issues.update`, so a compromised conductor could edit a rework
         ticket's depth downward and extend the chain. The durable fix is a
         depth the platform stores on its own row rather than parses back
-        from a mutable title; deferred to keep this step's surface small,
-        and flagged here so it is a decision, not an oversight."""
+        from a mutable title; flagged here so it is a decision, not an
+        oversight."""
 
         def lineage_issue() -> int | None:
             implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)

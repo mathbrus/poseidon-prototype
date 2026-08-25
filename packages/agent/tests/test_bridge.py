@@ -1,11 +1,10 @@
 """GatewayBridge against a REAL MCP streamable-http server.
 
 The unit doubles elsewhere replace the bridge, so this is the one test that
-exercises the actual session plumbing — which is where the first cluster
-run of the brain host died: the MCP client's anyio cancel scopes are
-task-bound, and a bridge that enters and exits the session from separately
-scheduled coroutines corrupts them on teardown. Kept as a real-server test
-so session lifecycle bugs fail here, not on kind."""
+exercises the actual session plumbing. The MCP client's anyio cancel scopes
+are task-bound, and a bridge that enters and exits the session from
+separately scheduled coroutines corrupts them on teardown — a real-server
+test is what makes session lifecycle bugs fail here, not on kind."""
 
 import socket
 import threading

@@ -12,125 +12,44 @@ registration to the applied blueprint's IR projection, so an unregistered
 run has zero egress.
 """
 
-import asyncio
-import io
-import subprocess
-import tarfile
 import time
 from pathlib import Path
 
 import pytest
 
 from common.ids import new_run_id
-from sandbox.backends.k8s_jobs import K8sJobsBackend
 from sandbox.contract import SandboxPolicy
 from sandbox.egressproxy.credentials import sandbox_proxy_env
+from sandbox.k8s_jobs import K8sJobsBackend
 
-from .conftest import COMPANY_NS, PLATFORM_NS, audit_story, sandbox_image
-
-GIT_ENV = {
-    "GIT_AUTHOR_NAME": "test",
-    "GIT_AUTHOR_EMAIL": "test@example.com",
-    "GIT_COMMITTER_NAME": "test",
-    "GIT_COMMITTER_EMAIL": "test@example.com",
-    "HOME": "/nonexistent",
-}
-
-
-def _kubectl(*args: str) -> str:
-    proc = subprocess.run(["kubectl", *args], capture_output=True, text=True, timeout=60)
-    assert proc.returncode == 0, proc.stderr
-    return proc.stdout
+from .cluster import (
+    COMPANY_NS,
+    admin_sandbox,
+    audit_story,
+    await_egress_deny,
+    egress_proxy_key,
+    egress_proxy_url,
+    sandbox_image,
+    workspace_tar,
+)
 
 
 @pytest.fixture(scope="module")
 def proxy_url(stack: None) -> str:
-    """The proxy address as the sandbox must receive it: an address, not a
-    name. The orchestrator resolves the Service name in-cluster at provision
-    time (the sandbox has no resolver of its own); this suite runs on the
-    host, where that name does not resolve, so it asks Kubernetes for the
-    same ClusterIP instead."""
-    ip = _kubectl(
-        "-n",
-        PLATFORM_NS,
-        "get",
-        "svc",
-        "egress-proxy",
-        "-o",
-        "jsonpath={.spec.clusterIP}",
-    ).strip()
-    assert ip, "the egress-proxy Service has no ClusterIP"
-    return f"http://{ip}:3128"
+    return egress_proxy_url()
 
 
 @pytest.fixture(scope="module")
 def egress_key(stack: None) -> str:
-    out = _kubectl(
-        "-n",
-        PLATFORM_NS,
-        "get",
-        "secret",
-        "egress-proxy-key",
-        "-o",
-        'go-template={{index .data "EGRESS_PROXY_KEY" | base64decode}}',
-    )
-    assert out
-    return out
+    return egress_proxy_key()
 
 
 @pytest.fixture
-def workspace_tar(tmp_path: Path) -> bytes:
-    subprocess.run(
-        ["git", "init", "-b", "main"],
-        cwd=tmp_path,
-        env=GIT_ENV,
-        check=True,
-        capture_output=True,
-    )
-    (tmp_path / "hello.txt").write_text("hello\n")
-    subprocess.run(
-        ["git", "add", "-A"], cwd=tmp_path, env=GIT_ENV, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "base"],
-        cwd=tmp_path,
-        env=GIT_ENV,
-        check=True,
-        capture_output=True,
-    )
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        for entry in tmp_path.iterdir():
-            tar.add(entry, arcname=entry.name)
-    return buf.getvalue()
+def workspace(tmp_path: Path) -> bytes:
+    return workspace_tar(tmp_path)
 
 
-def _admin(env: dict, action: str, run_id: str, handle=None) -> None:
-    """Register/retire the run's sandbox as the orchestrator would — the
-    registration is both the gateway's run binding and the egress proxy's
-    path to the blueprint allowlist."""
-    from orchestrator.clients import GatewayClient
-
-    from .test_registry_durability import projected_token
-
-    token = projected_token(PLATFORM_NS, "orchestrator-worker")
-    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
-
-    async def run() -> None:
-        async with GatewayClient(gateway_url, token) as gateway:
-            if action == "register":
-                await gateway.register_sandbox(
-                    run_id, handle.url, handle.namespace, handle.job_name
-                )
-            else:
-                await gateway.unregister_sandbox(run_id)
-
-    asyncio.run(run())
-
-
-def test_egress_containment(
-    env: dict, egress_key: str, proxy_url: str, workspace_tar: bytes
-):
+def test_egress_containment(env: dict, egress_key: str, proxy_url: str, workspace: bytes):
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()
     policy = SandboxPolicy(
@@ -139,8 +58,8 @@ def test_egress_containment(
         memory="512Mi",
         env=sandbox_proxy_env(proxy_url, egress_key, run_id),
     )
-    handle = backend.provision(run_id, workspace_tar, policy)
-    _admin(env, "register", run_id, handle)
+    handle = backend.provision(run_id, workspace, policy)
+    admin_sandbox(env, "register", run_id, handle)
     try:
         # Non-allowlisted host: blocked at the proxy (403 on the tunnel).
         exit_code, output = backend._exec(
@@ -155,16 +74,9 @@ def test_egress_containment(
         assert "403" in output
 
         # ... and the deny is in the audit sink, correlated by run_id.
-        deadline = time.monotonic() + 30
-        denies = []
-        while time.monotonic() < deadline:
-            denies = [e for e in audit_story(run_id) if e["decision"] == "deny"]
-            if denies:
-                break
-            time.sleep(1)
-        assert denies, "no correlated deny event in the registry audit store"
-        assert denies[0]["rule"] == "egress_not_allowlisted"
-        assert denies[0]["source"] == "sandbox-infra"
+        assert await_egress_deny(run_id), (
+            "no correlated deny event in the registry audit store"
+        )
 
         # Allowlisted path: pip install through the proxy succeeds (the
         # proxy env vars are baked into the container environment).
@@ -189,7 +101,7 @@ def test_egress_containment(
 
         # Retiring the registration revokes egress entirely: the proxy
         # resolves the run to nothing (within its short cache TTL).
-        _admin(env, "unregister", run_id)
+        admin_sandbox(env, "unregister", run_id)
         deadline = time.monotonic() + 30
         while True:
             exit_code, output = backend._exec(

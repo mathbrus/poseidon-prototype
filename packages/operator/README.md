@@ -69,6 +69,7 @@ cannot execute anything.
 | `resources.py` | Every Kubernetes object the operator owns, as **pure builders** — what the operator *would* apply is testable without a cluster. |
 | `kube.py` | `Cluster`: the intent-level client (`upsert_namespace`, `upsert_deployment`, …), one seam the reconciler tests replace with a fake. |
 | `bundleserver.py` | The OPA bundle server, a separate entry point sharing the package. |
+| `config.py` | `OperatorSettings`: the platform namespace, the agent image and run configuration the builders take as arguments. |
 
 ## What one Company converges to
 
@@ -137,7 +138,7 @@ remember.
 
 ## The two entry points
 
-Both run from `Dockerfile.operator`, differing only in command:
+Both run the `poseidon-operator` image, differing only in command:
 
 ```
 kopf run -m poseidon_operator.reconcile --all-namespaces   # the reconciler
@@ -204,7 +205,7 @@ for convergence. Policies get a stricter treatment:
 ```python
 def upsert_network_policy(self, namespace: str, body: dict[str, Any]) -> None:
     """Replace, never merge-patch: a policy's selector shape can change
-    (matchLabels -> matchExpressions at step 16c), and a merge would
+    (matchLabels to matchExpressions, say), and a merge would
     keep both — an impossible AND that silently deselects every pod
     the policy was meant to cover."""
 ```

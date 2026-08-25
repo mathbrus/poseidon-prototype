@@ -16,7 +16,7 @@ Add a small, self-contained text utility to this repository:
 
 The repository's whole test suite must pass before you deliver.
 
-<!-- E3 scenario marker: the mock brain additionally plants a
+<!-- Scenario marker: the mock brain additionally plants a
      state-dependent test that passes on its own advisory verify and fails
      on the platform's re-run — the platform verify gate must go red, feed
      the failure back, and only release delivery once a re-dispatch fixes

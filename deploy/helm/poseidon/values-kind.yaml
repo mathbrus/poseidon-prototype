@@ -1,8 +1,7 @@
-# kind overrides: NodePort services behind the kind extraPortMappings
-# (deploy/kind/kind-config.yaml maps host 127.0.0.1:8080 -> 30080 and
-# 127.0.0.1:8000 -> 30800) so the host-side runner keeps the familiar URLs.
-# Everything else is identical to a real cluster — that parity is exit
-# criterion 7 and starts here.
+# kind overrides: a NodePort gateway behind the kind extraPortMapping
+# (deploy/kind/kind-config.yaml maps host 127.0.0.1:8080 -> 30080) so the
+# host-side runner keeps the familiar URL. Everything else is identical to
+# a real cluster.
 
 gateway:
   service:

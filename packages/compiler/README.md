@@ -141,7 +141,9 @@ property of the tool, not of its name prefix.
 arguments: protected branches (lowercased at emit time, so
 `protected: [Main]` still denies `main`), a branch-name regex, denied
 path prefixes, path ownership keyed on role *templates*, and — when
-`contract_tests` is declared — the split oracle. The contract tree emits
+`contract_tests` is declared — the split oracle: an acceptance-test tree
+authored by a crew other than the implementer, so the tests that grade a
+change and the change itself never share an author. The contract tree emits
 two class-named rules: `git_open_pr_contract_tree` denies a
 `git.open_pr` touching the tree for any role template outside its
 declared owners (the same `startswith`-over-prefix emission as path
@@ -157,9 +159,9 @@ the rule name the audit row's reason. Path rules
 fail closed: a `git.open_pr` whose input carries no `args.paths` hits
 `git_open_pr_paths_missing`, because a rule that cannot be evaluated
 must not default to allow. String values are emitted with `json.dumps`,
-never raw interpolation — a pattern containing a backtick once
-terminated the raw Rego literal and spliced text into the bundle
-(`test_pattern_with_a_backtick_cannot_inject_policy` pins the fix).
+never raw interpolation, so a pattern containing a backtick cannot
+terminate the raw Rego literal and splice text into the bundle
+(`test_pattern_with_a_backtick_cannot_inject_policy` pins it).
 `allowed_pattern` is also regex-validated at compile time — a malformed
 pattern would otherwise surface as an OPA bundle-load failure long after
 apply. (Python's `re` is not OPA's RE2, but it rejects the same broken
@@ -174,14 +176,13 @@ syntax an author actually writes.)
   scope, compiler-owned and company-independent, so it compiles identically
   from every blueprint and every operator upsert lands the same revision.
 
-The gateway derives the decision path from the caller, so its
-`company_decision_path` and this package's `company_package` must produce
-the same slug. `packages/gateway/tests/test_slug_invariant.py` pins that;
-divergence would fail closed but silently.
+The package name, and the slug transform inside it, come from
+`common.policy` — the same module the gateway and the orchestrator derive
+their decision paths from, so a bundle is always written where it is read.
 
 ## Coherence checks as a design surface
 
-`checks.check()` runs ten passes and returns *every* problem, which
+`checks.check()` runs every coherence pass and returns *every* problem, which
 `CompileError` renders as one list — so a broken blueprint is fixed in one
 round trip, not one error per attempt. The messages are written to be
 sufficient to fix the document: what is wrong, where, and what is allowed
@@ -192,10 +193,11 @@ departments.roles.backend-engineer: standing count 1 on non-spawner template 'ba
 ```
 
 Two subtleties. First, `compile_blueprint` accepts plain dicts and does
-not run the schema pass, so a few document-level checks (template
-existence, tool vocabulary) are deliberately repeated here — the
-compiler must fail closed on an unvalidated input, not `KeyError`
-halfway through emission. Second, narrowing semantics differ by field:
+not run the schema pass, so the document-level checks (template
+existence, tool vocabulary, the catalog cross-checks) run here too — the
+same functions `schema.validate` runs, imported from `schema.coherence`,
+because the compiler must fail closed on an unvalidated input, not
+`KeyError` halfway through emission. Second, narrowing semantics differ by field:
 widening a *crew member's* tools or a role's *spawn authority* past the
 catalog is a compile error, while a standing role's tool scope is
 silently intersected with its template (`declared & set(template.tools)`
@@ -259,7 +261,7 @@ No Dockerfile of its own; it ships inside the orchestrator image.
 uv run pytest packages/compiler
 ```
 
-60 tests (run per package, never repo-wide). `test_purity.py` is the
+Run per package. `test_purity.py` is the
 unusual one: it proves the compiler performs no I/O beyond its
 arguments, so "apply is the only mutation of enforcement" is
 mechanically checked. `test_bundle_decisions.py` loads the emitted

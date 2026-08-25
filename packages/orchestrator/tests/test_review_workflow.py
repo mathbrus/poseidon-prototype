@@ -2,7 +2,7 @@
 ReviewWorkflow runs against Temporal's time-skipping test environment with
 scripted activities — sequencing the activity units cannot see.
 
-What must hold (issue #11 step 5; the split-oracle items are #13 step 5):
+What must hold:
 
 - both layers required: a steered pass verdict with red platform checks
   merges nothing, green checks with a fail verdict merge nothing — each
@@ -20,7 +20,7 @@ What must hold (issue #11 step 5; the split-oracle items are #13 step 5):
   declines before spending any layer — no verify run, no composed
   baseline, no resolve evaluation, no rework ticket — and the human's
   approval still releases it (the OPA carve-out deny is pinned in the
-  compiler's bundle tests; step 3's tests above pin the contract fact's
+  compiler's bundle tests; the layer tests above pin the contract fact's
   place in the layers for every other diff).
 
 Authority-not-looser is pinned where it lives: `git.merge_pr` ungrantable
@@ -39,7 +39,7 @@ from temporalio.client import Client, WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from orchestrator.workflows.implement import FAST_TIMEOUTS
+from orchestrator.workflows.base import FAST_TIMEOUTS
 from orchestrator.workflows.review import ReviewInput, ReviewWorkflow
 
 pytestmark = pytest.mark.anyio
@@ -279,12 +279,10 @@ class Harness:
         ]
 
 
-@pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture
 async def env():
     try:
         environment = await WorkflowEnvironment.start_time_skipping()
@@ -466,7 +464,7 @@ async def test_a_green_contract_verify_rides_the_resolve(env):
 
 async def test_no_contract_tree_means_no_composed_run(env):
     """Undeclared means untouched: no overlay fetch, one provision, no
-    scoped verify — the pre-split flow, exactly."""
+    scoped verify."""
     harness = Harness(merge_gate=POLICY_GATE)
     await run_review(env.client, harness)
 

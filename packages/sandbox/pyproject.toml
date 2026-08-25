@@ -7,6 +7,7 @@ dependencies = [
     "common",
     "fastapi>=0.115",
     "kubernetes>=31",
+    "pydantic-settings>=2",
     "uvicorn>=0.30",
 ]
 
@@ -16,11 +17,11 @@ dependencies = [
 # a database driver or registry credentials. The egress proxy is a platform
 # service, so it also gets the OTel extra (the toolserver image does not).
 egress = [
-    "registry",
     "common[otel]",
+    "registry",
 ]
 
-# The prebaked in-sandbox toolchain (Dockerfile.sandbox): the test runner
+# The prebaked in-sandbox toolchain (the `poseidon-sandbox` image): the test runner
 # the toolserver's /tests endpoint shells out to, lockfile-pinned like
 # everything else in the image.
 toolchain = [

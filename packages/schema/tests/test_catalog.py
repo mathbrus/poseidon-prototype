@@ -1,7 +1,7 @@
-"""The versioned catalogs: the invariants later steps compile against.
+"""The versioned catalogs: the invariants the compiler and the gateway rely on.
 
-These are contract tests, not coverage — each one is a rule some other step
-(9, 15, 16, 19) will assume it can rely on.
+These are contract tests, not coverage — each one is a rule another package
+assumes it can rely on.
 """
 
 from schema.catalog import CREW_TEMPLATES, MODEL_TIERS, ROLE_TEMPLATES

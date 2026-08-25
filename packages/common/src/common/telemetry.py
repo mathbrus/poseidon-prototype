@@ -1,5 +1,5 @@
-"""Single-line JSON logging to stdout (contract C8) — and, when configured,
-the same records exported over OTLP (the anytime-track OTel adoption).
+"""Single-line JSON logging to stdout — and, when configured, the same
+records exported over OTLP.
 
 `get_logger(name)` returns a logger whose records render as one JSON object
 per line. Context such as run_id/agent_id is attached with `.bind(...)`,
@@ -14,9 +14,8 @@ OTel enters at this seam and nowhere else:
   log-record attributes, `OTEL_SERVICE_NAME` names the service, and an
   active span's trace context rides along automatically;
 - the SDK is an optional extra (`common[otel]`) so the sandbox toolserver
-  image — which runs untrusted workspace code — never carries it (the
-  same reasoning that keeps the registry driver behind the `egress`
-  extra). Platform services depend on the extra;
+  image — which runs untrusted workspace code — never carries it.
+  Platform services depend on the extra;
 - telemetry must never take a service down: if the endpoint is set but
   the SDK is missing, one warning line says so and stdout-only continues.
 """
@@ -63,9 +62,9 @@ def _otel_handler(exporter: Any | None = None) -> logging.Handler | None:
     at import time. `exporter` is a test seam; production always builds
     the OTLP exporter from the standard environment variables."""
     try:
-        # The logs signal moved out of the underscore namespace over the
-        # SDK's lifetime; accept either spelling so a version bump in
-        # uv.lock cannot silently disable export.
+        # SDK versions spell the logs package with and without the
+        # underscore; accept either so a version bump in uv.lock cannot
+        # silently disable export.
         try:
             from opentelemetry.sdk.logs import LoggerProvider, LoggingHandler
             from opentelemetry.sdk.logs.export import BatchLogRecordProcessor

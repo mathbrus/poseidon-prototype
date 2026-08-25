@@ -27,14 +27,16 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
 from orchestrator.gates import Gate
-from orchestrator.workflows.implement import FAST_TIMEOUTS, STEP_RETRY, Timeouts
-
-DISPATCH_RETRY = RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=0)
-FINALIZE_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
+from orchestrator.workflows.base import (
+    DISPATCH_RETRY,
+    STEP_RETRY,
+    TEARDOWN_RETRY,
+    RunWorkflow,
+    Timeouts,
+)
 
 
 @dataclass
@@ -44,13 +46,8 @@ class IntakeInput:
     timeouts: Timeouts | None = None
 
 
-def intake_workflow_id(run_id: str) -> str:
-    """One workflow per run, deterministically named."""
-    return f"intake-{run_id}"
-
-
 @workflow.defn(name="intake")
-class IntakeWorkflow:
+class IntakeWorkflow(RunWorkflow):
     def __init__(self) -> None:
         self._phase = "running"
         self._intake_gate = Gate("intake")
@@ -64,16 +61,6 @@ class IntakeWorkflow:
     @workflow.query
     def state(self) -> str:
         return self._phase
-
-    async def _record_gate(
-        self, run_id: str, gate: str, kind: str, timeouts: Timeouts
-    ) -> None:
-        await workflow.execute_activity(
-            "record_gate_outcome",
-            args=[run_id, gate, kind, workflow.info().workflow_id],
-            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-            retry_policy=STEP_RETRY,
-        )
 
     @workflow.run
     async def run(self, input: IntakeInput) -> dict[str, Any]:
@@ -107,12 +94,12 @@ class IntakeWorkflow:
                 outcome = await self._intake_gate.wait(
                     timeout=timedelta(seconds=timeouts.budget_gate_s),
                     escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
-                    on_escalate=lambda: self._record_gate(
+                    on_escalate=lambda: self.record_gate(
                         input.run_id, "intake", "escalated", timeouts
                     ),
                 )
                 self._phase = "running"
-                await self._record_gate(input.run_id, "intake", outcome.kind, timeouts)
+                await self.record_gate(input.run_id, "intake", outcome.kind, timeouts)
                 if outcome.kind != "approved":
                     error = f"intake gate {outcome.kind}"
                     raise _GateClosed()
@@ -138,7 +125,7 @@ class IntakeWorkflow:
             "finalize_intake",
             args=[input.run_id, result, error],
             start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
-            retry_policy=FINALIZE_RETRY,
+            retry_policy=TEARDOWN_RETRY,
         )
         return record
 
@@ -146,6 +133,3 @@ class IntakeWorkflow:
 class _GateClosed(Exception):
     """Internal control flow: a rejected/expired gate skips the dispatch
     and falls through to finalization with its error."""
-
-
-__all__ = ["FAST_TIMEOUTS", "IntakeInput", "IntakeWorkflow", "intake_workflow_id"]

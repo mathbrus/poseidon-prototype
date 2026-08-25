@@ -28,23 +28,21 @@ start must still win the compiled conduct.start decision.
 """
 
 import asyncio
-import hashlib
-import json
 import re
 import time
-from datetime import UTC, datetime
 from typing import Any
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from common.audit import AuditEvent
+from common.audit import args_digest
 from common.telemetry import get_logger
-from orchestrator.clients import AgentClient, GatewayClient
+from orchestrator.audit import record_event
+from orchestrator.clients import GatewayClient, dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
-from registry import AuditStore, BudgetLedger, Runs
-from registry.bundles import Companies
+from orchestrator.workflows.base import workflow_id
+from registry import AuditStore, BudgetLedger, Companies, Runs
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 # The observation is a prompt, not a database dump: enough candidates to
@@ -61,12 +59,6 @@ RATIONALE_CLIP = 300
 # and a started child reclaims the id through its own idempotent create_run.
 DECIDE_WORKFLOW = "conduct"
 DECIDE_TASK = "conduct decision"
-
-
-def _digest(payload: dict[str, Any]) -> str:
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
 
 
 def _section(header: str, lines: list[str]) -> str:
@@ -117,9 +109,7 @@ class ConductActivities:
         self._log = get_logger("orchestrator.conduct")
 
     def _conduct_run_id(self) -> str:
-        from orchestrator.workflows.conduct import conduct_workflow_id
-
-        return conduct_workflow_id(self._settings.company)
+        return workflow_id("conduct", self._settings.company)
 
     @activity.defn(name="conduct_config")
     async def conduct_config(self) -> dict[str, Any] | None:
@@ -225,15 +215,13 @@ class ConductActivities:
         terminal, terminal_error = "done", None
         try:
             prompt = decision_prompt(observed, may_start)
-            async with AgentClient(self._settings.pm_url) as agent:
-                await agent.dispatch(run_id, prompt, mode="decide")
-                while True:
-                    if activity.in_activity():
-                        activity.heartbeat()
-                    status = await agent.status(run_id)
-                    if status["status"] != "running":
-                        break
-                    await asyncio.sleep(self._settings.poll_interval_s)
+            status = await dispatch_and_poll(
+                self._settings.pm_url,
+                run_id,
+                prompt,
+                "decide",
+                self._settings.poll_interval_s,
+            )
             decision = status.get("decision")
             if status["status"] != "done" or not decision:
                 raise ApplicationError(
@@ -245,7 +233,7 @@ class ConductActivities:
             await self._emit(
                 run_id=self._conduct_run_id(),
                 tool="conduct.decide",
-                digest=_digest(decision),
+                digest=args_digest(decision),
                 decision="deny" if problem else "allow",
                 rule=problem or rationale,
             )
@@ -320,7 +308,7 @@ class ConductActivities:
         await self._emit(
             run_id=child_run_id,
             tool="conduct.start",
-            digest=_digest(decision_input["args"]),
+            digest=args_digest(decision_input["args"]),
             decision="allow" if allowed else "deny",
             rule=str(result.get("rule") or ""),
             latency_ms=int((time.monotonic() - started) * 1000),
@@ -344,7 +332,7 @@ class ConductActivities:
         await self._emit(
             run_id=self._conduct_run_id(),
             tool="conduct.tick",
-            digest=_digest({"outcome": outcome, "rule": rule}),
+            digest=args_digest({"outcome": outcome, "rule": rule}),
             decision="allow" if outcome == "started" else "deny",
             rule=f"tick_{outcome}:{rule}",
             workflow=workflow_id,
@@ -362,24 +350,17 @@ class ConductActivities:
         latency_ms: int = 0,
         workflow: str = "conduct",
     ) -> None:
-        event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
+        await record_event(
+            self._audit,
             run_id=run_id,
-            agent_id="orchestrator",
-            role="platform",
             tool=tool,
-            args_digest=digest,
+            digest=digest,
             decision=decision,
             rule=rule,
-            latency_ms=latency_ms,
-            backend_status=None,
-            source="process-lifecycle",
             company=self._settings.company,
-            lifecycle="platform",
-            parent_agent_id="",
             workflow=workflow,
+            latency_ms=latency_ms,
         )
-        await asyncio.to_thread(self._audit.append, event)
 
     def all(self) -> list[Any]:
         return [

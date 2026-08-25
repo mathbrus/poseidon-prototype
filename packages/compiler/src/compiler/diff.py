@@ -6,7 +6,6 @@ you can see the diff first.
 """
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from compiler.plan import DeploymentPlan
 from compiler.snapshot import RegistrySnapshot
@@ -87,7 +86,3 @@ def diff_plan(plan: DeploymentPlan, snapshot: RegistrySnapshot) -> PlanDiff:
 
     result.changes.sort(key=lambda c: (c.action, c.agent_id))
     return result
-
-
-def plan_json(plan: DeploymentPlan) -> dict[str, Any]:
-    return plan.as_dict()

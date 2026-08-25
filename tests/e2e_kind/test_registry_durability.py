@@ -1,133 +1,78 @@
 """Registry durability on the live cluster: a run record and its sandbox
 registration survive a gateway restart mid-run.
 
-Before the registry, the gateway held sandbox addresses in a process-local
-dict. That was fine while a run was a host-side script, but once runs became
-durable a gateway restart silently orphaned every in-flight run's
-`sandbox.*` calls — the workflow kept going and every tool call failed with
-"no sandbox registered". This test kills the gateway between provisioning a
-sandbox and using it.
+A gateway that kept sandbox addresses in process memory would silently
+orphan every in-flight run's `sandbox.*` calls on restart — the workflow
+keeps going and every tool call fails with "no sandbox registered". This
+test kills the gateway between provisioning a sandbox and using it.
 """
 
-import io
-import subprocess
-import tarfile
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from common.ids import new_run_id
-from sandbox.backends.k8s_jobs import K8sJobsBackend
 from sandbox.contract import SandboxPolicy
+from sandbox.k8s_jobs import K8sJobsBackend
 
-from .conftest import (
+from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
     audit_story,
+    crew_activities,
+    gateway_url,
+    kubectl,
+    projected_token,
+    registry,
     restart_gateway,
+    run_kubectl,
     run_record,
     sandbox_image,
+    worker_settings,
+    workspace_tar,
 )
-
-GIT_ENV = {
-    "GIT_AUTHOR_NAME": "test",
-    "GIT_AUTHOR_EMAIL": "test@example.com",
-    "GIT_COMMITTER_NAME": "test",
-    "GIT_COMMITTER_EMAIL": "test@example.com",
-    "HOME": "/nonexistent",
-}
 
 
 @pytest.fixture
-def workspace_tar(tmp_path: Path) -> bytes:
-    for args in (["init", "-b", "main"], ["add", "-A"], ["commit", "-m", "base"]):
-        if args[0] == "add":
-            (tmp_path / "hello.txt").write_text("hello\n")
-        subprocess.run(
-            ["git", *args], cwd=tmp_path, env=GIT_ENV, check=True, capture_output=True
-        )
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        for entry in tmp_path.iterdir():
-            tar.add(entry, arcname=entry.name)
-    return buf.getvalue()
-
-
-def projected_token(namespace: str, service_account: str) -> str:
-    """Workload identity: mint the same kind of
-    audience-scoped projected token the kubelet mounts, for the real
-    ServiceAccounts — the static bearer tokens are gone."""
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            namespace,
-            "create",
-            "token",
-            service_account,
-            "--audience=poseidon-gateway",
-            "--duration=10m",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
-    return proc.stdout.strip()
+def workspace(tmp_path: Path) -> bytes:
+    return workspace_tar(tmp_path)
 
 
 def test_sandbox_registration_survives_a_gateway_restart(
-    stack: None, env: dict, workspace_tar: bytes, tmp_path: Path
+    stack: None, env: dict, workspace: bytes, tmp_path: Path
 ):
-    import asyncio
-
-    from orchestrator.activities.crew import CrewActivities
     from orchestrator.clients import GatewayClient
-    from orchestrator.config import WorkerSettings
-    from registry import AuditStore, RunParticipants, Runs
+    from registry import Runs
 
-    from .test_crew_identity import _registry
-
-    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
     # Registration is the orchestrator's platform admin action; `sandbox.*`
     # belongs to the run's ephemeral executor (the lean roster's only
-    # execution identity) — two identities, exactly as
-    # in a real run.
+    # execution identity) — two identities, exactly as in a real run.
     runner_token = projected_token(PLATFORM_NS, "orchestrator-worker")
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()
-    token_file = tmp_path / "unused"
-    token_file.write_text("unused")
     handle = backend.provision(
         run_id,
-        workspace_tar,
+        workspace,
         SandboxPolicy(image=sandbox_image(), cpu="500m", memory="512Mi"),
     )
 
     async def register() -> None:
-        async with GatewayClient(gateway_url, runner_token) as gateway:
+        async with GatewayClient(gateway_url(env), runner_token) as gateway:
             await gateway.register_sandbox(
                 run_id, handle.url, handle.namespace, handle.job_name
             )
 
     async def read_through_gateway(agent_token: str) -> dict:
-        async with GatewayClient(gateway_url, agent_token) as gateway:
+        async with GatewayClient(gateway_url(env), agent_token) as gateway:
             assert gateway._session is not None
-            result = await gateway._session.call_tool(
+            return await gateway._session.call_tool(
                 "sandbox.list_dir", {"run_id": run_id, "path": "."}
             )
-            return result
 
-    with _registry() as registry:
-        settings = WorkerSettings(
-            gateway_token_file=str(token_file),
-            mcp_gateway_url=gateway_url,
-            target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
-        )
-        crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
-        Runs(registry).start(
-            run_id, "registry durability", "implement", None, "hello-saas"
-        )
+    with registry() as client:
+        crew = crew_activities(client, worker_settings(env, tmp_path))
+        Runs(client).start(run_id, "registry durability", "implement", None, "hello-saas")
         sa_name = None
         try:
             asyncio.run(register())
@@ -144,21 +89,15 @@ def test_sandbox_registration_survives_a_gateway_restart(
                 )
             )
             sa_name = bound["service_account"]
-            subprocess.run(
-                ["kubectl", "-n", COMPANY_NS, "create", "serviceaccount", sa_name],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
+            kubectl("-n", COMPANY_NS, "create", "serviceaccount", sa_name)
             agent_token = projected_token(COMPANY_NS, sa_name)
 
             # The gateway that accepted the registration is now gone.
             restart_gateway()
 
-            # A brand-new process serves the run's sandbox calls from the
-            # registry rather than from a dict it never had a chance to
-            # fill (and the participants row — the executor's binding —
-            # survived with it).
+            # A brand-new gateway process serves the run's sandbox calls
+            # from the registry (and the participants row — the executor's
+            # binding — survived with it).
             result = asyncio.run(read_through_gateway(agent_token))
             assert not result.isError, result.content
             assert "hello.txt" in result.content[0].text
@@ -170,20 +109,16 @@ def test_sandbox_registration_survives_a_gateway_restart(
         finally:
             backend.destroy(handle)
             if sa_name:
-                subprocess.run(
-                    ["kubectl", "-n", COMPANY_NS, "delete", "serviceaccount", sa_name],
-                    capture_output=True,
-                    timeout=60,
-                )
-            registry.execute(
+                run_kubectl("-n", COMPANY_NS, "delete", "serviceaccount", sa_name)
+            client.execute(
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )
-            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+            client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 def test_run_records_live_in_the_registry(implement_run: dict):
-    """The `runs` table replaced runs/<id>/manifest.json: the workflow's
-    terminal record is a row, and the workflow id maps back to it."""
+    """The workflow's terminal record is a `runs` row, and the workflow id
+    maps back to it."""
     record = run_record(implement_run["run_id"])
     assert record is not None, "no run row for a completed run"
     assert record["status"] == "done"

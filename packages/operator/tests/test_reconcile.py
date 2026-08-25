@@ -147,8 +147,6 @@ def test_company_reconcile_converges_the_envelope(cluster, stores):
     # namespace — the operator creates it, the worker uses it.
     assert cluster.named("upsert_role") == [("hello-saas", "sandbox-provisioner")]
     assert cluster.named("upsert_role_binding") == [("hello-saas", "sandbox-provisioner")]
-    # No secret sync: identity is the projected token.
-    assert cluster.named("upsert_secret") == []
 
     assert "hello-saas" in bundles.stored
     # The platform scope rides every apply under its reserved key;

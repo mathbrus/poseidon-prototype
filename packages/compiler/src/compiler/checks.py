@@ -6,14 +6,13 @@ workflow have someone to conduct it, does every scope name a tool the
 gateway actually serves, can the budget pay for what is enabled.
 
 `compile_blueprint` accepts plain dicts and does not run the schema pass, so
-a few document-level checks (template existence, tool vocabulary) are
-repeated here — the compiler must fail closed on an unvalidated input, not
-KeyError halfway through emission.
+the document-level catalog checks (`schema.coherence`) run here too — the
+compiler must fail closed on an unvalidated input, not KeyError halfway
+through emission.
 
-Deliberately absent: the child-⊆-parent scope check. It was dropped with the
-lean roster — a conducting PM is not a capability supersystem,
-and keeping ⊆ would force the PM's declared allows to become the union of
-every crew member's scope. Spawn authority is `may_spawn` plus the crew
+Deliberately absent: a child-⊆-parent scope check. A conducting PM is not a
+capability supersystem, and ⊆ would force the PM's declared allows to become
+the union of every crew member's scope. Spawn authority is `may_spawn` plus the crew
 template plus budget and concurrency caps; tool authority is the member's
 own compiled allow-list.
 
@@ -28,8 +27,14 @@ import re
 from typing import Any
 
 from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES, CrewTemplate, RoleTemplate
+from schema.coherence import (
+    contract_role_problems,
+    crew_problems,
+    platform_tool_problems,
+    role_template_problems,
+)
 from schema.gates import contract_tests_problems, merge_gate_problems
-from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
+from schema.tools import KNOWN_TOOLS
 
 
 def check(
@@ -42,13 +47,17 @@ def check(
     crews = crew_catalog or CREW_TEMPLATES
     problems: list[str] = []
     problems += _company_name(blueprint)
-    problems += _role_templates(blueprint, roles)
+    # The catalog cross-checks the validate pass also runs — against the
+    # *injected* catalog here, so a caller compiling against a different
+    # catalog version gets that version's answer. Unknown tool names are
+    # reported: the compiler has no schema pass to name them.
+    problems += role_template_problems(blueprint, roles, crews)
+    problems += crew_problems(blueprint, roles, crews, report_unknown_tools=True)
+    problems += contract_role_problems(blueprint, roles)
     problems += _lean_roster(blueprint, roles)
-    problems += _workflow_conductors(blueprint)
     problems += _tool_scopes(blueprint)
     problems += _spawn_authority(blueprint, roles)
     problems += _spawnable_crews(blueprint, crews)
-    problems += _crew_allow_lists(blueprint, roles, crews)
     problems += _policy_patterns(blueprint)
     problems += _budget_coverage(blueprint)
     problems += _conduct_authority(blueprint, roles)
@@ -57,7 +66,6 @@ def check(
     # delegation validate_blueprint would have refused.
     problems += merge_gate_problems(blueprint)
     problems += contract_tests_problems(blueprint)
-    problems += _contract_roles(blueprint, roles)
     return problems
 
 
@@ -91,10 +99,12 @@ def _lean_roster(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
     hired_spawners = _hired_spawners(blueprint, roles)
     for name, wf in _enabled_workflows(blueprint).items():
         conductor = wf.get("conductor")
-        if conductor and conductor not in hired_spawners:
+        if conductor not in hired_spawners:
+            available = ", ".join(sorted(hired_spawners)) or "(none hired)"
             problems.append(
                 f"workflows.{name}.conductor: {conductor!r} is not a hired "
-                "spawner — workflow nodes bind to standing conductors only"
+                f"spawner — enabled workflows bind to a standing conductor "
+                f"with count > 0 whose template may spawn (hired: {available})"
             )
     return problems
 
@@ -125,38 +135,6 @@ def _enabled_workflows(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
-def _role_templates(
-    blueprint: dict[str, Any], roles: dict[str, RoleTemplate]
-) -> list[str]:
-    """Every hire names a catalog template — checked against the *injected*
-    catalog, so a caller compiling against a different catalog version gets
-    that version's answer, not the module default's."""
-    return [
-        f"departments.roles.{hire}.template: {role.get('template')!r} is "
-        f"not in the role catalog (known: {', '.join(sorted(roles))})"
-        for hire, role in _hires(blueprint).items()
-        if role.get("template") not in roles
-    ]
-
-
-def _workflow_conductors(blueprint: dict[str, Any]) -> list[str]:
-    """Every workflow node maps to a hired standing role — never to an
-    ephemeral member role. The stricter spawner-only stance (no standing
-    executor may conduct) is `_lean_roster`'s compile error — not here."""
-    problems = []
-    hired = _standing_hires(blueprint)
-    for name, workflow in _enabled_workflows(blueprint).items():
-        conductor = workflow.get("conductor")
-        if conductor not in hired:
-            available = ", ".join(sorted(hired)) or "(none hired)"
-            problems.append(
-                f"workflows.{name}.conductor: {conductor!r} is not a hired "
-                f"standing role — enabled workflows need a conductor with "
-                f"count > 0 (hired: {available})"
-            )
-    return problems
-
-
 def _tool_scopes(blueprint: dict[str, Any]) -> list[str]:
     """Every tool scope names a registered gateway backend, and no company
     role holds a platform-only tool."""
@@ -167,11 +145,9 @@ def _tool_scopes(blueprint: dict[str, Any]) -> list[str]:
                 problems.append(
                     f"tools.{role_name}.allow: {tool!r} is not a tool the gateway serves"
                 )
-            elif tool in PLATFORM_ONLY:
-                problems.append(
-                    f"tools.{role_name}.allow: {tool!r} is reserved for the "
-                    f"platform identity"
-                )
+        problems += platform_tool_problems(
+            f"tools.{role_name}.allow", (scope or {}).get("allow") or []
+        )
     # A scope for a role nobody hires or crews is dead configuration; say so
     # rather than compiling it into a bundle no caller can ever match. A
     # `count: 0` placeholder counts as unhired — that is what count 0 means.
@@ -199,7 +175,7 @@ def _spawn_authority(
     problems = []
     for hire, role in _hires(blueprint).items():
         template = roles.get(role.get("template"))
-        if template is None:  # _role_templates reports it
+        if template is None:  # role_template_problems reports it
             continue
         for crew in (role.get("may_spawn") or {}).get("crew") or []:
             if crew not in template.may_spawn:
@@ -215,25 +191,14 @@ def _spawn_authority(
 def _spawnable_crews(
     blueprint: dict[str, Any], crews_catalog: dict[str, CrewTemplate]
 ) -> list[str]:
-    """Every `may_spawn.crew` references a crew this blueprint declares and
-    the catalog knows — and so does every `crews:` section key, or the
-    compiler would resolve it against nothing."""
+    """Every `may_spawn.crew` references a crew this blueprint declares,
+    and every enabled workflow's crew is one its conductor may spawn (the
+    catalog half — is it a known template — is `schema.coherence`'s)."""
     problems = []
     declared = set(blueprint.get("crews") or {})
-    known = ", ".join(sorted(crews_catalog))
-    for crew_name in sorted(declared):
-        if crew_name not in crews_catalog:
-            problems.append(
-                f"crews.{crew_name}: not a known crew template (known: {known})"
-            )
     for hire, role in _hires(blueprint).items():
         for crew in (role.get("may_spawn") or {}).get("crew") or []:
-            if crew not in crews_catalog:
-                problems.append(
-                    f"departments.roles.{hire}.may_spawn.crew: {crew!r} is "
-                    f"not a known crew template"
-                )
-            elif crew not in declared:
+            if crew in crews_catalog and crew not in declared:
                 problems.append(
                     f"departments.roles.{hire}.may_spawn.crew: {crew!r} is "
                     f"not declared in this blueprint's `crews` section"
@@ -256,78 +221,6 @@ def _spawnable_crews(
                 f"cannot be fulfilled"
             )
     return problems
-
-
-def _crew_allow_lists(
-    blueprint: dict[str, Any],
-    roles: dict[str, RoleTemplate],
-    crews_catalog: dict[str, CrewTemplate],
-) -> list[str]:
-    """Every crew member carries an explicit allow-list of real tools that
-    narrows (never widens) the catalog member's contract. No ⊆-parent check
-    by design (see the module docstring)."""
-    problems = []
-    for crew_name, crew in (blueprint.get("crews") or {}).items():
-        catalog_crew = crews_catalog.get(crew_name)
-        for member_name, member in (crew.get("members") or {}).items():
-            where = f"crews.{crew_name}.members.{member_name}"
-            catalog_member = (
-                catalog_crew.members.get(member_name) if catalog_crew else None
-            )
-            if catalog_crew is not None and catalog_member is None:
-                problems.append(
-                    f"{where}: not a member of the {crew_name!r} crew "
-                    f"template (members: "
-                    f"{', '.join(sorted(catalog_crew.members))})"
-                )
-            tools = member.get("tools") or []
-            if not tools:
-                problems.append(f"{where}.tools: must not be empty")
-            for tool in tools:
-                if tool not in KNOWN_TOOLS:
-                    problems.append(
-                        f"{where}.tools: {tool!r} is not a tool the gateway serves"
-                    )
-                elif tool in PLATFORM_ONLY:
-                    problems.append(
-                        f"{where}.tools: {tool!r} is reserved for the platform identity"
-                    )
-                elif catalog_member is not None and tool not in catalog_member.tools:
-                    problems.append(
-                        f"{where}.tools: {tool!r} is not in the catalog "
-                        f"member's allow-list — the blueprint narrows the "
-                        f"catalog, never widens it"
-                    )
-            if member.get("role_template") not in roles:
-                problems.append(
-                    f"{where}.role_template: "
-                    f"{member.get('role_template')!r} is not in the role catalog"
-                )
-            elif (
-                catalog_member is not None
-                and member.get("role_template") != catalog_member.role_template
-            ):
-                problems.append(
-                    f"{where}.role_template: {member.get('role_template')!r} "
-                    f"does not match the catalog's "
-                    f"{catalog_member.role_template!r} for this member"
-                )
-    return problems
-
-
-def _contract_roles(
-    blueprint: dict[str, Any], roles: dict[str, RoleTemplate]
-) -> list[str]:
-    """The contract tree's owners name catalog role templates — checked
-    against the *injected* catalog like hires are. An unknown owner would
-    compile a tree nobody can ever deliver into: the spec frozen by typo."""
-    contract = (blueprint.get("policies") or {}).get("contract_tests") or {}
-    return [
-        f"policies.contract_tests.roles: {role!r} is not in the role "
-        f"catalog (known: {', '.join(sorted(roles))})"
-        for role in contract.get("roles") or []
-        if role not in roles
-    ]
 
 
 def _policy_patterns(blueprint: dict[str, Any]) -> list[str]:

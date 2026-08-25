@@ -1,4 +1,4 @@
-"""The shared OPA decision transport: one endpoint, one slug rule, one
+"""The shared OPA decision transport: one endpoint, one decision path, one
 fail-closed default for both authorization chokepoints that query OPA
 directly (crew.request recording and conduct.start)."""
 
@@ -9,14 +9,8 @@ from orchestrator import opa
 pytestmark = pytest.mark.anyio
 
 
-@pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
-
-
-def test_company_slug_matches_the_compiler_package_rule():
-    assert opa.company_slug("hello-saas") == "hello_saas"
-    assert opa.company_slug("a.b-c/d") == "a_b_c_d"
 
 
 class _Resp:

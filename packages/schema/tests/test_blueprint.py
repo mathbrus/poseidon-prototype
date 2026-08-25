@@ -149,8 +149,8 @@ def test_crew_member_cannot_hold_the_platform_merge_tool(blueprint):
 
 
 def test_unknown_crew_name_is_caught(blueprint):
-    """A crews: key outside the catalog used to validate cleanly and then
-    resolve against nothing in the compiler."""
+    """A crews: key outside the catalog is a document error, not something
+    left for the compiler to resolve against nothing."""
     blueprint["crews"]["hotfix-swat"] = copy.deepcopy(
         blueprint["crews"]["feature-review"]
     )
@@ -194,7 +194,7 @@ def test_crew_member_tools_may_narrow_the_catalog(blueprint):
     assert validate_blueprint(blueprint) is blueprint
 
 
-# -- the end-state roster still validates ---------------------------------
+# -- the lean roster validates --------------------------------------------
 
 
 def test_lean_roster_profile_validates(blueprint):
@@ -225,8 +225,8 @@ def test_policy_resolved_merge_validates(blueprint):
     validate_blueprint(blueprint)
 
 
-def test_the_old_string_gate_shape_is_gone(blueprint):
-    """A gate is an object naming its resolver; the enum spelling does not
+def test_a_gate_must_be_an_object_naming_its_resolver(blueprint):
+    """A gate is an object naming its resolver; a bare string does not
     validate anywhere."""
     blueprint["workflows"]["review"]["gates"]["merge"] = "human_approval"
     assert problems_of(blueprint)
@@ -324,7 +324,7 @@ def test_a_prefix_containing_the_contract_tree_is_refused(blueprint):
 
 def test_a_contract_tree_under_a_deny_path_is_refused(blueprint):
     """A contract path no PR may touch is a spec nobody could ever
-    deliver — frozen by configuration, which the split exists to avoid."""
+    deliver — frozen by configuration."""
     blueprint["policies"]["deny_paths"] = [".github/workflows/", "specs/"]
     blueprint["policies"]["contract_tests"] = {
         "paths": ["specs/contract/"],
@@ -358,8 +358,8 @@ def test_intake_gate_names_its_resolver(blueprint):
 
 
 def test_intake_gate_cannot_be_policy_resolved(blueprint):
-    """Worth-doing governance is its own milestone; the schema names the
-    only resolver intake has."""
+    """Policy cannot judge whether a goal is worth doing; the schema names
+    the only resolver intake has."""
     blueprint["workflows"]["intake"]["gates"] = {"intake": {"resolved_by": "policy"}}
     assert any("resolved_by" in p and "policy" in p for p in problems_of(blueprint))
 

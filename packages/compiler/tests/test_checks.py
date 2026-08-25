@@ -18,13 +18,10 @@ def test_hello_saas_compiles(blueprint):
 
 def test_workflow_needs_a_hired_conductor(blueprint):
     blueprint["departments"]["roles"]["pm"]["count"] = 0
-    problems = [
+    (problem,) = [
         p for p in problems_of(blueprint) if "conductor" in p and "implement" in p
     ]
-    # Two independent guards agree: the general hired-conductor check and
-    # the spawner-only rule.
-    assert any("not a hired standing role" in p for p in problems)
-    assert any("not a hired spawner" in p for p in problems)
+    assert "not a hired spawner" in problem
 
 
 def test_workflow_cannot_bind_to_an_unknown_role(blueprint):

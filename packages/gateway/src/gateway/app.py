@@ -1,14 +1,13 @@
 """Gateway ASGI app: MCP server (streamable HTTP) + admin endpoint.
 
-Contract C3, full surface: six sandbox tools proxied to the run's registered
-tool server, the two git tools (`repo.archive`, `git.open_pr`) backed by
-platform-side clones holding the GIT_TOKEN, plus `POST`/`DELETE
-/admin/sandboxes` (platform lifecycle only) to register and retire a run's
-sandbox address. Authentication is workload identity (projected
-service-account tokens via TokenReview, platform-signed ephemeral JWTs —
-no static tokens); every
-call is policy-checked against the caller's compiled decision path and
-audited (C1/C2) — the admin routes included, which is why the registration
+The full tool surface: six sandbox tools proxied to the run's registered
+tool server, the git, pull-request and issue tools backed by platform-side
+clones and the GitHub API holding the GIT_TOKEN, the crew-request tool, plus
+`POST`/`DELETE /admin/sandboxes` (platform lifecycle only) to register and
+retire a run's sandbox address. Authentication is workload identity —
+projected service-account tokens verified via TokenReview, nothing else;
+every call is policy-checked against the caller's compiled decision path
+and audited — the admin routes included, which is why the registration
 write lives behind the gateway rather than in the orchestrator.
 
 Run with: uvicorn --factory gateway.app:create_app
@@ -33,21 +32,22 @@ from gateway.config import GatewaySettings
 from gateway.opa import OpaClient
 from gateway.service import GatewayService, PolicyDenied
 from registry import (
+    AgentInstances,
     AuditStore,
     BudgetLedger,
+    Companies,
     CrewRequests,
     RunParticipants,
     Runs,
     SandboxRegistrations,
     open_registry,
 )
-from registry.bundles import AgentInstances, Companies
 
 
 class AuthMiddleware:
-    """Authenticate every HTTP request once (platform JWT or Kubernetes
-    TokenReview) and stash the identity in the request
-    state; rejected tokens are audited by the authenticator."""
+    """Authenticate every HTTP request once (Kubernetes TokenReview) and
+    stash the identity in the request state; rejected tokens are audited
+    by the authenticator."""
 
     def __init__(self, app: ASGIApp, authenticator: Authenticator) -> None:
         self.app = app

@@ -3,10 +3,11 @@ workflows and their activities, runs until terminated.
 
     python -m orchestrator.worker
 
-Deployed in the platform namespace. Credentials: the orchestrator bearer
-token only (env) — no GIT_TOKEN, no provider keys. Sandboxes are Kubernetes
-Jobs in the company namespace; the worker's ServiceAccount
-carries the matching bounded Role, its only Kubernetes-API surface.
+Deployed in the platform namespace. Credentials: its projected
+service-account token (GATEWAY_TOKEN_FILE) and the egress-proxy HMAC key —
+no GIT_TOKEN, no provider keys. Sandboxes are Kubernetes Jobs in the
+company namespace; the worker's ServiceAccount carries the matching bounded
+Role, its only Kubernetes-API surface.
 """
 
 import asyncio
@@ -34,18 +35,18 @@ from orchestrator.workflows import (
     IntakeWorkflow,
     ReviewWorkflow,
 )
-from orchestrator.workflows.conduct import conduct_workflow_id
-from orchestrator.workflows.implement import FAST_TIMEOUTS
+from orchestrator.workflows.base import workflow_id
 from registry import (
+    AgentInstances,
     AuditStore,
     BudgetLedger,
+    Companies,
     CrewRequests,
     RunParticipants,
     Runs,
     open_registry,
 )
-from registry.bundles import AgentInstances, Companies
-from sandbox.backends.k8s_jobs import K8sJobsBackend
+from sandbox.k8s_jobs import K8sJobsBackend
 
 
 async def ensure_conduct_loop(
@@ -70,12 +71,8 @@ async def ensure_conduct_once(
         if (spec or {}).get("conduct"):
             await client.start_workflow(
                 "conduct",
-                ConductInput(
-                    company=settings.company,
-                    tick_interval_s=settings.conduct_tick_interval_s or None,
-                    timeouts=FAST_TIMEOUTS if settings.conduct_fast_timeouts else None,
-                ),
-                id=conduct_workflow_id(settings.company),
+                ConductInput(company=settings.company),
+                id=workflow_id("conduct", settings.company),
                 task_queue=settings.task_queue,
             )
             log.info("conduct heartbeat started", extra={"company": settings.company})
@@ -96,19 +93,19 @@ async def main() -> None:
         settings,
         RunParticipants(registry),
         AuditStore(registry),
-        CrewPodProvisioner(settings.sandbox_namespace),
         CrewRequests(registry),
         Companies(registry),
         BudgetLedger(registry),
         Runs(registry),
+        provisioner=CrewPodProvisioner(settings.sandbox_namespace),
     )
     activities = ImplementActivities(
         settings,
         backend,
         Runs(registry),
         Companies(registry),
-        crew_activities,
         AgentInstances(registry),
+        crew_activities,
     )
     intake_activities = IntakeActivities(
         settings, Runs(registry), Companies(registry), BudgetLedger(registry)

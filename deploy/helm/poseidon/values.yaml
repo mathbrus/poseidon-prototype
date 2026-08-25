@@ -5,13 +5,14 @@
 
 # The bootstrap company's namespace — platform-side wiring only: the worker's
 # PM_URL/SANDBOX_NAMESPACE, the platform NetworkPolicies that select the
-# company namespace, and the OPA bundle config key. Goes per-company at
-# steps 12/16; the namespace itself is operator-created either way.
+# company namespace, and the OPA bundle config key. The namespace itself
+# is operator-created.
 companyNamespace: hello-saas
 
-# Image tags default to `latest` only so the chart installs standalone;
-# deploy/kind/kind-up.sh overrides every one of them with a content-addressed
-# tag, which is what forces a rollout when code changes (a fixed tag renders
+# Every poseidon-* image is built from the root Dockerfile by
+# deploy/build-images.sh. Tags default to `latest` only so the chart installs
+# standalone; deploy/kind/kind-up.sh overrides every one of them with a
+# content-addressed tag, which is what forces a rollout when code changes (a fixed tag renders
 # an identical pod template, so pods keep running the code they started
 # with even after `kind load` replaces the image).
 images:
@@ -34,8 +35,7 @@ images:
     pullPolicy: IfNotPresent
   llmProxy:
     # Pinned to a LiteLLM release that knows gpt-5.6-luna (chat completions
-    # + function calling). Tag form is vX.Y.Z; the old main-v*-stable names
-    # are deprecated.
+    # + function calling). Tag form is vX.Y.Z.
     repository: ghcr.io/berriai/litellm
     tag: v1.95.1
     pullPolicy: IfNotPresent
@@ -84,13 +84,6 @@ orchestrator:
   # logical toolchain image (content-addressed on kind).
   sandbox:
     image: poseidon-sandbox
-  # The conduct heartbeat's e2e knobs: a tick interval in seconds that
-  # compresses the blueprint's minutes for the mock brain (0 keeps the
-  # declared cadence), and fast timeouts for the child runs it starts.
-  # The authority itself — whether a heartbeat exists at all, and its
-  # caps — is the applied blueprint's, never a deploy value's.
-  conductTickIntervalS: 0
-  conductFastTimeouts: false
 
 # The LLM gateway: tier -> model resolution and the flat
 # price per 1K tokens the ledger accrues at. The blueprint names
@@ -150,13 +143,3 @@ networkPolicies:
   runnerIngressCidrs:
     - 172.16.0.0/12
     - 10.244.0.0/16
-
-telemetry:
-  # OTLP endpoint for log export (e.g. "http://otel-collector:4318").
-  # Empty = stdout JSON only, today's behavior. When set, platform services
-  # gain OTEL_EXPORTER_OTLP_ENDPOINT/OTEL_SERVICE_NAME and export the same
-  # records over OTLP (common/telemetry.py, the anytime-track adoption).
-  # Two caveats: NetworkPolicies must separately allow egress to the
-  # collector (nothing here opens it), and operator-created agent pods do
-  # not receive these variables yet (platform services only).
-  otlpEndpoint: ""

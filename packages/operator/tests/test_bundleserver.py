@@ -2,43 +2,33 @@
 
 import io
 import tarfile
-from datetime import UTC
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
 from poseidon_operator.bundleserver import create_app
-from registry.bundles import pack
+from registry import StoredBundle, pack
+
+
+def stored(company: str, files: dict[str, str]) -> StoredBundle:
+    tarball, revision = pack(files)
+    return StoredBundle(company, revision, tarball, datetime.now(UTC))
 
 
 class FakeBundles:
-    def __init__(self) -> None:
-        self.stored: dict[str, object] = {}
+    """The bundle server's read side over a dict of stored bundles."""
 
-    def put(self, company: str, files: dict[str, str]) -> str:
-        from datetime import datetime
+    def __init__(self, *bundles: StoredBundle) -> None:
+        self.stored = {b.company: b for b in bundles}
 
-        from registry.bundles import StoredBundle
-
-        tarball, revision = pack(files)
-        self.stored[company] = StoredBundle(
-            company=company,
-            revision=revision,
-            tarball=tarball,
-            updated_at=datetime.now(UTC),
-        )
-        return revision
-
-    def get(self, company: str):
+    def get(self, company: str) -> StoredBundle | None:
         return self.stored.get(company)
-
-    def delete(self, company: str) -> None:
-        self.stored.pop(company, None)
 
 
 def test_bundle_is_served_as_a_tarball_with_its_revision():
-    bundles = FakeBundles()
-    revision = bundles.put("hello-saas", {"authz.rego": "package poseidon.authz\n"})
-    client = TestClient(create_app(bundles))
+    bundle = stored("hello-saas", {"authz.rego": "package poseidon.authz\n"})
+    revision = bundle.revision
+    client = TestClient(create_app(FakeBundles(bundle)))
 
     response = client.get("/bundles/hello-saas/bundle.tar.gz")
     assert response.status_code == 200
@@ -52,9 +42,9 @@ def test_bundle_is_served_as_a_tarball_with_its_revision():
 
 def test_unchanged_revision_answers_304():
     """A steady state costs one cheap request per poll, not a tarball."""
-    bundles = FakeBundles()
-    revision = bundles.put("hello-saas", {"a.rego": "package poseidon\n"})
-    client = TestClient(create_app(bundles))
+    bundle = stored("hello-saas", {"a.rego": "package poseidon\n"})
+    revision = bundle.revision
+    client = TestClient(create_app(FakeBundles(bundle)))
 
     response = client.get(
         "/bundles/hello-saas/bundle.tar.gz", headers={"If-None-Match": f'"{revision}"'}
@@ -62,19 +52,11 @@ def test_unchanged_revision_answers_304():
     assert response.status_code == 304
 
 
-def test_changed_policy_changes_the_revision():
-    bundles = FakeBundles()
-    first = bundles.put("hello-saas", {"a.rego": "package poseidon\n"})
-    second = bundles.put("hello-saas", {"a.rego": "package poseidon\n# edit\n"})
-    assert first != second
-
-
 def test_torn_down_company_serves_nothing():
     """Teardown revokes: OPA stops being handed rules for a company that no
     longer exists."""
-    bundles = FakeBundles()
-    bundles.put("hello-saas", {"a.rego": "package poseidon\n"})
-    bundles.delete("hello-saas")
+    bundles = FakeBundles(stored("hello-saas", {"a.rego": "package poseidon\n"}))
+    del bundles.stored["hello-saas"]
     client = TestClient(create_app(bundles))
     assert client.get("/bundles/hello-saas/bundle.tar.gz").status_code == 404
 

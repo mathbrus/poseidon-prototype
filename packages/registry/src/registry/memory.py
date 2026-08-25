@@ -9,7 +9,7 @@ registry is that state survives the process.
 Each double mirrors its accessor's *behaviour*, not just its signatures:
 `start` upserts and preserves artifacts, `record_artifacts` is a no-op for
 an unknown run (an UPDATE matching zero rows), and `story` returns the same
-ten-column projection the Postgres query does. A double with friendlier
+column projection the Postgres query does. A double with friendlier
 failure modes than the real thing hides exactly the bugs it exists to catch.
 """
 

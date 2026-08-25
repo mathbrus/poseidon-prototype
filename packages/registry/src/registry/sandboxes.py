@@ -1,22 +1,11 @@
 """`sandbox_registrations` — written by the gateway only.
 
-Replaces the gateway's former in-memory `_sandboxes` dict. The
-dict was fine while runs were a host-side script; once runs are durable, a
-gateway restart mid-run silently orphaned every sandbox proxy call, and the
-orchestrator had no way to know.
+Run → sandbox address, so the mapping survives a gateway restart mid-run:
+runs are durable, and a sandbox proxy call must resolve from state that
+outlives any one gateway process.
 """
 
-from dataclasses import dataclass
-
 from registry.db import Registry
-
-
-@dataclass
-class SandboxRegistration:
-    run_id: str
-    url: str
-    namespace: str | None = None
-    job_name: str | None = None
 
 
 class SandboxRegistrations:

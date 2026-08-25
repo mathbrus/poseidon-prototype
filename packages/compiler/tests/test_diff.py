@@ -61,8 +61,8 @@ def test_the_firing_diff_is_a_deletion(blueprint):
 
 
 def test_count_growth_is_distinct_creates(blueprint):
-    """count > 1 mints one agent_id per instance and previews the growth —
-    a hire-keyed diff used to collapse it into 'no changes'."""
+    """count > 1 mints one agent_id per instance and previews the growth;
+    a diff keyed on the hire alone would collapse it into 'no changes'."""
     snapshot = live(("pm", "pm", "standard"))
     blueprint["departments"]["roles"]["pm"]["count"] = 3
     plan = compile_blueprint(blueprint, snapshot=snapshot)

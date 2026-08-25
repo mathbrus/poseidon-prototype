@@ -3,27 +3,7 @@
 # the MCP gateway (TokenReview -> auth-delegator); holds no provider keys —
 # the upstream llm-proxy does, and NetworkPolicy seals it so nothing but
 # this gateway reaches it.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: llm-gateway
-  labels:
-    {{- include "poseidon.labels" . | nindent 4 }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: poseidon-llm-gateway-auth-delegator
-  labels:
-    {{- include "poseidon.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: system:auth-delegator
-subjects:
-  - kind: ServiceAccount
-    name: llm-gateway
-    namespace: {{ .Release.Namespace }}
+{{ include "poseidon.authDelegator" (dict "root" . "name" "llm-gateway") }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -47,8 +27,7 @@ spec:
       securityContext:
         {{- include "poseidon.podSecurityContext" . | nindent 8 }}
       volumes:
-        - name: tmp
-          emptyDir: {}
+        {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
         - name: llm-gateway
           image: "{{ .Values.images.gatewayLlm.repository }}:{{ .Values.images.gatewayLlm.tag }}"
@@ -56,19 +35,13 @@ spec:
           securityContext:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
-            - name: tmp
-              mountPath: /tmp
+            {{- include "poseidon.scratchMount" . | nindent 12 }}
           ports:
             - containerPort: 4000
           env:
-            {{- include "poseidon.otelEnv" (dict "root" $ "service" "llm-gateway") | nindent 12 }}
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
-            - name: REGISTRY_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: registry-credentials
-                  key: REGISTRY_DSN
+            {{- include "poseidon.registryDsnEnv" . | nindent 12 }}
             - name: UPSTREAM_URL
               value: http://llm-proxy:4000
             # tier -> model resolution: the blueprint names tiers,

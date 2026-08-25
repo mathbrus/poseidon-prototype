@@ -14,20 +14,26 @@ Configured by env (all set by the Helm chart):
 """
 
 import asyncio
-import os
 
-from registry import AuditStore, SandboxRegistrations, open_registry
-from registry.bundles import Companies
+from pydantic_settings import BaseSettings
+
+from registry import AuditStore, Companies, SandboxRegistrations, open_registry
 from sandbox.egressproxy.proxy import DEFAULT_PORT, EgressProxy, RegistryAllowlist
 
 
+class EgressProxySettings(BaseSettings):
+    egress_proxy_key: str
+    egress_listen_port: int = DEFAULT_PORT
+
+
 async def main() -> None:
+    settings = EgressProxySettings()
     registry = open_registry()
     proxy = EgressProxy(
-        key=os.environ["EGRESS_PROXY_KEY"],
+        key=settings.egress_proxy_key,
         allowlist=RegistryAllowlist(SandboxRegistrations(registry), Companies(registry)),
         audit=AuditStore(registry),
-        port=int(os.environ.get("EGRESS_LISTEN_PORT", DEFAULT_PORT)),
+        port=settings.egress_listen_port,
     )
     server = await proxy.start()
     async with server:

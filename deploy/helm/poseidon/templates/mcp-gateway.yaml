@@ -5,27 +5,7 @@
 # Workload identity: the gateway verifies callers' projected
 # service-account tokens through the TokenReview API, which needs its own
 # ServiceAccount bound to system:auth-delegator.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mcp-gateway
-  labels:
-    {{- include "poseidon.labels" . | nindent 4 }}
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: poseidon-mcp-gateway-auth-delegator
-  labels:
-    {{- include "poseidon.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: system:auth-delegator
-subjects:
-  - kind: ServiceAccount
-    name: mcp-gateway
-    namespace: {{ .Release.Namespace }}
+{{ include "poseidon.authDelegator" (dict "root" . "name" "mcp-gateway") }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -50,8 +30,7 @@ spec:
       volumes:
         # Scratch space for the platform-side git clones behind
         # repo.archive / git.open_pr; the root filesystem stays read-only.
-        - name: tmp
-          emptyDir: {}
+        {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
         - name: mcp-gateway
           image: "{{ .Values.images.gateway.repository }}:{{ .Values.images.gateway.tag }}"
@@ -59,12 +38,10 @@ spec:
           securityContext:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
-            - name: tmp
-              mountPath: /tmp
+            {{- include "poseidon.scratchMount" . | nindent 12 }}
           ports:
             - containerPort: 8080
           env:
-            {{- include "poseidon.otelEnv" (dict "root" $ "service" "mcp-gateway") | nindent 12 }}
             - name: GIT_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -78,11 +55,7 @@ spec:
             # ServiceAccount lives.
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
-            - name: REGISTRY_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: registry-credentials
-                  key: REGISTRY_DSN
+            {{- include "poseidon.registryDsnEnv" . | nindent 12 }}
           # No unauthenticated route exists; a 401 from the bearer middleware
           # proves the server is up without putting a token in the probe.
           # (httpGet probes treat 401 as failure, hence the exec probe.)

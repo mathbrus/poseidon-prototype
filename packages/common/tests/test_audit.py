@@ -50,7 +50,7 @@ def test_round_trip_matches_contract():
     }
 
 
-def test_v2_attribution_fields_round_trip():
+def test_attribution_fields_round_trip():
     event = make_event(
         source="sandbox-infra",
         company="hello-saas",

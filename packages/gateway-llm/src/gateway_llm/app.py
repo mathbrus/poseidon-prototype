@@ -5,7 +5,7 @@ Pipeline per completion call:
     workload authn (common.authn — same credentials as the MCP gateway)
     -> run attribution: X-Poseidon-Run-Id must name a known run of the
        caller's company (ephemeral callers additionally must be bound to
-       exactly that run) — anonymous or unattributed passthrough is gone
+       exactly that run) — there is no anonymous or unattributed passthrough
     -> budget headroom: the applied blueprint's per-run cap against the
        ledger SUM; exhausted -> a distinguishable `budget_exhausted` error,
        audited, never silent degradation (enforcement is local here,
@@ -20,10 +20,9 @@ Run with: uvicorn --factory gateway_llm.app:create_app
 """
 
 import asyncio
-import hashlib
-import json
 import time
-from datetime import UTC, datetime
+from collections.abc import Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -32,13 +31,20 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from common.audit import AuditEvent
+from common.audit import AuditEvent, args_digest
 from common.authn import Authenticator, Reviewer, default_reviewer
 from common.identity import LIFECYCLE_EPHEMERAL, Identity
 from common.telemetry import get_logger
 from gateway_llm.config import LlmGatewaySettings
-from registry import AuditStore, BudgetLedger, RunParticipants, Runs, open_registry
-from registry.bundles import AgentInstances
+from registry import (
+    AgentInstances,
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    RunParticipants,
+    Runs,
+    open_registry,
+)
 
 TOOL_CHAT = "llm.chat_completions"
 TOOL_RESPONSES = "llm.responses"
@@ -113,7 +119,7 @@ def create_app(
     runs: Runs | None = None,
     instances: AgentInstances | None = None,
     participants: RunParticipants | None = None,
-    companies: Any | None = None,
+    companies: Companies | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> FastAPI:
     settings = settings or LlmGatewaySettings()
@@ -125,8 +131,6 @@ def create_app(
     accessors = (audit, ledger, runs, instances, participants, companies)
     registry = None
     if all(a is None for a in accessors):
-        from registry.bundles import Companies
-
         registry = open_registry()
         audit = AuditStore(registry)
         ledger = BudgetLedger(registry)
@@ -150,16 +154,16 @@ def create_app(
     async def emit(
         identity: Identity,
         tool: str,
-        run_id: str,
-        workflow: str,
+        *,
         decision: str,
         rule: str,
         digest: str,
         started: float,
-        backend_status: str | None,
+        run_id: str = "",
+        workflow: str = "",
+        backend_status: str | None = None,
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id=identity.agent_id,
             role=identity.role,
@@ -178,7 +182,13 @@ def create_app(
         await asyncio.to_thread(audit.append, event)
         log.info("audit", extra=event.model_dump())
 
-    app = FastAPI(title="poseidon-llm-gateway")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        yield
+        if registry is not None:
+            registry.close()
+
+    app = FastAPI(title="poseidon-llm-gateway", lifespan=lifespan)
 
     @app.get("/healthz")
     @app.get("/health/liveliness")
@@ -189,7 +199,7 @@ def create_app(
         request: Request,
         tool: str,
         upstream_path: str,
-        digest_fields: Any,
+        digest_fields: Callable[[dict[str, Any]], dict[str, Any]],
     ) -> Any:
         """The one pipeline behind every completion surface: attribution,
         budget, tier routing, forward, meter, audit. The surfaces differ
@@ -198,47 +208,48 @@ def create_app(
         started = time.monotonic()
         body = await request.json()
         # Digest, never content: audit must not become a leak channel.
-        digest = hashlib.sha256(
-            json.dumps(digest_fields(body), sort_keys=True).encode()
-        ).hexdigest()
+        digest = args_digest(digest_fields(body))
 
-        # -- run attribution (mandatory; anonymous passthrough is gone) ----
-        run_id = request.headers.get(RUN_HEADER, "").strip()
-        if not run_id:
-            await emit(
-                identity, tool, "", "", "deny", "llm_unattributed", digest, started, None
-            )
-            return _error(400, "missing X-Poseidon-Run-Id", "llm_unattributed")
-        if identity.lifecycle == LIFECYCLE_EPHEMERAL and identity.run_id != run_id:
+        async def audited(
+            decision: str,
+            rule: str,
+            *,
+            run_id: str = "",
+            workflow: str = "",
+            backend_status: str | None = None,
+        ) -> None:
             await emit(
                 identity,
                 tool,
-                run_id,
-                "",
-                "deny",
-                "llm_foreign_run",
-                digest,
-                started,
-                None,
+                decision=decision,
+                rule=rule,
+                digest=digest,
+                started=started,
+                run_id=run_id,
+                workflow=workflow,
+                backend_status=backend_status,
             )
-            return _error(403, "not a participant of this run", "llm_foreign_run")
+
+        async def deny(
+            status: int, message: str, rule: str, run_id: str = ""
+        ) -> JSONResponse:
+            await audited("deny", rule, run_id=run_id)
+            return _error(status, message, rule)
+
+        # -- run attribution (mandatory; no anonymous passthrough) ---------
+        run_id = request.headers.get(RUN_HEADER, "").strip()
+        if not run_id:
+            return await deny(400, "missing X-Poseidon-Run-Id", "llm_unattributed")
+        if identity.lifecycle == LIFECYCLE_EPHEMERAL and identity.run_id != run_id:
+            return await deny(
+                403, "not a participant of this run", "llm_foreign_run", run_id
+            )
         run = await asyncio.to_thread(runs.get, run_id)
         if run is None or (
             identity.company and run.company and run.company != identity.company
         ):
-            await emit(
-                identity,
-                tool,
-                run_id,
-                "",
-                "deny",
-                "llm_unknown_run",
-                digest,
-                started,
-                None,
-            )
-            return _error(
-                403, f"unknown run {run_id!r} for this caller", "llm_unknown_run"
+            return await deny(
+                403, f"unknown run {run_id!r} for this caller", "llm_unknown_run", run_id
             )
         workflow = run.workflow or ""
         company = identity.company or run.company or ""
@@ -251,17 +262,7 @@ def create_app(
 
         cap, spent = await asyncio.to_thread(read_budget)
         if cap > 0 and spent >= cap:
-            await emit(
-                identity,
-                tool,
-                run_id,
-                workflow,
-                "deny",
-                "budget_exhausted",
-                digest,
-                started,
-                None,
-            )
+            await audited("deny", "budget_exhausted", run_id=run_id, workflow=workflow)
             return _error(
                 429,
                 f"budget_exhausted: run {run_id} spent {spent:.6f} USD of its"
@@ -279,29 +280,24 @@ def create_app(
         try:
             upstream = await http_client.post(upstream_path, json=body)
         except httpx.HTTPError as exc:
-            await emit(
-                identity,
-                tool,
-                run_id,
-                workflow,
+            # Policy allowed the call; the backend failed it. The rule names
+            # the outcome so an auditor filtering on `budget_headroom` sees
+            # only calls that were actually served.
+            await audited(
                 "allow",
-                "budget_headroom",
-                digest,
-                started,
-                "error",
+                "llm_upstream_error",
+                run_id=run_id,
+                workflow=workflow,
+                backend_status="error",
             )
             return _error(502, f"upstream unreachable: {exc}", "llm_upstream_error")
         if upstream.status_code != 200:
-            await emit(
-                identity,
-                tool,
-                run_id,
-                workflow,
+            await audited(
                 "allow",
-                "budget_headroom",
-                digest,
-                started,
-                "error",
+                "llm_upstream_status",
+                run_id=run_id,
+                workflow=workflow,
+                backend_status="error",
             )
             return JSONResponse(upstream.json(), status_code=upstream.status_code)
 
@@ -321,16 +317,12 @@ def create_app(
             completion_tokens=completion_tokens,
             usd=usd,
         )
-        await emit(
-            identity,
-            tool,
-            run_id,
-            workflow,
+        await audited(
             "allow",
             "budget_headroom",
-            digest,
-            started,
-            "ok",
+            run_id=run_id,
+            workflow=workflow,
+            backend_status="ok",
         )
         return JSONResponse(payload)
 
@@ -351,10 +343,4 @@ def create_app(
         )
 
     app.add_middleware(AuthMiddleware, authenticator=authenticator)
-    if registry is not None:
-
-        @app.on_event("shutdown")
-        def close_registry() -> None:
-            registry.close()
-
     return app

@@ -19,7 +19,8 @@ when `OTEL_EXPORTER_OTLP_ENDPOINT` is set).
 |---|---|
 | `identity.py` | `Identity` — who a verified credential says is calling: agent_id, role, company, lifecycle, plus the standing caller's namespace and the ephemeral caller's run binding and crew coordinates. Also `bearer_token()`, the Authorization-header parser. |
 | `authn.py` | `Authenticator`: resolves a bearer credential to an `Identity` and audits every rejection. Shared by both gateways so they cannot drift. |
-| `audit.py` | `AuditEvent` — one model, one registry table, one ingestion contract for every enforcement point. |
+| `audit.py` | `AuditEvent` — one model, one registry table, one ingestion contract for every enforcement point — and `args_digest`, the one way arguments are hashed into it. |
+| `policy.py` | The OPA naming contract: the Rego slug, a company's package and its decision path — shared by the compiler that emits bundles and the gateways and orchestrator that query them. |
 | `telemetry.py` | `get_logger(name)`: single-line JSON to stdout, `.bind(...)` for run/agent context. Optional OTLP export behind the `otel` extra. |
 | `podsecurity.py` | The pod/container security context the three Python pod-spec builders share (uid 10001, no privilege escalation, no capabilities, RuntimeDefault seccomp). |
 | `ids.py` | `new_run_id()` — ULID-based, sortable, `run-`-prefixed. |
@@ -82,19 +83,6 @@ an `authn_*` rule (`authn_namespace_mismatch`, `authn_no_live_participant`,
 …). A wrong-namespace token has to be *visible*, not merely 401'd. A
 request with no credential at all gets a 401 and no audit event — probes
 and scanners are noise, not governance signals; only rejected tokens are.
-
-## The platform JWT that is no longer here
-
-Ephemeral crew members used to carry a hand-rolled short-TTL platform
-JWT (`platformjwt.py`, compact JWS/HS256 in stdlib), because the planner
-borrowed the executor's pod and two principals in one pod needed a
-second credential shape. Giving every crew member its own pod removed
-the reason to exist: every principal is one pod, one ServiceAccount, one
-projected token, and the whole custom path — the minting, the shared
-symmetric key, the `alg`-pinning care, the "crypto-adjacent primitive
-you should generally not write" admission in the root README — was
-deleted rather than mitigated. The participants-row revocation, which
-was always orthogonal to token format, is the part that stayed.
 
 ## What audience scoping buys
 
@@ -190,7 +178,7 @@ Export stays env-gated at runtime either way.
 - Audit args are digests, never values, and `source` is a closed
   vocabulary.
 - `RUN_AS_UID` (10001) in `podsecurity.py` matches the `useradd` line in
-  every Dockerfile at the repo root. They move together.
+  the `Dockerfile` at the repo root. They move together.
 
 ## Tests
 

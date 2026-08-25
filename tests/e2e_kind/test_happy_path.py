@@ -7,7 +7,7 @@ nothing leaks, and the terminal run record is honest.
 
 import re
 
-from .conftest import audit_story, sandbox_pods
+from .cluster import audit_story, sandbox_pods
 
 
 def test_run_completes_with_pr(implement_run: dict) -> None:

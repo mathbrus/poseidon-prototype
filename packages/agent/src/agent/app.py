@@ -23,29 +23,31 @@ from agent.brain import RunResult
 from agent.config import AgentSettings
 from common.telemetry import get_logger
 
-TaskRunner = Callable[[str, str], Awaitable[RunResult]]
+Mode = Literal["implement", "plan", "deliver", "review", "decide"]
+Runner = Callable[[str, str], Awaitable[RunResult]]
 
 
 class TaskRequest(BaseModel):
     run_id: str
     task_text: str
-    mode: Literal["implement", "plan", "deliver", "review", "decide"] = "implement"
+    mode: Mode = "implement"
 
 
 class TaskStatus(RunResult):
     """The dispatch's HTTP shape: exactly the brain's `RunResult` plus a
     lifecycle `status`. Derived, not mirrored — every result field crosses
-    the boundary automatically, so a new one can never be silently dropped
-    (the failure mode the review verdict once hit)."""
+    the boundary automatically, so a new one can never be silently dropped."""
 
     status: Literal["running", "done", "failed"]
 
 
 def create_app(
     settings: AgentSettings | None = None,
-    task_runner: TaskRunner | None = None,
-    plan_runner: Callable[..., Awaitable[RunResult]] | None = None,
+    runners: dict[str, Runner] | None = None,
 ) -> FastAPI:
+    """`runners` overrides the brain's runner for any mode — how tests drive
+    the API without an SDK loop behind it."""
+
     def _settings() -> AgentSettings:
         # Lazy: tests inject runners and configure no environment; the
         # deployed app resolves env exactly once, on first dispatch.
@@ -54,42 +56,32 @@ def create_app(
             settings = AgentSettings()
         return settings
 
-    # The brain host's mode runners are synchronous (the SDK conversation
-    # loop is blocking); each dispatch runs on a worker thread.
-    if task_runner is None:
+    # The brain's mode runners are synchronous (the SDK conversation loop
+    # is blocking); each dispatch runs on a worker thread.
+    def in_thread(dispatch: Callable[[AgentSettings, str, str], RunResult]) -> Runner:
+        async def run(run_id: str, task_text: str) -> RunResult:
+            return await asyncio.to_thread(dispatch, _settings(), run_id, task_text)
 
-        async def task_runner(run_id: str, task_text: str) -> RunResult:
-            # Role-template-driven: the PM instance scopes
-            # and delegates; every other template implements.
-            if _settings().role_template == "pm":
-                return await asyncio.to_thread(
-                    brain.pm_dispatch, _settings(), run_id, task_text
-                )
-            return await asyncio.to_thread(
-                brain.implement_dispatch, _settings(), run_id, task_text
-            )
+        return run
 
-    if plan_runner is None:
-
-        async def plan_runner(run_id: str, task_text: str) -> RunResult:
-            return await asyncio.to_thread(
-                brain.plan_dispatch, _settings(), run_id, task_text
-            )
-
-    async def deliver_runner(run_id: str, task_text: str) -> RunResult:
-        return await asyncio.to_thread(
-            brain.deliver_dispatch, _settings(), run_id, task_text
+    async def implement(run_id: str, task_text: str) -> RunResult:
+        # Role-template-driven: the PM instance scopes and delegates; every
+        # other template implements.
+        dispatch = (
+            brain.pm_dispatch
+            if _settings().role_template == "pm"
+            else brain.implement_dispatch
         )
+        return await asyncio.to_thread(dispatch, _settings(), run_id, task_text)
 
-    async def review_runner(run_id: str, task_text: str) -> RunResult:
-        return await asyncio.to_thread(
-            brain.review_dispatch, _settings(), run_id, task_text
-        )
-
-    async def decide_runner(run_id: str, task_text: str) -> RunResult:
-        return await asyncio.to_thread(
-            brain.decide_dispatch, _settings(), run_id, task_text
-        )
+    modes: dict[str, Runner] = {
+        "implement": implement,
+        "plan": in_thread(brain.plan_dispatch),
+        "deliver": in_thread(brain.deliver_dispatch),
+        "review": in_thread(brain.review_dispatch),
+        "decide": in_thread(brain.decide_dispatch),
+        **(runners or {}),
+    }
 
     log = get_logger("agent", agent_id="backend-engineer-1")
     app = FastAPI(title="poseidon-agent")
@@ -100,16 +92,7 @@ def create_app(
         run_id = request.run_id
         run_log = log.bind(run_id=run_id)
         try:
-            if request.mode == "plan":
-                result = await plan_runner(run_id, request.task_text)
-            elif request.mode == "deliver":
-                result = await deliver_runner(run_id, request.task_text)
-            elif request.mode == "review":
-                result = await review_runner(run_id, request.task_text)
-            elif request.mode == "decide":
-                result = await decide_runner(run_id, request.task_text)
-            else:
-                result = await task_runner(run_id, request.task_text)
+            result = await modes[request.mode](run_id, request.task_text)
         except Exception as exc:
             run_log.exception("task crashed")
             tasks[run_id] = TaskStatus(status="failed", error=str(exc))

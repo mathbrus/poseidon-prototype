@@ -1,6 +1,6 @@
 """The overnight capstone: the company works while nobody watches.
 
-This is the milestone's headline demo — the moment Poseidon stops being a
+This is the headline demo — the moment Poseidon stops being a
 pipeline you operate and becomes a company you supervise. The whole run has
 exactly two human acts:
 
@@ -18,99 +18,37 @@ The concurrency cap does real sequencing work here: `max_concurrent_runs:
 racing it, and why the parked review blocks any further starts — the
 company does one thing at a time because the blueprint said so.
 
-Named `test_zz_overnight` so it collects after `test_zz_acceptance`: it is
-itself a capstone, and it adds runs the five-source assertion need not see.
-The conducted blueprint (`examples/hello-saas-conducted.yaml`) is applied
+The conftest orders this module after `test_acceptance`: it is itself a
+capstone, and it adds runs the five-source assertion need not see. The
+conducted blueprint (`examples/hello-saas-conducted.yaml`) is applied
 for the module and the pristine one restored after.
 """
 
 import asyncio
 import contextlib
-import json
 import re
-import subprocess
 import time
 
 import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
-from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
-from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
-from orchestrator.workflows.review import review_workflow_id
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.conduct import ConductInput
+from orchestrator.workflows.intake import IntakeInput
 
+from .blueprints import CONDUCTED, apply_blueprint, restore_pristine, wait_for_convergence
+from .cluster import COMPANY_NS, audit_story, await_run, temporal_port_forward
 from .conftest import (
-    COMPANY_NS,
-    PLATFORM_NS,
-    POSTGRES_USER,
-    REPO_ROOT,
     TASK_QUEUE,
-    audit_story,
     close_pr,
     deployed_timeouts,
     github_api,
     heartbeat_ticks,
-    quiesce_heartbeat,
+    pr_number,
     sweep_repo_debris,
-    temporal_port_forward,
+    target_slug,
 )
-from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
-
-CONDUCTED = REPO_ROOT / "examples" / "hello-saas-conducted.yaml"
-HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
-
-
-def _psql(query: str) -> str:
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "exec",
-            "-i",
-            "statefulset/postgres",
-            "--",
-            "psql",
-            "-U",
-            POSTGRES_USER,
-            "-d",
-            POSTGRES_USER,
-            "-At",
-            "-c",
-            query,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert proc.returncode == 0, f"psql failed: {proc.stderr}"
-    return proc.stdout.strip()
-
-
-def _run_by_task(task: str) -> dict | None:
-    row = _psql(
-        "SELECT COALESCE(row_to_json(r), 'null') FROM registry.runs r "
-        f"WHERE r.task = '{task}' LIMIT 1"
-    )
-    return json.loads(row) if row and row != "null" else None
-
-
-def _await_run(task: str, terminal: bool, deadline_s: int = 1800) -> dict:
-    """Poll the registry for a heartbeat-started run by its canonical task —
-    optionally until it reaches a terminal state."""
-    deadline = time.monotonic() + deadline_s
-    while time.monotonic() < deadline:
-        run = _run_by_task(task)
-        if run and (not terminal or run["status"] in ("done", "failed")):
-            return run
-        time.sleep(5)
-    raise AssertionError(f"run {task!r} never {'finished' if terminal else 'started'}")
-
-
-def _pr_number(pr_url: str) -> int:
-    match = re.search(r"/pull/(\d+)$", pr_url or "")
-    assert match, f"not a PR url: {pr_url!r}"
-    return int(match.group(1))
 
 
 @pytest.fixture(scope="module")
@@ -120,8 +58,7 @@ def overnight(stack: None, env: dict) -> dict:
     # An empty campsite before the conduct blueprint lands: the ensure
     # loop's bare heartbeat ticks once the moment conduct is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot
-    # (#15 step 5 caught this live).
+    # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(env)
     apply_blueprint(CONDUCTED)
     wait_for_convergence()
@@ -135,7 +72,7 @@ def overnight(stack: None, env: dict) -> dict:
         f"Ship the slugify utility (e2e overnight goal {nonce})\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    heartbeat_id = f"{conduct_workflow_id(COMPANY_NS)}-overnight-{nonce}"
+    heartbeat_id = f"{workflow_id('conduct', COMPANY_NS)}-overnight-{nonce}"
     result: dict = {"env": env, "heartbeat_id": heartbeat_id}
 
     async def drive() -> None:
@@ -148,7 +85,7 @@ def overnight(stack: None, env: dict) -> dict:
                 IntakeInput(
                     run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
                 ),
-                id=intake_workflow_id(intake_run),
+                id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )
             result["intake"] = await asyncio.wait_for(intake_handle.result(), timeout=600)
@@ -171,22 +108,23 @@ def overnight(stack: None, env: dict) -> dict:
             )
             try:
                 implement = await asyncio.to_thread(
-                    _await_run, f"implement issue #{issue_number}", True
+                    await_run, f"implement issue #{issue_number}", True
                 )
                 assert implement["status"] == "done", f"unattended implement: {implement}"
                 assert implement["pr_url"], "the unattended implement produced no PR"
                 result["implement"] = implement
-                pr_number = _pr_number(implement["pr_url"])
-                result["pr_number"] = pr_number
+                number = pr_number(implement["pr_url"])
+                assert number is not None, f"not a PR url: {implement['pr_url']!r}"
+                result["pr_number"] = number
 
                 # The heartbeat sees the delivered PR and starts a review,
                 # which parks on the human merge gate.
                 review = await asyncio.to_thread(
-                    _await_run, f"review pull request #{pr_number}", False
+                    await_run, f"review pull request #{number}", False
                 )
                 result["review"] = review
                 review_handle = client.get_workflow_handle(
-                    review_workflow_id(review["run_id"])
+                    workflow_id("review", review["run_id"])
                 )
                 deadline = time.monotonic() + 600
                 while time.monotonic() < deadline:
@@ -196,9 +134,7 @@ def overnight(stack: None, env: dict) -> dict:
                 else:
                     raise AssertionError("the unattended review never parked to merge")
                 result["parked_pr"] = github_api(
-                    env,
-                    "GET",
-                    f"/repos/{'/'.join(env['TARGET_REPO'].split('/')[-2:])}/pulls/{pr_number}",
+                    env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
                 ).json()
 
                 # --- human act 2: one approval out -----------------------
@@ -214,25 +150,22 @@ def overnight(stack: None, env: dict) -> dict:
 
     yield result
 
-    slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
     close_pr(env, result.get("pr_number") or 0)
     with contextlib.suppress(Exception):
         github_api(
             env,
             "PATCH",
-            f"/repos/{slug}/issues/{result.get('issue_number')}",
+            f"/repos/{target_slug(env)}/issues/{result.get('issue_number')}",
             json={"state": "closed"},
         )
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
-    quiesce_heartbeat()
+    restore_pristine()
 
 
 def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     """No human ran the implement: the heartbeat consumed the intake ticket
     and produced a PR, under an auto-minted run id. Asserted on the run and
     on this heartbeat's own attributable ticks — never on winning a race
-    against the ensure loop's bare heartbeat (#15 step 4)."""
+    against the ensure loop's bare heartbeat."""
     implement = overnight["implement"]
     assert implement["run_id"].startswith("auto-"), implement["run_id"]
     assert implement["workflow"] == "implement"
@@ -272,10 +205,9 @@ def test_the_single_human_verdict_completes_delivery(overnight: dict):
     """One approval out: the merge signal releases the gateway merge, the
     review run finishes, and the PR is merged."""
     assert overnight["review_record"]["status"] == "done", overnight["review_record"]
+    env = overnight["env"]
     pull = github_api(
-        overnight["env"],
-        "GET",
-        f"/repos/{'/'.join(overnight['env']['TARGET_REPO'].split('/')[-2:])}/pulls/{overnight['pr_number']}",
+        env, "GET", f"/repos/{target_slug(env)}/pulls/{overnight['pr_number']}"
     ).json()
     assert pull["merged"] is True, "the approved PR was not merged"
 

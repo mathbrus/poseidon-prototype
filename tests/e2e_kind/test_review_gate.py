@@ -3,7 +3,7 @@ implement PR (started from the intake ticket's issue number, the
 `poseidon run <number>` handoff: no human retypes the spec), reviewer
 findings posted, merge gate parked, timer escalation observable, API
 approval, gateway merge — every step correlated by run_id in one audit
-story (MVP exit criterion 3).
+story.
 
 The chain runs its own three runs (never the shared session fixtures: this
 module *merges* its PR into the disposable repo's main, and nothing else in
@@ -22,25 +22,20 @@ import time
 import pytest
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import Timeouts, issue_placeholder
-from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
-from orchestrator.workflows.review import (
-    ReviewInput,
-    review_workflow_id,
-)
+from orchestrator.workflows.base import Timeouts, workflow_id
+from orchestrator.workflows.implement import issue_placeholder
+from orchestrator.workflows.intake import IntakeInput
+from orchestrator.workflows.review import ReviewInput
 
+from .cluster import audit_story, psql_json, registry, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
-    _psql_json,
-    audit_story,
     close_pr,
     deployed_timeouts,
     github_api,
     run_implement_from_issue,
     target_slug,
-    temporal_port_forward,
 )
-from .test_crew_identity import _registry
 
 
 def _reviewer_id(run_id: str) -> str:
@@ -59,7 +54,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
     handle = await client.start_workflow(
         "review",
         ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()),
-        id=review_workflow_id(run_id),
+        id=workflow_id("review", run_id),
         task_queue=TASK_QUEUE,
     )
 
@@ -124,7 +119,7 @@ def review_chain(stack: None, env: dict) -> dict:
                 IntakeInput(
                     run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
                 ),
-                id=intake_workflow_id(intake_run),
+                id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )
             return await asyncio.wait_for(handle.result(), timeout=600)
@@ -173,15 +168,15 @@ def review_chain(stack: None, env: dict) -> dict:
                     f"/repos/{slug}/issues/{number.group(1)}",
                     json={"state": "closed"},
                 )
-    with _registry() as registry:
-        registry.execute(
+    with registry() as client:
+        client.execute(
             "DELETE FROM registry.crew_requests WHERE run_id = %s", (intake_run,)
         )
-        registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (intake_run,))
+        client.execute("DELETE FROM registry.runs WHERE run_id = %s", (intake_run,))
 
 
 def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
-    """MVP exit criterion 3, end to end: tickets, PR, findings, approval,
+    """The full chain, end to end: tickets, PR, findings, approval,
     merge — and the PR really is merged on GitHub."""
     assert review_chain["intake"]["status"] == "done"
     assert review_chain["intake"]["ticket_urls"], "intake filed no tickets"
@@ -215,7 +210,7 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
     reviewer = _reviewer_id(run_id)
     story = audit_story(run_id)
     # Parentage is the gateway pipeline's enrichment (participants row →
-    # v2 attribution); lifecycle.revoke rows legitimately carry no parent.
+    # parent attribution); lifecycle.revoke rows legitimately carry no parent.
     reviewer_events = [
         e for e in story if e["agent_id"] == reviewer and e["source"] == "gateway"
     ]
@@ -249,12 +244,11 @@ def test_the_crew_request_was_recorded_under_conductor_authority(
     the same crew_requests row and the same audited compiled decision an
     agent-issued request produces."""
     run_id = review_chain["review_run_id"]
-    rows = _psql_json(
+    rows = psql_json(
         "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
         "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
         ") c",
-        run_id,
-        default="[]",
+        run_id=run_id,
     )
     assert len(rows) == 1
     assert rows[0]["conductor"] == "pm-1"

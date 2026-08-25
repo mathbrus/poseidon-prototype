@@ -22,30 +22,20 @@ import yaml
 from temporalio.client import Client
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import (
-    ImplementInput,
-    Timeouts,
-    workflow_id,
-)
+from orchestrator.workflows.base import Timeouts, workflow_id
+from orchestrator.workflows.implement import ImplementInput
 
-from .conftest import (
+from .blueprints import HELLO_SAAS, apply_blueprint, restore_pristine
+from .cluster import (
     COMPANY_NS,
-    REPO_ROOT,
-    TASK_QUEUE,
-    _psql_json,
     audit_story,
-    deployed_timeouts,
+    port_forward,
+    projected_token,
+    psql_json,
     temporal_port_forward,
 )
-from .test_operator_lifecycle import (
-    HELLO_SAAS,
-    apply_blueprint,
-    port_forward,
-    wait_for_convergence,
-)
-from .test_registry_durability import projected_token
+from .conftest import REPO_ROOT, TASK_QUEUE, deployed_timeouts
 
-LLM_LOCAL_PORT = 14001
 TINY_CAP = 0.0001  # below one mock completion's cost at $0.002/1K tokens
 
 
@@ -53,8 +43,7 @@ TINY_CAP = 0.0001  # below one mock completion's cost at $0.002/1K tokens
 def restore_budget(stack: None):
     """Whatever happens here, later suites need the real cap back."""
     yield
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
+    restore_pristine()
 
 
 @pytest.fixture(scope="module")
@@ -69,12 +58,11 @@ def tiny_cap_applied(stack: None, tmp_path_factory) -> None:
 
 
 def ledger_entries(run_id: str) -> list[dict[str, Any]]:
-    return _psql_json(
+    return psql_json(
         "SELECT COALESCE(json_agg(l ORDER BY l.ts, l.id), '[]'::json) FROM ("
         "SELECT * FROM registry.budget_ledger WHERE run_id = :'run_id'"
         ") l",
-        run_id,
-        default="[]",
+        run_id=run_id,
     )
 
 
@@ -85,7 +73,7 @@ async def _run_until_paused_then_reject(
     handle = await client.start_workflow(
         "implement",
         ImplementInput(run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()),
-        id=workflow_id(run_id),
+        id=workflow_id("implement", run_id),
         task_queue=TASK_QUEUE,
     )
     # The budget hard-stop leaves an API-visible pending state.
@@ -193,9 +181,9 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
     """No run context, no model: with a valid workload identity but
     no run attribution the gateway refuses before any upstream work."""
     token = projected_token(COMPANY_NS, "pm-1")
-    with port_forward("llm-gateway", LLM_LOCAL_PORT, 4000) as base:
+    with port_forward("svc/llm-gateway", 4000) as port:
         resp = httpx.post(
-            f"{base}/chat/completions",
+            f"http://127.0.0.1:{port}/chat/completions",
             headers={"Authorization": f"Bearer {token}"},
             json={"model": "mock-brain", "messages": [{"role": "user", "content": "hi"}]},
             timeout=15,
@@ -204,9 +192,9 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
     assert resp.json()["error"]["code"] == "llm_unattributed"
 
     # And with no credential at all: 401 before anything else.
-    with port_forward("llm-gateway", LLM_LOCAL_PORT, 4000) as base:
+    with port_forward("svc/llm-gateway", 4000) as port:
         resp = httpx.post(
-            f"{base}/chat/completions",
+            f"http://127.0.0.1:{port}/chat/completions",
             json={"model": "mock-brain", "messages": [{"role": "user", "content": "hi"}]},
             timeout=15,
         )

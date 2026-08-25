@@ -16,7 +16,14 @@ from orchestrator.crewpods import (
     service_account_name,
 )
 from orchestrator.identity import ephemeral_agent_id
-from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
+from registry.memory import (
+    InMemoryAuditStore,
+    InMemoryBudgetLedger,
+    InMemoryCompanies,
+    InMemoryCrewRequests,
+    InMemoryRunParticipants,
+    InMemoryRuns,
+)
 
 RUN_ID = "run-01PODS"
 
@@ -47,7 +54,7 @@ def test_manifest_is_contained_and_labeled():
     # (gateways-only egress, orchestrator-only ingress) the moment it
     # exists; the run label is the destroy selector's other half.
     assert labels["poseidon.dev/kind"] == CREW_KIND
-    assert labels["poseidon.io/run-id"] == RUN_ID
+    assert labels["poseidon.dev/run-id"] == RUN_ID
 
     spec = manifest["spec"]
     # The standing-agent identity posture, exactly: the pod's own SA, an
@@ -118,7 +125,19 @@ class FakeProvisioner:
         return [pod_name(ephemeral_agent_id("feature-delivery", "executor", run_id))]
 
 
-@pytest.fixture
+def _crew(settings, participants, audit, provisioner=None, requests=None, companies=None):
+    return CrewActivities(
+        settings,
+        participants,
+        audit,
+        requests or InMemoryCrewRequests(),
+        companies or InMemoryCompanies(),
+        InMemoryBudgetLedger(),
+        InMemoryRuns(),
+        provisioner,
+    )
+
+
 def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected")
@@ -144,7 +163,7 @@ def provisioner() -> FakeProvisioner:
 @pytest.fixture
 def crew(settings, stores, provisioner) -> CrewActivities:
     participants, audit = stores
-    return CrewActivities(settings, participants, audit, provisioner)
+    return _crew(settings, participants, audit, provisioner)
 
 
 def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisioner):
@@ -201,7 +220,7 @@ def test_destroy_audits_each_pod(crew, stores, provisioner):
 
 def test_provision_without_a_provisioner_fails_closed(settings, stores):
     participants, audit = stores
-    lone = CrewActivities(settings, participants, audit, provisioner=None)
+    lone = _crew(settings, participants, audit, provisioner=None)
     with pytest.raises(RuntimeError, match="provisioner"):
         asyncio.run(lone.provision_crew_pod(dict(SPEC)))
     assert participants.rows == {}
@@ -289,7 +308,7 @@ def fulfill_world(settings, provisioner, monkeypatch):
         )
 
     monkeypatch.setattr(clients.AgentClient, "__init__", patched)
-    crew = CrewActivities(settings, participants, audit, provisioner, requests, companies)
+    crew = _crew(settings, participants, audit, provisioner, requests, companies)
     return crew, participants, audit, requests, plan_host
 
 
@@ -542,7 +561,7 @@ def test_a_run_torn_down_mid_provision_gets_no_pod(settings, stores):
             return super().provision(**kwargs)
 
     provisioner = TearsDownMidProvision()
-    crew = CrewActivities(settings, participants, audit, provisioner)
+    crew = _crew(settings, participants, audit, provisioner)
     asyncio.run(crew.bind_participant(dict(SPEC)))
 
     with pytest.raises(CrewPodAbandoned):

@@ -3,7 +3,7 @@
 A deterministic, OpenAI-compatible brain that stands in for the LLM proxy
 so end-to-end runs cost nothing. **It is the default in every development
 and test path**, and that is a deliberate cost guardrail, not a
-convenience: the full 91-test kind acceptance suite runs the real agent,
+convenience: the full kind acceptance suite runs the real agent,
 the real gateways, the real policy engine and a real cluster, and spends
 zero tokens. Using a paid provider instead requires bringing the cluster
 up with `REAL_LLM=1` explicitly. Nothing does that by default, CI never
@@ -77,14 +77,16 @@ The checks run in order; the first match wins:
 
 | Keyed on | Phase | Scripted behaviour |
 |---|---|---|
-| `"product manager"` in the system prompt | PM | file one ticket, record the crew request, summarize |
+| `"conduct decision"` in the system prompt | decide | a single completion naming one action from the observation, with a rationale |
+| `"product manager"` in the system prompt | PM | file one ticket (an ordered contract-then-implement pair under a contract-first goal), record the crew request, summarize |
 | `comment_pr` offered | reviewer | read the PR diff, run the suite, post one findings comment, end with a structured pass/fail verdict (fail on `REVIEW_FAIL_MARKER` in the task; injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read) |
+| `Crew: contract-authoring` in the task, tools offered | contract author | write the contract tree (gutted to a smoke check under `STEERED_CONTRACT_MARKER`), then deliver it |
 | no tools offered | planner | a single completion: the task brief, echoing the branch line and any scenario marker |
 | tools without `open_pr` | act | write `slugify.py` + its test once, then answer in plain text — which ends the SDK conversation so the host runs the advisory verify |
 | tools with `open_pr` | deliver | commit and open the PR in one batch |
 
-Note the PM is keyed on the system prompt, not on its tool surface — the
-first thing `next_completion` checks. The deliver script batches commit +
+The decide and PM loops are keyed on the system prompt, not on a tool
+surface, which is why they are checked first. The deliver script batches commit +
 `open_pr` into one completion so one SDK step is one delivery attempt:
 the deliver-step cap is small, and the injected scenario must fit
 attempt–deny–recover within it. Once a delivery succeeded (`_pr_opened`
@@ -116,7 +118,7 @@ Driven by markers in the files under `examples/`:
   commits and opens the PR on `main` first. The gateway denies it
   (`git_open_pr_protected_branch`), the loop feeds the denial back as a
   tool error, and the script recovers onto the feature branch.
-- `task-verify-red.md` — plants `tests/test_gate.py`, a state-dependent
+- `task-verify-red.md` — plants `tests/unit/test_gate.py`, a state-dependent
   test whose counter file lives in the sandbox workspace and therefore
   survives between the executor's advisory verify (green, first run) and
   the platform's own re-run (red, second run). It is a deterministic
@@ -141,6 +143,25 @@ Driven by markers in the files under `examples/`:
   can recompute the gateway's `args_digest` and prove which spawn the
   audited deny refers to — the audit event stores a digest of the args,
   never their cleartext.
+- Review-time markers ride the PR rather than a file: `REVIEW_FAIL_MARKER`
+  in the PR title makes the reviewer post a blocking finding and a fail
+  verdict; `STEERED_REVIEW_MARKER` in the diff it reads makes it skip the
+  suite and pass — the merge gate, not the reviewer, must hold.
+- Merge-gate red-team (`MERGE_GATE_REDTEAM_MARKER` in an issue): the
+  executor delivers working code carrying the reviewer steer *and* a
+  change under `.github/`, so a steered pass meets the merge gate's
+  carve-out deny.
+- Contract-first (`CONTRACT_GOAL_MARKER` in a goal): the PM files the
+  ordered contract-then-implement ticket pair; the contract author plays
+  the `Crew: contract-authoring` ticket, gutting the spec under
+  `STEERED_CONTRACT_MARKER` so the platform's deletion facts surface it.
+- Adversarial implementers against the contract tree: `ORACLE_SMUGGLE_MARKER`
+  (also writes into the tree, recovers from the gateway's
+  `git_open_pr_contract_tree` deny), `GREEN_SUITE_MARKER` (a committed
+  `pytest.ini` ignores the tree so the head suite is green while the code
+  breaks the contract) and `CONFTEST_VEIL_MARKER` (the same through a root
+  `conftest.py`). Only the platform's composed base-ref contract run can
+  refuse these.
 
 **A credulous brain is the correct brain for these tests.** Every
 scenario asserts that compiled policy, the egress proxy or the merge
@@ -185,7 +206,7 @@ the same trap.
 python -m mockllm --model <ignored> --port 4000 --drop_params
 ```
 
-`Dockerfile.mockllm` (repo root). The LiteLLM-shaped args are accepted
+the `poseidon-mockllm` row of `deploy/build-images.sh`. The LiteLLM-shaped args are accepted
 and ignored so the Helm template's `args` work verbatim whether the pod
 runs LiteLLM or this.
 

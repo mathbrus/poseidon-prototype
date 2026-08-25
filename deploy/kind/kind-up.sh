@@ -35,8 +35,8 @@ SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 # The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
 # real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
 REAL_LLM=${REAL_LLM_ARG:-${REAL_LLM:-0}}
-# The Temporal web UI is a browsable surface over full operator authority
-# (see README §9); it stays out of the cluster unless explicitly asked for.
+# The Temporal web UI is a browsable surface over full operator authority;
+# it stays out of the cluster unless explicitly asked for.
 TEMPORAL_WEB=${TEMPORAL_WEB:-0}
 if [ "$REAL_LLM" != "1" ]; then
   LLM_API_KEY=${LLM_API_KEY:-mock-unused}
@@ -70,30 +70,26 @@ echo "==> images"
 # unchanged tree yields the same tag and stays a no-op, so this script
 # remains idempotent.
 BUILD_TAG=${BUILD_TAG:-$(
-  find packages Dockerfile.* pyproject.toml uv.lock -type f \
+  find packages Dockerfile deploy/build-images.sh pyproject.toml uv.lock -type f \
     -not -path '*/__pycache__/*' -not -name '*.pyc' -print0 \
     | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
 )}
 echo "    build tag: $BUILD_TAG"
 
-docker build -q -f Dockerfile.gateway -t "poseidon-gateway:$BUILD_TAG" . >/dev/null
-docker build -q -f Dockerfile.agent -t "poseidon-agent:$BUILD_TAG" . >/dev/null
-docker build -q -f Dockerfile.orchestrator -t "poseidon-orchestrator:$BUILD_TAG" . >/dev/null
-docker build -q -f Dockerfile.sandbox -t "$SANDBOX_IMAGE:$BUILD_TAG" . >/dev/null
-docker build -q -f Dockerfile.egressproxy -t "poseidon-egress-proxy:$BUILD_TAG" . >/dev/null
-docker build -q -f Dockerfile.operator -t "poseidon-operator:$BUILD_TAG" . >/dev/null
-docker build -q -f Dockerfile.gatewayllm -t "poseidon-gateway-llm:$BUILD_TAG" . >/dev/null
-# The sandbox image is side-loaded too: sandboxes are Kubernetes Jobs in the
-# company namespace, run by the k8s_jobs backend.
-IMAGES=(
-  "poseidon-gateway:$BUILD_TAG"
-  "poseidon-agent:$BUILD_TAG"
-  "poseidon-orchestrator:$BUILD_TAG"
-  "$SANDBOX_IMAGE:$BUILD_TAG"
-  "poseidon-egress-proxy:$BUILD_TAG"
-  "poseidon-operator:$BUILD_TAG"
-  "poseidon-gateway-llm:$BUILD_TAG"
-)
+# The mock brain is an image of ours too; with REAL_LLM=1 the llm-proxy
+# runs upstream LiteLLM at its own pinned tag instead.
+NAMES=$(deploy/build-images.sh --list)
+if [ "$REAL_LLM" = "1" ]; then
+  NAMES=$(grep -vx poseidon-mockllm <<<"$NAMES")
+fi
+# shellcheck disable=SC2086
+mapfile -t IMAGES < <(deploy/build-images.sh "$BUILD_TAG" $NAMES)
+# Sandboxes are Kubernetes Jobs in the company namespace, run by the
+# k8s_jobs backend from the image name the worker is configured with.
+if [ "$SANDBOX_IMAGE" != "poseidon-sandbox" ]; then
+  docker tag "poseidon-sandbox:$BUILD_TAG" "$SANDBOX_IMAGE:$BUILD_TAG"
+  IMAGES+=("$SANDBOX_IMAGE:$BUILD_TAG")
+fi
 IMAGE_VALUES=(
   --set "images.gateway.tag=$BUILD_TAG"
   --set "images.agent.tag=$BUILD_TAG"
@@ -106,23 +102,16 @@ IMAGE_VALUES=(
   --set "orchestrator.sandbox.image=$SANDBOX_IMAGE:$BUILD_TAG"
 )
 if [ "$REAL_LLM" != "1" ]; then
-  docker build -q -f Dockerfile.mockllm -t "poseidon-mockllm:$BUILD_TAG" . >/dev/null
-  IMAGES+=("poseidon-mockllm:$BUILD_TAG")
-  # Only in mock mode: with REAL_LLM=1 the llm-proxy image is upstream
-  # LiteLLM at its own pinned tag.
   IMAGE_VALUES+=(--set "images.llmProxy.tag=$BUILD_TAG")
 else
   # The chart's images.llmProxy values are the single source of truth for
   # which LiteLLM the cluster runs; read them rather than duplicating the
   # tag here.
-  VALUES_FILE=deploy/helm/poseidon/values.yaml
-  LITELLM_REPO=$(awk '/^  llmProxy:/{f=1} f && /^    repository:/{gsub(/"/,"",$2); print $2; exit}' "$VALUES_FILE")
-  LITELLM_TAG=$(awk '/^  llmProxy:/{f=1} f && /^    tag:/{gsub(/"/,"",$2); print $2; exit}' "$VALUES_FILE")
-  if [ -z "$LITELLM_REPO" ] || [ -z "$LITELLM_TAG" ]; then
-    echo "error: could not read images.llmProxy from $VALUES_FILE" >&2
-    exit 1
-  fi
-  LITELLM_IMAGE="$LITELLM_REPO:$LITELLM_TAG"
+  LITELLM_IMAGE=$(uv run python -c '
+import yaml
+image = yaml.safe_load(open("deploy/helm/poseidon/values.yaml"))["images"]["llmProxy"]
+print(f"{image[\"repository\"]}:{image[\"tag\"]}")
+')
   docker pull "$LITELLM_IMAGE"
   kind load docker-image "$LITELLM_IMAGE" --name "$CLUSTER_NAME"
 fi
@@ -215,11 +204,8 @@ done
 REGISTRY_DSN="postgresql://${POSTGRES_USER:-poseidon}:${POSTGRES_PASSWORD:-poseidon-dev-postgres}@127.0.0.1:15432/${POSTGRES_USER:-poseidon}" \
   uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 kill $PGPF 2>/dev/null || true
-# Lean roster: the PM is the only standing hire; execution
-# is ephemeral crews.
-for hire in pm; do
-  kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
-done
+# The PM is the only standing hire; execution is ephemeral crews.
+kubectl -n "$COMPANY_NS" rollout status deployment/pm --timeout=300s
 
 echo "==> image check"
 # Assert every poseidon pod actually runs this build. Without it, a template

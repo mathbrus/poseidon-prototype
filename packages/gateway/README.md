@@ -119,10 +119,9 @@ if result is None:
 
 And the decision path itself is per caller: platform identities query
 `poseidon/platform/decision`, company callers query
-`poseidon/authz/<slug>/decision`. The slug transform is implemented
-independently here and in `compiler.rego.company_package`; divergence
-would fail closed but *silently*, which is why
-`tests/test_slug_invariant.py` exists to make it loud.
+`poseidon/authz/<slug>/decision`. Both paths, and the slug transform the
+compiler emits bundles under, come from `common.policy` — one definition,
+so the gateway cannot query a document the compiler never wrote.
 
 ## Module map
 
@@ -214,7 +213,7 @@ token's bytes appear nowhere in it.
 uvicorn --factory gateway.app:create_app --host 0.0.0.0 --port 8080
 ```
 
-That is the `Dockerfile.gateway` CMD verbatim; the image installs `git`
+That is the `poseidon-gateway` entrypoint in `deploy/build-images.sh` verbatim; the image installs `git`
 for the platform-side clones and runs as uid 10001. `create_app` opens
 its own registry pool unless the tests inject in-memory accessors — all
 or none, since injecting a subset would still open a real pool for the
@@ -241,7 +240,7 @@ proves the server is up.
 uv run pytest packages/gateway
 ```
 
-79 tests, a few seconds, no network and no cluster. The suite runs the
+A few seconds, no network and no cluster. The suite runs the
 real ASGI app through a real MCP client over an in-process transport;
 OPA, the sandbox tool server and GitHub are one scriptable
 `httpx.MockTransport` (the OPA stub mirrors the *compiled* policy shape)

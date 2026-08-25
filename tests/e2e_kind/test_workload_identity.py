@@ -1,10 +1,10 @@
 """Workload identity on kind.
 
-Positive half: the in-cluster callers hold no static token anymore (their
-env is checked structurally) and still authenticate — a token minted for
-the orchestrator's ServiceAccount is accepted, and the standing agent's
-own mounted projected token round-trips against the gateway from inside
-its pod. The happy-path suite passing on this cluster is the full-system proof;
+Positive half: the in-cluster callers hold no static token (their env is
+checked structurally) and still authenticate — a token minted for the
+orchestrator's ServiceAccount is accepted, and the standing agent's own
+mounted projected token round-trips against the gateway from inside its
+pod. The happy-path suite passing on this cluster is the full-system proof;
 these tests isolate the credential path.
 
 Negative half: a token from the wrong service account, the wrong
@@ -12,59 +12,25 @@ namespace, or with the wrong audience is rejected *and audited* — the
 audit store must show an `authn_*` deny for it.
 """
 
-import subprocess
 import time
 from typing import Any
 
 import httpx
 
-from .conftest import COMPANY_NS, PLATFORM_NS, _psql_json
-
-AUDIENCE = "poseidon-gateway"
-
-
-def _kubectl(*args: str, check: bool = True) -> str:
-    proc = subprocess.run(["kubectl", *args], capture_output=True, text=True, timeout=60)
-    if check:
-        assert proc.returncode == 0, proc.stderr
-    return proc.stdout.strip()
-
-
-def mint_token(namespace: str, service_account: str, audience: str = AUDIENCE) -> str:
-    """TokenRequest via kubectl: the same kind of projected token the
-    kubelet mounts, minted for an arbitrary ServiceAccount."""
-    return _kubectl(
-        "-n",
-        namespace,
-        "create",
-        "token",
-        service_account,
-        f"--audience={audience}",
-        "--duration=10m",
-    )
+from .cluster import (
+    COMPANY_NS,
+    PLATFORM_NS,
+    authn_denies,
+    gateway_url,
+    kubectl,
+    projected_token,
+    run_kubectl,
+)
 
 
 def gateway_status(env: dict[str, str], token: str | None) -> int:
-    url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080") + "/mcp"
     headers = {"Authorization": f"Bearer {token}"} if token else {}
-    return httpx.get(url, headers=headers, timeout=10).status_code
-
-
-def authn_denies(rule: str, principal: str) -> list[dict[str, Any]]:
-    """Recent authn deny events for one rule+principal, from the audit
-    store (they carry no run_id — the credential never mapped to one).
-    The rule name is a test-owned literal, inlined; the principal rides
-    the conftest helper's psql variable binding."""
-    return _psql_json(
-        "SELECT COALESCE(json_agg(e ORDER BY e.ts), '[]'::json) FROM ("
-        "SELECT * FROM registry.audit_events"
-        f" WHERE decision = 'deny' AND rule = '{rule}'"
-        "   AND agent_id = :'run_id'"
-        "   AND ts > now() - interval '5 minutes'"
-        ") e",
-        principal,
-        default="[]",
-    )
+    return httpx.get(f"{gateway_url(env)}/mcp", headers=headers, timeout=10).status_code
 
 
 def wait_for_authn_deny(rule: str, principal: str) -> list[dict[str, Any]]:
@@ -85,7 +51,7 @@ def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
     tokens') held structurally: neither the worker nor the agent pod
     carries a bearer-token env var, so every green run on this cluster rode
     the projected tokens."""
-    worker_env = _kubectl(
+    worker_env = kubectl(
         "-n",
         PLATFORM_NS,
         "get",
@@ -97,7 +63,7 @@ def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
     assert "GATEWAY_TOKEN_FILE" in worker_env
 
     # The lean roster's one standing agent: the PM.
-    agent_env = _kubectl(
+    agent_env = kubectl(
         "-n",
         COMPANY_NS,
         "get",
@@ -110,7 +76,7 @@ def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
 
 
 def test_orchestrator_projected_token_is_accepted(stack: None, env) -> None:
-    token = mint_token(PLATFORM_NS, "orchestrator-worker")
+    token = projected_token(PLATFORM_NS, "orchestrator-worker")
     assert gateway_status(env, None) == 401  # control: no credential
     assert gateway_status(env, token) != 401
 
@@ -119,7 +85,7 @@ def test_agent_pod_token_round_trips_from_inside(stack: None) -> None:
     """The agent's actual mounted token, used from its own pod: proves the
     projection, the operator-created ServiceAccount, the registry mapping
     and the TokenReview path end to end."""
-    pod = _kubectl(
+    pod = kubectl(
         "-n",
         COMPANY_NS,
         "get",
@@ -142,7 +108,7 @@ def test_agent_pod_token_round_trips_from_inside(stack: None) -> None:
         "except urllib.error.HTTPError as e:\n"
         "    print(e.code)\n"
     )
-    code = _kubectl("-n", COMPANY_NS, "exec", pod, "--", "python", "-c", probe)
+    code = kubectl("-n", COMPANY_NS, "exec", pod, "--", "python", "-c", probe)
     assert code != "401", "the agent's own projected token was rejected"
 
 
@@ -150,7 +116,7 @@ def test_agent_pod_token_round_trips_from_inside(stack: None) -> None:
 
 
 def test_wrong_service_account_is_rejected_and_audited(stack: None, env) -> None:
-    token = mint_token("default", "default")
+    token = projected_token("default", "default")
     assert gateway_status(env, token) == 401
     events = wait_for_authn_deny(
         "authn_unknown_service_account", "system:serviceaccount:default:default"
@@ -161,23 +127,23 @@ def test_wrong_service_account_is_rejected_and_audited(stack: None, env) -> None
 def test_wrong_namespace_same_name_is_rejected_and_audited(stack: None, env) -> None:
     """A ServiceAccount named like a real instance but living elsewhere
     verifies fine at the API server and must still map to nothing."""
-    _kubectl(
-        "-n", "default", "create", "serviceaccount", "pm-1", check=False
-    )  # idempotent across reruns
+    run_kubectl("-n", "default", "create", "serviceaccount", "pm-1")  # idempotent
     try:
-        token = mint_token("default", "pm-1")
+        token = projected_token("default", "pm-1")
         assert gateway_status(env, token) == 401
         wait_for_authn_deny(
             "authn_namespace_mismatch",
             "system:serviceaccount:default:pm-1",
         )
     finally:
-        _kubectl("-n", "default", "delete", "serviceaccount", "pm-1", check=False)
+        run_kubectl("-n", "default", "delete", "serviceaccount", "pm-1")
 
 
 def test_wrong_audience_is_rejected(stack: None, env) -> None:
     """A token for another audience — even from the right ServiceAccount —
     fails the TokenReview and is audited as a rejected token."""
-    token = mint_token(PLATFORM_NS, "orchestrator-worker", audience="not-the-gateway")
+    token = projected_token(
+        PLATFORM_NS, "orchestrator-worker", audience="not-the-gateway"
+    )
     assert gateway_status(env, token) == 401
     wait_for_authn_deny("authn_token_rejected", "unknown")

@@ -46,22 +46,22 @@ class Registry:
         self._pool.open()
         self._log = get_logger("registry")
 
-    def connection(self):
+    def _connection(self):
         return self._pool.connection()
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
-        with self.connection() as conn:
+        with self._connection() as conn:
             conn.execute(sql, params)
 
     def query(self, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-        with self.connection() as conn:
+        with self._connection() as conn:
             return conn.execute(sql, params).fetchall()
 
     def migrate(self) -> None:
         """Apply the schema. Idempotent and safe to run from every service
         at startup, in any order, concurrently."""
         ddl = resources.files("registry").joinpath("schema.sql").read_text()
-        with self.connection() as conn:
+        with self._connection() as conn:
             # Transaction-scoped lock, not session-scoped: a failing DDL
             # aborts the transaction, and a session lock taken inside it
             # would survive the rollback on this pooled connection while

@@ -13,28 +13,34 @@ OPA stays a pure function of bundle + input.
 """
 
 import asyncio
-import hashlib
-import json
 import time
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
-from common.audit import AuditEvent
+from common.audit import AuditEvent, args_digest
 from common.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
     Identity,
 )
+from common.policy import PLATFORM_DECISION_PATH, company_decision_path
 from common.telemetry import get_logger
 from gateway.config import GatewaySettings
 from gateway.git_backend import GitBackend
-from gateway.opa import PLATFORM_DECISION_PATH, OpaClient, company_decision_path
-from registry import AuditStore, Runs, SandboxRegistrations
+from gateway.opa import OpaClient
+from registry import (
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    CrewRequests,
+    RunParticipants,
+    Runs,
+    SandboxRegistrations,
+)
 
-# tool name -> sandbox tool-server route (contract C4)
+# tool name -> sandbox tool-server route
 SANDBOX_ROUTES = {
     "sandbox.read_file": "/files/read",
     "sandbox.write_file": "/files/write",
@@ -55,11 +61,6 @@ class BackendError(Exception):
     pass
 
 
-def args_digest(args: dict[str, Any]) -> str:
-    canonical = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(canonical.encode()).hexdigest()
-
-
 class GatewayService:
     def __init__(
         self,
@@ -69,10 +70,10 @@ class GatewayService:
         sandboxes: SandboxRegistrations,
         audit: AuditStore,
         runs: Runs,
-        crew_requests: Any = None,
-        participants: Any = None,
-        ledger: Any = None,
-        companies: Any = None,
+        crew_requests: CrewRequests,
+        participants: RunParticipants,
+        ledger: BudgetLedger,
+        companies: Companies,
         git_backend: GitBackend | None = None,
     ) -> None:
         self._settings = settings
@@ -313,7 +314,7 @@ class GatewayService:
     ) -> Any:
         # run_id rides the args so the workspace fetch is attributable like
         # every other step: without it this event is the one hole in "the
-        # whole story for run X" (E4). The overlay composition is part of
+        # whole story for run X". The overlay composition is part of
         # the audited args for the same reason: which tree was built is
         # part of what happened.
         args: dict[str, Any] = {"run_id": run_id, "repo": repo, "ref": ref}
@@ -340,7 +341,7 @@ class GatewayService:
         """Verify + apply the bundle, then authorize with the changed paths.
 
         The bundle is applied to a platform-side clone *before* the policy
-        query so the changed paths can be part of the C2 input (`args.paths`).
+        query so the changed paths can be part of the policy input (`args.paths`).
         Nothing leaves the gateway until `call` allows the push. A bundle that
         fails verification still produces an audited call (backend error).
         """
@@ -500,7 +501,6 @@ class GatewayService:
         workflow: str = "",
     ) -> None:
         event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
             run_id=run_id,
             agent_id=identity.agent_id,
             role=identity.role,

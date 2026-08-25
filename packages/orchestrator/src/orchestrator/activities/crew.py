@@ -20,17 +20,15 @@ these into the fulfill orchestration; nothing else here dispatches work.
 """
 
 import asyncio
-import hashlib
-import json
 import time
-from datetime import UTC, datetime
 from typing import Any
 
 from temporalio import activity
 
-from common.audit import AuditEvent
+from common.audit import args_digest
 from common.telemetry import get_logger
-from orchestrator.clients import AgentClient
+from orchestrator.audit import record_event
+from orchestrator.clients import dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import (
     TOKEN_MOUNT_DIR,
@@ -39,13 +37,15 @@ from orchestrator.crewpods import (
 )
 from orchestrator.identity import ephemeral_agent_id
 from orchestrator.opa import evaluate_decision
-from registry import AuditStore, RunParticipants
+from registry import (
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    CrewRequests,
+    RunParticipants,
+    Runs,
+)
 from registry.crews import request_id
-
-
-def _digest(payload: dict[str, Any]) -> str:
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class CrewActivities:
@@ -54,11 +54,11 @@ class CrewActivities:
         settings: WorkerSettings,
         participants: RunParticipants,
         audit: AuditStore,
+        crew_requests: CrewRequests,
+        companies: Companies,
+        ledger: BudgetLedger,
+        runs: Runs,
         provisioner: CrewPodProvisioner | None = None,
-        crew_requests: Any = None,
-        companies: Any = None,
-        ledger: Any = None,
-        runs: Any = None,
     ) -> None:
         self._settings = settings
         self._participants = participants
@@ -102,7 +102,7 @@ class CrewActivities:
             parent_agent_id=spec["parent_agent_id"],
             tool="lifecycle.bind",
             rule="participant_bound",
-            digest=_digest({k: v for k, v in spec.items()}),
+            digest=args_digest(spec),
             started=started,
         )
         self._log.bind(run_id=spec["run_id"]).info(
@@ -147,7 +147,7 @@ class CrewActivities:
                 parent_agent_id="",
                 tool="lifecycle.revoke",
                 rule="participant_revoked",
-                digest=_digest({"run_id": run_id}),
+                digest=args_digest({"run_id": run_id}),
                 started=started,
             )
         self._log.bind(run_id=run_id).info(
@@ -207,7 +207,7 @@ class CrewActivities:
             parent_agent_id=spec["parent_agent_id"],
             tool="lifecycle.provision_pod",
             rule="crew_pod_provisioned",
-            digest=_digest({k: v for k, v in spec.items()}),
+            digest=args_digest(spec),
             started=started,
         )
         self._log.bind(run_id=spec["run_id"]).info(
@@ -242,8 +242,6 @@ class CrewActivities:
         pod."""
         if self._participants.active(agent_id) is None:
             return False
-        if self._runs is None:
-            return True
         record = self._runs.get(run_id)
         # A missing run row is not evidence of finalization (the e2e
         # fixtures delete rows); only an explicitly terminal one is.
@@ -258,8 +256,7 @@ class CrewActivities:
         if self._provisioner is None:
             return []
         started = time.monotonic()
-        provisioner = self._require_provisioner()
-        deleted = await asyncio.to_thread(provisioner.destroy, run_id)
+        deleted = await asyncio.to_thread(self._provisioner.destroy, run_id)
         for name in deleted:
             await self._emit(
                 run_id=run_id,
@@ -269,7 +266,7 @@ class CrewActivities:
                 parent_agent_id="",
                 tool="lifecycle.destroy_pod",
                 rule="crew_pod_destroyed",
-                digest=_digest({"run_id": run_id}),
+                digest=args_digest({"run_id": run_id}),
                 started=started,
             )
         return deleted
@@ -368,10 +365,12 @@ class CrewActivities:
         brief = spec["task_text"]
         planner = next((m for m in members if not m.get("needs_sandbox")), None)
         if planner is not None:
-            plan_run = await self._dispatch_plan(
+            plan_run = await dispatch_and_poll(
                 pods[planner["member"]]["url"],
                 run_id,
                 spec["task_text"],
+                "plan",
+                self._settings.poll_interval_s,
             )
             if plan_run.get("error"):
                 raise RuntimeError(f"planner failed: {plan_run['error']}")
@@ -385,7 +384,7 @@ class CrewActivities:
             parent_agent_id=conductor,
             tool="lifecycle.fulfill",
             rule="crew_fulfilled",
-            digest=_digest({"crew_template": crew_template, "request_id": rid}),
+            digest=args_digest({"crew_template": crew_template, "request_id": rid}),
             started=started,
         )
         return {
@@ -416,7 +415,7 @@ class CrewActivities:
             spec = self._companies.get(company) or {}
             cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
             headroom = True
-            if cap > 0 and self._ledger is not None:
+            if cap > 0:
                 headroom = self._ledger.spent_for_run(run_id) < cap
             return spawns, headroom
 
@@ -446,7 +445,7 @@ class CrewActivities:
             parent_agent_id="",
             tool="lifecycle.record_request",
             rule=str(result.get("rule") or ""),
-            digest=_digest({"crew_template": crew_template}),
+            digest=args_digest({"crew_template": crew_template}),
             started=started,
             decision="allow" if allowed else "deny",
             lifecycle="standing",
@@ -456,19 +455,6 @@ class CrewActivities:
                 f"crew request refused by policy rule"
                 f" {result.get('rule')!r} for {conductor}/{crew_template}"
             )
-
-    async def _dispatch_plan(
-        self, url: str, run_id: str, task_text: str
-    ) -> dict[str, Any]:
-        async with AgentClient(url) as agent:
-            await agent.dispatch(run_id, task_text, mode="plan")
-            while True:
-                if activity.in_activity():
-                    activity.heartbeat()
-                status = await agent.status(run_id)
-                if status["status"] != "running":
-                    return status
-                await asyncio.sleep(self._settings.poll_interval_s)
 
     def _require_provisioner(self) -> CrewPodProvisioner:
         if self._provisioner is None:
@@ -493,24 +479,21 @@ class CrewActivities:
         decision: str = "allow",
         lifecycle: str = "ephemeral",
     ) -> None:
-        event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
+        event = await record_event(
+            self._audit,
             run_id=run_id,
             agent_id=agent_id,
             role=role,
             tool=tool,
-            args_digest=digest,
+            digest=digest,
             decision=decision,
             rule=rule,
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status="ok",
-            source="process-lifecycle",
             company=company,
             lifecycle=lifecycle,
             parent_agent_id=parent_agent_id,
-            workflow="",
         )
-        await asyncio.to_thread(self._audit.append, event)
         self._log.info("audit", extra=event.model_dump())
 
     def all(self) -> list[Any]:

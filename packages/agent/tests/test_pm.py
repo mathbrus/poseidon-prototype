@@ -3,7 +3,7 @@ crew intent -> summary, through governed tools only; a gateway deny
 surfaces as a tool observation the model sees, never a crash."""
 
 import pytest
-from conftest import ScriptedLLM, calls, gateway, says, scripted, tc  # noqa: F401
+from conftest import ScriptedLLM, calls, says, scripted, tc
 
 from agent.brain import pm_dispatch
 from agent.config import AgentSettings

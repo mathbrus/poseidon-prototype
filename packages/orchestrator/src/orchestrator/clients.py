@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from temporalio import activity
 
 
 class GatewayError(Exception):
@@ -118,13 +119,8 @@ class GatewayClient:
         if overlay_ref:
             args["overlay_ref"] = overlay_ref
             args["overlay_paths"] = overlay_paths or []
-        result = await self._session.call_tool("repo.archive", args)
-        text = "".join(
-            block.text for block in result.content if getattr(block, "text", None)
-        )
-        if result.isError:
-            raise GatewayError(text or "repo.archive failed")
-        return base64.b64decode(json.loads(text)["archive_b64"])
+        result = await self._tool("repo.archive", args)
+        return base64.b64decode(result["archive_b64"])
 
     async def _tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         assert self._session is not None, "use `async with GatewayClient(...)`"
@@ -275,3 +271,22 @@ class AgentClient:
         if resp.status_code != 200:
             raise AgentError(f"status poll failed: {resp.status_code} {resp.text}")
         return resp.json()
+
+
+async def dispatch_and_poll(
+    url: str, run_id: str, task_text: str, mode: str, poll_interval_s: float
+) -> dict[str, Any]:
+    """Dispatch a task to the brain host at `url` and poll it to a terminal
+    status, heartbeating every poll so a dead worker is noticed fast. The
+    pod's own projected token is its credential — nothing rides this call
+    or the workflow history. Callable outside an activity (unit tests): the
+    heartbeat is skipped when there is no activity context."""
+    async with AgentClient(url) as agent:
+        await agent.dispatch(run_id, task_text, mode=mode)
+        while True:
+            if activity.in_activity():
+                activity.heartbeat()
+            status = await agent.status(run_id)
+            if status["status"] != "running":
+                return status
+            await asyncio.sleep(poll_interval_s)

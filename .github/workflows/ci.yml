@@ -138,14 +138,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
-      # Derived from the Dockerfiles themselves: a new image is built and
-      # inspected without anyone remembering to add it here.
+      # The image matrix is deploy/build-images.sh: a new image is built
+      # and inspected without anyone remembering to add it here.
       - name: Build images
         run: |
-          for dockerfile in Dockerfile.*; do
-            image="poseidon-${dockerfile#Dockerfile.}"
+          for image in $(deploy/build-images.sh --list); do
             echo "::group::$image"
-            docker build -f "$dockerfile" -t "$image" .
+            deploy/build-images.sh ci "$image"
             echo "::endgroup::"
           done
 
@@ -158,8 +157,8 @@ jobs:
           lock = tomllib.loads(pathlib.Path('uv.lock').read_text())
           print(next(p['version'] for p in lock['package'] if p['name'] == 'mcp'))
           ")
-          in_image=$(docker run --rm poseidon-orchestrator \
-            python -c "import importlib.metadata as m; print(m.version('mcp'))")
+          in_image=$(docker run --rm --entrypoint python poseidon-orchestrator:ci \
+            -c "import importlib.metadata as m; print(m.version('mcp'))")
           if [ "$locked" != "$in_image" ]; then
             echo "image resolved mcp $in_image, uv.lock pins $locked" >&2
             exit 1
@@ -170,7 +169,7 @@ jobs:
           # GPG_KEY is the python base image's public release-signing key
           # fingerprint — not a credential — and cannot be removed from the
           # inherited layer history; everything else *_TOKEN/*_KEY fails.
-          for image in poseidon-agent poseidon-sandbox; do
+          for image in poseidon-agent:ci poseidon-sandbox:ci; do
             leaked=$( (docker history --no-trunc --format '{{.CreatedBy}}' "$image"; \
                        docker inspect --format '{{join .Config.Env "\n"}}' "$image") \
               | grep -oE '[A-Za-z_]*_(TOKEN|KEY)=' | sort -u \
@@ -183,9 +182,8 @@ jobs:
 
       - name: "Images run as a non-root user"
         run: |
-          for dockerfile in Dockerfile.*; do
-            image="poseidon-${dockerfile#Dockerfile.}"
-            uid=$(docker inspect --format '{{.Config.User}}' "$image")
+          for image in $(deploy/build-images.sh --list); do
+            uid=$(docker inspect --format '{{.Config.User}}' "$image:ci")
             if [ "$uid" != "10001" ]; then
               echo "$image runs as '${uid:-root}', expected 10001" >&2
               exit 1
@@ -198,9 +196,8 @@ jobs:
     # (nothing here sets REAL_LLM).
     # Requires the E2E_GIT_TOKEN / E2E_TARGET_REPO repository secrets.
     #
-    # This job IS the acceptance suite (scripts/acceptance.sh runs the same
-    # thing locally): tests/e2e_kind in full, with test_zz_acceptance.py as
-    # the capstone.
+    # This job IS the acceptance suite — scripts/acceptance.sh, exactly as
+    # it runs locally: the paid-brain preflight, then tests/e2e_kind in full.
     if: github.event_name == 'workflow_dispatch' && inputs.run_e2e
     runs-on: ubuntu-latest
     steps:
@@ -226,7 +223,7 @@ jobs:
           MCP_GATEWAY_URL=http://127.0.0.1:8080
           EOF
           deploy/kind/kind-up.sh
-      - run: uv run pytest tests/e2e_kind -m e2e_kind -v
+      - run: scripts/acceptance.sh -v
       - name: Tear the cluster down
         if: always()
         run: deploy/kind/kind-down.sh

@@ -5,19 +5,14 @@ apply converges a live company (namespace, RBAC, roster, served bundle);
 a blueprint edit converges as a rollout with no manual steps; deleting the
 Company revokes — namespace gone, bundle 404, a restarted OPA activates
 nothing for the company, and a credential that worked before the teardown
-is refused at the gateway afterwards (a post-teardown denial that only
-became claimable once the gateway queried compiled bundles rather than a
-file-loaded policy).
+is refused at the gateway afterwards.
 
-The module finalizer always re-applies `examples/hello-saas.yaml` and waits
+The module finalizer always restores `examples/hello-saas.yaml` and waits
 for convergence, so the rest of the suite finds a healthy company whether
 these tests pass or fail.
 """
 
-import contextlib
 import io
-import socket
-import subprocess
 import tarfile
 import time
 from pathlib import Path
@@ -26,119 +21,21 @@ import httpx
 import pytest
 import yaml
 
-from .conftest import COMPANY_NS, PLATFORM_NS, REPO_ROOT
-
-HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
-BUNDLE_LOCAL_PORT = 18081
-OPA_LOCAL_PORT = 18181
-
-
-# -- plumbing ----------------------------------------------------------------
-
-
-@contextlib.contextmanager
-def port_forward(service: str, local: int, remote: int):
-    proc = subprocess.Popen(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "port-forward",
-            f"svc/{service}",
-            f"{local}:{remote}",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while True:
-            if proc.poll() is not None:
-                pytest.fail(f"port-forward to {service} exited early")
-            try:
-                with socket.create_connection(("127.0.0.1", local), timeout=1):
-                    break
-            except OSError:
-                if time.monotonic() > deadline:
-                    pytest.fail(f"port-forward to {service} never came up")
-                time.sleep(0.5)
-        yield f"http://127.0.0.1:{local}"
-    finally:
-        proc.terminate()
-        proc.wait(timeout=10)
-
-
-def kubectl(
-    *args: str, check: bool = True, timeout: int = 60
-) -> subprocess.CompletedProcess:
-    proc = subprocess.run(
-        ["kubectl", *args], capture_output=True, text=True, timeout=timeout
-    )
-    if check:
-        assert proc.returncode == 0, f"kubectl {' '.join(args)}: {proc.stderr}"
-    return proc
-
-
-def apply_blueprint(path: Path) -> None:
-    """Exactly what an operator of the platform runs. The registry may be
-    unreachable from the host — apply degrades to diffing against nothing
-    and still submits the CRs."""
-    proc = subprocess.run(
-        ["uv", "run", "poseidon", "blueprint", "apply", str(path), "--yes"],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        cwd=REPO_ROOT,
-    )
-    assert proc.returncode == 0, f"blueprint apply failed: {proc.stderr}"
-
-
-def wait_for_convergence(timeout_s: int = 300) -> None:
-    kubectl(
-        "wait",
-        "--for=jsonpath={.status.phase}=Active",
-        f"ns/{COMPANY_NS}",
-        f"--timeout={timeout_s}s",
-    )
-    # The lean roster: the PM is the only standing hire.
-    for hire in ("pm",):
-        kubectl(
-            "-n",
-            COMPANY_NS,
-            "rollout",
-            "status",
-            f"deployment/{hire}",
-            f"--timeout={timeout_s}s",
-            timeout=timeout_s + 30,
-        )
-    # Converged includes *policy*: after a teardown + re-apply (and
-    # possibly an OPA restart), OPA needs a poll cycle (5-15s) to activate
-    # the company bundle. Tests that run right after a finalizer re-apply
-    # otherwise land in a no_policy_installed window — a real flake that
-    # bit both test_pm and the crew suite.
-    with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
-        deadline = time.monotonic() + 120
-        while True:
-            decision = httpx.get(
-                f"{base}/v1/data/poseidon/authz/hello_saas/decision",
-                timeout=10,
-            ).json()
-            if "result" in decision:
-                return
-            assert time.monotonic() < deadline, (
-                "OPA never activated the re-applied company bundle"
-            )
-            time.sleep(3)
-
-
-def bundle_revision_from_cr() -> str:
-    return kubectl(
-        "get",
-        "company",
-        COMPANY_NS,
-        "-o",
-        "jsonpath={.status.bundleRevision}",
-    ).stdout.strip()
+from .blueprints import (
+    HELLO_SAAS,
+    apply_blueprint,
+    bundle_revision_from_cr,
+    restore_pristine,
+    wait_for_convergence,
+)
+from .cluster import (
+    COMPANY_NS,
+    PLATFORM_NS,
+    gateway_url,
+    kubectl,
+    port_forward,
+    projected_token,
+)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -146,8 +43,7 @@ def restore_company(stack: None):
     """Whatever happens in here, the suite's later files need the company
     back: re-apply and wait."""
     yield
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
+    restore_pristine()
 
 
 # -- (a) apply converges -------------------------------------------------------
@@ -159,9 +55,9 @@ def test_apply_converges_the_company(stack: None):
 
     # The namespace is operator-owned and carries its labels; the
     # orchestrator's bounded sandbox RBAC was reconciled into it.
-    labels = yaml.safe_load(kubectl("get", "ns", COMPANY_NS, "-o", "yaml").stdout)[
-        "metadata"
-    ]["labels"]
+    labels = yaml.safe_load(kubectl("get", "ns", COMPANY_NS, "-o", "yaml"))["metadata"][
+        "labels"
+    ]
     assert labels["app.kubernetes.io/managed-by"] == "poseidon-operator"
     assert labels["poseidon.dev/company"] == COMPANY_NS
     kubectl("-n", COMPANY_NS, "get", "role", "sandbox-provisioner")
@@ -177,7 +73,7 @@ def test_apply_converges_the_company(stack: None):
         "agentinstances",
         "-o",
         "jsonpath={.items[*].metadata.name}",
-    ).stdout.split()
+    ).split()
     assert instances == ["pm"], f"standing roster should be the PM only: {instances}"
     deployments = kubectl(
         "-n",
@@ -188,20 +84,20 @@ def test_apply_converges_the_company(stack: None):
         "poseidon.dev/kind=standing-agent",
         "-o",
         "jsonpath={.items[*].metadata.name}",
-    ).stdout.split()
+    ).split()
     assert deployments == ["pm"], f"unexpected standing deployments: {deployments}"
 
-    # Status is really written (the pruned-by-schema regression).
+    # Status is really written, not pruned by the CRD's status schema.
     revision = bundle_revision_from_cr()
     assert revision, "Company status.bundleRevision is empty"
-    phase = kubectl(
-        "get", "company", COMPANY_NS, "-o", "jsonpath={.status.phase}"
-    ).stdout.strip()
+    phase = kubectl("get", "company", COMPANY_NS, "-o", "jsonpath={.status.phase}")
     assert phase == "converged"
 
     # The bundle server serves that exact revision over the OPA bundle API.
-    with port_forward("bundle-server", BUNDLE_LOCAL_PORT, 8081) as base:
-        resp = httpx.get(f"{base}/bundles/{COMPANY_NS}/bundle.tar.gz", timeout=30)
+    with port_forward("svc/bundle-server", 8081) as port:
+        resp = httpx.get(
+            f"http://127.0.0.1:{port}/bundles/{COMPANY_NS}/bundle.tar.gz", timeout=30
+        )
         assert resp.status_code == 200
         assert resp.headers["etag"] == f'"{revision}"'
         with tarfile.open(fileobj=io.BytesIO(resp.content)) as tar:
@@ -213,7 +109,8 @@ def test_opa_activated_both_bundles(stack: None):
     bundle under its own package, the platform bundle under the reserved
     key — disjoint roots, both active, default-deny entrypoints."""
     revision = bundle_revision_from_cr()
-    with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
+    with port_forward("svc/opa", 8181) as port:
+        base = f"http://127.0.0.1:{port}"
         deadline = time.monotonic() + 120  # OPA polls every 5-15s
         while True:
             # Activation metadata lands in data.system.bundles.<name>
@@ -245,8 +142,8 @@ def test_opa_activated_both_bundles(stack: None):
 
 
 def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
-    """The plan's named example: change the PM's model tier, re-apply,
-    observe a rollout with no manual steps."""
+    """Change the PM's model tier, re-apply, observe a rollout with no
+    manual steps."""
     document = yaml.safe_load(HELLO_SAAS.read_text())
     assert document["departments"]["roles"]["pm"]["model_tier"] != "small"
     document["departments"]["roles"]["pm"]["model_tier"] = "small"
@@ -264,7 +161,7 @@ def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
             "pm",
             "-o",
             r"jsonpath={.spec.template.metadata.labels['poseidon\.dev/model-tier']}",
-        ).stdout.strip()
+        )
         if tier == "small":
             break
         assert time.monotonic() < deadline, f"pm pod template still at {tier!r}"
@@ -288,14 +185,10 @@ def test_company_delete_revokes(stack: None, env: dict):
     # A credential that provably works before the teardown: the standing
     # PM's projected token, exercised through the gateway (the deny is
     # policy answering — authenticated, no binding for this run id).
-    from .test_registry_durability import projected_token
-
     agent_token = projected_token(COMPANY_NS, "pm-1")
-    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
+    mcp = f"{gateway_url(env)}/mcp"
     before = httpx.get(
-        f"{gateway_url}/mcp",
-        headers={"Authorization": f"Bearer {agent_token}"},
-        timeout=10,
+        mcp, headers={"Authorization": f"Bearer {agent_token}"}, timeout=10
     )
     assert before.status_code != 401, "the pre-teardown credential must work"
 
@@ -303,8 +196,10 @@ def test_company_delete_revokes(stack: None, env: dict):
     kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s", timeout=200)
 
     # Revocation at the delivery layer: the bundle is no longer served.
-    with port_forward("bundle-server", BUNDLE_LOCAL_PORT, 8081) as base:
-        resp = httpx.get(f"{base}/bundles/{COMPANY_NS}/bundle.tar.gz", timeout=30)
+    with port_forward("svc/bundle-server", 8081) as port:
+        resp = httpx.get(
+            f"http://127.0.0.1:{port}/bundles/{COMPANY_NS}/bundle.tar.gz", timeout=30
+        )
         assert resp.status_code == 404
 
     # Across an OPA restart: a fresh OPA re-polls, gets the 404, and
@@ -322,7 +217,8 @@ def test_company_delete_revokes(stack: None, env: dict):
         "--timeout=180s",
         timeout=200,
     )
-    with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
+    with port_forward("svc/opa", 8181) as port:
+        base = f"http://127.0.0.1:{port}"
         compiled = httpx.get(
             f"{base}/v1/data/poseidon/authz/hello_saas/decision", timeout=10
         ).json()
@@ -332,16 +228,14 @@ def test_company_delete_revokes(stack: None, env: dict):
         ).json()
         assert "result" in platform
 
-    # And at the gateway: the fired agent's
-    # ServiceAccount and instance row died with the namespace, so the
-    # pre-teardown token is refused once the gateway's short authn cache
-    # (60s) drains — a failed post-teardown call, as the lifecycle demands.
+    # And at the gateway: the fired agent's ServiceAccount and instance
+    # row died with the namespace, so the pre-teardown token is refused
+    # once the gateway's short authn cache (60s) drains — a failed
+    # post-teardown call, as the lifecycle demands.
     deadline = time.monotonic() + 120
     while True:
         after = httpx.get(
-            f"{gateway_url}/mcp",
-            headers={"Authorization": f"Bearer {agent_token}"},
-            timeout=10,
+            mcp, headers={"Authorization": f"Bearer {agent_token}"}, timeout=10
         )
         if after.status_code == 401:
             break

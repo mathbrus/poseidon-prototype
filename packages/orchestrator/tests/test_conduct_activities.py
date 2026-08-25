@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from temporalio.exceptions import ApplicationError
 
+import orchestrator.clients as clients
 from orchestrator.activities.conduct import ConductActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -28,7 +29,6 @@ CONDUCT_SPEC = {
 }
 
 
-@pytest.fixture
 def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected-token")
@@ -65,22 +65,15 @@ def activities(settings, runs, companies, ledger, audit) -> ConductActivities:
     return ConductActivities(settings, runs, companies, ledger, audit)
 
 
-def _backlog_gateway(monkeypatch, issues: list[dict[str, Any]]):
+def _backlog_gateway(monkeypatch, fake_gateway, issues: list[dict[str, Any]]):
     import orchestrator.activities.conduct as module
 
-    class FakeGateway:
-        def __init__(self, *a, **k): ...
+    async def read_open_issues(self, run_id, repo):
+        return issues
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *a):
-            return False
-
-        async def read_open_issues(self, run_id, repo):
-            return issues
-
-    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(read_open_issues=read_open_issues)
+    )
 
 
 def _opa(monkeypatch, allow: bool, rule: str):
@@ -143,9 +136,9 @@ def _issue(number: int) -> dict[str, Any]:
 
 
 def test_observe_backlog_is_unconsumed_sorted_and_body_free(
-    activities, runs, ledger, monkeypatch
+    activities, runs, ledger, monkeypatch, fake_gateway
 ):
-    _backlog_gateway(monkeypatch, [_issue(7), _issue(3), _issue(5)])
+    _backlog_gateway(monkeypatch, fake_gateway, [_issue(7), _issue(3), _issue(5)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     observed = asyncio.run(activities.conduct_observe())
     assert [i["number"] for i in observed["backlog"]] == [5, 7]
@@ -154,9 +147,9 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
 
 
 def test_observe_counts_running_delivery_runs_and_todays_spend(
-    activities, runs, ledger, monkeypatch
+    activities, runs, ledger, monkeypatch, fake_gateway
 ):
-    _backlog_gateway(monkeypatch, [])
+    _backlog_gateway(monkeypatch, fake_gateway, [])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     runs.start("run-b", "goal", "intake", company=COMPANY)  # not capacity
     runs.finish("run-c", "done")
@@ -178,18 +171,22 @@ def test_observe_counts_running_delivery_runs_and_todays_spend(
     assert len(observed["recent_runs"]) == 3
 
 
-def test_observe_exhausted_backlog_offers_nothing(activities, runs, monkeypatch):
+def test_observe_exhausted_backlog_offers_nothing(
+    activities, runs, monkeypatch, fake_gateway
+):
     """A failed issue-run is a recorded outcome, not an invitation to
     retry forever: every consumed issue stays consumed."""
-    _backlog_gateway(monkeypatch, [_issue(3)])
+    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     runs.finish("run-a", "failed", error="boom")
     observed = asyncio.run(activities.conduct_observe())
     assert observed["backlog"] == []
 
 
-def test_observe_offers_delivered_unreviewed_prs(activities, runs, monkeypatch):
-    _backlog_gateway(monkeypatch, [])
+def test_observe_offers_delivered_unreviewed_prs(
+    activities, runs, monkeypatch, fake_gateway
+):
+    _backlog_gateway(monkeypatch, fake_gateway, [])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
     runs.start("run-b", "implement issue #5", "implement", company=COMPANY)
@@ -265,7 +262,6 @@ OBSERVED = {
 
 
 def _pm(monkeypatch, status: dict[str, Any]):
-    import orchestrator.activities.conduct as module
 
     class FakeAgent:
         dispatched: list[tuple[str, str, str]] = []
@@ -285,7 +281,7 @@ def _pm(monkeypatch, status: dict[str, Any]):
         async def status(self, run_id):
             return status
 
-    monkeypatch.setattr(module, "AgentClient", FakeAgent)
+    monkeypatch.setattr(clients, "AgentClient", FakeAgent)
     return FakeAgent
 
 

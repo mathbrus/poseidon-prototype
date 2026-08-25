@@ -1,5 +1,4 @@
-"""Kubernetes-Jobs implementation of the SandboxBackend contract — the
-default backend.
+"""Kubernetes-Jobs implementation of the SandboxBackend contract.
 
 One Job per run in the company namespace: resource caps and
 activeDeadlineSeconds come from the SandboxPolicy, the toolserver image runs
@@ -23,12 +22,8 @@ from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 
 from common.telemetry import get_logger
-from sandbox.backends.k8s_jobs.manifest import (
-    TOOLSERVER_PORT,
-    build_job,
-    job_name,
-)
 from sandbox.contract import SandboxHandle, SandboxPolicy
+from sandbox.manifest import TOOLSERVER_PORT, build_job, job_name
 
 POD_START_TIMEOUT_S = 120
 READY_TIMEOUT_S = 60
@@ -51,10 +46,10 @@ _READY_CMD = (
 # `.git/info/exclude` — git's local ignore, never committed, so `git add -A`
 # skips them and the PR diff is exactly the agent's own changes. This is
 # what lets a policy-resolved merge gate confine a delegated class to real
-# source paths; under a human gate the incidental `.poseidon-base` and
-# `__pycache__` files were harmless noise, but the delegated class refuses
-# any path outside it. The marker file still exists on disk for the tool
-# server to read — excluding it from git does not remove it.
+# source paths: it refuses any path outside that class, so an incidental
+# `.poseidon-base` or `__pycache__` in the diff would park the merge. The
+# marker file still exists on disk for the tool server to read — excluding
+# it from git does not remove it.
 _PREPARE_CMD = (
     "set -e; cd {workspace}; "
     "git remote | xargs -r -n1 git remote remove; "
@@ -76,7 +71,7 @@ class K8sJobsBackend:
         self._batch = k8s.BatchV1Api(api_client)
         self._core = k8s.CoreV1Api(api_client)
         self._namespace = namespace
-        self._log = get_logger("sandbox.backends.k8s_jobs")
+        self._log = get_logger("sandbox.k8s_jobs")
 
     def provision(
         self, run_id: str, workspace_tar: bytes, policy: SandboxPolicy

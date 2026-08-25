@@ -25,8 +25,8 @@ containment.
 | Module | Owns |
 |---|---|
 | `contract.py` | `SandboxBackend`, `SandboxPolicy`, `SandboxHandle` — the narrow seam behind which runtimes are swapped. |
-| `backends/k8s_jobs/backend.py` | The default backend: one Job per run, workspace delivered over the Kubernetes exec API. |
-| `backends/k8s_jobs/manifest.py` | The Job manifest as a pure function of the policy — caps, deadline, workspace scope, env injection, security context. |
+| `k8s_jobs.py` | The backend: one Job per run, workspace delivered over the Kubernetes exec API. |
+| `manifest.py` | The Job manifest as a pure function of the policy — caps, deadline, workspace scope, env injection, security context. |
 | `toolserver/app.py` | The in-sandbox HTTP server the gateway proxies the six `sandbox.*` tools to. |
 | `egressproxy/proxy.py` | The forward proxy: host allowlist, per-run attribution, an audit event for every decision. |
 | `egressproxy/credentials.py` | The self-authenticating per-run credential, and `resolve_host`. |
@@ -222,9 +222,9 @@ retry.
 
 | What | How | Image |
 |---|---|---|
-| tool server | `uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000` | `Dockerfile.sandbox` |
-| egress proxy | `python -m sandbox.egressproxy` | `Dockerfile.egressproxy` |
-| backend | library, called by the orchestrator | ships in `Dockerfile.orchestrator` |
+| tool server | `uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000` | `poseidon-sandbox` |
+| egress proxy | `python -m sandbox.egressproxy` | `poseidon-egress-proxy` |
+| backend | library, called by the orchestrator | ships in `poseidon-orchestrator` |
 
 The sandbox image prebakes its toolchain (pytest via the `toolchain`
 extra) because sandbox egress is proxy-only and an empty allowlist means
@@ -246,12 +246,12 @@ never carries a database driver or registry credentials.
   its audit events; **compiler** produces the infra IR the policy and
   allowlist are projections of.
 
-## On OpenShell
+## One backend
 
-An external sandbox runtime, OpenShell, was evaluated against this
-contract and **not adopted**. The posture it suggested was borrowed; the
-backend was removed rather than carried as dead code. The evaluation and
-the removal are in git history if the reasoning is needed again.
+`k8s_jobs` is the only backend. The `SandboxBackend` Protocol exists for
+the seam, not for a second runtime: provisioning takes a compiled
+`SandboxPolicy` — the compiler's infra IR — and never hand-authored
+values, and the Protocol is what pins that shape.
 
 ## Tests
 

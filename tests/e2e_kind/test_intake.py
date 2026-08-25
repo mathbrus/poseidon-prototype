@@ -10,17 +10,11 @@ import contextlib
 import re
 
 from common.ids import new_run_id
-from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.intake import IntakeInput
 
-from .conftest import (
-    TASK_QUEUE,
-    _psql_json,
-    audit_story,
-    deployed_timeouts,
-    github_api,
-    temporal_port_forward,
-)
-from .test_crew_identity import _registry
+from .cluster import audit_story, psql_json, registry, temporal_port_forward
+from .conftest import TASK_QUEUE, deployed_timeouts, github_api, target_slug
 
 
 def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> None:
@@ -38,7 +32,7 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
             handle = await client.start_workflow(
                 "intake",
                 IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
-                id=intake_workflow_id(run_id),
+                id=workflow_id("intake", run_id),
                 task_queue=TASK_QUEUE,
             )
             return await asyncio.wait_for(handle.result(), timeout=600)
@@ -55,18 +49,16 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
         match = re.search(r"/issues/(\d+)$", record["ticket_urls"][0])
         assert match, record["ticket_urls"]
         issue_number = int(match.group(1))
-        slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
-        issue = github_api(env, "GET", f"/repos/{slug}/issues/{issue_number}")
+        issue = github_api(env, "GET", f"/repos/{target_slug(env)}/issues/{issue_number}")
         assert issue.status_code == 200 and issue.json()["state"] == "open"
 
         # The recorded, expiring request under the PM's authority — the
         # intake -> implement handoff a later implement run consumes.
-        rows = _psql_json(
+        rows = psql_json(
             "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
             "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
             ") c",
-            run_id,
-            default="[]",
+            run_id=run_id,
         )
         assert len(rows) == 1
         assert rows[0]["conductor"] == "pm-1"
@@ -84,16 +76,15 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
             assert event["workflow"] == "intake"
     finally:
         if issue_number is not None:
-            slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
             with contextlib.suppress(Exception):
                 github_api(
                     env,
                     "PATCH",
-                    f"/repos/{slug}/issues/{issue_number}",
+                    f"/repos/{target_slug(env)}/issues/{issue_number}",
                     json={"state": "closed"},
                 )
-        with _registry() as registry:
-            registry.execute(
+        with registry() as client:
+            client.execute(
                 "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
             )
-            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+            client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))

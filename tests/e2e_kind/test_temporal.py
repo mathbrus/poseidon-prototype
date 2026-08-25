@@ -8,7 +8,6 @@ test needs host access to Temporal yet).
 """
 
 import asyncio
-import subprocess
 import uuid
 from datetime import timedelta
 
@@ -20,7 +19,7 @@ from temporalio.worker import Worker
 # non-deterministic (pytest, the conftest's httpx/runner imports) must be
 # passed through rather than re-imported under restrictions.
 with workflow.unsafe.imports_passed_through():
-    from .conftest import PLATFORM_NS, temporal_port_forward
+    from .cluster import PLATFORM_NS, kubectl, temporal_port_forward
 
 SERVER_DEPLOYMENTS = [
     "temporal-frontend",
@@ -46,25 +45,15 @@ class SmokeWorkflow:
 
 def restart_temporal_server() -> None:
     for deploy in SERVER_DEPLOYMENTS:
-        subprocess.run(
-            ["kubectl", "-n", PLATFORM_NS, "rollout", "restart", f"deployment/{deploy}"],
-            check=True,
-            capture_output=True,
-            timeout=60,
-        )
+        kubectl("-n", PLATFORM_NS, "rollout", "restart", f"deployment/{deploy}")
     for deploy in SERVER_DEPLOYMENTS:
-        subprocess.run(
-            [
-                "kubectl",
-                "-n",
-                PLATFORM_NS,
-                "rollout",
-                "status",
-                f"deployment/{deploy}",
-                "--timeout=300s",
-            ],
-            check=True,
-            capture_output=True,
+        kubectl(
+            "-n",
+            PLATFORM_NS,
+            "rollout",
+            "status",
+            f"deployment/{deploy}",
+            "--timeout=300s",
             timeout=330,
         )
 

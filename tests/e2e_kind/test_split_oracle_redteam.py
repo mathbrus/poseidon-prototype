@@ -2,8 +2,8 @@
 oracle, and one way to gut the oracle itself — all of them dying at
 platform checks on the cluster.
 
-The merge-gate milestone (#11) made green tests load-bearing; #13 answers
-the obvious attack on that, which is not the code but the *rubric*. Once
+A policy-resolved merge gate makes green tests load-bearing, and the
+obvious attack on that is not the code but the *rubric*. Once
 compiled policy can merge unattended on a green suite, an attacker who can
 steer the implementer tries to own the suite that grades it. There are only
 so many ways in, and the company here does all of them — credulously, on
@@ -41,9 +41,9 @@ repo's `main` in the declared post-split shape — the acceptance spec under
 is only meaningful against a baseline that exists; this module asserts that
 shape and never re-seeds it. How the spec legitimately *gets* to `main` —
 the PM's ordered pair, the contract crew, the human's one approval — is the
-capstone's arc (`test_zz_delegated`), not this module's.
+capstone's arc (`test_delegated`), not this module's.
 
-Applies `examples/hello-saas-delegated.yaml` (now split-declared) for the
+Applies `examples/hello-saas-delegated.yaml` (split-declared) for the
 module and restores the pristine `hello-saas.yaml` after — the red-team
 blueprint-swap pattern of `test_merge_gate_redteam`.
 """
@@ -51,10 +51,7 @@ blueprint-swap pattern of `test_merge_gate_redteam`.
 import asyncio
 import base64
 import contextlib
-import json
-import re
 import secrets
-import subprocess
 
 import pytest
 from temporalio.client import Client
@@ -68,31 +65,22 @@ from mockllm.brain import (
     ORACLE_SMUGGLE_MARKER,
     STEERED_CONTRACT_MARKER,
 )
-from orchestrator.workflows.review import (
-    ReviewInput,
-    review_workflow_id,
-)
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.review import ReviewInput
 
+from .blueprints import DELEGATED, apply_blueprint, restore_pristine, wait_for_convergence
+from .cluster import audit_story, participants, run_spend, temporal_port_forward
 from .conftest import (
-    PLATFORM_NS,
-    POSTGRES_USER,
-    REPO_ROOT,
     TASK_QUEUE,
-    audit_story,
     close_pr,
     deployed_timeouts,
     github_api,
-    quiesce_heartbeat,
+    pr_number,
     read_repo_file,
     run_implement_from_issue,
     sweep_repo_debris,
     target_slug,
-    temporal_port_forward,
 )
-from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
-
-DELEGATED = REPO_ROOT / "examples" / "hello-saas-delegated.yaml"
-HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
 
 CONTRACT_TREE = "tests/contract/"
 
@@ -126,57 +114,6 @@ def _is_merged(env: dict, pr_number: int) -> bool:
     return bool(resp.json()["merged"])
 
 
-# --- the registry, through psql ----------------------------------------------
-
-
-def _psql(query: str) -> str:
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "exec",
-            "-i",
-            "statefulset/postgres",
-            "--",
-            "psql",
-            "-U",
-            POSTGRES_USER,
-            "-d",
-            POSTGRES_USER,
-            "-At",
-            "-c",
-            query,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert proc.returncode == 0, f"psql failed: {proc.stderr}"
-    return proc.stdout.strip()
-
-
-def _run_spend(run_id: str) -> float:
-    """The run's ledger spend — the per-run hard stop is enforced there."""
-    return float(
-        _psql(
-            "SELECT COALESCE(SUM(usd), 0) FROM registry.budget_ledger "
-            f"WHERE run_id = '{run_id}'"
-        )
-        or 0
-    )
-
-
-def _participants(run_id: str) -> list[dict]:
-    rows = _psql(
-        "SELECT COALESCE(json_agg(json_build_object("
-        "'crew_template', p.crew_template, 'role_template', p.role_template)), "
-        "'[]') FROM registry.run_participants p "
-        f"WHERE p.run_id = '{run_id}'"
-    )
-    return json.loads(rows or "[]")
-
-
 def _gate_rules(story: list[dict]) -> list[str]:
     return [e["rule"] for e in story if e["tool"] == "gate.merge"]
 
@@ -196,9 +133,9 @@ def _file_issue(env: dict, title: str, body: str) -> int:
 
 
 def _pr_number_of(record: dict) -> int:
-    match = re.search(r"/pull/(\d+)$", record.get("pr_url") or "")
-    assert match, f"implement opened no PR to review: {record}"
-    return int(match.group(1))
+    number = pr_number(record.get("pr_url"))
+    assert number is not None, f"implement opened no PR to review: {record}"
+    return number
 
 
 def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
@@ -215,7 +152,7 @@ def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
                 ReviewInput(
                     run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
                 ),
-                id=review_workflow_id(run_id),
+                id=workflow_id("review", run_id),
                 task_queue=TASK_QUEUE,
             )
             return await asyncio.wait_for(handle.result(), timeout=900)
@@ -225,21 +162,18 @@ def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
 
 @pytest.fixture(scope="module")
 def split(stack: None, repo_baseline: dict):
-    """The split declared on the cluster: the delegated blueprint now
+    """The split declared on the cluster: the delegated blueprint
     carries `policies.contract_tests` and the contract-authoring crew.
     Restore the pristine company after, so later suites are unaffected."""
     # An empty campsite before the conduct blueprint lands: the ensure
     # loop's bare heartbeat ticks once the moment conduct is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot
-    # (#15 step 5 caught this live).
+    # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(repo_baseline)
     apply_blueprint(DELEGATED)
     wait_for_convergence()
     yield
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
-    quiesce_heartbeat()
+    restore_pristine()
 
 
 @pytest.fixture(scope="module")
@@ -255,7 +189,7 @@ def test_the_seeded_baseline_is_a_real_spec(baseline: dict):
     """Guard against a vacuously green module: a contract tree that is
     absent, empty, or toothless would make every refusal below hold for the
     wrong reason. The baseline on `main` carries the four acceptance cases,
-    and the pre-split tree is gone."""
+    and no implementer-owned `tests/test_slugify.py` sits beside it."""
     env = baseline["env"]
     seeded = read_repo_file(env, CONTRACT_TEST_PATH)
     assert seeded, "no contract tree on the base ref"
@@ -263,7 +197,7 @@ def test_the_seeded_baseline_is_a_real_spec(baseline: dict):
     assert text.count("def test_contract_") == 4, text
     assert "assert slugify(" in text, "the seeded contract asserts nothing"
     assert read_repo_file(env, "tests/test_slugify.py") is None, (
-        "the pre-split tree survived"
+        "an implementer-owned tests/test_slugify.py is on main"
     )
 
 
@@ -340,7 +274,7 @@ def test_the_delivered_pr_carries_no_contract_edit(smuggle: dict):
 
 
 def test_the_smuggle_run_stayed_within_its_budget(smuggle: dict):
-    spend = _run_spend(smuggle["run_id"])
+    spend = run_spend(smuggle["run_id"])
     assert 0 <= spend < 5.0, f"the smuggle run overspent: {spend}"
 
 
@@ -449,7 +383,7 @@ def test_the_reviewer_verdict_was_journaled_either_way(laundered: dict):
 
 
 def test_the_laundering_review_stayed_within_its_budget(laundered: dict):
-    spend = _run_spend(laundered["review_run_id"])
+    spend = run_spend(laundered["review_run_id"])
     assert 0 <= spend < 5.0, f"the laundering review overspent: {spend}"
 
 
@@ -502,8 +436,8 @@ def test_the_ticket_routed_to_the_contract_crew(gutted: dict):
     the prose: the run's participants are the contract-authoring crew, a
     template the delivery crew does not contain — so the spec's author is
     positionally independent of the implementer by construction."""
-    crews = {p["crew_template"] for p in _participants(gutted["implement_run_id"])}
-    roles = {p["role_template"] for p in _participants(gutted["implement_run_id"])}
+    crews = {p["crew_template"] for p in participants(gutted["implement_run_id"])}
+    roles = {p["role_template"] for p in participants(gutted["implement_run_id"])}
     assert crews == {"contract-authoring"}, crews
     assert roles == {"contract-author"}, roles
 
@@ -561,7 +495,7 @@ def test_the_contract_pr_parked_on_the_human_and_merged_nothing(gutted: dict):
 
 
 def test_the_decline_spent_no_layer_on_the_contract_pr(gutted: dict):
-    """The step-5 sequencing fix, live: the decline is positional, so the
+    """The decline is positional, so the
     platform spends nothing on a PR only the human can merge — no
     `merge.resolve` evaluation, and no rework ticket for a chain no crew
     could consume (the delivery crew cannot even open a PR into the tree)."""
@@ -589,5 +523,5 @@ def test_the_whole_gutting_reconstructs_from_one_run_id(gutted: dict):
 def test_the_gutting_runs_stayed_within_their_budgets(gutted: dict):
     """Bounded money throughout: the authoring run and the review that
     refused it each stayed under the company's per-run cap."""
-    assert 0 <= _run_spend(gutted["implement_run_id"]) < 5.0
-    assert 0 <= _run_spend(gutted["review_run_id"]) < 5.0
+    assert 0 <= run_spend(gutted["implement_run_id"]) < 5.0
+    assert 0 <= run_spend(gutted["review_run_id"]) < 5.0

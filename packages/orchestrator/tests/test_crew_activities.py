@@ -13,7 +13,14 @@ from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import service_account_name
 from orchestrator.identity import ephemeral_agent_id
-from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
+from registry.memory import (
+    InMemoryAuditStore,
+    InMemoryBudgetLedger,
+    InMemoryCompanies,
+    InMemoryCrewRequests,
+    InMemoryRunParticipants,
+    InMemoryRuns,
+)
 
 RUN_ID = "run-01CREW"
 
@@ -27,7 +34,6 @@ SPEC = {
 }
 
 
-@pytest.fixture
 def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected")
@@ -50,7 +56,15 @@ def audit() -> InMemoryAuditStore:
 
 @pytest.fixture
 def crew(settings, participants, audit) -> CrewActivities:
-    return CrewActivities(settings, participants, audit)
+    return CrewActivities(
+        settings,
+        participants,
+        audit,
+        InMemoryCrewRequests(),
+        InMemoryCompanies(),
+        InMemoryBudgetLedger(),
+        InMemoryRuns(),
+    )
 
 
 def test_bind_writes_the_whole_identity_row(crew, participants, audit):

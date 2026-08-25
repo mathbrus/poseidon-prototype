@@ -1,4 +1,4 @@
-"""The governance regression, against policy compiled from
+"""Governance, against policy compiled from
 `examples/hello-saas.yaml` and *installed* on the live cluster.
 
 Two layers. The OPA half queries the running OPA's decision paths directly
@@ -8,26 +8,29 @@ binding, cross-company tenancy, the platform scope. The gateway half drives
 real calls with projected workload tokens through the whole pipeline:
 authn -> registry enrichment -> compiled decision -> audit.
 
-The lean roster is in force: the standing engineer is
-fired and execution is ephemeral crews, so the executor-side checks here
-use the ephemeral input shape (role + crew_template + crew_role), and
-the firing itself is proven — a standing backend-engineer input finds
-nothing in the compiled bundle. Injection deny + recovery runs in
+The roster is lean: the PM is the only standing hire and execution is
+ephemeral crews, so the executor-side checks here use the ephemeral input
+shape (role + crew_template + crew_role), and a standing backend-engineer
+input finds nothing in the compiled bundle. Injection deny + recovery runs in
 test_injection.py through the crew executor's deliver dispatch.
 """
 
-import asyncio
-import subprocess
+import json
 import time
 from typing import Any
 
 import httpx
 
-from .conftest import COMPANY_NS, PLATFORM_NS, _psql_json
-from .test_operator_lifecycle import port_forward
-from .test_registry_durability import projected_token
+from .cluster import (
+    COMPANY_NS,
+    PLATFORM_NS,
+    mcp_call,
+    port_forward,
+    projected_token,
+    psql,
+    psql_json,
+)
 
-OPA_LOCAL_PORT = 18182
 COMPANY_DECISION = "poseidon/authz/hello_saas/decision"
 PLATFORM_DECISION = "poseidon/platform/decision"
 
@@ -70,7 +73,7 @@ def executor(
     company: str = "hello-saas",
 ) -> dict[str, Any]:
     """The crew executor's input shape — the only execution identity
-    now that the standing backend-engineer role is retired."""
+    there is no standing backend-engineer role."""
     return {
         "company": company,
         "agent_id": "feature-delivery-executor-run-gov",
@@ -91,7 +94,8 @@ def executor(
 
 
 def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
-    with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
+    with port_forward("svc/opa", 8181) as port:
+        base = f"http://127.0.0.1:{port}"
         # Per-role scoping: the crew executor works inside a verified run
         # binding; without one the same call fails closed (wrong/stale
         # run_id — the data.runs.assignments successor).
@@ -105,7 +109,7 @@ def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
 
         # Provable in policy: a standing
         # backend-engineer finds nothing in the compiled bundle — the role
-        # exists only as crew members now.
+        # exists only as crew members.
         fired = _decide(
             base, COMPANY_DECISION, standing("backend-engineer", "sandbox.exec")
         )
@@ -172,30 +176,11 @@ def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
 # -- the whole pipeline decides (gateway layer) ------------------------------
 
 
-class _McpCaller:
-    """One authenticated MCP session against the NodePort gateway."""
-
-    def __init__(self, gateway_url: str, token: str) -> None:
-        self._url = gateway_url
-        self._token = token
-
-    async def call(self, tool: str, args: dict[str, Any]):
-        from orchestrator.clients import GatewayClient
-
-        async with GatewayClient(self._url, self._token) as gateway:
-            return await gateway._session.call_tool(tool, args)
-
-
-def _call(env: dict, token: str, tool: str, args: dict[str, Any]):
-    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
-    return asyncio.run(_McpCaller(gateway_url, token).call(tool, args))
-
-
 def test_pm_is_denied_executor_tools_at_the_gateway(stack: None, env: dict) -> None:
     """The PM instance's own workload identity, through the live pipeline:
     the compiled bundle leaves `pm` no sandbox surface at all."""
     token = projected_token(COMPANY_NS, "pm-1")
-    result = _call(
+    result = mcp_call(
         env, token, "sandbox.exec", {"run_id": "run-gov-pm", "cmd": "id", "timeout_s": 5}
     )
     assert result.isError
@@ -204,42 +189,25 @@ def test_pm_is_denied_executor_tools_at_the_gateway(stack: None, env: dict) -> N
 
 def test_denies_are_in_the_audit_story(stack: None) -> None:
     """The PM's denied sandbox.exec above must be reconstructable."""
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "exec",
-            "-i",
-            "statefulset/postgres",
-            "--",
-            "psql",
-            "-U",
-            "poseidon",
-            "-d",
-            "poseidon",
-            "-At",
-            "-c",
-            "SELECT count(*) FROM registry.audit_events"
-            " WHERE agent_id = 'pm-1' AND decision = 'deny'"
-            "   AND tool = 'sandbox.exec' AND ts > now() - interval '10 minutes'",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
+    count = psql(
+        "SELECT count(*) FROM registry.audit_events"
+        " WHERE agent_id = :'agent' AND decision = 'deny'"
+        "   AND tool = :'tool' AND ts > now() - interval '10 minutes'",
+        agent="pm-1",
+        tool="sandbox.exec",
     )
-    assert proc.returncode == 0, proc.stderr
-    assert int(proc.stdout.strip()) >= 1
+    assert int(count) >= 1
 
 
 # -- the whole tool surface, live --------------------------------------------
 
 
-def test_installed_bundle_covers_the_new_tools(stack: None) -> None:
-    """Per-role scoping for the grown surface: PM owns issues + crew
+def test_installed_bundle_scopes_issue_review_and_crew_tools(stack: None) -> None:
+    """Per-role scoping beyond the sandbox tools: PM owns issues + crew
     intent, the reviewer owns the review tools, nobody else does — and
     crew.request is narrowed to the conductor's may_spawn list."""
-    with port_forward("opa", OPA_LOCAL_PORT, 8181) as base:
+    with port_forward("svc/opa", 8181) as port:
+        base = f"http://127.0.0.1:{port}"
         assert (
             _decide(base, COMPANY_DECISION, standing("pm", "issues.create"))["allow"]
             is True
@@ -293,7 +261,7 @@ def test_pm_records_crew_intent_at_the_gateway(stack: None, env: dict) -> None:
     token = projected_token(COMPANY_NS, "pm-1")
     run_id = f"run-gov-crew-{int(time.time())}"
 
-    first = _call(
+    first = mcp_call(
         env,
         token,
         "crew.request",
@@ -304,13 +272,11 @@ def test_pm_records_crew_intent_at_the_gateway(stack: None, env: dict) -> None:
         },
     )
     assert not first.isError, first.content
-    import json as _json
-
-    recorded = _json.loads(first.content[0].text)
+    recorded = json.loads(first.content[0].text)
     assert recorded["status"] == "recorded"
     assert recorded["conductor"] == "pm-1"
 
-    again = _call(
+    again = mcp_call(
         env,
         token,
         "crew.request",
@@ -320,19 +286,18 @@ def test_pm_records_crew_intent_at_the_gateway(stack: None, env: dict) -> None:
             "reason": "governance e2e retried",
         },
     )
-    assert _json.loads(again.content[0].text)["id"] == recorded["id"]
+    assert json.loads(again.content[0].text)["id"] == recorded["id"]
 
-    rows = _psql_json(
+    rows = psql_json(
         "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
         "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
         ") c",
-        run_id,
-        default="[]",
+        run_id=run_id,
     )
     assert len(rows) == 1 and rows[0]["status"] == "recorded"
     assert rows[0]["expires_at"] is not None
 
-    denied = _call(
+    denied = mcp_call(
         env,
         token,
         "crew.request",
@@ -347,7 +312,7 @@ def test_merge_is_platform_only_at_the_gateway(stack: None, env: dict) -> None:
     not exist — nothing merged), while company roles are rule-denied."""
     target = env.get("TARGET_REPO", "")
     orchestrator = projected_token(PLATFORM_NS, "orchestrator-worker")
-    allowed = _call(
+    allowed = mcp_call(
         env,
         orchestrator,
         "git.merge_pr",
@@ -361,7 +326,7 @@ def test_merge_is_platform_only_at_the_gateway(stack: None, env: dict) -> None:
     # The one standing company identity left (the OPA layer already covers
     # the ephemeral executor's merge deny).
     token = projected_token(COMPANY_NS, "pm-1")
-    denied = _call(
+    denied = mcp_call(
         env,
         token,
         "git.merge_pr",

@@ -9,59 +9,21 @@ and the installed-bundle checks; this file proves the affirmative half.
 
 import contextlib
 import re
-import socket
-import subprocess
 import time
 
 import httpx
 
 from common.ids import new_run_id
 
-from .conftest import COMPANY_NS, _psql_json, audit_story, github_api
-from .test_crew_identity import _registry
-
-PM_LOCAL_PORT = 18002
-
-
-@contextlib.contextmanager
-def _pm_forward():
-    proc = subprocess.Popen(
-        ["kubectl", "-n", COMPANY_NS, "port-forward", "svc/pm", f"{PM_LOCAL_PORT}:8000"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    try:
-        deadline = time.monotonic() + 30
-        while True:
-            try:
-                with socket.create_connection(("127.0.0.1", PM_LOCAL_PORT), timeout=1):
-                    break
-            except OSError as exc:
-                if time.monotonic() > deadline:
-                    raise RuntimeError("port-forward to the PM never came up") from exc
-                time.sleep(0.5)
-        yield f"http://127.0.0.1:{PM_LOCAL_PORT}"
-    finally:
-        proc.terminate()
-        proc.wait(timeout=10)
+from .cluster import COMPANY_NS, audit_story, kubectl, port_forward, psql_json, registry
+from .conftest import github_api, target_slug
 
 
 def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
-    ready = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            COMPANY_NS,
-            "get",
-            "deployment/pm",
-            "-o",
-            "jsonpath={.status.readyReplicas}",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
+    ready = kubectl(
+        "-n", COMPANY_NS, "get", "deployment/pm", "-o", "jsonpath={.status.readyReplicas}"
     )
-    assert ready.stdout.strip() == "1", "the PM instance is not deployed/ready"
+    assert ready == "1", "the PM instance is not deployed/ready"
 
     run_id = new_run_id()
     goal = (
@@ -69,15 +31,16 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
         f"(e2e pm goal {run_id[-6:].lower()})"
     )
 
-    with _registry() as registry:
+    with registry() as client:
         from registry import Runs
 
         # The dispatching workflow creates the run in production; here the test
         # is the workflow.
-        Runs(registry).start(run_id, goal, "intake", None, "hello-saas")
+        Runs(client).start(run_id, goal, "intake", None, "hello-saas")
         issue_number = None
         try:
-            with _pm_forward() as base:
+            with port_forward("svc/pm", 8000, namespace=COMPANY_NS) as port:
+                base = f"http://127.0.0.1:{port}"
                 resp = httpx.post(
                     f"{base}/task", json={"run_id": run_id, "task_text": goal}, timeout=30
                 )
@@ -97,19 +60,19 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
             match = re.search(r"/issues/(\d+)$", status["ticket_urls"][0])
             assert match, status["ticket_urls"]
             issue_number = int(match.group(1))
-            slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
-            issue = github_api(env, "GET", f"/repos/{slug}/issues/{issue_number}")
+            issue = github_api(
+                env, "GET", f"/repos/{target_slug(env)}/issues/{issue_number}"
+            )
             assert issue.status_code == 200
             assert issue.json()["state"] == "open"
             assert goal[:40] in issue.json()["title"] + issue.json()["body"]
 
             assert status["crew_request_id"], "no crew intent recorded"
-            rows = _psql_json(
+            rows = psql_json(
                 "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
                 "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
                 ") c",
-                run_id,
-                default="[]",
+                run_id=run_id,
             )
             assert len(rows) == 1
             assert rows[0]["conductor"] == "pm-1"
@@ -127,15 +90,14 @@ def test_pm_is_deployed_and_scopes_a_goal(stack: None, env: dict) -> None:
                 assert event["decision"] == "allow"
         finally:
             if issue_number is not None:
-                slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
                 with contextlib.suppress(Exception):
                     github_api(
                         env,
                         "PATCH",
-                        f"/repos/{slug}/issues/{issue_number}",
+                        f"/repos/{target_slug(env)}/issues/{issue_number}",
                         json={"state": "closed"},
                     )
-            registry.execute(
+            client.execute(
                 "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
             )
-            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+            client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))

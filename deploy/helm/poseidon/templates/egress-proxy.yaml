@@ -27,8 +27,7 @@ spec:
       securityContext:
         {{- include "poseidon.podSecurityContext" . | nindent 8 }}
       volumes:
-        - name: tmp
-          emptyDir: {}
+        {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
         - name: proxy
           image: "{{ .Values.egressProxy.image.repository }}:{{ .Values.egressProxy.image.tag }}"
@@ -36,10 +35,8 @@ spec:
           securityContext:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
-            - name: tmp
-              mountPath: /tmp
+            {{- include "poseidon.scratchMount" . | nindent 12 }}
           env:
-            {{- include "poseidon.otelEnv" (dict "root" $ "service" "egress-proxy") | nindent 12 }}
             - name: EGRESS_PROXY_KEY
               valueFrom:
                 secretKeyRef:
@@ -48,11 +45,7 @@ spec:
             # The allowlist is the applied blueprint's IR projection,
             # resolved per run through the registry, no
             # static host config.
-            - name: REGISTRY_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: registry-credentials
-                  key: REGISTRY_DSN
+            {{- include "poseidon.registryDsnEnv" . | nindent 12 }}
           ports:
             - containerPort: 3128
           readinessProbe:

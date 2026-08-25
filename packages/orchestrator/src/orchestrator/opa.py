@@ -14,17 +14,12 @@ from typing import Any
 
 import httpx
 
+from common.policy import company_decision_path
+
 # A caller with no served bundle gets a deny, not an exception: an
 # unconverged company must fail closed, exactly as the default-deny rule
 # would inside a bundle that was installed.
 NO_POLICY = {"allow": False, "rule": "no_policy_installed"}
-
-
-def company_slug(company: str) -> str:
-    """The company's Rego package segment — the OPA decision path and bundle
-    root the compiler emits (`compiler.rego.company_package`). Must match, so
-    it is derived the same way from the same input."""
-    return company.replace(".", "_").replace("-", "_").replace("/", "_")
 
 
 async def evaluate_decision(
@@ -35,8 +30,7 @@ async def evaluate_decision(
     serves no policy for it."""
     async with httpx.AsyncClient(timeout=10.0) as http:
         resp = await http.post(
-            f"{opa_url.rstrip('/')}/v1/data/poseidon/authz/"
-            f"{company_slug(company)}/decision",
+            f"{opa_url.rstrip('/')}/v1/data/{company_decision_path(company)}",
             json={"input": decision_input},
         )
         resp.raise_for_status()

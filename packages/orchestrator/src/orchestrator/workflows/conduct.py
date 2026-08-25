@@ -41,16 +41,15 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 from temporalio.workflow import ParentClosePolicy
 
-from orchestrator.workflows.implement import (
+from orchestrator.workflows.base import (
     DISPATCH_RETRY,
     STEP_RETRY,
-    ImplementInput,
+    RunWorkflow,
     Timeouts,
+    workflow_id,
 )
-from orchestrator.workflows.implement import (
-    workflow_id as implement_workflow_id,
-)
-from orchestrator.workflows.review import ReviewInput, review_workflow_id
+from orchestrator.workflows.implement import ImplementInput
+from orchestrator.workflows.review import ReviewInput
 
 
 @dataclass
@@ -64,14 +63,8 @@ class ConductInput:
     timeouts: Timeouts | None = None
 
 
-def conduct_workflow_id(company: str) -> str:
-    """One heartbeat per company — keyed by company, not run: the loop is
-    standing structure, and its audit story correlates on this id."""
-    return f"conduct-{company}"
-
-
 @workflow.defn(name="conduct")
-class ConductWorkflow:
+class ConductWorkflow(RunWorkflow):
     def __init__(self) -> None:
         self._phase = "ticking"
 
@@ -106,85 +99,18 @@ class ConductWorkflow:
                 # the per-run budget stop — "nobody may start work today"
                 # must be as visible as "this run is out of money".
                 rule = "daily_cap_reached"
-                await workflow.execute_activity(
-                    "record_gate_outcome",
-                    args=[
-                        conduct_workflow_id(input.company),
-                        "conduct_daily_cap",
-                        "halted",
-                        workflow.info().workflow_id,
-                    ],
-                    start_to_close_timeout=step,
-                    retry_policy=STEP_RETRY,
+                await self.record_gate(
+                    workflow_id("conduct", input.company),
+                    "conduct_daily_cap",
+                    "halted",
+                    timeouts,
                 )
             elif not observed["backlog"] and not observed["reviewable_prs"]:
                 rule = "backlog_empty"
             else:
-                # The run id is minted before the decision: conduct_decide
-                # registers it as the decision's own run so the PM's LLM
-                # call can bind (the gateway rejects an unattributed run),
-                # and a started child reclaims the same id — so the decide
-                # spend lands on the very run the tick chose to start.
-                child_run_id = f"auto-{workflow.uuid4().hex[:8]}"
-                decision = await workflow.execute_activity(
-                    "conduct_decide",
-                    args=[
-                        child_run_id,
-                        observed,
-                        list(config.get("may_start") or []),
-                    ],
-                    start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
-                    schedule_to_close_timeout=timedelta(
-                        seconds=timeouts.dispatch_schedule_to_close_s
-                    ),
-                    heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
-                    retry_policy=DISPATCH_RETRY,
+                outcome, rule = await self._choose_and_start(
+                    input, config, observed, timeouts
                 )
-                if decision["action"] == "idle":
-                    rule = "pm_chose_idle"
-                else:
-                    # Policy first: the compiled conduct.start decision is
-                    # the authority on caps and startable workflows; a
-                    # deny is audited by the activity and ends the tick.
-                    await workflow.execute_activity(
-                        "conduct_authorize",
-                        args=[
-                            child_run_id,
-                            decision["action"],
-                            observed["active_runs"],
-                            observed["daily_spent_usd"],
-                        ],
-                        start_to_close_timeout=step,
-                        retry_policy=STEP_RETRY,
-                    )
-                    target = int(decision["target"])
-                    if decision["action"] == "implement":
-                        await workflow.start_child_workflow(
-                            "implement",
-                            ImplementInput(
-                                run_id=child_run_id,
-                                issue_number=target,
-                                timeouts=input.timeouts,
-                            ),
-                            id=implement_workflow_id(child_run_id),
-                            # The run outlives the tick: ticks are
-                            # heartbeats, not supervisors — progress and
-                            # gates belong to the run.
-                            parent_close_policy=ParentClosePolicy.ABANDON,
-                        )
-                    else:
-                        await workflow.start_child_workflow(
-                            "review",
-                            ReviewInput(
-                                run_id=child_run_id,
-                                pr_number=target,
-                                timeouts=input.timeouts,
-                            ),
-                            id=review_workflow_id(child_run_id),
-                            parent_close_policy=ParentClosePolicy.ABANDON,
-                        )
-                    outcome = "started"
-                    rule = f"{decision['action']}_{target}_as_{child_run_id}"
         except ActivityError as exc:
             # A refused or failed tick never kills the heartbeat; the
             # refusal is already audited where it happened, and the tick's
@@ -198,6 +124,69 @@ class ConductWorkflow:
         interval = input.tick_interval_s or int(config["heartbeat_minutes"]) * 60
         await asyncio.sleep(interval)
         workflow.continue_as_new(input)
+
+    async def _choose_and_start(
+        self,
+        input: ConductInput,
+        config: dict[str, Any],
+        observed: dict[str, Any],
+        timeouts: Timeouts,
+    ) -> tuple[str, str]:
+        """Ask the PM for one action and, if policy allows it, start the
+        child run. Returns the tick's (outcome, rule)."""
+        step = timedelta(seconds=timeouts.step_s)
+        # The run id is minted before the decision: conduct_decide
+        # registers it as the decision's own run so the PM's LLM call can
+        # bind (the gateway rejects an unattributed run), and a started
+        # child reclaims the same id — so the decide spend lands on the
+        # very run the tick chose to start.
+        child_run_id = f"auto-{workflow.uuid4().hex[:8]}"
+        decision = await workflow.execute_activity(
+            "conduct_decide",
+            args=[child_run_id, observed, list(config.get("may_start") or [])],
+            start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
+            schedule_to_close_timeout=timedelta(
+                seconds=timeouts.dispatch_schedule_to_close_s
+            ),
+            heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
+            retry_policy=DISPATCH_RETRY,
+        )
+        if decision["action"] == "idle":
+            return "idle", "pm_chose_idle"
+        # Policy first: the compiled conduct.start decision is the
+        # authority on caps and startable workflows; a deny is audited by
+        # the activity and ends the tick.
+        await workflow.execute_activity(
+            "conduct_authorize",
+            args=[
+                child_run_id,
+                decision["action"],
+                observed["active_runs"],
+                observed["daily_spent_usd"],
+            ],
+            start_to_close_timeout=step,
+            retry_policy=STEP_RETRY,
+        )
+        target = int(decision["target"])
+        family = decision["action"]
+        child: ImplementInput | ReviewInput = (
+            ImplementInput(
+                run_id=child_run_id, issue_number=target, timeouts=input.timeouts
+            )
+            if family == "implement"
+            else ReviewInput(
+                run_id=child_run_id, pr_number=target, timeouts=input.timeouts
+            )
+        )
+        await workflow.start_child_workflow(
+            family,
+            child,
+            id=workflow_id(family, child_run_id),
+            # The run outlives the tick: ticks are heartbeats, not
+            # supervisors — progress and gates belong to the run.
+            parent_close_policy=ParentClosePolicy.ABANDON,
+        )
+        return "started", f"{family}_{target}_as_{child_run_id}"
 
     async def _record(self, outcome: str, rule: str, timeouts: Timeouts) -> None:
         await workflow.execute_activity(

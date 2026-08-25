@@ -30,13 +30,12 @@ import hashlib
 import os
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import Any, Protocol
 
 import httpx
 from pydantic_settings import BaseSettings
 
-from common.audit import AuditEvent, Source
+from common.audit import AuditEvent, Source, args_digest
 from common.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
@@ -49,7 +48,6 @@ from common.identity import (
 from common.telemetry import get_logger
 
 TOKENREVIEW_PATH = "/apis/authentication.k8s.io/v1/tokenreviews"
-_EMPTY_DIGEST = hashlib.sha256(b"{}").hexdigest()
 
 
 class WorkloadAuthnSettings(BaseSettings):
@@ -85,6 +83,24 @@ class ServiceAccount:
 
 class Reviewer(Protocol):
     async def review(self, token: str, audience: str) -> ServiceAccount | None: ...
+
+
+class AuditSink(Protocol):
+    def append(self, event: AuditEvent) -> None: ...
+
+
+class InstanceReads(Protocol):
+    """The registry's `agent_instances` reader: a standing caller's row by
+    ServiceAccount name."""
+
+    def get(self, service_account: str) -> dict[str, Any] | None: ...
+
+
+class ParticipantReads(Protocol):
+    """The registry's `run_participants` reader: an ephemeral caller's live
+    binding row by ServiceAccount name."""
+
+    def by_service_account(self, service_account: str) -> dict[str, Any] | None: ...
 
 
 class KubeTokenReviewer:
@@ -157,9 +173,9 @@ class Authenticator:
     def __init__(
         self,
         settings: WorkloadAuthnSettings,
-        audit: Any,
-        instances: Any,
-        participants: Any,
+        audit: AuditSink,
+        instances: InstanceReads,
+        participants: ParticipantReads,
         reviewer: Reviewer | None = None,
         source: Source = "gateway",
     ) -> None:
@@ -281,12 +297,11 @@ class Authenticator:
 
     async def _reject(self, path: str, rule: str, principal: str) -> None:
         event = AuditEvent(
-            ts=datetime.now(UTC).isoformat(),
             run_id="",
             agent_id=principal,
             role="",
             tool=path,
-            args_digest=_EMPTY_DIGEST,
+            args_digest=args_digest({}),
             decision="deny",
             rule=rule,
             latency_ms=0,
