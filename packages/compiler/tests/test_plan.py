@@ -40,10 +40,10 @@ def test_compilation_is_deterministic(blueprint):
 
 def test_standing_roster_is_only_the_count_positive_hires(blueprint):
     """A `count: 0` role documents a growth path and produces no instance —
-    the roster is the hires with count > 0, the PM alone here."""
-    blueprint["departments"]["roles"]["future-sdet"] = {"template": "sdet", "count": 0}
+    the standing agents is the standing_roles with count > 0, the PM alone here."""
+    blueprint["standing"]["future-sdet"] = {"template": "sdet", "count": 0}
     plan = compile_blueprint(blueprint)
-    assert {i.hire for i in plan.instances} == {"pm"}
+    assert {i.standing_role for i in plan.instances} == {"pm"}
 
 
 def test_agent_specs_carry_no_secrets(blueprint):
@@ -59,7 +59,7 @@ def test_pm_scope_is_narrowed_not_widened(blueprint):
     does not grant must not widen it."""
     blueprint["tools"]["pm"]["allow"].append("sandbox.exec")
     plan = compile_blueprint(blueprint)
-    pm = next(i for i in plan.instances if i.hire == "pm")
+    pm = next(i for i in plan.instances if i.standing_role == "pm")
     assert "sandbox.exec" not in pm.tools
 
 

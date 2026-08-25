@@ -49,7 +49,7 @@ def default_deny(company_ns: str) -> dict[str, Any]:
 
 
 def _agent_kinds_selector() -> dict[str, Any]:
-    """Standing hires and ephemeral crew brains share the agent envelope
+    """Standing agents and ephemeral crew brains share the agent envelope
     (gateways-only egress, orchestrator-only ingress) — selected by kind,
     so an ephemeral pod is contained the moment it exists."""
     return {
@@ -291,11 +291,11 @@ def agent_deployment(
     No API-server token is mounted (automount stays off), and no
     token-shaped env var exists in the pod at all.
     """
-    hire = spec["hire"]
+    standing_role = spec["standingRole"]
     platform_ns = settings.platform_namespace
     labels = {
         **LABELS,
-        "app": hire,
+        "app": standing_role,
         "poseidon.dev/kind": "standing-agent",
         "poseidon.dev/company": spec["company"],
         "poseidon.dev/agent-id": spec["agentId"],
@@ -306,10 +306,10 @@ def agent_deployment(
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
-        "metadata": {"name": hire, "namespace": company_ns, "labels": labels},
+        "metadata": {"name": standing_role, "namespace": company_ns, "labels": labels},
         "spec": {
             "replicas": 1,
-            "selector": {"matchLabels": {"app": hire}},
+            "selector": {"matchLabels": {"app": standing_role}},
             "template": {
                 "metadata": {"labels": labels},
                 "spec": {
@@ -411,13 +411,13 @@ def agent_deployment(
 
 
 def agent_service(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
-    hire = spec["hire"]
+    standing_role = spec["standingRole"]
     return {
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": {"name": hire, "namespace": company_ns, "labels": LABELS},
+        "metadata": {"name": standing_role, "namespace": company_ns, "labels": LABELS},
         "spec": {
-            "selector": {"app": hire},
+            "selector": {"app": standing_role},
             "ports": [{"port": AGENT_PORT, "targetPort": AGENT_PORT}],
         },
     }

@@ -126,12 +126,10 @@ def _instances(
     company: str,
     snapshot: RegistrySnapshot,
 ) -> tuple[AgentInstanceCR, ...]:
-    """Standing roster only. A `count: 0` placeholder produces no instance —
+    """Standing agents only. A `count: 0` placeholder produces no instance —
     that is the whole point of declaring one."""
     instances = []
-    for hire, role in sorted(
-        (blueprint.get("departments") or {}).get("roles", {}).items()
-    ):
+    for standing_role, role in sorted((blueprint.get("standing") or {}).items()):
         count = role.get("count", 0)
         template = roles[role["template"]]
         # The blueprint narrows the template, never widens it: a scope the
@@ -151,11 +149,13 @@ def _instances(
         # Existing ids are reused in order so an apply is stable; minted ids
         # skip anything already taken — a count change must never produce
         # two instances sharing an agent_id (the diff keys on it).
-        agent_ids = [i.agent_id for i in snapshot.instances_for(company, hire)][:count]
+        agent_ids = [i.agent_id for i in snapshot.instances_for(company, standing_role)][
+            :count
+        ]
         serial = 0
         while len(agent_ids) < count:
             serial += 1
-            candidate = f"{hire}-{serial}"
+            candidate = f"{standing_role}-{serial}"
             if candidate not in agent_ids:
                 agent_ids.append(candidate)
         for agent_id in agent_ids:
@@ -163,7 +163,7 @@ def _instances(
                 AgentInstanceCR(
                     agent_id=agent_id,
                     company=company,
-                    hire=hire,
+                    standing_role=standing_role,
                     role_template=role["template"],
                     model_tier=role.get("model_tier") or template.model_tier,
                     tools=tools,

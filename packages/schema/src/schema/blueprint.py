@@ -2,13 +2,13 @@
 
 Structural validation only. Cross-checks that need the catalogs or a
 registry snapshot (does this template exist, does this workflow node bind to
-a hired conductor, do budgets cover enabled workflows) belong to the
+an active conductor, do budgets cover enabled workflows) belong to the
 compiler — the schema's job is to make a document
 well-formed, not to make a company coherent.
 
 One convention worth stating once: every object is `additionalProperties:
 false`, so a typo'd key is an error rather than a silently ignored line. The
-lean-roster stance on `count` is the compiler's to enforce, not the
+lean-standing stance on `count` is the compiler's to enforce, not the
 schema's.
 """
 
@@ -93,19 +93,13 @@ _ROLE = {
     },
 }
 
-_DEPARTMENTS = {
+# The standing agents, keyed by role name so a blueprint diff (hire/fire) is
+# readable; one entry can carry several instances (`count`).
+_STANDING = {
     "type": "object",
-    "additionalProperties": False,
-    "required": ["roles"],
-    "properties": {
-        # Keyed by hire name so a blueprint diff (hire/fire) is readable.
-        "roles": {
-            "type": "object",
-            "minProperties": 1,
-            "additionalProperties": _ROLE,
-            "propertyNames": _NAME,
-        }
-    },
+    "minProperties": 1,
+    "additionalProperties": _ROLE,
+    "propertyNames": _NAME,
 }
 
 _CREW_MEMBER = {
@@ -350,7 +344,7 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "apiVersion",
         "company",
         "stack",
-        "departments",
+        "standing",
         "crews",
         "tools",
         "workflows",
@@ -360,7 +354,7 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "apiVersion": {"type": "string", "enum": ["poseidon.dev/v1"]},
         "company": _COMPANY,
         "stack": _STACK,
-        "departments": _DEPARTMENTS,
+        "standing": _STANDING,
         "crews": _CREWS,
         "tools": _TOOLS,
         "workflows": _WORKFLOWS,

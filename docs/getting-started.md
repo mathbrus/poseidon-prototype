@@ -73,7 +73,7 @@ applies the CRDs, and applies the example blueprint.
 ### Configure the company
 
 A company's entire configuration is its blueprint — one YAML document
-declaring the roster, crews, tools, workflows, gates, budgets and policies.
+declaring the standing agents, crews, tools, workflows, gates, budgets and policies.
 There is no second configuration surface: anything the platform enforces,
 you change by editing the document and re-applying it.
 [The blueprint reference](blueprint.md) reads the shipped document line

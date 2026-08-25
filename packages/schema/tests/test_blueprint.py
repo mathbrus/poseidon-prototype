@@ -37,9 +37,9 @@ def test_hello_saas_validates():
 
 
 def test_hello_saas_is_the_lean_profile(blueprint):
-    """The PM is the only standing hire; no standing executor exists in the
+    """The PM is the only standing agent; no standing executor exists in the
     document at all."""
-    roles = blueprint["departments"]["roles"]
+    roles = blueprint["standing"]
     assert roles["pm"]["count"] == 1
     assert set(roles) == {"pm"}
     assert "backend-engineer" not in roles
@@ -91,7 +91,7 @@ def test_unknown_tool_lists_what_is_allowed(blueprint):
 
 
 def test_unknown_model_tier_lists_the_tiers(blueprint):
-    blueprint["departments"]["roles"]["pm"]["model_tier"] = "gigantic"
+    blueprint["standing"]["pm"]["model_tier"] = "gigantic"
     (problem,) = [p for p in problems_of(blueprint) if "gigantic" in p]
     assert "'small'" in problem and "'frontier'" in problem
 
@@ -117,14 +117,14 @@ def test_a_non_mapping_document_is_rejected():
 
 
 def test_unknown_role_template_lists_the_catalog(blueprint):
-    blueprint["departments"]["roles"]["pm"]["template"] = "product-manager"
+    blueprint["standing"]["pm"]["template"] = "product-manager"
     (problem,) = [p for p in problems_of(blueprint) if "product-manager" in p]
     assert "role catalog" in problem
     assert "pm" in problem and "sdet" in problem
 
 
 def test_unknown_crew_in_may_spawn_is_caught(blueprint):
-    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append("hotfix-swat")
+    blueprint["standing"]["pm"]["may_spawn"]["crew"].append("hotfix-swat")
     (problem,) = [p for p in problems_of(blueprint) if "hotfix-swat" in p]
     assert "feature-delivery" in problem
 
@@ -194,7 +194,7 @@ def test_crew_member_tools_may_narrow_the_catalog(blueprint):
     assert validate_blueprint(blueprint) is blueprint
 
 
-# -- the lean roster validates --------------------------------------------
+# -- the lean-standing profile validates --------------------------------------------
 
 
 def test_lean_roster_profile_validates(blueprint):
@@ -203,7 +203,7 @@ def test_lean_roster_profile_validates(blueprint):
     standing-executor document still *validates* structurally."""
     assert validate_blueprint(blueprint) is blueprint
     standing_executor = copy.deepcopy(blueprint)
-    standing_executor["departments"]["roles"]["backend-engineer"] = {
+    standing_executor["standing"]["backend-engineer"] = {
         "template": "backend-engineer",
         "count": 1,
     }

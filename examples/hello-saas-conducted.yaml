@@ -28,15 +28,14 @@ stack:
       - pypi.org
       - files.pythonhosted.org
 
-departments:
-  roles:
-    pm:
-      template: pm
-      count: 1
-      model_tier: standard
-      may_spawn:
-        crew: [feature-delivery, feature-review]
-        max_concurrent: 2
+standing:
+  pm:
+    template: pm
+    count: 1
+    model_tier: standard
+    may_spawn:
+      crew: [feature-delivery, feature-review]
+      max_concurrent: 2
 
 crews:
   feature-delivery:

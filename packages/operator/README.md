@@ -40,7 +40,7 @@ twice records the same intents twice, no drift.
 
 Teardown follows the same philosophy: `teardown_company` sweeps registry
 rows at the company level (`AgentInstances.delete_for_company`) rather
-than trusting that an instance-delete event was seen for each hire.
+than trusting that an instance-delete event was seen for each standing role.
 
 One consequence worth naming: the `phase: converged` status means *the
 operator's own work is done* — structure applied, bundle persisted. OPA
@@ -104,7 +104,7 @@ cannot execute anything.
 
 `reconcile_instance` upserts the **ServiceAccount first** — named by the
 `agentId`, it is the identity the Deployment runs as — then the
-Deployment (named by the `hire`) and a Service, and records the instance
+Deployment (named by the `standingRole`) and a Service, and records the instance
 in `registry.agent_instances` with its namespace. The gateway resolves
 `system:serviceaccount:<ns>:<agent_id>` against that row and requires
 the namespace to match, so a same-named ServiceAccount anywhere else

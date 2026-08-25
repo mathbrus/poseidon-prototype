@@ -186,10 +186,10 @@ their decision paths from, so a bundle is always written where it is read.
 `CompileError` renders as one list — so a broken blueprint is fixed in one
 round trip, not one error per attempt. The messages are written to be
 sufficient to fix the document: what is wrong, where, and what is allowed
-instead. One real example (the lean-roster rule, from `test_checks.py`):
+instead. One real example (the lean-standing rule, from `test_checks.py`):
 
 ```
-departments.roles.backend-engineer: standing count 1 on non-spawner template 'backend-engineer' — execution is ephemeral crews; hire a conductor and give it may_spawn, or set count: 0
+standing.backend-engineer: standing count 1 on non-spawner template 'backend-engineer' — execution is ephemeral crews; hire a conductor and give it may_spawn, or set count: 0
 ```
 
 Two subtleties. First, `compile_blueprint` accepts plain dicts and does

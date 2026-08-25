@@ -379,7 +379,7 @@ from the `run_id` alone.
 | **egress proxy** | egress HMAC key | The one network route out of a sandbox; allowlist + audit. |
 | **OPA** | — | Answering decision queries from compiled bundles. |
 | **registry** (Postgres) | — | Nine tables, one writer each; the audit and run store. |
-| **agent** | *nothing* | Running the model loop. Its credential is its own ServiceAccount's projected token file — for standing hires and crew members alike. |
+| **agent** | *nothing* | Running the model loop. Its credential is its own ServiceAccount's projected token file — for standing agents and crew members alike. |
 | **sandbox** | *nothing* | Running untrusted workspace code. |
 
 </details>
@@ -683,7 +683,7 @@ scripts/acceptance.sh                                   # the whole suite, zero 
 Everything the platform enforces comes from one document. The shipped
 example, [`examples/hello-saas.yaml`](examples/hello-saas.yaml), is read
 section by section in [docs/blueprint.md](docs/blueprint.md): `company` and
-`stack`, the standing roster, crews and tool scopes, the workflows and the
+`stack`, the standing agents, crews and tool scopes, the workflows and the
 gates they declare, the policies and budgets, and the opt-in heartbeat. The
 contract itself is [`packages/schema`](packages/schema/README.md).
 

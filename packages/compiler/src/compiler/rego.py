@@ -82,8 +82,8 @@ deny_rules contains "declared_nowhere" if {{ false }}
 """
 
 _ROLE_RULE = """
-# {hire}: standing hire of the {template} template.
-allow_rules contains "role_{hire}_{tool_slug}" if {{
+# {standing_role}: standing agent of the {template} template.
+allow_rules contains "role_{standing_role}_{tool_slug}" if {{
 	input.lifecycle == "standing"
 	input.company == "{company}"
 	input.role == "{template}"
@@ -170,7 +170,7 @@ def _rego_file(company: str, body: str) -> str:
 
 def _role_file(
     company: str,
-    hire: str,
+    standing_role: str,
     template: str,
     tools: list[str],
     may_spawn: tuple[str, ...] = (),
@@ -179,7 +179,7 @@ def _role_file(
 ) -> str:
     body = "".join(
         _ROLE_RULE.format(
-            hire=rego_slug(hire),
+            standing_role=rego_slug(standing_role),
             template=template,
             company=company,
             tool=tool,
@@ -478,18 +478,18 @@ def build_bundle(
     company's decision entrypoint and the blueprint's policy rules — all
     under the company's own package."""
     files = {"authz.rego": _decision_file(company_package(company), _NO_BUDGET_RULE)}
-    by_hire: dict[str, list[Any]] = {}
+    by_standing_role: dict[str, list[Any]] = {}
     for instance in instances:
-        by_hire.setdefault(instance.hire, []).append(instance)
-    for hire, hire_instances in by_hire.items():
-        first = hire_instances[0]
-        files[f"role_{rego_slug(hire)}.rego"] = _role_file(
+        by_standing_role.setdefault(instance.standing_role, []).append(instance)
+    for standing_role, role_instances in by_standing_role.items():
+        first = role_instances[0]
+        files[f"role_{rego_slug(standing_role)}.rego"] = _role_file(
             company,
-            hire,
+            standing_role,
             first.role_template,
             list(first.tools),
             tuple(first.may_spawn),
-            tuple(i.agent_id for i in hire_instances),
+            tuple(i.agent_id for i in role_instances),
             first.max_concurrent_spawns,
         )
     for agent in ephemeral_agents:

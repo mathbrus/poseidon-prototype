@@ -26,14 +26,18 @@ def workflow_config(
             f"{name} workflow binds no crew — execution is ephemeral crews;"
             " the compiler should have refused this blueprint"
         )
-    conductor_hire = config["conductor"]
+    conductor_role = config["conductor"]
     instance = next(
-        (i for i in instances.for_company(company) if i.get("hire") == conductor_hire),
+        (
+            i
+            for i in instances.for_company(company)
+            if i.get("standing_role") == conductor_role
+        ),
         None,
     )
     if instance is None:
         raise RuntimeError(
-            f"no standing instance for conductor hire {conductor_hire!r}"
+            f"no standing instance for conductor standing_role {conductor_role!r}"
             " — is the company converged?"
         )
     return config, {

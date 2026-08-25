@@ -377,7 +377,7 @@ class FakeInstances:
 PM_ROW = {
     "agent_id": "pm-1",
     "company": "hello-saas",
-    "hire": "pm",
+    "standing_role": "pm",
     "role_template": "pm",
 }
 
@@ -414,7 +414,7 @@ def test_implement_config_fails_closed_without_a_blueprint(settings, backend, ru
 def test_implement_config_fails_closed_without_a_conductor_instance(
     settings, backend, runs
 ):
-    """The blueprint names a conductor hire, but no standing instance has
+    """The blueprint names a conductor standing_role, but no standing instance has
     converged for it — refuse before anything is provisioned."""
     activities = _config_activities(
         settings, backend, runs, WORKFLOWS_SPEC, FakeInstances([])

@@ -54,7 +54,7 @@ class ImplementActivities:
         # Read-only: the applied blueprint's infra IR is the SandboxPolicy
         # source, and its workflow config directs the crew-only flow.
         self._companies = companies
-        # Read-only: hire name -> standing instance (the conductor id the
+        # Read-only: standing_role name -> standing instance (the conductor id the
         # crew request is recorded under).
         self._instances = instances
         # The identity revoke, called directly (same process) from teardown

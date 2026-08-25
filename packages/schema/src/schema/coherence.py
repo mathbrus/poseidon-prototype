@@ -1,6 +1,6 @@
 """Cross-checks of a blueprint against the versioned catalogs.
 
-Properties of the *document* against a catalog — does every hire name a
+Properties of the *document* against a catalog — does every standing_role name a
 template, does every ephemeral agent stay inside its catalog agent's
 allow-list — as opposed to well-formedness (the JSON Schema) or company
 coherence against cluster state (the compiler). Shared by `schema.validate`
@@ -22,23 +22,25 @@ def _known(names: dict[str, Any]) -> str:
 def role_template_problems(
     document: Any, roles: dict[str, RoleTemplate], crews: dict[str, CrewTemplate]
 ) -> list[str]:
-    """Every hire names a catalog role template, and every crew it may spawn
+    """Every standing_role names a catalog role template, and every crew it may spawn
     names a catalog crew template."""
     problems = []
-    hires = (document.get("departments") or {}).get("roles") or {}
-    for hire, role in hires.items() if isinstance(hires, dict) else []:
+    standing_roles = document.get("standing") or {}
+    for standing_role, role in (
+        standing_roles.items() if isinstance(standing_roles, dict) else []
+    ):
         if not isinstance(role, dict) or not isinstance(role.get("template"), str):
             continue
         if role["template"] not in roles:
             problems.append(
-                f"departments.roles.{hire}.template: {role['template']!r} is "
+                f"standing.{standing_role}.template: {role['template']!r} is "
                 f"not in the role catalog (known: {_known(roles)})"
             )
             continue
         for crew in (role.get("may_spawn") or {}).get("crew") or []:
             if crew not in crews:
                 problems.append(
-                    f"departments.roles.{hire}.may_spawn.crew: {crew!r} is "
+                    f"standing.{standing_role}.may_spawn.crew: {crew!r} is "
                     f"not a known crew template (known: {_known(crews)})"
                 )
     return problems

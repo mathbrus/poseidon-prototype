@@ -64,11 +64,11 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
     return {
         "apiVersion": f"{GROUP}/{VERSION}",
         "kind": "AgentInstance",
-        "metadata": {"name": instance.hire, "namespace": plan.company.namespace},
+        "metadata": {"name": instance.standing_role, "namespace": plan.company.namespace},
         "spec": {
             "agentId": instance.agent_id,
             "company": instance.company,
-            "hire": instance.hire,
+            "standingRole": instance.standing_role,
             "roleTemplate": instance.role_template,
             "modelTier": instance.model_tier,
             "tools": list(instance.tools),
@@ -101,17 +101,21 @@ def submit(
     _wait_for_namespace(namespace)
     planned = set()
     for instance in plan.instances:
-        planned.add(instance.hire)
+        planned.add(instance.standing_role)
         if _replace_namespaced(
-            api, namespace, "agentinstances", instance.hire, instance_cr(plan, instance)
+            api,
+            namespace,
+            "agentinstances",
+            instance.standing_role,
+            instance_cr(plan, instance),
         ):
             updated += 1
         else:
             created += 1
 
-    for hire in _existing_instances(api, namespace) - planned:
+    for standing_role in _existing_instances(api, namespace) - planned:
         api.delete_namespaced_custom_object(
-            GROUP, VERSION, namespace, "agentinstances", hire
+            GROUP, VERSION, namespace, "agentinstances", standing_role
         )
 
     return created, updated

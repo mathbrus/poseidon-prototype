@@ -76,7 +76,7 @@ signal before dispatching (the shipped example declares no intake gate).
 **implement** — the crew is the only execution path: `create_run →
 check_budget → implement_config → fetch_workspace → provision_sandbox →
 fulfill_crew`, then the dispatch/verify loop below, then the deliver
-dispatch, then teardown. `fulfill_crew` stands the ephemeral roster up
+dispatch, then teardown. `fulfill_crew` stands the ephemeral crew up
 and hands back the planner's brief plus the executor's crew-pod address.
 
 **review** — PR in, gated merge out: read the PR under the platform
@@ -235,7 +235,7 @@ audit event: a run's story shows who existed, when, under whose authority.
 ## Ephemeral pods
 
 An ephemeral pod is one crew member's brain host: the same agent image a
-standing hire runs, labeled to its run. Its only credential is the
+standing agent runs, labeled to its run. Its only credential is the
 audience-scoped projected token of its own per-run ServiceAccount,
 mounted by the kubelet — no token-shaped env var exists, and no
 credential ever enters Temporal's workflow history, which

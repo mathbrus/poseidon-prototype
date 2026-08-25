@@ -265,7 +265,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     *including* worker kill — the sweep rides the workflow's compensation,
     which Temporal replays on the restarted worker. The workflow stands
     its own crew up (fulfill_crew), so the kill lands on a
-    run with a live bound roster and ephemeral pods."""
+    run with live bound ephemeral agents and their pods."""
     from temporalio.client import Client
 
     from orchestrator.ephemeral_pods import pod_name
@@ -304,7 +304,9 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
                 timeout=30,
             ):
                 if time.monotonic() > deadline:
-                    raise AssertionError("the workflow never provisioned an ephemeral pod")
+                    raise AssertionError(
+                        "the workflow never provisioned an ephemeral pod"
+                    )
                 await asyncio.sleep(2)
             # Kill the worker mid-run; the replay finishes the run and its
             # teardown on the replacement pod.

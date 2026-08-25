@@ -1,7 +1,7 @@
 """The declarative company lifecycle on kind, and the full revocation
 claim.
 
-apply converges a live company (namespace, RBAC, roster, served bundle);
+apply converges a live company (namespace, RBAC, standing agents, served bundle);
 a blueprint edit converges as a rollout with no manual steps; deleting the
 Company revokes — namespace gone, bundle 404, a restarted OPA activates
 nothing for the company, and a credential that worked before the teardown
@@ -74,7 +74,7 @@ def test_apply_converges_the_company(stack: None):
         "-o",
         "jsonpath={.items[*].metadata.name}",
     ).split()
-    assert instances == ["pm"], f"standing roster should be the PM only: {instances}"
+    assert instances == ["pm"], f"standing agents should be the PM only: {instances}"
     deployments = kubectl(
         "-n",
         COMPANY_NS,
@@ -145,8 +145,8 @@ def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
     """Change the PM's model tier, re-apply, observe a rollout with no
     manual steps."""
     document = yaml.safe_load(HELLO_SAAS.read_text())
-    assert document["departments"]["roles"]["pm"]["model_tier"] != "small"
-    document["departments"]["roles"]["pm"]["model_tier"] = "small"
+    assert document["standing"]["pm"]["model_tier"] != "small"
+    document["standing"]["pm"]["model_tier"] = "small"
     edited = tmp_path / "hello-saas-small-pm.yaml"
     edited.write_text(yaml.safe_dump(document, sort_keys=False))
 

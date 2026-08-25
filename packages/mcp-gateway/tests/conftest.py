@@ -302,7 +302,7 @@ def settings() -> McpGatewaySettings:
 @pytest.fixture
 def instances() -> InMemoryAgentInstances:
     """The registry rows workload identity maps ServiceAccounts through —
-    seeded with the standing hires the test tokens resolve to."""
+    seeded with the standing agents the test tokens resolve to."""
     store = InMemoryAgentInstances()
     store.upsert(
         AGENT_ID,

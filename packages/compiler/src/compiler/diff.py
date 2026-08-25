@@ -1,6 +1,6 @@
 """Preview: what applying this plan would change, and what it would cost.
 
-`poseidon blueprint preview` exists so a hire, a fire or a scope change is
+`poseidon blueprint preview` exists so a standing_role, a fire or a scope change is
 readable *before* it converges — the declarative loop is only trustworthy if
 you can see the diff first.
 """
@@ -13,7 +13,7 @@ from compiler.snapshot import RegistrySnapshot
 
 @dataclass
 class InstanceChange:
-    # Keyed by agent_id, not hire: with count > 1 a hire is several
+    # Keyed by agent_id, not standing_role: with count > 1 a standing_role is several
     # instances, and a count change must show up as creates/deletes.
     agent_id: str
     action: str  # create | update | delete

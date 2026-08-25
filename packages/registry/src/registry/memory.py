@@ -221,7 +221,7 @@ class InMemoryAgentInstances:
         self,
         agent_id: str,
         company: str,
-        hire: str,
+        standing_role: str,
         role_template: str,
         model_tier: str,
         namespace: str | None = None,
@@ -230,7 +230,7 @@ class InMemoryAgentInstances:
         self.rows[agent_id] = {
             "agent_id": agent_id,
             "company": company,
-            "hire": hire,
+            "standing_role": standing_role,
             "role_template": role_template,
             "model_tier": model_tier,
             "namespace": namespace,

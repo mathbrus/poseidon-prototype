@@ -11,7 +11,7 @@ from poseidon_operator.config import OperatorSettings
 SPEC = {
     "agentId": "pm-1",
     "company": "hello-saas",
-    "hire": "pm",
+    "standingRole": "pm",
     "roleTemplate": "pm",
     "modelTier": "standard",
     "tools": ["issues.read", "crew.request"],

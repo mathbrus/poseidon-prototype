@@ -38,7 +38,7 @@ def apply_blueprint(path: Path) -> None:
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:
-    """The company namespace is Active, its one standing hire (the PM) is
+    """The company namespace is Active, its one standing agent (the PM) is
     rolled out, and OPA serves the company's decision document. The last
     part matters after a teardown + re-apply: OPA needs a poll cycle
     (5-15s) to activate the bundle, and a test that runs before it would

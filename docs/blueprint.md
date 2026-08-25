@@ -35,13 +35,12 @@ means zero egress, which is a perfectly reasonable choice.
 </details>
 
 <details>
-<summary><b><code>departments</code> — the standing roster</b></summary>
+<summary><b><code>standing</code> — the standing agents</b></summary>
 
 <br>
 
 ```yaml
-departments:
-  roles:
+standing:
     pm:
       template: pm
       count: 1
@@ -50,7 +49,7 @@ departments:
         max_concurrent: 2
 ```
 
-One standing hire: the PM. It may spawn two named crews, at most two at a
+One standing agent: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 

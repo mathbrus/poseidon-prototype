@@ -1,4 +1,4 @@
-"""`agent_instances` — written by the operator: the standing roster, and
+"""`agent_instances` — written by the operator: the standing agents, and
 the gateways' read side for workload identity.
 """
 
@@ -6,7 +6,7 @@ from registry.db import Registry
 
 
 class AgentInstances:
-    """Standing roster status, written by the operator."""
+    """Standing agents status, written by the operator."""
 
     def __init__(self, registry: Registry) -> None:
         self._db = registry
@@ -15,7 +15,7 @@ class AgentInstances:
         self,
         agent_id: str,
         company: str,
-        hire: str,
+        standing_role: str,
         role_template: str,
         model_tier: str,
         namespace: str | None = None,
@@ -24,19 +24,27 @@ class AgentInstances:
         self._db.execute(
             """
             INSERT INTO registry.agent_instances
-                (agent_id, company, hire, role_template, model_tier, namespace,
+                (agent_id, company, standing_role, role_template, model_tier, namespace,
                  status, updated_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, now())
             ON CONFLICT (agent_id) DO UPDATE SET
                 company = EXCLUDED.company,
-                hire = EXCLUDED.hire,
+                standing_role = EXCLUDED.standing_role,
                 role_template = EXCLUDED.role_template,
                 model_tier = EXCLUDED.model_tier,
                 namespace = EXCLUDED.namespace,
                 status = EXCLUDED.status,
                 updated_at = now()
             """,
-            (agent_id, company, hire, role_template, model_tier, namespace, status),
+            (
+                agent_id,
+                company,
+                standing_role,
+                role_template,
+                model_tier,
+                namespace,
+                status,
+            ),
         )
 
     def get(self, agent_id: str) -> dict | None:
@@ -44,7 +52,7 @@ class AgentInstances:
         identity: a projected token's ServiceAccount name resolves
         here, and its namespace must match the recorded one."""
         rows = self._db.query(
-            "SELECT agent_id, company, hire, role_template, model_tier,"
+            "SELECT agent_id, company, standing_role, role_template, model_tier,"
             " namespace, status"
             " FROM registry.agent_instances WHERE agent_id = %s",
             (agent_id,),
@@ -65,8 +73,8 @@ class AgentInstances:
 
     def for_company(self, company: str) -> list[dict]:
         return self._db.query(
-            "SELECT agent_id, company, hire, role_template, model_tier,"
+            "SELECT agent_id, company, standing_role, role_template, model_tier,"
             " namespace, status"
-            " FROM registry.agent_instances WHERE company = %s ORDER BY hire",
+            " FROM registry.agent_instances WHERE company = %s ORDER BY standing_role",
             (company,),
         )

@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS registry.companies (
 CREATE TABLE IF NOT EXISTS registry.agent_instances (
     agent_id      text PRIMARY KEY,
     company       text NOT NULL,
-    hire          text NOT NULL,
+    standing_role          text NOT NULL,
     role_template text NOT NULL,
     model_tier    text,
     -- The company namespace the instance's pod (and ServiceAccount) live

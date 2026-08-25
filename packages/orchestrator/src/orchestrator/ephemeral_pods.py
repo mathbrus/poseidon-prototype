@@ -10,7 +10,7 @@ matching Role rules live in
 `poseidon_operator.resources.sandbox_provisioner_role`.
 
 An ephemeral pod is one ephemeral agent's brain host: the same agent image a
-standing hire runs, labeled to its run. Every agent gets its own pod —
+standing agent runs, labeled to its run. Every agent gets its own pod —
 one principal, one pod, one ServiceAccount — and its credential is the
 audience-scoped projected token the kubelet mounts and rotates, exactly
 the standing-agent posture. The gateway resolves the SA name to the

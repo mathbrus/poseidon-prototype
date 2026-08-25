@@ -22,12 +22,12 @@ class CompanyCR:
 
 @dataclass(frozen=True)
 class AgentInstanceCR:
-    """One standing hire. Never carries a secret: agent specs are public,
+    """One standing agent. Never carries a secret: agent specs are public,
     credentials arrive at runtime as projected tokens."""
 
     agent_id: str
     company: str
-    hire: str
+    standing_role: str
     role_template: str
     model_tier: str
     tools: tuple[str, ...]

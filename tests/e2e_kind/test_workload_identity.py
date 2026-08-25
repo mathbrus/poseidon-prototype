@@ -62,7 +62,7 @@ def test_no_static_gateway_credential_in_cluster_pods(stack: None) -> None:
     assert "ORCHESTRATOR_BEARER_TOKEN" not in worker_env
     assert "GATEWAY_TOKEN_FILE" in worker_env
 
-    # The lean roster's one standing agent: the PM.
+    # The lean-standing profile's one standing agent: the PM.
     agent_env = kubectl(
         "-n",
         COMPANY_NS,

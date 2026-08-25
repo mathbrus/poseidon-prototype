@@ -17,11 +17,11 @@ def test_hello_saas_compiles(blueprint):
 
 
 def test_workflow_needs_a_hired_conductor(blueprint):
-    blueprint["departments"]["roles"]["pm"]["count"] = 0
+    blueprint["standing"]["pm"]["count"] = 0
     (problem,) = [
         p for p in problems_of(blueprint) if "conductor" in p and "implement" in p
     ]
-    assert "not a hired spawner" in problem
+    assert "not an active standing spawner" in problem
 
 
 def test_workflow_cannot_bind_to_an_unknown_role(blueprint):
@@ -48,7 +48,7 @@ def test_scope_for_a_role_nobody_uses_is_dead_config(blueprint):
 def test_unknown_role_template_is_a_compile_error(blueprint):
     """compile_blueprint accepts unvalidated dicts; an unknown template must
     be a CompileError problem, not a KeyError halfway through emission."""
-    blueprint["departments"]["roles"]["pm"]["template"] = "boss"
+    blueprint["standing"]["pm"]["template"] = "boss"
     assert any("role catalog" in p for p in problems_of(blueprint))
 
 
@@ -61,7 +61,7 @@ def test_spawn_authority_cannot_be_widened(blueprint):
     """Granting a role a crew its template does not permit is an error, not
     a silent drop — a workflow might depend on the grant. The sdet template
     grants no spawn authority."""
-    blueprint["departments"]["roles"]["future-lead"] = {
+    blueprint["standing"]["future-lead"] = {
         "template": "sdet",
         "count": 0,
         "may_spawn": {"crew": ["feature-delivery"]},
@@ -84,14 +84,14 @@ def test_invalid_branch_pattern_fails_at_compile(blueprint):
 
 
 def test_may_spawn_must_name_a_declared_crew(blueprint):
-    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append("feature-review")
+    blueprint["standing"]["pm"]["may_spawn"]["crew"].append("feature-review")
     del blueprint["crews"]["feature-review"]
     assert any("feature-review" in p for p in problems_of(blueprint))
 
 
 def test_workflow_crew_must_be_spawnable_by_its_conductor(blueprint):
     """Otherwise the workflow compiles but can never be fulfilled."""
-    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"] = ["feature-review"]
+    blueprint["standing"]["pm"]["may_spawn"]["crew"] = ["feature-review"]
     (problem,) = [p for p in problems_of(blueprint) if "may not spawn" in p]
     assert "feature-delivery" in problem
 
@@ -117,7 +117,7 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
 
 
 def test_standing_executor_is_a_compile_error(standing_executor):
-    """The strict lean-roster stance — no standing executor counts;
+    """The strict lean-standing stance — no standing executor counts;
     workflow nodes bind to spawners only. A standing-executor shape is a
     compile error."""
     with pytest.raises(CompileError) as err:
@@ -126,9 +126,9 @@ def test_standing_executor_is_a_compile_error(standing_executor):
 
 
 def test_lean_roster_compiles_to_exactly_one_instance(blueprint):
-    """The standing roster is the PM alone; execution is ephemeral crews."""
+    """The standing agents is the PM alone; execution is ephemeral crews."""
     plan = compile_blueprint(blueprint)
-    assert [i.hire for i in plan.instances] == ["pm"]
+    assert [i.standing_role for i in plan.instances] == ["pm"]
 
 
 # -- the conduct heartbeat -------------------------------------------------
@@ -138,11 +138,11 @@ def test_conduct_section_compiles(conducted):
     assert compile_blueprint(conducted).conduct is not None
 
 
-def test_conduct_conductor_must_be_a_hired_spawner(conducted):
-    # sdet is a real template but crew-only — never a hired standing role.
+def test_conduct_conductor_must_be_an_active_standing_spawner(conducted):
+    # sdet is a real template but crew-only — never an active standing role.
     conducted["conduct"]["conductor"] = "sdet"
     (problem,) = [p for p in problems_of(conducted) if "conduct.conductor" in p]
-    assert "not a hired spawner" in problem
+    assert "not an active standing spawner" in problem
 
 
 def test_conduct_may_start_needs_an_enabled_workflow(conducted):

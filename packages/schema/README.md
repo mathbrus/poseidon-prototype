@@ -11,7 +11,7 @@ laptop, and lets every other package trust that a document it receives has
 already survived this gate.
 
 A blueprint is a YAML mapping with `apiVersion: poseidon.dev/v1` and nine
-sections: `company`, `stack`, `departments`, `crews`, `tools`, `workflows`,
+sections: `company`, `stack`, `standing`, `crews`, `tools`, `workflows`,
 `policies`, `budgets`, `conduct`. All are required except `policies` and
 `conduct` — a company without guardrails is a choice you make visibly, not
 a default you fall into by omission, and a company with no standing
@@ -75,8 +75,8 @@ known artifact, and templates carry tool scopes, model tier and runtime
 hints — never counts, never secrets: how many of a role a company hires
 is the blueprint's business, and credentials never enter a spec at all.
 
-The lean-roster rule — no standing `backend-engineer` or `sdet` — is
-deliberately **not** checked here. Whether a hire is a standing executor is
+The lean-standing rule — no standing `backend-engineer` or `sdet` — is
+deliberately **not** checked here. Whether a standing role is an executor is
 a question about the company the plan would deploy, so it is a compiler
 error, and `test_lean_roster_profile_validates` proves the
 standing-executor document still validates structurally.
@@ -173,7 +173,7 @@ the schema and the catalogs.
   against `KNOWN_TOOLS` and `PLATFORM_ONLY` in its own passes, and reads
   `RUN_SCOPED` when emitting Rego. It also owns everything this package
   refuses to check: workflow-conductor binding, budget coverage, the
-  lean-roster rule.
+  lean-standing rule.
 - `orchestrator`'s `poseidon blueprint` CLI calls `load_blueprint` before
   compiling, so authors see these errors first.
 - [`gateway`](../mcp-gateway/README.md) implements the same 16 tool names.
@@ -184,8 +184,8 @@ the schema and the catalogs.
 
 - Every object in the schema is `additionalProperties: false`: a typo'd
   key is an error, never a silently ignored line.
-- Names (`company.name`, hires, crews, members) match
-  `^[a-z0-9][a-z0-9-]*$`; roles are keyed by hire name so a blueprint
+- Names (`company.name`, standing roles, crews, agents) match
+  `^[a-z0-9][a-z0-9-]*$`; roles are keyed by name so a blueprint
   diff — a hire, a fire — reads as one.
 - A crew member's `tools` list is required, explicit, and at most the
   catalog member's list. An implicit scope is what the compiler refuses

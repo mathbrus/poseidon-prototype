@@ -19,7 +19,7 @@ class AgentSettings(BaseSettings):
     # everything else runs the engineer loop.
     role_template: str = "backend-engineer"
     # The pod's identity: the kubelet-rotated projected token file its own
-    # ServiceAccount mounts — one shape for standing hires and ephemeral
+    # ServiceAccount mounts — one shape for standing agents and ephemeral
     # crew members alike. Crew revocation is a registry row termination,
     # checked by the gateway per call, not a property of the token.
     gateway_token_file: str = ""

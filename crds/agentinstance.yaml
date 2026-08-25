@@ -1,4 +1,4 @@
-# The `AgentInstance` custom resource: one standing hire.
+# The `AgentInstance` custom resource: one standing agent.
 #
 # Standing structure only — created, changed and removed by blueprint apply
 # and nothing else. Ephemeral crew members never appear here:
@@ -44,11 +44,11 @@ spec:
           properties:
             spec:
               type: object
-              required: [agentId, company, hire, roleTemplate]
+              required: [agentId, company, standingRole, roleTemplate]
               properties:
                 agentId: {type: string}
                 company: {type: string}
-                hire: {type: string}
+                standingRole: {type: string}
                 roleTemplate: {type: string}
                 modelTier: {type: string}
                 tools:

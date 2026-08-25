@@ -189,7 +189,7 @@ compiled read-only scope.
 The pod holds no secret. Its gateway credential has exactly one shape
 (`config.py`, `resolve_gateway_token`): a kubelet-rotated projected
 service-account token *file*, scoped to the gateway's audience — for
-standing hires and ephemeral crew members alike. It is read fresh at
+standing agents and ephemeral crew members alike. It is read fresh at
 each dispatch, so a task never outlives the freshly read token's
 validity window; a crew member's revocation is a registry-row
 termination the gateway checks per call, not a property of the token.
@@ -197,7 +197,7 @@ termination the gateway checks per call, not a property of the token.
 The credential is good for exactly one thing: authenticating
 to the Poseidon gateways. The LLM provider key lives in the llm-proxy,
 the git token in the MCP gateway. The pod specs that deploy this image —
-the operator for standing hires, the orchestrator for ephemeral pods — also
+the operator for standing agents, the orchestrator for ephemeral pods — also
 blank `GPG_KEY`, which the python base image bakes in, so no token-shaped
 env value exists in a company-namespace pod at all; the images CI job
 asserts no secret-shaped env is baked in.
@@ -222,7 +222,7 @@ a 700 s backstop at the bridge.
 uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 ```
 
-`poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing hires and crew
+`poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and crew
 pods run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
 `MODEL`, `TARGET_REPO`, `ROLE_TEMPLATE`, `MAX_ITERATIONS`, and one of
 `GATEWAY_TOKEN_FILE` / `GATEWAY_TOKEN`.

@@ -1,7 +1,7 @@
-# hello-saas — the design-partner company, in its lean-roster profile.
+# hello-saas — the design-partner company, in its lean-standing profile.
 #
-# The standing roster is the PM alone: delivery and review run as ephemeral
-# crews under the PM's conductor authority. The strict lean-roster compile
+# The standing agents is the PM alone: delivery and review run as ephemeral
+# crews under the PM's conductor authority. The strict lean-standing compile
 # error refuses any standing executor count.
 apiVersion: poseidon.dev/v1
 
@@ -27,15 +27,14 @@ stack:
       - pypi.org
       - files.pythonhosted.org
 
-departments:
-  roles:
-    pm:
-      template: pm
-      count: 1
-      model_tier: standard
-      may_spawn:
-        crew: [feature-delivery, feature-review]
-        max_concurrent: 2
+standing:
+  pm:
+    template: pm
+    count: 1
+    model_tier: standard
+    may_spawn:
+      crew: [feature-delivery, feature-review]
+      max_concurrent: 2
 
 crews:
   feature-delivery:

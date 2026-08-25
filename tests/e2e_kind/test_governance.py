@@ -8,7 +8,7 @@ binding, cross-company tenancy, the platform scope. The gateway half drives
 real calls with projected workload tokens through the whole pipeline:
 authn -> registry enrichment -> compiled decision -> audit.
 
-The roster is lean: the PM is the only standing hire and execution is
+The standing agents is lean: the PM is the only standing agent and execution is
 ephemeral crews, so the executor-side checks here use the ephemeral input
 shape (role + crew_template + crew_role), and a standing backend-engineer
 input finds nothing in the compiled bundle. Injection deny + recovery runs in

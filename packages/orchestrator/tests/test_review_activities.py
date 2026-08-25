@@ -42,7 +42,7 @@ REVIEW_SPEC = {
 PM_ROW = {
     "agent_id": "pm-1",
     "company": "hello-saas",
-    "hire": "pm",
+    "standing_role": "pm",
     "role_template": "pm",
 }
 

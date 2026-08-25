@@ -108,7 +108,7 @@ ephemeral — mounts a projected token for its own ServiceAccount, scoped
 to the gateway's audience. What differs is which registry table the
 gateway resolves the ServiceAccount against:
 
-- **Standing agents** map through `agent_instances`, the roster the
+- **Standing agents** map through `agent_instances`, the standing agents the
   operator reconciles. The gateway resolves the ServiceAccount name to
   the row and — importantly — requires the recorded namespace to *match*.
   The same SA name in another namespace is an impersonation attempt, and
@@ -189,17 +189,17 @@ with nothing leaked.
 Poseidon distinguishes two kinds of agent, and the distinction is
 structural rather than cosmetic.
 
-A **standing agent** is part of the company's roster. It is declared in the
+A **standing agent** is one of the company's standing agents. It is declared in the
 blueprint with a count, reconciled into a Deployment by the operator, and
 has a stable identity that outlives any run. In the shipped example there is
 exactly one: the PM.
 
 An **ephemeral crew member** exists only inside a run. It is bound when a
 crew is fulfilled, gets a run-scoped identity, and is revoked at teardown.
-It never appears in the roster and leaves no standing structure behind.
+It never appears in the standing agents and leaves no standing structure behind.
 
 The rule the compiler enforces is that **execution is always ephemeral**. A
-standing hire must be a *spawner* — a conductor with `may_spawn` authority.
+standing agent must be a *spawner* — a conductor with `may_spawn` authority.
 A blueprint that tries to hire a standing `backend-engineer` is a compile
 error, because a long-lived agent holding write tools is exactly the thing
 whose blast radius you cannot bound.

@@ -139,7 +139,7 @@ def standing(role: str, **extra) -> dict:
     }
 
 
-# -- the lean-roster exit criteria ----------------------------------------
+# -- the lean-standing exit criteria ----------------------------------------
 
 
 def test_pm_may_request_a_crew(decide):
@@ -801,9 +801,7 @@ def _split(blueprint: dict) -> None:
 
 def _contract_crew(blueprint: dict) -> None:
     blueprint["crews"]["contract-authoring"] = copy.deepcopy(CONTRACT_CREW)
-    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append(
-        "contract-authoring"
-    )
+    blueprint["standing"]["pm"]["may_spawn"]["crew"].append("contract-authoring")
     blueprint["workflows"]["review"]["gates"]["merge"] = {
         "resolved_by": "policy",
         "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},

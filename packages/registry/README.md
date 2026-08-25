@@ -21,7 +21,7 @@ the runtime path reports here (what every enforcement point decided).
 | Table | Written by | Records |
 |---|---|---|
 | `companies` | operator | The applied blueprint spec, one row per company. |
-| `agent_instances` | operator | The standing roster, including the namespace workload identity checks against. |
+| `agent_instances` | operator | The standing agents, including the namespace workload identity checks against. |
 | `policy_bundles` | operator | The compiled OPA bundle tarball and its revision. |
 | `runs` | orchestrator | The run record: task, status, artifacts, terminal state. |
 | `run_participants` | orchestrator | One row per bound ephemeral identity — the whole identity, ServiceAccount name included. Revocation is a row termination. |
@@ -53,7 +53,7 @@ what is single is the *contract*, not the writer.
 | `db.py` | Connection pool, DSN handling, and startup migration under an advisory lock. |
 | `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
 | `companies.py` | `Companies` — the applied blueprint per company, written by the operator. |
-| `instances.py` | `AgentInstances` — the standing roster, and the gateways' workload-identity read. |
+| `instances.py` | `AgentInstances` — the standing agents, and the gateways' workload-identity read. |
 | `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |
 | `runs.py` | `Runs` — the run record and its terminal state. |
 | `participants.py` | `RunParticipants` — bound identities, revocation, the spawn count. |

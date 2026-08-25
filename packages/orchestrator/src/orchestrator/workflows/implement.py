@@ -189,7 +189,7 @@ class ImplementWorkflow(RunWorkflow):
                 retry_policy=STEP_RETRY,
             )
             # The crew is the only execution path: fulfill stands the
-            # ephemeral roster up — recording the crew request under the
+            # ephemeral crew up — recording the crew request under the
             # conductor's authority via the same compiled decision the
             # crew.request tool faces — and hands back the planner's brief
             # plus the executor's crew-pod address.
