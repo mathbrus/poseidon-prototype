@@ -20,7 +20,7 @@ company does one thing at a time because the blueprint said so.
 
 The conftest orders this module after `test_acceptance`: it is itself a
 capstone, and it adds runs the five-source assertion need not see. The
-conducted blueprint (`examples/hello-saas-conducted.yaml`) is applied
+heartbeat blueprint (`examples/hello-saas-heartbeat.yaml`) is applied
 for the module and the pristine one restored after.
 """
 
@@ -34,10 +34,10 @@ from temporalio.client import Client
 
 from common.ids import new_run_id
 from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.conduct import ConductInput
+from orchestrator.workflows.heartbeat import HeartbeatInput
 from orchestrator.workflows.intake import IntakeInput
 
-from .blueprints import CONDUCTED, apply_blueprint, restore_pristine, wait_for_convergence
+from .blueprints import HEARTBEAT, apply_blueprint, restore_pristine, wait_for_convergence
 from .cluster import COMPANY_NS, audit_story, await_run, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
@@ -55,12 +55,12 @@ from .conftest import (
 def overnight(stack: None, env: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
-    # An empty campsite before the conduct blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment conduct is declared, and
+    # An empty campsite before the heartbeat blueprint lands: the ensure
+    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
     # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(env)
-    apply_blueprint(CONDUCTED)
+    apply_blueprint(HEARTBEAT)
     wait_for_convergence()
 
     intake_run = new_run_id()
@@ -72,7 +72,7 @@ def overnight(stack: None, env: dict) -> dict:
         f"Ship the slugify utility (e2e overnight goal {nonce})\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    heartbeat_id = f"{workflow_id('conduct', COMPANY_NS)}-overnight-{nonce}"
+    heartbeat_id = f"{workflow_id('heartbeat', COMPANY_NS)}-overnight-{nonce}"
     result: dict = {"env": env, "heartbeat_id": heartbeat_id}
 
     async def drive() -> None:
@@ -99,8 +99,8 @@ def overnight(stack: None, env: dict) -> dict:
 
             # --- touch nothing: the heartbeat runs the company -----------
             beat = await client.start_workflow(
-                "conduct",
-                ConductInput(
+                "heartbeat",
+                HeartbeatInput(
                     company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
@@ -172,10 +172,10 @@ def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     assert implement["status"] == "done"
     assert implement["pr_url"]
     # The authorized start is journaled under the run it started — the
-    # compiled conduct.start decision attributes to the child, whichever
+    # compiled heartbeat.start decision attributes to the child, whichever
     # heartbeat asked.
     story = audit_story(implement["run_id"])
-    assert any(e["tool"] == "conduct.start" and e["decision"] == "allow" for e in story)
+    assert any(e["tool"] == "heartbeat.start" and e["decision"] == "allow" for e in story)
     # And it was THIS test's heartbeat that started it: the tick that
     # names the child run carries the writing workflow's own id.
     started = [

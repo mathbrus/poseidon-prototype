@@ -37,7 +37,7 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   loop's bare heartbeat treats any open PR or issue as reviewable backlog,
   and one parked review holds `max_concurrent_runs`' whole slot for a day.
   So a fixture closes the PRs it opened the moment their openness has been
-  verified; a module that applies a conduct-declaring blueprint sweeps
+  verified; a module that applies a heartbeat-declaring blueprint sweeps
   BEFORE the apply (the bare heartbeat ticks once, immediately) and
   restores the pristine blueprint after; the session sweeper catches
   whatever a failure path dropped.
@@ -314,8 +314,8 @@ def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
 
 
 def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
-    """The conduct-ledger rows this exact heartbeat wrote. Every heartbeat
-    of a company journals under the shared `conduct-{company}` run id, but
+    """The heartbeat ledger rows this exact heartbeat wrote. Every heartbeat
+    of a company journals under the shared `heartbeat-{company}` run id, but
     each tick row carries the writing workflow's own id in the `workflow`
     column — so this is attributable to one heartbeat even while the ensure
     loop runs a second one beside it. Assert on these, never on
@@ -323,8 +323,8 @@ def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
     the company, and winning a race is not a claim."""
     return [
         e
-        for e in audit_story(workflow_id("conduct", COMPANY_NS))
-        if e["tool"] == "conduct.tick" and e["workflow"] == heartbeat_id
+        for e in audit_story(workflow_id("heartbeat", COMPANY_NS))
+        if e["tool"] == "heartbeat.tick" and e["workflow"] == heartbeat_id
     ]
 
 
@@ -436,9 +436,9 @@ def repo_baseline(env: dict[str, str]) -> dict[str, str]:
 # PR as reviewable backlog, so PRs a module leaves behind become another
 # module's race. Fixtures close the PRs they opened the moment they are
 # done with them; the session sweeper catches what inline tests and failure
-# paths drop; and modules that applied a conduct-declaring blueprint
+# paths drop; and modules that applied a heartbeat-declaring blueprint
 # terminate the bare heartbeat their apply caused, instead of leaving it
-# asleep for up to heartbeat_minutes after the pristine restore.
+# asleep for up to interval_minutes after the pristine restore.
 
 
 def pr_number(pr_url: str | None) -> int | None:

@@ -34,7 +34,7 @@ exhausted-chain escalation in `.../tests/test_review_workflow.py`.
 
 Applies `examples/hello-saas-delegated.yaml` for the module and restores
 the pristine `hello-saas.yaml` after, so later suites run against the
-human-gated company — the conduct red-team's blueprint-swap pattern.
+human-gated company — the heartbeat red-team's blueprint-swap pattern.
 """
 
 import asyncio
@@ -91,8 +91,8 @@ def delegated(stack: None, repo_baseline: dict):
     layer is red and files a rework — `merge.resolve` would never be
     evaluated, and this red-team would fail for a reason that has nothing
     to do with the carve-out it is about."""
-    # An empty campsite before the conduct blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment conduct is declared, and
+    # An empty campsite before the heartbeat blueprint lands: the ensure
+    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
     # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(repo_baseline)
