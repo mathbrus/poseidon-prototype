@@ -12,10 +12,11 @@ already survived this gate.
 
 A blueprint is a YAML mapping with `apiVersion: poseidon.dev/v1` and nine
 sections: `company`, `stack`, `standing`, `crews`, `tools`, `workflows`,
-`policies`, `budgets`, `conduct`. All are required except `policies` and
-`conduct` — a company without guardrails is a choice you make visibly, not
-a default you fall into by omission, and a company with no standing
-heartbeat is simply one no heartbeat drives. The document format itself is introduced line by line in
+`policies`, `budgets`, `heartbeat`. All are required except `policies` and
+`heartbeat` — a company without guardrails is a choice you make visibly, not
+a default you fall into by omission, and a company that declares no
+heartbeat is simply one whose runs a human starts. The document format
+itself is introduced line by line in
 [docs/blueprint.md](../../docs/blueprint.md).
 
 ## Module map

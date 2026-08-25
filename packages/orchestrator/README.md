@@ -16,7 +16,7 @@ system.
 
 | Path | Owns |
 |---|---|
-| `workflows/` | `intake`, `implement`, `review`, `conduct` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
+| `workflows/` | `intake`, `implement`, `review`, `heartbeat` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
 | `activities/` | The activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
 | `gates/` | `Gate` — a signal-driven wait point with an escalation timer. |
 | `audit.py` | `record_event` — the platform's own audit events, under its identity or an ephemeral agent's, on the shared ingestion contract. |
@@ -24,7 +24,7 @@ system.
 | `identity.py` | Ephemeral identity naming — the fulfill half of the identity contract; the gateways own the verify half. |
 | `clients.py` | `GatewayClient` (MCP + admin routes) and `AgentClient` (dispatch/poll). |
 | `cli/` | `poseidon run\|review\|signal\|status`, `poseidon blueprint compile\|preview\|apply` — documented in [INTERFACES.md](../../INTERFACES.md). |
-| `worker/` | The worker process: registers all four workflows and all activities on the `poseidon-orchestrator` task queue, and runs the ensure loop that keeps each company's conduct heartbeat alive. |
+| `worker/` | The worker process: registers all four workflows and all activities on the `poseidon-orchestrator` task queue, and runs the ensure loop that keeps each company's heartbeat alive. |
 | `config.py` | `TemporalSettings` (all a client needs) and `WorkerSettings` (what activities need). |
 
 ## Workflow code is replayed, not run once
@@ -102,30 +102,30 @@ no merge gate declared, the findings are the deliverable and the
 workflow ends without merging — unattended auto-merge is not a default
 anyone gets implicitly.
 
-**conduct** — the company's standing heartbeat, and the one workflow no
-human starts: `conduct_config → conduct_observe → conduct_decide (the
-PM) → conduct_authorize → start child run → record_conduct_tick → sleep
+**heartbeat** — the company's own cadence, and the one workflow no
+human starts: `heartbeat_config → heartbeat_observe → heartbeat_decide (the
+PM) → heartbeat_authorize → start child run → record_tick → sleep
 → continue-as-new`. It is not run-shaped: there is exactly one per
-company, `conduct-{company}`, and the worker's ensure loop starts it
-whenever the applied blueprint declares a `conduct` section. Each tick
+company, `heartbeat-{company}`, and the worker's ensure loop starts it
+whenever the applied blueprint declares a `heartbeat` section. Each tick
 re-reads that section from the registry and stops when it is gone, so
 revoking the heartbeat is a blueprint diff, effective at the next tick.
-`conduct_observe` gathers the backlog, delivered-but-unreviewed PRs,
+`heartbeat_observe` gathers the backlog, delivered-but-unreviewed PRs,
 run history, capacity and spend — numbers, titles and URLs only; issue
 bodies are untrusted input the implement run reads itself.
-`conduct_decide` dispatches the standing conductor in `mode="decide"`
+`heartbeat_decide` dispatches the standing conductor in `mode="decide"`
 with that observation and gets back one action with a required
-rationale, journaled as a `conduct.decide` audit event. The PM proposes
+rationale, journaled as a `heartbeat.decide` audit event. The PM proposes
 and the platform disposes: the action set is closed, the target must
-come from the observation, and `conduct_authorize` evaluates the
-compiled `conduct.start` decision at OPA before the tick starts
+come from the observation, and `heartbeat_authorize` evaluates the
+compiled `heartbeat.start` decision at OPA before the tick starts
 anything — the caps (`max_concurrent_runs`, `daily_cap_usd`, the
 `may_start` list) are checked in the workflow for the honest audit
 reason and again by policy for the refusal that does not depend on this
-code. A started child run is abandoned, not supervised: ticks are
-heartbeats, and progress and gates belong to the run. Every tick
+code. A started child run is abandoned, not supervised: a tick is one
+heartbeat cycle, and progress and gates belong to the run. Every tick
 outcome — started, idle and why, refused and why — is an audit event
-under the `conduct-{company}` run id, and the daily-cap halt is a
+under the `heartbeat-{company}` run id, and the daily-cap halt is a
 `process-gate` event like a per-run budget stop.
 
 Every run begins with `check_budget`: a run born with no headroom under

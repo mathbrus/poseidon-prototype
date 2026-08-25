@@ -316,7 +316,7 @@ flowchart LR
 The split between `schema` and `compiler` is worth understanding. `schema`
 asks *is this document well-formed?* — a question answerable from the
 document alone. `compiler` asks *is this company coherent?* — does the
-workflow have someone to conduct it, does every scope name a real tool, do
+workflow name a conductor that may spawn its crew, does every scope name a real tool, do
 the budgets cover what is enabled. Both fail before anything reaches a
 cluster.
 
@@ -591,7 +591,7 @@ sandbox torn down, the registration retired, the run record written.
 ### Who starts the next run: the heartbeat
 
 Everything above describes one run, and by default a human starts each
-one. A company whose blueprint declares a `conduct` section
+one. A company whose blueprint declares a `heartbeat` section
 ([the blueprint reference](docs/blueprint.md)) also runs a standing
 **heartbeat**: one durable workflow that wakes on the declared cadence
 and, each tick:
@@ -600,7 +600,7 @@ and, each tick:
    the day's spend.
 2. **Dispatches the PM in a toolless *decide* mode** for exactly one
    action: implement a ticket, review a PR, or idle.
-3. **Starts the chosen run** only under the compiled `conduct.start`
+3. **Starts the chosen run** only under the compiled `heartbeat.start`
    decision and the declared caps.
 
 The PM proposes; the platform disposes; the human declares the cadence and
@@ -734,7 +734,7 @@ Read it as the answer to "what do I actually get?"
   against the new code, so a suite weakened to green launders nothing. The
   implementer cannot certify its own work — the containment is
   positional, tested by a red-team that tries every way around it.
-- **Unattended operation under caps.** With a `conduct` section, a standing
+- **Unattended operation under caps.** With a `heartbeat` section, a standing
   heartbeat runs the backlog itself: it dispatches the PM to choose the
   next action, starts it under compiled policy and declared caps
   (`max_concurrent_runs`, a daily spend cap), journals every decision, and
@@ -957,7 +957,7 @@ Dockerfile         one recipe for every image; deploy/build-images.sh is the mat
 deploy/helm/       the Poseidon chart, plus Temporal's values
 deploy/kind/       kind bootstrap, teardown, .env
 crds/              Company and AgentInstance CustomResourceDefinitions
-examples/          hello-saas.yaml, -conducted.yaml, -delegated.yaml (the three company profiles), Tetris, red-team scenarios
+examples/          hello-saas.yaml, -heartbeat.yaml, -delegated.yaml (the three company profiles), Tetris, red-team scenarios
 scripts/           acceptance.sh
 tests/e2e_kind/    the acceptance suite that runs against a live cluster
 ```
