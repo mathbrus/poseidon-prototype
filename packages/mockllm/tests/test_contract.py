@@ -332,8 +332,8 @@ def test_review_dispatch_reads_executes_and_posts_findings(mock_llm_url):
     assert result.verdict_summary
     # The verdict is a local record, never a gateway call.
     tools = [tool for tool, _ in gateway.calls]
-    assert tools == ["git.read", "sandbox.run_tests", "git.comment"]
-    read_args = gateway.calls[0][1]
+    assert tools == ["sandbox.list_dir", "git.read", "sandbox.run_tests", "git.comment"]
+    read_args = gateway.calls[1][1]
     assert read_args["number"] == 41
     comment_args = gateway.calls[-1][1]
     assert comment_args["number"] == 41

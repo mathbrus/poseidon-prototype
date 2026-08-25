@@ -31,6 +31,7 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import Future
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -41,8 +42,10 @@ from openhands.sdk import (
     ConversationExecutionStatus,
     LLMSummarizingCondenser,
 )
+from openhands.sdk.context import AgentContext
 from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.llm import Message, TextContent
+from openhands.sdk.skills import Skill
 from pydantic import BaseModel, SecretStr
 
 from agent.config import AgentSettings
@@ -85,6 +88,10 @@ PLAN_STEP_CAP = 8
 CONDENSER_MAX_SIZE = 120
 CONDENSER_KEEP_FIRST = 4
 _OUTPUT_CLIP = 4000
+# The repository's own instructions to agents, read from the sandbox and
+# shown to the model as untrusted context. Bounded: a file can be anything.
+REPO_INSTRUCTIONS_FILE = "AGENTS.md"
+REPO_INSTRUCTIONS_CLIP = 8000
 
 log = get_logger("agent.brain")
 
@@ -194,11 +201,13 @@ def _build_conversation(
     ctx: HandsContext,
     workspace: str,
     max_steps: int,
+    agent_context: AgentContext | None = None,
 ) -> Conversation:
     agent = Agent(
         llm=llm,
         tools=hands(tool_names),
         system_prompt=system_prompt,
+        agent_context=agent_context,
         condenser=LLMSummarizingCondenser(
             llm=llm, max_size=CONDENSER_MAX_SIZE, keep_first=CONDENSER_KEEP_FIRST
         ),
@@ -229,10 +238,11 @@ def _prompt(name: str, settings: AgentSettings, model: str) -> str:
     return compose(procedure, PROMPT_SECTIONS[name], model)
 
 
-def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
+def _clip(text: str, limit: int = _OUTPUT_CLIP, keep: str = "tail") -> str:
     if len(text) <= limit:
         return text
-    return f"[... {len(text) - limit} chars clipped ...]\n" + text[-limit:]
+    marker = f"[... {len(text) - limit} chars clipped ...]\n"
+    return text[:limit] + "\n" + marker if keep == "head" else marker + text[-limit:]
 
 
 def _test_report(result: dict[str, Any]) -> str:
@@ -243,10 +253,48 @@ def _test_report(result: dict[str, Any]) -> str:
     )
 
 
-def _survey_entries(bridge: GatewayBridge, run_id: str) -> str:
-    survey = bridge.call("sandbox.list_dir", {"run_id": run_id, "path": "."})
-    return ", ".join(
-        f"{e['name']}{'/' if e['type'] == 'dir' else ''}" for e in survey["entries"]
+@dataclass
+class Workspace:
+    """What the host learned about the sandbox before the model saw it:
+    the root listing, and the repository's instructions file if it has
+    one — read under the pod's own token, so a role that may not read
+    simply gets no instructions."""
+
+    entries: str
+    instructions: str | None = None
+
+    def context(self) -> AgentContext | None:
+        """The instructions as a repo skill: the SDK renders it in the
+        system message's dynamic block inside its UNTRUSTED_CONTENT
+        framing, which is exactly what a file from the repository is."""
+        if self.instructions is None:
+            return None
+        return AgentContext(
+            skills=[Skill(name=REPO_INSTRUCTIONS_FILE, content=self.instructions)],
+            current_datetime=None,
+        )
+
+
+def _survey(bridge: GatewayBridge, run_id: str) -> Workspace:
+    listing = bridge.call("sandbox.list_dir", {"run_id": run_id, "path": "."})
+    entries = ", ".join(
+        f"{e['name']}{'/' if e['type'] == 'dir' else ''}" for e in listing["entries"]
+    )
+    has_instructions = any(
+        e["name"] == REPO_INSTRUCTIONS_FILE and e["type"] == "file"
+        for e in listing["entries"]
+    )
+    if not has_instructions:
+        return Workspace(entries)
+    try:
+        read = bridge.call(
+            "sandbox.read_file", {"run_id": run_id, "path": REPO_INSTRUCTIONS_FILE}
+        )
+    except ToolCallError as exc:
+        log.info("repo instructions unread", extra={"reason": str(exc)})
+        return Workspace(entries)
+    return Workspace(
+        entries, _clip(str(read["content"]), REPO_INSTRUCTIONS_CLIP, keep="head")
     )
 
 
@@ -267,30 +315,48 @@ def _plan_prompt(task_text: str, entries: str) -> str:
     )
 
 
+@dataclass
+class Session:
+    convo: Conversation
+    bridge: GatewayBridge
+    records: ToolRecords
+    # None for a dispatch with no sandbox (the PM).
+    workspace: Workspace | None = None
+
+
 @contextmanager
 def _session(
-    settings: AgentSettings, run_id: str, prompt: str, tools: list[str], max_steps: int
-) -> Iterator[tuple[Conversation, GatewayBridge, ToolRecords]]:
+    settings: AgentSettings,
+    run_id: str,
+    prompt: str,
+    tools: list[str],
+    max_steps: int,
+    sandboxed: bool = True,
+) -> Iterator[Session]:
     """One dispatch's machinery: a gateway session under the pod's own
     token, a scratch workspace, and an SDK conversation on the mode's
-    prompt and tool surface. The records capture every tool result; the
-    conversation is closed on the way out, whatever happened inside."""
+    prompt and tool surface. A sandboxed mode surveys the run's sandbox
+    first, so the conversation opens knowing the tree and the
+    repository's instructions. The records capture every tool result;
+    the conversation is closed on the way out, whatever happened inside."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
     llm = build_llm(settings, run_id, token)
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
+        workspace = _survey(bridge, run_id) if sandboxed else None
         ctx = HandsContext(bridge, settings, run_id, records)
-        with tempfile.TemporaryDirectory(prefix="brain-") as workspace:
+        with tempfile.TemporaryDirectory(prefix="brain-") as scratch:
             convo = _build_conversation(
                 llm,
                 _prompt(prompt, settings, llm.model),
                 tools,
                 ctx,
-                workspace,
+                scratch,
                 max_steps=max_steps,
+                agent_context=workspace.context() if workspace else None,
             )
             try:
-                yield convo, bridge, records
+                yield Session(convo, bridge, records, workspace)
             finally:
                 convo.close()
 
@@ -313,12 +379,10 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
     open_pr), the host runs the ADVISORY verify between turns, and advisory
     green ends the dispatch with a completion claim. The gate of record is
     the platform's own `sandbox.run_tests` in the implement workflow."""
-    with _session(settings, run_id, "implement", ACT_TOOLS, ACT_STEP_CAP) as (
-        convo,
-        bridge,
-        _,
-    ):
-        convo.send_message(_act_prompt(task_text, _survey_entries(bridge, run_id)))
+    with _session(settings, run_id, "implement", ACT_TOOLS, ACT_STEP_CAP) as s:
+        convo = s.convo
+        assert s.workspace is not None
+        convo.send_message(_act_prompt(task_text, s.workspace.entries))
         iterations = 0
         while True:
             convo.run()
@@ -329,7 +393,7 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
                 )
             iterations += 1
             try:
-                result = bridge.call("sandbox.run_tests", {"run_id": run_id})
+                result = s.bridge.call("sandbox.run_tests", {"run_id": run_id})
             except ToolCallError as exc:
                 result = {"exit_code": -1, "stdout": "", "stderr": str(exc)}
             passed = result.get("exit_code") == 0
@@ -356,11 +420,8 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
     # One SDK step is one delivery attempt (commit + open_pr); the injected
     # scenario must fit attempt-deny-recover.
     max_steps = max(settings.max_iterations, 4)
-    with _session(settings, run_id, "deliver", DELIVER_TOOLS, max_steps) as (
-        convo,
-        _,
-        records,
-    ):
+    with _session(settings, run_id, "deliver", DELIVER_TOOLS, max_steps) as s:
+        convo, records = s.convo, s.records
         convo.send_message(
             f"Task:\n{task_text}\n\n"
             "The platform has verified your work in the sandbox: the "
@@ -387,11 +448,8 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     the same at the gateway. A dispatch without posted findings or without
     a verdict is a failed review."""
     max_steps = settings.max_iterations * 2
-    with _session(settings, run_id, "review", REVIEWER_TOOLS, max_steps) as (
-        convo,
-        _,
-        records,
-    ):
+    with _session(settings, run_id, "review", REVIEWER_TOOLS, max_steps) as s:
+        convo, records = s.convo, s.records
         convo.send_message(f"Task:\n{task_text}")
         convo.run()
     if not records.comment_urls:
@@ -418,7 +476,8 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
     private memory: the backlog and the run history are the PM's only
     cross-run state. Executor-tool refusal is the
     gateway's job; a deny surfaces as a tool observation the model sees."""
-    with _session(settings, run_id, "pm", PM_TOOLS, PM_STEP_CAP) as (convo, _, records):
+    with _session(settings, run_id, "pm", PM_TOOLS, PM_STEP_CAP, sandboxed=False) as s:
+        convo, records = s.convo, s.records
         convo.send_message(f"Goal:\n{task_text}")
         convo.run()
         capped = convo.state.execution_status == ConversationExecutionStatus.ERROR
@@ -483,12 +542,10 @@ def plan_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunRe
     compiled scope is read-only, and it calls the gateway under its own
     pod's token, so policy enforces the same. The brief is the agent's
     final text, whether it ended with a plain reply or `finish`."""
-    with _session(settings, run_id, "plan", PLAN_TOOLS, PLAN_STEP_CAP) as (
-        convo,
-        bridge,
-        _,
-    ):
-        convo.send_message(_plan_prompt(task_text, _survey_entries(bridge, run_id)))
+    with _session(settings, run_id, "plan", PLAN_TOOLS, PLAN_STEP_CAP) as s:
+        convo = s.convo
+        assert s.workspace is not None
+        convo.send_message(_plan_prompt(task_text, s.workspace.entries))
         convo.run()
         if convo.state.execution_status == ConversationExecutionStatus.ERROR:
             return RunResult(error=f"planner did not finish within {PLAN_STEP_CAP} steps")

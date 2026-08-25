@@ -23,6 +23,7 @@ from agent.brain import (
     pm_dispatch,
     review_dispatch,
 )
+from agent.gateway_client import ToolCallError
 from agent.hands import REVIEWER_TOOLS
 
 TASK = "Add a `greet(name)` function to src/hello.py with a test."
@@ -86,6 +87,7 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
     assert result.pr_url == PR_URL
     assert result.error is None
     assert gateway.tools_called() == [
+        "sandbox.list_dir",  # the survey every sandboxed dispatch opens with
         "sandbox.exec",
         "sandbox.git_bundle",
         "git.open_pr",
@@ -130,6 +132,7 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
     assert result.verdict == "pass"
     assert result.verdict_summary == "Suite green; in scope."
     assert gateway.tools_called() == [
+        "sandbox.list_dir",
         "git.read",
         "sandbox.run_tests",
         "git.comment",
@@ -572,3 +575,62 @@ def test_model_family_guidance_follows_the_model():
     mock = compose("# procedure", CODING_SECTIONS, "openai/mock-brain")
     assert "<IMPORTANT>" not in mock
     assert "<CODE_QUALITY>" in mock
+
+
+# --- repository instructions ----------------------------------------------------
+
+
+def test_agents_md_rides_the_system_message_as_untrusted_context(settings, gateway):
+    """A workspace AGENTS.md is read once by the host, under the pod's own
+    token, and reaches the model in the system message's second block
+    inside the SDK's untrusted-content framing — never as an instruction
+    of ours."""
+    gateway.agents_md = "Use four-space indents. Run `make check` before commits."
+    llm = ScriptedLLM([says("nothing to do")])
+
+    with scripted(gateway, llm):
+        implement_dispatch(settings, RUN_ID, TASK)
+
+    assert gateway.tools_called()[:2] == ["sandbox.list_dir", "sandbox.read_file"]
+    assert gateway.calls[1][1]["path"] == "AGENTS.md"
+    system = llm.requests[0][0][0]
+    blocks = [b["text"] for b in system["content"]]
+    assert len(blocks) == 2
+    assert blocks[0].startswith("# Poseidon executor")  # the static prompt, verbatim
+    assert "<REPO_CONTEXT>" in blocks[1] and "<UNTRUSTED_CONTENT>" in blocks[1]
+    assert "Run `make check` before commits." in blocks[1]
+    assert "<CURRENT_DATETIME>" not in blocks[1]
+    assert "AGENTS.md" not in blocks[0]
+
+
+def test_no_agents_md_means_no_dynamic_block(settings, gateway):
+    llm = ScriptedLLM([says("nothing to do")])
+
+    with scripted(gateway, llm):
+        implement_dispatch(settings, RUN_ID, TASK)
+
+    assert "sandbox.read_file" not in gateway.tools_called()
+    system = llm.requests[0][0][0]
+    assert len(system["content"]) == 1
+
+
+def test_agents_md_the_role_may_not_read_is_skipped(settings, gateway):
+    """Listing shows the file but policy refuses the read: the dispatch
+    goes on without instructions rather than failing."""
+    gateway.agents_md = "secret conventions"
+    original = gateway.call
+
+    async def deny_read(tool, args):
+        if tool == "sandbox.read_file":
+            gateway.calls.append((tool, dict(args)))
+            raise ToolCallError("denied by policy rule: default_deny (sandbox.read_file)")
+        return await original(tool, args)
+
+    gateway.call = deny_read
+    llm = ScriptedLLM([says("nothing to do")])
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert len(llm.requests[0][0][0]["content"]) == 1
