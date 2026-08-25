@@ -49,13 +49,13 @@ def test_crew_templates_are_the_catalog_crews():
 
 
 def test_feature_delivery_is_planner_plus_one_executor():
-    members = CREW_TEMPLATES["feature-delivery"].members
-    assert set(members) == {"planner", "executor"}
-    assert all(m.role_template == "backend-engineer" for m in members.values())
+    agents = CREW_TEMPLATES["feature-delivery"].agents
+    assert set(agents) == {"planner", "executor"}
+    assert all(m.role_template == "backend-engineer" for m in agents.values())
 
 
 def test_planner_is_llm_only_and_write_free():
-    planner = CREW_TEMPLATES["feature-delivery"].members["planner"]
+    planner = CREW_TEMPLATES["feature-delivery"].agents["planner"]
     assert planner.needs_sandbox is False
     assert set(planner.tools) == {
         "sandbox.read_file",
@@ -66,10 +66,10 @@ def test_planner_is_llm_only_and_write_free():
 
 def test_every_crew_member_has_an_explicit_allow_list():
     for crew in CREW_TEMPLATES.values():
-        for name, member in crew.members.items():
-            assert member.tools, f"{crew.name}.{name} has no allow-list"
-            assert set(member.tools) <= KNOWN_TOOLS
-            assert not set(member.tools) & PLATFORM_ONLY
+        for name, agent in crew.agents.items():
+            assert agent.tools, f"{crew.name}.{name} has no allow-list"
+            assert set(agent.tools) <= KNOWN_TOOLS
+            assert not set(agent.tools) & PLATFORM_ONLY
 
 
 def test_members_inherit_the_run_budget():
@@ -78,8 +78,8 @@ def test_members_inherit_the_run_budget():
 
 
 def test_executor_can_deliver_and_reviewer_cannot():
-    executor = CREW_TEMPLATES["feature-delivery"].members["executor"]
-    reviewer = CREW_TEMPLATES["feature-review"].members["reviewer"]
+    executor = CREW_TEMPLATES["feature-delivery"].agents["executor"]
+    reviewer = CREW_TEMPLATES["feature-review"].agents["reviewer"]
     assert "git.open_pr" in executor.tools
     assert "git.open_pr" not in reviewer.tools
     assert {"git.read", "git.comment"} <= set(reviewer.tools)
@@ -91,9 +91,9 @@ def test_contract_authoring_is_one_deliver_capable_author():
     so `policies.contract_tests` can fence the tree to it, crew-request
     rows never collide with a same-run delivery crew, and reviewer
     independence (keyed on crew_template) holds against it for free."""
-    members = CREW_TEMPLATES["contract-authoring"].members
-    assert set(members) == {"author"}
-    author = members["author"]
+    agents = CREW_TEMPLATES["contract-authoring"].agents
+    assert set(agents) == {"author"}
+    author = agents["author"]
     assert author.role_template == "contract-author"
     assert author.needs_sandbox is True  # the acting executor at fulfill
     assert "git.open_pr" in author.tools

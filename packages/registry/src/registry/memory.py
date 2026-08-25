@@ -1,7 +1,7 @@
 """In-memory stand-ins for the registry accessors — for tests only.
 
 They live here, next to the real implementations, because four packages'
-test suites (gateway, gateway-llm, orchestrator and sandbox) need them and
+test suites (gateway, llm-gateway, orchestrator and sandbox) need them and
 a double that drifts from its interface is worse than no double at all.
 Nothing in a running service may import this module: the point of the
 registry is that state survives the process.
@@ -221,7 +221,7 @@ class InMemoryAgentInstances:
         self,
         agent_id: str,
         company: str,
-        hire: str,
+        standing_role: str,
         role_template: str,
         model_tier: str,
         namespace: str | None = None,
@@ -230,7 +230,7 @@ class InMemoryAgentInstances:
         self.rows[agent_id] = {
             "agent_id": agent_id,
             "company": company,
-            "hire": hire,
+            "standing_role": standing_role,
             "role_template": role_template,
             "model_tier": model_tier,
             "namespace": namespace,

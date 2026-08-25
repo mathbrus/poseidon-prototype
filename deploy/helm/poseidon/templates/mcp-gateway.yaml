@@ -33,8 +33,8 @@ spec:
         {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
         - name: mcp-gateway
-          image: "{{ .Values.images.gateway.repository }}:{{ .Values.images.gateway.tag }}"
-          imagePullPolicy: {{ .Values.images.gateway.pullPolicy }}
+          image: "{{ .Values.images.mcpGateway.repository }}:{{ .Values.images.mcpGateway.tag }}"
+          imagePullPolicy: {{ .Values.images.mcpGateway.pullPolicy }}
           securityContext:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
@@ -80,12 +80,12 @@ metadata:
   labels:
     {{- include "poseidon.labels" . | nindent 4 }}
 spec:
-  type: {{ .Values.gateway.service.type }}
+  type: {{ .Values.mcpGateway.service.type }}
   selector:
     app: mcp-gateway
   ports:
     - port: 8080
       targetPort: 8080
-      {{- if .Values.gateway.service.nodePort }}
-      nodePort: {{ .Values.gateway.service.nodePort }}
+      {{- if .Values.mcpGateway.service.nodePort }}
+      nodePort: {{ .Values.mcpGateway.service.nodePort }}
       {{- end }}

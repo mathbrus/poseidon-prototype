@@ -5,7 +5,7 @@ package poseidon.authz.hello_saas
 
 import rego.v1
 
-# feature-delivery/planner: ephemeral crew member on the backend-engineer template.
+# feature-delivery/planner: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_planner_issues_read" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -14,7 +14,7 @@ allow_rules contains "crew_feature_delivery_planner_issues_read" if {
 	input.tool == "issues.read"
 }
 
-# feature-delivery/planner: ephemeral crew member on the backend-engineer template.
+# feature-delivery/planner: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_planner_sandbox_list_dir" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -24,7 +24,7 @@ allow_rules contains "crew_feature_delivery_planner_sandbox_list_dir" if {
 	bound_to_run
 }
 
-# feature-delivery/planner: ephemeral crew member on the backend-engineer template.
+# feature-delivery/planner: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_planner_sandbox_read_file" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"

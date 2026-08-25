@@ -37,9 +37,9 @@ def test_hello_saas_validates():
 
 
 def test_hello_saas_is_the_lean_profile(blueprint):
-    """The PM is the only standing hire; no standing executor exists in the
+    """The PM is the only standing agent; no standing executor exists in the
     document at all."""
-    roles = blueprint["departments"]["roles"]
+    roles = blueprint["standing"]
     assert roles["pm"]["count"] == 1
     assert set(roles) == {"pm"}
     assert "backend-engineer" not in roles
@@ -59,7 +59,7 @@ def test_review_merge_gate_is_human_resolved(blueprint):
 
 
 def test_planner_is_read_only(blueprint):
-    planner = blueprint["crews"]["feature-delivery"]["members"]["planner"]
+    planner = blueprint["crews"]["feature-delivery"]["agents"]["planner"]
     assert planner["needs_sandbox"] is False
     assert set(planner["tools"]) == {
         "sandbox.read_file",
@@ -91,13 +91,13 @@ def test_unknown_tool_lists_what_is_allowed(blueprint):
 
 
 def test_unknown_model_tier_lists_the_tiers(blueprint):
-    blueprint["departments"]["roles"]["pm"]["model_tier"] = "gigantic"
+    blueprint["standing"]["pm"]["model_tier"] = "gigantic"
     (problem,) = [p for p in problems_of(blueprint) if "gigantic" in p]
     assert "'small'" in problem and "'frontier'" in problem
 
 
 def test_crew_member_without_an_allow_list_is_rejected(blueprint):
-    del blueprint["crews"]["feature-delivery"]["members"]["executor"]["tools"]
+    del blueprint["crews"]["feature-delivery"]["agents"]["executor"]["tools"]
     problems = problems_of(blueprint)
     assert any("executor" in p and "tools" in p for p in problems)
 
@@ -117,20 +117,20 @@ def test_a_non_mapping_document_is_rejected():
 
 
 def test_unknown_role_template_lists_the_catalog(blueprint):
-    blueprint["departments"]["roles"]["pm"]["template"] = "product-manager"
+    blueprint["standing"]["pm"]["template"] = "product-manager"
     (problem,) = [p for p in problems_of(blueprint) if "product-manager" in p]
     assert "role catalog" in problem
     assert "pm" in problem and "sdet" in problem
 
 
 def test_unknown_crew_in_may_spawn_is_caught(blueprint):
-    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append("hotfix-swat")
+    blueprint["standing"]["pm"]["may_spawn"]["crew"].append("hotfix-swat")
     (problem,) = [p for p in problems_of(blueprint) if "hotfix-swat" in p]
     assert "feature-delivery" in problem
 
 
 def test_unknown_crew_member_template_is_caught(blueprint):
-    blueprint["crews"]["feature-review"]["members"]["reviewer"]["role_template"] = "qa"
+    blueprint["crews"]["feature-review"]["agents"]["reviewer"]["role_template"] = "qa"
     assert any("role_template" in p for p in problems_of(blueprint))
 
 
@@ -143,8 +143,8 @@ def test_company_role_cannot_hold_the_platform_merge_tool(blueprint):
 
 
 def test_crew_member_cannot_hold_the_platform_merge_tool(blueprint):
-    members = blueprint["crews"]["feature-delivery"]["members"]
-    members["executor"]["tools"].append("git.merge_pr")
+    agents = blueprint["crews"]["feature-delivery"]["agents"]
+    agents["executor"]["tools"].append("git.merge_pr")
     assert any("platform identity" in p for p in problems_of(blueprint))
 
 
@@ -160,17 +160,17 @@ def test_unknown_crew_name_is_caught(blueprint):
 
 
 def test_unknown_crew_member_name_is_caught(blueprint):
-    members = blueprint["crews"]["feature-review"]["members"]
-    members["stenographer"] = copy.deepcopy(members["reviewer"])
+    agents = blueprint["crews"]["feature-review"]["agents"]
+    agents["stenographer"] = copy.deepcopy(agents["reviewer"])
     (problem,) = [p for p in problems_of(blueprint) if "stenographer" in p]
-    assert "not a member" in problem
-    assert "reviewer" in problem  # the catalog's members are shown
+    assert "not a agent" in problem
+    assert "reviewer" in problem  # the catalog's agents are shown
 
 
 def test_crew_member_template_must_match_the_catalog(blueprint):
     """The catalog defines who the reviewer is; a document swapping in a
     different (but existing) template is wrong about the crew, not hiring."""
-    blueprint["crews"]["feature-review"]["members"]["reviewer"]["role_template"] = (
+    blueprint["crews"]["feature-review"]["agents"]["reviewer"]["role_template"] = (
         "backend-engineer"
     )
     (problem,) = [p for p in problems_of(blueprint) if "does not match the catalog" in p]
@@ -181,7 +181,7 @@ def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
     """The planner-is-read-only contract is a catalog property: a blueprint
     granting the planner a write tool must fail validation, not compile
     into a wider bundle."""
-    planner = blueprint["crews"]["feature-delivery"]["members"]["planner"]
+    planner = blueprint["crews"]["feature-delivery"]["agents"]["planner"]
     planner["tools"].append("sandbox.write_file")
     (problem,) = [p for p in problems_of(blueprint) if "sandbox.write_file" in p]
     assert "never widens" in problem
@@ -189,12 +189,12 @@ def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
 
 
 def test_crew_member_tools_may_narrow_the_catalog(blueprint):
-    executor = blueprint["crews"]["feature-delivery"]["members"]["executor"]
+    executor = blueprint["crews"]["feature-delivery"]["agents"]["executor"]
     executor["tools"] = ["sandbox.read_file", "sandbox.run_tests"]
     assert validate_blueprint(blueprint) is blueprint
 
 
-# -- the lean roster validates --------------------------------------------
+# -- the lean-standing profile validates --------------------------------------------
 
 
 def test_lean_roster_profile_validates(blueprint):
@@ -203,7 +203,7 @@ def test_lean_roster_profile_validates(blueprint):
     standing-executor document still *validates* structurally."""
     assert validate_blueprint(blueprint) is blueprint
     standing_executor = copy.deepcopy(blueprint)
-    standing_executor["departments"]["roles"]["backend-engineer"] = {
+    standing_executor["standing"]["backend-engineer"] = {
         "template": "backend-engineer",
         "count": 1,
     }

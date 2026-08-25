@@ -14,7 +14,7 @@ without noticing is exactly the kind this project exists to write down.
 Everything here is generated reading the source: the CLI lives in
 `packages/orchestrator/src/orchestrator/cli/`, the workflow contract in
 `packages/orchestrator/src/orchestrator/workflows/`, the tool definitions
-in `packages/gateway/src/gateway/app.py`. If this document and the code
+in `packages/mcp-gateway/src/gateway/app.py`. If this document and the code
 ever disagree, the code wins — and the document has a bug.
 
 ---

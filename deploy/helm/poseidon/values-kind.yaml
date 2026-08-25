@@ -3,7 +3,7 @@
 # host-side runner keeps the familiar URL. Everything else is identical to
 # a real cluster.
 
-gateway:
+mcpGateway:
   service:
     type: NodePort
     nodePort: 30080

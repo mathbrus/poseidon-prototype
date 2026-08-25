@@ -22,12 +22,12 @@ class CompanyCR:
 
 @dataclass(frozen=True)
 class AgentInstanceCR:
-    """One standing hire. Never carries a secret: agent specs are public,
+    """One standing agent. Never carries a secret: agent specs are public,
     credentials arrive at runtime as projected tokens."""
 
     agent_id: str
     company: str
-    hire: str
+    standing_role: str
     role_template: str
     model_tier: str
     tools: tuple[str, ...]
@@ -37,12 +37,12 @@ class AgentInstanceCR:
 
 
 @dataclass(frozen=True)
-class CrewMemberSpec:
-    """Crew-template artifact: what an ephemeral member is allowed to be.
-    Not an instance — members exist only inside a run."""
+class EphemeralAgentSpec:
+    """Crew-template artifact: what an ephemeral agent is allowed to be.
+    Not an instance — agents exist only inside a run."""
 
     crew: str
-    member: str
+    crew_role: str
     role_template: str
     tools: tuple[str, ...]
     needs_sandbox: bool
@@ -131,7 +131,7 @@ class RegoBundle:
 class DeploymentPlan:
     company: CompanyCR
     instances: tuple[AgentInstanceCR, ...]
-    crew_members: tuple[CrewMemberSpec, ...]
+    ephemeral_agents: tuple[EphemeralAgentSpec, ...]
     workflows: tuple[WorkflowConfig, ...]
     budgets: BudgetRegistration
     infra: InfraIR
@@ -155,7 +155,7 @@ class DeploymentPlan:
             {
                 "company": asdict(self.company),
                 "instances": [asdict(i) for i in self.instances],
-                "crew_members": [asdict(m) for m in self.crew_members],
+                "ephemeral_agents": [asdict(m) for m in self.ephemeral_agents],
                 "workflows": [asdict(w) for w in self.workflows],
                 "budgets": asdict(self.budgets),
                 "conduct": asdict(self.conduct) if self.conduct else None,

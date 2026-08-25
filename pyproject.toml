@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "common",
     "agent",
-    "gateway",
+    "mcp-gateway",
     "sandbox",
     "orchestrator",
     "mockllm",
@@ -14,7 +14,7 @@ dependencies = [
     "registry",
     "compiler",
     "poseidon-operator",
-    "gateway-llm",
+    "llm-gateway",
 ]
 
 [dependency-groups]
@@ -46,7 +46,7 @@ ignore = ["B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
-    "agent", "common", "compiler", "gateway", "gateway_llm", "mockllm",
+    "agent", "common", "compiler", "llm_gateway", "mcp_gateway", "mockllm",
     "orchestrator", "poseidon_operator", "registry", "sandbox", "schema",
 ]
 
@@ -61,7 +61,7 @@ addopts = "-m 'not e2e_kind'"
 [tool.uv.sources]
 common = { workspace = true }
 agent = { workspace = true }
-gateway = { workspace = true }
+mcp-gateway = { workspace = true }
 sandbox = { workspace = true }
 orchestrator = { workspace = true }
 mockllm = { workspace = true }
@@ -69,4 +69,4 @@ schema = { workspace = true }
 registry = { workspace = true }
 compiler = { workspace = true }
 poseidon-operator = { workspace = true }
-gateway-llm = { workspace = true }
+llm-gateway = { workspace = true }

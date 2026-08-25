@@ -2,7 +2,7 @@
 
 The durable spine: four Temporal workflows, the activities they
 sequence, the process gates they park on, the bounded Kubernetes surface
-for ephemeral crew pods, the worker that runs it all, and the `poseidon`
+for ephemeral ephemeral pods, the worker that runs it all, and the `poseidon`
 CLI. The [root README](../../README.md) states the promises; this package
 is where they become control flow.
 
@@ -19,8 +19,8 @@ system.
 | `workflows/` | `intake`, `implement`, `review`, `conduct` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
 | `activities/` | The activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
 | `gates/` | `Gate` — a signal-driven wait point with an escalation timer. |
-| `audit.py` | `record_event` — the platform's own audit events, under its identity or a crew member's, on the shared ingestion contract. |
-| `crewpods.py` | The bounded Kubernetes surface for crew pods: **pods and their per-run ServiceAccounts only**, in the **company namespace only**, deleted only by label selector. |
+| `audit.py` | `record_event` — the platform's own audit events, under its identity or an ephemeral agent's, on the shared ingestion contract. |
+| `ephemeral_pods.py` | The bounded Kubernetes surface for ephemeral pods: **pods and their per-run ServiceAccounts only**, in the **company namespace only**, deleted only by label selector. |
 | `identity.py` | Ephemeral identity naming — the fulfill half of the identity contract; the gateways own the verify half. |
 | `clients.py` | `GatewayClient` (MCP + admin routes) and `AgentClient` (dispatch/poll). |
 | `cli/` | `poseidon run\|review\|signal\|status`, `poseidon blueprint compile\|preview\|apply` — documented in [INTERFACES.md](../../INTERFACES.md). |
@@ -76,7 +76,7 @@ signal before dispatching (the shipped example declares no intake gate).
 **implement** — the crew is the only execution path: `create_run →
 check_budget → implement_config → fetch_workspace → provision_sandbox →
 fulfill_crew`, then the dispatch/verify loop below, then the deliver
-dispatch, then teardown. `fulfill_crew` stands the ephemeral roster up
+dispatch, then teardown. `fulfill_crew` stands the ephemeral crew up
 and hands back the planner's brief plus the executor's crew-pod address.
 
 **review** — PR in, gated merge out: read the PR under the platform
@@ -199,10 +199,10 @@ finalizes the run with the budget error.
 
 ## Identity: bound deterministically, revoked by a row
 
-Agent ids are deterministic from `{crew, member, run}` —
+Agent ids are deterministic from `{crew, crew_role, run}` —
 `ephemeral_agent_id()` is string concatenation, nothing more — so a bind
 retried after a worker death lands on the *same* participants row,
-instead of leaking a second identity. Nothing is signed: the member's
+instead of leaking a second identity. Nothing is signed: the agent's
 credential is its own pod's projected ServiceAccount token, and the row —
 which maps the SA name to run, crew coordinates, company and catalog
 template — is what the gateways resolve on every call. Real revocation is
@@ -212,7 +212,7 @@ caller abandons the identity — revocation is final, and a retry that lost
 the race with teardown must not build on it.
 
 `fulfill_crew` composes the whole fulfilment: consume the recorded crew
-request, bind every member and give each its own pod, run the
+request, bind every agent and give each its own pod, run the
 planner, hand back the brief. Two details carry the design:
 
 - **Fulfilment never improvises authority.** Without a recorded,
@@ -232,10 +232,10 @@ planner, hand back the brief. Two details carry the design:
 Every bind, revoke, provision and destroy lands a `process-lifecycle`
 audit event: a run's story shows who existed, when, under whose authority.
 
-## Crew pods
+## Ephemeral pods
 
-A crew pod is one crew member's brain host: the same agent image a
-standing hire runs, labeled to its run. Its only credential is the
+An ephemeral pod is one ephemeral agent's brain host: the same agent image a
+standing agent runs, labeled to its run. Its only credential is the
 audience-scoped projected token of its own per-run ServiceAccount,
 mounted by the kubelet — no token-shaped env var exists, and no
 credential ever enters Temporal's workflow history, which
@@ -246,7 +246,7 @@ blanked.
 The provisioner's Kubernetes surface is bounded by construction: it
 creates and deletes pods and their labeled ServiceAccounts only, in the
 company namespace only, and every
-delete goes through the `{run_id, kind=crew-agent}` label selector — so
+delete goes through the `{run_id, kind=ephemeral-agent}` label selector — so
 nothing unlabeled, and no sandbox pod sharing the run label, can ever be
 touched. Standing structure stays operator-owned.
 
@@ -256,7 +256,7 @@ for the run's teardown to sweep past a check made beforehand. So the
 `still_wanted` predicate ("would anything still collect this pod?") is
 evaluated *inside* `provision()`, immediately before pod creation, from
 two independent signals: a live participants row and a non-terminal run
-record. Refusal raises `CrewPodAbandoned` — not a failure of the run; the
+record. Refusal raises `EphemeralPodAbandoned` — not a failure of the run; the
 run is already over. `activeDeadlineSeconds` is the backstop beneath the
 guard: a pod created in the last instant before teardown passes has no
 owner left to collect it, and the wall-clock deadline means such an
@@ -267,7 +267,7 @@ orphan stops burning compute within the hour.
 `teardown` runs on every terminal path — success, failure, cancel,
 activity timeout, worker death (Temporal replays the workflow and drives
 it there). In order: revoke the run's participants (the identity dies
-first), destroy the crew pods, destroy the sandbox, retire its gateway
+first), destroy the ephemeral pods, destroy the sandbox, retire its gateway
 registration, and write the honest terminal run record, which is also the
 workflow's result. The participants sweep is deliberately independent of
 the sandbox handle — binding precedes provisioning, so participants can
@@ -316,7 +316,7 @@ crew-pod provisioner use: each is useless where the other is needed.
 
 ## Cross-package interactions
 
-- [`gateway`](../gateway/README.md) for every governed call, including
+- [`gateway`](../mcp-gateway/README.md) for every governed call, including
   its own platform-lifecycle ones (`repo.archive`, sandbox registration,
   `sandbox.run_tests`, `git.read`, `git.merge_pr`).
 - [`sandbox`](../sandbox/README.md) for the `SandboxBackend` contract and
@@ -354,9 +354,9 @@ Temporal replays it with nothing leaked.
   crew request it refuses. When a workflow records one itself, it is
   allowed only if the compiled decision the `crew.request` *tool* would
   face allows it — same bundle, same enriched input.
-- Crew pod deletes always go through the `{run_id, kind=crew-agent}`
+- Ephemeral pod deletes always go through the `{run_id, kind=ephemeral-agent}`
   label selector, so nothing unlabeled — and no sandbox pod sharing the
   run label — can ever be touched.
-- `activeDeadlineSeconds` on crew pods: the teardown race guard refuses
+- `activeDeadlineSeconds` on ephemeral pods: the teardown race guard refuses
   to provision for a finished run, but a pod created in the last instant
   before that becomes true has no owner left to collect it.

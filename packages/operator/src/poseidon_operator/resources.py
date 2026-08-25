@@ -20,7 +20,7 @@ LABELS = {
 # ServiceAccount, named by its agent_id, and authenticates to the MCP
 # gateway with a kubelet-rotated projected token scoped to this audience.
 # Must match the gateway's `token_audience` setting.
-TOKEN_AUDIENCE = "poseidon-gateway"
+TOKEN_AUDIENCE = "poseidon-mcp-gateway"
 TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
 # The port an agent's peers listen on, by the infra IR's peer vocabulary:
 # platform services by app label, cluster DNS by its kube-system label.
@@ -49,15 +49,15 @@ def default_deny(company_ns: str) -> dict[str, Any]:
 
 
 def _agent_kinds_selector() -> dict[str, Any]:
-    """Standing hires and ephemeral crew brains share the agent envelope
+    """Standing agents and ephemeral crew brains share the agent envelope
     (gateways-only egress, orchestrator-only ingress) — selected by kind,
-    so a crew pod is contained the moment it exists."""
+    so an ephemeral pod is contained the moment it exists."""
     return {
         "matchExpressions": [
             {
                 "key": "poseidon.dev/kind",
                 "operator": "In",
-                "values": ["standing-agent", "crew-agent"],
+                "values": ["standing-agent", "ephemeral-agent"],
             }
         ]
     }
@@ -190,13 +190,13 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     and a review artifact: it is part of the trusted computing base. Two
     consumers: the k8s_jobs sandbox backend (Jobs + pod reads + exec for
     workspace delivery) and the crew-pod provisioner (pod + ServiceAccount
-    create/delete for each crew member's brain host — the SA is the
+    create/delete for each ephemeral agent's brain host — the SA is the
     member's per-run identity, so its lifetime must equal the pod's, which
     is why it is provisioned here and not operator-reconciled). Company
     namespaces only — the Role is namespaced and operator-reconciled, so
     the worker can create no pod or SA in the platform namespace; the
     run_id+kind label-selector discipline on deletes lives in
-    `orchestrator.crewpods` (RBAC cannot express selectors), proven by the
+    `orchestrator.ephemeral_pods` (RBAC cannot express selectors), proven by the
     crew-pods e2e. Never Deployments, Services or CRs: standing structure stays
     operator-owned."""
     return {
@@ -216,7 +216,7 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
             {
                 "apiGroups": [""],
                 "resources": ["pods"],
-                # create/delete exist for crew pods.
+                # create/delete exist for ephemeral pods.
                 "verbs": ["create", "get", "list", "delete"],
             },
             {
@@ -291,11 +291,11 @@ def agent_deployment(
     No API-server token is mounted (automount stays off), and no
     token-shaped env var exists in the pod at all.
     """
-    hire = spec["hire"]
+    standing_role = spec["standingRole"]
     platform_ns = settings.platform_namespace
     labels = {
         **LABELS,
-        "app": hire,
+        "app": standing_role,
         "poseidon.dev/kind": "standing-agent",
         "poseidon.dev/company": spec["company"],
         "poseidon.dev/agent-id": spec["agentId"],
@@ -306,10 +306,10 @@ def agent_deployment(
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
-        "metadata": {"name": hire, "namespace": company_ns, "labels": labels},
+        "metadata": {"name": standing_role, "namespace": company_ns, "labels": labels},
         "spec": {
             "replicas": 1,
-            "selector": {"matchLabels": {"app": hire}},
+            "selector": {"matchLabels": {"app": standing_role}},
             "template": {
                 "metadata": {"labels": labels},
                 "spec": {
@@ -411,13 +411,13 @@ def agent_deployment(
 
 
 def agent_service(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
-    hire = spec["hire"]
+    standing_role = spec["standingRole"]
     return {
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": {"name": hire, "namespace": company_ns, "labels": LABELS},
+        "metadata": {"name": standing_role, "namespace": company_ns, "labels": LABELS},
         "spec": {
-            "selector": {"app": hire},
+            "selector": {"app": standing_role},
             "ports": [{"port": AGENT_PORT, "targetPort": AGENT_PORT}],
         },
     }

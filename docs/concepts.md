@@ -108,12 +108,12 @@ ephemeral — mounts a projected token for its own ServiceAccount, scoped
 to the gateway's audience. What differs is which registry table the
 gateway resolves the ServiceAccount against:
 
-- **Standing agents** map through `agent_instances`, the roster the
+- **Standing agents** map through `agent_instances`, the standing agents the
   operator reconciles. The gateway resolves the ServiceAccount name to
   the row and — importantly — requires the recorded namespace to *match*.
   The same SA name in another namespace is an impersonation attempt, and
   is refused and audited.
-- **Ephemeral crew members** get a per-run ServiceAccount created at
+- **Ephemeral agents** get a per-run ServiceAccount created at
   provision time, mapping through a live `run_participants` row — the
   row *is* the identity: run binding, crew coordinates, company, catalog
   template, namespace. A verified token alone is never enough; deleting
@@ -189,22 +189,22 @@ with nothing leaked.
 Poseidon distinguishes two kinds of agent, and the distinction is
 structural rather than cosmetic.
 
-A **standing agent** is part of the company's roster. It is declared in the
+A **standing agent** is one of the company's standing agents. It is declared in the
 blueprint with a count, reconciled into a Deployment by the operator, and
 has a stable identity that outlives any run. In the shipped example there is
 exactly one: the PM.
 
-An **ephemeral crew member** exists only inside a run. It is bound when a
+An **ephemeral agent** exists only inside a run. It is bound when a
 crew is fulfilled, gets a run-scoped identity, and is revoked at teardown.
-It never appears in the roster and leaves no standing structure behind.
+It never appears in the standing agents and leaves no standing structure behind.
 
 The rule the compiler enforces is that **execution is always ephemeral**. A
-standing hire must be a *spawner* — a conductor with `may_spawn` authority.
+standing agent must be a *spawner* — a conductor with `may_spawn` authority.
 A blueprint that tries to hire a standing `backend-engineer` is a compile
-error, because a long-lived agent holding write tools is exactly the thing
+error, because a standing agent holding write tools is exactly the thing
 whose blast radius you cannot bound.
 
-One consequence that surprises people: a crew member's tool scope is **not**
+One consequence that surprises people: an ephemeral agent's tool scope is **not**
 required to be a subset of its conductor's. The PM cannot open a pull
 request, yet the crew it spawns can. Spawn authority is not a capability
 ceiling — it is authority to *create a principal*, whose own scope comes

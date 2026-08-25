@@ -21,7 +21,7 @@ the runtime path reports here (what every enforcement point decided).
 | Table | Written by | Records |
 |---|---|---|
 | `companies` | operator | The applied blueprint spec, one row per company. |
-| `agent_instances` | operator | The standing roster, including the namespace workload identity checks against. |
+| `agent_instances` | operator | The standing agents, including the namespace workload identity checks against. |
 | `policy_bundles` | operator | The compiled OPA bundle tarball and its revision. |
 | `runs` | orchestrator | The run record: task, status, artifacts, terminal state. |
 | `run_participants` | orchestrator | One row per bound ephemeral identity — the whole identity, ServiceAccount name included. Revocation is a row termination. |
@@ -53,7 +53,7 @@ what is single is the *contract*, not the writer.
 | `db.py` | Connection pool, DSN handling, and startup migration under an advisory lock. |
 | `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
 | `companies.py` | `Companies` — the applied blueprint per company, written by the operator. |
-| `instances.py` | `AgentInstances` — the standing roster, and the gateways' workload-identity read. |
+| `instances.py` | `AgentInstances` — the standing agents, and the gateways' workload-identity read. |
 | `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |
 | `runs.py` | `Runs` — the run record and its terminal state. |
 | `participants.py` | `RunParticipants` — bound identities, revocation, the spawn count. |
@@ -92,7 +92,7 @@ re-executed after crashes and worker deaths ([root README, section
 - `Runs.start` upserts — a re-attempt resets the same row (and clears a
   stale terminal state) instead of creating a second run.
 - `RunParticipants.add` upserts on the deterministic `agent_id` the mint
-  activity derives from `{crew, member, run}` — a retried mint converges
+  activity derives from `{crew, crew_role, run}` — a retried mint converges
   on one identity instead of leaking two.
 - `CrewRequests` derives its id from `{conductor, crew_template, run_id}`
   so a retried request refreshes rather than duplicates; `consume` is an
@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS registry.run_participants (
 );
 ```
 
-The gateway accepts a crew member's ServiceAccount token only while a
+The gateway accepts an ephemeral agent's ServiceAccount token only while a
 live (`active`, unterminated) row backs it — resolved by
 `service_account` name, checked on every call, and read for everything
 the identity is (company, catalog template, namespace, crew
@@ -195,7 +195,7 @@ to match.
 ## `memory.py` is not test-only scaffolding to delete
 
 The in-memory doubles are part of the package's public surface. The unit
-suites of `gateway`, `gateway-llm`, `orchestrator` and `sandbox` import
+suites of `gateway`, `llm-gateway`, `orchestrator` and `sandbox` import
 them to run without a database. They live next to the real accessors
 because a double that drifts from its interface is worse than no double,
 and they mirror behaviour, not just signatures: `record_artifacts` on an
@@ -225,11 +225,11 @@ and audit events are not optional.
   `run_participants`, records and consumes `crew_requests`, emits the
   `process-gate` and `process-lifecycle` audit events, and reads the
   ledger for headroom checks.
-- [`gateway`](../gateway/README.md) writes `sandbox_registrations`,
+- [`gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`,
   `crew_requests` and audit events; reads `agent_instances` (workload
   identity), `run_participants` (ephemeral identity backing and the spawn count) and
   `sandbox_registrations` (run binding).
-- [`gateway-llm`](../gateway-llm/README.md) writes `budget_ledger` and
+- [`llm-gateway`](../llm-gateway/README.md) writes `budget_ledger` and
   audit events; its hard stop compares `spent_for_run` before every call.
 - [`sandbox`](../sandbox/README.md)'s egress proxy writes audit events
   and resolves a sandbox namespace back to its company's allowlist via

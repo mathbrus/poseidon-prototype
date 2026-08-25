@@ -27,7 +27,7 @@ def payload(result) -> dict:
 
 
 def reviewer_token(participants) -> str:
-    """A bound ephemeral reviewer (the review workflow's sdet crew member):
+    """A bound ephemeral reviewer (the review workflow's sdet ephemeral agent):
     its credential is its pod's projected SA token, and the participants
     row — looked up by SA name — is the whole identity."""
     participants.add(
@@ -39,7 +39,7 @@ def reviewer_token(participants) -> str:
         company="hello-saas",
         role_template="sdet",
         namespace="hello-saas",
-        service_account="crew-reviewer-01x",
+        service_account="ephemeral-reviewer-01x",
     )
     return REVIEWER_TOKEN
 

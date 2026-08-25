@@ -7,7 +7,7 @@
 #   host's loopback under a familiar port, so the host-side CLI
 #   keeps MCP_GATEWAY_URL=http://127.0.0.1:8080. Standing agents have no
 #   NodePort: the orchestrator reaches them in-cluster
-#   through their per-hire Services.
+#   through their per-role Services.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: poseidon

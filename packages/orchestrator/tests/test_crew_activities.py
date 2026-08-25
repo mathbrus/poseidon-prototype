@@ -1,5 +1,5 @@
 """Identity binding against doubles: bind writes one deterministic
-participants row per {crew, member, run} — the row *is* the identity the
+participants row per {crew, crew_role, run} — the row *is* the identity the
 gateways resolve a crew ServiceAccount against; revoke sweeps every live
 participant; both land process-lifecycle audit events; a retried bind
 converges on the same row instead of leaking a second identity — and never
@@ -11,7 +11,7 @@ import pytest
 
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
-from orchestrator.crewpods import service_account_name
+from orchestrator.ephemeral_pods import service_account_name
 from orchestrator.identity import ephemeral_agent_id
 from registry.memory import (
     InMemoryAuditStore,
@@ -28,7 +28,7 @@ SPEC = {
     "run_id": RUN_ID,
     "company": "hello-saas",
     "crew_template": "feature-delivery",
-    "member": "executor",
+    "crew_role": "executor",
     "role_template": "backend-engineer",
     "parent_agent_id": "pm-1",
 }
@@ -81,7 +81,7 @@ def test_bind_writes_the_whole_identity_row(crew, participants, audit):
     assert row["run_id"] == RUN_ID
     assert row["parent_agent_id"] == "pm-1"
     assert row["crew_template"] == "feature-delivery"
-    assert row["role"] == "executor"  # the member name = crew_role
+    assert row["role"] == "executor"  # the agent name = crew_role
     assert row["company"] == "hello-saas"
     assert row["role_template"] == "backend-engineer"  # the catalog template
     assert row["namespace"] == "hello-saas"
@@ -106,7 +106,7 @@ def test_retried_bind_converges_on_one_identity(crew, participants):
 def test_a_bind_that_lost_the_race_with_teardown_is_refused(crew, participants):
     """Revocation is final. A retry that reaches the bind
     after its run's teardown swept the row must not resurrect the identity
-    — that is how a crew pod ended up outliving its run, holding a revoked
+    — that is how an ephemeral pod ended up outliving its run, holding a revoked
     identity with nothing left to collect it."""
     from registry import ParticipantRevoked
 
@@ -120,7 +120,7 @@ def test_a_bind_that_lost_the_race_with_teardown_is_refused(crew, participants):
 
 def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):
     asyncio.run(crew.bind_participant(dict(SPEC)))
-    asyncio.run(crew.bind_participant({**SPEC, "member": "planner"}))
+    asyncio.run(crew.bind_participant({**SPEC, "crew_role": "planner"}))
     audit.events.clear()
 
     swept = asyncio.run(crew.revoke_participants(RUN_ID))

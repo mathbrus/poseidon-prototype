@@ -2,7 +2,7 @@
 
 Every credential is a projected service-account token resolving through a
 (faked) TokenReview to a registry-backed identity — standing agents via
-`agent_instances`, ephemeral crew members via a live `run_participants`
+`agent_instances`, ephemeral agents via a live `run_participants`
 row looked up by ServiceAccount name. The TokenReview may be cached; the
 registry mapping is re-read per call, so a row termination revokes
 immediately. Every rejected token — wrong service account, wrong
@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from common.authn import Authenticator, ServiceAccount
-from gateway.config import GatewaySettings
+from mcp_gateway.config import McpGatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
@@ -27,10 +27,10 @@ pytestmark = pytest.mark.anyio
 
 PLATFORM_NS = "poseidon-platform"
 COMPANY_NS = "hello-saas"
-AUD = "poseidon-gateway"
+AUD = "poseidon-mcp-gateway"
 RUN_ID = "run-01AUTHN"
 CREW_ID = "feature-delivery-executor-run-01AUTHN"
-CREW_SA = f"crew-{CREW_ID}".lower()
+CREW_SA = f"ephemeral-{CREW_ID}".lower()
 
 
 class FakeReviewer:
@@ -48,8 +48,8 @@ class FakeReviewer:
 
 
 @pytest.fixture
-def authn_settings() -> GatewaySettings:
-    return GatewaySettings(
+def authn_settings() -> McpGatewaySettings:
+    return McpGatewaySettings(
         platform_namespace=PLATFORM_NS,
         token_audience=AUD,
     )

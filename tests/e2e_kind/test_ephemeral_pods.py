@@ -1,11 +1,11 @@
-"""Crew pods on the live cluster: a crew pod round-trips; RBAC
+"""Ephemeral pods on the live cluster: an ephemeral pod round-trips; RBAC
 provably denies pod creation in the platform namespace; and destruction
 goes through the {run_id, kind} label selector — an unlabeled pod in the
 same namespace survives the sweep.
 
 The real provisioner runs host-side (kubeconfig) with the real agent
 image; the pod's containment is probed from inside (the operator's agent
-envelope covers `crew-agent` pods by kind label); provision/destroy land
+envelope covers `ephemeral-agent` pods by kind label); provision/destroy land
 process-lifecycle events in the run's story.
 """
 
@@ -52,10 +52,10 @@ def test_worker_rbac_is_bounded(stack: None) -> None:
     assert not _can_i("create", "services", COMPANY_NS)
 
 
-def test_crew_pod_round_trips_and_destroy_is_label_bounded(
+def test_ephemeral_pod_round_trips_and_destroy_is_label_bounded(
     stack: None, env: dict, tmp_path
 ) -> None:
-    from orchestrator.crewpods import CrewPodProvisioner
+    from orchestrator.ephemeral_pods import EphemeralPodProvisioner
     from registry import Runs
 
     run_id = new_run_id()
@@ -63,9 +63,11 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
 
     with registry() as client:
         crew = crew_activities(
-            client, worker_settings(env, tmp_path), CrewPodProvisioner(COMPANY_NS)
+            client, worker_settings(env, tmp_path), EphemeralPodProvisioner(COMPANY_NS)
         )
-        Runs(client).start(run_id, "crew pod contract", "implement", None, "hello-saas")
+        Runs(client).start(
+            run_id, "ephemeral pod contract", "implement", None, "hello-saas"
+        )
         # An unlabeled bystander in the same namespace: the destroy
         # selector must never touch it.
         kubectl(
@@ -82,12 +84,12 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
         )
         try:
             provisioned = asyncio.run(
-                crew.provision_crew_pod(
+                crew.provision_ephemeral_pod(
                     {
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "member": "executor",
+                        "crew_role": "executor",
                         "role_template": "backend-engineer",
                         "parent_agent_id": "pm-1",
                     }
@@ -97,7 +99,7 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
 
             # The pod is Ready (the kubelet's probe hit the brain host) and
             # contained the moment it exists: the operator's agent envelope
-            # selects the crew-agent kind.
+            # selects the ephemeral-agent kind.
             for url, want in [
                 (
                     f"http://llm-gateway.{PLATFORM_NS}.svc.cluster.local:4000/healthz",
@@ -113,7 +115,7 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
                 assert probe(pod, url, want), f"{url} should be {want}"
 
             # Destroy sweeps by {run_id, kind} — the decoy survives.
-            deleted = asyncio.run(crew.destroy_crew_pods(run_id))
+            deleted = asyncio.run(crew.destroy_ephemeral_pods(run_id))
             assert pod in deleted
             survivor = run_kubectl(
                 "-n", COMPANY_NS, "get", "pod", decoy, "-o", "jsonpath={.metadata.name}"
@@ -123,14 +125,14 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
             )
 
             # Idempotent, and audited per action in the one story.
-            assert asyncio.run(crew.destroy_crew_pods(run_id)) == []
+            assert asyncio.run(crew.destroy_ephemeral_pods(run_id)) == []
             lifecycle = [
                 (e["tool"], e["rule"])
                 for e in audit_story(run_id)
                 if e["source"] == "process-lifecycle"
             ]
-            assert ("lifecycle.provision_pod", "crew_pod_provisioned") in lifecycle
-            assert ("lifecycle.destroy_pod", "crew_pod_destroyed") in lifecycle
+            assert ("lifecycle.provision_pod", "ephemeral_pod_provisioned") in lifecycle
+            assert ("lifecycle.destroy_pod", "ephemeral_pod_destroyed") in lifecycle
         finally:
             run_kubectl(
                 "-n",
@@ -141,7 +143,7 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
                 "--ignore-not-found",
                 "--wait=false",
             )
-            asyncio.run(crew.destroy_crew_pods(run_id))
+            asyncio.run(crew.destroy_ephemeral_pods(run_id))
             client.execute(
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )

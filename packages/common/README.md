@@ -38,7 +38,7 @@ of who verifiably asked" true (see the deputy discussion in the
 
 The model also records *how* the caller was verified, via `lifecycle`:
 `standing` (a rostered agent with a Kubernetes ServiceAccount),
-`ephemeral` (a crew member bound to one run), or `platform` (the
+`ephemeral` (an ephemeral agent bound to one run), or `platform` (the
 orchestrator itself). Compiled policy keys on this field, so the
 distinction that section 3 of the root README calls structural is carried
 by the identity itself, not inferred from naming conventions.
@@ -56,7 +56,7 @@ A clean answer maps to an identity in one of three ways. The platform
 namespace's orchestrator SA becomes the `platform` lifecycle. Any other
 name resolves through the registry — `agent_instances` for standing
 agents, then `run_participants` by ServiceAccount name for ephemeral crew
-members (crew SA names carry a `crew-` prefix standing ids never use, so
+agents (their SA names carry an `ephemeral-` prefix standing ids never use, so
 the lookups cannot shadow each other). Either way the row's recorded
 namespace **must** match the token's: the same SA name in another
 namespace is an impersonation attempt and is refused.
@@ -87,7 +87,7 @@ and scanners are noise, not governance signals; only rejected tokens are.
 ## What audience scoping buys
 
 Every credential here names its intended consumer. Projected SA tokens are
-minted by the kubelet with audience `poseidon-gateway` (the default
+minted by the kubelet with audience `poseidon-mcp-gateway` (the default
 `token_audience` in `WorkloadAuthnSettings`), and TokenReview is asked
 with that same audience — so the one token an agent pod holds is useless
 at the Kubernetes API server or anywhere else that checks audiences. Theft
@@ -100,7 +100,7 @@ replayed, independently of who stole it.
 
 The MCP gateway and the LLM gateway are the system's two chokepoints
 (only the first holds a credential of its own; see the
-[gateway-llm README](../gateway-llm/README.md)), and they must answer
+[llm-gateway README](../llm-gateway/README.md)), and they must answer
 "who is calling?" identically — an identity the MCP gateway refuses but the LLM gateway
 accepts would be a policy bypass through the cheaper door. Putting the
 `Authenticator` (and `WorkloadAuthnSettings`, which both gateways'
@@ -152,8 +152,8 @@ Export stays env-gated at runtime either way.
 
 ## Cross-package interactions
 
-- [`gateway`](../gateway/README.md) and
-  [`gateway-llm`](../gateway-llm/README.md) both construct an
+- [`gateway`](../mcp-gateway/README.md) and
+  [`llm-gateway`](../llm-gateway/README.md) both construct an
   `Authenticator`; their settings classes inherit `WorkloadAuthnSettings`.
 - [`orchestrator`](../orchestrator/README.md) binds ephemeral
   identities (`orchestrator/activities/crew.py` writes the participants
@@ -189,5 +189,5 @@ uv run pytest packages/common
 The suite covers the audit event shape and its closed vocabularies,
 logger binding on stdout and through the OTel
 handler, and run-id format and uniqueness. `authn` is exercised end to end
-by the gateway suite (`packages/gateway/tests/test_authn.py`), which has
+by the gateway suite (`packages/mcp-gateway/tests/test_authn.py`), which has
 the registry doubles and a fake TokenReview to drive it with.

@@ -7,7 +7,7 @@ concrete allowed values, and errors are reported together — fixing a
 blueprint one message per run is a bad trade for the author.
 
 Structural checks only. The catalog cross-checks (does this template exist,
-does a crew member's role match the catalog's) live here too, because they
+does an ephemeral agent's role match the catalog's) live here too, because they
 are properties of the *document* against a versioned catalog; anything
 needing a registry snapshot or a deployment plan is the compiler's.
 """
@@ -72,7 +72,7 @@ def _catalog_problems(document: Any) -> list[str]:
 
     Kept narrow on purpose: only what a *document* can be wrong about
     regardless of cluster state. Workflow-node binding, budget coverage and
-    the lean-roster stance are compiler checks.
+    the lean-standing stance are compiler checks.
     """
     problems = role_template_problems(document, ROLE_TEMPLATES, CREW_TEMPLATES)
     # Unknown tool names are the schema enum's to report, so the shared

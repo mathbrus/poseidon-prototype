@@ -310,7 +310,7 @@ def _patch_agent(monkeypatch, transport: FakeAgentTransport) -> None:
     monkeypatch.setattr(clients.AgentClient, "__init__", patched)
 
 
-CREW_POD_URL = "http://10.0.0.7:8000"
+EPHEMERAL_POD_URL = "http://10.0.0.7:8000"
 
 
 def test_dispatch_executor_polls_to_terminal(activities, monkeypatch):
@@ -322,7 +322,7 @@ def test_dispatch_executor_polls_to_terminal(activities, monkeypatch):
         ],
     )
     _patch_agent(monkeypatch, transport)
-    status = asyncio.run(activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL))
+    status = asyncio.run(activities.dispatch_executor(RUN_ID, "task", EPHEMERAL_POD_URL))
     assert status["status"] == "done"
     assert status["pr_url"] == "https://pr"
 
@@ -335,7 +335,7 @@ def test_dispatch_executor_tolerates_conflict_and_reattaches(activities, monkeyp
         statuses=[{"status": "done", "pr_url": None, "iterations": 1, "error": "red"}],
     )
     _patch_agent(monkeypatch, transport)
-    status = asyncio.run(activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL))
+    status = asyncio.run(activities.dispatch_executor(RUN_ID, "task", EPHEMERAL_POD_URL))
     assert transport.dispatches == 1
     assert status["error"] == "red"
 
@@ -346,7 +346,7 @@ def test_dispatch_executor_raises_when_agent_lost_the_run(activities, monkeypatc
     transport = FakeAgentTransport(dispatch_codes=[409], statuses=[{"__code": 404}])
     _patch_agent(monkeypatch, transport)
     with pytest.raises(AgentRunLost):
-        asyncio.run(activities.dispatch_executor(RUN_ID, "task", CREW_POD_URL))
+        asyncio.run(activities.dispatch_executor(RUN_ID, "task", EPHEMERAL_POD_URL))
 
 
 # -- implement_config ---------------------------------------------------------
@@ -377,7 +377,7 @@ class FakeInstances:
 PM_ROW = {
     "agent_id": "pm-1",
     "company": "hello-saas",
-    "hire": "pm",
+    "standing_role": "pm",
     "role_template": "pm",
 }
 
@@ -414,7 +414,7 @@ def test_implement_config_fails_closed_without_a_blueprint(settings, backend, ru
 def test_implement_config_fails_closed_without_a_conductor_instance(
     settings, backend, runs
 ):
-    """The blueprint names a conductor hire, but no standing instance has
+    """The blueprint names a conductor standing_role, but no standing instance has
     converged for it — refuse before anything is provisioned."""
     activities = _config_activities(
         settings, backend, runs, WORKFLOWS_SPEC, FakeInstances([])

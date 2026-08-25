@@ -30,8 +30,8 @@ spec:
         {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
         - name: llm-gateway
-          image: "{{ .Values.images.gatewayLlm.repository }}:{{ .Values.images.gatewayLlm.tag }}"
-          imagePullPolicy: {{ .Values.images.gatewayLlm.pullPolicy }}
+          image: "{{ .Values.images.llmGateway.repository }}:{{ .Values.images.llmGateway.tag }}"
+          imagePullPolicy: {{ .Values.images.llmGateway.pullPolicy }}
           securityContext:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:

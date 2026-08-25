@@ -1,7 +1,7 @@
-# gateway-llm
+# llm-gateway
 
 The LLM gateway: the one route to any model. Where the MCP gateway
-([`gateway`](../gateway/README.md)) governs what an agent can *do*, this
+([`gateway`](../mcp-gateway/README.md)) governs what an agent can *do*, this
 service governs what an agent can *spend* — and both verify the same
 workload credentials against the same registry state, with the same
 `Authenticator`.
@@ -76,7 +76,7 @@ gateway does not take it on faith:
 - No header at all → `400`, code `llm_unattributed`, audited.
 - An ephemeral caller naming a run other than the one its live
   `run_participants` row binds it to → `403`, `llm_foreign_run`. A crew
-  member cannot bill a foreign run.
+  agent cannot bill a foreign run.
 - A run the registry has never seen, or one belonging to a different
   company than the caller's → `403`, `llm_unknown_run`.
 
@@ -160,9 +160,9 @@ model field**. Whatever model the agent asked for is advisory; an agent
 cannot upgrade itself to a more expensive model by asking.
 
 The honest edge: instance rows are written by the operator for the
-standing roster, so an ephemeral crew member has none and resolves to
+standing agents, so an ephemeral agent has none and resolves to
 `DEFAULT_MODEL`, as does any unmapped tier. In the kind deployment the
-mock overlay maps every tier to `mock-brain` anyway; per-member tier
+mock overlay maps every tier to `mock-brain` anyway; per-agent tier
 routing for ephemeral agents is future work the config comment admits
 ("for unmapped tiers and callers without an instance row").
 
@@ -192,10 +192,10 @@ guesses.
 ## Entry points
 
 ```
-python -m gateway_llm      # listens on LLM_GATEWAY_PORT, default 4000
+python -m llm_gateway      # listens on LLM_GATEWAY_PORT, default 4000
 ```
 
-Built as `poseidon-gateway-llm` by `deploy/build-images.sh`; deployed by the chart's
+Built as `poseidon-llm-gateway` by `deploy/build-images.sh`; deployed by the chart's
 `llm-gateway.yaml`, which also grants the ServiceAccount
 `system:auth-delegator` so TokenReview works. The upstream defaults to
 `http://llm-proxy:4000`, and the forward client allows a 600-second
@@ -205,7 +205,7 @@ read — a real model legitimately thinks for minutes.
 
 - `common.authn` — the same `Authenticator` the MCP gateway uses:
   TokenReview for every caller, with standing agents resolved through
-  `agent_instances` and ephemeral crew members through a live
+  `agent_instances` and ephemeral agents through a live
   `run_participants` row.
 - `registry.BudgetLedger` for metering and the headroom SUM (this
   gateway is the ledger's only writer); `registry.Runs` and `Companies`
@@ -222,7 +222,7 @@ read — a real model legitimately thinks for minutes.
 ## Tests
 
 ```
-uv run pytest packages/gateway-llm
+uv run pytest packages/llm-gateway
 ```
 
 The suite runs the pipeline against in-memory registry doubles

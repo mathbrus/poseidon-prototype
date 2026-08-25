@@ -21,8 +21,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from common.authn import ServiceAccount
-from gateway.app import create_app
-from gateway.config import GatewaySettings
+from mcp_gateway.app import create_app
+from mcp_gateway.config import McpGatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
@@ -61,7 +61,7 @@ class FakeReviewer:
         AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
         RUNNER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
         PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
-        REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "crew-reviewer-01x"),
+        REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "ephemeral-reviewer-01x"),
     }
 
     async def review(self, token: str, audience: str) -> ServiceAccount | None:
@@ -290,8 +290,8 @@ def audit() -> InMemoryAuditStore:
 
 
 @pytest.fixture
-def settings() -> GatewaySettings:
-    return GatewaySettings(
+def settings() -> McpGatewaySettings:
+    return McpGatewaySettings(
         opa_url=OPA_URL,
         git_token=GIT_TOKEN,
         base_ref="main",
@@ -302,7 +302,7 @@ def settings() -> GatewaySettings:
 @pytest.fixture
 def instances() -> InMemoryAgentInstances:
     """The registry rows workload identity maps ServiceAccounts through —
-    seeded with the standing hires the test tokens resolve to."""
+    seeded with the standing agents the test tokens resolve to."""
     store = InMemoryAgentInstances()
     store.upsert(
         AGENT_ID,
@@ -353,7 +353,7 @@ def companies() -> InMemoryCompanies:
 
 @pytest.fixture
 async def app(
-    settings: GatewaySettings,
+    settings: McpGatewaySettings,
     backends: Backends,
     audit: InMemoryAuditStore,
     instances: InMemoryAgentInstances,

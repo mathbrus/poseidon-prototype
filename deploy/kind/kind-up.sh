@@ -91,12 +91,12 @@ if [ "$SANDBOX_IMAGE" != "poseidon-sandbox" ]; then
   IMAGES+=("$SANDBOX_IMAGE:$BUILD_TAG")
 fi
 IMAGE_VALUES=(
-  --set "images.gateway.tag=$BUILD_TAG"
+  --set "images.mcpGateway.tag=$BUILD_TAG"
   --set "images.agent.tag=$BUILD_TAG"
   --set "images.orchestrator.tag=$BUILD_TAG"
   --set "egressProxy.image.tag=$BUILD_TAG"
   --set "images.operator.tag=$BUILD_TAG"
-  --set "images.gatewayLlm.tag=$BUILD_TAG"
+  --set "images.llmGateway.tag=$BUILD_TAG"
   # Sandbox Jobs are built by the worker from this value, not by helm, so
   # the tag has to ride the image reference itself.
   --set "orchestrator.sandbox.image=$SANDBOX_IMAGE:$BUILD_TAG"
@@ -191,7 +191,7 @@ kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeou
 
 echo "==> apply the blueprint"
 # The company is declarative from here: compile + submit CRs, and the
-# operator converges the namespace, its policies and the standing roster.
+# operator converges the namespace, its policies and the standing agents.
 # A port-forward lets apply read the live registry, so the diff it prints is
 # the real one rather than "everything is new".
 kubectl -n "$PLATFORM_NS" port-forward svc/postgres 15432:5432 >/dev/null 2>&1 &
@@ -204,7 +204,7 @@ done
 REGISTRY_DSN="postgresql://${POSTGRES_USER:-poseidon}:${POSTGRES_PASSWORD:-poseidon-dev-postgres}@127.0.0.1:15432/${POSTGRES_USER:-poseidon}" \
   uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 kill $PGPF 2>/dev/null || true
-# The PM is the only standing hire; execution is ephemeral crews.
+# The PM is the only standing agent; execution is ephemeral crews.
 kubectl -n "$COMPANY_NS" rollout status deployment/pm --timeout=300s
 
 echo "==> image check"
@@ -239,6 +239,6 @@ if [ "$code" != "401" ]; then
   exit 1
 fi
 # Standing agents have no NodePort: they are reached in-cluster
-# by the orchestrator, and the operator gives each hire its own Service.
+# by the orchestrator, and the operator gives each standing role its own Service.
 
 echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}"

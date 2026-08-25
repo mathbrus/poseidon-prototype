@@ -331,7 +331,7 @@ held in memory.
 flowchart TB
     subgraph company["company namespace"]
         PM["<b>PM</b><br/>standing agent"]
-        EX["<b>executor</b><br/>ephemeral crew pod"]
+        EX["<b>executor</b><br/>ephemeral ephemeral pod"]
         SBX["<b>sandbox</b><br/>K8s Job · untrusted code"]
     end
     subgraph platform["platform namespace"]
@@ -372,14 +372,14 @@ from the `run_id` alone.
 | Service | Holds | Responsible for |
 |---|---|---|
 | **operator** | — | Reconciling CRs into namespaces, NetworkPolicies, Deployments, RBAC; persisting bundles. Never runs a process, never creates an ephemeral agent. |
-| **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, crew pods and their per-run ServiceAccounts, identity binding, the human merge gate. No `GIT_TOKEN`, no signing key. |
+| **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, ephemeral pods and their per-run ServiceAccounts, identity binding, the human merge gate. No `GIT_TOKEN`, no signing key. |
 | **MCP gateway** | `GIT_TOKEN` | Every tool call: authenticate, decide, audit, act. |
 | **LLM gateway** | — | Every model call: authenticate, attribute to a run, check budget, route by tier, meter. |
 | **llm-proxy** | provider API key | Talking to the actual model provider. Reachable *only* from the LLM gateway. |
 | **egress proxy** | egress HMAC key | The one network route out of a sandbox; allowlist + audit. |
 | **OPA** | — | Answering decision queries from compiled bundles. |
 | **registry** (Postgres) | — | Nine tables, one writer each; the audit and run store. |
-| **agent** | *nothing* | Running the model loop. Its credential is its own ServiceAccount's projected token file — for standing hires and crew members alike. |
+| **agent** | *nothing* | Running the model loop. Its credential is its own ServiceAccount's projected token file — for standing agents and ephemeral agents alike. |
 | **sandbox** | *nothing* | Running untrusted workspace code. |
 
 </details>
@@ -436,8 +436,8 @@ A human starts an implement run from a ticket (or the heartbeat does — see
    intake-time request does; without a recorded, unexpired request,
    fulfilment refuses. Authority is never improvised.
 2. **Provisions one sandbox** for the run.
-3. **Binds an identity and provisions a pod for each crew member.**
-   Identity is derived deterministically from `{crew, member, run}`, so a
+3. **Binds an identity and provisions a pod for each ephemeral agent.**
+   Identity is derived deterministically from `{crew, crew_role, run}`, so a
    retry after a crash lands on the same registry row rather than leaking a
    second identity. Each pod gets its own per-run ServiceAccount.
 
@@ -683,7 +683,7 @@ scripts/acceptance.sh                                   # the whole suite, zero 
 Everything the platform enforces comes from one document. The shipped
 example, [`examples/hello-saas.yaml`](examples/hello-saas.yaml), is read
 section by section in [docs/blueprint.md](docs/blueprint.md): `company` and
-`stack`, the standing roster, crews and tool scopes, the workflows and the
+`stack`, the standing agents, crews and tool scopes, the workflows and the
 gates they declare, the policies and budgets, and the opt-in heartbeat. The
 contract itself is [`packages/schema`](packages/schema/README.md).
 
@@ -991,9 +991,9 @@ and how to test it.
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
 | [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
-| [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, crew pods, gates, the `poseidon` CLI |
-| [`gateway`](packages/gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
-| [`gateway-llm`](packages/gateway-llm/README.md) | The model chokepoint; metering and budget enforcement |
+| [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates, the `poseidon` CLI |
+| [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
+| [`llm-gateway`](packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |
 | [`agent`](packages/agent/README.md) | The OpenHands SDK brain host |
 | [`sandbox`](packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
 | [`mockllm`](packages/mockllm/README.md) | The deterministic brain that makes e2e runs free |

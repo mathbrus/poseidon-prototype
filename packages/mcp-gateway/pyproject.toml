@@ -1,5 +1,5 @@
 [project]
-name = "gateway"
+name = "mcp-gateway"
 version = "0.1.0"
 description = "Poseidon MCP gateway: tool mux, OPA client, git backend, audit"
 requires-python = ">=3.12"
@@ -17,4 +17,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/gateway"]
+packages = ["src/mcp_gateway"]

@@ -186,10 +186,10 @@ their decision paths from, so a bundle is always written where it is read.
 `CompileError` renders as one list — so a broken blueprint is fixed in one
 round trip, not one error per attempt. The messages are written to be
 sufficient to fix the document: what is wrong, where, and what is allowed
-instead. One real example (the lean-roster rule, from `test_checks.py`):
+instead. One real example (the lean-standing rule, from `test_checks.py`):
 
 ```
-departments.roles.backend-engineer: standing count 1 on non-spawner template 'backend-engineer' — execution is ephemeral crews; hire a conductor and give it may_spawn, or set count: 0
+standing.backend-engineer: standing count 1 on non-spawner template 'backend-engineer' — execution is ephemeral crews; declare a conductor with may_spawn, or set count: 0
 ```
 
 Two subtleties. First, `compile_blueprint` accepts plain dicts and does
@@ -198,7 +198,7 @@ existence, tool vocabulary, the catalog cross-checks) run here too — the
 same functions `schema.validate` runs, imported from `schema.coherence`,
 because the compiler must fail closed on an unvalidated input, not
 `KeyError` halfway through emission. Second, narrowing semantics differ by field:
-widening a *crew member's* tools or a role's *spawn authority* past the
+widening a *ephemeral agent's* tools or a role's *spawn authority* past the
 catalog is a compile error, while a standing role's tool scope is
 silently intersected with its template (`declared & set(template.tools)`
 in `compile.py`) — and crew tools are intersected too, belt under the

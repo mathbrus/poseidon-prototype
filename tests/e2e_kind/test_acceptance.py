@@ -14,7 +14,7 @@ What the suite proves, and where:
   2 durable       test_happy_path (kill-worker resume), test_temporal,
                   test_registry_durability, test_crew_fulfillment
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
-                  leaked no participant row, no crew pod, no registration
+                  leaked no participant row, no ephemeral pod, no registration
   3 SDLC          test_intake + test_review_gate (intake → implement →
                   review with parked gate, escalation, API approval,
                   platform merge)
@@ -24,9 +24,9 @@ What the suite proves, and where:
                   this suite execution — nothing seeded
   5 budgets       test_budgets (hard-stop, API-visible pause, process-gate
                   escalation, full {run, parent, participant, role} tuple)
-  6 lean roster   test_operator_lifecycle (exactly one AgentInstance),
-                  test_pm, test_crew_identity, test_crew_pods,
-                  test_workload_identity; HERE: the registry's roster
+  6 lean standing test_operator_lifecycle (exactly one AgentInstance),
+                  test_pm, test_ephemeral_identity, test_ephemeral_pods,
+                  test_workload_identity; HERE: the registry's standing agents
                   agrees, and a live minted executor is denied outside its
                   compiled allow-list at the gateway
   7 cluster-      the suite reaches the cluster through the kubectl
@@ -127,8 +127,8 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
 
         # Preview of an edit: exactly the edit, nothing else.
         document = yaml.safe_load(HELLO_SAAS.read_text())
-        assert document["departments"]["roles"]["pm"]["model_tier"] != "small"
-        document["departments"]["roles"]["pm"]["model_tier"] = "small"
+        assert document["standing"]["pm"]["model_tier"] != "small"
+        document["standing"]["pm"]["model_tier"] = "small"
         edited = tmp_path / "hello-saas-small-pm.yaml"
         edited.write_text(yaml.safe_dump(document, sort_keys=False))
         preview = _blueprint_cli(["preview", str(edited)], dsn)
@@ -170,7 +170,7 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
     assert the *sandbox*
     leaked nothing and prove the crew sweep on a separate run. Here the
     clause is closed on the killed run itself: its participant rows
-    are terminated, its crew pod is gone, its sandbox registration is
+    are terminated, its ephemeral pod is gone, its sandbox registration is
     terminated — no leaked sandbox, identity, or participant row."""
     run_id = implement_run["run_id"]
 
@@ -186,7 +186,7 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         assert row["terminated_at"], f"terminated without a timestamp: {row}"
 
     # No live pod of any kind still carries the run's label (sandbox Jobs
-    # and crew pods both do).
+    # and ephemeral pods both do).
     assert sandbox_pods(run_id) == [], "a labelled pod outlived the run"
 
     registrations = psql_json(
@@ -200,7 +200,7 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         assert row["terminated_at"], f"leaked sandbox registration: {row}"
 
 
-# -- 6 lean roster: the roster, from the registry's point of view --------------
+# -- 6 lean standing: the standing agents, from the registry's point of view --------------
 
 
 def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
@@ -210,12 +210,12 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     suite, after every module's teardown/re-apply cycles."""
     rows = psql_json(
         "SELECT COALESCE(json_agg(i ORDER BY i.agent_id), '[]'::json) FROM ("
-        "SELECT agent_id, hire, role_template, namespace"
+        "SELECT agent_id, standing_role, role_template, namespace"
         " FROM registry.agent_instances WHERE company = 'hello-saas') i"
     )
     assert [(r["agent_id"], r["role_template"], r["namespace"]) for r in rows] == [
         ("pm-1", "pm", COMPANY_NS)
-    ], f"the registry roster is not the lean blueprint: {rows}"
+    ], f"the registry's standing agents are not the lean blueprint's: {rows}"
 
     # And the CRs still agree at suite end (drift check after all the
     # module finalizers): the PM is the only standing instance.
@@ -283,7 +283,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "member": "executor",
+                        "crew_role": "executor",
                         "role_template": "backend-engineer",
                         "parent_agent_id": "pm-1",
                     }

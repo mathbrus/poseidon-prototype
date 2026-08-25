@@ -47,7 +47,7 @@ Authentication itself lives in `common.authn` (see the
 package's `test_authn.py`: every credential is a projected ServiceAccount
 token resolving through Kubernetes TokenReview (cached, one review per
 token — but the registry mapping is re-read per call), and an ephemeral
-crew member's SA additionally requires a **live** `run_participants` row —
+ephemeral agent's SA additionally requires a **live** `run_participants` row —
 a verified token alone is never enough, so deleting the row revokes the
 identity however long the token remains valid. Every rejected token lands in the audit store
 under an `authn_*` rule, with one deliberate exception: a request with
@@ -131,7 +131,7 @@ so the gateway cannot query a document the compiler never wrote.
 | `service.py` | `GatewayService` — the pipeline above, plus one method per tool. |
 | `opa.py` | The OPA client, the per-caller decision path, the fail-closed empty-document handling. |
 | `git_backend.py` | Every platform-side git operation and the GitHub REST calls. The only place `GIT_TOKEN` is used. |
-| `config.py` | `GatewaySettings`: the shared workload-authn shape plus `opa_url`, `git_token`, `base_ref`, `github_api_url`. |
+| `config.py` | `McpGatewaySettings`: the shared workload-authn shape plus `opa_url`, `git_token`, `base_ref`, `github_api_url`. |
 
 ## Tool surface
 
@@ -210,10 +210,10 @@ token's bytes appear nowhere in it.
 ## Entry points
 
 ```
-uvicorn --factory gateway.app:create_app --host 0.0.0.0 --port 8080
+uvicorn --factory mcp_gateway.app:create_app --host 0.0.0.0 --port 8080
 ```
 
-That is the `poseidon-gateway` entrypoint in `deploy/build-images.sh` verbatim; the image installs `git`
+That is the `poseidon-mcp-gateway` entrypoint in `deploy/build-images.sh` verbatim; the image installs `git`
 for the platform-side clones and runs as uid 10001. `create_app` opens
 its own registry pool unless the tests inject in-memory accessors — all
 or none, since injecting a subset would still open a real pool for the

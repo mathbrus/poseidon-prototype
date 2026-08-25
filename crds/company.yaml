@@ -80,7 +80,7 @@ spec:
                 contractTests:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
-                crewMembers:
+                ephemeralAgents:
                   type: array
                   items:
                     type: object

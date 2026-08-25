@@ -20,7 +20,7 @@ def test_story_covers_the_whole_run(implement_run: dict) -> None:
     tools = {e["tool"] for e in story}
     # The run's whole arc: sandbox registered, workspace fetched,
     # the crew stood up (request recorded under the conductor's authority,
-    # members bound, their pods provisioned, fulfillment), files
+    # agents bound, their pods provisioned, fulfillment), files
     # written, tests run, work committed, bundle pulled, PR opened, and the
     # crew revoked at teardown.
     assert {

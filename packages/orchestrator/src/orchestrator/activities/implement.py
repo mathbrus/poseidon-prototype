@@ -54,7 +54,7 @@ class ImplementActivities:
         # Read-only: the applied blueprint's infra IR is the SandboxPolicy
         # source, and its workflow config directs the crew-only flow.
         self._companies = companies
-        # Read-only: hire name -> standing instance (the conductor id the
+        # Read-only: standing_role name -> standing instance (the conductor id the
         # crew request is recorded under).
         self._instances = instances
         # The identity revoke, called directly (same process) from teardown
@@ -204,7 +204,7 @@ class ImplementActivities:
     async def dispatch_executor(
         self, run_id: str, task_text: str, url: str, mode: str = "implement"
     ) -> dict[str, Any]:
-        """Dispatch the ephemeral executor on its crew pod and poll until it
+        """Dispatch the ephemeral executor on its ephemeral pod and poll until it
         reaches a terminal state, heartbeating every poll. The pod's own
         projected ServiceAccount token is the credential — no
         token rides this call or the workflow history. mode="implement"
@@ -269,12 +269,12 @@ class ImplementActivities:
                 log.info("participant revoke failed", extra={"error": str(exc)})
                 error = error or f"teardown: participant revoke failed: {exc}"
             try:
-                gone = await self._crew.destroy_crew_pods(run_id)
+                gone = await self._crew.destroy_ephemeral_pods(run_id)
                 if gone:
-                    log.info("crew pods destroyed", extra={"pods": gone})
+                    log.info("ephemeral pods destroyed", extra={"pods": gone})
             except Exception as exc:
-                log.info("crew pod destroy failed", extra={"error": str(exc)})
-                error = error or f"teardown: crew pod destroy failed: {exc}"
+                log.info("ephemeral pod destroy failed", extra={"error": str(exc)})
+                error = error or f"teardown: ephemeral pod destroy failed: {exc}"
         if handle is not None:
             try:
                 await asyncio.to_thread(

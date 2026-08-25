@@ -27,9 +27,9 @@ from common.identity import (
 )
 from common.policy import PLATFORM_DECISION_PATH, company_decision_path
 from common.telemetry import get_logger
-from gateway.config import GatewaySettings
-from gateway.git_backend import GitBackend
-from gateway.opa import OpaClient
+from mcp_gateway.config import McpGatewaySettings
+from mcp_gateway.git_backend import GitBackend
+from mcp_gateway.opa import OpaClient
 from registry import (
     AuditStore,
     BudgetLedger,
@@ -64,7 +64,7 @@ class BackendError(Exception):
 class GatewayService:
     def __init__(
         self,
-        settings: GatewaySettings,
+        settings: McpGatewaySettings,
         opa: OpaClient,
         http_client: httpx.AsyncClient,
         sandboxes: SandboxRegistrations,

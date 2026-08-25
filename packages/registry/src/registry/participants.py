@@ -1,14 +1,14 @@
-"""`run_participants` — ephemeral crew members, one row per bound identity.
+"""`run_participants` — ephemeral agents, one row per bound identity.
 
 Both halves of the ephemeral-identity contract meet here. The verify half:
-the gateway resolves a crew member's projected ServiceAccount token to a
+the gateway resolves an ephemeral agent's projected ServiceAccount token to a
 live row (by `service_account`) and builds the caller's identity entirely
 from it — company, catalog template, namespace, crew coordinates. The
 fulfill half: the orchestrator's bind activity creates the row, and
 revocation is a row termination — checked on every call, terminated on
 every terminal path (the workflow's compensation sweeps the run).
 
-The `role` column stores the crew member name — the `crew_role` the
+The `role` column stores the crew_role — the `crew_role` the
 compiled crew rules key on; `role_template` carries the catalog template
 the caller's policy role resolves to.
 """

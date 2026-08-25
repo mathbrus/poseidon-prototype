@@ -418,9 +418,9 @@ def test_participant_row_resolves_by_service_account(registry: Registry):
         company="hello-saas",
         role_template="backend-engineer",
         namespace="hello-saas",
-        service_account="crew-feature-delivery-executor-x",
+        service_account="ephemeral-feature-delivery-executor-x",
     )
-    row = participants.by_service_account("crew-feature-delivery-executor-x")
+    row = participants.by_service_account("ephemeral-feature-delivery-executor-x")
     assert row is not None
     # Lowercasing the SA name is not invertible; the canonical id is
     # read from the row, never derived from the name.
@@ -430,7 +430,9 @@ def test_participant_row_resolves_by_service_account(registry: Registry):
     assert row["namespace"] == "hello-saas"
 
     participants.terminate("feature-delivery-executor-X")
-    assert participants.by_service_account("crew-feature-delivery-executor-x") is None
+    assert (
+        participants.by_service_account("ephemeral-feature-delivery-executor-x") is None
+    )
 
 
 def test_crew_request_consume_and_spawn_count(registry: Registry):
@@ -460,7 +462,7 @@ def test_crew_request_consume_and_spawn_count(registry: Registry):
 def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry):
     """The only way to mint onto a terminated row is to be a
     retry that lost the race with its run's teardown. Reviving it would
-    resurrect an identity the platform revoked — and leave a crew pod
+    resurrect an identity the platform revoked — and leave an ephemeral pod
     holding it with nothing left to collect the pod. Revocation is final;
     the late caller is told to stop."""
     Runs(registry).start(RUN_ID, "task")

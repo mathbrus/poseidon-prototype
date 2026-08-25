@@ -19,8 +19,8 @@ from compiler.plan import (
     BudgetRegistration,
     CompanyCR,
     ConductConfig,
-    CrewMemberSpec,
     DeploymentPlan,
+    EphemeralAgentSpec,
     RegoBundle,
     WorkflowConfig,
 )
@@ -90,7 +90,7 @@ def compile_blueprint(
 
     scopes = blueprint.get("tools") or {}
     instances = _instances(blueprint, roles, scopes, company, snapshot)
-    crew_members = _crew_members(blueprint, crews_catalog)
+    ephemeral_agents = _ephemeral_agents(blueprint, crews_catalog)
     workflows = _workflows(blueprint)
     budgets = _budgets(blueprint)
     conduct = _conduct(blueprint)
@@ -99,7 +99,7 @@ def compile_blueprint(
         files=build_bundle(
             company=company,
             instances=list(instances),
-            crew_members=list(crew_members),
+            ephemeral_agents=list(ephemeral_agents),
             policies=blueprint.get("policies") or {},
             conduct=conduct,
             merge_delegation=_merge_delegation(workflows),
@@ -108,7 +108,7 @@ def compile_blueprint(
     return DeploymentPlan(
         company=company_cr,
         instances=instances,
-        crew_members=crew_members,
+        ephemeral_agents=ephemeral_agents,
         workflows=workflows,
         budgets=budgets,
         infra=infra,
@@ -126,12 +126,10 @@ def _instances(
     company: str,
     snapshot: RegistrySnapshot,
 ) -> tuple[AgentInstanceCR, ...]:
-    """Standing roster only. A `count: 0` placeholder produces no instance —
+    """Standing agents only. A `count: 0` placeholder produces no instance —
     that is the whole point of declaring one."""
     instances = []
-    for hire, role in sorted(
-        (blueprint.get("departments") or {}).get("roles", {}).items()
-    ):
+    for standing_role, role in sorted((blueprint.get("standing") or {}).items()):
         count = role.get("count", 0)
         template = roles[role["template"]]
         # The blueprint narrows the template, never widens it: a scope the
@@ -151,11 +149,13 @@ def _instances(
         # Existing ids are reused in order so an apply is stable; minted ids
         # skip anything already taken — a count change must never produce
         # two instances sharing an agent_id (the diff keys on it).
-        agent_ids = [i.agent_id for i in snapshot.instances_for(company, hire)][:count]
+        agent_ids = [i.agent_id for i in snapshot.instances_for(company, standing_role)][
+            :count
+        ]
         serial = 0
         while len(agent_ids) < count:
             serial += 1
-            candidate = f"{hire}-{serial}"
+            candidate = f"{standing_role}-{serial}"
             if candidate not in agent_ids:
                 agent_ids.append(candidate)
         for agent_id in agent_ids:
@@ -163,7 +163,7 @@ def _instances(
                 AgentInstanceCR(
                     agent_id=agent_id,
                     company=company,
-                    hire=hire,
+                    standing_role=standing_role,
                     role_template=role["template"],
                     model_tier=role.get("model_tier") or template.model_tier,
                     tools=tools,
@@ -177,37 +177,35 @@ def _instances(
     return tuple(instances)
 
 
-def _crew_members(
+def _ephemeral_agents(
     blueprint: dict[str, Any], crews_catalog: dict[str, CrewTemplate]
-) -> tuple[CrewMemberSpec, ...]:
-    members = []
+) -> tuple[EphemeralAgentSpec, ...]:
+    agents = []
     for crew_name, crew in sorted((blueprint.get("crews") or {}).items()):
         catalog_crew = crews_catalog.get(crew_name)
-        for member_name, member in sorted((crew.get("members") or {}).items()):
-            catalog_member = (
-                catalog_crew.members.get(member_name) if catalog_crew else None
-            )
-            needs_sandbox = member.get("needs_sandbox")
+        for agent_name, agent in sorted((crew.get("agents") or {}).items()):
+            catalog_agent = catalog_crew.agents.get(agent_name) if catalog_crew else None
+            needs_sandbox = agent.get("needs_sandbox")
             if needs_sandbox is None:
-                needs_sandbox = catalog_member.needs_sandbox if catalog_member else True
-            # Narrowed against the catalog member like standing tools are
+                needs_sandbox = catalog_agent.needs_sandbox if catalog_agent else True
+            # Narrowed against the catalog agent like standing tools are
             # narrowed against the role template: a widening blueprint is a
             # checks.py error, and even past that, nothing wider than the
             # catalog's allow-list may reach a compiled bundle.
-            declared = set(member.get("tools") or [])
-            if catalog_member is not None:
-                declared &= set(catalog_member.tools)
-            members.append(
-                CrewMemberSpec(
+            declared = set(agent.get("tools") or [])
+            if catalog_agent is not None:
+                declared &= set(catalog_agent.tools)
+            agents.append(
+                EphemeralAgentSpec(
                     crew=crew_name,
-                    member=member_name,
-                    role_template=member["role_template"],
+                    crew_role=agent_name,
+                    role_template=agent["role_template"],
                     tools=tuple(sorted(declared)),
                     needs_sandbox=bool(needs_sandbox),
                     budget_inheritance=crew.get("budget_inheritance", "run"),
                 )
             )
-    return tuple(members)
+    return tuple(agents)
 
 
 def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:

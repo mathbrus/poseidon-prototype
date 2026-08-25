@@ -28,19 +28,18 @@ stack:
       - pypi.org
       - files.pythonhosted.org
 
-departments:
-  roles:
-    pm:
-      template: pm
-      count: 1
-      model_tier: standard
-      may_spawn:
-        crew: [feature-delivery, feature-review]
-        max_concurrent: 2
+standing:
+  pm:
+    template: pm
+    count: 1
+    model_tier: standard
+    may_spawn:
+      crew: [feature-delivery, feature-review]
+      max_concurrent: 2
 
 crews:
   feature-delivery:
-    members:
+    agents:
       # LLM-only: reads the run's sandbox, writes nothing, produces the task
       # brief the executor's dispatch carries verbatim.
       planner:
@@ -62,7 +61,7 @@ crews:
           - git.open_pr
     budget_inheritance: run
   feature-review:
-    members:
+    agents:
       reviewer:
         role_template: sdet
         tools:

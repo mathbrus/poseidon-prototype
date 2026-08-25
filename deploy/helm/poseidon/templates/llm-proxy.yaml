@@ -1,5 +1,5 @@
 # Stock LiteLLM in single-model mode: holds the provider key so the agent pod
-# never sees it. The metered llm-gateway (packages/gateway-llm) is the only
+# never sees it. The metered llm-gateway (packages/llm-gateway) is the only
 # service that can reach it.
 apiVersion: apps/v1
 kind: Deployment

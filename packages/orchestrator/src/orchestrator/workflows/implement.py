@@ -11,7 +11,7 @@ this module imports nothing from the activity implementations.
 The crew is the only execution path: fulfill_crew stands
 the ephemeral executor up (recording the crew request under the standing
 conductor's authority when none exists), the executor is dispatched at its
-crew pod, and its completion claim is advisory — the platform verify gate
+ephemeral pod, and its completion claim is advisory — the platform verify gate
 (`platform_verify`, the orchestrator's own run of the sandbox tests) is the
 gate of record. Red verify feeds the failure back for a bounded number of
 re-dispatches (the blueprint's `max_verify_retries`); only a green verify
@@ -189,7 +189,7 @@ class ImplementWorkflow(RunWorkflow):
                 retry_policy=STEP_RETRY,
             )
             # The crew is the only execution path: fulfill stands the
-            # ephemeral roster up — recording the crew request under the
+            # ephemeral crew up — recording the crew request under the
             # conductor's authority via the same compiled decision the
             # crew.request tool faces — and hands back the planner's brief
             # plus the executor's crew-pod address.

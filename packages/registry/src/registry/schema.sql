@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS registry.companies (
 CREATE TABLE IF NOT EXISTS registry.agent_instances (
     agent_id      text PRIMARY KEY,
     company       text NOT NULL,
-    hire          text NOT NULL,
+    standing_role          text NOT NULL,
     role_template text NOT NULL,
     model_tier    text,
     -- The company namespace the instance's pod (and ServiceAccount) live
@@ -73,10 +73,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_issue_run
     WHERE status = 'running' AND workflow = 'implement'
       AND task LIKE 'implement issue #%';
 
--- Ephemeral crew members, kept out of agent_instances so hire/fire diffs
+-- Ephemeral agents, kept out of agent_instances so hire/fire diffs
 -- stay clean. Revocation is a row termination, checked live on every
 -- gateway call. The row is the whole identity: the gateway resolves a
--- crew member's projected ServiceAccount token to this row (by
+-- ephemeral agent's projected ServiceAccount token to this row (by
 -- service_account), and company/role_template/namespace are read from
 -- here — there is no token claim to fall back on.
 CREATE TABLE IF NOT EXISTS registry.run_participants (

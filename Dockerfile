@@ -10,10 +10,10 @@
 # tree — the final image carries no source checkout, no uv, no build cache.
 #
 # Build from the repo root, e.g.
-#   docker build -t poseidon-gateway \
+#   docker build -t poseidon-mcp-gateway \
 #     --build-arg PACKAGE=gateway --build-arg SRC="common registry gateway" \
 #     --build-arg APT=git \
-#     --build-arg ENTRYPOINT="uvicorn --factory gateway.app:create_app --host 0.0.0.0 --port 8080" .
+#     --build-arg ENTRYPOINT="uvicorn --factory mcp_gateway.app:create_app --host 0.0.0.0 --port 8080" .
 ARG BASE=python:3.12-slim
 
 # The workspace's dependency declarations and nothing else — what the
