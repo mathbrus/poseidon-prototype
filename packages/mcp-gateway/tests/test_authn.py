@@ -2,7 +2,7 @@
 
 Every credential is a projected service-account token resolving through a
 (faked) TokenReview to a registry-backed identity — standing agents via
-`agent_instances`, ephemeral crew members via a live `run_participants`
+`agent_instances`, ephemeral agents via a live `run_participants`
 row looked up by ServiceAccount name. The TokenReview may be cached; the
 registry mapping is re-read per call, so a row termination revokes
 immediately. Every rejected token — wrong service account, wrong

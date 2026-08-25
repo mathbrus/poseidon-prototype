@@ -38,7 +38,7 @@ of who verifiably asked" true (see the deputy discussion in the
 
 The model also records *how* the caller was verified, via `lifecycle`:
 `standing` (a rostered agent with a Kubernetes ServiceAccount),
-`ephemeral` (a crew member bound to one run), or `platform` (the
+`ephemeral` (an ephemeral agent bound to one run), or `platform` (the
 orchestrator itself). Compiled policy keys on this field, so the
 distinction that section 3 of the root README calls structural is carried
 by the identity itself, not inferred from naming conventions.

@@ -198,7 +198,7 @@ existence, tool vocabulary, the catalog cross-checks) run here too — the
 same functions `schema.validate` runs, imported from `schema.coherence`,
 because the compiler must fail closed on an unvalidated input, not
 `KeyError` halfway through emission. Second, narrowing semantics differ by field:
-widening a *crew member's* tools or a role's *spawn authority* past the
+widening a *ephemeral agent's* tools or a role's *spawn authority* past the
 catalog is a compile error, while a standing role's tool scope is
 silently intersected with its template (`declared & set(template.tools)`
 in `compile.py`) — and crew tools are intersected too, belt under the

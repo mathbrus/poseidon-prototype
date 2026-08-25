@@ -160,7 +160,7 @@ model field**. Whatever model the agent asked for is advisory; an agent
 cannot upgrade itself to a more expensive model by asking.
 
 The honest edge: instance rows are written by the operator for the
-standing agents, so an ephemeral crew member has none and resolves to
+standing agents, so an ephemeral agent has none and resolves to
 `DEFAULT_MODEL`, as does any unmapped tier. In the kind deployment the
 mock overlay maps every tier to `mock-brain` anyway; per-member tier
 routing for ephemeral agents is future work the config comment admits
@@ -205,7 +205,7 @@ read — a real model legitimately thinks for minutes.
 
 - `common.authn` — the same `Authenticator` the MCP gateway uses:
   TokenReview for every caller, with standing agents resolved through
-  `agent_instances` and ephemeral crew members through a live
+  `agent_instances` and ephemeral agents through a live
   `run_participants` row.
 - `registry.BudgetLedger` for metering and the headroom SUM (this
   gateway is the ledger's only writer); `registry.Runs` and `Companies`

@@ -47,7 +47,7 @@ Authentication itself lives in `common.authn` (see the
 package's `test_authn.py`: every credential is a projected ServiceAccount
 token resolving through Kubernetes TokenReview (cached, one review per
 token — but the registry mapping is re-read per call), and an ephemeral
-crew member's SA additionally requires a **live** `run_participants` row —
+ephemeral agent's SA additionally requires a **live** `run_participants` row —
 a verified token alone is never enough, so deleting the row revokes the
 identity however long the token remains valid. Every rejected token lands in the audit store
 under an `authn_*` rule, with one deliberate exception: a request with

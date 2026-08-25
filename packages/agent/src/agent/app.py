@@ -6,7 +6,7 @@ GET /task/{run_id} -> {status, pr_url, iterations, error, brief}.
 
 Mode `plan` runs the read-only planner and finishes with
 `brief`; like every mode it acts under the pod's own projected token —
-each crew member runs on its own brain host.
+each ephemeral agent runs on its own brain host.
 
 Run with: uvicorn --factory agent.app:create_app
 """

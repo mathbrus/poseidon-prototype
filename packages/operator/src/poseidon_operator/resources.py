@@ -190,7 +190,7 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     and a review artifact: it is part of the trusted computing base. Two
     consumers: the k8s_jobs sandbox backend (Jobs + pod reads + exec for
     workspace delivery) and the crew-pod provisioner (pod + ServiceAccount
-    create/delete for each crew member's brain host — the SA is the
+    create/delete for each ephemeral agent's brain host — the SA is the
     member's per-run identity, so its lifetime must equal the pod's, which
     is why it is provisioned here and not operator-reconciled). Company
     namespaces only — the Role is namespaced and operator-reconciled, so

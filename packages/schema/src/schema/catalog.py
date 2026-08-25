@@ -73,8 +73,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
     "backend-engineer": RoleTemplate(
         name="backend-engineer",
         summary=(
-            "Coding executor. Crew-agent material only; "
-            "standing counts are a compile error."
+            "Coding executor. Ephemeral agents only; standing counts are a compile error."
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         model_tier="frontier",
@@ -96,7 +95,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         name="contract-author",
         summary=(
             "Writes the contract/acceptance tests a slice is graded by. "
-            "Crew-agent material only, like every executor."
+            "Ephemeral agents only, like every executor."
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         model_tier="frontier",

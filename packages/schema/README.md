@@ -46,7 +46,7 @@ says "check the spelling, or the section it belongs to".
 
 The catalog pass is kept deliberately narrow: only what a *document* can
 be wrong about regardless of cluster state. It catches a `template` or
-`crews:` key outside the catalogs, a crew member the template does not
+`crews:` key outside the catalogs, an ephemeral agent the template does not
 define, a member whose `role_template` contradicts the catalog's, a
 platform-only tool in any allow-list, and a member allow-list wider than
 the catalog's. Each check tolerates malformed values rather than crashing
@@ -112,7 +112,7 @@ must fail here rather than compile into a wider bundle. Narrowing,
 though, is fine: an executor declared with only `sandbox.read_file` and
 `sandbox.run_tests` validates.
 
-One asymmetry surprises people: a crew member's allow-list is
+One asymmetry surprises people: an ephemeral agent's allow-list is
 deliberately **not** required to be a subset of its conductor's. The PM
 cannot open a pull request, yet the crew it spawns can. Spawn authority
 is authority to create a principal from a compiler-vetted template, not a
@@ -187,10 +187,10 @@ the schema and the catalogs.
 - Names (`company.name`, standing roles, crews, agents) match
   `^[a-z0-9][a-z0-9-]*$`; roles are keyed by name so a blueprint
   diff — a hire, a fire — reads as one.
-- A crew member's `tools` list is required, explicit, and at most the
+- An ephemeral agent's `tools` list is required, explicit, and at most the
   catalog member's list. An implicit scope is what the compiler refuses
   to guess.
-- No company role or crew member may hold a `PLATFORM_ONLY` tool.
+- No company role or ephemeral agent may hold a `PLATFORM_ONLY` tool.
 - The catalogs themselves obey the tool rules: every template scope is a
   subset of `KNOWN_TOOLS` and disjoint from `PLATFORM_ONLY`
   (`test_catalog.py` pins both).

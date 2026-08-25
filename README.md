@@ -379,7 +379,7 @@ from the `run_id` alone.
 | **egress proxy** | egress HMAC key | The one network route out of a sandbox; allowlist + audit. |
 | **OPA** | — | Answering decision queries from compiled bundles. |
 | **registry** (Postgres) | — | Nine tables, one writer each; the audit and run store. |
-| **agent** | *nothing* | Running the model loop. Its credential is its own ServiceAccount's projected token file — for standing agents and crew members alike. |
+| **agent** | *nothing* | Running the model loop. Its credential is its own ServiceAccount's projected token file — for standing agents and ephemeral agents alike. |
 | **sandbox** | *nothing* | Running untrusted workspace code. |
 
 </details>
@@ -436,7 +436,7 @@ A human starts an implement run from a ticket (or the heartbeat does — see
    intake-time request does; without a recorded, unexpired request,
    fulfilment refuses. Authority is never improvised.
 2. **Provisions one sandbox** for the run.
-3. **Binds an identity and provisions a pod for each crew member.**
+3. **Binds an identity and provisions a pod for each ephemeral agent.**
    Identity is derived deterministically from `{crew, member, run}`, so a
    retry after a crash lands on the same registry row rather than leaking a
    second identity. Each pod gets its own per-run ServiceAccount.

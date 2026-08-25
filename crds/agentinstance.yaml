@@ -1,7 +1,7 @@
 # The `AgentInstance` custom resource: one standing agent.
 #
 # Standing structure only — created, changed and removed by blueprint apply
-# and nothing else. Ephemeral crew members never appear here:
+# and nothing else. Ephemeral agents never appear here:
 # they live in the registry's `run_participants` for the length of one run,
 # which is what keeps hire/fire diffs clean.
 #

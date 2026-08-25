@@ -189,9 +189,9 @@ compiled read-only scope.
 The pod holds no secret. Its gateway credential has exactly one shape
 (`config.py`, `resolve_gateway_token`): a kubelet-rotated projected
 service-account token *file*, scoped to the gateway's audience — for
-standing agents and ephemeral crew members alike. It is read fresh at
+standing agents and ephemeral agents alike. It is read fresh at
 each dispatch, so a task never outlives the freshly read token's
-validity window; a crew member's revocation is a registry-row
+validity window; an ephemeral agent's revocation is a registry-row
 termination the gateway checks per call, not a property of the token.
 
 The credential is good for exactly one thing: authenticating

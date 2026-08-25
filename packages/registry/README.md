@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS registry.run_participants (
 );
 ```
 
-The gateway accepts a crew member's ServiceAccount token only while a
+The gateway accepts an ephemeral agent's ServiceAccount token only while a
 live (`active`, unterminated) row backs it — resolved by
 `service_account` name, checked on every call, and read for everything
 the identity is (company, catalog template, namespace, crew

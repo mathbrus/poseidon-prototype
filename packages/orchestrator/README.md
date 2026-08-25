@@ -19,7 +19,7 @@ system.
 | `workflows/` | `intake`, `implement`, `review`, `conduct` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
 | `activities/` | The activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
 | `gates/` | `Gate` — a signal-driven wait point with an escalation timer. |
-| `audit.py` | `record_event` — the platform's own audit events, under its identity or a crew member's, on the shared ingestion contract. |
+| `audit.py` | `record_event` — the platform's own audit events, under its identity or an ephemeral agent's, on the shared ingestion contract. |
 | `ephemeral_pods.py` | The bounded Kubernetes surface for ephemeral pods: **pods and their per-run ServiceAccounts only**, in the **company namespace only**, deleted only by label selector. |
 | `identity.py` | Ephemeral identity naming — the fulfill half of the identity contract; the gateways own the verify half. |
 | `clients.py` | `GatewayClient` (MCP + admin routes) and `AgentClient` (dispatch/poll). |
@@ -234,7 +234,7 @@ audit event: a run's story shows who existed, when, under whose authority.
 
 ## Ephemeral pods
 
-An ephemeral pod is one crew member's brain host: the same agent image a
+An ephemeral pod is one ephemeral agent's brain host: the same agent image a
 standing agent runs, labeled to its run. Its only credential is the
 audience-scoped projected token of its own per-run ServiceAccount,
 mounted by the kubelet — no token-shaped env var exists, and no

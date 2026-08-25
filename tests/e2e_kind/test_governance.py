@@ -109,7 +109,7 @@ def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
 
         # Provable in policy: a standing
         # backend-engineer finds nothing in the compiled bundle — the role
-        # exists only as crew members.
+        # exists only as ephemeral agents.
         fired = _decide(
             base, COMPANY_DECISION, standing("backend-engineer", "sandbox.exec")
         )

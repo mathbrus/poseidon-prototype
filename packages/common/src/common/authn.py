@@ -12,7 +12,7 @@ identity through the registry:
                                    (standing agents)
   <company ns> / ephemeral-*         -> a live `run_participants` row, looked
                                    up by ServiceAccount name (ephemeral
-                                   crew members); terminating the row
+                                   ephemeral agents); terminating the row
                                    revokes the identity on the next call,
                                    however long the token itself lives
 
@@ -278,7 +278,7 @@ class Authenticator:
             await self._reject(path, "authn_namespace_mismatch", account.username)
             return None
         # The row is the whole ephemeral identity: `role_template` is the
-        # catalog template policy roles resolve to, `role` the crew member
+        # catalog template policy roles resolve to, `role` the crew_role
         # name — the crew_template + crew_role pair the compiled crew
         # rules key on.
         return Identity(

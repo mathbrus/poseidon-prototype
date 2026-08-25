@@ -41,7 +41,7 @@ rules:
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["roles", "rolebindings"]
     verbs: ["get", "list", "watch", "create", "patch", "delete", "escalate", "bind"]
-  # Standing agents. Note what is absent: no pods (ephemeral crew members
+  # Standing agents. Note what is absent: no pods (ephemeral agents
   # are the orchestrator's, inside a run), no exec, no jobs, no secrets
   # (there is no bearer-token sync — identity is workload-based).
   - apiGroups: ["apps"]
