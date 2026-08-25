@@ -112,7 +112,7 @@ async def test_bound_agent_call_is_proxied_to_sandbox(app, backends, audit):
     assert decision_input["run_binding_verified"] is True
 
 
-async def test_all_six_sandbox_tools_map_to_tool_server_routes(app, backends):
+async def test_all_sandbox_tools_map_to_tool_server_routes(app, backends):
     await register_sandbox(app, RUN_ID)
 
     calls = [
@@ -121,6 +121,17 @@ async def test_all_six_sandbox_tools_map_to_tool_server_routes(app, backends):
             "sandbox.write_file",
             {"run_id": RUN_ID, "path": "a.py", "content": "x"},
             "/files/write",
+        ),
+        (
+            "sandbox.edit_file",
+            {
+                "run_id": RUN_ID,
+                "path": "a.py",
+                "command": "str_replace",
+                "old_str": "x",
+                "new_str": "y",
+            },
+            "/files/edit",
         ),
         ("sandbox.list_dir", {"run_id": RUN_ID, "path": "."}, "/files/list"),
         ("sandbox.exec", {"run_id": RUN_ID, "cmd": "ls", "timeout_s": 5}, "/exec"),
@@ -135,7 +146,7 @@ async def test_all_six_sandbox_tools_map_to_tool_server_routes(app, backends):
     assert [route for route, _ in backends.sandbox_calls] == [
         route for _, _, route in calls
     ]
-    exec_payload = dict(backends.sandbox_calls[3][1])
+    exec_payload = dict(backends.sandbox_calls[4][1])
     assert exec_payload == {"cmd": "ls", "timeout_s": 5}
 
 

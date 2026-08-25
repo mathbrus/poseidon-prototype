@@ -442,7 +442,7 @@ A human starts an implement run from a ticket (or the heartbeat does — see
    second identity. Each pod gets its own per-run ServiceAccount.
 
 > [!NOTE]
-> How does the code get in? Via `repo.archive`, the platform-only sixteenth
+> How does the code get in? Via `repo.archive`, the platform-only seventeenth
 > tool: the *gateway* clones the target repository with its own token,
 > strips the remote — and with it the credentialed URL — and returns the
 > workspace as a tarball. The sandbox receives source code with no remote

@@ -38,7 +38,7 @@ from agent.gateway_client import ToolCallError
 # Per-phase tool surfaces — the structural guarantee: the implement agent
 # has no `open_pr` (delivery before the platform verify gate is impossible
 # by construction); the reviewer writes nothing but its findings comment.
-ACT_TOOLS = ["list_dir", "read_file", "write_file", "exec"]
+ACT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
 PLAN_TOOLS = ["list_dir", "read_file"]
 PM_TOOLS = ["create_issue", "read_issues", "request_crew"]
@@ -106,11 +106,34 @@ class ListDirAction(Action):
 
 class ReadFileAction(Action):
     path: str = Field(description="File path, relative to the workspace root.")
+    view_range: list[int] | None = Field(
+        default=None,
+        description="Optional [start, end] line range, 1-based and inclusive "
+        "(end -1 = end of file). Omit to read the whole file.",
+    )
 
 
 class WriteFileAction(Action):
     path: str = Field(description="File path, relative to the workspace root.")
     content: str = Field(description="Full new file content.")
+
+
+class EditFileAction(Action):
+    command: Literal["str_replace", "insert"] = Field(
+        description="str_replace: swap one exact occurrence of old_str for "
+        "new_str. insert: add new_str after line insert_line."
+    )
+    path: str = Field(description="File path, relative to the workspace root.")
+    old_str: str | None = Field(
+        default=None,
+        description="str_replace only: the exact text to replace; it must "
+        "occur exactly once, so include enough surrounding lines.",
+    )
+    new_str: str = Field(description="The replacement text, or the text to insert.")
+    insert_line: int | None = Field(
+        default=None,
+        description="insert only: the line number to insert after (0 = top).",
+    )
 
 
 class ExecAction(Action):
@@ -175,8 +198,15 @@ def _list_dir(ctx: HandsContext, a: ListDirAction) -> dict[str, Any]:
     return ctx.bridge.call("sandbox.list_dir", {"run_id": ctx.run_id, "path": a.path})
 
 
-def _read_file(ctx: HandsContext, a: ReadFileAction) -> dict[str, Any]:
-    return ctx.bridge.call("sandbox.read_file", {"run_id": ctx.run_id, "path": a.path})
+def _read_file(ctx: HandsContext, a: ReadFileAction) -> str:
+    """The file as numbered lines — what str_replace and insert anchor on."""
+    args: dict[str, Any] = {"run_id": ctx.run_id, "path": a.path}
+    if a.view_range is not None:
+        args["view_range"] = a.view_range
+    result = ctx.bridge.call("sandbox.read_file", args)
+    first = int(result.get("start_line", 1))
+    lines = str(result["content"]).splitlines(keepends=True)
+    return "".join(f"{first + i:6d}\t{line}" for i, line in enumerate(lines))
 
 
 def _write_file(ctx: HandsContext, a: WriteFileAction) -> dict[str, Any]:
@@ -184,6 +214,21 @@ def _write_file(ctx: HandsContext, a: WriteFileAction) -> dict[str, Any]:
         "sandbox.write_file",
         {"run_id": ctx.run_id, "path": a.path, "content": a.content},
     )
+
+
+def _edit_file(ctx: HandsContext, a: EditFileAction) -> str:
+    result = ctx.bridge.call(
+        "sandbox.edit_file",
+        {
+            "run_id": ctx.run_id,
+            "path": a.path,
+            "command": a.command,
+            "old_str": a.old_str,
+            "new_str": a.new_str,
+            "insert_line": a.insert_line,
+        },
+    )
+    return f"Edited {a.path}. The lines around the change now read:\n{result['snippet']}"
 
 
 def _exec(ctx: HandsContext, a: ExecAction) -> dict[str, Any]:
@@ -293,9 +338,17 @@ _TOOLS: dict[str, tuple[str, type[Action], Any]] = {
         _read_file,
     ),
     "write_file": (
-        "Write (create or overwrite) a text file in the workspace.",
+        "Write (create or overwrite) a whole text file in the workspace. For "
+        "changes to an existing file prefer edit_file.",
         WriteFileAction,
         _write_file,
+    ),
+    "edit_file": (
+        "Edit part of an existing file: str_replace one exact occurrence of "
+        "old_str with new_str, or insert new_str after line insert_line. "
+        "Read the file first; the reply shows the edited lines.",
+        EditFileAction,
+        _edit_file,
     ),
     "exec": (
         "Run a shell command in the workspace root (e.g. git, ls, python).",
@@ -364,7 +417,10 @@ class _GatewayExecutor(ToolExecutor):
             # Policy denials and malformed calls feed back as the tool
             # result — the model sees the rule name and recovers.
             return GatewayObservation(output=f"ERROR: {exc}")
-        return GatewayObservation(output=json.dumps(result))
+        # A mapping may hand back prose shaped for the model (numbered
+        # lines, an edit snippet); anything else is the gateway's JSON.
+        output = result if isinstance(result, str) else json.dumps(result)
+        return GatewayObservation(output=output)
 
 
 def _definition_class_name(tool_name: str) -> str:

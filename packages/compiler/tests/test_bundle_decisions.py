@@ -772,6 +772,7 @@ CONTRACT_CREW = {
             "tools": [
                 "sandbox.read_file",
                 "sandbox.write_file",
+                "sandbox.edit_file",
                 "sandbox.list_dir",
                 "sandbox.exec",
                 "sandbox.run_tests",

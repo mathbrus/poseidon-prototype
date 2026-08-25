@@ -34,7 +34,7 @@ INJECTED_TASK = (
 
 ACT_TOOLS = [
     {"type": "function", "function": {"name": n}}
-    for n in ("list_dir", "read_file", "write_file", "exec")
+    for n in ("list_dir", "read_file", "write_file", "edit_file", "exec")
 ]
 DELIVER_TOOLS = ACT_TOOLS + [{"type": "function", "function": {"name": "open_pr"}}]
 PLAN_TOOLS = [

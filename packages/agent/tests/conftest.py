@@ -115,9 +115,18 @@ class FakeGateway:
                     ]
                 }
             case "sandbox.read_file":
-                return {"content": "def hello():\n    return 'hi'\n"}
+                return {
+                    "content": "def hello():\n    return 'hi'\n",
+                    "start_line": 1,
+                    "total_lines": 2,
+                }
             case "sandbox.write_file":
                 return {"ok": True}
+            case "sandbox.edit_file":
+                return {
+                    "ok": True,
+                    "snippet": "     1\tdef hello():\n     2\t    return 'hi'\n",
+                }
             case "sandbox.exec":
                 return {"exit_code": 0, "stdout": "", "stderr": ""}
             case "sandbox.run_tests":

@@ -19,10 +19,10 @@ and its effects. The agent does not open files or run git — it calls
 `sandbox.write_file` or `git.open_pr`, and something else decides whether
 that call happens.
 
-Poseidon's gateway is an MCP server exposing 16 tools. The agent is an MCP
+Poseidon's gateway is an MCP server exposing 17 tools. The agent is an MCP
 client. Everything the agent can do to the world is one of those 16 names,
 which is what makes "the tool surface is the security surface" true rather
-than aspirational. (Fifteen of the sixteen are for agents. The sixteenth,
+than aspirational. (Sixteen of the seventeen are for agents. The seventeenth,
 `repo.archive`, belongs to the platform lifecycle — no agent role declares
 it, and the compiled bundle grants it to the platform identity alone. It is
 how a workspace enters a sandbox, and it reappears in

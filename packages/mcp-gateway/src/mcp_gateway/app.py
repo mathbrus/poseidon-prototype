@@ -1,6 +1,6 @@
 """Gateway ASGI app: MCP server (streamable HTTP) + admin endpoint.
 
-The full tool surface: six sandbox tools proxied to the run's registered
+The full tool surface: seven sandbox tools proxied to the run's registered
 tool server, the git, pull-request and issue tools backed by platform-side
 clones and the GitHub API holding the GIT_TOKEN, the crew-request tool, plus
 `POST`/`DELETE /admin/sandboxes` (platform lifecycle only) to register and
@@ -175,10 +175,13 @@ def create_app(
         )
 
     @mcp.tool(name="sandbox.read_file")
-    async def sandbox_read_file(run_id: str, path: str, ctx: Context) -> dict[str, Any]:
-        return await sandbox_call(
-            ctx, "sandbox.read_file", {"run_id": run_id, "path": path}
-        )
+    async def sandbox_read_file(
+        run_id: str, path: str, ctx: Context, view_range: list[int] | None = None
+    ) -> dict[str, Any]:
+        args: dict[str, Any] = {"run_id": run_id, "path": path}
+        if view_range is not None:
+            args["view_range"] = view_range
+        return await sandbox_call(ctx, "sandbox.read_file", args)
 
     @mcp.tool(name="sandbox.write_file")
     async def sandbox_write_file(
@@ -188,6 +191,29 @@ def create_app(
             ctx,
             "sandbox.write_file",
             {"run_id": run_id, "path": path, "content": content},
+        )
+
+    @mcp.tool(name="sandbox.edit_file")
+    async def sandbox_edit_file(
+        run_id: str,
+        path: str,
+        command: str,
+        new_str: str,
+        ctx: Context,
+        old_str: str | None = None,
+        insert_line: int | None = None,
+    ) -> dict[str, Any]:
+        return await sandbox_call(
+            ctx,
+            "sandbox.edit_file",
+            {
+                "run_id": run_id,
+                "path": path,
+                "command": command,
+                "old_str": old_str,
+                "new_str": new_str,
+                "insert_line": insert_line,
+            },
         )
 
     @mcp.tool(name="sandbox.list_dir")

@@ -198,7 +198,7 @@ def test_prompt_and_toolsets_per_phase(settings, gateway):
     assert "carry it out" not in task_message  # no delivery talk while acting
 
     offered = set(llm.offered(0)) - {"finish", "think"}
-    assert offered == {"list_dir", "read_file", "write_file", "exec"}
+    assert offered == {"list_dir", "read_file", "write_file", "edit_file", "exec"}
     assert "open_pr" not in llm.offered(0)  # no delivery tool, ever, here
 
 
