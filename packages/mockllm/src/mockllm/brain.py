@@ -6,7 +6,8 @@ SDK loops in `agent.brain`. Phase keying is by the offered
 tool surface (with the SDK's own finish/think control tools filtered out)
 and the system prompt:
 
-- planner (no tools offered — a single completion, not a loop) → the brief,
+- planner ("planner" in the system prompt; it holds the read tools, so
+  its prompt is what sets it apart) → the brief on the first turn,
   echoing the branch line and scenario markers (the handoff is lossless
   only if the brief carries them).
 - act (tools without `open_pr`) → write `slugify.py` +
@@ -383,9 +384,15 @@ def _snake_content(task_text: str) -> str:
 
 
 def _system_text(messages: list[dict[str, Any]]) -> str:
+    """The static system prompt: the first content block only. The SDK
+    appends repository text (AGENTS.md) as a second block, and a phase
+    must never be keyed by what a target repository wrote."""
     for message in messages:
         if message.get("role") == "system":
-            return _content_text(message)
+            content = message.get("content")
+            if isinstance(content, list):
+                return str(content[0].get("text", "")) if content else ""
+            return str(content or "")
     return ""
 
 
@@ -946,14 +953,15 @@ def next_completion(
     messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
 ) -> MockCompletion:
     task_text = _task_text(messages)
+    system = _system_text(messages)
     offered = _offered(tools)
 
     # Before the PM check: the decide prompt also addresses the product
     # manager, but the dispatch is a single toolless completion.
-    if "conduct decision" in _system_text(messages):
+    if "conduct decision" in system:
         return _decide_completion(messages)
 
-    if "product manager" in _system_text(messages):  # the PM loop
+    if "product manager" in system:  # the PM loop
         return _pm_completion(messages)
 
     if "comment_pr" in offered:  # the reviewer loop
@@ -961,7 +969,7 @@ def next_completion(
 
     # The planner reads with the same tools an executor holds, so its
     # prompt, not its tool surface, is what tells it apart.
-    if "planner" in _system_text(messages):
+    if "You are the planner" in system:
         return _plan_completion(task_text)
 
     # The contract author's dispatch — both phases: its task is the ticket

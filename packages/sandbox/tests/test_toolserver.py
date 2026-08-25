@@ -62,9 +62,11 @@ def test_read_file_view_range(client: TestClient, workspace: Path):
     assert resp.json() == {"content": "b\nc\n", "start_line": 2, "total_lines": 4}
     tail = client.post("/files/read", json={"path": "many.txt", "view_range": [3, -1]})
     assert tail.json()["content"] == "c\nd\n"
-    for bad in ([0, 2], [3, 2], [9, 9], [1]):
+    for bad in ([0, 2], [3, 2], [9, 9]):
         resp = client.post("/files/read", json={"path": "many.txt", "view_range": bad})
         assert resp.status_code == 400, bad
+    wrong_shape = client.post("/files/read", json={"path": "many.txt", "view_range": [1]})
+    assert wrong_shape.status_code == 422  # a pair, by schema
 
 
 def test_read_missing_file_404(client: TestClient):

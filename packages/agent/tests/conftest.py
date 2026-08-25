@@ -6,6 +6,7 @@ included — closely enough to exercise allow, deny and recovery paths."""
 import asyncio
 import json
 import re
+from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from itertools import count
 from typing import Any
@@ -105,9 +106,17 @@ class FakeGateway:
         self.default_test_result: dict[str, Any] = TESTS_PASS
         # The repository's instructions file, when the workspace has one.
         self.agents_md: str | None = None
+        # Test hooks: tools policy refuses, and something to run before
+        # any call is answered (a barrier, a delay).
+        self.deny: set[str] = set()
+        self.before: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None
 
     async def call(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         self.calls.append((tool, dict(args)))
+        if tool in self.deny:
+            raise ToolCallError(f"denied by policy rule: default_deny ({tool})")
+        if self.before is not None:
+            await self.before(tool, args)
         match tool:
             case "sandbox.list_dir":
                 entries = [

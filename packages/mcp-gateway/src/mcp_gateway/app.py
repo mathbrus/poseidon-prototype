@@ -176,7 +176,7 @@ def create_app(
 
     @mcp.tool(name="sandbox.read_file")
     async def sandbox_read_file(
-        run_id: str, path: str, ctx: Context, view_range: list[int] | None = None
+        run_id: str, path: str, ctx: Context, view_range: tuple[int, int] | None = None
     ) -> dict[str, Any]:
         args: dict[str, Any] = {"run_id": run_id, "path": path}
         if view_range is not None:
@@ -203,18 +203,17 @@ def create_app(
         old_str: str | None = None,
         insert_line: int | None = None,
     ) -> dict[str, Any]:
-        return await sandbox_call(
-            ctx,
-            "sandbox.edit_file",
-            {
-                "run_id": run_id,
-                "path": path,
-                "command": command,
-                "old_str": old_str,
-                "new_str": new_str,
-                "insert_line": insert_line,
-            },
-        )
+        args: dict[str, Any] = {
+            "run_id": run_id,
+            "path": path,
+            "command": command,
+            "new_str": new_str,
+        }
+        if old_str is not None:
+            args["old_str"] = old_str
+        if insert_line is not None:
+            args["insert_line"] = insert_line
+        return await sandbox_call(ctx, "sandbox.edit_file", args)
 
     @mcp.tool(name="sandbox.list_dir")
     async def sandbox_list_dir(run_id: str, path: str, ctx: Context) -> dict[str, Any]:

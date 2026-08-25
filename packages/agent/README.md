@@ -13,16 +13,27 @@ trusted anywhere else.
 
 ## Why "brain host", not "agent framework"
 
-The OpenHands SDK is adopted strictly as a library, for exactly one job:
-the reasoning loop, the context machinery (a summarizing condenser), and
-the coding heuristics. Nothing else crosses the boundary:
+The OpenHands SDK is adopted strictly as a library: the reasoning loop,
+the context machinery (a summarizing condenser), the stuck detector, the
+batch executor for tool calls, and the prompt sections that carry its
+coding heuristics. Nothing else crosses the boundary:
 
 - Its built-in tools — bash, file editor, browser — are never installed,
   and its sub-agent machinery (`TaskToolSet`) is never registered. The
   SDK's own default tools are control flow only (`finish`/`think`).
 - The `Conversation` is given a throwaway temp directory as its
   "workspace". The real workspace lives in the run's sandbox, on the far
-  side of the gateway; the SDK never touches it directly.
+  side of the gateway; the SDK never touches it directly. Its loaders
+  for project skills and memory stay off for the same reason — they read
+  the pod's disk, which holds nothing.
+- Its default system prompt is not used either. It addresses a user in
+  the loop, an OpenHands identity, a networked machine, and a writable
+  `AGENTS.md`; none exist here. `prompting.py` composes each mode's
+  prompt as Poseidon's own procedure followed by the SDK sections that
+  say nothing about who the model is or which tools it holds
+  (efficiency, file hygiene, code quality, per-model-family guidance),
+  rendered by the SDK's section classes so a version bump updates the
+  text.
 
 The only tools the model ever sees are the Hands adapters below, and each
 one resolves to a gateway MCP call. One rule governs the boundary:
@@ -36,6 +47,7 @@ for it.
 | `app.py` | The HTTP API: `POST /task`, `GET /task/{run_id}`. |
 | `brain.py` | The mode runners, the SDK conversation setup, `GatewayBridge`. |
 | `hands.py` | The model-facing tool schemas, each resolving to a gateway call. |
+| `prompting.py` | Everything that reaches the model before its first turn: the mode's procedure followed by the SDK's heuristic sections, and the repository's `AGENTS.md` as untrusted context. |
 | `gateway_client.py` | The async MCP client (`McpGateway`, `ToolCallError`). |
 | `config.py` | Settings, including gateway-credential resolution. |
 | `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. |
@@ -69,13 +81,14 @@ Two status-code rules carry real semantics:
   is lifted, the workflow re-dispatches the same `run_id`; if that
   answered 409 too, it would poll a stale failure forever.
 
-## Four tool surfaces, six runners
+## Five tool surfaces, six runners
 
 From `hands.py`, verbatim:
 
 ```python
-ACT_TOOLS = ["list_dir", "read_file", "write_file", "exec"]
+ACT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
+PLAN_TOOLS = ["list_dir", "read_file"]
 PM_TOOLS = ["create_issue", "read_issues", "request_crew"]
 REVIEWER_TOOLS = [
     "list_dir",
@@ -94,13 +107,19 @@ REVIEWER_TOOLS = [
 | `deliver` | `DELIVER_TOOLS` | the PR URL |
 | `review` | `REVIEWER_TOOLS` | posted findings + a structured pass/fail verdict |
 | `pm` | `PM_TOOLS` | tickets + recorded crew intent |
-| `plan` | none — one completion, no tool loop | the task brief |
+| `plan` | `PLAN_TOOLS` | the task brief — the agent's final text |
 | `decide` | none — one completion, no tool loop | one conduct action with its rationale |
+
+`edit_file` is the partial edit coding models are trained on —
+`str_replace` of text that occurs exactly once, or `insert` after a line —
+and `read_file` answers with numbered lines (optionally a line range) so
+an edit has something to anchor on. Both resolve to run-scoped gateway
+tools like every other sandbox call.
 
 **Delivery before verification is structurally impossible.** The
 implement surface has no `open_pr` at all. `implement_dispatch` seeds the
-conversation with the task plus a workspace survey the host fetched
-itself, then runs an *advisory* verify — its own `sandbox.run_tests`
+conversation with the task plus the workspace survey (below), then runs
+an *advisory* verify — its own `sandbox.run_tests`
 call between conversation turns — feeding failures back until green or
 `max_iterations`. Advisory green ends the dispatch with nothing but a
 claim; the gate of record is the platform's own verify in the workflow.
@@ -118,7 +137,24 @@ so the in-process surface is a convenience, not the boundary.
 
 Every runner fails on missing evidence rather than on the model's word: a
 deliver dispatch with no PR opened, a review with no findings posted, a
-PM dispatch with no ticket filed — each is an explicit error.
+PM dispatch with no ticket filed, a planner with no brief — each is an
+explicit error. So is a loop that stops short: the SDK sets `ERROR` at
+the step cap and `STUCK` when its detector sees the same action and
+observation repeat, and `_loop_failure` turns either into a named
+failure in every runner. The detector is on for every model — the host
+does not know which brain is behind the proxy, and should not.
+
+## The workspace survey
+
+Every sandboxed dispatch — implement, deliver, review, plan — opens with
+a survey the host runs itself, under the pod's own token: one
+`sandbox.list_dir` of the root, and a `sandbox.read_file` of the
+repository's `AGENTS.md` when there is one (a role policy will not let
+read simply gets no instructions). The listing rides the first user
+message. The instructions are handed to the SDK as a repo skill, which
+renders them in the system message's second content block inside the
+SDK's `UNTRUSTED_CONTENT` framing — repository text is exactly that —
+while the static prompt stays byte-identical across dispatches.
 
 ## Hands: schemas the model cannot abuse
 
@@ -171,18 +207,19 @@ module-level current-context bound by `HandsContext.activate()`, not a
 contextvar. That is safe only because the 409 rule means one dispatch per
 host at a time; there is never a second context to race with.
 
-## The planner's pod is the cheapest one
+## The planner reads before it briefs
 
-`mode="plan"` is the one dispatch that is LLM-only: the host surveys the
-sandbox root (one `sandbox.list_dir` call), asks for a single completion
-— no tool loop, no writes — and returns the resulting task brief, which
-the executor's next dispatch carries verbatim.
+`mode="plan"` is a short loop over the two read tools: the survey, a few
+reads of the files the task will touch, then the brief — the agent's
+final text, whether it ended with a plain reply or `finish` — which the
+executor's next dispatch carries verbatim. A planner that reads until
+its step cap has no brief, and says so.
 
 The planner runs on its own pod, under its own per-run ServiceAccount —
 one principal, one pod, one projected token, like every other agent. No
-credential rides the dispatch; both the survey call and the LLM call run
-under the pod's own token, so what policy enforces is the planner's
-compiled read-only scope.
+credential rides the dispatch; the survey, the reads and the LLM calls
+all run under the pod's own token, so what policy enforces is the
+planner's compiled read-only scope.
 
 ## Credential posture
 
@@ -215,6 +252,15 @@ This is where the first cluster run of the brain host died, which is why
 `test_bridge.py` runs against a real MCP streamable-HTTP server rather
 than a double. The per-call read timeout is 660 s at the MCP client, with
 a 700 s backstop at the bridge.
+
+Several tool threads may be in `call` at once. The four read tools
+declare themselves read-only and the agent allows four calls in flight,
+so a reply that reads three files runs the three reads concurrently; the
+session multiplexes them, one coroutine each. `OrderedReadsExecutor` adds
+the one rule the SDK's executor lacks: a batch fans out only when every
+call in it is a read — a batch with a write, a command or a delivery
+runs one call at a time in the model's order, because a commit must not
+land before its checkout.
 
 ## Entry points
 
@@ -269,3 +315,9 @@ lifecycle bugs fail here, not on kind.
   `str.format`: they are prose, and a stray brace must stay a brace.
 - One dispatch at a time per brain host (409 on re-dispatch); a terminal
   run re-dispatched restarts.
+- A loop that stops short — step cap or stuck — is a named failure,
+  never a completion claim.
+- Only reads run concurrently; a batch holding any write runs in the
+  model's order.
+- Repository text (`AGENTS.md`) reaches the model only inside the SDK's
+  untrusted-content framing, never in the static prompt.

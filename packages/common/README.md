@@ -24,6 +24,7 @@ when `OTEL_EXPORTER_OTLP_ENDPOINT` is set).
 | `telemetry.py` | `get_logger(name)`: single-line JSON to stdout, `.bind(...)` for run/agent context. Optional OTLP export behind the `otel` extra. |
 | `podsecurity.py` | The pod/container security context the three Python pod-spec builders share (uid 10001, no privilege escalation, no capabilities, RuntimeDefault seccomp). |
 | `ids.py` | `new_run_id()` — ULID-based, sortable, `run-`-prefixed. |
+| `text.py` | `numbered_lines()` — the `cat -n` rendering the sandbox's edit snippets and the brain host's file reads share, so an edit anchors on the picture it gets back. |
 
 ## Identity is a verdict, not a claim
 

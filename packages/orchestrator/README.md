@@ -221,8 +221,8 @@ planner, hand back the brief. Two details carry the design:
   compiled decision the `crew.request` *tool* would face allows it: the
   activity evaluates the same bundle at OPA with the same enriched input
   (`may_spawn` narrowing, live spawn count, budget headroom).
-- **The planner gets the cheapest pod there is.** It is LLM-only and
-  needs no sandbox wiring, but it runs on its own pod under its own
+- **The planner reads and writes nothing.** It needs no sandbox of its
+  own — it reads the run's — but it runs on its own pod under its own
   ServiceAccount, so its gateway calls carry its own projected token and
   its compiled read-only scope is what policy enforces. Its brief
   replaces the raw task text for the executor dispatch — the

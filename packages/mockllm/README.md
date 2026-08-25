@@ -80,13 +80,14 @@ The checks run in order; the first match wins:
 | `"conduct decision"` in the system prompt | decide | a single completion naming one action from the observation, with a rationale |
 | `"product manager"` in the system prompt | PM | file one ticket (an ordered contract-then-implement pair under a contract-first goal), record the crew request, summarize |
 | `comment_pr` offered | reviewer | read the PR diff, run the suite, post one findings comment, end with a structured pass/fail verdict (fail on `REVIEW_FAIL_MARKER` in the task; injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read) |
-| `Crew: contract-authoring` in the task, tools offered | contract author | write the contract tree (gutted to a smoke check under `STEERED_CONTRACT_MARKER`), then deliver it |
-| no tools offered | planner | a single completion: the task brief, echoing the branch line and any scenario marker |
+| `"You are the planner"` in the system prompt | planner | the task brief on the first turn, echoing the branch line and any scenario marker (the planner holds read tools, so its prompt is what sets it apart) |
+| `Crew: contract-authoring` in the task | contract author | write the contract tree (gutted to a smoke check under `STEERED_CONTRACT_MARKER`), then deliver it |
 | tools without `open_pr` | act | write `slugify.py` + its test once, then answer in plain text — which ends the SDK conversation so the host runs the advisory verify |
 | tools with `open_pr` | deliver | commit and open the PR in one batch |
 
-The decide and PM loops are keyed on the system prompt, not on a tool
-surface, which is why they are checked first. The deliver script batches commit +
+The decide, PM and planner loops are keyed on the system prompt, not on
+a tool surface, which is why they are checked before the tool-keyed
+phases. The deliver script batches commit +
 `open_pr` into one completion so one SDK step is one delivery attempt:
 the deliver-step cap is small, and the injected scenario must fit
 attempt–deny–recover within it. Once a delivery succeeded (`_pr_opened`

@@ -36,6 +36,7 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 from common.telemetry import get_logger
+from common.text import numbered_lines
 
 BASE_REF_FILE = ".poseidon-base"
 TESTS_TIMEOUT_S = 600
@@ -54,7 +55,7 @@ class ToolserverSettings(BaseSettings):
 
 class ReadRequest(BaseModel):
     path: str
-    view_range: list[int] | None = None
+    view_range: tuple[int, int] | None = None
 
 
 class WriteRequest(BaseModel):
@@ -95,15 +96,11 @@ def _as_text(data: Any) -> str:
     return data
 
 
-def _numbered(lines: list[str], first: int) -> str:
-    return "".join(f"{first + i:6d}\t{line}" for i, line in enumerate(lines))
-
-
 def _snippet(lines: list[str], start: int, end: int) -> str:
     """Numbered lines around [start, end) (0-based line indexes)."""
     lo = max(0, start - SNIPPET_CONTEXT)
     hi = min(len(lines), end + SNIPPET_CONTEXT)
-    return _numbered(lines[lo:hi], lo + 1)
+    return numbered_lines(lines[lo:hi], lo + 1)
 
 
 def create_app(workspace: Path | None = None) -> FastAPI:
@@ -143,18 +140,16 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         if not target.is_file():
             raise HTTPException(status_code=404, detail=f"no such file: {req.path}")
         text = target.read_text()
-        if req.view_range is None:
-            return {"content": text, "start_line": 1, "total_lines": text.count("\n")}
         lines = text.splitlines(keepends=True)
-        if len(req.view_range) != 2:
-            raise HTTPException(status_code=400, detail="view_range must be [start, end]")
+        if req.view_range is None:
+            return {"content": text, "start_line": 1, "total_lines": len(lines)}
         start, end = req.view_range
         if end == -1:
             end = len(lines)
-        if start < 1 or start > max(len(lines), 1) or end < start:
+        if start < 1 or start > len(lines) or end < start:
             raise HTTPException(
                 status_code=400,
-                detail=f"view_range {req.view_range} outside 1..{len(lines)}",
+                detail=f"view_range {list(req.view_range)} outside 1..{len(lines)}",
             )
         return {
             "content": "".join(lines[start - 1 : end]),
@@ -178,20 +173,20 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         if req.command == "str_replace":
             if req.old_str is None:
                 raise HTTPException(status_code=400, detail="str_replace needs old_str")
-            hits = text.count(req.old_str)
-            if hits == 0:
+            head, found, tail = text.partition(req.old_str)
+            if not found:
                 raise HTTPException(
                     status_code=400, detail=f"old_str not found in {req.path}"
                 )
-            if hits > 1:
+            if req.old_str in tail:
+                hits = 1 + tail.count(req.old_str)
                 raise HTTPException(
                     status_code=400,
                     detail=f"old_str occurs {hits} times in {req.path}; include "
                     "more context to make it unique",
                 )
-            at = text.index(req.old_str)
-            new_text = text[:at] + req.new_str + text[at + len(req.old_str) :]
-            first = text[:at].count("\n")
+            new_text = head + req.new_str + tail
+            first = head.count("\n")
             last = first + req.new_str.count("\n") + 1
         else:
             if req.insert_line is None:
@@ -203,11 +198,7 @@ def create_app(workspace: Path | None = None) -> FastAPI:
                     detail=f"insert_line {req.insert_line} outside 0..{len(lines)}",
                 )
             block = req.new_str if req.new_str.endswith("\n") else req.new_str + "\n"
-            if (
-                req.insert_line
-                and lines
-                and not lines[req.insert_line - 1].endswith("\n")
-            ):
+            if req.insert_line and not lines[req.insert_line - 1].endswith("\n"):
                 lines[req.insert_line - 1] += "\n"
             lines[req.insert_line : req.insert_line] = [block]
             new_text = "".join(lines)

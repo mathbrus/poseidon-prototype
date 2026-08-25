@@ -32,7 +32,6 @@ from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from openhands.sdk import (
@@ -46,7 +45,6 @@ from openhands.sdk.agent.parallel_executor import ParallelToolExecutor
 from openhands.sdk.context import AgentContext
 from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.llm import Message, TextContent
-from openhands.sdk.skills import Skill
 from pydantic import BaseModel, SecretStr
 
 from agent.config import AgentSettings
@@ -57,26 +55,14 @@ from agent.hands import (
     PLAN_TOOLS,
     PM_TOOLS,
     REVIEWER_TOOLS,
+    WORKSPACE_TOOLS,
     HandsContext,
     ToolRecords,
     hands,
 )
-from agent.prompting import CODING_SECTIONS, MODEL_SECTIONS, READING_SECTIONS, compose
+from agent.prompting import REPO_INSTRUCTIONS_FILE, repo_instructions, system_prompt
 from common.telemetry import get_logger
 
-# One prompt file per dispatch mode: each phase is told what it actually
-# is, and the operating procedure matches the tool surface it is offered.
-# The SDK's heuristic sections follow the procedure, chosen by what the
-# mode does with the workspace.
-PROMPTS_DIR = Path(__file__).parent / "prompts"
-PROMPT_SECTIONS = {
-    "implement": CODING_SECTIONS,
-    "deliver": CODING_SECTIONS,
-    "review": READING_SECTIONS,
-    "plan": READING_SECTIONS,
-    "pm": MODEL_SECTIONS,
-    "decide": MODEL_SECTIONS,
-}
 # The PM's whole dispatch is a handful of tool calls; the cap is a backstop.
 PM_STEP_CAP = 10
 # SDK steps allowed within one act cycle before tests are forced to run.
@@ -91,10 +77,6 @@ CONDENSER_KEEP_FIRST = 4
 # Tool calls from one reply that may run at once — only ever reads.
 TOOL_CONCURRENCY = 4
 _OUTPUT_CLIP = 4000
-# The repository's own instructions to agents, read from the sandbox and
-# shown to the model as untrusted context. Bounded: a file can be anything.
-REPO_INSTRUCTIONS_FILE = "AGENTS.md"
-REPO_INSTRUCTIONS_CLIP = 8000
 
 log = get_logger("agent.brain")
 
@@ -203,7 +185,9 @@ class OrderedReadsExecutor(ParallelToolExecutor):
     command or delivery in it runs one call at a time, in the order the
     model gave. The stock executor hands a whole batch to a thread pool,
     where the order in which writes acquire their locks is the
-    scheduler's — and a commit must not land before the checkout."""
+    scheduler's — and a commit must not land before the checkout. A
+    one-call batch is the SDK's own in-order path, so a mixed batch is
+    simply handed over one call at a time."""
 
     @staticmethod
     def _all_read_only(actions: Sequence[Any], tools: dict[str, Any] | None) -> bool:
@@ -225,20 +209,17 @@ class OrderedReadsExecutor(ParallelToolExecutor):
         cancel_token: Any = None,
         span_owner: object | None = None,
     ) -> list[list[Any]]:
-        if len(action_events) > 1 and not self._all_read_only(action_events, tools):
-            return [
-                self._run_safe(
-                    action,
-                    tool_runner,
-                    tools.get(action.tool_name) if tools else None,
-                    cancel_token,
-                    span_owner,
-                )
-                for action in action_events
-            ]
-        return super().execute_batch(
-            action_events, tool_runner, tools, cancel_token, span_owner
-        )
+        if self._all_read_only(action_events, tools):
+            return super().execute_batch(
+                action_events, tool_runner, tools, cancel_token, span_owner
+            )
+        return [
+            result
+            for action in action_events
+            for result in super().execute_batch(
+                [action], tool_runner, tools, cancel_token, span_owner
+            )
+        ]
 
     async def aexecute_batch(
         self,
@@ -248,45 +229,49 @@ class OrderedReadsExecutor(ParallelToolExecutor):
         cancel_token: Any = None,
         span_owner: object | None = None,
     ) -> list[list[Any]]:
-        if len(action_events) > 1 and not self._all_read_only(action_events, tools):
-            return [
-                await self._arun_safe(
-                    action,
-                    tool_runner,
-                    tools.get(action.tool_name) if tools else None,
-                    cancel_token,
-                    span_owner=span_owner,
-                )
-                for action in action_events
-            ]
-        return await super().aexecute_batch(
-            action_events, tool_runner, tools, cancel_token, span_owner
+        if self._all_read_only(action_events, tools):
+            return await super().aexecute_batch(
+                action_events, tool_runner, tools, cancel_token, span_owner
+            )
+        results = []
+        for action in action_events:
+            results += await super().aexecute_batch(
+                [action], tool_runner, tools, cancel_token, span_owner
+            )
+        return results
+
+
+class PoseidonAgent(Agent):
+    """The SDK agent with its batch executor swapped for the ordered
+    one. Installed in the SDK's own construction hook so any path that
+    rebuilds the agent rebuilds the guarantee with it."""
+
+    def model_post_init(self, context: Any) -> None:
+        super().model_post_init(context)
+        self._parallel_executor = OrderedReadsExecutor(
+            max_workers=self.tool_concurrency_limit
         )
 
 
 def _build_conversation(
     llm: LLM,
-    system_prompt: str,
+    prompt: str,
     tool_names: list[str],
     ctx: HandsContext,
     workspace: str,
     max_steps: int,
-    agent_context: AgentContext | None = None,
+    agent_context: AgentContext | None,
 ) -> Conversation:
-    agent = Agent(
+    agent = PoseidonAgent(
         llm=llm,
         tools=hands(tool_names),
-        system_prompt=system_prompt,
+        system_prompt=prompt,
         agent_context=agent_context,
         condenser=LLMSummarizingCondenser(
             llm=llm, max_size=CONDENSER_MAX_SIZE, keep_first=CONDENSER_KEEP_FIRST
         ),
         tool_concurrency_limit=TOOL_CONCURRENCY,
     )
-    # The agent builds a stock executor for itself; ours replaces it. A
-    # private attribute, so the frozen model allows the assignment and
-    # the conversation state keeps this same instance.
-    agent._parallel_executor = OrderedReadsExecutor(max_workers=TOOL_CONCURRENCY)
     # The PoseidonHands factory reads this when the SDK lazily resolves
     # tools (on a worker thread, at first send_message).
     ctx.activate()
@@ -299,7 +284,7 @@ def _build_conversation(
     )
 
 
-def _loop_failure(convo: Conversation, steps: int) -> str | None:
+def _loop_failure(convo: Conversation) -> str | None:
     """Why the SDK loop stopped short, or None if it finished. The SDK
     sets ERROR at the step cap and STUCK when its detector sees the same
     action and observation repeat (a nudge comes first for a repeating
@@ -308,29 +293,14 @@ def _loop_failure(convo: Conversation, steps: int) -> str | None:
     if status == ConversationExecutionStatus.STUCK:
         return "agent loop stuck repeating itself"
     if status == ConversationExecutionStatus.ERROR:
-        return f"agent loop did not finish within {steps} steps"
+        return f"agent loop did not finish within {convo.state.max_iterations} steps"
     return None
 
 
-def _render_prompt(path: Path, settings: AgentSettings) -> str:
-    """Literal placeholder substitution — deliberately not str.format:
-    format machinery turns any other brace in the prompt text into a
-    crash (or a format-spec evaluation), and prompt files are edited as
-    prose."""
-    return path.read_text().replace("{target_repo}", settings.target_repo)
-
-
-def _prompt(name: str, settings: AgentSettings, model: str) -> str:
-    """The mode's system prompt: its procedure, then the SDK sections."""
-    procedure = _render_prompt(PROMPTS_DIR / f"{name}.md", settings)
-    return compose(procedure, PROMPT_SECTIONS[name], model)
-
-
-def _clip(text: str, limit: int = _OUTPUT_CLIP, keep: str = "tail") -> str:
+def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
     if len(text) <= limit:
         return text
-    marker = f"[... {len(text) - limit} chars clipped ...]\n"
-    return text[:limit] + "\n" + marker if keep == "head" else marker + text[-limit:]
+    return f"[... {len(text) - limit} chars clipped ...]\n" + text[-limit:]
 
 
 def _test_report(result: dict[str, Any]) -> str:
@@ -346,33 +316,17 @@ class Workspace:
     """What the host learned about the sandbox before the model saw it:
     the root listing, and the repository's instructions file if it has
     one — read under the pod's own token, so a role that may not read
-    simply gets no instructions."""
+    simply gets no instructions. Empty for a dispatch with no sandbox."""
 
-    entries: str
+    entries: str = ""
     instructions: str | None = None
-
-    def context(self) -> AgentContext | None:
-        """The instructions as a repo skill: the SDK renders it in the
-        system message's dynamic block inside its UNTRUSTED_CONTENT
-        framing, which is exactly what a file from the repository is."""
-        if self.instructions is None:
-            return None
-        return AgentContext(
-            skills=[Skill(name=REPO_INSTRUCTIONS_FILE, content=self.instructions)],
-            current_datetime=None,
-        )
 
 
 def _survey(bridge: GatewayBridge, run_id: str) -> Workspace:
     listing = bridge.call("sandbox.list_dir", {"run_id": run_id, "path": "."})
-    entries = ", ".join(
-        f"{e['name']}{'/' if e['type'] == 'dir' else ''}" for e in listing["entries"]
-    )
-    has_instructions = any(
-        e["name"] == REPO_INSTRUCTIONS_FILE and e["type"] == "file"
-        for e in listing["entries"]
-    )
-    if not has_instructions:
+    names = {e["name"]: e["type"] for e in listing["entries"]}
+    entries = ", ".join(f"{n}{'/' if t == 'dir' else ''}" for n, t in names.items())
+    if names.get(REPO_INSTRUCTIONS_FILE) != "file":
         return Workspace(entries)
     try:
         read = bridge.call(
@@ -381,9 +335,7 @@ def _survey(bridge: GatewayBridge, run_id: str) -> Workspace:
     except ToolCallError as exc:
         log.info("repo instructions unread", extra={"reason": str(exc)})
         return Workspace(entries)
-    return Workspace(
-        entries, _clip(str(read["content"]), REPO_INSTRUCTIONS_CLIP, keep="head")
-    )
+    return Workspace(entries, str(read["content"]))
 
 
 def _act_prompt(task_text: str, entries: str) -> str:
@@ -408,40 +360,36 @@ class Session:
     convo: Conversation
     bridge: GatewayBridge
     records: ToolRecords
-    # None for a dispatch with no sandbox (the PM).
-    workspace: Workspace | None = None
+    workspace: Workspace
 
 
 @contextmanager
 def _session(
-    settings: AgentSettings,
-    run_id: str,
-    prompt: str,
-    tools: list[str],
-    max_steps: int,
-    sandboxed: bool = True,
+    settings: AgentSettings, run_id: str, mode: str, tools: list[str], max_steps: int
 ) -> Iterator[Session]:
     """One dispatch's machinery: a gateway session under the pod's own
     token, a scratch workspace, and an SDK conversation on the mode's
-    prompt and tool surface. A sandboxed mode surveys the run's sandbox
-    first, so the conversation opens knowing the tree and the
-    repository's instructions. The records capture every tool result;
+    prompt and tool surface. A mode that holds sandbox tools surveys the
+    run's sandbox first, so the conversation opens knowing the tree and
+    the repository's instructions. The records capture every tool result;
     the conversation is closed on the way out, whatever happened inside."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
     llm = build_llm(settings, run_id, token)
     with GatewayBridge(settings.mcp_gateway_url, token) as bridge:
-        workspace = _survey(bridge, run_id) if sandboxed else None
+        workspace = (
+            _survey(bridge, run_id) if WORKSPACE_TOOLS & set(tools) else Workspace()
+        )
         ctx = HandsContext(bridge, settings, run_id, records)
         with tempfile.TemporaryDirectory(prefix="brain-") as scratch:
             convo = _build_conversation(
                 llm,
-                _prompt(prompt, settings, llm.model),
+                system_prompt(mode, settings, llm.model),
                 tools,
                 ctx,
                 scratch,
                 max_steps=max_steps,
-                agent_context=workspace.context() if workspace else None,
+                agent_context=repo_instructions(workspace.instructions),
             )
             try:
                 yield Session(convo, bridge, records, workspace)
@@ -469,12 +417,11 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
     the platform's own `sandbox.run_tests` in the implement workflow."""
     with _session(settings, run_id, "implement", ACT_TOOLS, ACT_STEP_CAP) as s:
         convo = s.convo
-        assert s.workspace is not None
         convo.send_message(_act_prompt(task_text, s.workspace.entries))
         iterations = 0
         while True:
             convo.run()
-            if failure := _loop_failure(convo, ACT_STEP_CAP):
+            if failure := _loop_failure(convo):
                 return RunResult(
                     iterations=iterations,
                     error=f"{failure} (after {iterations} verify cycles)",
@@ -518,7 +465,7 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
             "request with the open_pr tool."
         )
         convo.run()
-        failure = _loop_failure(convo, max_steps)
+        failure = _loop_failure(convo)
     if records.pr_url is None:
         return RunResult(
             error=failure or "agent stopped without opening a pull request",
@@ -542,7 +489,7 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
         convo, records = s.convo, s.records
         convo.send_message(f"Task:\n{task_text}")
         convo.run()
-        failure = _loop_failure(convo, max_steps)
+        failure = _loop_failure(convo)
     if not records.comment_urls:
         return RunResult(error=failure or "reviewer posted no findings")
     if records.verdict is None:
@@ -567,11 +514,11 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
     private memory: the backlog and the run history are the PM's only
     cross-run state. Executor-tool refusal is the
     gateway's job; a deny surfaces as a tool observation the model sees."""
-    with _session(settings, run_id, "pm", PM_TOOLS, PM_STEP_CAP, sandboxed=False) as s:
+    with _session(settings, run_id, "pm", PM_TOOLS, PM_STEP_CAP) as s:
         convo, records = s.convo, s.records
         convo.send_message(f"Goal:\n{task_text}")
         convo.run()
-        failure = _loop_failure(convo, PM_STEP_CAP)
+        failure = _loop_failure(convo)
     if failure:
         return RunResult(
             error=failure,
@@ -617,7 +564,7 @@ def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     answer against it. The PM chooses; it starts nothing — actuation stays
     the conductor workflow's, under the compiled conduct.start decision."""
     llm = build_llm(settings, run_id, settings.resolve_gateway_token())
-    text = _completion(llm, _prompt("decide", settings, llm.model), task_text)
+    text = _completion(llm, system_prompt("decide", settings, llm.model), task_text)
     decision = parse_decision(text)
     if decision is None:
         return RunResult(
@@ -635,10 +582,9 @@ def plan_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunRe
     final text, whether it ended with a plain reply or `finish`."""
     with _session(settings, run_id, "plan", PLAN_TOOLS, PLAN_STEP_CAP) as s:
         convo = s.convo
-        assert s.workspace is not None
         convo.send_message(_plan_prompt(task_text, s.workspace.entries))
         convo.run()
-        if failure := _loop_failure(convo, PLAN_STEP_CAP):
+        if failure := _loop_failure(convo):
             return RunResult(error=failure)
         brief = get_agent_final_response(convo.state.events).strip()
     if not brief:

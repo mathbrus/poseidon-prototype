@@ -26,7 +26,6 @@ from agent.brain import (
     pm_dispatch,
     review_dispatch,
 )
-from agent.gateway_client import ToolCallError
 from agent.hands import REVIEWER_TOOLS
 
 TASK = "Add a `greet(name)` function to src/hello.py with a test."
@@ -206,6 +205,11 @@ def test_prompt_and_toolsets_per_phase(settings, gateway):
     offered = set(llm.offered(0)) - {"finish", "think"}
     assert offered == {"list_dir", "read_file", "write_file", "edit_file", "exec"}
     assert "open_pr" not in llm.offered(0)  # no delivery tool, ever, here
+    # The read tools declare themselves read-only, which also keeps the
+    # SDK's security_risk parameter out of their schemas.
+    schemas = {t["function"]["name"]: t["function"] for t in llm.requests[0][1]}
+    assert "security_risk" not in schemas["read_file"]["parameters"]["properties"]
+    assert "security_risk" in schemas["write_file"]["parameters"]["properties"]
 
 
 def test_deliver_prompt_names_the_delivery_tool(settings, gateway):
@@ -460,13 +464,13 @@ def test_llm_carries_run_attribution_and_single_attempt(settings):
 def test_prompt_rendering_survives_stray_braces(tmp_path, settings):
     """Prompt files are edited as prose: a brace added to the text must
     stay literal text, never a format crash or a format-spec evaluation."""
-    from agent.brain import _render_prompt
+    from agent.prompting import render_procedure
 
     template = tmp_path / "prompt.md"
     template.write_text(
         'Repo: {target_repo}. Example: {"key": "value"} and {not_a_field!r}.'
     )
-    rendered = _render_prompt(template, settings)
+    rendered = render_procedure(template, settings)
     assert f"Repo: {settings.target_repo}." in rendered
     assert '{"key": "value"}' in rendered
     assert "{not_a_field!r}" in rendered
@@ -572,12 +576,13 @@ def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
 def test_model_family_guidance_follows_the_model():
     """The SDK's per-family block renders for a model it recognises and
     stays out for one it does not (the mock brain)."""
-    from agent.prompting import CODING_SECTIONS, compose
+    from agent.prompting import SECTIONS, compose
 
-    claude = compose("# procedure", CODING_SECTIONS, "anthropic/claude-sonnet-4-5")
+    coding = SECTIONS["implement"]
+    claude = compose("# procedure", coding, "anthropic/claude-sonnet-4-5")
     assert claude.startswith("# procedure\n\n<EFFICIENCY>")
     assert "<IMPORTANT>" in claude
-    mock = compose("# procedure", CODING_SECTIONS, "openai/mock-brain")
+    mock = compose("# procedure", coding, "openai/mock-brain")
     assert "<IMPORTANT>" not in mock
     assert "<CODE_QUALITY>" in mock
 
@@ -623,15 +628,7 @@ def test_agents_md_the_role_may_not_read_is_skipped(settings, gateway):
     """Listing shows the file but policy refuses the read: the dispatch
     goes on without instructions rather than failing."""
     gateway.agents_md = "secret conventions"
-    original = gateway.call
-
-    async def deny_read(tool, args):
-        if tool == "sandbox.read_file":
-            gateway.calls.append((tool, dict(args)))
-            raise ToolCallError("denied by policy rule: default_deny (sandbox.read_file)")
-        return await original(tool, args)
-
-    gateway.call = deny_read
+    gateway.deny = {"sandbox.read_file"}
     llm = ScriptedLLM([says("nothing to do")])
 
     with scripted(gateway, llm):
@@ -678,14 +675,12 @@ def test_a_batch_of_reads_runs_concurrently(settings, gateway):
     that opens only when all three have arrived, so a one-at-a-time
     executor would time out and hand the model three errors."""
     barrier = threading.Barrier(3, timeout=5)
-    original = gateway.call
 
     async def gated(tool, args):
         if tool == "sandbox.read_file":
             barrier.wait()
-        return await original(tool, args)
 
-    gateway.call = gated
+    gateway.before = gated
     llm = ScriptedLLM(
         [
             calls(
@@ -704,24 +699,17 @@ def test_a_batch_of_reads_runs_concurrently(settings, gateway):
     observations = [m for m in llm.requests[1][0] if m["role"] == "tool"]
     assert len(observations) == 3
     assert all("Error executing" not in text_of(m) for m in observations)
-    # The read tools declare themselves read-only, which also keeps the
-    # SDK's security_risk parameter out of their schemas.
-    schemas = {t["function"]["name"]: t["function"] for t in llm.requests[0][1]}
-    assert "security_risk" not in schemas["read_file"]["parameters"]["properties"]
-    assert "security_risk" in schemas["write_file"]["parameters"]["properties"]
 
 
 def test_a_batch_with_writes_runs_in_the_models_order(settings, gateway):
     """A checkout, a write, a read and an add in one reply happen in that
     order: the slow command finishes before the fast write starts."""
-    original = gateway.call
 
     async def slow_exec(tool, args):
         if tool == "sandbox.exec":
-            await asyncio.sleep(0.2)
-        return await original(tool, args)
+            await asyncio.sleep(0.05)
 
-    gateway.call = slow_exec
+    gateway.before = slow_exec
     llm = ScriptedLLM(
         [
             calls(

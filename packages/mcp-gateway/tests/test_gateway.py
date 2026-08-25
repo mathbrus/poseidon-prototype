@@ -146,7 +146,9 @@ async def test_all_sandbox_tools_map_to_tool_server_routes(app, backends):
     assert [route for route, _ in backends.sandbox_calls] == [
         route for _, _, route in calls
     ]
-    exec_payload = dict(backends.sandbox_calls[4][1])
+    exec_payload = next(
+        dict(p) for route, p in backends.sandbox_calls if route == "/exec"
+    )
     assert exec_payload == {"cmd": "ls", "timeout_s": 5}
 
 
