@@ -10,6 +10,7 @@ import socket
 import threading
 import time
 
+import anyio
 import httpx
 import pytest
 import uvicorn
@@ -30,6 +31,11 @@ def mcp_server_url():
     @server_mcp.tool(name="sandbox.deny")
     def deny(run_id: str) -> dict:
         raise ValueError("denied by policy rule: default_deny (sandbox.deny)")
+
+    @server_mcp.tool(name="sandbox.slow")
+    async def slow(run_id: str, value: str) -> dict:
+        await anyio.sleep(0.3)
+        return {"echoed": value}
 
     probe = socket.socket()
     probe.bind(("127.0.0.1", 0))
@@ -87,3 +93,26 @@ def test_bridge_reenters_cleanly(mcp_server_url):
         with GatewayBridge(mcp_server_url, "test-token") as bridge:
             result = bridge.call("sandbox.echo", {"run_id": "r-2", "value": round_})
             assert result["echoed"] == round_
+
+
+def test_bridge_multiplexes_concurrent_calls(mcp_server_url):
+    """Several tool threads in `call` at once — the SDK fans a batch of
+    reads out — share the one session, which serves them concurrently:
+    four 0.3 s calls take well under 1.2 s end to end."""
+    results: dict[str, dict] = {}
+
+    def call(bridge: GatewayBridge, value: str) -> None:
+        results[value] = bridge.call("sandbox.slow", {"run_id": "r-3", "value": value})
+
+    with GatewayBridge(mcp_server_url, "test-token") as bridge:
+        started = time.monotonic()
+        threads = [
+            threading.Thread(target=call, args=(bridge, v)) for v in ("a", "b", "c", "d")
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        elapsed = time.monotonic() - started
+    assert {v: r["echoed"] for v, r in results.items()} == {v: v for v in "abcd"}
+    assert elapsed < 0.9, f"calls serialized: {elapsed:.2f}s"

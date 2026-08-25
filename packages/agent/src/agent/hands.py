@@ -27,9 +27,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from openhands.sdk import TextContent, register_tool
-from openhands.sdk.tool import ToolDefinition, ToolExecutor
+from openhands.sdk.tool import ToolAnnotations, ToolDefinition, ToolExecutor
 from openhands.sdk.tool.schema import Action, Observation
 from openhands.sdk.tool.spec import Tool
+from openhands.sdk.tool.tool import DeclaredResources
 from pydantic import Field
 
 from agent.config import AgentSettings
@@ -51,6 +52,13 @@ REVIEWER_TOOLS = [
     "comment_pr",
     "verdict",
 ]
+# Tools that change nothing anywhere. The SDK may run a batch of these
+# concurrently (`brain.OrderedReadsExecutor`); everything else keeps the
+# SDK's per-tool mutex and, in a mixed batch, the model's order.
+READ_ONLY_TOOLS = frozenset({"list_dir", "read_file", "read_pr", "read_issues"})
+_READ_ONLY = ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True
+)
 
 
 class GatewayCaller(Protocol):
@@ -437,11 +445,25 @@ def _unused_create(cls: type, conv_state: Any = None, **params: Any) -> list:
     raise NotImplementedError(f"{cls.__name__} is built by PoseidonHands")
 
 
+def _no_shared_resources(self: ToolDefinition, action: Action) -> DeclaredResources:
+    # A read touches no state another call could race on; declaring that
+    # is what lets two of them run at once (the SDK's default for an
+    # undeclared tool is a mutex per tool name).
+    return DeclaredResources(keys=(), declared=True)
+
+
 _DEFINITION_CLASSES: dict[str, type[ToolDefinition]] = {
     tool_name: type(
         _definition_class_name(tool_name),
         (ToolDefinition,),
-        {"create": classmethod(_unused_create)},
+        {
+            "create": classmethod(_unused_create),
+            **(
+                {"declared_resources": _no_shared_resources}
+                if tool_name in READ_ONLY_TOOLS
+                else {}
+            ),
+        },
     )
     for tool_name in _TOOLS
 }
@@ -469,6 +491,9 @@ class PoseidonHands(ToolDefinition):
                     action_type=action_type,
                     observation_type=GatewayObservation,
                     executor=_GatewayExecutor(ctx, fn),
+                    # readOnlyHint also keeps the SDK's `security_risk`
+                    # parameter out of the read tools' schemas.
+                    annotations=_READ_ONLY if name in READ_ONLY_TOOLS else None,
                 )
             )
         return tools

@@ -28,7 +28,7 @@ import asyncio
 import re
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -42,6 +42,7 @@ from openhands.sdk import (
     ConversationExecutionStatus,
     LLMSummarizingCondenser,
 )
+from openhands.sdk.agent.parallel_executor import ParallelToolExecutor
 from openhands.sdk.context import AgentContext
 from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.llm import Message, TextContent
@@ -87,6 +88,8 @@ PLAN_STEP_CAP = 8
 # far out of reach of the short deterministic e2e conversations.
 CONDENSER_MAX_SIZE = 120
 CONDENSER_KEEP_FIRST = 4
+# Tool calls from one reply that may run at once — only ever reads.
+TOOL_CONCURRENCY = 4
 _OUTPUT_CLIP = 4000
 # The repository's own instructions to agents, read from the sandbox and
 # shown to the model as untrusted context. Bounded: a file can be anything.
@@ -126,10 +129,10 @@ class GatewayBridge:
     thread, opened and closed inside ONE long-lived task there — the MCP
     client's anyio cancel scopes are task-bound, so entering and exiting
     the session from separately scheduled coroutines corrupts them.
-    `call` blocks the conversation thread on a per-call coroutine (MCP
-    sessions handle concurrent requests; their per-call scopes open and
-    close within that same coroutine) — one call at a time, matching the
-    SDK's tool concurrency."""
+    `call` blocks its calling thread on a per-call coroutine; several tool
+    threads may be in `call` at once (the SDK fans a batch of reads out),
+    and the MCP session multiplexes them — each call's cancel scope opens
+    and closes inside its own coroutine."""
 
     # MCP client read timeout is 660 s (gateway_client); this is the backstop.
     CALL_TIMEOUT_S = 700
@@ -194,6 +197,73 @@ def build_llm(settings: AgentSettings, run_id: str, token: str) -> LLM:
     )
 
 
+class OrderedReadsExecutor(ParallelToolExecutor):
+    """The SDK's batch executor with one rule on top: a batch fans out
+    only when every call in it is read-only; a batch with any write,
+    command or delivery in it runs one call at a time, in the order the
+    model gave. The stock executor hands a whole batch to a thread pool,
+    where the order in which writes acquire their locks is the
+    scheduler's — and a commit must not land before the checkout."""
+
+    @staticmethod
+    def _all_read_only(actions: Sequence[Any], tools: dict[str, Any] | None) -> bool:
+        if not tools:
+            return False
+        for action in actions:
+            tool = tools.get(action.tool_name)
+            if tool is None or tool.annotations is None:
+                return False
+            if not tool.annotations.readOnlyHint:
+                return False
+        return True
+
+    def execute_batch(
+        self,
+        action_events: Sequence[Any],
+        tool_runner: Callable[[Any], list[Any]],
+        tools: dict[str, Any] | None = None,
+        cancel_token: Any = None,
+        span_owner: object | None = None,
+    ) -> list[list[Any]]:
+        if len(action_events) > 1 and not self._all_read_only(action_events, tools):
+            return [
+                self._run_safe(
+                    action,
+                    tool_runner,
+                    tools.get(action.tool_name) if tools else None,
+                    cancel_token,
+                    span_owner,
+                )
+                for action in action_events
+            ]
+        return super().execute_batch(
+            action_events, tool_runner, tools, cancel_token, span_owner
+        )
+
+    async def aexecute_batch(
+        self,
+        action_events: Sequence[Any],
+        tool_runner: Callable[[Any], list[Any]],
+        tools: dict[str, Any] | None = None,
+        cancel_token: Any = None,
+        span_owner: object | None = None,
+    ) -> list[list[Any]]:
+        if len(action_events) > 1 and not self._all_read_only(action_events, tools):
+            return [
+                await self._arun_safe(
+                    action,
+                    tool_runner,
+                    tools.get(action.tool_name) if tools else None,
+                    cancel_token,
+                    span_owner=span_owner,
+                )
+                for action in action_events
+            ]
+        return await super().aexecute_batch(
+            action_events, tool_runner, tools, cancel_token, span_owner
+        )
+
+
 def _build_conversation(
     llm: LLM,
     system_prompt: str,
@@ -211,7 +281,12 @@ def _build_conversation(
         condenser=LLMSummarizingCondenser(
             llm=llm, max_size=CONDENSER_MAX_SIZE, keep_first=CONDENSER_KEEP_FIRST
         ),
+        tool_concurrency_limit=TOOL_CONCURRENCY,
     )
+    # The agent builds a stock executor for itself; ours replaces it. A
+    # private attribute, so the frozen model allows the assignment and
+    # the conversation state keeps this same instance.
+    agent._parallel_executor = OrderedReadsExecutor(max_workers=TOOL_CONCURRENCY)
     # The PoseidonHands factory reads this when the SDK lazily resolves
     # tools (on a worker thread, at first send_message).
     ctx.activate()

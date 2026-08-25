@@ -1,6 +1,9 @@
 """Brain-host tests: the production OpenHands SDK loops
 driven by a scripted LLM and a fake gateway (see conftest)."""
 
+import asyncio
+import threading
+
 from conftest import (
     COMMENT_URL,
     PR_URL,
@@ -665,3 +668,81 @@ def test_a_stuck_pm_fails_with_what_it_filed(settings, gateway):
 
     assert result.error == "agent loop stuck repeating itself"
     assert result.ticket_urls == []
+
+
+# --- parallel reads, ordered writes ---------------------------------------------
+
+
+def test_a_batch_of_reads_runs_concurrently(settings, gateway):
+    """Three reads in one reply fan out: each one blocks on a barrier
+    that opens only when all three have arrived, so a one-at-a-time
+    executor would time out and hand the model three errors."""
+    barrier = threading.Barrier(3, timeout=5)
+    original = gateway.call
+
+    async def gated(tool, args):
+        if tool == "sandbox.read_file":
+            barrier.wait()
+        return await original(tool, args)
+
+    gateway.call = gated
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc("read_file", path="a.py"),
+                tc("read_file", path="b.py"),
+                tc("read_file", path="c.py"),
+            ),
+            says("done"),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    observations = [m for m in llm.requests[1][0] if m["role"] == "tool"]
+    assert len(observations) == 3
+    assert all("Error executing" not in text_of(m) for m in observations)
+    # The read tools declare themselves read-only, which also keeps the
+    # SDK's security_risk parameter out of their schemas.
+    schemas = {t["function"]["name"]: t["function"] for t in llm.requests[0][1]}
+    assert "security_risk" not in schemas["read_file"]["parameters"]["properties"]
+    assert "security_risk" in schemas["write_file"]["parameters"]["properties"]
+
+
+def test_a_batch_with_writes_runs_in_the_models_order(settings, gateway):
+    """A checkout, a write, a read and an add in one reply happen in that
+    order: the slow command finishes before the fast write starts."""
+    original = gateway.call
+
+    async def slow_exec(tool, args):
+        if tool == "sandbox.exec":
+            await asyncio.sleep(0.2)
+        return await original(tool, args)
+
+    gateway.call = slow_exec
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc("exec", cmd="git checkout -b feature/x"),
+                tc("write_file", path="a.py", content="x"),
+                tc("read_file", path="a.py"),
+                tc("exec", cmd="git add -A"),
+            ),
+            says("done"),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert gateway.tools_called() == [
+        "sandbox.list_dir",
+        "sandbox.exec",
+        "sandbox.write_file",
+        "sandbox.read_file",
+        "sandbox.exec",
+        "sandbox.run_tests",
+    ]
