@@ -56,7 +56,7 @@ class WorkloadAuthnSettings(BaseSettings):
 
     platform_namespace: str = "poseidon-platform"
     orchestrator_service_account: str = "orchestrator-worker"
-    token_audience: str = "poseidon-gateway"
+    token_audience: str = "poseidon-mcp-gateway"
     # Empty means "derive from the in-cluster environment"; unit tests leave
     # all three alone and inject a reviewer instead.
     kube_api_url: str = ""

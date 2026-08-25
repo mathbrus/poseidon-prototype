@@ -16,8 +16,8 @@ companyNamespace: hello-saas
 # an identical pod template, so pods keep running the code they started
 # with even after `kind load` replaces the image).
 images:
-  gateway:
-    repository: poseidon-gateway
+  mcpGateway:
+    repository: poseidon-mcp-gateway
     tag: latest
     # Images are side-loaded on kind (`kind load docker-image`); IfNotPresent
     # keeps the kubelet from trying to pull them from a registry.
@@ -47,8 +47,8 @@ images:
     repository: poseidon-operator
     tag: latest
     pullPolicy: IfNotPresent
-  gatewayLlm:
-    repository: poseidon-gateway-llm
+  llmGateway:
+    repository: poseidon-llm-gateway
     tag: latest
     pullPolicy: IfNotPresent
 
@@ -122,7 +122,7 @@ postgres:
   # null = the cluster's default StorageClass.
   storageClassName: null
 
-gateway:
+mcpGateway:
   service:
     type: ClusterIP
     # Set (with type NodePort) to give the host-side runner a stable port.

@@ -91,12 +91,12 @@ if [ "$SANDBOX_IMAGE" != "poseidon-sandbox" ]; then
   IMAGES+=("$SANDBOX_IMAGE:$BUILD_TAG")
 fi
 IMAGE_VALUES=(
-  --set "images.gateway.tag=$BUILD_TAG"
+  --set "images.mcpGateway.tag=$BUILD_TAG"
   --set "images.agent.tag=$BUILD_TAG"
   --set "images.orchestrator.tag=$BUILD_TAG"
   --set "egressProxy.image.tag=$BUILD_TAG"
   --set "images.operator.tag=$BUILD_TAG"
-  --set "images.gatewayLlm.tag=$BUILD_TAG"
+  --set "images.llmGateway.tag=$BUILD_TAG"
   # Sandbox Jobs are built by the worker from this value, not by helm, so
   # the tag has to ride the image reference itself.
   --set "orchestrator.sandbox.image=$SANDBOX_IMAGE:$BUILD_TAG"

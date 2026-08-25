@@ -67,7 +67,7 @@ not silently delete it. We will sort it out together.
 - **Tests**: run pytest per-package, not from the repo root. The full
   acceptance suite is `scripts/acceptance.sh`; `test_acceptance.py` is its
   index and capstone.
-- **Responses API surface**: gateway-llm and mockllm both speak the
+- **Responses API surface**: llm-gateway and mockllm both speak the
   OpenAI Responses API (`gpt-5*` models auto-select it). Any new LLM
   API surface must land in both services.
 - **Cluster**: the target environment is kind. Beware that `kind-up`

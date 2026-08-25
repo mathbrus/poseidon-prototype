@@ -66,7 +66,7 @@ def test_manifest_is_contained_and_labeled():
     assert spec["restartPolicy"] == "Never"
     (volume,) = spec["volumes"]
     (source,) = volume["projected"]["sources"]
-    assert source["serviceAccountToken"]["audience"] == "poseidon-gateway"
+    assert source["serviceAccountToken"]["audience"] == "poseidon-mcp-gateway"
     (container,) = spec["containers"]
     (mount,) = container["volumeMounts"]
     assert mount["mountPath"] == TOKEN_MOUNT_DIR and mount["readOnly"] is True

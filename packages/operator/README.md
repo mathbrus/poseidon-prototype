@@ -121,7 +121,7 @@ The Deployment is credential-free by construction:
 ```
 
 The pod's only identity is a kubelet-rotated projected token scoped to
-the audience `poseidon-gateway`; no API-server token is mounted, no
+the audience `poseidon-mcp-gateway`; no API-server token is mounted, no
 `secretKeyRef` appears anywhere in the env, and `GPG_KEY` (baked into the
 python base image) is blanked so no token-shaped value exists in a
 company pod at all. The spec's model tier and tool scope ride the pod

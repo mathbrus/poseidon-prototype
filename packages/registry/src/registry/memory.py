@@ -1,7 +1,7 @@
 """In-memory stand-ins for the registry accessors — for tests only.
 
 They live here, next to the real implementations, because four packages'
-test suites (gateway, gateway-llm, orchestrator and sandbox) need them and
+test suites (gateway, llm-gateway, orchestrator and sandbox) need them and
 a double that drifts from its interface is worse than no double at all.
 Nothing in a running service may import this module: the point of the
 registry is that state survives the process.

@@ -34,7 +34,7 @@ spec:
           projected:
             sources:
               - serviceAccountToken:
-                  audience: poseidon-gateway
+                  audience: poseidon-mcp-gateway
                   expirationSeconds: 3600
                   path: token
         {{- include "poseidon.scratchVolume" . | nindent 8 }}

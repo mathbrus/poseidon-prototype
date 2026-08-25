@@ -176,7 +176,7 @@ the schema and the catalogs.
   lean-roster rule.
 - `orchestrator`'s `poseidon blueprint` CLI calls `load_blueprint` before
   compiling, so authors see these errors first.
-- [`gateway`](../gateway/README.md) implements the same 16 tool names.
+- [`gateway`](../mcp-gateway/README.md) implements the same 16 tool names.
   It does not import this package — the correspondence is kept by hand,
   so adding a tool means adding it in both places, this one first.
 

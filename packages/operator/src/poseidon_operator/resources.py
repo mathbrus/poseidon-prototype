@@ -20,7 +20,7 @@ LABELS = {
 # ServiceAccount, named by its agent_id, and authenticates to the MCP
 # gateway with a kubelet-rotated projected token scoped to this audience.
 # Must match the gateway's `token_audience` setting.
-TOKEN_AUDIENCE = "poseidon-gateway"
+TOKEN_AUDIENCE = "poseidon-mcp-gateway"
 TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
 # The port an agent's peers listen on, by the infra IR's peer vocabulary:
 # platform services by app label, cluster DNS by its kube-system label.

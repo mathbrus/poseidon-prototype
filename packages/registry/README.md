@@ -195,7 +195,7 @@ to match.
 ## `memory.py` is not test-only scaffolding to delete
 
 The in-memory doubles are part of the package's public surface. The unit
-suites of `gateway`, `gateway-llm`, `orchestrator` and `sandbox` import
+suites of `gateway`, `llm-gateway`, `orchestrator` and `sandbox` import
 them to run without a database. They live next to the real accessors
 because a double that drifts from its interface is worse than no double,
 and they mirror behaviour, not just signatures: `record_artifacts` on an
@@ -225,11 +225,11 @@ and audit events are not optional.
   `run_participants`, records and consumes `crew_requests`, emits the
   `process-gate` and `process-lifecycle` audit events, and reads the
   ledger for headroom checks.
-- [`gateway`](../gateway/README.md) writes `sandbox_registrations`,
+- [`gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`,
   `crew_requests` and audit events; reads `agent_instances` (workload
   identity), `run_participants` (ephemeral identity backing and the spawn count) and
   `sandbox_registrations` (run binding).
-- [`gateway-llm`](../gateway-llm/README.md) writes `budget_ledger` and
+- [`llm-gateway`](../llm-gateway/README.md) writes `budget_ledger` and
   audit events; its hard stop compares `spent_for_run` before every call.
 - [`sandbox`](../sandbox/README.md)'s egress proxy writes audit events
   and resolves a sandbox namespace back to its company's allowlist via

@@ -992,8 +992,8 @@ and how to test it.
 | [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
 | [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
 | [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, crew pods, gates, the `poseidon` CLI |
-| [`gateway`](packages/gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
-| [`gateway-llm`](packages/gateway-llm/README.md) | The model chokepoint; metering and budget enforcement |
+| [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
+| [`llm-gateway`](packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |
 | [`agent`](packages/agent/README.md) | The OpenHands SDK brain host |
 | [`sandbox`](packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
 | [`mockllm`](packages/mockllm/README.md) | The deterministic brain that makes e2e runs free |

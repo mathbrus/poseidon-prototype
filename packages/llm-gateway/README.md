@@ -1,7 +1,7 @@
-# gateway-llm
+# llm-gateway
 
 The LLM gateway: the one route to any model. Where the MCP gateway
-([`gateway`](../gateway/README.md)) governs what an agent can *do*, this
+([`gateway`](../mcp-gateway/README.md)) governs what an agent can *do*, this
 service governs what an agent can *spend* — and both verify the same
 workload credentials against the same registry state, with the same
 `Authenticator`.
@@ -192,10 +192,10 @@ guesses.
 ## Entry points
 
 ```
-python -m gateway_llm      # listens on LLM_GATEWAY_PORT, default 4000
+python -m llm_gateway      # listens on LLM_GATEWAY_PORT, default 4000
 ```
 
-Built as `poseidon-gateway-llm` by `deploy/build-images.sh`; deployed by the chart's
+Built as `poseidon-llm-gateway` by `deploy/build-images.sh`; deployed by the chart's
 `llm-gateway.yaml`, which also grants the ServiceAccount
 `system:auth-delegator` so TokenReview works. The upstream defaults to
 `http://llm-proxy:4000`, and the forward client allows a 600-second
@@ -222,7 +222,7 @@ read — a real model legitimately thinks for minutes.
 ## Tests
 
 ```
-uv run pytest packages/gateway-llm
+uv run pytest packages/llm-gateway
 ```
 
 The suite runs the pipeline against in-memory registry doubles

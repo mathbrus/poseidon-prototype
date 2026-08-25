@@ -21,8 +21,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from common.authn import ServiceAccount
-from gateway.app import create_app
-from gateway.config import GatewaySettings
+from mcp_gateway.app import create_app
+from mcp_gateway.config import McpGatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
@@ -290,8 +290,8 @@ def audit() -> InMemoryAuditStore:
 
 
 @pytest.fixture
-def settings() -> GatewaySettings:
-    return GatewaySettings(
+def settings() -> McpGatewaySettings:
+    return McpGatewaySettings(
         opa_url=OPA_URL,
         git_token=GIT_TOKEN,
         base_ref="main",
@@ -353,7 +353,7 @@ def companies() -> InMemoryCompanies:
 
 @pytest.fixture
 async def app(
-    settings: GatewaySettings,
+    settings: McpGatewaySettings,
     backends: Backends,
     audit: InMemoryAuditStore,
     instances: InMemoryAgentInstances,

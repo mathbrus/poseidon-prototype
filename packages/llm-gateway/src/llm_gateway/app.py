@@ -16,7 +16,7 @@ Pipeline per completion call:
     -> meter: usage -> budget_ledger row under {company, run_id, agent,
        parent, role, model}; audit event (source=llm-gateway)
 
-Run with: uvicorn --factory gateway_llm.app:create_app
+Run with: uvicorn --factory llm_gateway.app:create_app
 """
 
 import asyncio
@@ -35,7 +35,7 @@ from common.audit import AuditEvent, args_digest
 from common.authn import Authenticator, Reviewer, default_reviewer
 from common.identity import LIFECYCLE_EPHEMERAL, Identity
 from common.telemetry import get_logger
-from gateway_llm.config import LlmGatewaySettings
+from llm_gateway.config import LlmGatewaySettings
 from registry import (
     AgentInstances,
     AuditStore,
@@ -126,7 +126,7 @@ def create_app(
     http_client = http_client or httpx.AsyncClient(
         base_url=settings.upstream_url, timeout=httpx.Timeout(30.0, read=600.0)
     )
-    log = get_logger("gateway-llm")
+    log = get_logger("llm-gateway")
 
     accessors = (audit, ledger, runs, instances, participants, companies)
     registry = None

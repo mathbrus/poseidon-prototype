@@ -12,8 +12,8 @@ import pytest
 
 from common.audit import args_digest
 from common.authn import ServiceAccount
-from gateway_llm.app import create_app
-from gateway_llm.config import LlmGatewaySettings
+from llm_gateway.app import create_app
+from llm_gateway.config import LlmGatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,

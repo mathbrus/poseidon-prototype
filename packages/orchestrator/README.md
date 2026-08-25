@@ -316,7 +316,7 @@ crew-pod provisioner use: each is useless where the other is needed.
 
 ## Cross-package interactions
 
-- [`gateway`](../gateway/README.md) for every governed call, including
+- [`gateway`](../mcp-gateway/README.md) for every governed call, including
   its own platform-lifecycle ones (`repo.archive`, sandbox registration,
   `sandbox.run_tests`, `git.read`, `git.merge_pr`).
 - [`sandbox`](../sandbox/README.md) for the `SandboxBackend` contract and

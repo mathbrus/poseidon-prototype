@@ -29,7 +29,7 @@ PLATFORM_NS = "poseidon-platform"
 COMPANY_NS = "hello-saas"
 POSTGRES_USER = "poseidon"
 RUN_ID_LABEL = "poseidon.dev/run-id"
-TOKEN_AUDIENCE = "poseidon-gateway"
+TOKEN_AUDIENCE = "poseidon-mcp-gateway"
 
 # --- kubectl -----------------------------------------------------------------
 

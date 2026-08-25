@@ -29,7 +29,7 @@ from typing import Any
 import httpx
 
 from common.telemetry import get_logger
-from gateway.config import GatewaySettings
+from mcp_gateway.config import McpGatewaySettings
 
 GIT_TIMEOUT_S = 300
 # The bundle branch lands on a private ref first, so fetching never collides
@@ -93,7 +93,9 @@ class PreparedBundle:
 
 
 class GitBackend:
-    def __init__(self, settings: GatewaySettings, http_client: httpx.AsyncClient) -> None:
+    def __init__(
+        self, settings: McpGatewaySettings, http_client: httpx.AsyncClient
+    ) -> None:
         self._settings = settings
         self._http = http_client
         self._log = get_logger("gateway.git")

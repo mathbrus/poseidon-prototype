@@ -11,8 +11,8 @@ cd "$(dirname "$0")/.."
 
 # name | workspace package | source packages installed | extra | apt packages | workspace dir | entrypoint
 MATRIX='
-poseidon-gateway|gateway|common registry gateway||git||uvicorn --factory gateway.app:create_app --host 0.0.0.0 --port 8080
-poseidon-gateway-llm|gateway-llm|common registry gateway-llm||||python -m gateway_llm
+poseidon-mcp-gateway|mcp-gateway|common registry mcp-gateway||git||uvicorn --factory mcp_gateway.app:create_app --host 0.0.0.0 --port 8080
+poseidon-llm-gateway|llm-gateway|common registry llm-gateway||||python -m llm_gateway
 poseidon-agent|agent|common agent||||uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 poseidon-orchestrator|orchestrator|common schema compiler registry sandbox orchestrator||||python -m orchestrator.worker
 poseidon-operator|poseidon-operator|common registry operator||||kopf run -m poseidon_operator.reconcile --all-namespaces

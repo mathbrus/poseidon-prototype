@@ -10,7 +10,7 @@ every call is policy-checked against the caller's compiled decision path
 and audited — the admin routes included, which is why the registration
 write lives behind the gateway rather than in the orchestrator.
 
-Run with: uvicorn --factory gateway.app:create_app
+Run with: uvicorn --factory mcp_gateway.app:create_app
 """
 
 import contextlib
@@ -28,9 +28,9 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from common.authn import Authenticator, Reviewer, default_reviewer
 from common.identity import Identity
-from gateway.config import GatewaySettings
-from gateway.opa import OpaClient
-from gateway.service import GatewayService, PolicyDenied
+from mcp_gateway.config import McpGatewaySettings
+from mcp_gateway.opa import OpaClient
+from mcp_gateway.service import GatewayService, PolicyDenied
 from registry import (
     AgentInstances,
     AuditStore,
@@ -81,7 +81,7 @@ class UnregisterSandboxRequest(BaseModel):
 
 
 def create_app(
-    settings: GatewaySettings | None = None,
+    settings: McpGatewaySettings | None = None,
     http_client: httpx.AsyncClient | None = None,
     sandboxes: SandboxRegistrations | None = None,
     audit: AuditStore | None = None,
@@ -93,7 +93,7 @@ def create_app(
     companies: Companies | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
-    settings = settings or GatewaySettings()
+    settings = settings or McpGatewaySettings()
     http_client = http_client or httpx.AsyncClient(
         timeout=httpx.Timeout(30.0, read=630.0)
     )
@@ -147,7 +147,7 @@ def create_app(
     )
 
     mcp = FastMCP(
-        "poseidon-gateway",
+        "poseidon-mcp-gateway",
         stateless_http=True,
         json_response=True,
         # Clients reach the gateway via Docker-network hostnames; auth is the

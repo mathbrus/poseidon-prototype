@@ -21,7 +21,7 @@ from conftest import (
     mcp_session,
 )
 
-from gateway.git_backend import repo_slug
+from mcp_gateway.git_backend import repo_slug
 
 pytestmark = pytest.mark.anyio
 
@@ -90,8 +90,8 @@ async def test_archive_overlay_composes_the_baseline_tree(target_repo, tmp_path)
     paths mirrored *exactly* from the overlay ref — the base's contract
     file wins over the head's, a head-only file under the overlay path is
     removed, and an overlay path absent on the base stays absent."""
-    from gateway.config import GatewaySettings
-    from gateway.git_backend import GitBackend
+    from mcp_gateway.config import McpGatewaySettings
+    from mcp_gateway.git_backend import GitBackend
 
     # main grows a contract tree; a branch tampers with it and changes code.
     work = tmp_path / "compose-work"
@@ -112,7 +112,7 @@ async def test_archive_overlay_composes_the_baseline_tree(target_repo, tmp_path)
     git("commit", "-m", "tamper", cwd=work)
     git("push", "origin", "feature/tamper", cwd=work)
 
-    backend = GitBackend(GatewaySettings(git_token=GIT_TOKEN), http_client=None)
+    backend = GitBackend(McpGatewaySettings(git_token=GIT_TOKEN), http_client=None)
     result = backend._archive_sync(
         str(target_repo),
         "feature/tamper",

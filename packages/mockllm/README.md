@@ -47,7 +47,7 @@ actually served rather than a paid model name nothing answered as.
 
 Requests are not authenticated. That matches the real proxy, which
 ignores the agent's placeholder bearer token too, and neither service is
-reachable from outside the platform namespace: the metered `gateway-llm`
+reachable from outside the platform namespace: the metered `llm-gateway`
 is the only thing NetworkPolicy lets talk to either of them.
 
 ## How the brain decides what to say
@@ -212,7 +212,7 @@ runs LiteLLM or this.
 
 ## Cross-package interactions
 
-- Sits behind [`gateway-llm`](../gateway-llm/README.md), which meters
+- Sits behind [`llm-gateway`](../llm-gateway/README.md), which meters
   and budget-gates it exactly as it would a real provider. Token usage
   is a deterministic estimate (~4 chars/token) — nonzero so metering and
   the budget hard-stop have real usage to account, stable so e2e

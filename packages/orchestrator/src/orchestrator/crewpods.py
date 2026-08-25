@@ -48,7 +48,7 @@ RUN_ID_LABEL = "poseidon.dev/run-id"
 # Mirrors the operator's standing-agent constants
 # (poseidon_operator.resources): same audience, same mount, one
 # verification path at the gateways.
-TOKEN_AUDIENCE = "poseidon-gateway"
+TOKEN_AUDIENCE = "poseidon-mcp-gateway"
 TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
 # Wall-clock ceiling on a crew pod, generous enough never to interrupt a
 # real dispatch (the orchestrator destroys pods long before this) and short

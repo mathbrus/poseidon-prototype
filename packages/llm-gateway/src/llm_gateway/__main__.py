@@ -1,8 +1,8 @@
 """LLM gateway entry point:
 
-    python -m gateway_llm
+    python -m llm_gateway
 
-Configured by env (see `gateway_llm.config`); listens on LLM_GATEWAY_PORT
+Configured by env (see `llm_gateway.config`); listens on LLM_GATEWAY_PORT
 (default 4000 — the port agents already expect for model access).
 """
 
@@ -10,7 +10,7 @@ import os
 
 import uvicorn
 
-from gateway_llm.app import create_app
+from llm_gateway.app import create_app
 
 
 def main() -> None:
