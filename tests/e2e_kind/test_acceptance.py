@@ -33,10 +33,10 @@ What the suite proves, and where:
     neutral       context and .env alone; the kind-specific piece is
                   deploy/kind/kind-up.sh.
   8 unattended    test_conduct_redteam (an attacker-filed issue consumed by
-                  the heartbeat dies at the gates) and test_zz_overnight
+                  the heartbeat dies at the gates) and test_overnight
                   (the whole arc with two human acts: one goal in, one
                   merge approval out).
-  9 merge policy  test_zz_delegated (in-class passing work merges with zero
+  9 merge policy  test_delegated (in-class passing work merges with zero
                   human commands — the arc runs through the merge) and
                   test_merge_gate_redteam (a steered reviewer smuggling a
                   carve-out change is refused by the compiled decision, not
@@ -44,44 +44,41 @@ What the suite proves, and where:
  10 split oracle  test_split_oracle_redteam (the implementer cannot PR the
                   contract tree, cannot launder a red baseline to green two
                   ways, and a steered contract author's gutted spec parks on
-                  a human with its deletions counted) and test_zz_delegated's
+                  a human with its deletions counted) and test_delegated's
                   contract arc (the PM files contract-then-implement, the
                   contract PR parks for one human merge, then in-class work
                   auto-merges on a green base-ref contract).
 
-Named `test_zz_*` so pytest collects it last: the five-source assertion
-reads what the whole suite really produced.
+The conftest orders this module after every module whose runs it reads:
+the five-source assertion reads what the whole suite really produced.
 """
 
 import json
 import os
 import subprocess
-from typing import Any
 
 import yaml
 
 from common.ids import new_run_id
 
-from .conftest import (
+from .blueprints import HELLO_SAAS, bundle_revision_from_cr
+from .cluster import (
     COMPANY_NS,
-    PLATFORM_NS,
     POSTGRES_USER,
-    REPO_ROOT,
-    _psql_json,
+    agent_image,
     audit_story,
+    cluster_secret,
+    events_since,
+    kubectl,
+    mcp_call,
+    port_forward,
+    projected_token,
+    psql_json,
+    registry,
+    run_kubectl,
     sandbox_pods,
 )
-from .test_crew_identity import _cluster_secret, _registry
-from .test_governance import _call
-from .test_operator_lifecycle import (
-    HELLO_SAAS,
-    bundle_revision_from_cr,
-    kubectl,
-    port_forward,
-)
-from .test_workload_identity import mint_token
-
-PG_LOCAL_PORT = 15436  # distinct per module: forwards must never collide
+from .conftest import REPO_ROOT
 
 ALL_SOURCES = {
     "gateway",
@@ -114,12 +111,9 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
     is converged on exactly what the document says), an edit previews as
     exactly that one change, and a local compile produces byte-for-byte
     the bundle revision the cluster serves — compile is what's live."""
-    password = _cluster_secret("postgres-credentials", "POSTGRES_PASSWORD")
-    with port_forward("postgres", PG_LOCAL_PORT, 5432):
-        dsn = (
-            f"postgresql://{POSTGRES_USER}:{password}"
-            f"@127.0.0.1:{PG_LOCAL_PORT}/{POSTGRES_USER}"
-        )
+    password = cluster_secret("postgres-credentials", "POSTGRES_PASSWORD")
+    with port_forward("svc/postgres", 5432) as port:
+        dsn = f"postgresql://{POSTGRES_USER}:{password}@127.0.0.1:{port}/{POSTGRES_USER}"
 
         # Preview of the applied document: a converged cluster diffs empty.
         pristine = _blueprint_cli(["preview", str(HELLO_SAAS)], dsn)
@@ -180,12 +174,11 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
     terminated — no leaked sandbox, identity, or participant row."""
     run_id = implement_run["run_id"]
 
-    participants = _psql_json(
+    participants = psql_json(
         "SELECT COALESCE(json_agg(p), '[]'::json) FROM ("
         "SELECT agent_id, status, terminated_at"
         " FROM registry.run_participants WHERE run_id = :'run_id') p",
-        run_id,
-        default="[]",
+        run_id=run_id,
     )
     assert participants, "the crewed run minted no participants at all"
     for row in participants:
@@ -196,12 +189,11 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
     # and crew pods both do).
     assert sandbox_pods(run_id) == [], "a labelled pod outlived the run"
 
-    registrations = _psql_json(
+    registrations = psql_json(
         "SELECT COALESCE(json_agg(r), '[]'::json) FROM ("
         "SELECT run_id, terminated_at FROM registry.sandbox_registrations"
         " WHERE run_id = :'run_id') r",
-        run_id,
-        default="[]",
+        run_id=run_id,
     )
     assert registrations, "the run never registered a sandbox"
     for row in registrations:
@@ -216,12 +208,10 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     test_operator_lifecycle; the registry — which is what gateway authn
     enriches from — must agree, and must still agree at the end of the
     suite, after every module's teardown/re-apply cycles."""
-    rows = _psql_json(
+    rows = psql_json(
         "SELECT COALESCE(json_agg(i ORDER BY i.agent_id), '[]'::json) FROM ("
         "SELECT agent_id, hire, role_template, namespace"
-        " FROM registry.agent_instances WHERE company = 'hello-saas') i",
-        run_id="",
-        default="[]",
+        " FROM registry.agent_instances WHERE company = 'hello-saas') i"
     )
     assert [(r["agent_id"], r["role_template"], r["namespace"]) for r in rows] == [
         ("pm-1", "pm", COMPANY_NS)
@@ -236,7 +226,7 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
         "agentinstances",
         "-o",
         "jsonpath={.items[*].metadata.name}",
-    ).stdout.split()
+    ).split()
     assert instances == ["pm"], instances
 
 
@@ -253,7 +243,14 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
 
     from orchestrator.activities.crew import CrewActivities
     from orchestrator.config import WorkerSettings
-    from registry import AuditStore, RunParticipants, Runs
+    from registry import (
+        AuditStore,
+        BudgetLedger,
+        Companies,
+        CrewRequests,
+        RunParticipants,
+        Runs,
+    )
 
     run_id = new_run_id()
     gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
@@ -261,16 +258,23 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
     token_file.write_text("unused")
     repo = env.get("TARGET_REPO", "github.com/example/repo")
 
-    with _registry() as registry:
+    with registry() as db:
         settings = WorkerSettings(
             gateway_token_file=str(token_file),
             mcp_gateway_url=gateway_url,
             target_repo=repo,
+            agent_image=agent_image(),
         )
-        crew = CrewActivities(settings, RunParticipants(registry), AuditStore(registry))
-        Runs(registry).start(
-            run_id, "executor scope check", "implement", None, "hello-saas"
+        crew = CrewActivities(
+            settings,
+            RunParticipants(db),
+            AuditStore(db),
+            CrewRequests(db),
+            Companies(db),
+            BudgetLedger(db),
+            Runs(db),
         )
+        Runs(db).start(run_id, "executor scope check", "implement", None, "hello-saas")
         sa_name = None
         try:
             bound = asyncio.run(
@@ -286,18 +290,13 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                 )
             )
             sa_name = bound["service_account"]
-            subprocess.run(
-                ["kubectl", "-n", COMPANY_NS, "create", "serviceaccount", sa_name],
-                check=True,
-                capture_output=True,
-                timeout=60,
-            )
-            token = mint_token(COMPANY_NS, sa_name)
+            kubectl("-n", COMPANY_NS, "create", "serviceaccount", sa_name)
+            token = projected_token(COMPANY_NS, sa_name)
 
             # Positive control: the executor's in-scope surface answers
             # (policy allow; the backend errors because no sandbox exists —
             # a denied *identity* would never reach the backend).
-            control = _call(
+            control = mcp_call(
                 env, token, "sandbox.list_dir", {"run_id": run_id, "path": "."}
             )
             assert control.isError
@@ -312,7 +311,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                 ),
                 ("git.merge_pr", {"run_id": run_id, "repo": repo, "number": 1}),
             ):
-                denied = _call(env, token, tool, args)
+                denied = mcp_call(env, token, tool, args)
                 assert denied.isError, f"{tool} was not refused"
                 assert "default_deny" in denied.content[0].text, (
                     f"{tool}: {denied.content[0].text}"
@@ -331,52 +330,14 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
         finally:
             asyncio.run(crew.revoke_participants(run_id))
             if sa_name:
-                subprocess.run(
-                    ["kubectl", "-n", COMPANY_NS, "delete", "serviceaccount", sa_name],
-                    capture_output=True,
-                    timeout=60,
-                )
-            registry.execute(
+                run_kubectl("-n", COMPANY_NS, "delete", "serviceaccount", sa_name)
+            db.execute(
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )
-            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+            db.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 # -- 4 governance: every audit source, real, in this suite execution ---------
-
-
-def _events_since(fence: str) -> list[dict[str, Any]]:
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "exec",
-            "-i",
-            "statefulset/postgres",
-            "--",
-            "psql",
-            "-U",
-            POSTGRES_USER,
-            "-d",
-            POSTGRES_USER,
-            "-At",
-            "-v",
-            f"fence={fence}",
-            "-f",
-            "-",
-        ],
-        input=(
-            "SELECT COALESCE(json_agg(e), '[]'::json) FROM ("
-            "SELECT source, run_id, decision, rule, tool"
-            " FROM registry.audit_events WHERE ts >= :'fence') e"
-        ),
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout.strip() or "[]")
 
 
 def test_all_five_audit_sources_are_real_in_this_suite(
@@ -391,7 +352,7 @@ def test_all_five_audit_sources_are_real_in_this_suite(
 
     Runs alone against a fresh cluster this fails by design: it reads what
     the whole suite produced. Run the full acceptance suite."""
-    events = _events_since(db_session_start)
+    events = events_since(db_session_start)
     assert events, "no audit events in this session — run the full suite"
 
     sources = {e["source"] for e in events}

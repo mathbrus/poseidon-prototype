@@ -10,66 +10,30 @@ process-lifecycle events in the run's story.
 """
 
 import asyncio
-import subprocess
 
 from common.ids import new_run_id
 
-from .conftest import COMPANY_NS, PLATFORM_NS, audit_story
-from .test_crew_identity import _registry
+from .cluster import (
+    COMPANY_NS,
+    PLATFORM_NS,
+    agent_image,
+    audit_story,
+    crew_activities,
+    kubectl,
+    probe,
+    registry,
+    run_kubectl,
+    worker_settings,
+)
 
 WORKER_SA = f"system:serviceaccount:{PLATFORM_NS}:orchestrator-worker"
 
-_PROBE = """
-import sys, urllib.request, urllib.error
-url, want = sys.argv[1], sys.argv[2]
-try:
-    urllib.request.urlopen(url, timeout=3)
-    reachable = True
-except urllib.error.HTTPError:
-    reachable = True
-except Exception:
-    reachable = False
-sys.exit(0 if reachable == (want == "reachable") else 1)
-"""
-
 
 def _can_i(verb: str, resource: str, namespace: str) -> bool:
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "auth",
-            "can-i",
-            verb,
-            resource,
-            "-n",
-            namespace,
-            f"--as={WORKER_SA}",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
+    proc = run_kubectl(
+        "auth", "can-i", verb, resource, "-n", namespace, f"--as={WORKER_SA}", timeout=30
     )
     return proc.stdout.strip() == "yes"
-
-
-def agent_image() -> str:
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "get",
-            "deployment/orchestrator-worker",
-            "-o",
-            'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="AGENT_IMAGE")].value}',
-        ],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
-    assert proc.stdout.strip(), "worker carries no AGENT_IMAGE env"
-    return proc.stdout.strip()
 
 
 def test_worker_rbac_is_bounded(stack: None) -> None:
@@ -91,50 +55,30 @@ def test_worker_rbac_is_bounded(stack: None) -> None:
 def test_crew_pod_round_trips_and_destroy_is_label_bounded(
     stack: None, env: dict, tmp_path
 ) -> None:
-    from orchestrator.activities.crew import CrewActivities
-    from orchestrator.config import WorkerSettings
     from orchestrator.crewpods import CrewPodProvisioner
-    from registry import AuditStore, RunParticipants, Runs
+    from registry import Runs
 
     run_id = new_run_id()
-    token_file = tmp_path / "unused"
-    token_file.write_text("unused")
     decoy = f"decoy-{run_id[-6:].lower()}"
 
-    with _registry() as registry:
-        settings = WorkerSettings(
-            gateway_token_file=str(token_file),
-            mcp_gateway_url=env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080"),
-            target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
-            agent_image=agent_image(),
-            model="mock-brain",
+    with registry() as client:
+        crew = crew_activities(
+            client, worker_settings(env, tmp_path), CrewPodProvisioner(COMPANY_NS)
         )
-        crew = CrewActivities(
-            settings,
-            RunParticipants(registry),
-            AuditStore(registry),
-            CrewPodProvisioner(COMPANY_NS),
-        )
-        Runs(registry).start(run_id, "crew pod contract", "implement", None, "hello-saas")
+        Runs(client).start(run_id, "crew pod contract", "implement", None, "hello-saas")
         # An unlabeled bystander in the same namespace: the destroy
         # selector must never touch it.
-        subprocess.run(
-            [
-                "kubectl",
-                "-n",
-                COMPANY_NS,
-                "run",
-                decoy,
-                f"--image={agent_image()}",
-                "--restart=Never",
-                "--command",
-                "--",
-                "sleep",
-                "300",
-            ],
-            check=True,
-            capture_output=True,
-            timeout=60,
+        kubectl(
+            "-n",
+            COMPANY_NS,
+            "run",
+            decoy,
+            f"--image={agent_image()}",
+            "--restart=Never",
+            "--command",
+            "--",
+            "sleep",
+            "300",
         )
         try:
             provisioned = asyncio.run(
@@ -166,43 +110,13 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
                 (f"http://opa.{PLATFORM_NS}.svc.cluster.local:8181/health", "blocked"),
                 ("http://api.github.com", "blocked"),
             ]:
-                probe = subprocess.run(
-                    [
-                        "kubectl",
-                        "-n",
-                        COMPANY_NS,
-                        "exec",
-                        pod,
-                        "--",
-                        "python",
-                        "-c",
-                        _PROBE,
-                        url,
-                        want,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                assert probe.returncode == 0, f"{url} should be {want}"
+                assert probe(pod, url, want), f"{url} should be {want}"
 
             # Destroy sweeps by {run_id, kind} — the decoy survives.
             deleted = asyncio.run(crew.destroy_crew_pods(run_id))
             assert pod in deleted
-            survivor = subprocess.run(
-                [
-                    "kubectl",
-                    "-n",
-                    COMPANY_NS,
-                    "get",
-                    "pod",
-                    decoy,
-                    "-o",
-                    "jsonpath={.metadata.name}",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=30,
+            survivor = run_kubectl(
+                "-n", COMPANY_NS, "get", "pod", decoy, "-o", "jsonpath={.metadata.name}"
             )
             assert survivor.stdout.strip() == decoy, (
                 "the destroy selector deleted an unlabeled pod"
@@ -218,22 +132,17 @@ def test_crew_pod_round_trips_and_destroy_is_label_bounded(
             assert ("lifecycle.provision_pod", "crew_pod_provisioned") in lifecycle
             assert ("lifecycle.destroy_pod", "crew_pod_destroyed") in lifecycle
         finally:
-            subprocess.run(
-                [
-                    "kubectl",
-                    "-n",
-                    COMPANY_NS,
-                    "delete",
-                    "pod",
-                    decoy,
-                    "--ignore-not-found",
-                    "--wait=false",
-                ],
-                capture_output=True,
-                timeout=60,
+            run_kubectl(
+                "-n",
+                COMPANY_NS,
+                "delete",
+                "pod",
+                decoy,
+                "--ignore-not-found",
+                "--wait=false",
             )
             asyncio.run(crew.destroy_crew_pods(run_id))
-            registry.execute(
+            client.execute(
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )
-            registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+            client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))

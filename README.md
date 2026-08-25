@@ -821,10 +821,10 @@ the caps and answers the merge gate. Nothing about a run changes — the
 same fulfilment, verify, delivery, review and gate above — only who
 pressed start.
 
-`tests/e2e_kind/test_zz_overnight.py` runs the whole arc with exactly two
+`tests/e2e_kind/test_overnight.py` runs the whole arc with exactly two
 human acts: one goal in, one approval out. When the blueprint also
 delegates the merge gate, the approval drops too:
-`tests/e2e_kind/test_zz_delegated.py` runs the same arc with a single
+`tests/e2e_kind/test_delegated.py` runs the same arc with a single
 human act — one goal in — and the company merges its own in-class passing
 work with no further command.
 
@@ -1158,7 +1158,7 @@ kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
 To take the keys back, apply a blueprint without the section —
 `hello-saas.yaml` — and the heartbeat stops itself: each tick re-reads the
 applied blueprint and exits when the section is gone, and the compiled
-`conduct.start` rules vanish with it. `tests/e2e_kind/test_zz_overnight.py`
+`conduct.start` rules vanish with it. `tests/e2e_kind/test_overnight.py`
 runs this arrangement end to end with exactly two human acts: one goal in,
 one approval out.
 
@@ -1201,7 +1201,7 @@ bounded rework loop instead.
 > willing to see merge on green.
 
 With both keys handed over, the human surface is a single act:
-`tests/e2e_kind/test_zz_delegated.py` proves the arc — one goal in, and
+`tests/e2e_kind/test_delegated.py` proves the arc — one goal in, and
 the company scopes, implements, reviews and merges its own in-class
 passing work, every decision on the audit record. Taking the merge back is
 the same diff in reverse: re-apply the conducted profile and every merge

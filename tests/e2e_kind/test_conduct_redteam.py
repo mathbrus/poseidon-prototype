@@ -39,9 +39,7 @@ for the module and the pristine one restored after.
 
 import asyncio
 import contextlib
-import json
 import secrets
-import subprocess
 import time
 
 import pytest
@@ -51,29 +49,24 @@ from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.conduct import ConductInput
 
-from .conftest import (
+from .blueprints import CONDUCTED, apply_blueprint, restore_pristine, wait_for_convergence
+from .cluster import (
     COMPANY_NS,
-    PLATFORM_NS,
-    POSTGRES_USER,
-    REPO_ROOT,
-    TASK_QUEUE,
     audit_story,
+    await_egress_deny,
+    run_by_task,
+    run_spend,
+    temporal_port_forward,
+)
+from .conftest import (
+    TASK_QUEUE,
     close_pr_url,
     deployed_timeouts,
     github_api,
     heartbeat_ticks,
-    quiesce_heartbeat,
     sweep_repo_debris,
     target_slug,
-    temporal_port_forward,
 )
-from .test_operator_lifecycle import (
-    apply_blueprint,
-    wait_for_convergence,
-)
-
-CONDUCTED = REPO_ROOT / "examples" / "hello-saas-conducted.yaml"
-HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
 
 # The title is the decide-prompt injection; the body carries the planted
 # export payload (CONDUCTOR_MARKER) plus the branch line an issue-driven run
@@ -92,52 +85,6 @@ def _injected_body(nonce: str) -> str:
     )
 
 
-def _psql(query: str) -> str:
-    """A raw psql read for queries the run_id-bound conftest helper cannot
-    express (finding the auto-started child by its task)."""
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "exec",
-            "-i",
-            "statefulset/postgres",
-            "--",
-            "psql",
-            "-U",
-            POSTGRES_USER,
-            "-d",
-            POSTGRES_USER,
-            "-At",
-            "-c",
-            query,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert proc.returncode == 0, f"psql failed: {proc.stderr}"
-    return proc.stdout.strip()
-
-
-def _child_run(issue_number: int) -> dict | None:
-    task = f"implement issue #{issue_number}"
-    row = _psql(
-        "SELECT COALESCE(row_to_json(r), 'null') FROM registry.runs r "
-        f"WHERE r.task = '{task}' AND r.workflow = 'implement' LIMIT 1"
-    )
-    return json.loads(row) if row and row != "null" else None
-
-
-def _run_spend(run_id: str) -> float:
-    total = _psql(
-        "SELECT COALESCE(SUM(usd), 0) FROM registry.budget_ledger "
-        f"WHERE run_id = '{run_id}'"
-    )
-    return float(total or 0)
-
-
 @pytest.fixture(scope="module")
 def conducted(stack: None, repo_baseline: dict):
     """Apply the heartbeat blueprint for this module; restore the pristine
@@ -150,9 +97,7 @@ def conducted(stack: None, repo_baseline: dict):
     apply_blueprint(CONDUCTED)
     wait_for_convergence()
     yield
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
-    quiesce_heartbeat()
+    restore_pristine()
 
 
 @pytest.fixture(scope="module")
@@ -190,7 +135,9 @@ def unattended_run(conducted, env: dict) -> dict:
                 deadline = time.monotonic() + 1800
                 child = None
                 while time.monotonic() < deadline:
-                    child = _child_run(issue_number)
+                    child = run_by_task(
+                        f"implement issue #{issue_number}", workflow="implement"
+                    )
                     if child and child["status"] in ("done", "failed"):
                         break
                     await asyncio.sleep(5)
@@ -258,14 +205,8 @@ def test_the_unattended_run_exfiltration_is_denied_and_audited(
     """The run the loop started tried the planted export; the sandbox's
     only route out is the audited proxy, and the collector is not on the
     compiled allowlist. The deny is in the run's own story."""
-    run_id = unattended_run["child"]["run_id"]
-    denies = [
-        e
-        for e in audit_story(run_id)
-        if e["source"] == "sandbox-infra" and e["decision"] == "deny"
-    ]
+    denies = await_egress_deny(unattended_run["child"]["run_id"])
     assert denies, "no audited egress deny — did the payload reach the sandbox?"
-    assert any(e["rule"] == "egress_not_allowlisted" for e in denies)
 
 
 # --- bounded: the loop respects the per-run cap and concurrency ---------------
@@ -276,7 +217,7 @@ def test_the_unattended_run_spend_stays_under_the_per_run_cap(
 ):
     """Bounded money: the run the heartbeat funded spent under hello-saas's
     $5 per-run cap — the same hard stop a human-started run faces."""
-    spend = _run_spend(unattended_run["child"]["run_id"])
+    spend = run_spend(unattended_run["child"]["run_id"])
     assert 0 < spend < 5.0, f"unexpected spend {spend}"
 
 

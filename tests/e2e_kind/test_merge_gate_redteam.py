@@ -39,9 +39,7 @@ human-gated company — the conduct red-team's blueprint-swap pattern.
 
 import asyncio
 import contextlib
-import re
 import secrets
-import subprocess
 
 import pytest
 from temporalio.client import Client
@@ -55,55 +53,18 @@ from mockllm.brain import (
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.review import ReviewInput
 
+from .blueprints import DELEGATED, apply_blueprint, restore_pristine, wait_for_convergence
+from .cluster import audit_story, run_spend, temporal_port_forward
 from .conftest import (
-    PLATFORM_NS,
-    POSTGRES_USER,
-    REPO_ROOT,
     TASK_QUEUE,
-    audit_story,
     close_pr,
     deployed_timeouts,
     github_api,
-    quiesce_heartbeat,
+    pr_number,
     run_implement_from_issue,
     sweep_repo_debris,
     target_slug,
-    temporal_port_forward,
 )
-from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
-
-DELEGATED = REPO_ROOT / "examples" / "hello-saas-delegated.yaml"
-HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
-
-
-def _run_spend(run_id: str) -> float:
-    """The run's ledger spend — the hard-stop cap is enforced there, not in
-    the audit stream (audit events carry no usd)."""
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "exec",
-            "-i",
-            "statefulset/postgres",
-            "--",
-            "psql",
-            "-U",
-            POSTGRES_USER,
-            "-d",
-            POSTGRES_USER,
-            "-At",
-            "-c",
-            "SELECT COALESCE(SUM(usd), 0) FROM registry.budget_ledger"
-            f" WHERE run_id = '{run_id}'",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert proc.returncode == 0, f"psql failed: {proc.stderr}"
-    return float(proc.stdout.strip() or 0)
 
 
 def _injected_body(nonce: str) -> str:
@@ -138,9 +99,7 @@ def delegated(stack: None, repo_baseline: dict):
     apply_blueprint(DELEGATED)
     wait_for_convergence()
     yield
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
-    quiesce_heartbeat()
+    restore_pristine()
 
 
 @pytest.fixture(scope="module")
@@ -166,9 +125,8 @@ def redteam(delegated, env: dict) -> dict:
     # inert config and the steer marker is a comment).
     implement = run_implement_from_issue(issue_number, env)
     pr_url = implement.get("pr_url") or ""
-    pr_match = re.search(r"/pull/(\d+)$", pr_url)
-    assert pr_match, f"implement opened no PR to review: {implement}"
-    pr_number = int(pr_match.group(1))
+    number = pr_number(pr_url)
+    assert number is not None, f"implement opened no PR to review: {implement}"
 
     # Review, under the policy-resolved gate, with no human on the signal.
     review_run = new_run_id()
@@ -179,7 +137,7 @@ def redteam(delegated, env: dict) -> dict:
             handle = await client.start_workflow(
                 "review",
                 ReviewInput(
-                    run_id=review_run, pr_number=pr_number, timeouts=deployed_timeouts()
+                    run_id=review_run, pr_number=number, timeouts=deployed_timeouts()
                 ),
                 id=workflow_id("review", review_run),
                 task_queue=TASK_QUEUE,
@@ -192,13 +150,13 @@ def redteam(delegated, env: dict) -> dict:
         "env": env,
         "issue_number": issue_number,
         "implement": implement,
-        "pr_number": pr_number,
+        "pr_number": number,
         "pr_url": pr_url,
         "review_run_id": review_run,
         "review": review,
     }
 
-    close_pr(env, pr_number)
+    close_pr(env, number)
     with contextlib.suppress(Exception):
         github_api(
             env,
@@ -278,7 +236,7 @@ def test_nothing_merged_unattended(redteam: dict):
 def test_the_review_spend_stays_under_the_per_run_cap(redteam: dict):
     """Bounded money: the policy-gated review that refused still spent
     under hello-saas's $5 per-run cap."""
-    spend = _run_spend(redteam["review_run_id"])
+    spend = run_spend(redteam["review_run_id"])
     assert 0 <= spend < 5.0, f"review overspent: {spend}"
 
 

@@ -65,8 +65,8 @@ not silently delete it. We will sort it out together.
   `POSEIDON_ALLOW_PAID=1` is set — that variable is the opt-in
   spelling, and setting it still requires the user's say-so.
 - **Tests**: run pytest per-package, not from the repo root. The full
-  acceptance suite is `scripts/acceptance.sh`; its last module,
-  `test_zz_acceptance.py`, scripts the exit criteria.
+  acceptance suite is `scripts/acceptance.sh`; `test_acceptance.py` is its
+  index and capstone.
 - **Responses API surface**: gateway-llm and mockllm both speak the
   OpenAI Responses API (`gpt-5*` models auto-select it). Any new LLM
   API surface must land in both services.

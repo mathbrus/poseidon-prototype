@@ -1,7 +1,7 @@
 """The delegated capstone: the company delivers its own work — merge and
 all — with zero human commands.
 
-The overnight capstone (`test_zz_overnight`) proved the company runs its
+The overnight capstone (`test_overnight`) proved the company runs its
 backlog to the human merge gate: two human acts, one goal in and one
 approval out. A policy-resolved merge gate removes the second act for a
 declared class of work, so the whole arc has exactly *one* human act:
@@ -27,18 +27,15 @@ by paying for more unattended cluster runs here:
 So this capstone pins the one thing only a full unattended cluster run can
 show: passing in-class work reaches `main` with no human after the goal.
 
-Named `test_zz_delegated` so it collects after the other capstones and adds
-its runs last. Applies `examples/hello-saas-delegated.yaml` (heartbeat +
+The conftest orders this module after the other capstones, so its runs
+are added last. Applies `examples/hello-saas-delegated.yaml` (heartbeat +
 delegated merge) for the module and restores the pristine `hello-saas.yaml`
 after.
 """
 
 import asyncio
 import contextlib
-import json
 import re
-import subprocess
-import time
 
 import pytest
 from temporalio.client import Client
@@ -50,78 +47,26 @@ from orchestrator.workflows.conduct import ConductInput
 from orchestrator.workflows.intake import IntakeInput
 from orchestrator.workflows.review import ReviewInput
 
-from .conftest import (
+from .blueprints import DELEGATED, apply_blueprint, restore_pristine, wait_for_convergence
+from .cluster import (
     COMPANY_NS,
-    PLATFORM_NS,
-    POSTGRES_USER,
-    REPO_ROOT,
-    TASK_QUEUE,
     audit_story,
+    await_run,
+    participants,
+    run_spend,
+    temporal_port_forward,
+)
+from .conftest import (
+    TASK_QUEUE,
     close_pr,
     delete_repo_file,
     deployed_timeouts,
     github_api,
-    quiesce_heartbeat,
+    pr_number,
     run_implement_from_issue,
     sweep_repo_debris,
     target_slug,
-    temporal_port_forward,
 )
-from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
-
-DELEGATED = REPO_ROOT / "examples" / "hello-saas-delegated.yaml"
-HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
-
-
-def _psql(query: str) -> str:
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "exec",
-            "-i",
-            "statefulset/postgres",
-            "--",
-            "psql",
-            "-U",
-            POSTGRES_USER,
-            "-d",
-            POSTGRES_USER,
-            "-At",
-            "-c",
-            query,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert proc.returncode == 0, f"psql failed: {proc.stderr}"
-    return proc.stdout.strip()
-
-
-def _run_by_task(task: str) -> dict | None:
-    row = _psql(
-        "SELECT COALESCE(row_to_json(r), 'null') FROM registry.runs r "
-        f"WHERE r.task = '{task}' LIMIT 1"
-    )
-    return json.loads(row) if row and row != "null" else None
-
-
-def _await_run(task: str, terminal: bool, deadline_s: int = 1800) -> dict:
-    deadline = time.monotonic() + deadline_s
-    while time.monotonic() < deadline:
-        run = _run_by_task(task)
-        if run and (not terminal or run["status"] in ("done", "failed")):
-            return run
-        time.sleep(5)
-    raise AssertionError(f"run {task!r} never {'finished' if terminal else 'started'}")
-
-
-def _pr_number(pr_url: str) -> int:
-    match = re.search(r"/pull/(\d+)$", pr_url or "")
-    assert match, f"not a PR url: {pr_url!r}"
-    return int(match.group(1))
 
 
 @pytest.fixture(scope="module")
@@ -185,19 +130,20 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
             )
             try:
                 implement = await asyncio.to_thread(
-                    _await_run, f"implement issue #{issue_number}", True
+                    await_run, f"implement issue #{issue_number}", True
                 )
                 assert implement["status"] == "done", f"unattended implement: {implement}"
                 assert implement["pr_url"], "the unattended implement produced no PR"
                 result["implement"] = implement
-                pr_number = _pr_number(implement["pr_url"])
-                result["pr_number"] = pr_number
+                number = pr_number(implement["pr_url"])
+                assert number is not None, f"not a PR url: {implement['pr_url']!r}"
+                result["pr_number"] = number
 
                 # The heartbeat sees the delivered PR, reviews it, and —
                 # in-class, review passed, checks green — MERGES it. No
                 # human signal is ever sent.
                 review = await asyncio.to_thread(
-                    _await_run, f"review pull request #{pr_number}", True
+                    await_run, f"review pull request #{number}", True
                 )
                 result["review"] = review
             finally:
@@ -221,9 +167,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
             f"/repos/{target_slug(env)}/issues/{result.get('issue_number')}",
             json={"state": "closed"},
         )
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
-    quiesce_heartbeat()
+    restore_pristine()
 
 
 def test_the_company_implemented_and_reviewed_unattended(delegated_overnight: dict):
@@ -276,7 +220,7 @@ def test_both_quality_layers_were_recorded(delegated_overnight: dict):
     assert any(e["tool"] == "conduct.start" and e["decision"] == "allow" for e in story)
 
 
-def test_the_whole_arc_had_exactly_one_human_act(delegated_overnight: dict):
+def test_delegated_arc_had_exactly_one_human_act(delegated_overnight: dict):
     """The claim, as an invariant: implement and review both ran
     under auto- ids, the merge happened, and it was released by policy —
     never by a human gate signal. The only human act was the intake goal."""
@@ -401,7 +345,8 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     # --- the contract phase: author the spec, one human merges it ----------
     contract_impl = run_implement_from_issue(contract_issue, env)
     result["contract_implement"] = contract_impl
-    contract_pr = _pr_number(contract_impl["pr_url"])
+    contract_pr = pr_number(contract_impl["pr_url"])
+    assert contract_pr is not None, f"the contract run opened no PR: {contract_impl}"
     result["contract_pr"] = contract_pr
     c_review_run, c_review = _drive_review(contract_pr, approve=True)
     result["contract_review_run_id"] = c_review_run
@@ -410,7 +355,8 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     # --- the implement phase: no human command at all ----------------------
     impl = run_implement_from_issue(implement_issue, env)
     result["implement"] = impl
-    impl_pr = _pr_number(impl["pr_url"])
+    impl_pr = pr_number(impl["pr_url"])
+    assert impl_pr is not None, f"the implement run opened no PR: {impl}"
     result["implement_pr"] = impl_pr
     i_review_run, i_review = _drive_review(impl_pr, approve=None)
     result["implement_review_run_id"] = i_review_run
@@ -436,9 +382,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
                 f"/repos/{target_slug(env)}/issues/{issue}",
                 json={"state": "closed"},
             )
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
-    quiesce_heartbeat()
+    restore_pristine()
 
 
 def test_the_pm_filed_contract_then_implement(contract_first: dict):
@@ -456,11 +400,8 @@ def test_the_contract_was_authored_by_the_contract_crew(contract_first: dict):
     are the contract-authoring crew, a template the delivery crew does not
     contain — positional independence, not a promise."""
     run_id = contract_first["contract_implement"]["run_id"]
-    crews = _psql(
-        "SELECT COALESCE(json_agg(DISTINCT crew_template), '[]') "
-        f"FROM registry.run_participants WHERE run_id = '{run_id}'"
-    )
-    assert json.loads(crews) == ["contract-authoring"], crews
+    crews = {p["crew_template"] for p in participants(run_id)}
+    assert crews == {"contract-authoring"}, crews
 
 
 def test_the_contract_pr_needed_the_one_human_merge(contract_first: dict):
@@ -497,7 +438,7 @@ def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict
     assert resolves[-1]["rule"] == "merge_resolve_delegated", resolves[-1]
 
 
-def test_the_whole_arc_had_exactly_one_human_act(contract_first: dict):
+def test_contract_arc_had_exactly_one_human_act(contract_first: dict):
     """The claim as an invariant: across both phases, the only
     human command was the contract merge. The implementation's merge was
     policy's, and nothing else asked for a person."""
@@ -516,12 +457,5 @@ def test_the_contract_arc_stayed_within_budget(contract_first: dict):
         "contract_implement",
         "implement",
     ):
-        run_id = contract_first[key]["run_id"]
-        spend = float(
-            _psql(
-                "SELECT COALESCE(SUM(usd), 0) FROM registry.budget_ledger "
-                f"WHERE run_id = '{run_id}'"
-            )
-            or 0
-        )
+        spend = run_spend(contract_first[key]["run_id"])
         assert 0 <= spend < 5.0, f"{key} overspent: {spend}"

@@ -24,8 +24,6 @@ the conductor half and an implement run for the payload half.
 
 import asyncio
 import contextlib
-import hashlib
-import json
 import re
 
 import pytest
@@ -41,49 +39,33 @@ from mockllm.brain import (
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.intake import IntakeInput
 
+from .cluster import (
+    audit_story,
+    await_egress_deny,
+    participants,
+    psql_json,
+    registry,
+    temporal_port_forward,
+)
 from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
-    _psql_json,
-    audit_story,
     close_pr_url,
     deployed_timeouts,
     github_api,
     run_implement,
-    temporal_port_forward,
+    target_slug,
 )
-from .test_crew_identity import _registry
 
 GOAL_FILE = REPO_ROOT / "examples" / "goal-injected-conductor.md"
 
 
-def _egress_digest(host: str, port: int) -> str:
-    """The egress proxy's `args_digest` over its {host, port} payload —
-    recomputed here so a deny can be tied to a specific destination
-    (sandbox.egressproxy.proxy._digest)."""
-    canonical = json.dumps(
-        {"host": host, "port": port}, sort_keys=True, separators=(",", ":")
-    )
-    return hashlib.sha256(canonical.encode()).hexdigest()
-
-
 def _crew_requests(run_id: str) -> list[dict]:
-    return _psql_json(
+    return psql_json(
         "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
         "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
         ") c",
-        run_id,
-        default="[]",
-    )
-
-
-def _participants(run_id: str) -> list[dict]:
-    return _psql_json(
-        "SELECT COALESCE(json_agg(p), '[]'::json) FROM ("
-        "SELECT * FROM registry.run_participants WHERE run_id = :'run_id'"
-        ") p",
-        run_id,
-        default="[]",
+        run_id=run_id,
     )
 
 
@@ -109,7 +91,6 @@ def conductor_intake(stack: None, env: dict) -> dict:
     record = asyncio.run(start())
     yield record
 
-    slug = "/".join(env["TARGET_REPO"].split("/")[-2:])
     for url in record.get("ticket_urls") or []:
         match = re.search(r"/issues/(\d+)$", url)
         if match:
@@ -117,14 +98,12 @@ def conductor_intake(stack: None, env: dict) -> dict:
                 github_api(
                     env,
                     "PATCH",
-                    f"/repos/{slug}/issues/{match.group(1)}",
+                    f"/repos/{target_slug(env)}/issues/{match.group(1)}",
                     json={"state": "closed"},
                 )
-    with _registry() as registry:
-        registry.execute(
-            "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
-        )
-        registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+    with registry() as client:
+        client.execute("DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,))
+        client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
 @pytest.fixture(scope="module")
@@ -186,7 +165,7 @@ def test_the_forbidden_crew_is_never_recorded_or_minted(conductor_intake: dict):
     assert FORBIDDEN_CREW not in templates
     assert templates == ["feature-delivery"]
 
-    for participant in _participants(run_id):
+    for participant in participants(run_id):
         assert participant["crew_template"] != FORBIDDEN_CREW
         assert FORBIDDEN_CREW not in participant["agent_id"]
 
@@ -211,18 +190,14 @@ def test_exfiltration_attempt_is_denied_by_the_audited_proxy(
     `source=sandbox-infra` (NetworkPolicy is the silent backstop
     *beneath* the proxy — the proxy is what makes the block visible)."""
     run_id = conductor_implement["run_id"]
-    denies = [
-        e
-        for e in audit_story(run_id)
-        if e["source"] == "sandbox-infra" and e["decision"] == "deny"
-    ]
+    denies = await_egress_deny(run_id)
     assert denies, "the exfiltration attempt left no audited deny"
-    assert any(e["rule"] == "egress_not_allowlisted" for e in denies)
 
     # And it was *this* payload that was stopped, not some incidental
-    # deny: the proxy digests {host, port}, so recomputing it over the
-    # collector names the blocked destination beyond doubt.
-    expected = _egress_digest(EXFIL_HOST, 443)
+    # deny: the proxy digests {host, port} exactly as every producer does,
+    # so recomputing it over the collector names the blocked destination
+    # beyond doubt.
+    expected = args_digest({"host": EXFIL_HOST, "port": 443})
     assert any(e["args_digest"] == expected for e in denies), (
         f"no audited deny for {EXFIL_HOST}:443 — "
         f"the exfiltration target was never refused"

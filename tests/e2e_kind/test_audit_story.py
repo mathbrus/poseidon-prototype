@@ -4,7 +4,7 @@ from one query. That is literally one query: the gateway and the egress
 proxy both write the registry `audit_events` table.
 """
 
-from .conftest import audit_story
+from .cluster import audit_story
 
 
 def _executor_id(run_id: str) -> str:
@@ -81,7 +81,7 @@ def test_one_query_spans_the_runs_real_sources(implement_run: dict) -> None:
     run *cannot* produce are proven on the runs that do produce them —
     process-gate on the review chain and the budget pause, sandbox-infra
     on the egress/red-team runs — and all five together, still with no
-    seeding, in test_zz_acceptance."""
+    seeding, in test_acceptance."""
     run_id = implement_run["run_id"]
     story = audit_story(run_id)
     assert {e["source"] for e in story} == {

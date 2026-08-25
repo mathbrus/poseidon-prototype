@@ -8,7 +8,7 @@ the whole episode in the audit story.
 
 import re
 
-from .conftest import audit_story
+from .cluster import audit_story
 
 
 def test_run_recovers_and_delivers_on_feature_branch(injected_run: dict) -> None:

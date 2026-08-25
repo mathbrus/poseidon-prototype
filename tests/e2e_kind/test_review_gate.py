@@ -27,18 +27,15 @@ from orchestrator.workflows.implement import issue_placeholder
 from orchestrator.workflows.intake import IntakeInput
 from orchestrator.workflows.review import ReviewInput
 
+from .cluster import audit_story, psql_json, registry, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
-    _psql_json,
-    audit_story,
     close_pr,
     deployed_timeouts,
     github_api,
     run_implement_from_issue,
     target_slug,
-    temporal_port_forward,
 )
-from .test_crew_identity import _registry
 
 
 def _reviewer_id(run_id: str) -> str:
@@ -171,11 +168,11 @@ def review_chain(stack: None, env: dict) -> dict:
                     f"/repos/{slug}/issues/{number.group(1)}",
                     json={"state": "closed"},
                 )
-    with _registry() as registry:
-        registry.execute(
+    with registry() as client:
+        client.execute(
             "DELETE FROM registry.crew_requests WHERE run_id = %s", (intake_run,)
         )
-        registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (intake_run,))
+        client.execute("DELETE FROM registry.runs WHERE run_id = %s", (intake_run,))
 
 
 def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
@@ -247,12 +244,11 @@ def test_the_crew_request_was_recorded_under_conductor_authority(
     the same crew_requests row and the same audited compiled decision an
     agent-issued request produces."""
     run_id = review_chain["review_run_id"]
-    rows = _psql_json(
+    rows = psql_json(
         "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
         "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
         ") c",
-        run_id,
-        default="[]",
+        run_id=run_id,
     )
     assert len(rows) == 1
     assert rows[0]["conductor"] == "pm-1"

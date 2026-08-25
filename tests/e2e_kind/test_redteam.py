@@ -29,10 +29,7 @@ is proven by test_egress; this suite adds the attacker-shaped variants.
 """
 
 import contextlib
-import io
 import json
-import subprocess
-import tarfile
 import time
 
 import pytest
@@ -43,50 +40,49 @@ from sandbox.egressproxy.credentials import mint, sandbox_proxy_env
 from sandbox.k8s_jobs import K8sJobsBackend
 from sandbox.manifest import job_name
 
-from .conftest import COMPANY_NS, audit_story, sandbox_image
-from .test_egress import _admin, egress_key, proxy_url  # noqa: F401
-
-GIT_ENV = {
-    "GIT_AUTHOR_NAME": "test",
-    "GIT_AUTHOR_EMAIL": "test@example.com",
-    "GIT_COMMITTER_NAME": "test",
-    "GIT_COMMITTER_EMAIL": "test@example.com",
-    "HOME": "/nonexistent",
-}
-
-
-def _kubectl(*args: str) -> str:
-    proc = subprocess.run(["kubectl", *args], capture_output=True, text=True, timeout=60)
-    assert proc.returncode == 0, proc.stderr
-    return proc.stdout.strip()
+from .cluster import (
+    COMPANY_NS,
+    admin_sandbox,
+    audit_story,
+    await_egress_deny,
+    egress_proxy_key,
+    egress_proxy_url,
+    kubectl,
+    sandbox_image,
+    workspace_tar,
+)
 
 
 @pytest.fixture(scope="module")
-def workspace_tar(tmp_path_factory) -> bytes:
-    path = tmp_path_factory.mktemp("redteam-ws")
-    subprocess.run(
-        ["git", "init", "-b", "main"],
-        cwd=path,
-        env=GIT_ENV,
-        check=True,
-        capture_output=True,
+def proxy_url(stack: None) -> str:
+    return egress_proxy_url()
+
+
+@pytest.fixture(scope="module")
+def egress_key(stack: None) -> str:
+    return egress_proxy_key()
+
+
+@pytest.fixture(scope="module")
+def workspace(tmp_path_factory) -> bytes:
+    return workspace_tar(
+        tmp_path_factory.mktemp("redteam-ws"),
+        files={"secret-looking.txt": "nothing to see\n"},
     )
-    (path / "secret-looking.txt").write_text("nothing to see\n")
-    subprocess.run(
-        ["git", "add", "-A"], cwd=path, env=GIT_ENV, check=True, capture_output=True
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "base"],
-        cwd=path,
-        env=GIT_ENV,
-        check=True,
-        capture_output=True,
-    )
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        for entry in path.iterdir():
-            tar.add(entry, arcname=entry.name)
-    return buf.getvalue()
+
+
+def _await_deny(run_id: str, rule: str, timeout_s: int = 30) -> list[dict]:
+    """The run's audited denies for `rule`, polled until one lands."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        denies = [
+            e
+            for e in audit_story(run_id)
+            if e["decision"] == "deny" and e["rule"] == rule
+        ]
+        if denies or time.monotonic() > deadline:
+            return denies
+        time.sleep(1)
 
 
 class Target:
@@ -105,9 +101,7 @@ class Target:
 
 
 @pytest.fixture(scope="module")
-def target(  # noqa: F811
-    stack: None, env: dict, egress_key: str, proxy_url: str, workspace_tar: bytes
-):
+def target(stack: None, env: dict, egress_key: str, proxy_url: str, workspace: bytes):
     """One sandbox for the whole suite, provisioned and registered exactly
     as the orchestrator does it (registration is what gives the run its
     egress allowlist)."""
@@ -115,7 +109,7 @@ def target(  # noqa: F811
     run_id = new_run_id()
     handle = backend.provision(
         run_id,
-        workspace_tar,
+        workspace,
         SandboxPolicy(
             image=sandbox_image(),
             cpu="500m",
@@ -123,12 +117,12 @@ def target(  # noqa: F811
             env=sandbox_proxy_env(proxy_url, egress_key, run_id),
         ),
     )
-    _admin(env, "register", run_id, handle)
+    admin_sandbox(env, "register", run_id, handle)
     try:
         yield Target(backend, handle, run_id)
     finally:
         with contextlib.suppress(Exception):
-            _admin(env, "unregister", run_id)
+            admin_sandbox(env, "unregister", run_id)
         backend.destroy(handle)
 
 
@@ -137,7 +131,7 @@ def target(  # noqa: F811
 
 def test_the_one_permitted_route_out_still_works(
     target: Target,
-    proxy_url: str,  # noqa: F811
+    proxy_url: str,
 ) -> None:
     """The control for this whole suite: the sandbox's network stack is
     live and its *permitted* egress — the audited proxy — answers. Without
@@ -178,7 +172,7 @@ def test_the_kubernetes_api_is_unreachable(target: Target) -> None:
     """Even with a token, there would be no route: the sandbox
     NetworkPolicy permits egress to the audited proxy and nothing else.
     Probed with a raw socket so the proxy env cannot mask the result."""
-    cluster_ip = _kubectl(
+    cluster_ip = kubectl(
         "-n", "default", "get", "svc", "kubernetes", "-o", "jsonpath={.spec.clusterIP}"
     )
     exit_code, output = target.py(
@@ -193,7 +187,7 @@ def test_node_metadata_endpoints_are_unreachable(target: Target) -> None:
     """The kubelet's authenticated port and the cloud metadata address —
     the two classic pivots out of a container — are both off the sandbox's
     permitted egress."""
-    node_ip = _kubectl(
+    node_ip = kubectl(
         "get",
         "nodes",
         "-o",
@@ -211,7 +205,7 @@ def test_node_metadata_endpoints_are_unreachable(target: Target) -> None:
 
 def test_the_only_credential_is_the_runs_own_scoped_proxy_secret(
     target: Target,
-    egress_key: str,  # noqa: F811
+    egress_key: str,
 ) -> None:
     """The sandbox env carries exactly one secret-shaped value: its own
     per-run proxy credential. It is HMAC(key, run_id) — bound to this
@@ -240,8 +234,8 @@ def test_the_only_credential_is_the_runs_own_scoped_proxy_secret(
 
 def test_a_sandbox_cannot_forge_another_runs_egress_identity(
     target: Target,
-    egress_key: str,  # noqa: F811
-    proxy_url: str,  # noqa: F811
+    egress_key: str,
+    proxy_url: str,
 ) -> None:
     """The credential is self-authenticating (username=run_id,
     password=HMAC(key, run_id)), so a sandbox that only ever sees its own
@@ -266,17 +260,7 @@ def test_a_sandbox_cannot_forge_another_runs_egress_identity(
 
     # pypi.org IS allowlisted for the real run — so only the failed
     # authentication can explain the refusal, and it is on the record.
-    denies: list = []
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        denies = [
-            e
-            for e in audit_story(victim_run)
-            if e["decision"] == "deny" and e["rule"] == "egress_bad_credential"
-        ]
-        if denies:
-            break
-        time.sleep(1)
+    denies = _await_deny(victim_run, "egress_bad_credential")
     assert denies, "the forged-identity attempt is missing from the audit store"
     assert denies[0]["source"] == "sandbox-infra"
 
@@ -374,7 +358,7 @@ def test_resource_caps_and_deadline_are_declared_on_the_live_job(
     container, and a wall-clock deadline on the Job (whose enforcement is
     proven by test_sandbox_k8s's runaway test)."""
     spec = json.loads(
-        _kubectl("-n", COMPANY_NS, "get", "job", job_name(target.run_id), "-o", "json")
+        kubectl("-n", COMPANY_NS, "get", "job", job_name(target.run_id), "-o", "json")
     )
     assert spec["spec"]["activeDeadlineSeconds"] > 0
     pod_spec = spec["spec"]["template"]["spec"]
@@ -387,7 +371,7 @@ def test_resource_caps_and_deadline_are_declared_on_the_live_job(
 def test_memory_cap_terminates_a_runaway_allocation(
     stack: None,
     egress_key: str,
-    workspace_tar: bytes,  # noqa: F811
+    workspace: bytes,
 ) -> None:
     """Resource exhaustion, for real: caps demonstrably terminate a
     runaway workload. Runs in its own throwaway sandbox: the cgroup OOM
@@ -401,7 +385,7 @@ def test_memory_cap_terminates_a_runaway_allocation(
     run_id = new_run_id()
     handle = backend.provision(
         run_id,
-        workspace_tar,
+        workspace,
         SandboxPolicy(image=sandbox_image(), cpu="500m", memory="256Mi"),
     )
     try:
@@ -469,7 +453,7 @@ def test_no_dns_resolver_answers_the_sandbox(target: Target) -> None:
     exit_code, output = target.py(probe.format(resolver="8.8.8.8"))
     assert exit_code == 0, f"an external DNS resolver answered: {output}"
 
-    cluster_dns = _kubectl(
+    cluster_dns = kubectl(
         "-n", "kube-system", "get", "svc", "kube-dns", "-o", "jsonpath={.spec.clusterIP}"
     )
     exit_code, output = target.py(probe.format(resolver=cluster_dns))
@@ -517,17 +501,6 @@ def test_every_blocked_attempt_that_has_a_source_is_in_the_audit_store(
     assert exit_code == 0
     assert "403" in output, f"the proxy did not refuse the exfil host: {output}"
 
-    denies: list = []
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        denies = [
-            e
-            for e in audit_story(target.run_id)
-            if e["decision"] == "deny" and e["rule"] == "egress_not_allowlisted"
-        ]
-        if denies:
-            break
-        time.sleep(1)
+    denies = await_egress_deny(target.run_id)
     assert denies, "a proxy deny left no audit event"
-    assert denies[0]["source"] == "sandbox-infra"
     assert denies[0]["run_id"] == target.run_id

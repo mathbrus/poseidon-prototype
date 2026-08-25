@@ -14,7 +14,8 @@ import re
 
 import pytest
 
-from .conftest import audit_story, close_pr_url, run_implement, sandbox_pods
+from .cluster import audit_story, sandbox_pods
+from .conftest import close_pr_url, run_implement
 
 
 @pytest.fixture(scope="module")

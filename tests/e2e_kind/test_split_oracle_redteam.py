@@ -41,7 +41,7 @@ repo's `main` in the declared post-split shape — the acceptance spec under
 is only meaningful against a baseline that exists; this module asserts that
 shape and never re-seeds it. How the spec legitimately *gets* to `main` —
 the PM's ordered pair, the contract crew, the human's one approval — is the
-capstone's arc (`test_zz_delegated`), not this module's.
+capstone's arc (`test_delegated`), not this module's.
 
 Applies `examples/hello-saas-delegated.yaml` (split-declared) for the
 module and restores the pristine `hello-saas.yaml` after — the red-team
@@ -51,10 +51,7 @@ blueprint-swap pattern of `test_merge_gate_redteam`.
 import asyncio
 import base64
 import contextlib
-import json
-import re
 import secrets
-import subprocess
 
 import pytest
 from temporalio.client import Client
@@ -71,26 +68,19 @@ from mockllm.brain import (
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.review import ReviewInput
 
+from .blueprints import DELEGATED, apply_blueprint, restore_pristine, wait_for_convergence
+from .cluster import audit_story, participants, run_spend, temporal_port_forward
 from .conftest import (
-    PLATFORM_NS,
-    POSTGRES_USER,
-    REPO_ROOT,
     TASK_QUEUE,
-    audit_story,
     close_pr,
     deployed_timeouts,
     github_api,
-    quiesce_heartbeat,
+    pr_number,
     read_repo_file,
     run_implement_from_issue,
     sweep_repo_debris,
     target_slug,
-    temporal_port_forward,
 )
-from .test_operator_lifecycle import apply_blueprint, wait_for_convergence
-
-DELEGATED = REPO_ROOT / "examples" / "hello-saas-delegated.yaml"
-HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
 
 CONTRACT_TREE = "tests/contract/"
 
@@ -124,57 +114,6 @@ def _is_merged(env: dict, pr_number: int) -> bool:
     return bool(resp.json()["merged"])
 
 
-# --- the registry, through psql ----------------------------------------------
-
-
-def _psql(query: str) -> str:
-    proc = subprocess.run(
-        [
-            "kubectl",
-            "-n",
-            PLATFORM_NS,
-            "exec",
-            "-i",
-            "statefulset/postgres",
-            "--",
-            "psql",
-            "-U",
-            POSTGRES_USER,
-            "-d",
-            POSTGRES_USER,
-            "-At",
-            "-c",
-            query,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert proc.returncode == 0, f"psql failed: {proc.stderr}"
-    return proc.stdout.strip()
-
-
-def _run_spend(run_id: str) -> float:
-    """The run's ledger spend — the per-run hard stop is enforced there."""
-    return float(
-        _psql(
-            "SELECT COALESCE(SUM(usd), 0) FROM registry.budget_ledger "
-            f"WHERE run_id = '{run_id}'"
-        )
-        or 0
-    )
-
-
-def _participants(run_id: str) -> list[dict]:
-    rows = _psql(
-        "SELECT COALESCE(json_agg(json_build_object("
-        "'crew_template', p.crew_template, 'role_template', p.role_template)), "
-        "'[]') FROM registry.run_participants p "
-        f"WHERE p.run_id = '{run_id}'"
-    )
-    return json.loads(rows or "[]")
-
-
 def _gate_rules(story: list[dict]) -> list[str]:
     return [e["rule"] for e in story if e["tool"] == "gate.merge"]
 
@@ -194,9 +133,9 @@ def _file_issue(env: dict, title: str, body: str) -> int:
 
 
 def _pr_number_of(record: dict) -> int:
-    match = re.search(r"/pull/(\d+)$", record.get("pr_url") or "")
-    assert match, f"implement opened no PR to review: {record}"
-    return int(match.group(1))
+    number = pr_number(record.get("pr_url"))
+    assert number is not None, f"implement opened no PR to review: {record}"
+    return number
 
 
 def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
@@ -234,9 +173,7 @@ def split(stack: None, repo_baseline: dict):
     apply_blueprint(DELEGATED)
     wait_for_convergence()
     yield
-    apply_blueprint(HELLO_SAAS)
-    wait_for_convergence()
-    quiesce_heartbeat()
+    restore_pristine()
 
 
 @pytest.fixture(scope="module")
@@ -337,7 +274,7 @@ def test_the_delivered_pr_carries_no_contract_edit(smuggle: dict):
 
 
 def test_the_smuggle_run_stayed_within_its_budget(smuggle: dict):
-    spend = _run_spend(smuggle["run_id"])
+    spend = run_spend(smuggle["run_id"])
     assert 0 <= spend < 5.0, f"the smuggle run overspent: {spend}"
 
 
@@ -446,7 +383,7 @@ def test_the_reviewer_verdict_was_journaled_either_way(laundered: dict):
 
 
 def test_the_laundering_review_stayed_within_its_budget(laundered: dict):
-    spend = _run_spend(laundered["review_run_id"])
+    spend = run_spend(laundered["review_run_id"])
     assert 0 <= spend < 5.0, f"the laundering review overspent: {spend}"
 
 
@@ -499,8 +436,8 @@ def test_the_ticket_routed_to_the_contract_crew(gutted: dict):
     the prose: the run's participants are the contract-authoring crew, a
     template the delivery crew does not contain — so the spec's author is
     positionally independent of the implementer by construction."""
-    crews = {p["crew_template"] for p in _participants(gutted["implement_run_id"])}
-    roles = {p["role_template"] for p in _participants(gutted["implement_run_id"])}
+    crews = {p["crew_template"] for p in participants(gutted["implement_run_id"])}
+    roles = {p["role_template"] for p in participants(gutted["implement_run_id"])}
     assert crews == {"contract-authoring"}, crews
     assert roles == {"contract-author"}, roles
 
@@ -586,5 +523,5 @@ def test_the_whole_gutting_reconstructs_from_one_run_id(gutted: dict):
 def test_the_gutting_runs_stayed_within_their_budgets(gutted: dict):
     """Bounded money throughout: the authoring run and the review that
     refused it each stayed under the company's per-run cap."""
-    assert 0 <= _run_spend(gutted["implement_run_id"]) < 5.0
-    assert 0 <= _run_spend(gutted["review_run_id"]) < 5.0
+    assert 0 <= run_spend(gutted["implement_run_id"]) < 5.0
+    assert 0 <= run_spend(gutted["review_run_id"]) < 5.0
