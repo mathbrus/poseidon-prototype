@@ -219,9 +219,22 @@ def _build_conversation(
         agent=agent,
         workspace=workspace,
         visualizer=None,
-        stuck_detection=False,  # deterministic scripts and short loops
+        stuck_detection=True,
         max_iteration_per_run=max_steps,
     )
+
+
+def _loop_failure(convo: Conversation, steps: int) -> str | None:
+    """Why the SDK loop stopped short, or None if it finished. The SDK
+    sets ERROR at the step cap and STUCK when its detector sees the same
+    action and observation repeat (a nudge comes first for a repeating
+    error); neither raises, so every runner asks."""
+    status = convo.state.execution_status
+    if status == ConversationExecutionStatus.STUCK:
+        return "agent loop stuck repeating itself"
+    if status == ConversationExecutionStatus.ERROR:
+        return f"agent loop did not finish within {steps} steps"
+    return None
 
 
 def _render_prompt(path: Path, settings: AgentSettings) -> str:
@@ -386,10 +399,10 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
         iterations = 0
         while True:
             convo.run()
-            if convo.state.execution_status == ConversationExecutionStatus.ERROR:
+            if failure := _loop_failure(convo, ACT_STEP_CAP):
                 return RunResult(
                     iterations=iterations,
-                    error=f"agent loop failed after {iterations} verify cycles",
+                    error=f"{failure} (after {iterations} verify cycles)",
                 )
             iterations += 1
             try:
@@ -430,9 +443,11 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
             "request with the open_pr tool."
         )
         convo.run()
+        failure = _loop_failure(convo, max_steps)
     if records.pr_url is None:
         return RunResult(
-            error="agent stopped without opening a pull request", iterations=1
+            error=failure or "agent stopped without opening a pull request",
+            iterations=1,
         )
     log.info("delivered", extra={"pr_url": records.pr_url})
     return RunResult(pr_url=records.pr_url, iterations=1)
@@ -452,11 +467,12 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
         convo, records = s.convo, s.records
         convo.send_message(f"Task:\n{task_text}")
         convo.run()
+        failure = _loop_failure(convo, max_steps)
     if not records.comment_urls:
-        return RunResult(error="reviewer posted no findings")
+        return RunResult(error=failure or "reviewer posted no findings")
     if records.verdict is None:
         return RunResult(
-            error="reviewer finished without a verdict",
+            error=failure or "reviewer finished without a verdict",
             comment_urls=records.comment_urls,
         )
     log.info(
@@ -480,10 +496,10 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
         convo, records = s.convo, s.records
         convo.send_message(f"Goal:\n{task_text}")
         convo.run()
-        capped = convo.state.execution_status == ConversationExecutionStatus.ERROR
-    if capped:
+        failure = _loop_failure(convo, PM_STEP_CAP)
+    if failure:
         return RunResult(
-            error=f"PM did not finish within {PM_STEP_CAP} steps",
+            error=failure,
             ticket_urls=records.ticket_urls,
             crew_request_id=records.crew_request_id,
         )
@@ -547,8 +563,8 @@ def plan_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunRe
         assert s.workspace is not None
         convo.send_message(_plan_prompt(task_text, s.workspace.entries))
         convo.run()
-        if convo.state.execution_status == ConversationExecutionStatus.ERROR:
-            return RunResult(error=f"planner did not finish within {PLAN_STEP_CAP} steps")
+        if failure := _loop_failure(convo, PLAN_STEP_CAP):
+            return RunResult(error=failure)
         brief = get_agent_final_response(convo.state.events).strip()
     if not brief:
         return RunResult(error="planner produced an empty brief")

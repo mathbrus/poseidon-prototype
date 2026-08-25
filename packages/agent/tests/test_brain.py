@@ -429,13 +429,15 @@ def test_planner_that_never_answers_is_an_error(settings, gateway):
     """A planner that only reads until the step cap has no brief to give."""
     from agent.brain import PLAN_STEP_CAP
 
-    llm = ScriptedLLM([calls(tc("read_file", path="README.md"))] * PLAN_STEP_CAP)
+    llm = ScriptedLLM(
+        [calls(tc("read_file", path=f"src/m{i}.py")) for i in range(PLAN_STEP_CAP)]
+    )
 
     with scripted(gateway, llm):
         result = plan_dispatch(settings, RUN_ID, TASK)
 
     assert result.brief is None
-    assert result.error == f"planner did not finish within {PLAN_STEP_CAP} steps"
+    assert result.error == f"agent loop did not finish within {PLAN_STEP_CAP} steps"
 
 
 # --- the LLM client shape -------------------------------------------------------
@@ -634,3 +636,32 @@ def test_agents_md_the_role_may_not_read_is_skipped(settings, gateway):
 
     assert result.error is None
     assert len(llm.requests[0][0][0]["content"]) == 1
+
+
+# --- stuck detection ------------------------------------------------------------
+
+
+def test_repeating_itself_ends_the_dispatch_as_stuck(settings, gateway):
+    """The SDK's detector is on for every model: four identical action
+    and observation pairs inside one turn stop the loop with STUCK, which
+    the runner reports as a failure rather than a completion claim."""
+    same = calls(tc("read_file", path="README.md"))
+    llm = ScriptedLLM([same, same, same, same])
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error == "agent loop stuck repeating itself (after 0 verify cycles)"
+    assert llm.script == []  # stopped by the detector, not by a fifth reply
+    assert "sandbox.run_tests" not in gateway.tools_called()
+
+
+def test_a_stuck_pm_fails_with_what_it_filed(settings, gateway):
+    same = calls(tc("read_issues"))
+    llm = ScriptedLLM([same] * 4)
+
+    with scripted(gateway, llm):
+        result = pm_dispatch(settings, RUN_ID, "goal")
+
+    assert result.error == "agent loop stuck repeating itself"
+    assert result.ticket_urls == []
