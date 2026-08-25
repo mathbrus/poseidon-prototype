@@ -76,7 +76,7 @@ gateway does not take it on faith:
 - No header at all → `400`, code `llm_unattributed`, audited.
 - An ephemeral caller naming a run other than the one its live
   `run_participants` row binds it to → `403`, `llm_foreign_run`. A crew
-  member cannot bill a foreign run.
+  agent cannot bill a foreign run.
 - A run the registry has never seen, or one belonging to a different
   company than the caller's → `403`, `llm_unknown_run`.
 
@@ -162,7 +162,7 @@ cannot upgrade itself to a more expensive model by asking.
 The honest edge: instance rows are written by the operator for the
 standing agents, so an ephemeral agent has none and resolves to
 `DEFAULT_MODEL`, as does any unmapped tier. In the kind deployment the
-mock overlay maps every tier to `mock-brain` anyway; per-member tier
+mock overlay maps every tier to `mock-brain` anyway; per-agent tier
 routing for ephemeral agents is future work the config comment admits
 ("for unmapped tiers and callers without an instance row").
 

@@ -189,7 +189,7 @@ sufficient to fix the document: what is wrong, where, and what is allowed
 instead. One real example (the lean-standing rule, from `test_checks.py`):
 
 ```
-standing.backend-engineer: standing count 1 on non-spawner template 'backend-engineer' — execution is ephemeral crews; hire a conductor and give it may_spawn, or set count: 0
+standing.backend-engineer: standing count 1 on non-spawner template 'backend-engineer' — execution is ephemeral crews; declare a conductor with may_spawn, or set count: 0
 ```
 
 Two subtleties. First, `compile_blueprint` accepts plain dicts and does

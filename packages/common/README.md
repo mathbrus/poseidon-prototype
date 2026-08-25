@@ -56,7 +56,7 @@ A clean answer maps to an identity in one of three ways. The platform
 namespace's orchestrator SA becomes the `platform` lifecycle. Any other
 name resolves through the registry — `agent_instances` for standing
 agents, then `run_participants` by ServiceAccount name for ephemeral crew
-members (crew SA names carry a `crew-` prefix standing ids never use, so
+agents (their SA names carry an `ephemeral-` prefix standing ids never use, so
 the lookups cannot shadow each other). Either way the row's recorded
 namespace **must** match the token's: the same SA name in another
 namespace is an impersonation attempt and is refused.

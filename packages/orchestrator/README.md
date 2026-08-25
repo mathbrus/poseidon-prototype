@@ -199,10 +199,10 @@ finalizes the run with the budget error.
 
 ## Identity: bound deterministically, revoked by a row
 
-Agent ids are deterministic from `{crew, member, run}` —
+Agent ids are deterministic from `{crew, crew_role, run}` —
 `ephemeral_agent_id()` is string concatenation, nothing more — so a bind
 retried after a worker death lands on the *same* participants row,
-instead of leaking a second identity. Nothing is signed: the member's
+instead of leaking a second identity. Nothing is signed: the agent's
 credential is its own pod's projected ServiceAccount token, and the row —
 which maps the SA name to run, crew coordinates, company and catalog
 template — is what the gateways resolve on every call. Real revocation is
@@ -212,7 +212,7 @@ caller abandons the identity — revocation is final, and a retry that lost
 the race with teardown must not build on it.
 
 `fulfill_crew` composes the whole fulfilment: consume the recorded crew
-request, bind every member and give each its own pod, run the
+request, bind every agent and give each its own pod, run the
 planner, hand back the brief. Two details carry the design:
 
 - **Fulfilment never improvises authority.** Without a recorded,

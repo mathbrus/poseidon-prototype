@@ -47,8 +47,8 @@ says "check the spelling, or the section it belongs to".
 The catalog pass is kept deliberately narrow: only what a *document* can
 be wrong about regardless of cluster state. It catches a `template` or
 `crews:` key outside the catalogs, an ephemeral agent the template does not
-define, a member whose `role_template` contradicts the catalog's, a
-platform-only tool in any allow-list, and a member allow-list wider than
+define, an agent whose `role_template` contradicts the catalog's, a
+platform-only tool in any allow-list, and an agent allow-list wider than
 the catalog's. Each check tolerates malformed values rather than crashing
 on them — the schema pass already reports those — and simply skips what it
 cannot read.
@@ -64,11 +64,11 @@ tickets and registry runs, not a private store. `backend-engineer`
 (sandbox tools plus `git.open_pr`, frontier tier), `sdet` (sandbox plus
 review tools plus `issues.comment`, standard tier) and `contract-author`
 (sandbox tools plus `git.open_pr`, frontier tier — the one template that
-may deliver into a declared contract tree) are crew-member material
+may deliver into a declared contract tree) are ephemeral-agent material
 only.
 
 Why a fixed catalog at all? Because the compiler turns each template into
-an agent spec and a per-member Rego bundle, and a template a blueprint
+an agent spec and a per-agent Rego bundle, and a template a blueprint
 could invent would be a policy the platform never reviewed. The catalog
 is versioned (`CATALOG_VERSION = "v1"`) so that resolution is against a
 known artifact, and templates carry tool scopes, model tier and runtime
@@ -87,12 +87,12 @@ Three crew templates: `feature-delivery` (a planner plus one coding
 executor), `feature-review` (one reviewer, run against a sandbox
 provisioned from the PR ref) and `contract-authoring` (one contract
 author, no planner — the contract ticket is the brief). Crew names,
-member names and each member's `role_template` in a blueprint must all
+agent names and each agent's `role_template` in a blueprint must all
 match the catalog: a `crews:` key outside it would validate structurally
 and then resolve against nothing in the compiler, which is the failure
 mode these cross-checks exist to kill.
 
-The planner is the catalog's most deliberate member:
+The planner is the catalog's most deliberate agent:
 
 ```python
 # The planner is LLM-only: read-only against the run's one sandbox, no
@@ -101,10 +101,10 @@ The planner is the catalog's most deliberate member:
 _PLANNER_TOOLS = ("sandbox.read_file", "sandbox.list_dir", "issues.read")
 ```
 
-`needs_sandbox: False` on that member is the other half of the same
-contract: LLM-only members get no sandbox of their own.
+`needs_sandbox: False` on that agent is the other half of the same
+contract: LLM-only agents get no sandbox of their own.
 
-A blueprint may **narrow** a catalog member's allow-list, never widen it.
+A blueprint may **narrow** a catalog agent's allow-list, never widen it.
 A document granting the planner `sandbox.write_file` fails validation
 with a message quoting the catalog's list — because the
 planner-is-read-only contract is a catalog property, and a wider document
@@ -120,7 +120,7 @@ capability ceiling — requiring ⊆ would force the PM's scope to become the
 union of everything it might ever spawn, the opposite of least privilege.
 
 Crews also carry `budget_inheritance: "run"`, the only value the schema
-admits: members inherit the run's budget, and the ledger keeps them as
+admits: agents inherit the run's budget, and the ledger keeps them as
 separate dimensions so crew fan-out stays attributable.
 
 ## The tool catalog
@@ -145,7 +145,7 @@ RUN_SCOPED = frozenset(SANDBOX_TOOLS)
 ```
 
 `PLATFORM_ONLY` is one tool, `git.merge_pr`, and validation refuses it in
-any role or crew-member allow-list — that check lives here, not in the
+any role or ephemeral-agent allow-list — that check lives here, not in the
 compiler, because a document that grants it is wrong on its face. Note
 what makes it interesting: the name *is* in `KNOWN_TOOLS`, so the schema
 enum accepts it; the refusal is about who may hold it, not whether it
@@ -188,7 +188,7 @@ the schema and the catalogs.
   `^[a-z0-9][a-z0-9-]*$`; roles are keyed by name so a blueprint
   diff — a hire, a fire — reads as one.
 - An ephemeral agent's `tools` list is required, explicit, and at most the
-  catalog member's list. An implicit scope is what the compiler refuses
+  catalog agent's list. An implicit scope is what the compiler refuses
   to guess.
 - No company role or ephemeral agent may hold a `PLATFORM_ONLY` tool.
 - The catalogs themselves obey the tool rules: every template scope is a

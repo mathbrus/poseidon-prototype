@@ -92,7 +92,7 @@ re-executed after crashes and worker deaths ([root README, section
 - `Runs.start` upserts — a re-attempt resets the same row (and clears a
   stale terminal state) instead of creating a second run.
 - `RunParticipants.add` upserts on the deterministic `agent_id` the mint
-  activity derives from `{crew, member, run}` — a retried mint converges
+  activity derives from `{crew, crew_role, run}` — a retried mint converges
   on one identity instead of leaking two.
 - `CrewRequests` derives its id from `{conductor, crew_template, run_id}`
   so a retried request refreshes rather than duplicates; `consume` is an

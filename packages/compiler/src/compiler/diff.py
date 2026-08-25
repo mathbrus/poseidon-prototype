@@ -13,7 +13,7 @@ from compiler.snapshot import RegistrySnapshot
 
 @dataclass
 class InstanceChange:
-    # Keyed by agent_id, not standing_role: with count > 1 a standing_role is several
+    # Keyed by agent_id, not standing role: with count > 1 one standing role is several
     # instances, and a count change must show up as creates/deletes.
     agent_id: str
     action: str  # create | update | delete

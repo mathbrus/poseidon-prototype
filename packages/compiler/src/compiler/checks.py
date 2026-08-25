@@ -94,7 +94,7 @@ def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str
                 f"standing.{standing_role}: standing count "
                 f"{role.get('count')} on non-spawner template "
                 f"{role.get('template')!r} — execution is ephemeral crews; "
-                "standing_role a conductor and give it may_spawn, or set count: 0"
+                "declare a conductor with may_spawn, or set count: 0"
             )
     active_spawners = _active_spawners(blueprint, roles)
     for name, wf in _enabled_workflows(blueprint).items():
@@ -148,7 +148,7 @@ def _tool_scopes(blueprint: dict[str, Any]) -> list[str]:
         problems += platform_tool_problems(
             f"tools.{role_name}.allow", (scope or {}).get("allow") or []
         )
-    # A scope for a role nobody standing_roles or crews is dead configuration; say so
+    # A scope no active standing role and no crew uses is dead configuration; say so
     # rather than compiling it into a bundle no caller can ever match. A
     # `count: 0` placeholder is inactive — that is what count 0 means.
     usable_roles = {r.get("template") for r in _active_standing_roles(blueprint).values()}

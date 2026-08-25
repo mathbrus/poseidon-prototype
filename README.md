@@ -437,7 +437,7 @@ A human starts an implement run from a ticket (or the heartbeat does — see
    fulfilment refuses. Authority is never improvised.
 2. **Provisions one sandbox** for the run.
 3. **Binds an identity and provisions a pod for each ephemeral agent.**
-   Identity is derived deterministically from `{crew, member, run}`, so a
+   Identity is derived deterministically from `{crew, crew_role, run}`, so a
    retry after a crash lands on the same registry row rather than leaking a
    second identity. Each pod gets its own per-run ServiceAccount.
 
