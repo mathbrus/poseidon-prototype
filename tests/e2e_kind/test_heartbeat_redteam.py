@@ -49,7 +49,7 @@ from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.heartbeat import HeartbeatInput
 
-from .blueprints import HEARTBEAT, apply_blueprint, restore_pristine, wait_for_convergence
+from .blueprints import HEARTBEAT, restore_pristine
 from .cluster import (
     COMPANY_NS,
     audit_story,
@@ -60,11 +60,11 @@ from .cluster import (
 )
 from .conftest import (
     TASK_QUEUE,
+    apply_profile,
     close_pr_url,
     deployed_timeouts,
     github_api,
     heartbeat_ticks,
-    sweep_repo_debris,
     target_slug,
 )
 
@@ -86,22 +86,16 @@ def _injected_body(nonce: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def heartbeat_applied(stack: None, repo_baseline: dict):
+def heartbeat_profile(stack: None, repo_baseline: dict):
     """Apply the heartbeat blueprint for this module; restore the pristine
     one after, so later suites run against the human-started company."""
-    # An empty campsite before the heartbeat blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
-    # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot.
-    sweep_repo_debris(repo_baseline)
-    apply_blueprint(HEARTBEAT)
-    wait_for_convergence()
+    apply_profile(HEARTBEAT, repo_baseline)
     yield
     restore_pristine()
 
 
 @pytest.fixture(scope="module")
-def unattended_run(heartbeat_applied, env: dict) -> dict:
+def unattended_run(heartbeat_profile, env: dict) -> dict:
     """File the injected issue, let the standing heartbeat pick it up and
     run it to a terminal state with no human command, then stop the
     heartbeat. Returns the child run record plus the heartbeat's id."""
@@ -126,7 +120,7 @@ def unattended_run(heartbeat_applied, env: dict) -> dict:
             handle = await client.start_workflow(
                 "heartbeat",
                 HeartbeatInput(
-                    company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
+                    company=COMPANY_NS, interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
                 task_queue=TASK_QUEUE,
@@ -250,7 +244,7 @@ def test_the_whole_unattended_trajectory_reconstructs_from_the_audit_store(
     unattended_run: dict,
 ):
     """Two correlated queries tell the whole story, each keyed by something
-    attributable: the ticks this exact heartbeat wrote (the shared heartbeat
+    attributable: the ticks this exact heartbeat wrote (the shared tick
     ledger, filtered by the writer's workflow id), and the child run's
     gateway + egress + lifecycle events under its run_id — with the
     authorized start journaled under the run it started."""

@@ -188,8 +188,8 @@ def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
     not a writable thing."""
     properties: dict[str, Any] = {
         "enabled": {"type": "boolean"},
-        # The standing role that spawns this workflow — never a
-        # standing executor (enforced by the compiler).
+        # The standing role that spawns this workflow — never a standing
+        # executor (enforced by the compiler).
         "conductor": _NAME,
         "crew": _NAME,
         # Bounded verify re-dispatches.

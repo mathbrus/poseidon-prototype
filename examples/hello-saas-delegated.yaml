@@ -1,6 +1,6 @@
 # hello-saas-delegated — the flagship autonomous company: a standing
 # heartbeat AND a POLICY-RESOLVED merge gate. Like hello-saas-heartbeat,
-# the PM runs the backlog on a heartbeat; unlike it, in-class passing work
+# the company starts its own runs; unlike it, in-class passing work
 # merges under compiled policy with no human command at all. The merge gate
 # is delegated for a narrow class of changes: a passing independent review
 # plus the platform's own green checks merges a PR touching only
@@ -185,9 +185,9 @@ budgets:
   per_run:
     usd: 5
 
-# The standing heartbeat: the flagship delegated company runs its own
-# backlog. In-class passing work merges under compiled policy with no human
-# command; carve-out PRs still park on the human `merge` signal.
+# The flagship delegated company runs its own backlog. In-class passing
+# work merges under compiled policy with no human command; carve-out PRs
+# still park on the human `merge` signal.
 heartbeat:
   conductor: pm
   interval_minutes: 30

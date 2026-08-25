@@ -82,6 +82,7 @@ from mockllm.brain import (
 from orchestrator.workflows.base import FAST_TIMEOUTS, Timeouts, workflow_id
 from orchestrator.workflows.implement import ImplementInput
 
+from .blueprints import apply_blueprint, wait_for_convergence
 from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
@@ -314,8 +315,8 @@ def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
 
 
 def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
-    """The heartbeat ledger rows this exact heartbeat wrote. Every heartbeat
-    of a company journals under the shared `heartbeat-{company}` run id, but
+    """The tick rows this exact heartbeat wrote. Every heartbeat of a
+    company journals under the shared `heartbeat-{company}` run id, but
     each tick row carries the writing workflow's own id in the `workflow`
     column — so this is attributable to one heartbeat even while the ensure
     loop runs a second one beside it. Assert on these, never on
@@ -473,6 +474,17 @@ def pr_state(env: dict, pr_url: str | None) -> str:
         return "missing"
     pull = github_api(env, "GET", f"/repos/{target_slug(env)}/pulls/{number}").json()
     return str(pull.get("state") or "missing")
+
+
+def apply_profile(path: Path, env: dict) -> None:
+    """Sweep, apply, converge — the way a module that declares a heartbeat
+    must arrive. An empty campsite first: the ensure loop's bare heartbeat
+    ticks once the moment the section is declared, and any open PR or
+    issue an earlier module left becomes its backlog — a review parked on
+    a day-long gate that holds the one concurrency slot."""
+    sweep_repo_debris(env)
+    apply_blueprint(path)
+    wait_for_convergence()
 
 
 def sweep_repo_debris(env: dict) -> None:

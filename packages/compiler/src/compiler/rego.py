@@ -221,8 +221,8 @@ def _crew_file(
 
 def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
     """The heartbeat's start authority. `heartbeat.start` is not a gateway
-    tool: it is the decision the orchestrator's conductor loop must win
-    before starting a workflow on its own initiative. No heartbeat section
+    tool: it is the decision the heartbeat must win before starting a
+    workflow on its own initiative. No heartbeat section
     compiles no file, so an unattended start with no declared authority
     falls to the default deny — revocation is a blueprint diff.
 

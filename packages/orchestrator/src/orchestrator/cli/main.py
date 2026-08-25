@@ -146,7 +146,7 @@ def signal(
     payload: str = typer.Option(None, help="Optional payload"),
     workflow: str = typer.Option(
         "implement",
-        help="Which workflow family the run belongs to: implement, intake, review or heartbeat",
+        help=f"Which workflow family the run belongs to: {', '.join(FAMILIES)}",
     ),
 ) -> None:
     """Send a gate signal to a run's workflow — the HITL verdict path
@@ -168,7 +168,7 @@ def status(
     run_id: str,
     workflow: str = typer.Option(
         "implement",
-        help="Which workflow family the run belongs to: implement, intake, review or heartbeat"
+        help=f"Which workflow family the run belongs to: {', '.join(FAMILIES)}"
         " (for heartbeat, RUN_ID is the company name)",
     ),
 ) -> None:

@@ -17,7 +17,7 @@ import subprocess
 
 import pytest
 import yaml
-from conftest import HEARTBEAT, HELLO_SAAS
+from conftest import HEARTBEAT_SECTION, HELLO_SAAS
 
 from compiler import compile_blueprint
 
@@ -111,7 +111,7 @@ def decide_heartbeat(tmp_path_factory):
     """The same company with a standing heartbeat declared."""
 
     def add_heartbeat(blueprint: dict) -> None:
-        blueprint["heartbeat"] = copy.deepcopy(HEARTBEAT)
+        blueprint["heartbeat"] = copy.deepcopy(HEARTBEAT_SECTION)
 
     return _decider(tmp_path_factory, _company(add_heartbeat))
 

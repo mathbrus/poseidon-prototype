@@ -17,7 +17,7 @@ def blueprint() -> dict:
 # A coherent heartbeat section for the shipped example: the PM decides,
 # implement is the one startable workflow, and the daily cap funds four
 # $5 runs.
-HEARTBEAT = {
+HEARTBEAT_SECTION = {
     "conductor": "pm",
     "interval_minutes": 30,
     "max_concurrent_runs": 1,
@@ -30,7 +30,7 @@ HEARTBEAT = {
 def heartbeat_blueprint(blueprint: dict) -> dict:
     """The blueprint with a standing heartbeat declared."""
     document = copy.deepcopy(blueprint)
-    document["heartbeat"] = copy.deepcopy(HEARTBEAT)
+    document["heartbeat"] = copy.deepcopy(HEARTBEAT_SECTION)
     return document
 
 

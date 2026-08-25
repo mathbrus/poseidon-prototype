@@ -221,7 +221,7 @@ heartbeat:
 
 The one section the shipped example does *not* carry, because absence is a
 meaningful state: with no `heartbeat` section, runs start only when a human
-starts one, which is everything this README described so far.
+starts one, which is everything this reference described so far.
 
 Declaring it grants the platform a bounded authority to start work on its
 own initiative: every `interval_minutes`, the named conductor is dispatched

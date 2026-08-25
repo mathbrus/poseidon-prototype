@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from conftest import heartbeat_spec
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
@@ -26,13 +27,7 @@ pytestmark = pytest.mark.anyio
 
 COMPANY = "hello-saas"
 
-CONFIG = {
-    "conductor": "pm",
-    "interval_minutes": 30,
-    "max_concurrent_runs": 1,
-    "may_start": ["implement", "review"],
-    "daily_cap_usd": 20.0,
-}
+CONFIG = heartbeat_spec(may_start=["implement", "review"])
 
 
 def observation(**overrides: Any) -> dict[str, Any]:
@@ -170,7 +165,7 @@ async def run_heartbeat(client: Client, harness: Harness) -> dict[str, Any]:
     ):
         handle = await client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, tick_interval_s=1, timeouts=FAST_TIMEOUTS),
+            HeartbeatInput(company=COMPANY, interval_s=1, timeouts=FAST_TIMEOUTS),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
@@ -333,7 +328,7 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
     async with worker():
         handle = await env.client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, tick_interval_s=1, timeouts=FAST_TIMEOUTS),
+            HeartbeatInput(company=COMPANY, interval_s=1, timeouts=FAST_TIMEOUTS),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )

@@ -316,8 +316,8 @@ flowchart LR
 The split between `schema` and `compiler` is worth understanding. `schema`
 asks *is this document well-formed?* — a question answerable from the
 document alone. `compiler` asks *is this company coherent?* — does the
-workflow name a conductor that may spawn its crew, does every scope name a real tool, do
-the budgets cover what is enabled. Both fail before anything reaches a
+workflow have a conductor, does every scope name a real tool, do the
+budgets cover what is enabled. Both fail before anything reaches a
 cluster.
 
 Note the dotted arrow. Policy is **never pushed** into OPA. The operator

@@ -37,16 +37,16 @@ from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.heartbeat import HeartbeatInput
 from orchestrator.workflows.intake import IntakeInput
 
-from .blueprints import HEARTBEAT, apply_blueprint, restore_pristine, wait_for_convergence
+from .blueprints import HEARTBEAT, restore_pristine
 from .cluster import COMPANY_NS, audit_story, await_run, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
+    apply_profile,
     close_pr,
     deployed_timeouts,
     github_api,
     heartbeat_ticks,
     pr_number,
-    sweep_repo_debris,
     target_slug,
 )
 
@@ -55,13 +55,7 @@ from .conftest import (
 def overnight(stack: None, env: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
-    # An empty campsite before the heartbeat blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
-    # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot.
-    sweep_repo_debris(env)
-    apply_blueprint(HEARTBEAT)
-    wait_for_convergence()
+    apply_profile(HEARTBEAT, env)
 
     intake_run = new_run_id()
     nonce = intake_run[-6:].lower()
@@ -101,7 +95,7 @@ def overnight(stack: None, env: dict) -> dict:
             beat = await client.start_workflow(
                 "heartbeat",
                 HeartbeatInput(
-                    company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
+                    company=COMPANY_NS, interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
                 task_queue=TASK_QUEUE,

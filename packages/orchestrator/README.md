@@ -122,8 +122,8 @@ compiled `heartbeat.start` decision at OPA before the tick starts
 anything — the caps (`max_concurrent_runs`, `daily_cap_usd`, the
 `may_start` list) are checked in the workflow for the honest audit
 reason and again by policy for the refusal that does not depend on this
-code. A started child run is abandoned, not supervised: a tick is one
-heartbeat cycle, and progress and gates belong to the run. Every tick
+code. A started child run is abandoned, not supervised: the tick starts
+work, it does not supervise it — progress and gates belong to the run. Every tick
 outcome — started, idle and why, refused and why — is an audit event
 under the `heartbeat-{company}` run id, and the daily-cap halt is a
 `process-gate` event like a per-run budget stop.

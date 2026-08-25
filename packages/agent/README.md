@@ -50,7 +50,7 @@ for it.
 | `prompting.py` | Everything that reaches the model before its first turn: the mode's procedure followed by the SDK's heuristic sections, and the repository's `AGENTS.md` as untrusted context. |
 | `gateway_client.py` | The async MCP client (`McpGateway`, `ToolCallError`). |
 | `config.py` | Settings, including gateway-credential resolution. |
-| `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. |
+| `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. Two sentences are contracts with the mock brain's phase keying: `pm.md` opens "You are the product manager" and `decide.md` says "a heartbeat decision". |
 
 ## Dispatch: the /task API
 

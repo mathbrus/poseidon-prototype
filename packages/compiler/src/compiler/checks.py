@@ -2,8 +2,8 @@
 
 These are the checks the schema cannot make, because they are about a
 company being *coherent* rather than a document being well-formed: does this
-workflow name a conductor that may spawn its crew, does every scope name a tool the
-gateway actually serves, can the budget pay for what is enabled.
+workflow have a conductor, does every scope name a tool the gateway actually
+serves, can the budget pay for what is enabled.
 
 `compile_blueprint` accepts plain dicts and does not run the schema pass, so
 the document-level catalog checks (`schema.coherence`) run here too — the

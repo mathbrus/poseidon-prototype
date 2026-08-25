@@ -52,11 +52,11 @@ from sandbox.k8s_jobs import K8sJobsBackend
 async def ensure_heartbeat_loop(
     client: Client, settings: WorkerSettings, companies: Companies, log
 ) -> None:
-    """Reconcile-on-goal for the heartbeat: while the applied blueprint
-    declares a heartbeat section, the company's `heartbeat-{company}` workflow
-    is running; start it if it is not. The other half of the loop is the
-    workflow's own config read — it stops itself when the section is gone —
-    so this side only ever starts, never kills."""
+    """Reconcile-on-goal: while the applied blueprint declares the
+    section, the company's `heartbeat-{company}` workflow is running; start
+    it if it is not. The other half of the loop is the workflow's own
+    config read — it stops itself when the section is gone — so this side
+    only ever starts, never kills."""
     while True:
         await ensure_heartbeat_once(client, settings, companies, log)
         await asyncio.sleep(settings.heartbeat_ensure_interval_s)

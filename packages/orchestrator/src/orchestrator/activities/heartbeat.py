@@ -1,23 +1,22 @@
-"""The heartbeat activities: the heartbeat's eyes, its authorization and its
-audit trail. Thin clients, as always — sequencing and the tick cadence live
-in the workflow.
+"""The heartbeat's eyes, its authorization and its audit trail. Thin
+clients, as always — sequencing and the tick cadence live in the workflow.
 
 Retry safety, per activity:
-    heartbeat_config      — read-only; safe.
-    heartbeat_observe     — read-only (registry + the open backlog under the
+    heartbeat_config    — read-only; safe.
+    heartbeat_observe   — read-only (registry + the open backlog under the
                           platform identity); safe. Only numbers, titles
                           and URLs leave here: issue bodies are untrusted
                           input the implement run reads itself.
-    heartbeat_decide      — dispatches the PM's decide mode and polls to
+    heartbeat_decide    — dispatches the PM's decide mode and polls to
                           terminal; the PM answers 409 while running
                           (re-attach) like every dispatch. The chosen
                           action is validated against the observation and
                           journaled; an invalid decision is non-retryable.
-    heartbeat_authorize   — evaluates the compiled heartbeat.start decision at
-                          OPA and audits it; a re-attempt re-evaluates and
-                          re-audits, which is the honest record of what was
-                          asked. A deny is non-retryable by construction.
-    record_tick — append-only audit write; a duplicate row is a
+    heartbeat_authorize — evaluates the compiled heartbeat.start decision
+                          at OPA and audits it; a re-attempt re-evaluates
+                          and re-audits, which is the honest record of what
+                          was asked. A deny is non-retryable by construction.
+    record_tick         — append-only audit write; a duplicate row is a
                           duplicate heartbeat line, never a wrong one.
 
 Ticket titles flow into the decide prompt and are untrusted, like every
@@ -51,13 +50,17 @@ BACKLOG_LIMIT = 20
 RECENT_RUNS_LIMIT = 10
 RATIONALE_CLIP = 300
 
+# The workflow family, as the registry, the audit ledger and the policy
+# input all see it.
+FAMILY = "heartbeat"
 # The decision's own run row. The decide dispatch is an LLM call, and the
 # LLM gateway binds every call to a registry run — so the row must exist
 # before the PM speaks, or every tick dies `llm_unknown_run`. It carries
-# the `heartbeat` workflow so the observation ignores it (active_count and
-# started_issue_numbers scope to implement/review; recent() filters it),
-# and a started child reclaims the id through its own idempotent create_run.
-DECIDE_WORKFLOW = "heartbeat"
+# the heartbeat family so the observation ignores it (active_count and
+# started_issue_numbers scope to implement/review; recent() filters it —
+# `registry.runs.recent` spells the same family name), and a started child
+# reclaims the id through its own idempotent create_run. The task text is
+# a label for humans reading the runs table; nothing parses it.
 DECIDE_TASK = "heartbeat decision"
 
 
@@ -68,8 +71,9 @@ def _section(header: str, lines: list[str]) -> str:
 
 def decision_prompt(observed: dict[str, Any], may_start: list[str]) -> str:
     """The decide dispatch's user message: the whole observation, composed
-    the same way every tick. The mock brain parses these section headers;
-    changing them is changing a contract."""
+    the same way every tick. The mock brain parses these section headers
+    and the brain-host tests mirror the header line, so changing either is
+    changing a contract — `test_heartbeat_activities` pins the shape."""
     startable = ", ".join([*may_start, "idle"])
     tickets = [f"#{i['number']} — {i['title']}" for i in observed.get("backlog") or []]
     prs = [f"#{p['number']} — {p['url']}" for p in observed.get("reviewable_prs") or []]
@@ -108,8 +112,8 @@ class HeartbeatActivities:
         self._audit = audit
         self._log = get_logger("orchestrator.heartbeat")
 
-    def _heartbeat_run_id(self) -> str:
-        return workflow_id("heartbeat", self._settings.company)
+    def _ledger_run_id(self) -> str:
+        return workflow_id(FAMILY, self._settings.company)
 
     @activity.defn(name="heartbeat_config")
     async def heartbeat_config(self) -> dict[str, Any] | None:
@@ -150,7 +154,7 @@ class HeartbeatActivities:
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             issues = await gateway.read_open_issues(
-                self._heartbeat_run_id(), self._settings.target_repo
+                self._ledger_run_id(), self._settings.target_repo
             )
         backlog = sorted(
             (
@@ -208,8 +212,8 @@ class HeartbeatActivities:
             self._runs.start,
             run_id,
             DECIDE_TASK,
-            DECIDE_WORKFLOW,
-            self._heartbeat_run_id(),
+            FAMILY,
+            self._ledger_run_id(),
             self._settings.company,
         )
         terminal, terminal_error = "done", None
@@ -231,7 +235,7 @@ class HeartbeatActivities:
             problem = self._invalid_reason(decision, observed, may_start)
             rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
             await self._emit(
-                run_id=self._heartbeat_run_id(),
+                run_id=self._ledger_run_id(),
                 tool="heartbeat.decide",
                 digest=args_digest(decision),
                 decision="deny" if problem else "allow",
@@ -293,7 +297,7 @@ class HeartbeatActivities:
             "parent_agent_id": "",
             "role": "platform",
             "run_id": child_run_id,
-            "workflow": "heartbeat",
+            "workflow": FAMILY,
             "tool": "heartbeat.start",
             "args": {
                 "workflow": workflow_name,
@@ -328,7 +332,7 @@ class HeartbeatActivities:
         contract (the gate-outcome idiom): a tick that started work is an
         allow; every other outcome declined or was refused to start."""
         await self._emit(
-            run_id=self._heartbeat_run_id(),
+            run_id=self._ledger_run_id(),
             tool="heartbeat.tick",
             digest=args_digest({"outcome": outcome, "rule": rule}),
             decision="allow" if outcome == "started" else "deny",
@@ -346,7 +350,7 @@ class HeartbeatActivities:
         decision: str,
         rule: str,
         latency_ms: int = 0,
-        workflow: str = "heartbeat",
+        workflow: str = FAMILY,
     ) -> None:
         await record_event(
             self._audit,

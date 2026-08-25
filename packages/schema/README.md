@@ -16,8 +16,7 @@ sections: `company`, `stack`, `standing`, `crews`, `tools`, `workflows`,
 `heartbeat` — a company without guardrails is a choice you make visibly, not
 a default you fall into by omission, and a company that declares no
 heartbeat is simply one whose runs a human starts. The document format
-itself is introduced line by line in
-[docs/blueprint.md](../../docs/blueprint.md).
+itself is introduced line by line in [docs/blueprint.md](../../docs/blueprint.md).
 
 ## Module map
 

@@ -150,8 +150,8 @@ class Runs:
 
     def active_count(self, company: str) -> int:
         """Runs currently occupying delivery capacity — what the heartbeat
-        heartbeat compares against `max_concurrent_runs`. Intake is not
-        counted: it files tickets, it does not occupy a crew."""
+        compares against `max_concurrent_runs`. Intake is not counted: it
+        files tickets, it does not occupy a crew."""
         rows = self._db.query(
             "SELECT COUNT(*) AS n FROM registry.runs"
             " WHERE company = %s AND status = 'running'"
@@ -217,9 +217,11 @@ class Runs:
         return {int(row["number"]) for row in rows}
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
-        # `heartbeat` decision rows exist only so the heartbeat's LLM call can
+        # Heartbeat decision rows exist only so the heartbeat's LLM call can
         # bind; they are not work the company did, so they never enter the
-        # observation's run history.
+        # observation's run history. The family name is the orchestrator's
+        # (`orchestrator.activities.heartbeat.FAMILY`), spelled here because
+        # this package cannot import it.
         rows = self._db.query(
             "SELECT * FROM registry.runs WHERE workflow <> 'heartbeat'"
             " ORDER BY created_at DESC LIMIT %s",

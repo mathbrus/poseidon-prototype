@@ -5,6 +5,7 @@ retry — the loop only ever starts, never kills."""
 from typing import Any
 
 import pytest
+from conftest import heartbeat_spec
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from orchestrator.config import WorkerSettings
@@ -56,25 +57,25 @@ async def test_no_section_starts_nothing():
 
 async def test_declared_section_starts_the_heartbeat():
     client, companies = FakeTemporal(), InMemoryCompanies()
-    companies.upsert(COMPANY, {"heartbeat": {"interval_minutes": 30}})
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     await ensure_heartbeat_once(client, settings(), companies, Quiet())
     (call,) = client.started
     assert call["name"] == "heartbeat"
     assert call["id"] == f"heartbeat-{COMPANY}"
     # No override: the blueprint's declared cadence stands.
-    assert call["input"].tick_interval_s is None
+    assert call["input"].interval_s is None
     assert call["input"].timeouts is None
 
 
 async def test_already_beating_is_the_normal_case():
     client = FakeTemporal(error=WorkflowAlreadyStartedError("heartbeat-x", "heartbeat"))
     companies = InMemoryCompanies()
-    companies.upsert(COMPANY, {"heartbeat": {"interval_minutes": 30}})
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     await ensure_heartbeat_once(client, settings(), companies, Quiet())  # no raise
 
 
 async def test_a_hiccup_is_swallowed_for_the_next_pass():
     client = FakeTemporal(error=RuntimeError("temporal unreachable"))
     companies = InMemoryCompanies()
-    companies.upsert(COMPANY, {"heartbeat": {"interval_minutes": 30}})
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     await ensure_heartbeat_once(client, settings(), companies, Quiet())  # no raise

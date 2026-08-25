@@ -1,4 +1,4 @@
-"""The heartbeat workflow: the company's standing heartbeat.
+"""The heartbeat: the standing loop that decides what the company does next.
 
     heartbeat_config -> heartbeat_observe -> heartbeat_decide (the PM) ->
     heartbeat_authorize -> start child run -> record_tick ->
@@ -54,12 +54,12 @@ from orchestrator.workflows.review import ReviewInput
 
 @dataclass
 class HeartbeatInput:
-    """`tick_interval_s` compresses the blueprint's minutes for the mock
+    """`interval_s` compresses the blueprint's minutes for the mock
     brain's e2e (None keeps the declared cadence); `timeouts` rides into
     the child runs the tick starts, for the same reason the CLI's does."""
 
     company: str
-    tick_interval_s: int | None = None
+    interval_s: int | None = None
     timeouts: Timeouts | None = None
 
 
@@ -121,7 +121,10 @@ class HeartbeatWorkflow(RunWorkflow):
         await self._record(outcome, rule, timeouts)
 
         self._phase = "sleeping"
-        interval = input.tick_interval_s or int(config["interval_minutes"]) * 60
+        if input.interval_s is not None:
+            interval = input.interval_s
+        else:
+            interval = int(config["interval_minutes"]) * 60
         await asyncio.sleep(interval)
         workflow.continue_as_new(input)
 
@@ -148,6 +151,7 @@ class HeartbeatWorkflow(RunWorkflow):
             schedule_to_close_timeout=timedelta(
                 seconds=timeouts.dispatch_schedule_to_close_s
             ),
+            # Temporal's activity liveness heartbeat, not the company's.
             heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
             retry_policy=DISPATCH_RETRY,
         )
@@ -182,8 +186,8 @@ class HeartbeatWorkflow(RunWorkflow):
             family,
             child,
             id=workflow_id(family, child_run_id),
-            # The run outlives the tick: ticks are heartbeats, not
-            # supervisors — progress and gates belong to the run.
+            # The run outlives the tick: the tick starts work, it does not
+            # supervise it — progress and gates belong to the run.
             parent_close_policy=ParentClosePolicy.ABANDON,
         )
         return "started", f"{family}_{target}_as_{child_run_id}"

@@ -47,7 +47,7 @@ from orchestrator.workflows.heartbeat import HeartbeatInput
 from orchestrator.workflows.intake import IntakeInput
 from orchestrator.workflows.review import ReviewInput
 
-from .blueprints import DELEGATED, apply_blueprint, restore_pristine, wait_for_convergence
+from .blueprints import DELEGATED, restore_pristine
 from .cluster import (
     COMPANY_NS,
     audit_story,
@@ -58,13 +58,13 @@ from .cluster import (
 )
 from .conftest import (
     TASK_QUEUE,
+    apply_profile,
     close_pr,
     delete_repo_file,
     deployed_timeouts,
     github_api,
     pr_number,
     run_implement_from_issue,
-    sweep_repo_debris,
     target_slug,
 )
 
@@ -80,13 +80,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
     base ref — without it the composed verify is red and the arc reworks
     instead of merging."""
     env = repo_baseline
-    # An empty campsite before the heartbeat blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
-    # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot.
-    sweep_repo_debris(env)
-    apply_blueprint(DELEGATED)
-    wait_for_convergence()
+    apply_profile(DELEGATED, env)
 
     intake_run = new_run_id()
     nonce = intake_run[-6:].lower()
@@ -123,7 +117,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
             beat = await client.start_workflow(
                 "heartbeat",
                 HeartbeatInput(
-                    company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
+                    company=COMPANY_NS, interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
                 task_queue=TASK_QUEUE,
@@ -298,13 +292,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     its PR parks for the single human merge, and then the implementation
     auto-merges on a green base-ref contract — no other command."""
     env = repo_baseline
-    # An empty campsite before the heartbeat blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
-    # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot.
-    sweep_repo_debris(env)
-    apply_blueprint(DELEGATED)
-    wait_for_convergence()
+    apply_profile(DELEGATED, env)
     # The declared deviation from the session baseline: the tree is declared
     # by the blueprint but deleted from `main`, so an implementation cannot
     # merge until the spec lands — which is the whole point of sequencing

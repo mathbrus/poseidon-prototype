@@ -1,8 +1,7 @@
-# hello-saas-heartbeat — the design-partner company WITH a standing
-# heartbeat. Identical to hello-saas.yaml except for the `heartbeat`
-# section: the company starts its own work from the backlog under
-# declared caps, no human starting the next run. Used by the
-# overnight acceptance capstone and the unattended-path red-team.
+# hello-saas-heartbeat — hello-saas.yaml plus a `heartbeat` section: the
+# company starts its own work from the backlog under declared caps, no
+# human starting the next run. Used by the overnight acceptance capstone
+# and the unattended-path red-team.
 
 apiVersion: poseidon.dev/v1
 

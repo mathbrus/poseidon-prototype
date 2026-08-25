@@ -6,10 +6,11 @@ import asyncio
 from typing import Any
 
 import pytest
+from conftest import heartbeat_spec
 from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
-from orchestrator.activities.heartbeat import HeartbeatActivities
+from orchestrator.activities.heartbeat import HeartbeatActivities, decision_prompt
 from orchestrator.config import WorkerSettings
 from registry.memory import (
     InMemoryAuditStore,
@@ -20,13 +21,7 @@ from registry.memory import (
 
 COMPANY = "hello-saas"
 
-HEARTBEAT_SPEC = {
-    "conductor": "pm",
-    "interval_minutes": 30,
-    "max_concurrent_runs": 1,
-    "may_start": ["implement"],
-    "daily_cap_usd": 20.0,
-}
+HEARTBEAT_SPEC = heartbeat_spec()
 
 
 def settings(tmp_path) -> WorkerSettings:
@@ -401,3 +396,27 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "deny"
     assert "not in the observation" in event["rule"]
+
+
+def test_decision_prompt_shape_is_the_contract_the_brains_parse():
+    """The header line and the section headers are what the mock brain
+    parses and the brain-host tests mirror; a change here must change
+    them too."""
+    prompt = decision_prompt(
+        {
+            "active_runs": 0,
+            "daily_spent_usd": 0.0,
+            "backlog": [{"number": 5, "title": "Add slugify"}],
+            "reviewable_prs": [],
+            "recent_runs": [],
+        },
+        ["implement", "review", "idle"],
+    )
+    assert prompt.startswith("Heartbeat tick. Runs in flight: 0.")
+    for header in (
+        "Startable actions:",
+        "Open tickets:",
+        "Delivered pull requests awaiting review:",
+        "Recent runs:",
+    ):
+        assert header in prompt
