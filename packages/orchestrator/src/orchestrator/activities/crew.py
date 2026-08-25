@@ -37,8 +37,14 @@ from orchestrator.crewpods import (
 )
 from orchestrator.identity import ephemeral_agent_id
 from orchestrator.opa import evaluate_decision
-from registry import AuditStore, BudgetLedger, CrewRequests, RunParticipants, Runs
-from registry.bundles import Companies
+from registry import (
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    CrewRequests,
+    RunParticipants,
+    Runs,
+)
 from registry.crews import request_id
 
 

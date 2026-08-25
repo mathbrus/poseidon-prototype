@@ -22,8 +22,7 @@ from common.telemetry import get_logger
 from orchestrator.clients import dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import workflow_id
-from registry import BudgetLedger, Runs
-from registry.bundles import Companies
+from registry import BudgetLedger, Companies, Runs
 
 
 class IntakeActivities:

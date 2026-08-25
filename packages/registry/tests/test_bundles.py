@@ -7,7 +7,7 @@ import tarfile
 
 import pytest
 
-from registry.bundles import pack
+from registry import pack
 
 
 def manifest_of(tarball: bytes) -> dict:

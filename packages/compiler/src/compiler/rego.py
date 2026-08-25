@@ -37,6 +37,7 @@ import json
 from typing import Any
 
 from common.policy import company_package, rego_slug
+from compiler.plan import AgentInstanceCR, ConductConfig, CrewMemberSpec
 from schema.gates import UNDELEGATABLE_PATHS
 from schema.tools import RUN_SCOPED
 
@@ -155,8 +156,10 @@ def _role_extra(tool: str, may_spawn: tuple[str, ...]) -> str:
     return _run_binding(tool)
 
 
-def _decision_file(package: str) -> str:
-    return HEADER + _DECISION.format(package=package)
+def _decision_file(package: str, *rules: str) -> str:
+    """The bundle's entrypoint file: the default-deny decision, then any
+    rules that belong beside it rather than in a per-role file."""
+    return HEADER + _DECISION.format(package=package) + "".join(rules)
 
 
 def _rego_file(company: str, body: str) -> str:
@@ -216,7 +219,7 @@ def _crew_file(
     return _rego_file(company, body)
 
 
-def _conduct_file(company: str, conduct: Any) -> str:
+def _conduct_file(company: str, conduct: ConductConfig) -> str:
     """The heartbeat's start authority. `conduct.start` is not a gateway
     tool: it is the decision the orchestrator's conductor loop must win
     before starting a workflow on its own initiative. No conduct section
@@ -465,16 +468,16 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
 
 def build_bundle(
     company: str,
-    instances: list[Any],
-    crew_members: list[Any],
+    instances: list[AgentInstanceCR],
+    crew_members: list[CrewMemberSpec],
     policies: dict[str, Any],
-    conduct: Any = None,
+    conduct: ConductConfig | None = None,
     merge_delegation: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """The company bundle: per-role and per-crew-member files, plus the
     company's decision entrypoint and the blueprint's policy rules — all
     under the company's own package."""
-    files = {"authz.rego": _decision_file(company_package(company)) + _NO_BUDGET_RULE}
+    files = {"authz.rego": _decision_file(company_package(company), _NO_BUDGET_RULE)}
     by_hire: dict[str, list[Any]] = {}
     for instance in instances:
         by_hire.setdefault(instance.hire, []).append(instance)
@@ -507,7 +510,5 @@ def build_platform_bundle(platform_tools: list[str]) -> dict[str, str]:
     own decision entrypoint. Identical for every company by construction, so
     every operator upsert of it is a no-op after the first."""
     return {
-        "platform.rego": (
-            _decision_file(PLATFORM_PACKAGE) + _platform_rules(platform_tools)
-        )
+        "platform.rego": _decision_file(PLATFORM_PACKAGE, _platform_rules(platform_tools))
     }

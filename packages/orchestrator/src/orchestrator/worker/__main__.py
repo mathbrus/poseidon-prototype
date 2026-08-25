@@ -37,15 +37,16 @@ from orchestrator.workflows import (
 )
 from orchestrator.workflows.base import FAST_TIMEOUTS, workflow_id
 from registry import (
+    AgentInstances,
     AuditStore,
     BudgetLedger,
+    Companies,
     CrewRequests,
     RunParticipants,
     Runs,
     open_registry,
 )
-from registry.bundles import AgentInstances, Companies
-from sandbox.backends.k8s_jobs import K8sJobsBackend
+from sandbox.k8s_jobs import K8sJobsBackend
 
 
 async def ensure_conduct_loop(

@@ -9,12 +9,15 @@ Needs the `opa` binary or Docker; skips when neither is present so a laptop
 without them still gets a green run (CI has Docker).
 """
 
+import copy
 import json
 import os
 import shutil
 import subprocess
 
 import pytest
+import yaml
+from conftest import CONDUCT, HELLO_SAAS
 
 from compiler import compile_blueprint
 
@@ -70,13 +73,16 @@ def _runner():
     return None
 
 
-def _decider(tmp_path_factory, blueprint: dict):
+def _decider(tmp_path_factory, blueprint: dict, platform: bool = True):
+    """Compile the blueprint, write its bundle (with the platform bundle
+    beside it unless `platform` is off), and return a query runner."""
     runner = _runner()
     if runner is None:
         pytest.skip("neither the opa binary nor docker is available")
     plan = compile_blueprint(blueprint)
     bundle = tmp_path_factory.mktemp("bundle")
-    for name, body in {**plan.bundle.files, **plan.platform_bundle.files}.items():
+    files = {**plan.bundle.files, **(plan.platform_bundle.files if platform else {})}
+    for name, body in files.items():
         (bundle / name).write_text(body)
 
     def run(_query: str = COMPANY_QUERY, **input_fields) -> dict:
@@ -87,25 +93,27 @@ def _decider(tmp_path_factory, blueprint: dict):
     return run
 
 
+def _company(mutate=None) -> dict:
+    """The shipped hello-saas blueprint, optionally edited in place."""
+    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
+    if mutate is not None:
+        mutate(blueprint)
+    return blueprint
+
+
 @pytest.fixture(scope="module")
 def decide(tmp_path_factory):
-    import yaml
-    from conftest import HELLO_SAAS
-
-    return _decider(tmp_path_factory, yaml.safe_load(HELLO_SAAS.read_text()))
+    return _decider(tmp_path_factory, _company())
 
 
 @pytest.fixture(scope="module")
 def decide_conducted(tmp_path_factory):
     """The same company with a standing heartbeat declared."""
-    import copy
 
-    import yaml
-    from conftest import CONDUCT, HELLO_SAAS
+    def conducted(blueprint: dict) -> None:
+        blueprint["conduct"] = copy.deepcopy(CONDUCT)
 
-    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
-    blueprint["conduct"] = copy.deepcopy(CONDUCT)
-    return _decider(tmp_path_factory, blueprint)
+    return _decider(tmp_path_factory, _company(conducted))
 
 
 def ephemeral(crew: str, member: str, template: str, **extra) -> dict:
@@ -358,16 +366,8 @@ def test_open_pr_without_paths_is_denied(decide):
 
 
 def _eval_bundle(tmp_path_factory, blueprint, name, input_fields) -> dict:
-    runner = _runner()
-    if runner is None:
-        pytest.skip("neither the opa binary nor docker is available")
-    plan = compile_blueprint(blueprint)
-    bundle = tmp_path_factory.mktemp(name)
-    for file_name, body in plan.bundle.files.items():
-        (bundle / file_name).write_text(body)
-    proc = runner(str(bundle), json.dumps(input_fields), COMPANY_QUERY)
-    assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)
+    """One company-only decision on a fresh bundle."""
+    return _decider(tmp_path_factory, blueprint, platform=False)(**input_fields)
 
 
 def test_bundle_without_policies_still_loads(tmp_path_factory, blueprint):
@@ -598,14 +598,13 @@ DELEGATED_MERGE = {
 @pytest.fixture(scope="module")
 def decide_delegated(tmp_path_factory):
     """The same company with a policy-resolved merge gate declared."""
-    import copy
 
-    import yaml
-    from conftest import HELLO_SAAS
+    def delegated(blueprint: dict) -> None:
+        blueprint["workflows"]["review"]["gates"]["merge"] = copy.deepcopy(
+            DELEGATED_MERGE
+        )
 
-    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
-    blueprint["workflows"]["review"]["gates"]["merge"] = copy.deepcopy(DELEGATED_MERGE)
-    return _decider(tmp_path_factory, blueprint)
+    return _decider(tmp_path_factory, _company(delegated))
 
 
 def merge_resolve(**args) -> dict:
@@ -790,13 +789,17 @@ def decide_split(tmp_path_factory):
     """The company with the oracle split declared: a protected contract
     tree owned by the contract-authoring crew's template, beside a
     delegated class that cannot contain it."""
-    import copy
+    return _decider(tmp_path_factory, _company(_split))
 
-    import yaml
-    from conftest import HELLO_SAAS
 
-    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
+def _split(blueprint: dict) -> None:
+    """Declare the contract tree, its authoring crew, and a delegated class
+    beside it."""
     blueprint["policies"]["contract_tests"] = copy.deepcopy(CONTRACT_TESTS)
+    _contract_crew(blueprint)
+
+
+def _contract_crew(blueprint: dict) -> None:
     blueprint["crews"]["contract-authoring"] = copy.deepcopy(CONTRACT_CREW)
     blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append(
         "contract-authoring"
@@ -805,7 +808,6 @@ def decide_split(tmp_path_factory):
         "resolved_by": "policy",
         "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
     }
-    return _decider(tmp_path_factory, blueprint)
 
 
 def test_the_implementer_cannot_pr_the_contract_tree(decide_split):
@@ -1038,21 +1040,7 @@ def decide_revoked(tmp_path_factory):
     the same blueprint with `policies.contract_tests` deleted — one diff,
     recompiled. The crew and its spawn grant may outlive the declaration;
     the tree's special authority may not."""
-    import copy
-
-    import yaml
-    from conftest import HELLO_SAAS
-
-    blueprint = yaml.safe_load(HELLO_SAAS.read_text())
-    blueprint["crews"]["contract-authoring"] = copy.deepcopy(CONTRACT_CREW)
-    blueprint["departments"]["roles"]["pm"]["may_spawn"]["crew"].append(
-        "contract-authoring"
-    )
-    blueprint["workflows"]["review"]["gates"]["merge"] = {
-        "resolved_by": "policy",
-        "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
-    }
-    return _decider(tmp_path_factory, blueprint)
+    return _decider(tmp_path_factory, _company(_contract_crew))
 
 
 def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):

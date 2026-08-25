@@ -35,11 +35,12 @@ class Cluster:
     # mechanism we are not using.
 
     def upsert_namespace(self, body: dict[str, Any]) -> None:
-        name = body["metadata"]["name"]
-        if self._exists(self._core.read_namespace, name=name):
-            self._apply(self._core.patch_namespace, body, name=name)
-        else:
-            self._apply(self._core.create_namespace, body)
+        self._upsert(
+            self._core.read_namespace,
+            self._core.create_namespace,
+            self._core.patch_namespace,
+            body,
+        )
 
     def upsert_network_policy(self, namespace: str, body: dict[str, Any]) -> None:
         """Replace, never merge-patch: a policy's selector shape can change
@@ -68,80 +69,49 @@ class Cluster:
         )
 
     def upsert_role(self, namespace: str, body: dict[str, Any]) -> None:
-        name = body["metadata"]["name"]
-        if self._exists(self._rbac.read_namespaced_role, name=name, namespace=namespace):
-            self._apply(
-                self._rbac.patch_namespaced_role,
-                body,
-                name=name,
-                namespace=namespace,
-            )
-        else:
-            self._apply(self._rbac.create_namespaced_role, body, namespace=namespace)
+        self._upsert(
+            self._rbac.read_namespaced_role,
+            self._rbac.create_namespaced_role,
+            self._rbac.patch_namespaced_role,
+            body,
+            namespace=namespace,
+        )
 
     def upsert_role_binding(self, namespace: str, body: dict[str, Any]) -> None:
-        name = body["metadata"]["name"]
-        if self._exists(
-            self._rbac.read_namespaced_role_binding, name=name, namespace=namespace
-        ):
-            self._apply(
-                self._rbac.patch_namespaced_role_binding,
-                body,
-                name=name,
-                namespace=namespace,
-            )
-        else:
-            self._apply(
-                self._rbac.create_namespaced_role_binding, body, namespace=namespace
-            )
+        self._upsert(
+            self._rbac.read_namespaced_role_binding,
+            self._rbac.create_namespaced_role_binding,
+            self._rbac.patch_namespaced_role_binding,
+            body,
+            namespace=namespace,
+        )
 
     def upsert_deployment(self, namespace: str, body: dict[str, Any]) -> None:
-        name = body["metadata"]["name"]
-        if self._exists(
-            self._apps.read_namespaced_deployment, name=name, namespace=namespace
-        ):
-            self._apply(
-                self._apps.patch_namespaced_deployment,
-                body,
-                name=name,
-                namespace=namespace,
-            )
-        else:
-            self._apply(
-                self._apps.create_namespaced_deployment, body, namespace=namespace
-            )
+        self._upsert(
+            self._apps.read_namespaced_deployment,
+            self._apps.create_namespaced_deployment,
+            self._apps.patch_namespaced_deployment,
+            body,
+            namespace=namespace,
+        )
 
     def upsert_service(self, namespace: str, body: dict[str, Any]) -> None:
-        name = body["metadata"]["name"]
-        if self._exists(
-            self._core.read_namespaced_service, name=name, namespace=namespace
-        ):
-            self._apply(
-                self._core.patch_namespaced_service,
-                body,
-                name=name,
-                namespace=namespace,
-            )
-        else:
-            self._apply(self._core.create_namespaced_service, body, namespace=namespace)
+        self._upsert(
+            self._core.read_namespaced_service,
+            self._core.create_namespaced_service,
+            self._core.patch_namespaced_service,
+            body,
+            namespace=namespace,
+        )
 
     def upsert_service_account(self, namespace: str, body: dict[str, Any]) -> None:
-        name = body["metadata"]["name"]
-        if self._exists(
-            self._core.read_namespaced_service_account, name=name, namespace=namespace
-        ):
-            self._apply(
-                self._core.patch_namespaced_service_account,
-                body,
-                name=name,
-                namespace=namespace,
-            )
-        else:
-            self._apply(
-                self._core.create_namespaced_service_account,
-                body,
-                namespace=namespace,
-            )
+        self._upsert(
+            self._core.read_namespaced_service_account,
+            self._core.create_namespaced_service_account,
+            self._core.patch_namespaced_service_account,
+            body,
+            namespace=namespace,
+        )
 
     # -- deletes --------------------------------------------------------------
 
@@ -164,6 +134,15 @@ class Cluster:
         )
 
     # -- plumbing -------------------------------------------------------------
+
+    def _upsert(self, read, create, patch, body: dict[str, Any], **scope) -> None:
+        """Create the object or merge-patch it whole, by name within `scope`
+        (the namespace, for namespaced kinds)."""
+        name = body["metadata"]["name"]
+        if self._exists(read, name=name, **scope):
+            self._apply(patch, body, name=name, **scope)
+        else:
+            self._apply(create, body, **scope)
 
     @staticmethod
     def _apply(call, body: dict[str, Any], **kwargs) -> None:

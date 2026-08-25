@@ -20,7 +20,6 @@ from `.poseidon-base`, written at provision time by the sandbox backend.
 """
 
 import base64
-import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -28,15 +27,21 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 
 from common.telemetry import get_logger
 
-DEFAULT_WORKSPACE = Path("/workspace")
 BASE_REF_FILE = ".poseidon-base"
-DEFAULT_TEST_CMD = "pytest -q"
 TESTS_TIMEOUT_S = 600
 # Same convention as coreutils `timeout`.
 TIMEOUT_EXIT_CODE = 124
+
+
+class ToolserverSettings(BaseSettings):
+    """Set on the sandbox Job by the backend's manifest (`sandbox.manifest`)."""
+
+    workspace_dir: Path = Path("/workspace")
+    test_cmd: str = "pytest -q"
 
 
 class ReadRequest(BaseModel):
@@ -74,9 +79,8 @@ def _as_text(data: Any) -> str:
 
 
 def create_app(workspace: Path | None = None) -> FastAPI:
-    ws = (
-        workspace or Path(os.environ.get("WORKSPACE_DIR", str(DEFAULT_WORKSPACE)))
-    ).resolve()
+    settings = ToolserverSettings()
+    ws = (workspace or settings.workspace_dir).resolve()
     log = get_logger("sandbox.toolserver")
     app = FastAPI(title="poseidon-sandbox-toolserver")
 
@@ -136,7 +140,7 @@ def create_app(workspace: Path | None = None) -> FastAPI:
 
     @app.post("/tests")
     def run_tests(req: TestsRequest | None = None) -> dict[str, Any]:
-        cmd = os.environ.get("TEST_CMD", DEFAULT_TEST_CMD)
+        cmd = settings.test_cmd
         paths = (req.paths if req else None) or []
         for path in paths:
             resolve(path)  # workspace containment, like every path input

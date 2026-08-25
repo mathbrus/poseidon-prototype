@@ -27,6 +27,7 @@ APPLIED_SPEC = {
             "memory": "1Gi",
             "disk": "2Gi",
             "deadline_s": 3600,
+            "test_command": "pytest -q",
             "egress_allow": ["pypi.org"],
         }
     },
@@ -172,7 +173,8 @@ def test_sandbox_policy_comes_from_the_applied_blueprint(activities):
     assert policy.image == "poseidon-sandbox:abc123"
     assert policy.deadline_s == 3600
     assert policy.egress_allow == ["pypi.org"]
-    assert policy.env == {}  # no proxy configured -> nothing injected
+    # The declared test command, and nothing else: no proxy is configured.
+    assert policy.env == {"TEST_CMD": "pytest -q"}
 
 
 def test_custom_toolchain_image_passes_through(activities, companies):

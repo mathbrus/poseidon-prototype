@@ -5,17 +5,7 @@ runs are durable, and a sandbox proxy call must resolve from state that
 outlives any one gateway process.
 """
 
-from dataclasses import dataclass
-
 from registry.db import Registry
-
-
-@dataclass
-class SandboxRegistration:
-    run_id: str
-    url: str
-    namespace: str | None = None
-    job_name: str | None = None
 
 
 class SandboxRegistrations:

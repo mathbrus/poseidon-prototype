@@ -139,8 +139,11 @@ def test_exec_timeout(client: TestClient):
 # --- /tests -------------------------------------------------------------------
 
 
-def test_tests_endpoint_uses_test_cmd_env(client: TestClient, monkeypatch):
+def test_tests_endpoint_uses_test_cmd_env(workspace: Path, monkeypatch):
+    # The command is read once, when the app is built — the sandbox Job's
+    # env is fixed for its lifetime — so set it before building.
     monkeypatch.setenv("TEST_CMD", "echo running-custom-tests")
+    client = TestClient(create_app(workspace=workspace))
     body = client.post("/tests", json={}).json()
     assert body["exit_code"] == 0
     assert "running-custom-tests" in body["stdout"]

@@ -84,6 +84,16 @@ def test_gate_config_comes_from_the_blueprint(blueprint):
     assert review.drain["on_conductor_drain"] == "abort_crew"
 
 
+def test_test_command_rides_the_sandbox_constraints(blueprint):
+    """The blueprint names the test command the platform verify gate runs;
+    a blueprint that names none gets the sandbox image's own default."""
+    assert compile_blueprint(blueprint).infra.sandbox.test_command == "pytest -q"
+    blueprint["stack"]["toolchain"]["test_command"] = "make check"
+    assert compile_blueprint(blueprint).infra.sandbox.test_command == "make check"
+    del blueprint["stack"]["toolchain"]["test_command"]
+    assert compile_blueprint(blueprint).infra.sandbox.test_command == "pytest -q"
+
+
 def test_infra_ir_feeds_both_consumers_from_one_list(blueprint):
     """The sandbox caps and the proxy allowlist are projections of one
     IR — hand-authoring either would be a bug."""

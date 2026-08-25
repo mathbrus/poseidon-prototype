@@ -3388,6 +3388,7 @@ dependencies = [
     { name = "common" },
     { name = "fastapi" },
     { name = "kubernetes" },
+    { name = "pydantic-settings" },
     { name = "uvicorn" },
 ]
 
@@ -3406,6 +3407,7 @@ requires-dist = [
     { name = "common", extras = ["otel"], marker = "extra == 'egress'", editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "kubernetes", specifier = ">=31" },
+    { name = "pydantic-settings", specifier = ">=2" },
     { name = "pytest", marker = "extra == 'toolchain'", specifier = ">=8" },
     { name = "registry", marker = "extra == 'egress'", editable = "packages/registry" },
     { name = "uvicorn", specifier = ">=0.30" },

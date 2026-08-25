@@ -10,12 +10,16 @@ from compiler.plan import InfraIR, NetworkPolicyProjection, SandboxConstraints
 
 DEFAULT_IMAGE = "poseidon-sandbox"
 DEFAULT_WORKSPACE = "/workspace"
-# Resource shape for one coding sandbox: the caps exist and come from one
-# place; the blueprint does not tune them per stack.
-DEFAULT_CPU = "1"
-DEFAULT_MEMORY = "1Gi"
-DEFAULT_DISK = "2Gi"
-DEFAULT_DEADLINE_S = 3600
+# Equal to the sandbox tool server's own default, so a blueprint that
+# names no command runs what the image would have run anyway.
+DEFAULT_TEST_COMMAND = "pytest -q"
+# Resource shape for one coding sandbox. Fixed caps from one place — the
+# blueprint's toolchain section names an image, a test command and an
+# egress allowlist, never per-stack sizing.
+CPU = "1"
+MEMORY = "1Gi"
+DISK = "2Gi"
+DEADLINE_S = 3600
 
 
 def build_infra(blueprint: dict[str, Any], namespace: str) -> InfraIR:
@@ -28,11 +32,12 @@ def build_infra(blueprint: dict[str, Any], namespace: str) -> InfraIR:
     sandbox = SandboxConstraints(
         image=toolchain.get("image") or DEFAULT_IMAGE,
         workspace_dir=DEFAULT_WORKSPACE,
-        cpu=toolchain.get("cpu") or DEFAULT_CPU,
-        memory=toolchain.get("memory") or DEFAULT_MEMORY,
-        disk=toolchain.get("disk") or DEFAULT_DISK,
-        deadline_s=int(toolchain.get("deadline_s") or DEFAULT_DEADLINE_S),
+        cpu=CPU,
+        memory=MEMORY,
+        disk=DISK,
+        deadline_s=DEADLINE_S,
         egress_allow=egress_allow,
+        test_command=toolchain.get("test_command") or DEFAULT_TEST_COMMAND,
     )
     network_policy = NetworkPolicyProjection(
         namespace=namespace,

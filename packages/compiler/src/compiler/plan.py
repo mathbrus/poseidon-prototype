@@ -93,6 +93,8 @@ class SandboxConstraints:
     disk: str
     deadline_s: int
     egress_allow: tuple[str, ...]
+    # The blueprint's test command — what the platform verify gate runs.
+    test_command: str
 
 
 @dataclass(frozen=True)

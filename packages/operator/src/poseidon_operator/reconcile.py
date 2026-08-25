@@ -18,13 +18,14 @@ import kopf
 
 from common.telemetry import get_logger
 from poseidon_operator import resources
+from poseidon_operator.config import OperatorSettings
 from poseidon_operator.kube import Cluster
-from registry import open_registry
-from registry.bundles import AgentInstances, Companies, PolicyBundles
+from registry import AgentInstances, Companies, PolicyBundles, open_registry
 
 _log = get_logger("operator")
 _registry = None
 _the_cluster = None
+_the_settings = None
 
 
 def _cluster() -> Cluster:
@@ -39,6 +40,13 @@ def _db():
     if _registry is None:
         _registry = open_registry()
     return _registry
+
+
+def _settings() -> OperatorSettings:
+    global _the_settings
+    if _the_settings is None:
+        _the_settings = OperatorSettings()
+    return _the_settings
 
 
 @kopf.on.startup()
@@ -66,16 +74,17 @@ def reconcile_company(
 ) -> None:
     cluster = _cluster()
     company_ns = spec["namespace"]
+    platform_ns = _settings().platform_namespace
 
     cluster.upsert_namespace(resources.namespace(company_ns))
     for policy in (
         resources.default_deny(company_ns),
-        resources.agent_egress(company_ns),
-        resources.agent_ingress(company_ns),
+        resources.agent_egress(company_ns, platform_ns),
+        resources.agent_ingress(company_ns, platform_ns),
         # The sandbox envelope comes from the compiled infra IR —
         # hand-authoring a projection is a bug.
         resources.sandbox_isolation(
-            company_ns, (spec.get("infra") or {}).get("network_policy")
+            company_ns, platform_ns, (spec.get("infra") or {}).get("network_policy")
         ),
     ):
         cluster.upsert_network_policy(company_ns, policy)
@@ -86,7 +95,7 @@ def reconcile_company(
     # cannot touch a pod itself).
     cluster.upsert_role(company_ns, resources.sandbox_provisioner_role(company_ns))
     cluster.upsert_role_binding(
-        company_ns, resources.sandbox_provisioner_binding(company_ns)
+        company_ns, resources.sandbox_provisioner_binding(company_ns, platform_ns)
     )
 
     revision = ""
@@ -141,7 +150,9 @@ def reconcile_instance(
     cluster.upsert_service_account(
         namespace, resources.agent_service_account(spec, namespace)
     )
-    cluster.upsert_deployment(namespace, resources.agent_deployment(spec, namespace))
+    cluster.upsert_deployment(
+        namespace, resources.agent_deployment(spec, namespace, _settings())
+    )
     cluster.upsert_service(namespace, resources.agent_service(spec, namespace))
 
     AgentInstances(_db()).upsert(

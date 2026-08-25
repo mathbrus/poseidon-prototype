@@ -22,9 +22,9 @@ from pathlib import Path
 import pytest
 
 from common.ids import new_run_id
-from sandbox.backends.k8s_jobs import K8sJobsBackend
 from sandbox.contract import SandboxPolicy
 from sandbox.egressproxy.credentials import sandbox_proxy_env
+from sandbox.k8s_jobs import K8sJobsBackend
 
 from .conftest import COMPANY_NS, PLATFORM_NS, audit_story, sandbox_image
 

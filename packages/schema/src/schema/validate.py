@@ -20,8 +20,14 @@ from jsonschema import Draft202012Validator
 
 from schema.blueprint import BLUEPRINT_SCHEMA
 from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES
+from schema.coherence import (
+    contract_role_problems,
+    crew_problems,
+    platform_tool_problems,
+    role_template_problems,
+)
 from schema.gates import contract_tests_problems, merge_gate_problems
-from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
+from schema.tools import KNOWN_TOOLS
 
 
 class ValidationError(Exception):
@@ -62,133 +68,25 @@ def _schema_problems(document: Any) -> list[str]:
 
 
 def _catalog_problems(document: Any) -> list[str]:
-    """Cross-checks against the versioned catalogs.
+    """Cross-checks against the versioned catalogs (`schema.coherence`).
 
     Kept narrow on purpose: only what a *document* can be wrong about
     regardless of cluster state. Workflow-node binding, budget coverage and
     the lean-roster stance are compiler checks.
     """
-    problems = []
-    known_roles = ", ".join(sorted(ROLE_TEMPLATES))
-    known_crews = ", ".join(sorted(CREW_TEMPLATES))
-
-    roles = (document.get("departments") or {}).get("roles") or {}
-    for hire, role in roles.items() if isinstance(roles, dict) else []:
-        if not isinstance(role, dict) or not isinstance(role.get("template"), str):
-            continue  # the schema pass reports the malformed value
-        template = ROLE_TEMPLATES.get(role["template"])
-        if template is None:
-            problems.append(
-                f"departments.roles.{hire}.template: "
-                f"{role.get('template')!r} is not in the role catalog "
-                f"(known: {known_roles})"
-            )
-            continue
-        for crew in (role.get("may_spawn") or {}).get("crew") or []:
-            if crew not in CREW_TEMPLATES:
-                problems.append(
-                    f"departments.roles.{hire}.may_spawn.crew: {crew!r} is "
-                    f"not a known crew template (known: {known_crews})"
-                )
-
-    crews = document.get("crews") or {}
-    for crew_name, crew in crews.items() if isinstance(crews, dict) else []:
-        if not isinstance(crew, dict):
-            continue
-        catalog_crew = CREW_TEMPLATES.get(crew_name)
-        if catalog_crew is None:
-            problems.append(
-                f"crews.{crew_name}: not a known crew template (known: {known_crews})"
-            )
-        members = crew.get("members")
-        for member_name, member in (members if isinstance(members, dict) else {}).items():
-            if not isinstance(member, dict):
-                continue
-            where = f"crews.{crew_name}.members.{member_name}"
-            catalog_member = (
-                catalog_crew.members.get(member_name) if catalog_crew else None
-            )
-            if catalog_crew is not None and catalog_member is None:
-                problems.append(
-                    f"{where}: not a member of the {crew_name!r} crew "
-                    f"template (members: {', '.join(sorted(catalog_crew.members))})"
-                )
-            role_template = member.get("role_template")
-            if isinstance(role_template, str) and role_template not in ROLE_TEMPLATES:
-                problems.append(
-                    f"{where}.role_template: {role_template!r} is not in the "
-                    f"role catalog (known: {known_roles})"
-                )
-            elif (
-                catalog_member is not None
-                and isinstance(role_template, str)
-                and role_template != catalog_member.role_template
-            ):
-                problems.append(
-                    f"{where}.role_template: {role_template!r} does not match "
-                    f"the catalog's {catalog_member.role_template!r} for this "
-                    f"member — the blueprint names the template, the catalog "
-                    f"defines it"
-                )
-            # The blueprint narrows the catalog member's allow-list, never
-            # widens it — the planner-is-read-only contract is a catalog
-            # property, and a document granting extra tools must fail here,
-            # not compile into a wider bundle. Unknown and platform-only
-            # tools are skipped: the schema enum and the platform check
-            # below already report those.
-            if catalog_member is not None:
-                declared = member.get("tools")
-                for tool in declared if isinstance(declared, list) else []:
-                    if (
-                        isinstance(tool, str)
-                        and tool in KNOWN_TOOLS
-                        and tool not in PLATFORM_ONLY
-                        and tool not in catalog_member.tools
-                    ):
-                        problems.append(
-                            f"{where}.tools: {tool!r} is not in the catalog "
-                            f"member's allow-list — the blueprint narrows "
-                            f"the catalog, never widens it (allowed: "
-                            f"{', '.join(sorted(catalog_member.tools))})"
-                        )
-            problems += _platform_tool_problems(
-                f"{where}.tools",
-                member.get("tools") or [],
-            )
-
+    problems = role_template_problems(document, ROLE_TEMPLATES, CREW_TEMPLATES)
+    # Unknown tool names are the schema enum's to report, so the shared
+    # check does not repeat them here.
+    problems += crew_problems(
+        document, ROLE_TEMPLATES, CREW_TEMPLATES, report_unknown_tools=False
+    )
     tools = document.get("tools") or {}
     for role_name, scope in tools.items() if isinstance(tools, dict) else []:
         if isinstance(scope, dict):
-            problems += _platform_tool_problems(
+            problems += platform_tool_problems(
                 f"tools.{role_name}.allow", scope.get("allow") or []
             )
-
-    # The contract tree's owners are role templates — a caller is keyed on
-    # what it *is*: an unknown owner would compile a tree nobody can deliver
-    # into.
-    contract = (document.get("policies") or {}).get("contract_tests")
-    roles_declared = contract.get("roles") if isinstance(contract, dict) else None
-    for role in roles_declared if isinstance(roles_declared, list) else []:
-        if isinstance(role, str) and role not in ROLE_TEMPLATES:
-            problems.append(
-                f"policies.contract_tests.roles: {role!r} is not in the role "
-                f"catalog (known: {known_roles})"
-            )
-
-    return problems
-
-
-def _platform_tool_problems(where: str, declared: list[str]) -> list[str]:
-    """No company role may hold a platform-only tool: `git.merge_pr` belongs
-    to the orchestrator identity after the gate, and a blueprint
-    able to grant it would make the merge gate optional."""
-    return [
-        f"{where}: {tool!r} is callable only by the platform identity "
-        f"(the orchestrator, after the merge gate) and cannot be granted "
-        f"to a company role"
-        for tool in declared
-        if tool in PLATFORM_ONLY
-    ]
+    return problems + contract_role_problems(document, ROLE_TEMPLATES)
 
 
 def validate_blueprint(document: Any) -> dict[str, Any]:

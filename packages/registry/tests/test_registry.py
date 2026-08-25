@@ -5,10 +5,19 @@ from datetime import UTC, datetime
 import pytest
 
 from common.audit import AuditEvent
-from registry.audit import AuditStore
-from registry.db import Registry
-from registry.runs import Runs
-from registry.sandboxes import SandboxRegistrations
+from registry import (
+    AgentInstances,
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    CrewRequests,
+    ParticipantRevoked,
+    PolicyBundles,
+    Registry,
+    RunParticipants,
+    Runs,
+    SandboxRegistrations,
+)
 
 RUN_ID = "run-01REGISTRYTEST"
 
@@ -216,8 +225,6 @@ def test_unattributable_attempts_are_still_recorded(registry: Registry):
 
 
 def test_policy_bundle_round_trips_and_revokes(registry: Registry):
-    from registry.bundles import PolicyBundles
-
     bundles = PolicyBundles(registry)
     revision = bundles.put("test-corp", {"authz.rego": "package poseidon.authz\n"})
     stored = bundles.get("test-corp")
@@ -229,8 +236,6 @@ def test_policy_bundle_round_trips_and_revokes(registry: Registry):
 
 
 def test_company_rows_and_instance_sweep(registry: Registry):
-    from registry.bundles import AgentInstances, Companies
-
     companies, instances = Companies(registry), AgentInstances(registry)
     companies.upsert("test-corp", {"namespace": "test-corp", "mission": "m"})
     instances.upsert("tc-pm-1", "test-corp", "pm", "pm", "standard")
@@ -249,8 +254,6 @@ def test_company_rows_and_instance_sweep(registry: Registry):
 
 
 def test_agent_instance_lookup_carries_namespace(registry: Registry):
-    from registry.bundles import AgentInstances
-
     instances = AgentInstances(registry)
     instances.upsert(
         "backend-engineer-1",
@@ -260,19 +263,14 @@ def test_agent_instance_lookup_carries_namespace(registry: Registry):
         "standard",
         namespace="hello-saas",
     )
-    try:
-        row = instances.get("backend-engineer-1")
-        assert row["namespace"] == "hello-saas"
-        assert row["role_template"] == "backend-engineer"
-        assert instances.get("nobody") is None
-    finally:
-        instances.delete("backend-engineer-1")
+    row = instances.get("backend-engineer-1")
+    assert row["namespace"] == "hello-saas"
+    assert row["role_template"] == "backend-engineer"
+    assert instances.get("nobody") is None
 
 
 def test_participant_active_goes_dark_on_termination(registry: Registry):
     """Revocation-before-TTL rides on this row disappearing from `active`."""
-    from registry.participants import RunParticipants
-
     Runs(registry).start(RUN_ID, "task")
     registry.execute(
         """
@@ -309,26 +307,19 @@ def test_sandbox_registration_active_row(registry: Registry):
 
 
 def test_company_spec_reads(registry: Registry):
-    from registry.bundles import Companies
-
     companies = Companies(registry)
     companies.upsert(
         "hello-saas", {"namespace": "hello-saas", "infra": {"sandbox": {"cpu": "1"}}}
     )
-    try:
-        assert companies.get("hello-saas")["infra"]["sandbox"]["cpu"] == "1"
-        assert companies.by_namespace("hello-saas")["namespace"] == "hello-saas"
-        assert companies.get("nobody") is None
-        assert companies.by_namespace("nowhere") is None
-    finally:
-        companies.delete("hello-saas")
+    assert companies.get("hello-saas")["infra"]["sandbox"]["cpu"] == "1"
+    assert companies.by_namespace("hello-saas")["namespace"] == "hello-saas"
+    assert companies.get("nobody") is None
+    assert companies.by_namespace("nowhere") is None
 
 
 def test_budget_ledger_attributes_and_sums(registry: Registry):
     """One ledger with dimensions: every entry fully attributed,
     the per-run SUM is what the LLM gateway's hard-stop compares against."""
-    from registry.ledger import BudgetLedger
-
     ledger = BudgetLedger(registry)
     Runs(registry).start(RUN_ID, "task")
     ledger.record(
@@ -353,82 +344,62 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
         completion_tokens=5,
         usd=0.0001,
     )
-    registry.execute("DELETE FROM registry.budget_ledger WHERE run_id != %s", (RUN_ID,))
-    try:
-        assert abs(ledger.spent_for_run(RUN_ID) - 0.0004) < 1e-9
-        entries = ledger.entries_for_run(RUN_ID)
-        assert [e["agent_id"] for e in entries] == ["backend-engineer-1", "executor-01X"]
-        assert entries[1]["parent_agent_id"] == "pm-1"
-        assert ledger.spent_for_run("run-unmetered") == 0.0
-    finally:
-        registry.execute(
-            "DELETE FROM registry.budget_ledger WHERE run_id = %s", (RUN_ID,)
-        )
+    assert abs(ledger.spent_for_run(RUN_ID) - 0.0004) < 1e-9
+    entries = ledger.entries_for_run(RUN_ID)
+    assert [e["agent_id"] for e in entries] == ["backend-engineer-1", "executor-01X"]
+    assert entries[1]["parent_agent_id"] == "pm-1"
+    assert ledger.spent_for_run("run-unmetered") == 0.0
 
 
 def test_crew_request_is_idempotent_and_expiring(registry: Registry):
     """Same {conductor, crew, run} lands on one row;
     while recorded a retry refreshes it; once fulfilled it is untouched —
     a retry must not resurrect consumed intent."""
-    from registry.crews import CrewRequests
-
     Runs(registry).start(RUN_ID, "task")
     requests = CrewRequests(registry)
     first = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it")
-    try:
-        assert first["status"] == "recorded"
-        assert first["expires_at"] is not None
+    assert first["status"] == "recorded"
+    assert first["expires_at"] is not None
 
-        again = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it now")
-        assert again["id"] == first["id"]
-        assert again["reason"] == "ship it now"
+    again = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it now")
+    assert again["id"] == first["id"]
+    assert again["reason"] == "ship it now"
 
-        registry.execute(
-            "UPDATE registry.crew_requests SET status='fulfilled',"
-            " fulfilled_at=now() WHERE id = %s",
-            (first["id"],),
-        )
-        after = requests.record("pm-1", "feature-delivery", RUN_ID, "retry")
-        assert after["status"] == "fulfilled"
-        assert after["reason"] == "ship it now"  # untouched
-    finally:
-        registry.execute(
-            "DELETE FROM registry.crew_requests WHERE id = %s", (first["id"],)
-        )
+    registry.execute(
+        "UPDATE registry.crew_requests SET status='fulfilled',"
+        " fulfilled_at=now() WHERE id = %s",
+        (first["id"],),
+    )
+    after = requests.record("pm-1", "feature-delivery", RUN_ID, "retry")
+    assert after["status"] == "fulfilled"
+    assert after["reason"] == "ship it now"  # untouched
 
 
 def test_participant_bind_is_retry_safe_and_sweepable(registry: Registry):
     """A retried bind (same deterministic agent_id) converges
     on the same row; the per-run sweep revokes every live participant at
     once and reports who it swept."""
-    from registry.participants import RunParticipants
-
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
-    try:
-        participants.add(
-            "feature-delivery-executor-x", RUN_ID, "pm-1", "feature-delivery", "executor"
-        )
-        # A retry against the live row converges — one identity, never two.
-        participants.add(
-            "feature-delivery-executor-x", RUN_ID, "pm-1", "feature-delivery", "executor"
-        )
-        assert participants.active("feature-delivery-executor-x") is not None
+    participants.add(
+        "feature-delivery-executor-x", RUN_ID, "pm-1", "feature-delivery", "executor"
+    )
+    # A retry against the live row converges — one identity, never two.
+    participants.add(
+        "feature-delivery-executor-x", RUN_ID, "pm-1", "feature-delivery", "executor"
+    )
+    assert participants.active("feature-delivery-executor-x") is not None
 
-        participants.add(
-            "feature-delivery-planner-x", RUN_ID, "pm-1", "feature-delivery", "planner"
-        )
-        swept = participants.terminate_for_run(RUN_ID)
-        assert sorted(swept) == [
-            "feature-delivery-executor-x",
-            "feature-delivery-planner-x",
-        ]
-        assert participants.active("feature-delivery-planner-x") is None
-        assert participants.terminate_for_run(RUN_ID) == []  # idempotent
-    finally:
-        registry.execute(
-            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
-        )
+    participants.add(
+        "feature-delivery-planner-x", RUN_ID, "pm-1", "feature-delivery", "planner"
+    )
+    swept = participants.terminate_for_run(RUN_ID)
+    assert sorted(swept) == [
+        "feature-delivery-executor-x",
+        "feature-delivery-planner-x",
+    ]
+    assert participants.active("feature-delivery-planner-x") is None
+    assert participants.terminate_for_run(RUN_ID) == []  # idempotent
 
 
 def test_participant_row_resolves_by_service_account(registry: Registry):
@@ -436,72 +407,54 @@ def test_participant_row_resolves_by_service_account(registry: Registry):
     ServiceAccount name and reads company, catalog template, namespace and
     the canonical agent_id from it — and the lookup goes dark on
     termination, which is what makes revocation a registry write."""
-    from registry.participants import RunParticipants
-
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
-    try:
-        participants.add(
-            "feature-delivery-executor-X",
-            RUN_ID,
-            "pm-1",
-            "feature-delivery",
-            "executor",
-            company="hello-saas",
-            role_template="backend-engineer",
-            namespace="hello-saas",
-            service_account="crew-feature-delivery-executor-x",
-        )
-        row = participants.by_service_account("crew-feature-delivery-executor-x")
-        assert row is not None
-        # Lowercasing the SA name is not invertible; the canonical id is
-        # read from the row, never derived from the name.
-        assert row["agent_id"] == "feature-delivery-executor-X"
-        assert row["company"] == "hello-saas"
-        assert row["role_template"] == "backend-engineer"
-        assert row["namespace"] == "hello-saas"
+    participants.add(
+        "feature-delivery-executor-X",
+        RUN_ID,
+        "pm-1",
+        "feature-delivery",
+        "executor",
+        company="hello-saas",
+        role_template="backend-engineer",
+        namespace="hello-saas",
+        service_account="crew-feature-delivery-executor-x",
+    )
+    row = participants.by_service_account("crew-feature-delivery-executor-x")
+    assert row is not None
+    # Lowercasing the SA name is not invertible; the canonical id is
+    # read from the row, never derived from the name.
+    assert row["agent_id"] == "feature-delivery-executor-X"
+    assert row["company"] == "hello-saas"
+    assert row["role_template"] == "backend-engineer"
+    assert row["namespace"] == "hello-saas"
 
-        participants.terminate("feature-delivery-executor-X")
-        assert participants.by_service_account("crew-feature-delivery-executor-x") is None
-    finally:
-        registry.execute(
-            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
-        )
+    participants.terminate("feature-delivery-executor-X")
+    assert participants.by_service_account("crew-feature-delivery-executor-x") is None
 
 
 def test_crew_request_consume_and_spawn_count(registry: Registry):
     """Consume claims a recorded, unexpired request exactly once (the
     fulfilling run may re-claim its own after a crash); the spawn count is
     distinct live {run, crew} pairs per conductor."""
-    from registry.crews import CrewRequests
-    from registry.participants import RunParticipants
-
     Runs(registry).start(RUN_ID, "task")
     requests = CrewRequests(registry)
     participants = RunParticipants(registry)
     recorded = requests.record("pm-1", "feature-delivery", RUN_ID, "go")
-    try:
-        consumed = requests.consume(recorded["id"], RUN_ID)
-        assert consumed["status"] == "fulfilled"
-        # Idempotent for the same run; a foreign run gets nothing.
-        assert requests.consume(recorded["id"], RUN_ID) is not None
-        assert requests.consume(recorded["id"], "run-other") is None
-        assert requests.consume("crq-missing", RUN_ID) is None
+    consumed = requests.consume(recorded["id"], RUN_ID)
+    assert consumed["status"] == "fulfilled"
+    # Idempotent for the same run; a foreign run gets nothing.
+    assert requests.consume(recorded["id"], RUN_ID) is not None
+    assert requests.consume(recorded["id"], "run-other") is None
+    assert requests.consume("crq-missing", RUN_ID) is None
 
-        participants.add("fd-planner-1", RUN_ID, "pm-1", "feature-delivery", "planner")
-        participants.add("fd-executor-1", RUN_ID, "pm-1", "feature-delivery", "executor")
-        assert participants.active_spawn_count("pm-1") == 1  # one crew, two members
-        participants.add("fr-reviewer-1", RUN_ID, "pm-1", "feature-review", "reviewer")
-        assert participants.active_spawn_count("pm-1") == 2
-        participants.terminate_for_run(RUN_ID)
-        assert participants.active_spawn_count("pm-1") == 0
-    finally:
-        registry.execute(
-            "DELETE FROM registry.crew_requests WHERE id = %s", (recorded["id"],)
-        )
-        registry.execute(
-            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
-        )
+    participants.add("fd-planner-1", RUN_ID, "pm-1", "feature-delivery", "planner")
+    participants.add("fd-executor-1", RUN_ID, "pm-1", "feature-delivery", "executor")
+    assert participants.active_spawn_count("pm-1") == 1  # one crew, two members
+    participants.add("fr-reviewer-1", RUN_ID, "pm-1", "feature-review", "reviewer")
+    assert participants.active_spawn_count("pm-1") == 2
+    participants.terminate_for_run(RUN_ID)
+    assert participants.active_spawn_count("pm-1") == 0
 
 
 def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry):
@@ -510,36 +463,28 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
     resurrect an identity the platform revoked — and leave a crew pod
     holding it with nothing left to collect the pod. Revocation is final;
     the late caller is told to stop."""
-    from registry.participants import ParticipantRevoked, RunParticipants
-
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
-    try:
-        participants.add(
-            "feature-delivery-executor-z", RUN_ID, "pm-1", "feature-delivery", "executor"
-        )
-        assert participants.terminate_for_run(RUN_ID) == ["feature-delivery-executor-z"]
+    participants.add(
+        "feature-delivery-executor-z", RUN_ID, "pm-1", "feature-delivery", "executor"
+    )
+    assert participants.terminate_for_run(RUN_ID) == ["feature-delivery-executor-z"]
 
-        with pytest.raises(ParticipantRevoked):
-            participants.add(
-                "feature-delivery-executor-z",
-                RUN_ID,
-                "pm-1",
-                "feature-delivery",
-                "executor",
-            )
-        # Still revoked: the failed mint changed nothing.
-        assert participants.active("feature-delivery-executor-z") is None
-        rows = registry.query(
-            "SELECT status FROM registry.run_participants WHERE agent_id = %s",
-            ("feature-delivery-executor-z",),
+    with pytest.raises(ParticipantRevoked):
+        participants.add(
+            "feature-delivery-executor-z",
+            RUN_ID,
+            "pm-1",
+            "feature-delivery",
+            "executor",
         )
-        assert rows[0]["status"] == "terminated"
-    finally:
-        registry.execute(
-            "DELETE FROM registry.run_participants WHERE run_id = %s", (RUN_ID,)
-        )
-        registry.execute("DELETE FROM registry.runs WHERE run_id = %s", (RUN_ID,))
+    # Still revoked: the failed mint changed nothing.
+    assert participants.active("feature-delivery-executor-z") is None
+    rows = registry.query(
+        "SELECT status FROM registry.run_participants WHERE agent_id = %s",
+        ("feature-delivery-executor-z",),
+    )
+    assert rows[0]["status"] == "terminated"
 
 
 # -- the conduct heartbeat's observations ----------------------------------
@@ -567,8 +512,6 @@ def test_started_issue_numbers_parses_the_canonical_task(registry: Registry):
 
 
 def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
-    from registry.ledger import BudgetLedger
-
     ledger = BudgetLedger(registry)
     entry = dict(
         agent_id="executor",
@@ -655,8 +598,6 @@ def test_participants_for_run_includes_terminated_rows(registry: Registry):
     """The lineage outlives the identities: an implement run's
     participants are revoked long before its PR is reviewed, and the
     independence check must still see them."""
-    from registry.participants import RunParticipants
-
     runs = Runs(registry)
     runs.start("run-lin-a", "implement issue #5", "implement", None, "hello-saas")
     participants = RunParticipants(registry)

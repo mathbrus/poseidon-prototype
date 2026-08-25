@@ -52,7 +52,9 @@ what is single is the *contract*, not the writer.
 |---|---|
 | `db.py` | Connection pool, DSN handling, and startup migration under an advisory lock. |
 | `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
-| `bundles.py` | `Companies`, `AgentInstances`, `PolicyBundles` — the operator's writes and the reads everyone else does against them, plus deterministic bundle packing. |
+| `companies.py` | `Companies` — the applied blueprint per company, written by the operator. |
+| `instances.py` | `AgentInstances` — the standing roster, and the gateways' workload-identity read. |
+| `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |
 | `runs.py` | `Runs` — the run record and its terminal state. |
 | `participants.py` | `RunParticipants` — bound identities, revocation, the spawn count. |
 | `sandboxes.py` | `SandboxRegistrations` — run → sandbox address. |

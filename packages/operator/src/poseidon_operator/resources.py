@@ -6,10 +6,10 @@ owns standing structure only — namespaces, NetworkPolicies, standing agent
 Deployments — and never creates ephemeral agents or runs processes.
 """
 
-import os
 from typing import Any
 
 from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
+from poseidon_operator.config import OperatorSettings
 
 AGENT_PORT = 8000
 LABELS = {
@@ -22,10 +22,9 @@ LABELS = {
 # Must match the gateway's `token_audience` setting.
 TOKEN_AUDIENCE = "poseidon-gateway"
 TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
-
-
-def platform_namespace() -> str:
-    return os.environ.get("PLATFORM_NAMESPACE", "poseidon-platform")
+# The port an agent's peers listen on, by the infra IR's peer vocabulary:
+# platform services by app label, cluster DNS by its kube-system label.
+_PEER_PORTS = {"mcp-gateway": 8080, "llm-gateway": 4000, "egress-proxy": 3128}
 
 
 def namespace(name: str) -> dict[str, Any]:
@@ -64,11 +63,12 @@ def _agent_kinds_selector() -> dict[str, Any]:
     }
 
 
-def agent_egress(company_ns: str) -> dict[str, Any]:
+def agent_egress(company_ns: str, platform_ns: str) -> dict[str, Any]:
     """Agents reach the two gateways and cluster DNS. Nothing else
     — an agent with a route to the internet is an agent that can exfiltrate
-    without passing a policy check."""
-    platform = platform_namespace()
+    without passing a policy check. The model route is the metered LLM
+    gateway; the llm-proxy behind it is sealed to everyone but that
+    gateway."""
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "NetworkPolicy",
@@ -77,53 +77,14 @@ def agent_egress(company_ns: str) -> dict[str, Any]:
             "podSelector": _agent_kinds_selector(),
             "policyTypes": ["Egress"],
             "egress": [
-                {
-                    "to": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": platform}
-                            },
-                            "podSelector": {"matchLabels": {"app": "mcp-gateway"}},
-                        }
-                    ],
-                    "ports": [{"port": 8080}],
-                },
-                {
-                    "to": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {"kubernetes.io/metadata.name": platform}
-                            },
-                            # The metered LLM gateway — the
-                            # llm-proxy behind it is sealed to everyone
-                            # but that gateway.
-                            "podSelector": {"matchLabels": {"app": "llm-gateway"}},
-                        }
-                    ],
-                    "ports": [{"port": 4000}],
-                },
-                {
-                    "to": [
-                        {
-                            "namespaceSelector": {
-                                "matchLabels": {
-                                    "kubernetes.io/metadata.name": "kube-system"
-                                }
-                            },
-                            "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
-                        }
-                    ],
-                    "ports": [
-                        {"port": 53, "protocol": "UDP"},
-                        {"port": 53, "protocol": "TCP"},
-                    ],
-                },
+                _egress_peer(name, platform_ns)
+                for name in ("mcp-gateway", "llm-gateway", "kube-dns")
             ],
         },
     }
 
 
-def agent_ingress(company_ns: str) -> dict[str, Any]:
+def agent_ingress(company_ns: str, platform_ns: str) -> dict[str, Any]:
     """Only the orchestrator dispatches into an agent — standing or crew."""
     return {
         "apiVersion": "networking.k8s.io/v1",
@@ -138,7 +99,7 @@ def agent_ingress(company_ns: str) -> dict[str, Any]:
                         {
                             "namespaceSelector": {
                                 "matchLabels": {
-                                    "kubernetes.io/metadata.name": platform_namespace()
+                                    "kubernetes.io/metadata.name": platform_ns
                                 }
                             },
                             "podSelector": {
@@ -153,41 +114,45 @@ def agent_ingress(company_ns: str) -> dict[str, Any]:
     }
 
 
-def _peer_rule(name: str) -> dict[str, Any]:
-    """One IR peer name -> the NetworkPolicy rule that admits exactly it.
-    The vocabulary is the infra IR projection's: platform services by app label,
-    cluster DNS by its kube-system label."""
+def _peer_selector(name: str, platform_ns: str) -> dict[str, Any]:
+    """The pods one IR peer name denotes: a platform service by app label,
+    or cluster DNS by its kube-system label."""
     if name == "kube-dns":
         return {
-            "to": [
-                {
-                    "namespaceSelector": {
-                        "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
-                    },
-                    "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
-                }
-            ],
-            "ports": [
-                {"port": 53, "protocol": "UDP"},
-                {"port": 53, "protocol": "TCP"},
-            ],
+            "namespaceSelector": {
+                "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+            },
+            "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
         }
-    ports = {"mcp-gateway": AGENT_PORT, "egress-proxy": 3128}
+    if name not in _PEER_PORTS:
+        raise ValueError(f"unknown network peer {name!r}")
     return {
-        "to": [
-            {
-                "namespaceSelector": {
-                    "matchLabels": {"kubernetes.io/metadata.name": platform_namespace()}
-                },
-                "podSelector": {"matchLabels": {"app": name}},
-            }
-        ],
-        "ports": [{"port": ports.get(name, AGENT_PORT)}],
+        "namespaceSelector": {
+            "matchLabels": {"kubernetes.io/metadata.name": platform_ns}
+        },
+        "podSelector": {"matchLabels": {"app": name}},
     }
 
 
+def _egress_peer(name: str, platform_ns: str) -> dict[str, Any]:
+    """The egress rule that lets a pod dial `name` — on the port that peer
+    listens on."""
+    ports = (
+        [{"port": 53, "protocol": "UDP"}, {"port": 53, "protocol": "TCP"}]
+        if name == "kube-dns"
+        else [{"port": _PEER_PORTS[name]}]
+    )
+    return {"to": [_peer_selector(name, platform_ns)], "ports": ports}
+
+
+def _ingress_peer(name: str, platform_ns: str) -> dict[str, Any]:
+    """The ingress rule that lets `name` dial a pod — on the port our pods
+    listen on."""
+    return {"from": [_peer_selector(name, platform_ns)], "ports": [{"port": AGENT_PORT}]}
+
+
 def sandbox_isolation(
-    company_ns: str, projection: dict[str, Any] | None = None
+    company_ns: str, platform_ns: str, projection: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """The sandbox envelope, projected from the compiled infra IR: answer
     the gateway, reach only the audited proxy. NetworkPolicy is the silent
@@ -202,10 +167,7 @@ def sandbox_isolation(
     projection = projection or {}
     ingress_from = list(projection.get("sandbox_ingress_from") or ["mcp-gateway"])
     egress_to = list(projection.get("sandbox_egress_to") or ["egress-proxy"])
-    ingress = [
-        {"from": rule["to"], "ports": rule["ports"]}
-        for rule in (_peer_rule(name) for name in ingress_from)
-    ]
+    ingress = [_ingress_peer(name, platform_ns) for name in ingress_from]
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "NetworkPolicy",
@@ -218,7 +180,7 @@ def sandbox_isolation(
             "podSelector": {"matchLabels": {"app": "poseidon-sandbox"}},
             "policyTypes": ["Ingress", "Egress"],
             "ingress": ingress,
-            "egress": [_peer_rule(name) for name in egress_to],
+            "egress": [_egress_peer(name, platform_ns) for name in egress_to],
         },
     }
 
@@ -278,7 +240,7 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     }
 
 
-def sandbox_provisioner_binding(company_ns: str) -> dict[str, Any]:
+def sandbox_provisioner_binding(company_ns: str, platform_ns: str) -> dict[str, Any]:
     return {
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "RoleBinding",
@@ -296,7 +258,7 @@ def sandbox_provisioner_binding(company_ns: str) -> dict[str, Any]:
             {
                 "kind": "ServiceAccount",
                 "name": "orchestrator-worker",
-                "namespace": platform_namespace(),
+                "namespace": platform_ns,
             }
         ],
     }
@@ -319,7 +281,9 @@ def agent_service_account(spec: dict[str, Any], company_ns: str) -> dict[str, An
     }
 
 
-def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
+def agent_deployment(
+    spec: dict[str, Any], company_ns: str, settings: OperatorSettings
+) -> dict[str, Any]:
     """A standing agent Deployment, reconciled from an AgentInstance.
 
     The spec carries no credential: the pod's only identity is the
@@ -328,7 +292,7 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
     token-shaped env var exists in the pod at all.
     """
     hire = spec["hire"]
-    env = os.environ
+    platform_ns = settings.platform_namespace
     labels = {
         **LABELS,
         "app": hire,
@@ -378,18 +342,18 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                     "containers": [
                         {
                             "name": "agent",
-                            "image": env.get("AGENT_IMAGE", "poseidon-agent:latest"),
+                            "image": settings.agent_image,
                             "imagePullPolicy": "IfNotPresent",
                             "securityContext": dict(CONTAINER_SECURITY_CONTEXT),
                             "ports": [{"containerPort": AGENT_PORT}],
                             "env": [
                                 {
                                     "name": "MCP_GATEWAY_URL",
-                                    "value": f"http://mcp-gateway.{platform_namespace()}.svc.cluster.local:8080",
+                                    "value": f"http://mcp-gateway.{platform_ns}.svc.cluster.local:8080",
                                 },
                                 {
                                     "name": "LLM_PROXY_URL",
-                                    "value": f"http://llm-gateway.{platform_namespace()}.svc.cluster.local:4000",
+                                    "value": f"http://llm-gateway.{platform_ns}.svc.cluster.local:4000",
                                 },
                                 # The spec's tier and tool scope ride the pod
                                 # template so an AgentInstance edit converges
@@ -407,15 +371,15 @@ def agent_deployment(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
                                 },
                                 {
                                     "name": "MODEL",
-                                    "value": env.get("MODEL", "mock-brain"),
+                                    "value": settings.model,
                                 },
                                 {
                                     "name": "TARGET_REPO",
-                                    "value": env.get("TARGET_REPO", ""),
+                                    "value": settings.target_repo,
                                 },
                                 {
                                     "name": "MAX_ITERATIONS",
-                                    "value": env.get("MAX_ITERATIONS", "10"),
+                                    "value": str(settings.max_iterations),
                                 },
                                 {
                                     "name": "GATEWAY_TOKEN_FILE",

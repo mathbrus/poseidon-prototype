@@ -36,8 +36,15 @@ from common.authn import Authenticator, Reviewer, default_reviewer
 from common.identity import LIFECYCLE_EPHEMERAL, Identity
 from common.telemetry import get_logger
 from gateway_llm.config import LlmGatewaySettings
-from registry import AuditStore, BudgetLedger, RunParticipants, Runs, open_registry
-from registry.bundles import AgentInstances, Companies
+from registry import (
+    AgentInstances,
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    RunParticipants,
+    Runs,
+    open_registry,
+)
 
 TOOL_CHAT = "llm.chat_completions"
 TOOL_RESPONSES = "llm.responses"

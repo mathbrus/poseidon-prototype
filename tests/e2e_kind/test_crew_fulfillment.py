@@ -171,9 +171,8 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
         service_account_name,
     )
     from orchestrator.identity import ephemeral_agent_id
-    from registry import AuditStore, CrewRequests, RunParticipants, Runs
-    from registry.bundles import Companies
-    from sandbox.backends.k8s_jobs import K8sJobsBackend
+    from registry import AuditStore, Companies, CrewRequests, RunParticipants, Runs
+    from sandbox.k8s_jobs import K8sJobsBackend
 
     run_id = new_run_id()
     nonce = secrets.token_hex(3)

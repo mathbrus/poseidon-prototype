@@ -11,12 +11,10 @@ Standard bundle semantics: `ETag` carries the revision and a matching
 interval rather than a tarball.
 """
 
-import os
-
 from fastapi import FastAPI, Header, Response
 
-from registry import open_registry
-from registry.bundles import PolicyBundles
+from poseidon_operator.config import OperatorSettings
+from registry import PolicyBundles, open_registry
 
 
 def create_app(bundles: PolicyBundles | None = None) -> FastAPI:
@@ -66,9 +64,7 @@ def main() -> None:
     unimportable without a database."""
     import uvicorn
 
-    uvicorn.run(
-        create_app(), host="0.0.0.0", port=int(os.environ.get("BUNDLE_PORT", 8081))
-    )
+    uvicorn.run(create_app(), host="0.0.0.0", port=OperatorSettings().bundle_port)
 
 
 if __name__ == "__main__":

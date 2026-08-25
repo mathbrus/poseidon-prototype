@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from registry.bundles import AgentInstances, Companies
+from registry import AgentInstances, Companies
 
 
 def workflow_config(

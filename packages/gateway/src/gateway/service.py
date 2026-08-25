@@ -33,12 +33,12 @@ from gateway.opa import OpaClient
 from registry import (
     AuditStore,
     BudgetLedger,
+    Companies,
     CrewRequests,
     RunParticipants,
     Runs,
     SandboxRegistrations,
 )
-from registry.bundles import Companies
 
 # tool name -> sandbox tool-server route
 SANDBOX_ROUTES = {

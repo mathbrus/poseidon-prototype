@@ -47,8 +47,7 @@ from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from orchestrator.workflows.base import workflow_id
-from registry import AuditStore, RunParticipants, Runs
-from registry.bundles import AgentInstances, Companies
+from registry import AgentInstances, AuditStore, Companies, RunParticipants, Runs
 
 # The canonical rework-ticket title. The chain depth and the root PR ride
 # the title so the platform can read the bound back without trusting any

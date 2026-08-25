@@ -34,8 +34,7 @@ from orchestrator.activities.blueprint import workflow_config
 from orchestrator.clients import GatewayClient, dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import workflow_id
-from registry import Runs
-from registry.bundles import AgentInstances, Companies
+from registry import AgentInstances, Companies, Runs
 from sandbox.contract import SandboxBackend, SandboxHandle, SandboxPolicy
 
 
@@ -124,8 +123,9 @@ class ImplementActivities:
 
     def _sandbox_policy(self, run_id: str) -> SandboxPolicy:
         """The compiled SandboxPolicy: the applied blueprint's infra IR plus
-        the per-run egress credential and the deploy-time resolution
-        of the logical toolchain image. No applied blueprint means no
+        the per-run egress credential and the deploy-time resolution of the
+        logical toolchain image. The blueprint's test command rides the pod
+        env: the sandbox runs what the company declared, not a default. No applied blueprint means no
         policy — provisioning without one would resurrect hand-authored
         values the compiler exists to replace."""
         spec = self._companies.get(self._settings.company)
@@ -146,7 +146,10 @@ class ImplementActivities:
             disk=sandbox_ir["disk"],
             deadline_s=int(sandbox_ir["deadline_s"]),
             egress_allow=list(sandbox_ir.get("egress_allow") or []),
-            env=self._settings.sandbox_proxy_env(run_id),
+            env={
+                "TEST_CMD": sandbox_ir["test_command"],
+                **self._settings.sandbox_proxy_env(run_id),
+            },
         )
 
     @activity.defn(name="fetch_workspace")

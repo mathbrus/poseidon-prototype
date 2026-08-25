@@ -4,7 +4,6 @@ via a raw socket), with the audit store asserted per decision."""
 
 import asyncio
 import base64
-from pathlib import Path
 
 import httpx
 import pytest
@@ -88,7 +87,7 @@ class Stack:
         return [event.model_dump() for event in self.audit.events]
 
 
-async def _with_stack(tmp_path: Path, scenario):
+async def _with_stack(scenario):
     audit = InMemoryAuditStore()
     upstream = await asyncio.start_server(_upstream, "127.0.0.1", 0)
     upstream_port = upstream.sockets[0].getsockname()[1]
@@ -111,7 +110,7 @@ async def _with_stack(tmp_path: Path, scenario):
         await upstream.wait_closed()
 
 
-def test_allowlisted_http_request_is_forwarded_and_audited(tmp_path):
+def test_allowlisted_http_request_is_forwarded_and_audited():
     async def scenario(stack: Stack):
         async with httpx.AsyncClient(proxy=stack.proxy_url) as client:
             resp = await client.get(f"http://127.0.0.1:{stack.upstream_port}/x")
@@ -123,10 +122,10 @@ def test_allowlisted_http_request_is_forwarded_and_audited(tmp_path):
         assert event["run_id"] == RUN_ID
         assert event["backend_status"] == "ok"
 
-    asyncio.run(_with_stack(tmp_path, scenario))
+    asyncio.run(_with_stack(scenario))
 
 
-def test_non_allowlisted_host_is_denied_and_audited(tmp_path):
+def test_non_allowlisted_host_is_denied_and_audited():
     async def scenario(stack: Stack):
         async with httpx.AsyncClient(proxy=stack.proxy_url) as client:
             # Plain-HTTP denials come back as the proxy's own response.
@@ -137,10 +136,10 @@ def test_non_allowlisted_host_is_denied_and_audited(tmp_path):
         assert event["rule"] == "egress_not_allowlisted"
         assert event["run_id"] == RUN_ID
 
-    asyncio.run(_with_stack(tmp_path, scenario))
+    asyncio.run(_with_stack(scenario))
 
 
-def test_bad_credential_is_denied_with_claimed_run_id(tmp_path):
+def test_bad_credential_is_denied_with_claimed_run_id():
     async def scenario(stack: Stack):
         bad = f"http://{RUN_ID}:not-the-secret@127.0.0.1:{stack.proxy_port}"
         async with httpx.AsyncClient(proxy=bad) as client:
@@ -151,10 +150,10 @@ def test_bad_credential_is_denied_with_claimed_run_id(tmp_path):
         assert event["rule"] == "egress_bad_credential"
         assert event["run_id"] == RUN_ID  # the unverified claim stays visible
 
-    asyncio.run(_with_stack(tmp_path, scenario))
+    asyncio.run(_with_stack(scenario))
 
 
-def test_missing_credential_is_denied(tmp_path):
+def test_missing_credential_is_denied():
     async def scenario(stack: Stack):
         async with httpx.AsyncClient(
             proxy=f"http://127.0.0.1:{stack.proxy_port}"
@@ -164,10 +163,10 @@ def test_missing_credential_is_denied(tmp_path):
         (event,) = stack.events()
         assert event["rule"] == "egress_no_credential"
 
-    asyncio.run(_with_stack(tmp_path, scenario))
+    asyncio.run(_with_stack(scenario))
 
 
-def test_connect_tunnel_to_allowlisted_host(tmp_path):
+def test_connect_tunnel_to_allowlisted_host():
     async def scenario(stack: Stack):
         reader, writer = await asyncio.open_connection("127.0.0.1", stack.proxy_port)
         auth = base64.b64encode(f"{RUN_ID}:{mint(KEY, RUN_ID)}".encode()).decode()
@@ -190,10 +189,10 @@ def test_connect_tunnel_to_allowlisted_host(tmp_path):
         assert event["decision"] == "allow"
         assert event["backend_status"] == "ok"
 
-    asyncio.run(_with_stack(tmp_path, scenario))
+    asyncio.run(_with_stack(scenario))
 
 
-def test_healthz_answers_without_credentials(tmp_path):
+def test_healthz_answers_without_credentials():
     async def scenario(stack: Stack):
         reader, writer = await asyncio.open_connection("127.0.0.1", stack.proxy_port)
         writer.write(b"GET /healthz HTTP/1.1\r\nHost: proxy\r\n\r\n")
@@ -203,7 +202,7 @@ def test_healthz_answers_without_credentials(tmp_path):
         writer.close()
         assert stack.events() == []  # probes are not audit noise
 
-    asyncio.run(_with_stack(tmp_path, scenario))
+    asyncio.run(_with_stack(scenario))
 
 
 def test_registry_allowlist_resolves_run_to_company_projection():

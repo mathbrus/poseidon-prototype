@@ -22,12 +22,8 @@ from kubernetes.client.rest import ApiException
 from kubernetes.stream import stream
 
 from common.telemetry import get_logger
-from sandbox.backends.k8s_jobs.manifest import (
-    TOOLSERVER_PORT,
-    build_job,
-    job_name,
-)
 from sandbox.contract import SandboxHandle, SandboxPolicy
+from sandbox.manifest import TOOLSERVER_PORT, build_job, job_name
 
 POD_START_TIMEOUT_S = 120
 READY_TIMEOUT_S = 60
@@ -75,7 +71,7 @@ class K8sJobsBackend:
         self._batch = k8s.BatchV1Api(api_client)
         self._core = k8s.CoreV1Api(api_client)
         self._namespace = namespace
-        self._log = get_logger("sandbox.backends.k8s_jobs")
+        self._log = get_logger("sandbox.k8s_jobs")
 
     def provision(
         self, run_id: str, workspace_tar: bytes, policy: SandboxPolicy

@@ -18,9 +18,9 @@ from pathlib import Path
 import pytest
 
 from common.ids import new_run_id
-from sandbox.backends.k8s_jobs import K8sJobsBackend
-from sandbox.backends.k8s_jobs.manifest import job_name
 from sandbox.contract import SandboxPolicy
+from sandbox.k8s_jobs import K8sJobsBackend
+from sandbox.manifest import job_name
 
 from .conftest import COMPANY_NS, sandbox_image, sandbox_pods
 

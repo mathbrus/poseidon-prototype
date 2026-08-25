@@ -158,7 +158,7 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
     # `pack`), so equality here means the served policy is exactly what
     # this working tree's compiler emits from this blueprint.
     from compiler import compile_blueprint
-    from registry.bundles import pack
+    from registry import pack
     from schema import load_blueprint
 
     plan = compile_blueprint(load_blueprint(HELLO_SAAS))

@@ -32,15 +32,16 @@ from gateway.config import GatewaySettings
 from gateway.opa import OpaClient
 from gateway.service import GatewayService, PolicyDenied
 from registry import (
+    AgentInstances,
     AuditStore,
     BudgetLedger,
+    Companies,
     CrewRequests,
     RunParticipants,
     Runs,
     SandboxRegistrations,
     open_registry,
 )
-from registry.bundles import AgentInstances, Companies
 
 
 class AuthMiddleware:
