@@ -79,12 +79,8 @@ from mockllm.brain import (
     SLUGIFY_PY,
     TEST_SLUGIFY_PY,
 )
-from orchestrator.workflows.implement import (
-    FAST_TIMEOUTS,
-    ImplementInput,
-    Timeouts,
-    workflow_id,
-)
+from orchestrator.workflows.base import FAST_TIMEOUTS, Timeouts, workflow_id
+from orchestrator.workflows.implement import ImplementInput
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
@@ -393,7 +389,7 @@ async def _execute_implement(
     handle = await client.start_workflow(
         "implement",
         input,
-        id=workflow_id(input.run_id),
+        id=workflow_id("implement", input.run_id),
         task_queue=TASK_QUEUE,
     )
     if kill_worker:
@@ -710,11 +706,11 @@ def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
     loop runs a second one beside it. Assert on these, never on
     `audit_story(<your heartbeat id>)`: the decide/tick ledger was never
     keyed by the nonce'd test ids, and winning a race is not a claim."""
-    from orchestrator.workflows.conduct import conduct_workflow_id
+    from orchestrator.workflows.base import workflow_id
 
     return [
         e
-        for e in audit_story(conduct_workflow_id(COMPANY_NS))
+        for e in audit_story(workflow_id("conduct", COMPANY_NS))
         if e["tool"] == "conduct.tick" and e["workflow"] == heartbeat_id
     ]
 
@@ -728,12 +724,12 @@ def quiesce_heartbeat() -> None:
     the next module's arc. The campsite rule wants the quiet now, and
     verified: call this after the pristine apply, so the ensure loop has
     nothing to restart."""
-    from orchestrator.workflows.conduct import conduct_workflow_id
+    from orchestrator.workflows.base import workflow_id
 
     async def terminate() -> None:
         with temporal_port_forward() as address:
             client = await Client.connect(address)
-            handle = client.get_workflow_handle(conduct_workflow_id(COMPANY_NS))
+            handle = client.get_workflow_handle(workflow_id("conduct", COMPANY_NS))
             with contextlib.suppress(Exception):
                 await handle.terminate("suite teardown: pristine blueprint restored")
 

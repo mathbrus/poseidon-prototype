@@ -23,10 +23,8 @@ import subprocess
 import time
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import (
-    ImplementInput,
-    workflow_id,
-)
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.implement import ImplementInput
 
 from .conftest import (
     COMPANY_NS,
@@ -362,7 +360,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
                 ImplementInput(
                     run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()
                 ),
-                id=workflow_id(run_id),
+                id=workflow_id("implement", run_id),
                 task_queue=TASK_QUEUE,
             )
             # Wait for the fulfillment's own crew pod — the kill then lands

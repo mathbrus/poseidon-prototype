@@ -39,7 +39,7 @@ from temporalio.client import Client, WorkflowHandle
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from orchestrator.workflows.implement import FAST_TIMEOUTS
+from orchestrator.workflows.base import FAST_TIMEOUTS
 from orchestrator.workflows.review import ReviewInput, ReviewWorkflow
 
 pytestmark = pytest.mark.anyio
@@ -279,12 +279,10 @@ class Harness:
         ]
 
 
-@pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture
 async def env():
     try:
         environment = await WorkflowEnvironment.start_time_skipping()

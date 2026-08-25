@@ -25,9 +25,10 @@ from typing import Any
 
 from temporalio import activity
 
-from common.audit import AuditEvent, args_digest
+from common.audit import args_digest
 from common.telemetry import get_logger
-from orchestrator.clients import AgentClient
+from orchestrator.audit import record_event
+from orchestrator.clients import dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.crewpods import (
     TOKEN_MOUNT_DIR,
@@ -249,8 +250,7 @@ class CrewActivities:
         if self._provisioner is None:
             return []
         started = time.monotonic()
-        provisioner = self._require_provisioner()
-        deleted = await asyncio.to_thread(provisioner.destroy, run_id)
+        deleted = await asyncio.to_thread(self._provisioner.destroy, run_id)
         for name in deleted:
             await self._emit(
                 run_id=run_id,
@@ -359,10 +359,12 @@ class CrewActivities:
         brief = spec["task_text"]
         planner = next((m for m in members if not m.get("needs_sandbox")), None)
         if planner is not None:
-            plan_run = await self._dispatch_plan(
+            plan_run = await dispatch_and_poll(
                 pods[planner["member"]]["url"],
                 run_id,
                 spec["task_text"],
+                "plan",
+                self._settings.poll_interval_s,
             )
             if plan_run.get("error"):
                 raise RuntimeError(f"planner failed: {plan_run['error']}")
@@ -448,19 +450,6 @@ class CrewActivities:
                 f" {result.get('rule')!r} for {conductor}/{crew_template}"
             )
 
-    async def _dispatch_plan(
-        self, url: str, run_id: str, task_text: str
-    ) -> dict[str, Any]:
-        async with AgentClient(url) as agent:
-            await agent.dispatch(run_id, task_text, mode="plan")
-            while True:
-                if activity.in_activity():
-                    activity.heartbeat()
-                status = await agent.status(run_id)
-                if status["status"] != "running":
-                    return status
-                await asyncio.sleep(self._settings.poll_interval_s)
-
     def _require_provisioner(self) -> CrewPodProvisioner:
         if self._provisioner is None:
             raise RuntimeError(
@@ -484,23 +473,21 @@ class CrewActivities:
         decision: str = "allow",
         lifecycle: str = "ephemeral",
     ) -> None:
-        event = AuditEvent(
+        event = await record_event(
+            self._audit,
             run_id=run_id,
             agent_id=agent_id,
             role=role,
             tool=tool,
-            args_digest=digest,
+            digest=digest,
             decision=decision,
             rule=rule,
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status="ok",
-            source="process-lifecycle",
             company=company,
             lifecycle=lifecycle,
             parent_agent_id=parent_agent_id,
-            workflow="",
         )
-        await asyncio.to_thread(self._audit.append, event)
         self._log.info("audit", extra=event.model_dump())
 
     def all(self) -> list[Any]:

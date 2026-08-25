@@ -34,7 +34,6 @@ SPEC = {
 }
 
 
-@pytest.fixture
 def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected")

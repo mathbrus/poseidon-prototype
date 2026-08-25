@@ -19,15 +19,11 @@ from typing import Any
 from temporalio import activity
 
 from common.telemetry import get_logger
-from orchestrator.clients import AgentClient
+from orchestrator.clients import dispatch_and_poll
 from orchestrator.config import WorkerSettings
+from orchestrator.workflows.base import workflow_id
 from registry import BudgetLedger, Runs
 from registry.bundles import Companies
-
-
-def _heartbeat() -> None:
-    if activity.in_activity():
-        activity.heartbeat()
 
 
 class IntakeActivities:
@@ -46,14 +42,12 @@ class IntakeActivities:
 
     @activity.defn(name="create_intake_run")
     async def create_intake_run(self, run_id: str, goal_text: str) -> None:
-        from orchestrator.workflows.intake import intake_workflow_id
-
         await asyncio.to_thread(
             self._runs.start,
             run_id,
             goal_text,
             "intake",
-            intake_workflow_id(run_id),
+            workflow_id("intake", run_id),
             self._settings.company,
         )
         self._log.bind(run_id=run_id).info("intake run created")
@@ -95,17 +89,15 @@ class IntakeActivities:
         governed tools."""
         if not self._settings.pm_url:
             raise RuntimeError("PM_URL is not configured on the worker")
-        async with AgentClient(self._settings.pm_url) as agent:
-            await agent.dispatch(run_id, goal_text)
-            while True:
-                _heartbeat()
-                status = await agent.status(run_id)
-                if status["status"] != "running":
-                    self._log.bind(run_id=run_id).info(
-                        "pm finished", extra={"pm_status": status}
-                    )
-                    return status
-                await asyncio.sleep(self._settings.poll_interval_s)
+        status = await dispatch_and_poll(
+            self._settings.pm_url,
+            run_id,
+            goal_text,
+            "implement",
+            self._settings.poll_interval_s,
+        )
+        self._log.bind(run_id=run_id).info("pm finished", extra={"pm_status": status})
+        return status
 
     @activity.defn(name="finalize_intake")
     async def finalize_intake(

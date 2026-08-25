@@ -30,17 +30,13 @@ if TYPE_CHECKING:
 
 from common.telemetry import get_logger
 from compiler.infra import DEFAULT_IMAGE
-from orchestrator.clients import AgentClient, GatewayClient
+from orchestrator.activities.blueprint import workflow_config
+from orchestrator.clients import GatewayClient, dispatch_and_poll
 from orchestrator.config import WorkerSettings
+from orchestrator.workflows.base import workflow_id
 from registry import Runs
 from registry.bundles import AgentInstances, Companies
 from sandbox.contract import SandboxBackend, SandboxHandle, SandboxPolicy
-
-
-def _heartbeat() -> None:
-    # Activities stay directly callable in unit tests, outside any context.
-    if activity.in_activity():
-        activity.heartbeat()
 
 
 class ImplementActivities:
@@ -50,8 +46,8 @@ class ImplementActivities:
         backend: SandboxBackend,
         runs: Runs,
         companies: Companies,
+        instances: AgentInstances,
         crew: "CrewActivities | None" = None,
-        instances: AgentInstances | None = None,
     ) -> None:
         self._settings = settings
         self._backend = backend
@@ -70,14 +66,12 @@ class ImplementActivities:
 
     @activity.defn(name="create_run")
     async def create_run(self, run_id: str, task_text: str) -> None:
-        from orchestrator.workflows.implement import workflow_id
-
         await asyncio.to_thread(
             self._runs.start,
             run_id,
             task_text,
             "implement",
-            workflow_id(run_id),
+            workflow_id("implement", run_id),
             self._settings.company,
         )
         self._log.bind(run_id=run_id).info("run created")
@@ -92,44 +86,11 @@ class ImplementActivities:
         each refuse the run before anything is provisioned."""
 
         def read() -> dict[str, Any]:
-            spec = self._companies.get(self._settings.company) or {}
-            config = next(
-                (w for w in spec.get("workflows") or [] if w.get("name") == "implement"),
-                None,
+            config, conductor = workflow_config(
+                self._companies, self._instances, self._settings.company, "implement"
             )
-            if config is None or not config.get("enabled", False):
-                raise RuntimeError(
-                    f"company {self._settings.company!r} has no enabled"
-                    " implement workflow in its applied blueprint"
-                )
-            crew_template = config.get("crew")
-            if not crew_template:
-                raise RuntimeError(
-                    "implement workflow binds no crew — execution is"
-                    " ephemeral crews; the compiler should have"
-                    " refused this blueprint"
-                )
-            conductor_hire = config["conductor"]
-            instance = None
-            if self._instances is not None:
-                instance = next(
-                    (
-                        i
-                        for i in self._instances.for_company(self._settings.company)
-                        if i.get("hire") == conductor_hire
-                    ),
-                    None,
-                )
-            if instance is None:
-                raise RuntimeError(
-                    f"no standing instance for conductor hire"
-                    f" {conductor_hire!r} — is the company converged?"
-                )
             return {
-                "company": self._settings.company,
-                "crew_template": crew_template,
-                "conductor": instance["agent_id"],
-                "conductor_role": instance["role_template"],
+                **conductor,
                 "max_verify_retries": int(config.get("max_verify_retries") or 0),
             }
 
@@ -247,18 +208,13 @@ class ImplementActivities:
         works to a completion claim; mode="deliver" is the separate,
         workflow-directed delivery dispatch, only
         ever issued after the platform verify gate is green."""
-        async with AgentClient(url) as agent:
-            await agent.dispatch(run_id, task_text, mode=mode)
-            while True:
-                _heartbeat()
-                status = await agent.status(run_id)
-                if status["status"] != "running":
-                    self._log.bind(run_id=run_id).info(
-                        "agent finished",
-                        extra={"agent_status": status, "mode": mode},
-                    )
-                    return status
-                await asyncio.sleep(self._settings.poll_interval_s)
+        status = await dispatch_and_poll(
+            url, run_id, task_text, mode, self._settings.poll_interval_s
+        )
+        self._log.bind(run_id=run_id).info(
+            "agent finished", extra={"agent_status": status, "mode": mode}
+        )
+        return status
 
     @activity.defn(name="platform_verify")
     async def platform_verify(

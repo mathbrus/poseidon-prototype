@@ -38,7 +38,8 @@ from mockllm.brain import (
     FORBIDDEN_CREW,
     FORBIDDEN_CREW_REASON,
 )
-from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.intake import IntakeInput
 
 from .conftest import (
     REPO_ROOT,
@@ -100,7 +101,7 @@ def conductor_intake(stack: None, env: dict) -> dict:
             handle = await client.start_workflow(
                 "intake",
                 IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
-                id=intake_workflow_id(run_id),
+                id=workflow_id("intake", run_id),
                 task_queue=TASK_QUEUE,
             )
             return await asyncio.wait_for(handle.result(), timeout=600)

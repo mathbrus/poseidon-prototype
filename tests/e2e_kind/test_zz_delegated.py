@@ -45,9 +45,10 @@ from temporalio.client import Client
 
 from common.ids import new_run_id
 from mockllm.brain import CONTRACT_GOAL_MARKER, CONTRACT_TEST_PATH
-from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
-from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
-from orchestrator.workflows.review import ReviewInput, review_workflow_id
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.conduct import ConductInput
+from orchestrator.workflows.intake import IntakeInput
+from orchestrator.workflows.review import ReviewInput
 
 from .conftest import (
     COMPANY_NS,
@@ -148,7 +149,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
         f"Ship the slugify utility (e2e delegated goal {nonce})\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    heartbeat_id = f"{conduct_workflow_id(COMPANY_NS)}-delegated-{nonce}"
+    heartbeat_id = f"{workflow_id('conduct', COMPANY_NS)}-delegated-{nonce}"
     result: dict = {"env": env, "heartbeat_id": heartbeat_id}
 
     async def drive() -> None:
@@ -161,7 +162,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
                 IntakeInput(
                     run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
                 ),
-                id=intake_workflow_id(intake_run),
+                id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )
             result["intake"] = await asyncio.wait_for(intake_handle.result(), timeout=600)
@@ -329,7 +330,7 @@ def _drive_review(pr_number: int, approve: bool | None) -> tuple[str, dict]:
                 ReviewInput(
                     run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
                 ),
-                id=review_workflow_id(run_id),
+                id=workflow_id("review", run_id),
                 task_queue=TASK_QUEUE,
             )
             if approve is not None:
@@ -382,7 +383,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
             handle = await client.start_workflow(
                 "intake",
                 IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
-                id=intake_workflow_id(run_id),
+                id=workflow_id("intake", run_id),
                 task_queue=TASK_QUEUE,
             )
             record = await asyncio.wait_for(handle.result(), timeout=600)

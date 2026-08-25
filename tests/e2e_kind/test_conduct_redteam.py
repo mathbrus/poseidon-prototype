@@ -48,7 +48,8 @@ import pytest
 from temporalio.client import Client
 
 from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST
-from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.conduct import ConductInput
 
 from .conftest import (
     COMPANY_NS,
@@ -169,7 +170,7 @@ def unattended_run(conducted, env: dict) -> dict:
     )
     assert created.status_code == 201, f"could not file issue: {created.text}"
     issue_number = created.json()["number"]
-    heartbeat_id = f"{conduct_workflow_id(COMPANY_NS)}-redteam-{nonce}"
+    heartbeat_id = f"{workflow_id('conduct', COMPANY_NS)}-redteam-{nonce}"
 
     async def drive() -> dict:
         with temporal_port_forward() as address:

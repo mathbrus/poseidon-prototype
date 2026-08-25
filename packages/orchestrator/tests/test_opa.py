@@ -9,7 +9,6 @@ from orchestrator import opa
 pytestmark = pytest.mark.anyio
 
 
-@pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 

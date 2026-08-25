@@ -35,9 +35,9 @@ import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
-from orchestrator.workflows.conduct import ConductInput, conduct_workflow_id
-from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
-from orchestrator.workflows.review import review_workflow_id
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.conduct import ConductInput
+from orchestrator.workflows.intake import IntakeInput
 
 from .conftest import (
     COMPANY_NS,
@@ -134,7 +134,7 @@ def overnight(stack: None, env: dict) -> dict:
         f"Ship the slugify utility (e2e overnight goal {nonce})\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    heartbeat_id = f"{conduct_workflow_id(COMPANY_NS)}-overnight-{nonce}"
+    heartbeat_id = f"{workflow_id('conduct', COMPANY_NS)}-overnight-{nonce}"
     result: dict = {"env": env, "heartbeat_id": heartbeat_id}
 
     async def drive() -> None:
@@ -147,7 +147,7 @@ def overnight(stack: None, env: dict) -> dict:
                 IntakeInput(
                     run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
                 ),
-                id=intake_workflow_id(intake_run),
+                id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )
             result["intake"] = await asyncio.wait_for(intake_handle.result(), timeout=600)
@@ -185,7 +185,7 @@ def overnight(stack: None, env: dict) -> dict:
                 )
                 result["review"] = review
                 review_handle = client.get_workflow_handle(
-                    review_workflow_id(review["run_id"])
+                    workflow_id("review", review["run_id"])
                 )
                 deadline = time.monotonic() + 600
                 while time.monotonic() < deadline:

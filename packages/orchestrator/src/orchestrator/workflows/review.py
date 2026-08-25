@@ -52,12 +52,10 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from orchestrator.gates import Gate
-from orchestrator.workflows.implement import (
-    BUDGET_MARKER,
-    DISPATCH_RETRY,
-    FAST_TIMEOUTS,
+from orchestrator.workflows.base import (
     STEP_RETRY,
     TEARDOWN_RETRY,
+    RunWorkflow,
     Timeouts,
 )
 
@@ -67,11 +65,6 @@ class ReviewInput:
     run_id: str
     pr_number: int
     timeouts: Timeouts | None = None
-
-
-def review_workflow_id(run_id: str) -> str:
-    """One workflow per run, deterministically named."""
-    return f"review-{run_id}"
 
 
 def review_task(pr_number: int, title: str, url: str) -> str:
@@ -87,7 +80,7 @@ def review_task(pr_number: int, title: str, url: str) -> str:
 
 
 @workflow.defn(name="review")
-class ReviewWorkflow:
+class ReviewWorkflow(RunWorkflow):
     def __init__(self) -> None:
         self._phase = "running"
         self._budget_gate = Gate("budget")
@@ -110,44 +103,6 @@ class ReviewWorkflow:
         """The API-visible run phase: a parked merge gate must be a
         visible pending state, never a silent hang."""
         return self._phase
-
-    async def _dispatch(
-        self,
-        run_id: str,
-        task_text: str,
-        url: str,
-        timeouts: Timeouts,
-    ) -> dict[str, Any]:
-        """The reviewer dispatch, budget-pause aware — the same loop as
-        implement's: `budget_exhausted` parks the workflow on the `budget`
-        signal, approval re-dispatches, anything else returns the marked
-        result for teardown to finalize."""
-        while True:
-            result = await workflow.execute_activity(
-                "dispatch_executor",
-                args=[run_id, task_text, url, "review"],
-                start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
-                schedule_to_close_timeout=timedelta(
-                    seconds=timeouts.dispatch_schedule_to_close_s
-                ),
-                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
-                retry_policy=DISPATCH_RETRY,
-            )
-            if BUDGET_MARKER not in ((result or {}).get("error") or ""):
-                return result
-            self._phase = f"paused-{BUDGET_MARKER}"
-            outcome = await self._budget_gate.wait(
-                timeout=timedelta(seconds=timeouts.budget_gate_s),
-                escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
-                on_escalate=lambda: self._record_gate(
-                    run_id, "budget", "escalated", timeouts
-                ),
-            )
-            self._phase = "running"
-            await self._record_gate(run_id, "budget", outcome.kind, timeouts)
-            if outcome.kind != "approved":
-                return result
-            self._budget_gate = Gate("budget")
 
     async def _policy_merge(
         self,
@@ -197,7 +152,7 @@ class ReviewWorkflow:
             # ones the implementer crew cannot deliver); at bootstrap it
             # also keeps the first contract PR off the composed baseline,
             # which has no tree to run yet. Decline, not failure: park.
-            await self._record_gate(input.run_id, "merge", "policy_declined", timeouts)
+            await self.record_gate(input.run_id, "merge", "policy_declined", timeouts)
             return {}
         verdict = result["verdict"]
         if verdict != "pass":
@@ -285,7 +240,7 @@ class ReviewWorkflow:
             retry_policy=STEP_RETRY,
         )
         if not resolve.get("allow"):
-            await self._record_gate(input.run_id, "merge", "policy_declined", timeouts)
+            await self.record_gate(input.run_id, "merge", "policy_declined", timeouts)
             return {}
         return await self._release(input, timeouts)
 
@@ -313,7 +268,7 @@ class ReviewWorkflow:
         )
         limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
         if depth["depth"] >= limit:
-            await self._record_gate(input.run_id, "merge", "rework_exhausted", timeouts)
+            await self.record_gate(input.run_id, "merge", "rework_exhausted", timeouts)
             return {}
         ticket = await workflow.execute_activity(
             "file_rework",
@@ -331,7 +286,7 @@ class ReviewWorkflow:
             start_to_close_timeout=timedelta(seconds=timeouts.step_s),
             retry_policy=STEP_RETRY,
         )
-        await self._record_gate(input.run_id, "merge", "rework_filed", timeouts)
+        await self.record_gate(input.run_id, "merge", "rework_filed", timeouts)
         return {
             "error": f"policy merge gate: {reason} — rework ticket filed:"
             f" {ticket.get('url')}"
@@ -361,12 +316,12 @@ class ReviewWorkflow:
         outcome = await self._merge_gate.wait(
             timeout=timedelta(seconds=timeouts.merge_gate_s),
             escalate_after=timedelta(seconds=timeouts.merge_gate_s // 2),
-            on_escalate=lambda: self._record_gate(
+            on_escalate=lambda: self.record_gate(
                 input.run_id, "merge", "escalated", timeouts
             ),
         )
         self._phase = "running"
-        await self._record_gate(input.run_id, "merge", outcome.kind, timeouts)
+        await self.record_gate(input.run_id, "merge", outcome.kind, timeouts)
         if outcome.kind != "approved":
             return {"error": f"merge gate {outcome.kind}"}
         return {"released": await self._merge_pr(input, timeouts)}
@@ -374,18 +329,8 @@ class ReviewWorkflow:
     async def _release(self, input: "ReviewInput", timeouts: Timeouts) -> dict[str, Any]:
         """The policy release: gate outcome first, then the merge — strictly
         after the compiled allow."""
-        await self._record_gate(input.run_id, "merge", "policy_resolved", timeouts)
+        await self.record_gate(input.run_id, "merge", "policy_resolved", timeouts)
         return {"released": await self._merge_pr(input, timeouts)}
-
-    async def _record_gate(
-        self, run_id: str, gate: str, kind: str, timeouts: Timeouts
-    ) -> None:
-        await workflow.execute_activity(
-            "record_gate_outcome",
-            args=[run_id, gate, kind, workflow.info().workflow_id],
-            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-            retry_policy=STEP_RETRY,
-        )
 
     @workflow.run
     async def run(self, input: ReviewInput) -> dict[str, Any]:
@@ -471,8 +416,8 @@ class ReviewWorkflow:
                 heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
                 retry_policy=STEP_RETRY,
             )
-            result = await self._dispatch(
-                input.run_id, crew["brief"], crew["executor_url"], timeouts
+            result = await self.dispatch(
+                input.run_id, crew["brief"], crew["executor_url"], "review", timeouts
             )
             if (result or {}).get("error"):
                 raise _ReviewOver()
@@ -551,12 +496,3 @@ class _ReviewOver(Exception):
     """Internal control flow: a terminal verdict (reviewer error, missing
     verdict, rework filed, gate reject/timeout, or a gate-free finish) skips
     straight to teardown with whatever result/error is in hand."""
-
-
-__all__ = [
-    "FAST_TIMEOUTS",
-    "ReviewInput",
-    "ReviewWorkflow",
-    "review_task",
-    "review_workflow_id",
-]

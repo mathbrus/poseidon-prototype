@@ -22,11 +22,8 @@ import yaml
 from temporalio.client import Client
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import (
-    ImplementInput,
-    Timeouts,
-    workflow_id,
-)
+from orchestrator.workflows.base import Timeouts, workflow_id
+from orchestrator.workflows.implement import ImplementInput
 
 from .conftest import (
     COMPANY_NS,
@@ -85,7 +82,7 @@ async def _run_until_paused_then_reject(
     handle = await client.start_workflow(
         "implement",
         ImplementInput(run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()),
-        id=workflow_id(run_id),
+        id=workflow_id("implement", run_id),
         task_queue=TASK_QUEUE,
     )
     # The budget hard-stop leaves an API-visible pending state.

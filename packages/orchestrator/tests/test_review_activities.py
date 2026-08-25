@@ -55,7 +55,6 @@ class FakeInstances:
         return [r for r in self.rows if r["company"] == company]
 
 
-@pytest.fixture
 def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected-token")
@@ -190,27 +189,21 @@ def test_verdicts_are_journaled_audit_events(settings, audit):
     assert all(e.workflow == f"review-{RUN_ID}" for e in events)
 
 
-def test_read_pr_keeps_the_shape_and_drops_the_patches(settings, monkeypatch):
+def test_read_pr_keeps_the_shape_and_drops_the_patches(
+    settings, monkeypatch, fake_gateway
+):
     import orchestrator.activities.review as module
 
-    class FakeGateway:
-        def __init__(self, *a, **k): ...
-        async def __aenter__(self):
-            return self
+    async def read_pr(self, run_id, repo, number):
+        return {
+            "number": number,
+            "title": "Add slugify",
+            "head": "feature/slugify-x",
+            "url": "https://pr/41",
+            "files": [{"path": "slugify.py", "patch": "+..."}],
+        }
 
-        async def __aexit__(self, *a):
-            return False
-
-        async def read_pr(self, run_id, repo, number):
-            return {
-                "number": number,
-                "title": "Add slugify",
-                "head": "feature/slugify-x",
-                "url": "https://pr/41",
-                "files": [{"path": "slugify.py", "patch": "+..."}],
-            }
-
-    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
     pr = asyncio.run(activities.read_pr(RUN_ID, 41))
     assert pr["head"] == "feature/slugify-x"
@@ -261,26 +254,18 @@ def test_contract_deletions_is_none_when_the_tree_is_untouched():
     assert contract_deletions(files, []) is None
 
 
-def test_warn_contract_edit_posts_and_audits(settings, audit, monkeypatch):
+def test_warn_contract_edit_posts_and_audits(settings, audit, monkeypatch, fake_gateway):
     """Both channels at once: the platform comment the human reads before
     resolving the merge signal, and the audit row carrying the counts."""
     import orchestrator.activities.review as module
 
     comments: list[tuple[int, str]] = []
 
-    class FakeGateway:
-        def __init__(self, *a, **k): ...
-        async def __aenter__(self):
-            return self
+    async def comment_pr(self, run_id, repo, number, body):
+        comments.append((number, body))
+        return {"url": "https://pr/41#c-9"}
 
-        async def __aexit__(self, *a):
-            return False
-
-        async def comment_pr(self, run_id, repo, number, body):
-            comments.append((number, body))
-            return {"url": "https://pr/41#c-9"}
-
-    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(comment_pr=comment_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
     deletions = {
         "removed_tests": 2,
@@ -299,29 +284,23 @@ def test_warn_contract_edit_posts_and_audits(settings, audit, monkeypatch):
     assert event.source == "process-lifecycle"
 
 
-def test_read_pr_refuses_a_headless_pr(settings, monkeypatch):
+def test_read_pr_refuses_a_headless_pr(settings, monkeypatch, fake_gateway):
     """No head ref means nothing to provision the review sandbox from
     — refuse before provisioning, like every config activity."""
     import orchestrator.activities.review as module
 
-    class FakeGateway:
-        def __init__(self, *a, **k): ...
-        async def __aenter__(self):
-            return self
+    async def read_pr(self, run_id, repo, number):
+        return {"number": number, "head": ""}
 
-        async def __aexit__(self, *a):
-            return False
-
-        async def read_pr(self, run_id, repo, number):
-            return {"number": number, "head": ""}
-
-    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
     with pytest.raises(RuntimeError, match="no head ref"):
         asyncio.run(activities.read_pr(RUN_ID, 41))
 
 
-def test_merge_pr_raises_when_the_merge_does_not_land(settings, monkeypatch):
+def test_merge_pr_raises_when_the_merge_does_not_land(
+    settings, monkeypatch, fake_gateway
+):
     import orchestrator.activities.review as module
 
     merged: list[dict[str, Any]] = [
@@ -329,18 +308,10 @@ def test_merge_pr_raises_when_the_merge_does_not_land(settings, monkeypatch):
         {"merged": False, "sha": ""},
     ]
 
-    class FakeGateway:
-        def __init__(self, *a, **k): ...
-        async def __aenter__(self):
-            return self
+    async def merge_pr(self, run_id, repo, number, method="merge"):
+        return merged.pop(0)
 
-        async def __aexit__(self, *a):
-            return False
-
-        async def merge_pr(self, run_id, repo, number, method="merge"):
-            return merged.pop(0)
-
-    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(merge_pr=merge_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
     assert asyncio.run(activities.merge_pr(RUN_ID, 41))["sha"] == "abc123"
     with pytest.raises(RuntimeError, match="did not land"):

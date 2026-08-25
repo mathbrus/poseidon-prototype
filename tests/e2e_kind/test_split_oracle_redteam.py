@@ -68,10 +68,8 @@ from mockllm.brain import (
     ORACLE_SMUGGLE_MARKER,
     STEERED_CONTRACT_MARKER,
 )
-from orchestrator.workflows.review import (
-    ReviewInput,
-    review_workflow_id,
-)
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.review import ReviewInput
 
 from .conftest import (
     PLATFORM_NS,
@@ -215,7 +213,7 @@ def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
                 ReviewInput(
                     run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
                 ),
-                id=review_workflow_id(run_id),
+                id=workflow_id("review", run_id),
                 task_queue=TASK_QUEUE,
             )
             return await asyncio.wait_for(handle.result(), timeout=900)

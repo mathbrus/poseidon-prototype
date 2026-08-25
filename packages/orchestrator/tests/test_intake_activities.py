@@ -18,7 +18,6 @@ from registry.memory import (
 RUN_ID = "run-01INTAKE"
 
 
-@pytest.fixture
 def settings(tmp_path) -> WorkerSettings:
     token = tmp_path / "token"
     token.write_text("projected")

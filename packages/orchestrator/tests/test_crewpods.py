@@ -138,7 +138,6 @@ def _crew(settings, participants, audit, provisioner=None, requests=None, compan
     )
 
 
-@pytest.fixture
 def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected")

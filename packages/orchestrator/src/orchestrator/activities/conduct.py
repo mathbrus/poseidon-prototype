@@ -35,11 +35,13 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from common.audit import AuditEvent, args_digest
+from common.audit import args_digest
 from common.telemetry import get_logger
-from orchestrator.clients import AgentClient, GatewayClient
+from orchestrator.audit import record_event
+from orchestrator.clients import GatewayClient, dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
+from orchestrator.workflows.base import workflow_id
 from registry import AuditStore, BudgetLedger, Runs
 from registry.bundles import Companies
 
@@ -108,9 +110,7 @@ class ConductActivities:
         self._log = get_logger("orchestrator.conduct")
 
     def _conduct_run_id(self) -> str:
-        from orchestrator.workflows.conduct import conduct_workflow_id
-
-        return conduct_workflow_id(self._settings.company)
+        return workflow_id("conduct", self._settings.company)
 
     @activity.defn(name="conduct_config")
     async def conduct_config(self) -> dict[str, Any] | None:
@@ -216,15 +216,13 @@ class ConductActivities:
         terminal, terminal_error = "done", None
         try:
             prompt = decision_prompt(observed, may_start)
-            async with AgentClient(self._settings.pm_url) as agent:
-                await agent.dispatch(run_id, prompt, mode="decide")
-                while True:
-                    if activity.in_activity():
-                        activity.heartbeat()
-                    status = await agent.status(run_id)
-                    if status["status"] != "running":
-                        break
-                    await asyncio.sleep(self._settings.poll_interval_s)
+            status = await dispatch_and_poll(
+                self._settings.pm_url,
+                run_id,
+                prompt,
+                "decide",
+                self._settings.poll_interval_s,
+            )
             decision = status.get("decision")
             if status["status"] != "done" or not decision:
                 raise ApplicationError(
@@ -353,23 +351,17 @@ class ConductActivities:
         latency_ms: int = 0,
         workflow: str = "conduct",
     ) -> None:
-        event = AuditEvent(
+        await record_event(
+            self._audit,
             run_id=run_id,
-            agent_id="orchestrator",
-            role="platform",
             tool=tool,
-            args_digest=digest,
+            digest=digest,
             decision=decision,
             rule=rule,
-            latency_ms=latency_ms,
-            backend_status=None,
-            source="process-lifecycle",
             company=self._settings.company,
-            lifecycle="platform",
-            parent_agent_id="",
             workflow=workflow,
+            latency_ms=latency_ms,
         )
-        await asyncio.to_thread(self._audit.append, event)
 
     def all(self) -> list[Any]:
         return [

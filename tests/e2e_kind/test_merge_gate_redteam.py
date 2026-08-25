@@ -52,10 +52,8 @@ from mockllm.brain import (
     MERGE_GATE_REDTEAM_MARKER,
     STEERED_REVIEW_MARKER,
 )
-from orchestrator.workflows.review import (
-    ReviewInput,
-    review_workflow_id,
-)
+from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.review import ReviewInput
 
 from .conftest import (
     PLATFORM_NS,
@@ -183,7 +181,7 @@ def redteam(delegated, env: dict) -> dict:
                 ReviewInput(
                     run_id=review_run, pr_number=pr_number, timeouts=deployed_timeouts()
                 ),
-                id=review_workflow_id(review_run),
+                id=workflow_id("review", review_run),
                 task_queue=TASK_QUEUE,
             )
             return await asyncio.wait_for(handle.result(), timeout=900)

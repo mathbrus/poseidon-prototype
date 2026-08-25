@@ -22,12 +22,10 @@ import time
 import pytest
 
 from common.ids import new_run_id
-from orchestrator.workflows.implement import Timeouts, issue_placeholder
-from orchestrator.workflows.intake import IntakeInput, intake_workflow_id
-from orchestrator.workflows.review import (
-    ReviewInput,
-    review_workflow_id,
-)
+from orchestrator.workflows.base import Timeouts, workflow_id
+from orchestrator.workflows.implement import issue_placeholder
+from orchestrator.workflows.intake import IntakeInput
+from orchestrator.workflows.review import ReviewInput
 
 from .conftest import (
     TASK_QUEUE,
@@ -59,7 +57,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
     handle = await client.start_workflow(
         "review",
         ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()),
-        id=review_workflow_id(run_id),
+        id=workflow_id("review", run_id),
         task_queue=TASK_QUEUE,
     )
 
@@ -124,7 +122,7 @@ def review_chain(stack: None, env: dict) -> dict:
                 IntakeInput(
                     run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
                 ),
-                id=intake_workflow_id(intake_run),
+                id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )
             return await asyncio.wait_for(handle.result(), timeout=600)

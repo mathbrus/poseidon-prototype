@@ -10,7 +10,7 @@ import pytest
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.implement import issue_placeholder
-from registry.memory import InMemoryCompanies, InMemoryRuns
+from registry.memory import InMemoryAgentInstances, InMemoryCompanies, InMemoryRuns
 from sandbox.contract import SandboxHandle, SandboxPolicy
 
 RUN_ID = "run-test-0001"
@@ -57,7 +57,6 @@ class FakeBackend:
         self.destroyed.append(handle.job_name)
 
 
-@pytest.fixture
 def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected-token")
@@ -94,7 +93,9 @@ def activities(
     runs: InMemoryRuns,
     companies: InMemoryCompanies,
 ) -> ImplementActivities:
-    return ImplementActivities(settings, backend, runs, companies)
+    return ImplementActivities(
+        settings, backend, runs, companies, InMemoryAgentInstances()
+    )
 
 
 def test_create_run_opens_a_running_row(activities, runs):
@@ -113,26 +114,21 @@ def test_create_run_is_retry_safe(activities, runs):
     assert runs.get(RUN_ID).task == "attempt two"
 
 
-def _issue_gateway(monkeypatch, issue: dict[str, Any]):
+def _issue_gateway(monkeypatch, fake_gateway, issue: dict[str, Any]):
     import orchestrator.activities.implement as module
 
-    class FakeGateway:
-        def __init__(self, *a, **k): ...
-        async def __aenter__(self):
-            return self
+    async def read_issue(self, run_id, repo, number):
+        return issue
 
-        async def __aexit__(self, *a):
-            return False
-
-        async def read_issue(self, run_id, repo, number):
-            return issue
-
-    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_issue=read_issue))
 
 
-def test_read_issue_returns_the_view_and_links_the_ticket(activities, runs, monkeypatch):
+def test_read_issue_returns_the_view_and_links_the_ticket(
+    activities, runs, monkeypatch, fake_gateway
+):
     _issue_gateway(
         monkeypatch,
+        fake_gateway,
         {
             "number": 42,
             "title": "Add slugify",
@@ -147,11 +143,12 @@ def test_read_issue_returns_the_view_and_links_the_ticket(activities, runs, monk
     assert runs.get(RUN_ID).ticket_urls == ["https://github.test/i/42"]
 
 
-def test_read_issue_refuses_a_closed_issue(activities, monkeypatch):
+def test_read_issue_refuses_a_closed_issue(activities, monkeypatch, fake_gateway):
     """Implement consumes open work — a closed ticket is finished, not a
     spec to re-run."""
     _issue_gateway(
         monkeypatch,
+        fake_gateway,
         {"number": 42, "title": "t", "state": "closed", "body": "", "url": "u"},
     )
     with pytest.raises(RuntimeError, match="not open"):
@@ -188,7 +185,9 @@ def test_custom_toolchain_image_passes_through(activities, companies):
 
 
 def test_provision_without_an_applied_blueprint_fails_closed(settings, backend, runs):
-    lone = ImplementActivities(settings, backend, runs, InMemoryCompanies())
+    lone = ImplementActivities(
+        settings, backend, runs, InMemoryCompanies(), InMemoryAgentInstances()
+    )
     with pytest.raises(RuntimeError, match="no applied blueprint"):
         lone._sandbox_policy(RUN_ID)
     assert backend.provisioned == []
@@ -385,7 +384,7 @@ def _config_activities(settings, backend, runs, spec, instances):
     companies = InMemoryCompanies()
     if spec is not None:
         companies.upsert("hello-saas", spec)
-    return ImplementActivities(settings, backend, runs, companies, None, instances)
+    return ImplementActivities(settings, backend, runs, companies, instances)
 
 
 def test_implement_config_resolves_crew_and_conductor(settings, backend, runs):
@@ -422,23 +421,15 @@ def test_implement_config_fails_closed_without_a_conductor_instance(
         asyncio.run(activities.implement_config())
 
 
-def test_platform_verify_maps_exit_code(activities, monkeypatch):
+def test_platform_verify_maps_exit_code(activities, monkeypatch, fake_gateway):
     """The gate of record: green is exit_code 0 from the platform's own
     sandbox.run_tests call, anything else is red with the output kept."""
     import orchestrator.activities.implement as module
 
-    class FakeGateway:
-        def __init__(self, *a, **k): ...
-        async def __aenter__(self):
-            return self
+    async def run_tests(self, run_id, paths=None):
+        return {"exit_code": 1, "stdout": "1 failed", "stderr": ""}
 
-        async def __aexit__(self, *a):
-            return False
-
-        async def run_tests(self, run_id, paths=None):
-            return {"exit_code": 1, "stdout": "1 failed", "stderr": ""}
-
-    monkeypatch.setattr(module, "GatewayClient", FakeGateway)
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(run_tests=run_tests))
     verdict = asyncio.run(activities.platform_verify(RUN_ID))
     assert verdict == {"passed": False, "output": "1 failed"}
 
@@ -467,7 +458,9 @@ def test_teardown_revokes_participants_on_every_terminal_path(
         InMemoryBudgetLedger(),
         runs,
     )
-    activities = ImplementActivities(settings, backend, runs, companies, crew)
+    activities = ImplementActivities(
+        settings, backend, runs, companies, InMemoryAgentInstances(), crew
+    )
 
     participants.add(
         "feature-delivery-executor-" + RUN_ID,
@@ -506,7 +499,9 @@ def test_revoke_failure_is_loud_but_not_masking(settings, backend, runs, compani
         async def revoke_participants(self, run_id: str):
             raise RuntimeError("registry unreachable")
 
-    activities = ImplementActivities(settings, backend, runs, companies, BrokenCrew())
+    activities = ImplementActivities(
+        settings, backend, runs, companies, InMemoryAgentInstances(), BrokenCrew()
+    )
     record = asyncio.run(
         activities.teardown(RUN_ID, dict(JOB_HANDLE), {"status": "done"}, None)
     )

@@ -19,8 +19,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from orchestrator.workflows.base import FAST_TIMEOUTS
 from orchestrator.workflows.conduct import ConductInput, ConductWorkflow
-from orchestrator.workflows.implement import FAST_TIMEOUTS
 
 pytestmark = pytest.mark.anyio
 
@@ -141,12 +141,10 @@ def _clear_children():
     _CHILDREN.clear()
 
 
-@pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.fixture
 async def env():
     # The time-skipping environment fetches Temporal's test server binary
     # on first use; a machine that cannot skips rather than failing, like

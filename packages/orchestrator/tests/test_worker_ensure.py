@@ -9,7 +9,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from orchestrator.config import WorkerSettings
 from orchestrator.worker.__main__ import ensure_conduct_once
-from orchestrator.workflows.implement import FAST_TIMEOUTS
+from orchestrator.workflows.base import FAST_TIMEOUTS
 from registry.memory import InMemoryCompanies
 
 pytestmark = pytest.mark.anyio
@@ -17,7 +17,6 @@ pytestmark = pytest.mark.anyio
 COMPANY = "hello-saas"
 
 
-@pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
 
@@ -43,6 +42,7 @@ def settings(**overrides: Any) -> WorkerSettings:
     return WorkerSettings(
         mcp_gateway_url="http://gateway.test:8080",
         target_repo="github.com/example/repo",
+        agent_image="poseidon-agent:abc123",
         company=COMPANY,
         **overrides,
     )

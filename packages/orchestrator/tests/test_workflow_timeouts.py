@@ -7,11 +7,8 @@ workflow code cannot read the environment under Temporal's sandbox.
 
 from dataclasses import fields
 
-from orchestrator.workflows.implement import (
-    FAST_TIMEOUTS,
-    ImplementInput,
-    Timeouts,
-)
+from orchestrator.workflows.base import FAST_TIMEOUTS, Timeouts
+from orchestrator.workflows.implement import ImplementInput
 
 
 def test_default_input_keeps_the_generous_real_brain_bounds():

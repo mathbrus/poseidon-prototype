@@ -48,7 +48,7 @@ class WorkerSettings(TemporalSettings):
     # Crew-pod provisioning: the agent image the ephemeral
     # executor's brain host runs (content-addressed on kind, like the
     # sandbox image), and the platform namespace for gateway FQDNs.
-    agent_image: str = ""
+    agent_image: str
     platform_namespace: str = "poseidon-platform"
     # The standing PM's dispatch address (intake dispatches
     # the conductor; implement dispatches ephemeral executors at their
