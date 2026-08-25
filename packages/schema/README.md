@@ -16,7 +16,7 @@ sections: `company`, `stack`, `departments`, `crews`, `tools`, `workflows`,
 `conduct` — a company without guardrails is a choice you make visibly, not
 a default you fall into by omission, and a company with no standing
 heartbeat is simply one no heartbeat drives. The document format itself is introduced line by line in
-the [root README, section 7](../../README.md#7-the-blueprint-line-by-line).
+[docs/blueprint.md](../../docs/blueprint.md).
 
 ## Module map
 

@@ -193,10 +193,11 @@ departments.roles.backend-engineer: standing count 1 on non-spawner template 'ba
 ```
 
 Two subtleties. First, `compile_blueprint` accepts plain dicts and does
-not run the schema pass, so a few document-level checks (template
-existence, tool vocabulary) are deliberately repeated here — the
-compiler must fail closed on an unvalidated input, not `KeyError`
-halfway through emission. Second, narrowing semantics differ by field:
+not run the schema pass, so the document-level checks (template
+existence, tool vocabulary, the catalog cross-checks) run here too — the
+same functions `schema.validate` runs, imported from `schema.coherence`,
+because the compiler must fail closed on an unvalidated input, not
+`KeyError` halfway through emission. Second, narrowing semantics differ by field:
 widening a *crew member's* tools or a role's *spawn authority* past the
 catalog is a compile error, while a standing role's tool scope is
 silently intersected with its template (`declared & set(template.tools)`

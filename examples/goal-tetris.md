@@ -1,3 +1,4 @@
+<!-- A hand-run demo for a real model: the mock brain scripts nothing for it. -->
 # Goal: a small Tetris in Python
 
 Build a playable, self-contained Tetris in this repository, in Python, using
