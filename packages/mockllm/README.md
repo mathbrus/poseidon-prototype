@@ -206,7 +206,7 @@ the same trap.
 python -m mockllm --model <ignored> --port 4000 --drop_params
 ```
 
-`Dockerfile.mockllm` (repo root). The LiteLLM-shaped args are accepted
+the `poseidon-mockllm` row of `deploy/build-images.sh`. The LiteLLM-shaped args are accepted
 and ignored so the Helm template's `args` work verbatim whether the pod
 runs LiteLLM or this.
 

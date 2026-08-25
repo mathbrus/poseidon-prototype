@@ -222,7 +222,7 @@ a 700 s backstop at the bridge.
 uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 ```
 
-`Dockerfile.agent` (repo root) is the image both standing hires and crew
+`poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing hires and crew
 pods run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
 `MODEL`, `TARGET_REPO`, `ROLE_TEMPLATE`, `MAX_ITERATIONS`, and one of
 `GATEWAY_TOKEN_FILE` / `GATEWAY_TOKEN`.

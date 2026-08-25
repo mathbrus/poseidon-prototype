@@ -21,7 +21,7 @@ egress = [
     "registry",
 ]
 
-# The prebaked in-sandbox toolchain (Dockerfile.sandbox): the test runner
+# The prebaked in-sandbox toolchain (the `poseidon-sandbox` image): the test runner
 # the toolserver's /tests endpoint shells out to, lockfile-pinned like
 # everything else in the image.
 toolchain = [

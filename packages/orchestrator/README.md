@@ -278,7 +278,7 @@ governance problem, never a silent one.
 
 | What | How | Image |
 |---|---|---|
-| worker | `python -m orchestrator.worker` | `Dockerfile.orchestrator` |
+| worker | `python -m orchestrator.worker` | `poseidon-orchestrator` |
 | CLI | `uv run poseidon …` | run from a checkout |
 
 ```

@@ -195,7 +195,7 @@ guesses.
 python -m gateway_llm      # listens on LLM_GATEWAY_PORT, default 4000
 ```
 
-Built by `Dockerfile.gatewayllm`; deployed by the chart's
+Built as `poseidon-gateway-llm` by `deploy/build-images.sh`; deployed by the chart's
 `llm-gateway.yaml`, which also grants the ServiceAccount
 `system:auth-delegator` so TokenReview works. The upstream defaults to
 `http://llm-proxy:4000`, and the forward client allows a 600-second

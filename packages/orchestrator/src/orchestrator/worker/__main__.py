@@ -35,7 +35,7 @@ from orchestrator.workflows import (
     IntakeWorkflow,
     ReviewWorkflow,
 )
-from orchestrator.workflows.base import FAST_TIMEOUTS, workflow_id
+from orchestrator.workflows.base import workflow_id
 from registry import (
     AgentInstances,
     AuditStore,
@@ -71,11 +71,7 @@ async def ensure_conduct_once(
         if (spec or {}).get("conduct"):
             await client.start_workflow(
                 "conduct",
-                ConductInput(
-                    company=settings.company,
-                    tick_interval_s=settings.conduct_tick_interval_s or None,
-                    timeouts=FAST_TIMEOUTS if settings.conduct_fast_timeouts else None,
-                ),
+                ConductInput(company=settings.company),
                 id=workflow_id("conduct", settings.company),
                 task_queue=settings.task_queue,
             )

@@ -177,7 +177,7 @@ Export stays env-gated at runtime either way.
 - Audit args are digests, never values, and `source` is a closed
   vocabulary.
 - `RUN_AS_UID` (10001) in `podsecurity.py` matches the `useradd` line in
-  every Dockerfile at the repo root. They move together.
+  the `Dockerfile` at the repo root. They move together.
 
 ## Tests
 

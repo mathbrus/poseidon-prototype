@@ -37,8 +37,7 @@ spec:
                   audience: poseidon-gateway
                   expirationSeconds: 3600
                   path: token
-        - name: tmp
-          emptyDir: {}
+        {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
         - name: worker
           image: "{{ .Values.images.orchestrator.repository }}:{{ .Values.images.orchestrator.tag }}"
@@ -49,10 +48,8 @@ spec:
             - name: gateway-identity
               mountPath: /var/run/poseidon/identity
               readOnly: true
-            - name: tmp
-              mountPath: /tmp
+            {{- include "poseidon.scratchMount" . | nindent 12 }}
           env:
-            {{- include "poseidon.otelEnv" (dict "root" $ "service" "orchestrator-worker") | nindent 12 }}
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.orchestrator.temporalAddress | quote }}
             - name: MCP_GATEWAY_URL
@@ -77,16 +74,6 @@ spec:
               value: {{ .Values.companyNamespace | quote }}
             - name: SANDBOX_NAMESPACE
               value: {{ .Values.companyNamespace | quote }}
-            {{- if .Values.orchestrator.conductTickIntervalS }}
-            # Mock-brain e2e only: compress the heartbeat's declared
-            # minutes into seconds. The caps still come from the blueprint.
-            - name: CONDUCT_TICK_INTERVAL_S
-              value: {{ .Values.orchestrator.conductTickIntervalS | quote }}
-            {{- end }}
-            {{- if .Values.orchestrator.conductFastTimeouts }}
-            - name: CONDUCT_FAST_TIMEOUTS
-              value: "1"
-            {{- end }}
             # Deploy-time resolution of the infra IR's logical toolchain
             # image (content-addressed on kind); every other SandboxPolicy
             # value comes from the applied blueprint.
@@ -111,8 +98,4 @@ spec:
                 secretKeyRef:
                   name: egress-proxy-key
                   key: EGRESS_PROXY_KEY
-            - name: REGISTRY_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: registry-credentials
-                  key: REGISTRY_DSN
+            {{- include "poseidon.registryDsnEnv" . | nindent 12 }}

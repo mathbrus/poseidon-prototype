@@ -6,7 +6,7 @@ standing-agent Deployments — so tightening the posture cannot silently
 skip one of them.
 
 `RUN_AS_UID` is the user baked into every Poseidon image (see the
-`useradd` line in each Dockerfile at the repo root); the two must move
+`useradd` line in the root Dockerfile); the two must move
 together. The Helm chart carries its own copy in `_helpers.tpl` because
 templates cannot import Python.
 

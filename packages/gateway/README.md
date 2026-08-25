@@ -213,7 +213,7 @@ token's bytes appear nowhere in it.
 uvicorn --factory gateway.app:create_app --host 0.0.0.0 --port 8080
 ```
 
-That is the `Dockerfile.gateway` CMD verbatim; the image installs `git`
+That is the `poseidon-gateway` entrypoint in `deploy/build-images.sh` verbatim; the image installs `git`
 for the platform-side clones and runs as uid 10001. `create_app` opens
 its own registry pool unless the tests inject in-memory accessors — all
 or none, since injecting a subset would still open a real pool for the

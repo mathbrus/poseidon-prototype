@@ -222,9 +222,9 @@ retry.
 
 | What | How | Image |
 |---|---|---|
-| tool server | `uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000` | `Dockerfile.sandbox` |
-| egress proxy | `python -m sandbox.egressproxy` | `Dockerfile.egressproxy` |
-| backend | library, called by the orchestrator | ships in `Dockerfile.orchestrator` |
+| tool server | `uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000` | `poseidon-sandbox` |
+| egress proxy | `python -m sandbox.egressproxy` | `poseidon-egress-proxy` |
+| backend | library, called by the orchestrator | ships in `poseidon-orchestrator` |
 
 The sandbox image prebakes its toolchain (pytest via the `toolchain`
 extra) because sandbox egress is proxy-only and an empty allowlist means

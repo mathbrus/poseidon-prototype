@@ -137,7 +137,7 @@ remember.
 
 ## The two entry points
 
-Both run from `Dockerfile.operator`, differing only in command:
+Both run the `poseidon-operator` image, differing only in command:
 
 ```
 kopf run -m poseidon_operator.reconcile --all-namespaces   # the reconciler

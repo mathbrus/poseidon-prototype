@@ -60,16 +60,11 @@ class WorkerSettings(TemporalSettings):
     model: str = "mock-brain"
     max_iterations: int = 10
     poll_interval_s: float = 2
-    # The conduct heartbeat. The worker's ensure loop keeps the company's
-    # declared heartbeat workflow running (reconcile-on-goal: the applied
+    # How often the worker's ensure loop checks that the company's declared
+    # heartbeat workflow is running (reconcile-on-goal: the applied
     # blueprint's conduct section is the goal; the workflow itself stops
-    # when the section is gone). The tick override compresses the
-    # blueprint's minutes for the mock brain's e2e — 0 keeps the declared
-    # cadence — and fast timeouts ride into the child runs it starts, for
-    # the same reason the CLI's --fast-timeouts exists.
+    # when the section is gone).
     conduct_ensure_interval_s: float = 60
-    conduct_tick_interval_s: int = 0
-    conduct_fast_timeouts: bool = False
 
     def gateway_token(self) -> str:
         if self.gateway_token_file:
