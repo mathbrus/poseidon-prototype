@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     finished_at timestamptz
 );
 -- One live implement run per issue. The canonical issue-run task is the
--- key and the constraint is structural: the conduct heartbeat, a replayed
+-- key and the constraint is structural: the heartbeat, a replayed
 -- workflow and a human `poseidon run <n>` cannot race their way into two
 -- live runs for the same ticket — the second insert dies here, not in a
 -- check-then-act. Only running issue-shaped implement runs are

@@ -34,13 +34,13 @@ resources with your kubeconfig, and `--live` compiles read the registry.
 Workflow ids are `{workflow}-{run_id}` across the three run-shaped workflow
 families, which is why several commands take a `--workflow` option: the CLI
 needs to know which family a run belongs to in order to address it. The
-fourth family is not run-shaped: the conduct heartbeat is one standing
-workflow per company, `conduct-{company}`, started by the worker's ensure
-loop whenever the applied blueprint declares a `conduct` section and
+fourth family is not run-shaped: the heartbeat is one standing workflow
+per company, `heartbeat-{company}`, started by the worker's ensure loop
+whenever the applied blueprint declares a `heartbeat` section and
 self-stopping when the section is gone (`poseidon status <company>
---workflow conduct` inspects it). No human starts it, which is the point —
-and its authority is exactly the compiled `conduct.start` decision, nothing
-more.
+--workflow heartbeat` inspects it). No human starts it, which is the
+point — and its authority is exactly the compiled `heartbeat.start`
+decision, nothing more.
 
 ### `poseidon run`
 
@@ -111,7 +111,7 @@ identity; the CLI never touches the repository.
 ### `poseidon status`
 
 ```
-poseidon status RUN_ID [--workflow implement|intake|review]
+poseidon status RUN_ID [--workflow implement|intake|review|heartbeat]   # for heartbeat, RUN_ID is the company
 ```
 
 Prints the workflow's status as JSON, and — when the workflow has
@@ -165,7 +165,8 @@ a chat-ops approval bot, or the e2e suite would integrate here, not by
 shelling out to the CLI. This section writes that contract down.
 
 All workflows run on task queue **`poseidon-orchestrator`** and are named
-deterministically, one workflow per run: `{family}-{run_id}`.
+deterministically: one workflow per run, `{family}-{run_id}`, and one
+heartbeat per company, `heartbeat-{company}`.
 
 ### Workflows
 
@@ -174,6 +175,7 @@ deterministically, one workflow per run: `{family}-{run_id}`.
 | `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text=None, timeouts=None, issue_number=None)` — exactly one of `task_text` or `issue_number` | The delivery pipeline: crew fulfilment, planning, implementation, verify gate, PR. With `issue_number`, the platform resolves the open issue first and composes the task from it. |
 | `intake` | `intake-{run_id}` | `IntakeInput(run_id, goal_text, timeouts=None)` | The PM scoping a goal into tickets and a recorded crew request. |
 | `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number, timeouts=None)` | Ephemeral review of a PR, then the merge gate — resolved by a human signal or by compiled policy, as the blueprint declares. |
+| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, tick_interval_s=None, timeouts=None)` | The company's own cadence: each tick observes the backlog, asks the conductor to choose one action, and starts it under the compiled `heartbeat.start` decision. Started by the worker's ensure loop, never by a human; stops itself when the blueprint's `heartbeat` section is gone. |
 
 `timeouts=None` keeps the generous real-brain activity bounds (and lets
 old histories replay); the CLI's `--fast-timeouts` passes the mock-brain

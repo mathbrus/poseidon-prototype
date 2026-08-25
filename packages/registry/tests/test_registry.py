@@ -489,7 +489,7 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
     assert rows[0]["status"] == "terminated"
 
 
-# -- the conduct heartbeat's observations ----------------------------------
+# -- the heartbeat's observations ----------------------------------
 
 
 def test_active_count_counts_running_delivery_runs(registry: Registry):
@@ -582,7 +582,7 @@ def test_free_form_tasks_are_not_constrained(registry: Registry):
 
 
 def test_implement_run_for_pr_finds_the_lineage(registry: Registry):
-    """The PR's run lineage, keyed the way the conduct observation keys
+    """The PR's run lineage, keyed the way the heartbeat observation keys
     PRs: the number is the URL's tail — and #4 must not match #14."""
     runs = Runs(registry)
     runs.start("run-ln-1", "implement issue #1", "implement", None, "hello-saas")

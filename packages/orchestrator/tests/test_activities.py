@@ -514,7 +514,7 @@ def test_revoke_failure_is_loud_but_not_masking(settings, backend, runs, compani
 
 def test_create_run_refuses_a_second_live_run_for_the_same_issue(activities, runs):
     """One live implement run per issue — the registry constraint surfaces
-    here, so neither a conduct tick nor a human `poseidon run <n>` can
+    here, so neither a heartbeat tick nor a human `poseidon run <n>` can
     duplicate work already in flight."""
     asyncio.run(activities.create_run(RUN_ID, issue_placeholder(42)))
     with pytest.raises(RuntimeError, match="one live implement run per issue"):

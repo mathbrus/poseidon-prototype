@@ -206,56 +206,56 @@ Every budget line you can write here is a hard stop.
 </details>
 
 <details>
-<summary><b><code>conduct</code> — the standing heartbeat (opt-in)</b></summary>
+<summary><b><code>heartbeat</code> — the company's own cadence (opt-in)</b></summary>
 
 <br>
 
 ```yaml
-conduct:
+heartbeat:
   conductor: pm
-  heartbeat_minutes: 30
+  interval_minutes: 30
   max_concurrent_runs: 1
   may_start: [implement, review]
   daily_cap: {usd: 20}
 ```
 
 The one section the shipped example does *not* carry, because absence is a
-meaningful state: no `conduct`, no heartbeat — runs start only when a human
-starts one, which is everything this README described so far.
+meaningful state: with no `heartbeat` section, runs start only when a human
+starts one, which is everything this reference described so far.
 
 Declaring it grants the platform a bounded authority to start work on its
-own initiative: every `heartbeat_minutes`, the named conductor is dispatched
+own initiative: every `interval_minutes`, the named conductor is dispatched
 to choose the next action from the backlog, and the chosen workflow may
 start only within `max_concurrent_runs` and under the `daily_cap`. Every
 field is required once the section exists — a defaulted cap is authority
 nobody wrote down — and `intake` is deliberately not startable: goals enter
 through a human.
 
-The caps compile into the company's policy bundle as a `conduct.start`
+The caps compile into the company's policy bundle as a `heartbeat.start`
 decision (deny over-cap, deny absent counts — fail-safe defaults again),
-which is the decision the conductor loop must win before starting anything.
+which is the decision the heartbeat must win before starting anything.
 Only the platform lifecycle can match its allow rules: an agent reciting
-`conduct.start` at the gateway matches nothing, and a blueprint diff that
+`heartbeat.start` at the gateway matches nothing, and a blueprint diff that
 removes the section removes the rules, so revocation is the same reviewable
 edit as every other authority change.
 
-The loop itself is one durable workflow per company (`conduct-{company}`),
+The loop itself is one durable workflow per company (`heartbeat-{company}`),
 kept running by the orchestrator worker while the applied blueprint
 declares the section. Each tick observes the open backlog, the delivered
 PRs awaiting review, the in-flight runs and today's ledger spend, then
 dispatches the standing PM in a toolless *decide* mode: one action —
 `implement #n`, `review #n`, or `idle` — with a required one-line
-rationale, journaled as a `conduct.decide` audit event (the append-only
+rationale, journaled as a `heartbeat.decide` audit event (the append-only
 record of *why* the company did what it did; the PM's cross-run state is
 the registry, read fresh each tick — no private memory). The PM proposes
 and the platform disposes: the action set is closed, the target must come
 from the observation, and the start must still win the compiled
-`conduct.start` decision — a poisoned ticket title can at most steer the
+`heartbeat.start` decision — a poisoned ticket title can at most steer the
 choice between observed candidates, never mint a new one. Idle ticks and
 cap halts record their reason too (a daily-cap halt is a first-class
 process-gate event, like the per-run budget stop). Removal is fail-closed
 twice over: the tick re-reads the section and stops when it is gone, and a
-tick that somehow survived would still find no `conduct.start` rule to
+tick that somehow survived would still find no `heartbeat.start` rule to
 match. Issue bodies never feed the tick — only numbers, titles and URLs —
 because the backlog is untrusted input, and the implement run resolves the
 ticket itself under the platform identity like any other issue-driven run.

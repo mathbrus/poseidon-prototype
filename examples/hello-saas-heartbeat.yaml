@@ -1,8 +1,7 @@
-# hello-saas-conducted — the design-partner company WITH a standing
-# heartbeat. Identical to hello-saas.yaml except for the `conduct`
-# section: the company starts its own work from the backlog under
-# declared caps, no human starting the next run. Used by the
-# overnight acceptance capstone and the unattended-path red-team.
+# hello-saas-heartbeat — hello-saas.yaml plus a `heartbeat` section: the
+# company starts its own work from the backlog under declared caps, no
+# human starting the next run. Used by the overnight acceptance capstone
+# and the unattended-path red-team.
 
 apiVersion: poseidon.dev/v1
 
@@ -137,9 +136,9 @@ budgets:
   per_run:
     usd: 5
 
-conduct:
+heartbeat:
   conductor: pm
-  heartbeat_minutes: 30
+  interval_minutes: 30
   max_concurrent_runs: 1
   may_start: [implement, review]
   daily_cap:

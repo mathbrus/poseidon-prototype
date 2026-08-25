@@ -50,7 +50,7 @@ for it.
 | `prompting.py` | Everything that reaches the model before its first turn: the mode's procedure followed by the SDK's heuristic sections, and the repository's `AGENTS.md` as untrusted context. |
 | `gateway_client.py` | The async MCP client (`McpGateway`, `ToolCallError`). |
 | `config.py` | Settings, including gateway-credential resolution. |
-| `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. |
+| `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. Two sentences are contracts with the mock brain's phase keying: `pm.md` opens "You are the product manager" and `decide.md` says "a heartbeat decision". |
 
 ## Dispatch: the /task API
 
@@ -108,7 +108,7 @@ REVIEWER_TOOLS = [
 | `review` | `REVIEWER_TOOLS` | posted findings + a structured pass/fail verdict |
 | `pm` | `PM_TOOLS` | tickets + recorded crew intent |
 | `plan` | `PLAN_TOOLS` | the task brief — the agent's final text |
-| `decide` | none — one completion, no tool loop | one conduct action with its rationale |
+| `decide` | none — one completion, no tool loop | one action per heartbeat tick, with its rationale |
 
 `edit_file` is the partial edit coding models are trained on —
 `str_replace` of text that occurs exactly once, or `insert` after a line —

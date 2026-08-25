@@ -68,10 +68,9 @@ spec:
                 budgets:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
-                # The standing heartbeat's declared authority; absent when
-                # the company has none (runs start only when a human
-                # starts one).
-                conduct:
+                # Cadence and caps for the company's own initiative; absent
+                # when runs start only from a human.
+                heartbeat:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                 # The split oracle (`policies.contract_tests`), projected

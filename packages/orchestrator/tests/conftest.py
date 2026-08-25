@@ -24,6 +24,18 @@ def settings(tmp_path) -> WorkerSettings:
     )
 
 
+def heartbeat_spec(**overrides) -> dict:
+    """A compiled heartbeat section (the plan's shape, not the blueprint's)."""
+    return {
+        "conductor": "pm",
+        "interval_minutes": 30,
+        "max_concurrent_runs": 1,
+        "may_start": ["implement"],
+        "daily_cap_usd": 20.0,
+        **overrides,
+    }
+
+
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"

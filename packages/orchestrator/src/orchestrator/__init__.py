@@ -2,7 +2,7 @@
 
 Layout:
     cli/        `poseidon run|signal|status` — a thin Temporal client
-    workflows/  workflow definitions (intake, implement, review, conduct)
+    workflows/  workflow definitions (intake, implement, review, heartbeat)
     activities/ step-shaped activity functions, thin clients over the
                 gateway, SandboxBackend and agent HTTP
     gates/      process gates (signal handler, escalation timer,

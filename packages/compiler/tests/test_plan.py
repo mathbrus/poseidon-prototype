@@ -111,21 +111,21 @@ def test_empty_egress_allowlist_means_zero_egress(blueprint):
     assert plan.infra.egress_proxy_allowlist == ()
 
 
-def test_a_plan_without_conduct_stays_human_started(blueprint):
-    """No conduct section, no heartbeat artifacts anywhere: the applied
+def test_a_plan_without_heartbeat_stays_human_started(blueprint):
+    """No heartbeat section, no heartbeat artifacts anywhere: the applied
     company is human-started."""
     plan = compile_blueprint(blueprint)
-    assert plan.conduct is None
-    assert plan.as_dict()["conduct"] is None
-    assert "conduct.rego" not in plan.bundle.files
+    assert plan.heartbeat is None
+    assert plan.as_dict()["heartbeat"] is None
+    assert "heartbeat.rego" not in plan.bundle.files
 
 
-def test_conduct_compiles_into_plan_and_bundle(conducted):
-    plan = compile_blueprint(conducted)
-    assert plan.conduct.conductor == "pm"
-    assert plan.conduct.heartbeat_minutes == 30
-    assert plan.conduct.max_concurrent_runs == 1
-    assert plan.conduct.may_start == ("implement",)
-    assert plan.conduct.daily_cap_usd == 20.0
-    assert "conduct.rego" in plan.bundle.files
-    assert plan.as_dict()["conduct"]["may_start"] == ["implement"]
+def test_heartbeat_compiles_into_plan_and_bundle(heartbeat_blueprint):
+    plan = compile_blueprint(heartbeat_blueprint)
+    assert plan.heartbeat.conductor == "pm"
+    assert plan.heartbeat.interval_minutes == 30
+    assert plan.heartbeat.max_concurrent_runs == 1
+    assert plan.heartbeat.may_start == ("implement",)
+    assert plan.heartbeat.daily_cap_usd == 20.0
+    assert "heartbeat.rego" in plan.bundle.files
+    assert plan.as_dict()["heartbeat"]["may_start"] == ["implement"]

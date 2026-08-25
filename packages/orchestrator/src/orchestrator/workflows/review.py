@@ -426,7 +426,7 @@ class ReviewWorkflow(RunWorkflow):
                 raise _ReviewOver()
             # Journal the verdict before the gate reads anything: an
             # append-only record of what the review concluded, whatever
-            # the gate then decides — the conduct.decide idiom.
+            # the gate then decides — the heartbeat.decide idiom.
             await workflow.execute_activity(
                 "record_verdict",
                 args=[

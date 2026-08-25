@@ -18,7 +18,7 @@ governed tools:
    tree), file an ordered pair: first a contract ticket
    (`Crew: contract-authoring`) scoping the acceptance tests to write,
    then the implement ticket for the code. You sequence by filing; the
-   conductor starts the work across its ticks.
+   heartbeat starts the work on its ticks.
 3. `request_crew` — record a request for an ephemeral crew referencing the
    ticket(s), naming the same crew template the ticket's trailer names.
    The platform fulfills the request; you never execute work yourself.

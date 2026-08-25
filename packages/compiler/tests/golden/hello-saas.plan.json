@@ -18,7 +18,6 @@
     "namespace": "hello-saas",
     "stage": "prototype"
   },
-  "conduct": null,
   "contract_tests": null,
   "ephemeral_agents": [
     {
@@ -67,6 +66,7 @@
       ]
     }
   ],
+  "heartbeat": null,
   "infra": {
     "egress_proxy_allowlist": [
       "files.pythonhosted.org",

@@ -51,7 +51,7 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
             "ephemeralAgents": data["ephemeral_agents"],
             # Only when declared: an absent heartbeat is a meaningful state
             # (human-started runs only), not an empty object.
-            **({"conduct": data["conduct"]} if plan.conduct else {}),
+            **({"heartbeat": data["heartbeat"]} if plan.heartbeat else {}),
             # Same posture: the contract tree exists only when the
             # blueprint declares one — the review workflow reads the paths
             # to compose the contract-verify baseline.

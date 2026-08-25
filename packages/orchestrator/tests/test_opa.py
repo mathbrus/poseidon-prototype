@@ -1,6 +1,6 @@
 """The shared OPA decision transport: one endpoint, one decision path, one
 fail-closed default for both authorization chokepoints that query OPA
-directly (crew.request recording and conduct.start)."""
+directly (crew.request recording and heartbeat.start)."""
 
 import pytest
 

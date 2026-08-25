@@ -99,7 +99,7 @@ class RunResult(BaseModel):
     comment_urls: list[str] = []
     verdict: str | None = None
     verdict_summary: str | None = None
-    # Decide mode: {action, target, rationale} — the conduct heartbeat's
+    # Decide mode: {action, target, rationale} — the heartbeat's
     # chosen next action. The PM proposes; the platform validates,
     # authorizes and starts.
     decision: dict[str, Any] | None = None
@@ -558,11 +558,11 @@ def parse_decision(text: str) -> dict[str, Any] | None:
 
 
 def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """mode=decide: the conduct heartbeat's question. LLM-only — one
+    """mode=decide: the heartbeat's question. LLM-only — one
     completion, no tools, no gateway session: the observation in the task
     text is everything the PM may consider, and the platform validates the
     answer against it. The PM chooses; it starts nothing — actuation stays
-    the conductor workflow's, under the compiled conduct.start decision."""
+    the heartbeat's, under the compiled heartbeat.start decision."""
     llm = build_llm(settings, run_id, settings.resolve_gateway_token())
     text = _completion(llm, system_prompt("decide", settings, llm.model), task_text)
     decision = parse_decision(text)

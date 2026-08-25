@@ -131,31 +131,37 @@ def test_lean_roster_compiles_to_exactly_one_instance(blueprint):
     assert [i.standing_role for i in plan.instances] == ["pm"]
 
 
-# -- the conduct heartbeat -------------------------------------------------
+# -- the heartbeat -------------------------------------------------
 
 
-def test_conduct_section_compiles(conducted):
-    assert compile_blueprint(conducted).conduct is not None
+def test_heartbeat_section_compiles(heartbeat_blueprint):
+    assert compile_blueprint(heartbeat_blueprint).heartbeat is not None
 
 
-def test_conduct_conductor_must_be_an_active_standing_spawner(conducted):
+def test_heartbeat_conductor_must_be_an_active_standing_spawner(heartbeat_blueprint):
     # sdet is a real template but crew-only — never an active standing role.
-    conducted["conduct"]["conductor"] = "sdet"
-    (problem,) = [p for p in problems_of(conducted) if "conduct.conductor" in p]
+    heartbeat_blueprint["heartbeat"]["conductor"] = "sdet"
+    (problem,) = [
+        p for p in problems_of(heartbeat_blueprint) if "heartbeat.conductor" in p
+    ]
     assert "not an active standing spawner" in problem
 
 
-def test_conduct_may_start_needs_an_enabled_workflow(conducted):
-    conducted["workflows"]["implement"]["enabled"] = False
-    (problem,) = [p for p in problems_of(conducted) if "conduct.may_start" in p]
+def test_heartbeat_may_start_needs_an_enabled_workflow(heartbeat_blueprint):
+    heartbeat_blueprint["workflows"]["implement"]["enabled"] = False
+    (problem,) = [
+        p for p in problems_of(heartbeat_blueprint) if "heartbeat.may_start" in p
+    ]
     assert "implement" in problem and "enabled" in problem
 
 
-def test_conduct_daily_cap_must_fund_a_run(conducted):
+def test_heartbeat_daily_cap_must_fund_a_run(heartbeat_blueprint):
     """A daily cap below the per-run budget makes the heartbeat dead
     configuration — an error, like every other dead declaration."""
-    conducted["conduct"]["daily_cap"]["usd"] = 1
-    (problem,) = [p for p in problems_of(conducted) if "conduct.daily_cap" in p]
+    heartbeat_blueprint["heartbeat"]["daily_cap"]["usd"] = 1
+    (problem,) = [
+        p for p in problems_of(heartbeat_blueprint) if "heartbeat.daily_cap" in p
+    ]
     assert "cannot fund a single run" in problem
 
 

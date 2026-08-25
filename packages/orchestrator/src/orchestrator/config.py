@@ -62,9 +62,9 @@ class WorkerSettings(TemporalSettings):
     poll_interval_s: float = 2
     # How often the worker's ensure loop checks that the company's declared
     # heartbeat workflow is running (reconcile-on-goal: the applied
-    # blueprint's conduct section is the goal; the workflow itself stops
+    # blueprint's heartbeat section is the goal; the workflow itself stops
     # when the section is gone).
-    conduct_ensure_interval_s: float = 60
+    heartbeat_ensure_interval_s: float = 60
 
     def gateway_token(self) -> str:
         if self.gateway_token_file:

@@ -1,5 +1,5 @@
-"""The conduct heartbeat's guardrails, proven at the workflow layer: the
-real ConductWorkflow runs against Temporal's time-skipping test environment
+"""The heartbeat's guardrails, proven at the workflow layer: the
+real HeartbeatWorkflow runs against Temporal's time-skipping test environment
 with scripted activities — the tick's sequencing, cap halts, refusals and
 revocation are exactly what the activity units cannot see.
 
@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from conftest import heartbeat_spec
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
@@ -20,19 +21,13 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from orchestrator.workflows.base import FAST_TIMEOUTS
-from orchestrator.workflows.conduct import ConductInput, ConductWorkflow
+from orchestrator.workflows.heartbeat import HeartbeatInput, HeartbeatWorkflow
 
 pytestmark = pytest.mark.anyio
 
 COMPANY = "hello-saas"
 
-CONFIG = {
-    "conductor": "pm",
-    "heartbeat_minutes": 30,
-    "max_concurrent_runs": 1,
-    "may_start": ["implement", "review"],
-    "daily_cap_usd": 20.0,
-}
+CONFIG = heartbeat_spec(may_start=["implement", "review"])
 
 
 def observation(**overrides: Any) -> dict[str, Any]:
@@ -70,35 +65,35 @@ class Harness:
     def activities(self) -> list[Any]:
         harness = self
 
-        @activity.defn(name="conduct_config")
-        async def conduct_config() -> dict[str, Any] | None:
+        @activity.defn(name="heartbeat_config")
+        async def heartbeat_config() -> dict[str, Any] | None:
             return harness.configs.pop(0) if harness.configs else None
 
-        @activity.defn(name="conduct_observe")
-        async def conduct_observe() -> dict[str, Any]:
+        @activity.defn(name="heartbeat_observe")
+        async def heartbeat_observe() -> dict[str, Any]:
             return harness.observations.pop(0)
 
-        @activity.defn(name="conduct_decide")
-        async def conduct_decide(
+        @activity.defn(name="heartbeat_decide")
+        async def heartbeat_decide(
             run_id: str, observed: dict[str, Any], may_start: list[str]
         ) -> dict[str, Any]:
             harness.decide_calls.append((run_id, may_start))
             return harness.decisions.pop(0)
 
-        @activity.defn(name="conduct_authorize")
-        async def conduct_authorize(
+        @activity.defn(name="heartbeat_authorize")
+        async def heartbeat_authorize(
             run_id: str, workflow_name: str, active_runs: int, daily_spent: float
         ) -> None:
             rule = harness.deny_rules.pop(0) if harness.deny_rules else None
             if rule:
                 raise ApplicationError(
-                    f"conduct.start refused by policy rule {rule!r}",
+                    f"heartbeat.start refused by policy rule {rule!r}",
                     non_retryable=True,
                 )
             harness.authorized.append((run_id, workflow_name, active_runs, daily_spent))
 
-        @activity.defn(name="record_conduct_tick")
-        async def record_conduct_tick(outcome: str, rule: str, workflow_id: str) -> None:
+        @activity.defn(name="record_tick")
+        async def record_tick(outcome: str, rule: str, workflow_id: str) -> None:
             harness.ticks.append((outcome, rule))
 
         @activity.defn(name="record_gate_outcome")
@@ -108,11 +103,11 @@ class Harness:
             harness.gate_events.append((run_id, gate, kind))
 
         return [
-            conduct_config,
-            conduct_observe,
-            conduct_decide,
-            conduct_authorize,
-            record_conduct_tick,
+            heartbeat_config,
+            heartbeat_observe,
+            heartbeat_decide,
+            heartbeat_authorize,
+            record_tick,
             record_gate_outcome,
         ]
 
@@ -157,21 +152,21 @@ async def env():
     await environment.shutdown()
 
 
-async def run_conduct(client: Client, harness: Harness) -> dict[str, Any]:
+async def run_heartbeat(client: Client, harness: Harness) -> dict[str, Any]:
     """Run the heartbeat to its self-stop and return its final result —
     following the continue-as-new chain across every scripted tick."""
     task_queue = f"tq-{uuid.uuid4().hex[:8]}"
     async with Worker(
         client,
         task_queue=task_queue,
-        workflows=[ConductWorkflow, StubImplement, StubReview],
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview],
         activities=harness.activities(),
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         handle = await client.start_workflow(
-            "conduct",
-            ConductInput(company=COMPANY, tick_interval_s=1, timeouts=FAST_TIMEOUTS),
-            id=f"conduct-{COMPANY}-{uuid.uuid4().hex[:8]}",
+            "heartbeat",
+            HeartbeatInput(company=COMPANY, interval_s=1, timeouts=FAST_TIMEOUTS),
+            id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
         return await handle.result()
@@ -183,7 +178,7 @@ async def test_started_tick_authorizes_then_spawns_the_chosen_child(env):
         observations=[observation()],
         decisions=[{"action": "implement", "target": 5, "rationale": "oldest work"}],
     )
-    result = await run_conduct(env.client, harness)
+    result = await run_heartbeat(env.client, harness)
 
     (decide_run_id, may_start) = harness.decide_calls[0]
     assert may_start == ["implement", "review"]
@@ -195,8 +190,8 @@ async def test_started_tick_authorizes_then_spawns_the_chosen_child(env):
     assert child_input["run_id"] == decide_run_id
     assert harness.ticks[0] == ("started", f"implement_5_as_{decide_run_id}")
     # The config queue ran dry: the loop stopped through revocation.
-    assert harness.ticks[-1] == ("stopped", "conduct_section_absent")
-    assert result == {"stopped": "no conduct section in the applied blueprint"}
+    assert harness.ticks[-1] == ("stopped", "heartbeat_section_absent")
+    assert result == {"stopped": "no heartbeat section in the applied blueprint"}
 
 
 async def test_review_decision_starts_a_review_child(env):
@@ -207,7 +202,7 @@ async def test_review_decision_starts_a_review_child(env):
         ],
         decisions=[{"action": "review", "target": 4, "rationale": "finish first"}],
     )
-    await run_conduct(env.client, harness)
+    await run_heartbeat(env.client, harness)
     (kind, child_input) = harness.children[0]
     assert kind == "review"
     assert child_input["pr_number"] == 4
@@ -221,7 +216,7 @@ async def test_second_eligible_issue_waits_at_the_concurrency_cap(env):
         configs=[CONFIG],
         observations=[observation(active_runs=1)],
     )
-    await run_conduct(env.client, harness)
+    await run_heartbeat(env.client, harness)
     assert harness.decide_calls == []
     assert harness.children == []
     assert harness.ticks[0] == ("idle", "runs_in_flight")
@@ -239,15 +234,17 @@ async def test_daily_cap_halts_visibly_and_resumes_when_spend_clears(env):
         ],
         decisions=[{"action": "implement", "target": 5, "rationale": "fresh day"}],
     )
-    await run_conduct(env.client, harness)
-    assert harness.gate_events == [(f"conduct-{COMPANY}", "conduct_daily_cap", "halted")]
+    await run_heartbeat(env.client, harness)
+    assert harness.gate_events == [
+        (f"heartbeat-{COMPANY}", "heartbeat_daily_cap", "halted")
+    ]
     assert harness.ticks[0] == ("idle", "daily_cap_reached")
     assert harness.ticks[1][0] == "started"
     assert len(harness.children) == 1
 
 
 async def test_policy_deny_refuses_the_tick_but_not_the_heartbeat(env):
-    """A conduct.start deny ends the tick with nothing started — and the
+    """A heartbeat.start deny ends the tick with nothing started — and the
     next tick still happens: refusals are outcomes, not crashes."""
     harness = Harness(
         configs=[CONFIG, CONFIG],
@@ -256,11 +253,11 @@ async def test_policy_deny_refuses_the_tick_but_not_the_heartbeat(env):
             {"action": "implement", "target": 5, "rationale": "try"},
             {"action": "implement", "target": 5, "rationale": "retry"},
         ],
-        deny_rules=["conduct_start_over_daily_cap", None],
+        deny_rules=["heartbeat_start_over_daily_cap", None],
     )
-    await run_conduct(env.client, harness)
+    await run_heartbeat(env.client, harness)
     assert harness.ticks[0][0] == "refused"
-    assert "conduct_start_over_daily_cap" in harness.ticks[0][1]
+    assert "heartbeat_start_over_daily_cap" in harness.ticks[0][1]
     assert harness.ticks[1][0] == "started"
     assert len(harness.children) == 1  # only the allowed tick started work
 
@@ -271,7 +268,7 @@ async def test_pm_idle_is_a_recorded_outcome(env):
         observations=[observation()],
         decisions=[{"action": "idle", "target": None, "rationale": "not worth it"}],
     )
-    await run_conduct(env.client, harness)
+    await run_heartbeat(env.client, harness)
     assert harness.children == []
     assert harness.authorized == []
     assert harness.ticks[0] == ("idle", "pm_chose_idle")
@@ -282,7 +279,7 @@ async def test_empty_observation_never_wakes_the_pm(env):
         configs=[CONFIG],
         observations=[observation(backlog=[], reviewable_prs=[])],
     )
-    await run_conduct(env.client, harness)
+    await run_heartbeat(env.client, harness)
     assert harness.decide_calls == []
     assert harness.ticks[0] == ("idle", "backlog_empty")
 
@@ -296,10 +293,10 @@ async def test_revocation_stops_a_running_loop(env):
         observations=[observation()],
         decisions=[{"action": "implement", "target": 5, "rationale": "go"}],
     )
-    result = await run_conduct(env.client, harness)
+    result = await run_heartbeat(env.client, harness)
     assert harness.ticks[0][0] == "started"
-    assert harness.ticks[1] == ("stopped", "conduct_section_absent")
-    assert result["stopped"].startswith("no conduct section")
+    assert harness.ticks[1] == ("stopped", "heartbeat_section_absent")
+    assert result["stopped"].startswith("no heartbeat section")
 
 
 async def test_heartbeat_survives_worker_death_between_ticks(env):
@@ -317,7 +314,7 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
         return Worker(
             env.client,
             task_queue=task_queue,
-            workflows=[ConductWorkflow, StubImplement, StubReview],
+            workflows=[HeartbeatWorkflow, StubImplement, StubReview],
             activities=harness.activities(),
             workflow_runner=UnsandboxedWorkflowRunner(),
             # No sticky queue: the dead worker's cached-workflow affinity
@@ -330,9 +327,9 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
 
     async with worker():
         handle = await env.client.start_workflow(
-            "conduct",
-            ConductInput(company=COMPANY, tick_interval_s=1, timeouts=FAST_TIMEOUTS),
-            id=f"conduct-{COMPANY}-{uuid.uuid4().hex[:8]}",
+            "heartbeat",
+            HeartbeatInput(company=COMPANY, interval_s=1, timeouts=FAST_TIMEOUTS),
+            id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
         while not harness.ticks:  # let the first tick finish, then die
@@ -341,6 +338,6 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
 
     async with worker():  # a fresh worker: replay, resume, self-stop
         result = await handle.result()
-    assert result["stopped"].startswith("no conduct section")
+    assert result["stopped"].startswith("no heartbeat section")
     assert [t[0] for t in harness.ticks] == ["started", "stopped"]
     assert len(harness.children) == 1  # the replay started nothing twice

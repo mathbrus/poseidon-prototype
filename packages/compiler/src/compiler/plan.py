@@ -69,13 +69,13 @@ class BudgetRegistration:
 
 
 @dataclass(frozen=True)
-class ConductConfig:
+class HeartbeatConfig:
     """The standing heartbeat's declared authority. Absent (a plan without
     one) means what it always meant: runs start only when a human starts
     one."""
 
     conductor: str
-    heartbeat_minutes: int
+    interval_minutes: int
     max_concurrent_runs: int
     may_start: tuple[str, ...]
     daily_cap_usd: float
@@ -140,7 +140,7 @@ class DeploymentPlan:
     # per-company packages keep company roots disjoint, and the platform
     # rules — identical from every blueprint — live under poseidon.platform.
     platform_bundle: RegoBundle
-    conduct: ConductConfig | None = None
+    heartbeat: HeartbeatConfig | None = None
     # The contract tree, projected into the applied record: the review
     # workflow composes the contract-verify baseline from these paths.
     # None when the blueprint declares no contract tree.
@@ -158,7 +158,7 @@ class DeploymentPlan:
                 "ephemeral_agents": [asdict(m) for m in self.ephemeral_agents],
                 "workflows": [asdict(w) for w in self.workflows],
                 "budgets": asdict(self.budgets),
-                "conduct": asdict(self.conduct) if self.conduct else None,
+                "heartbeat": asdict(self.heartbeat) if self.heartbeat else None,
                 "contract_tests": self.contract_tests,
                 "infra": asdict(self.infra),
                 "bundle": {"files": dict(sorted(self.bundle.files.items()))},

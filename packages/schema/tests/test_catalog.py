@@ -27,7 +27,7 @@ def test_every_template_names_a_real_model_tier():
         assert template.model_tier in MODEL_TIERS, template.name
 
 
-def test_pm_conducts_but_does_not_execute():
+def test_pm_spawns_but_does_not_execute():
     pm = ROLE_TEMPLATES["pm"]
     assert set(pm.may_spawn) == {
         "contract-authoring",

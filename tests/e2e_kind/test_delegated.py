@@ -43,11 +43,11 @@ from temporalio.client import Client
 from common.ids import new_run_id
 from mockllm.brain import CONTRACT_GOAL_MARKER, CONTRACT_TEST_PATH
 from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.conduct import ConductInput
+from orchestrator.workflows.heartbeat import HeartbeatInput
 from orchestrator.workflows.intake import IntakeInput
 from orchestrator.workflows.review import ReviewInput
 
-from .blueprints import DELEGATED, apply_blueprint, restore_pristine, wait_for_convergence
+from .blueprints import DELEGATED, restore_pristine
 from .cluster import (
     COMPANY_NS,
     audit_story,
@@ -58,13 +58,13 @@ from .cluster import (
 )
 from .conftest import (
     TASK_QUEUE,
+    apply_profile,
     close_pr,
     delete_repo_file,
     deployed_timeouts,
     github_api,
     pr_number,
     run_implement_from_issue,
-    sweep_repo_debris,
     target_slug,
 )
 
@@ -80,13 +80,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
     base ref — without it the composed verify is red and the arc reworks
     instead of merging."""
     env = repo_baseline
-    # An empty campsite before the conduct blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment conduct is declared, and
-    # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot.
-    sweep_repo_debris(env)
-    apply_blueprint(DELEGATED)
-    wait_for_convergence()
+    apply_profile(DELEGATED, env)
 
     intake_run = new_run_id()
     nonce = intake_run[-6:].lower()
@@ -94,7 +88,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
         f"Ship the slugify utility (e2e delegated goal {nonce})\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    heartbeat_id = f"{workflow_id('conduct', COMPANY_NS)}-delegated-{nonce}"
+    heartbeat_id = f"{workflow_id('heartbeat', COMPANY_NS)}-delegated-{nonce}"
     result: dict = {"env": env, "heartbeat_id": heartbeat_id}
 
     async def drive() -> None:
@@ -121,9 +115,9 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
 
             # --- touch nothing more: the heartbeat runs the whole arc ----
             beat = await client.start_workflow(
-                "conduct",
-                ConductInput(
-                    company=COMPANY_NS, tick_interval_s=3, timeouts=deployed_timeouts()
+                "heartbeat",
+                HeartbeatInput(
+                    company=COMPANY_NS, interval_s=3, timeouts=deployed_timeouts()
                 ),
                 id=heartbeat_id,
                 task_queue=TASK_QUEUE,
@@ -215,9 +209,9 @@ def test_both_quality_layers_were_recorded(delegated_overnight: dict):
     verdicts = [e for e in story if e["tool"] == "review.verdict"]
     assert verdicts and verdicts[-1]["decision"] == "allow", verdicts
     # The decision that started the review is the heartbeat's, journaled
-    # under this run's own id (conduct.start attributes to the child it
+    # under this run's own id (heartbeat.start attributes to the child it
     # authorizes) — so one run_id query ties the whole arc together.
-    assert any(e["tool"] == "conduct.start" and e["decision"] == "allow" for e in story)
+    assert any(e["tool"] == "heartbeat.start" and e["decision"] == "allow" for e in story)
 
 
 def test_delegated_arc_had_exactly_one_human_act(delegated_overnight: dict):
@@ -298,13 +292,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     its PR parks for the single human merge, and then the implementation
     auto-merges on a green base-ref contract — no other command."""
     env = repo_baseline
-    # An empty campsite before the conduct blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment conduct is declared, and
-    # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot.
-    sweep_repo_debris(env)
-    apply_blueprint(DELEGATED)
-    wait_for_convergence()
+    apply_profile(DELEGATED, env)
     # The declared deviation from the session baseline: the tree is declared
     # by the blueprint but deleted from `main`, so an implementation cannot
     # merge until the spec lands — which is the whole point of sequencing

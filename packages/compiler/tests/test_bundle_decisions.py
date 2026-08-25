@@ -17,7 +17,7 @@ import subprocess
 
 import pytest
 import yaml
-from conftest import CONDUCT, HELLO_SAAS
+from conftest import HEARTBEAT_SECTION, HELLO_SAAS
 
 from compiler import compile_blueprint
 
@@ -107,13 +107,13 @@ def decide(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def decide_conducted(tmp_path_factory):
+def decide_heartbeat(tmp_path_factory):
     """The same company with a standing heartbeat declared."""
 
-    def conducted(blueprint: dict) -> None:
-        blueprint["conduct"] = copy.deepcopy(CONDUCT)
+    def add_heartbeat(blueprint: dict) -> None:
+        blueprint["heartbeat"] = copy.deepcopy(HEARTBEAT_SECTION)
 
-    return _decider(tmp_path_factory, _company(conducted))
+    return _decider(tmp_path_factory, _company(add_heartbeat))
 
 
 def ephemeral(crew: str, agent: str, template: str, **extra) -> dict:
@@ -506,84 +506,84 @@ def test_crew_request_without_budget_headroom_is_denied(decide):
     assert decision == {"allow": False, "rule": "crew_request_no_budget"}
 
 
-# -- the conduct heartbeat's start authority ------------------------------
+# -- the heartbeat's start authority ------------------------------
 
 
-def conduct_start(workflow: str, **args) -> dict:
+def heartbeat_start(workflow: str, **args) -> dict:
     return {
         "company": "hello-saas",
         "lifecycle": "platform",
-        "tool": "conduct.start",
+        "tool": "heartbeat.start",
         "args": {"workflow": workflow, **args},
     }
 
 
-def test_no_conduct_section_means_no_unattended_start(decide):
+def test_no_heartbeat_section_means_no_unattended_start(decide):
     """The section is opt-in all the way down to the decision: a company
-    that never declared a heartbeat compiles no conduct rules, so the
+    that never declared a heartbeat compiles no heartbeat rules, so the
     start decision falls to default deny."""
-    decision = decide(**conduct_start("implement", active_runs=0, daily_spent_usd=0))
+    decision = decide(**heartbeat_start("implement", active_runs=0, daily_spent_usd=0))
     assert decision == {"allow": False, "rule": "default_deny"}
 
 
-def test_conduct_may_start_a_declared_workflow(decide_conducted):
-    decision = decide_conducted(
-        **conduct_start("implement", active_runs=0, daily_spent_usd=3.5)
+def test_heartbeat_may_start_a_declared_workflow(decide_heartbeat):
+    decision = decide_heartbeat(
+        **heartbeat_start("implement", active_runs=0, daily_spent_usd=3.5)
     )
     assert decision["allow"] is True
 
 
-def test_conduct_may_not_start_an_undeclared_workflow(decide_conducted):
-    decision = decide_conducted(
-        **conduct_start("review", active_runs=0, daily_spent_usd=0)
+def test_heartbeat_may_not_start_an_undeclared_workflow(decide_heartbeat):
+    decision = decide_heartbeat(
+        **heartbeat_start("review", active_runs=0, daily_spent_usd=0)
     )
     assert decision == {"allow": False, "rule": "default_deny"}
 
 
-def test_conduct_concurrency_cap_denies(decide_conducted):
-    decision = decide_conducted(
-        **conduct_start("implement", active_runs=1, daily_spent_usd=0)
+def test_heartbeat_concurrency_cap_denies(decide_heartbeat):
+    decision = decide_heartbeat(
+        **heartbeat_start("implement", active_runs=1, daily_spent_usd=0)
     )
     assert decision["allow"] is False
-    assert decision["rule"] == "conduct_start_over_concurrency"
+    assert decision["rule"] == "heartbeat_start_over_concurrency"
 
 
-def test_conduct_daily_cap_denies(decide_conducted):
-    decision = decide_conducted(
-        **conduct_start("implement", active_runs=0, daily_spent_usd=20)
+def test_heartbeat_daily_cap_denies(decide_heartbeat):
+    decision = decide_heartbeat(
+        **heartbeat_start("implement", active_runs=0, daily_spent_usd=20)
     )
     assert decision["allow"] is False
-    assert decision["rule"] == "conduct_start_over_daily_cap"
+    assert decision["rule"] == "heartbeat_start_over_daily_cap"
 
 
-def test_conduct_start_fails_closed_without_the_counts(decide_conducted):
+def test_heartbeat_start_fails_closed_without_the_counts(decide_heartbeat):
     """Fail-safe defaults: the dangerous condition is the absent input,
     and absence denies — the changed-paths posture, applied to caps."""
-    decision = decide_conducted(**conduct_start("implement", daily_spent_usd=0))
+    decision = decide_heartbeat(**heartbeat_start("implement", daily_spent_usd=0))
     assert decision["allow"] is False
-    assert decision["rule"] == "conduct_start_counts_missing"
+    assert decision["rule"] == "heartbeat_start_counts_missing"
 
 
-def test_agents_cannot_claim_conduct_authority(decide_conducted):
-    """conduct.start allows only the platform lifecycle: a standing or
+def test_agents_cannot_claim_heartbeat_authority(decide_heartbeat):
+    """heartbeat.start allows only the platform lifecycle: a standing or
     ephemeral caller reciting the tool name matches no rule."""
-    decision = decide_conducted(
-        **standing("pm", tool="conduct.start"),
+    decision = decide_heartbeat(
+        **standing("pm", tool="heartbeat.start"),
         args={"workflow": "implement", "active_runs": 0, "daily_spent_usd": 0},
     )
     assert decision["allow"] is False
 
 
-def test_conduct_grants_no_new_path_to_merge(decide_conducted):
+def test_heartbeat_grants_no_new_path_to_merge(decide_heartbeat):
     """Authority not looser: declaring a heartbeat adds start authority for
     the platform and nothing else — the merge stays reachable only through
     the platform identity after the human gate, exactly as without it."""
-    as_pm = decide_conducted(**standing("pm", tool="git.merge_pr", args={"number": 4}))
+    as_pm = decide_heartbeat(**standing("pm", tool="git.merge_pr", args={"number": 4}))
     assert as_pm["allow"] is False
-    as_platform = decide_conducted(
+    as_platform = decide_heartbeat(
         PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
     )
-    assert as_platform["allow"] is True  # same as the unconducted bundle
+    assert as_platform["allow"] is True  # same as the human-started bundle
 
 
 # -- the policy-resolved merge gate ----------------------------------------
@@ -622,7 +622,7 @@ def merge_resolve(**args) -> dict:
 
 
 def test_no_delegation_means_no_unattended_merge(decide):
-    """Opt-in all the way down to the decision, the conduct.start posture:
+    """Opt-in all the way down to the decision, the heartbeat.start posture:
     a human-resolved gate compiles no merge.resolve authority, so the
     decision falls to default deny."""
     decision = decide(

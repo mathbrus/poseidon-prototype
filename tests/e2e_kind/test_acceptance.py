@@ -32,7 +32,7 @@ What the suite proves, and where:
   7 cluster-      the suite reaches the cluster through the kubectl
     neutral       context and .env alone; the kind-specific piece is
                   deploy/kind/kind-up.sh.
-  8 unattended    test_conduct_redteam (an attacker-filed issue consumed by
+  8 unattended    test_heartbeat_redteam (an attacker-filed issue consumed by
                   the heartbeat dies at the gates) and test_overnight
                   (the whole arc with two human acts: one goal in, one
                   merge approval out).

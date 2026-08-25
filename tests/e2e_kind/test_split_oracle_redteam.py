@@ -165,8 +165,8 @@ def split(stack: None, repo_baseline: dict):
     """The split declared on the cluster: the delegated blueprint
     carries `policies.contract_tests` and the contract-authoring crew.
     Restore the pristine company after, so later suites are unaffected."""
-    # An empty campsite before the conduct blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment conduct is declared, and
+    # An empty campsite before the heartbeat blueprint lands: the ensure
+    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
     # any open PR or issue an earlier module left becomes its backlog — a
     # review parked on a day-long gate that holds the one concurrency slot.
     sweep_repo_debris(repo_baseline)

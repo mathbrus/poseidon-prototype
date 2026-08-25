@@ -252,11 +252,11 @@ def test_executor_proceeds_with_real_work_after_the_exfil_is_denied():
     assert [c.name for c in completion.tool_calls] == ["write_file", "write_file"]
 
 
-# -- the conduct decision --------------------------------------------------
+# -- the heartbeat decision --------------------------------------------------
 
 
 DECIDE_SYSTEM = (
-    "You are the product manager… This dispatch is a conduct decision: "
+    "You are the product manager… This dispatch is a heartbeat decision: "
     "choose the company's next action."
 )
 
@@ -265,7 +265,7 @@ def decide_history(
     tickets: list[str], prs: list[str], startable: str = "implement, review, idle"
 ) -> list[dict]:
     observation = (
-        "Conduct tick. Runs in flight: 0. Spent today: $0.00.\n"
+        "Heartbeat tick. Runs in flight: 0. Spent today: $0.00.\n"
         f"Startable actions: {startable}\n\n"
         "Open tickets:\n" + ("\n".join(tickets) or "(none)") + "\n\n"
         "Delivered pull requests awaiting review:\n"

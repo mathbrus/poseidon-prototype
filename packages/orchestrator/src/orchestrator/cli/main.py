@@ -131,7 +131,7 @@ def _start(family: str, run_id: str, started_input: object, detach: bool) -> Non
 
 def _workflow_id(workflow: str, run_id: str) -> str:
     """The workflow a `--workflow` family and a run id address; for the
-    conduct heartbeat the run id argument is the company name."""
+    heartbeat the run id argument is the company name."""
     if workflow not in FAMILIES:
         typer.echo(f"unknown workflow {workflow!r}", err=True)
         raise typer.Exit(2)
@@ -146,7 +146,7 @@ def signal(
     payload: str = typer.Option(None, help="Optional payload"),
     workflow: str = typer.Option(
         "implement",
-        help="Which workflow family the run belongs to: implement, intake, review or conduct",
+        help=f"Which workflow family the run belongs to: {', '.join(FAMILIES)}",
     ),
 ) -> None:
     """Send a gate signal to a run's workflow — the HITL verdict path
@@ -168,8 +168,8 @@ def status(
     run_id: str,
     workflow: str = typer.Option(
         "implement",
-        help="Which workflow family the run belongs to: implement, intake, review or conduct"
-        " (for conduct, RUN_ID is the company name)",
+        help=f"Which workflow family the run belongs to: {', '.join(FAMILIES)}"
+        " (for heartbeat, RUN_ID is the company name)",
     ),
 ) -> None:
     """Show the workflow status (and result, when completed) of a run."""

@@ -19,7 +19,7 @@ from .cluster import COMPANY_NS, kubectl, port_forward, temporal_port_forward
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "examples"
 HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
-CONDUCTED = EXAMPLES / "hello-saas-conducted.yaml"
+HEARTBEAT = EXAMPLES / "hello-saas-heartbeat.yaml"
 DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
 
 
@@ -81,10 +81,10 @@ def bundle_revision_from_cr() -> str:
 
 
 def quiesce_heartbeat() -> None:
-    """Terminate the ensure loop's bare `conduct-{company}` heartbeat after
+    """Terminate the ensure loop's bare `heartbeat-{company}` heartbeat after
     the pristine blueprint is back. Revocation-by-diff stops it on its own
     — the product claim, pinned at the workflow layer — but on the
-    blueprint's `heartbeat_minutes` cadence, which would leave a competitor
+    blueprint's `interval_minutes` cadence, which would leave a competitor
     asleep through the next module's arc. The campsite rule wants the
     quiet now: call this after the pristine apply, so the ensure loop has
     nothing to restart."""
@@ -92,7 +92,7 @@ def quiesce_heartbeat() -> None:
     async def terminate() -> None:
         with temporal_port_forward() as address:
             client = await Client.connect(address)
-            handle = client.get_workflow_handle(workflow_id("conduct", COMPANY_NS))
+            handle = client.get_workflow_handle(workflow_id("heartbeat", COMPANY_NS))
             with contextlib.suppress(Exception):
                 await handle.terminate("suite teardown: pristine blueprint restored")
 

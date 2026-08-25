@@ -165,7 +165,7 @@ def _gate(resolvers: list[str], extra: dict[str, Any] | None = None) -> dict[str
 
 # The delegated class a policy-resolved merge may finish on its own:
 # explicit paths and an explicit rework bound, all-explicit like
-# `conduct` — a defaulted bound is authority nobody wrote down. The
+# `heartbeat` — a defaulted bound is authority nobody wrote down. The
 # undelegatable carve-outs live in `schema.gates` and are refused at
 # validate time, whatever the paths here say.
 _MERGE_DELEGATION = {
@@ -188,8 +188,8 @@ def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
     not a writable thing."""
     properties: dict[str, Any] = {
         "enabled": {"type": "boolean"},
-        # The standing role that spawns/conducts this workflow — never a
-        # standing executor (enforced by the compiler).
+        # The standing role that spawns this workflow — never a standing
+        # executor (enforced by the compiler).
         "conductor": _NAME,
         "crew": _NAME,
         # Bounded verify re-dispatches.
@@ -287,12 +287,12 @@ _POLICIES = {
 # because a defaulted cap is authority nobody wrote down. Absent means what
 # it always meant: runs start only when a human starts one. `intake` is
 # deliberately not startable — goals enter through a human.
-_CONDUCT = {
+_HEARTBEAT = {
     "type": "object",
     "additionalProperties": False,
     "required": [
         "conductor",
-        "heartbeat_minutes",
+        "interval_minutes",
         "max_concurrent_runs",
         "may_start",
         "daily_cap",
@@ -300,7 +300,7 @@ _CONDUCT = {
     "properties": {
         # The standing role dispatched to decide the next action.
         "conductor": _NAME,
-        "heartbeat_minutes": {"type": "integer", "minimum": 1},
+        "interval_minutes": {"type": "integer", "minimum": 1},
         "max_concurrent_runs": {"type": "integer", "minimum": 1},
         "may_start": {
             "type": "array",
@@ -360,6 +360,6 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "workflows": _WORKFLOWS,
         "policies": _POLICIES,
         "budgets": _BUDGETS,
-        "conduct": _CONDUCT,
+        "heartbeat": _HEARTBEAT,
     },
 }

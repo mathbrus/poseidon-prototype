@@ -13,7 +13,7 @@ Retry safety, per activity:
     reviewer_independent— read-only against the registry; safe.
     resolve_merge       — re-evaluates the compiled merge.resolve decision
                           and re-audits; the honest record of what was
-                          asked (the conduct_authorize posture).
+                          asked (the heartbeat_authorize posture).
     rework_depth        — read-only (registry + one gateway issue read);
                           safe.
     file_rework         — creates an issue; not idempotent, so a retry can
@@ -286,7 +286,7 @@ class ReviewActivities:
         self, run_id: str, verdict: str, summary: str, workflow_id: str
     ) -> None:
         """One `source=process-lifecycle` audit event journaling the
-        reviewer's structured verdict — the conduct.decide idiom: the
+        reviewer's structured verdict — the heartbeat.decide idiom: the
         judgement and its one-line why become an append-only row in the
         run's story, distinct from the gate outcome that acts on it."""
         await self._append_event(
@@ -481,9 +481,9 @@ class ReviewActivities:
         workflow_id: str,
     ) -> dict[str, Any]:
         """Evaluate the compiled `merge.resolve` decision — the
-        conduct_authorize idiom: the caller-verified facts ride the input,
+        heartbeat_authorize idiom: the caller-verified facts ride the input,
         the delegated class and carve-outs bind as policy, and the answer
-        is audited either way. Unlike conduct.start, a deny is a routed
+        is audited either way. Unlike heartbeat.start, a deny is a routed
         outcome, not an error: good work outside the delegation falls
         back to the human signal."""
         company = self._settings.company

@@ -509,7 +509,7 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
 
 PR_NUMBER_RE = re.compile(r"pull request #(\d+)")
 
-# The conduct decision (mode=decide): one completion, no tools. The
+# The heartbeat decision (mode=decide): one completion, no tools. The
 # observation's sections are parsed by their headers (the orchestrator's
 # decision_prompt composes them); the scripted policy mirrors the decide
 # prompt's own advice — finish before starting: review a delivered PR if
@@ -958,7 +958,7 @@ def next_completion(
 
     # Before the PM check: the decide prompt also addresses the product
     # manager, but the dispatch is a single toolless completion.
-    if "conduct decision" in system:
+    if "heartbeat decision" in system:
         return _decide_completion(messages)
 
     if "product manager" in system:  # the PM loop

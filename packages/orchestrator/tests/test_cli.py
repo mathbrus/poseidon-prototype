@@ -1,5 +1,5 @@
 """CLI workflow-family resolution: the ids the thin Temporal client
-addresses. The run-shaped families key on run_id; the conduct heartbeat is
+addresses. The run-shaped families key on run_id; the heartbeat is
 one standing workflow per company, so its argument is the company name."""
 
 import pytest
@@ -14,8 +14,8 @@ def test_run_shaped_families_key_on_run_id():
     assert _workflow_id("review", "run-1") == "review-run-1"
 
 
-def test_conduct_keys_on_the_company():
-    assert _workflow_id("conduct", "hello-saas") == "conduct-hello-saas"
+def test_heartbeat_keys_on_the_company():
+    assert _workflow_id("heartbeat", "hello-saas") == "heartbeat-hello-saas"
 
 
 def test_an_unknown_family_exits():

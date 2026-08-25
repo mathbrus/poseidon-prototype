@@ -86,7 +86,7 @@ one more piece of authority than the last:
 | Blueprint | Adds | Division of labour |
 |---|---|---|
 | [`hello-saas.yaml`](../examples/hello-saas.yaml) | — | A human starts every run and answers every merge. |
-| [`hello-saas-conducted.yaml`](../examples/hello-saas-conducted.yaml) | a `conduct` section | The company starts its own runs on a heartbeat; a human feeds goals in and answers merges. |
+| [`hello-saas-heartbeat.yaml`](../examples/hello-saas-heartbeat.yaml) | a `heartbeat` section | The company starts its own runs on a heartbeat; a human feeds goals in and answers merges. |
 | [`hello-saas-delegated.yaml`](../examples/hello-saas-delegated.yaml) | a policy-resolved merge gate and a contract tree | In-class passing work merges itself; a human feeds goals in and keeps the carve-outs and the oracle. |
 
 All three declare the same company name, so moving between them changes the
@@ -94,8 +94,8 @@ running company in place — and moving back is the same command with the
 earlier file. Revocation is a diff:
 
 ```bash
-uv run poseidon blueprint preview examples/hello-saas-conducted.yaml  # what would change
-uv run poseidon blueprint apply examples/hello-saas-conducted.yaml --yes
+uv run poseidon blueprint preview examples/hello-saas-heartbeat.yaml  # what would change
+uv run poseidon blueprint apply examples/hello-saas-heartbeat.yaml --yes
 ```
 
 `preview` diffs the compiled plan against the live registry, so hiring,
@@ -252,24 +252,24 @@ terminal path the crew identities, pods, and sandbox go away.
 ### Hand over the keys: the heartbeat
 
 Everything so far had you pressing start. To let the company run its own
-backlog, apply the conducted profile:
+backlog, apply the heartbeat profile:
 
 ```bash
-uv run poseidon blueprint apply examples/hello-saas-conducted.yaml --yes
+uv run poseidon blueprint apply examples/hello-saas-heartbeat.yaml --yes
 ```
 
 No command starts the heartbeat — that is the point. The orchestrator
-worker notices that the applied blueprint now declares a `conduct` section
-and starts one durable workflow, `conduct-hello-saas`, on its own. Every
-`heartbeat_minutes` (30 in the example — the cadence is yours to declare)
+worker notices that the applied blueprint now declares a `heartbeat` section
+and starts one durable workflow, `heartbeat-hello-saas`, on its own. Every
+`interval_minutes` (30 in the example — the cadence is yours to declare)
 a tick:
 
 1. **Observes** the open backlog, the delivered-but-unreviewed PRs, the
    in-flight runs and today's spend.
 2. **Dispatches the PM in a toolless *decide* mode** for exactly one
    action — implement a ticket, review a PR, or idle — with a required
-   one-line rationale, journaled as a `conduct.decide` audit event.
-3. **Starts the chosen run** only if it wins the compiled `conduct.start`
+   one-line rationale, journaled as a `heartbeat.decide` audit event.
+3. **Starts the chosen run** only if it wins the compiled `heartbeat.start`
    decision: within `max_concurrent_runs`, under the `daily_cap`, and only
    a workflow on the `may_start` list. `intake` is deliberately not on
    that list — goals always enter through a human.
@@ -278,14 +278,14 @@ Your job shrinks to two acts: feed goals in
 (`poseidon run --workflow intake …`) and answer merge gates. Watch it work:
 
 ```bash
-uv run poseidon status hello-saas --workflow conduct   # the standing workflow
+uv run poseidon status hello-saas --workflow heartbeat   # the standing workflow
 kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
 ```
 
 To take the keys back, apply a blueprint without the section —
 `hello-saas.yaml` — and the heartbeat stops itself: each tick re-reads the
 applied blueprint and exits when the section is gone, and the compiled
-`conduct.start` rules vanish with it. `tests/e2e_kind/test_overnight.py`
+`heartbeat.start` rules vanish with it. `tests/e2e_kind/test_overnight.py`
 runs this arrangement end to end with exactly two human acts: one goal in,
 one approval out.
 
@@ -298,7 +298,7 @@ profile delegates it — narrowly:
 uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
 ```
 
-Three things change relative to the conducted profile:
+Three things change relative to the heartbeat profile:
 
 - `gates.merge.resolved_by` becomes `policy`, with a `delegate` block
   naming the path class the company may merge on its own
@@ -331,7 +331,7 @@ With both keys handed over, the human surface is a single act:
 `tests/e2e_kind/test_delegated.py` proves the arc — one goal in, and
 the company scopes, implements, reviews and merges its own in-class
 passing work, every decision on the audit record. Taking the merge back is
-the same diff in reverse: re-apply the conducted profile and every merge
+the same diff in reverse: re-apply the heartbeat profile and every merge
 parks on you again.
 
 ### Run the acceptance suite
