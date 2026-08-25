@@ -237,7 +237,7 @@ signal-resolved.
 
 ## 3. The gateway's MCP tools
 
-The MCP gateway exposes **16 tools**. They are the entire action surface:
+The MCP gateway exposes **17 tools**. They are the entire action surface:
 everything any agent — or the platform itself — does to a sandbox, the git
 host, or the issue tracker is one of these names. Every call follows the
 same pipeline: authenticate the caller's workload identity, build the
@@ -264,20 +264,21 @@ Three things to keep in mind while reading the signatures:
 
 ### Sandbox tools
 
-All six address the run's single sandbox, resolved from `run_id`. They are
+All seven address the run's single sandbox, resolved from `run_id`. They are
 *run-scoped* in policy (`bound_to_run`): the caller must be a verified
 participant of the very run it names.
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `sandbox.read_file` | `run_id, path` | Returns the contents of one file in the run's workspace. |
+| `sandbox.read_file` | `run_id, path, view_range?` | Returns the contents of one file in the run's workspace — all of it, or the 1-based inclusive `[start, end]` line range (`-1` for end of file) — with `start_line` and `total_lines`. |
 | `sandbox.write_file` | `run_id, path, content` | Creates or overwrites one file in the workspace. |
+| `sandbox.edit_file` | `run_id, path, command, new_str, old_str?, insert_line?` | Partial edit of an existing file: `str_replace` swaps text that occurs exactly once (ambiguous or absent text is a backend error, the file untouched); `insert` adds lines after `insert_line` (`0` = top). Returns a numbered snippet around the change. |
 | `sandbox.list_dir` | `run_id, path` | Lists a workspace directory. |
 | `sandbox.exec` | `run_id, cmd, timeout_s=60` | Runs a shell command in the sandbox and returns its output and exit code. The command runs with no credentials, no cluster API, and the egress proxy as its only route out. |
 | `sandbox.run_tests` | `run_id, paths?` | Runs the blueprint's `test_command` (the sandbox's `TEST_CMD`) and returns the result. Agents may call it to check their work; the verify gate of record is the orchestrator's own separate invocation. With `paths`, the run is scoped to those test paths — the platform's contract-verify call, where collecting nothing from a named path is a red exit, not a silent pass, so a config that ignores the tree cannot green it. |
 | `sandbox.git_bundle` | `run_id, branch` | Produces a git bundle of the named branch's commits since the recorded base ref, base64-encoded. This is how work leaves the sandbox: as verifiable content, not as a push. |
 
-Typical callers: the executor (all six), the planner (`read_file`,
+Typical callers: the executor (all seven), the planner (`read_file`,
 `list_dir` only), the reviewer (reads plus `exec`/`run_tests`).
 
 ### Repository and pull-request tools

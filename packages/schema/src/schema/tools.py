@@ -8,6 +8,7 @@ instead of at the first tool call.
 SANDBOX_TOOLS = [
     "sandbox.read_file",
     "sandbox.write_file",
+    "sandbox.edit_file",
     "sandbox.list_dir",
     "sandbox.exec",
     "sandbox.run_tests",

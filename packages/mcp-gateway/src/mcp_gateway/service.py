@@ -44,6 +44,7 @@ from registry import (
 SANDBOX_ROUTES = {
     "sandbox.read_file": "/files/read",
     "sandbox.write_file": "/files/write",
+    "sandbox.edit_file": "/files/edit",
     "sandbox.list_dir": "/files/list",
     "sandbox.exec": "/exec",
     "sandbox.run_tests": "/tests",

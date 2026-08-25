@@ -53,7 +53,20 @@ def client(workspace: Path) -> TestClient:
 def test_read_file(client: TestClient):
     resp = client.post("/files/read", json={"path": "hello.txt"})
     assert resp.status_code == 200
-    assert resp.json() == {"content": "hello\n"}
+    assert resp.json() == {"content": "hello\n", "start_line": 1, "total_lines": 1}
+
+
+def test_read_file_view_range(client: TestClient, workspace: Path):
+    (workspace / "many.txt").write_text("a\nb\nc\nd\n")
+    resp = client.post("/files/read", json={"path": "many.txt", "view_range": [2, 3]})
+    assert resp.json() == {"content": "b\nc\n", "start_line": 2, "total_lines": 4}
+    tail = client.post("/files/read", json={"path": "many.txt", "view_range": [3, -1]})
+    assert tail.json()["content"] == "c\nd\n"
+    for bad in ([0, 2], [3, 2], [9, 9]):
+        resp = client.post("/files/read", json={"path": "many.txt", "view_range": bad})
+        assert resp.status_code == 400, bad
+    wrong_shape = client.post("/files/read", json={"path": "many.txt", "view_range": [1]})
+    assert wrong_shape.status_code == 422  # a pair, by schema
 
 
 def test_read_missing_file_404(client: TestClient):
@@ -91,6 +104,125 @@ def test_write_symlink_escape_rejected(
     resp = client.post("/files/write", json={"path": "link/evil.txt", "content": "x"})
     assert resp.status_code == 400
     assert not (outside / "evil.txt").exists()
+
+
+# --- /files/edit -----------------------------------------------------------
+
+
+def test_edit_str_replace_exactly_once(client: TestClient, workspace: Path):
+    (workspace / "pkg" / "mod.py").write_text("x = 1\ny = 2\nz = 3\n")
+    resp = client.post(
+        "/files/edit",
+        json={
+            "path": "pkg/mod.py",
+            "command": "str_replace",
+            "old_str": "y = 2",
+            "new_str": "y = 20\nw = 4",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert (workspace / "pkg" / "mod.py").read_text() == "x = 1\ny = 20\nw = 4\nz = 3\n"
+    snippet = resp.json()["snippet"]
+    assert "     2\ty = 20\n" in snippet and "     3\tw = 4\n" in snippet
+
+
+def test_edit_str_replace_refuses_missing_or_ambiguous(
+    client: TestClient, workspace: Path
+):
+    (workspace / "pkg" / "mod.py").write_text("a\nb\na\n")
+    missing = client.post(
+        "/files/edit",
+        json={
+            "path": "pkg/mod.py",
+            "command": "str_replace",
+            "old_str": "q",
+            "new_str": "",
+        },
+    )
+    assert missing.status_code == 400 and "not found" in missing.json()["detail"]
+    twice = client.post(
+        "/files/edit",
+        json={
+            "path": "pkg/mod.py",
+            "command": "str_replace",
+            "old_str": "a",
+            "new_str": "",
+        },
+    )
+    assert twice.status_code == 400 and "2 times" in twice.json()["detail"]
+    no_old = client.post(
+        "/files/edit",
+        json={"path": "pkg/mod.py", "command": "str_replace", "new_str": ""},
+    )
+    assert no_old.status_code == 400
+    assert (workspace / "pkg" / "mod.py").read_text() == "a\nb\na\n"  # untouched
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [(0, "new\na\nb\n"), (1, "a\nnew\nb\n"), (2, "a\nb\nnew\n")],
+)
+def test_edit_insert_after_line(
+    client: TestClient, workspace: Path, line: int, expected: str
+):
+    (workspace / "pkg" / "mod.py").write_text("a\nb\n")
+    resp = client.post(
+        "/files/edit",
+        json={
+            "path": "pkg/mod.py",
+            "command": "insert",
+            "insert_line": line,
+            "new_str": "new",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert (workspace / "pkg" / "mod.py").read_text() == expected
+
+
+def test_edit_insert_rejects_bad_line(client: TestClient, workspace: Path):
+    for line in (-1, 3):
+        resp = client.post(
+            "/files/edit",
+            json={
+                "path": "hello.txt",
+                "command": "insert",
+                "insert_line": line,
+                "new_str": "x",
+            },
+        )
+        assert resp.status_code == 400, line
+    no_line = client.post(
+        "/files/edit", json={"path": "hello.txt", "command": "insert", "new_str": "x"}
+    )
+    assert no_line.status_code == 400
+
+
+def test_edit_missing_file_404(client: TestClient):
+    resp = client.post(
+        "/files/edit",
+        json={
+            "path": "nope.py",
+            "command": "str_replace",
+            "old_str": "a",
+            "new_str": "b",
+        },
+    )
+    assert resp.status_code == 404
+
+
+def test_edit_traversal_and_symlink_escape_rejected(
+    client: TestClient, workspace: Path, tmp_path: Path
+):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_text("secret\n")
+    (workspace / "link.txt").symlink_to(outside)
+    for path in ("../../etc/passwd", "link.txt"):
+        resp = client.post(
+            "/files/edit",
+            json={"path": path, "command": "str_replace", "old_str": "s", "new_str": "x"},
+        )
+        assert resp.status_code == 400, path
+    assert outside.read_text() == "secret\n"
 
 
 # --- /files/list -----------------------------------------------------------

@@ -15,6 +15,16 @@ allow_rules contains "crew_feature_delivery_executor_git_open_pr" if {
 }
 
 # feature-delivery/executor: ephemeral agent on the backend-engineer template.
+allow_rules contains "crew_feature_delivery_executor_sandbox_edit_file" if {
+	input.lifecycle == "ephemeral"
+	input.company == "hello-saas"
+	input.crew_template == "feature-delivery"
+	input.crew_role == "executor"
+	input.tool == "sandbox.edit_file"
+	bound_to_run
+}
+
+# feature-delivery/executor: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_executor_sandbox_exec" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"

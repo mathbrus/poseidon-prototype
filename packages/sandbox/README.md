@@ -27,7 +27,7 @@ containment.
 | `contract.py` | `SandboxBackend`, `SandboxPolicy`, `SandboxHandle` — the narrow seam behind which runtimes are swapped. |
 | `k8s_jobs.py` | The backend: one Job per run, workspace delivered over the Kubernetes exec API. |
 | `manifest.py` | The Job manifest as a pure function of the policy — caps, deadline, workspace scope, env injection, security context. |
-| `toolserver/app.py` | The in-sandbox HTTP server the gateway proxies the six `sandbox.*` tools to. |
+| `toolserver/app.py` | The in-sandbox HTTP server the gateway proxies the seven `sandbox.*` tools to. |
 | `egressproxy/proxy.py` | The forward proxy: host allowlist, per-run attribution, an audit event for every decision. |
 | `egressproxy/credentials.py` | The self-authenticating per-run credential, and `resolve_host`. |
 | `egressproxy/__main__.py` | The proxy's process entry point; env-configured. |
@@ -121,9 +121,9 @@ field by field) is mostly a list of absences:
 
 ## The tool server is unauthenticated, on purpose
 
-The FastAPI app in `toolserver/app.py` exposes six endpoints, one per
+The FastAPI app in `toolserver/app.py` exposes seven endpoints, one per
 `sandbox.*` tool the MCP gateway offers: `/files/read`, `/files/write`,
-`/files/list`, `/exec`, `/tests`, `/bundle`. It has no authentication,
+`/files/edit`, `/files/list`, `/exec`, `/tests`, `/bundle`. It has no authentication,
 and `/exec` runs what it is given with `shell=True`. That is not an
 oversight: it *is* the sandbox — the thing whose whole job is to run
 untrusted code. Its protection is that nothing else can reach it: the
@@ -237,7 +237,7 @@ never carries a database driver or registry credentials.
 - **orchestrator** is the only caller of `provision`/`destroy`; it also
   calls `sandbox_proxy_env` to mint the egress credential into
   `SandboxPolicy.env`.
-- **gateway** proxies the six `sandbox.*` tools to the tool server
+- **gateway** proxies the seven `sandbox.*` tools to the tool server
   (after authenticating, policy-checking and auditing each call) and is
   the only ingress the sandbox NetworkPolicy admits.
 - **operator** emits that NetworkPolicy (`sandbox-isolation`) and the

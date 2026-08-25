@@ -6,6 +6,7 @@ included — closely enough to exercise allow, deny and recovery paths."""
 import asyncio
 import json
 import re
+from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from itertools import count
 from typing import Any
@@ -103,21 +104,44 @@ class FakeGateway:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.default_test_result: dict[str, Any] = TESTS_PASS
+        # The repository's instructions file, when the workspace has one.
+        self.agents_md: str | None = None
+        # Test hooks: tools policy refuses, and something to run before
+        # any call is answered (a barrier, a delay).
+        self.deny: set[str] = set()
+        self.before: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None
 
     async def call(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
         self.calls.append((tool, dict(args)))
+        if tool in self.deny:
+            raise ToolCallError(f"denied by policy rule: default_deny ({tool})")
+        if self.before is not None:
+            await self.before(tool, args)
         match tool:
             case "sandbox.list_dir":
-                return {
-                    "entries": [
-                        {"name": "README.md", "type": "file"},
-                        {"name": "src", "type": "dir"},
-                    ]
-                }
+                entries = [
+                    {"name": "README.md", "type": "file"},
+                    {"name": "src", "type": "dir"},
+                ]
+                if self.agents_md is not None:
+                    entries.insert(0, {"name": "AGENTS.md", "type": "file"})
+                return {"entries": entries}
+            case "sandbox.read_file" if args["path"] == "AGENTS.md":
+                assert self.agents_md is not None, "AGENTS.md read but not listed"
+                return {"content": self.agents_md, "start_line": 1, "total_lines": 1}
             case "sandbox.read_file":
-                return {"content": "def hello():\n    return 'hi'\n"}
+                return {
+                    "content": "def hello():\n    return 'hi'\n",
+                    "start_line": 1,
+                    "total_lines": 2,
+                }
             case "sandbox.write_file":
                 return {"ok": True}
+            case "sandbox.edit_file":
+                return {
+                    "ok": True,
+                    "snippet": "     1\tdef hello():\n     2\t    return 'hi'\n",
+                }
             case "sandbox.exec":
                 return {"exit_code": 0, "stdout": "", "stderr": ""}
             case "sandbox.run_tests":

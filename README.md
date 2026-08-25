@@ -442,7 +442,7 @@ A human starts an implement run from a ticket (or the heartbeat does — see
    second identity. Each pod gets its own per-run ServiceAccount.
 
 > [!NOTE]
-> How does the code get in? Via `repo.archive`, the platform-only sixteenth
+> How does the code get in? Via `repo.archive`, the platform-only seventeenth
 > tool: the *gateway* clones the target repository with its own token,
 > strips the remote — and with it the credentialed URL — and returns the
 > workspace as a tarball. The sandbox receives source code with no remote
@@ -452,9 +452,10 @@ A human starts an implement run from a ticket (or the heartbeat does — see
 ### Planning: a read-only brief
 
 The planner is dispatched first, on its own pod, with no sandbox of its own
-(`needs_sandbox: false`). It surveys the run's shared sandbox through the
-gateway, under its own projected token, so its read-only compiled scope is
-what policy enforces. Its output is a task brief for the executor.
+(`needs_sandbox: false`). It reads the run's shared sandbox through the
+gateway — the tree, the files the task will touch, the repository's own
+`AGENTS.md` — under its own projected token, so its read-only compiled
+scope is what policy enforces. Its output is a task brief for the executor.
 
 ### Implementation: work under audit
 
@@ -874,6 +875,26 @@ refused. They assert the platform refused.
   ones.
 - **One company per cluster** is what has been exercised, though namespacing
   and per-company bundle roots are designed for more.
+
+</details>
+
+<details>
+<summary><b>A brain pod that dies mid-dispatch starts its dispatch over</b></summary>
+
+<br>
+
+Durability covers the *orchestrator*: kill its worker and Temporal replays
+the workflow, re-attaching to a dispatch still in flight. It does not cover
+the *brain pod*. An agent pod mounts nothing but its token and is never
+restarted, so the model's conversation lives only in that process; if the
+pod dies, the retry re-dispatches from scratch against the sandbox as it
+stands — the files already written survive, the transcript does not.
+
+Persisting the conversation would need somewhere the brain can write that
+is neither the pod nor the sandbox: a gateway write channel, which is new
+authority for the one process assumed compromised. It is a decision not
+yet taken, not an oversight; the durable state of a run is the sandbox and
+the tickets, by design.
 
 </details>
 

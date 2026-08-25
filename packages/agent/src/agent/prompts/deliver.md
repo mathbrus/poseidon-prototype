@@ -14,6 +14,8 @@ Do not re-run it or rework the code — commit and deliver.
   deliver `main` or `master` — pushes to protected branches are forbidden
   by policy and will be denied.
 - Deliver the branch with the `open_pr` tool.
+- Git commands that page (`git diff`, `git log`, `git show`) must run as
+  `git --no-pager ...`: there is no terminal for a pager to wait on.
 
 ## If a call is denied
 

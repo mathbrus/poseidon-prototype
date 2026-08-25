@@ -1,6 +1,9 @@
 """Brain-host tests: the production OpenHands SDK loops
 driven by a scripted LLM and a fake gateway (see conftest)."""
 
+import asyncio
+import threading
+
 from conftest import (
     COMMENT_URL,
     PR_URL,
@@ -20,6 +23,7 @@ from agent.brain import (
     deliver_dispatch,
     implement_dispatch,
     plan_dispatch,
+    pm_dispatch,
     review_dispatch,
 )
 from agent.hands import REVIEWER_TOOLS
@@ -85,6 +89,7 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
     assert result.pr_url == PR_URL
     assert result.error is None
     assert gateway.tools_called() == [
+        "sandbox.list_dir",  # the survey every sandboxed dispatch opens with
         "sandbox.exec",
         "sandbox.git_bundle",
         "git.open_pr",
@@ -129,6 +134,7 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
     assert result.verdict == "pass"
     assert result.verdict_summary == "Suite green; in scope."
     assert gateway.tools_called() == [
+        "sandbox.list_dir",
         "git.read",
         "sandbox.run_tests",
         "git.comment",
@@ -197,8 +203,13 @@ def test_prompt_and_toolsets_per_phase(settings, gateway):
     assert "carry it out" not in task_message  # no delivery talk while acting
 
     offered = set(llm.offered(0)) - {"finish", "think"}
-    assert offered == {"list_dir", "read_file", "write_file", "exec"}
+    assert offered == {"list_dir", "read_file", "write_file", "edit_file", "exec"}
     assert "open_pr" not in llm.offered(0)  # no delivery tool, ever, here
+    # The read tools declare themselves read-only, which also keeps the
+    # SDK's security_risk parameter out of their schemas.
+    schemas = {t["function"]["name"]: t["function"] for t in llm.requests[0][1]}
+    assert "security_risk" not in schemas["read_file"]["parameters"]["properties"]
+    assert "security_risk" in schemas["write_file"]["parameters"]["properties"]
 
 
 def test_deliver_prompt_names_the_delivery_tool(settings, gateway):
@@ -230,19 +241,20 @@ def test_review_prompt_is_the_reviewers(settings, gateway):
 
 
 def test_plan_prompt_asks_for_the_brief_only(settings, gateway):
-    """The planner's single completion asks for the brief and never tells
-    the model to carry the work out."""
+    """The planner's loop holds the read tools and nothing else, and its
+    prompt asks for the brief without ever telling the model to carry the
+    work out."""
     llm = ScriptedLLM([says("1. Write slugify.py")])
 
     with scripted(gateway, llm):
         plan_dispatch(settings, RUN_ID, TASK)
 
-    messages, tools = llm.requests[0]
-    assert tools is None
+    messages, _ = llm.requests[0]
+    assert set(llm.offered(0)) - {"finish", "think"} == {"list_dir", "read_file"}
     system = text_of(messages[0])
     user = text_of(messages[1])
     assert "brief" in system
-    assert "open_pr" not in system
+    assert "open_pr" not in system and "write_file" not in system
     assert "carry it out" not in system and "carry it out" not in user
     assert "numbered brief" in user
 
@@ -379,29 +391,60 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
 # --- planner mode ---------------------------------------------------------------
 
 
-def test_planner_produces_the_brief_from_one_completion(settings, gateway):
-    """mode=plan: one survey, one completion, no tool loop — the brief the
-    executor's dispatch carries verbatim."""
-    llm = ScriptedLLM([says("1. Write slugify.py\n2. Deliver on `feature/x`.")])
+def test_planner_reads_then_answers_with_the_brief(settings, gateway):
+    """mode=plan: a survey, a few reads, then the brief — the agent's
+    final text, which the executor's dispatch carries verbatim."""
+    llm = ScriptedLLM(
+        [
+            calls(tc("read_file", path="README.md")),
+            says("1. Write slugify.py\n2. Deliver on `feature/x`."),
+        ]
+    )
 
     with scripted(gateway, llm):
         result = plan_dispatch(settings, RUN_ID, TASK)
 
     assert result.error is None
     assert result.brief == "1. Write slugify.py\n2. Deliver on `feature/x`."
-    assert gateway.tools_called() == ["sandbox.list_dir"]  # read-only survey
-    messages, tools = llm.requests[0]
-    assert tools is None  # a completion, not a tool loop
-    assert TASK in text_of(messages[1])
+    assert gateway.tools_called() == ["sandbox.list_dir", "sandbox.read_file"]
+    assert TASK in text_of(llm.requests[0][0][1])
+
+
+def test_planner_brief_may_arrive_through_finish(settings, gateway):
+    llm = ScriptedLLM([calls(tc("finish", message="1. Write slugify.py"))])
+
+    with scripted(gateway, llm):
+        result = plan_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert result.brief == "1. Write slugify.py"
 
 
 def test_planner_empty_brief_is_an_error(settings, gateway):
-    llm = ScriptedLLM([says("")])
+    """Finishing with nothing to say is not a brief. (An empty plain
+    reply never reaches here: the SDK re-prompts on it until the step
+    cap, which is the error above.)"""
+    llm = ScriptedLLM([calls(tc("finish", message=""))])
 
     with scripted(gateway, llm):
         result = plan_dispatch(settings, RUN_ID, TASK)
 
     assert result.error == "planner produced an empty brief"
+
+
+def test_planner_that_never_answers_is_an_error(settings, gateway):
+    """A planner that only reads until the step cap has no brief to give."""
+    from agent.brain import PLAN_STEP_CAP
+
+    llm = ScriptedLLM(
+        [calls(tc("read_file", path=f"src/m{i}.py")) for i in range(PLAN_STEP_CAP)]
+    )
+
+    with scripted(gateway, llm):
+        result = plan_dispatch(settings, RUN_ID, TASK)
+
+    assert result.brief is None
+    assert result.error == f"agent loop did not finish within {PLAN_STEP_CAP} steps"
 
 
 # --- the LLM client shape -------------------------------------------------------
@@ -421,13 +464,13 @@ def test_llm_carries_run_attribution_and_single_attempt(settings):
 def test_prompt_rendering_survives_stray_braces(tmp_path, settings):
     """Prompt files are edited as prose: a brace added to the text must
     stay literal text, never a format crash or a format-spec evaluation."""
-    from agent.brain import _render_prompt
+    from agent.prompting import render_procedure
 
     template = tmp_path / "prompt.md"
     template.write_text(
         'Repo: {target_repo}. Example: {"key": "value"} and {not_a_field!r}.'
     )
-    rendered = _render_prompt(template, settings)
+    rendered = render_procedure(template, settings)
     assert f"Repo: {settings.target_repo}." in rendered
     assert '{"key": "value"}' in rendered
     assert "{not_a_field!r}" in rendered
@@ -493,3 +536,201 @@ def test_decide_rejects_prose_and_unknown_actions(settings, gateway):
         with scripted(gateway, ScriptedLLM([says(reply)])):
             result = decide_dispatch(settings, RUN_ID, OBSERVATION)
         assert result.decision is None and result.error
+
+
+# --- prompt composition ---------------------------------------------------------
+
+
+def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
+    """The mode's own procedure opens the system prompt; the OpenHands
+    sections that fit the mode's use of the workspace follow it: a
+    dispatch that writes code gets the file and code-quality guidance, a
+    reader gets efficiency only, the PM gets no workspace advice at all."""
+    llm = ScriptedLLM([says("nothing to do")])
+    with scripted(gateway, llm):
+        implement_dispatch(settings, RUN_ID, TASK)
+    system = text_of(llm.requests[0][0][0])
+    assert system.startswith("# Poseidon executor")
+    assert "<EFFICIENCY>" in system
+    assert "<FILE_SYSTEM_GUIDELINES>" in system
+    assert "<CODE_QUALITY>" in system
+    assert "file_fix.py" in system  # the no-suffixed-copies rule, verbatim
+    assert "<PULL_REQUESTS>" not in system  # the SDK's PR workflow is not ours
+    assert "OpenHands agent" not in system  # nor its identity
+
+    llm = ScriptedLLM([says("nothing to say")])
+    with scripted(gateway, llm):
+        review_dispatch(settings, RUN_ID, "Review pull request #41")
+    system = text_of(llm.requests[0][0][0])
+    assert "<EFFICIENCY>" in system
+    assert "<FILE_SYSTEM_GUIDELINES>" not in system
+
+    llm = ScriptedLLM([says("done")])
+    with scripted(gateway, llm):
+        pm_dispatch(settings, RUN_ID, "goal")
+    system = text_of(llm.requests[0][0][0])
+    assert system.startswith("You are the product manager")
+    assert "<EFFICIENCY>" not in system
+
+
+def test_model_family_guidance_follows_the_model():
+    """The SDK's per-family block renders for a model it recognises and
+    stays out for one it does not (the mock brain)."""
+    from agent.prompting import SECTIONS, compose
+
+    coding = SECTIONS["implement"]
+    claude = compose("# procedure", coding, "anthropic/claude-sonnet-4-5")
+    assert claude.startswith("# procedure\n\n<EFFICIENCY>")
+    assert "<IMPORTANT>" in claude
+    mock = compose("# procedure", coding, "openai/mock-brain")
+    assert "<IMPORTANT>" not in mock
+    assert "<CODE_QUALITY>" in mock
+
+
+# --- repository instructions ----------------------------------------------------
+
+
+def test_agents_md_rides_the_system_message_as_untrusted_context(settings, gateway):
+    """A workspace AGENTS.md is read once by the host, under the pod's own
+    token, and reaches the model in the system message's second block
+    inside the SDK's untrusted-content framing — never as an instruction
+    of ours."""
+    gateway.agents_md = "Use four-space indents. Run `make check` before commits."
+    llm = ScriptedLLM([says("nothing to do")])
+
+    with scripted(gateway, llm):
+        implement_dispatch(settings, RUN_ID, TASK)
+
+    assert gateway.tools_called()[:2] == ["sandbox.list_dir", "sandbox.read_file"]
+    assert gateway.calls[1][1]["path"] == "AGENTS.md"
+    system = llm.requests[0][0][0]
+    blocks = [b["text"] for b in system["content"]]
+    assert len(blocks) == 2
+    assert blocks[0].startswith("# Poseidon executor")  # the static prompt, verbatim
+    assert "<REPO_CONTEXT>" in blocks[1] and "<UNTRUSTED_CONTENT>" in blocks[1]
+    assert "Run `make check` before commits." in blocks[1]
+    assert "<CURRENT_DATETIME>" not in blocks[1]
+    assert "AGENTS.md" not in blocks[0]
+
+
+def test_no_agents_md_means_no_dynamic_block(settings, gateway):
+    llm = ScriptedLLM([says("nothing to do")])
+
+    with scripted(gateway, llm):
+        implement_dispatch(settings, RUN_ID, TASK)
+
+    assert "sandbox.read_file" not in gateway.tools_called()
+    system = llm.requests[0][0][0]
+    assert len(system["content"]) == 1
+
+
+def test_agents_md_the_role_may_not_read_is_skipped(settings, gateway):
+    """Listing shows the file but policy refuses the read: the dispatch
+    goes on without instructions rather than failing."""
+    gateway.agents_md = "secret conventions"
+    gateway.deny = {"sandbox.read_file"}
+    llm = ScriptedLLM([says("nothing to do")])
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert len(llm.requests[0][0][0]["content"]) == 1
+
+
+# --- stuck detection ------------------------------------------------------------
+
+
+def test_repeating_itself_ends_the_dispatch_as_stuck(settings, gateway):
+    """The SDK's detector is on for every model: four identical action
+    and observation pairs inside one turn stop the loop with STUCK, which
+    the runner reports as a failure rather than a completion claim."""
+    same = calls(tc("read_file", path="README.md"))
+    llm = ScriptedLLM([same, same, same, same])
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error == "agent loop stuck repeating itself (after 0 verify cycles)"
+    assert llm.script == []  # stopped by the detector, not by a fifth reply
+    assert "sandbox.run_tests" not in gateway.tools_called()
+
+
+def test_a_stuck_pm_fails_with_what_it_filed(settings, gateway):
+    same = calls(tc("read_issues"))
+    llm = ScriptedLLM([same] * 4)
+
+    with scripted(gateway, llm):
+        result = pm_dispatch(settings, RUN_ID, "goal")
+
+    assert result.error == "agent loop stuck repeating itself"
+    assert result.ticket_urls == []
+
+
+# --- parallel reads, ordered writes ---------------------------------------------
+
+
+def test_a_batch_of_reads_runs_concurrently(settings, gateway):
+    """Three reads in one reply fan out: each one blocks on a barrier
+    that opens only when all three have arrived, so a one-at-a-time
+    executor would time out and hand the model three errors."""
+    barrier = threading.Barrier(3, timeout=5)
+
+    async def gated(tool, args):
+        if tool == "sandbox.read_file":
+            barrier.wait()
+
+    gateway.before = gated
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc("read_file", path="a.py"),
+                tc("read_file", path="b.py"),
+                tc("read_file", path="c.py"),
+            ),
+            says("done"),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    observations = [m for m in llm.requests[1][0] if m["role"] == "tool"]
+    assert len(observations) == 3
+    assert all("Error executing" not in text_of(m) for m in observations)
+
+
+def test_a_batch_with_writes_runs_in_the_models_order(settings, gateway):
+    """A checkout, a write, a read and an add in one reply happen in that
+    order: the slow command finishes before the fast write starts."""
+
+    async def slow_exec(tool, args):
+        if tool == "sandbox.exec":
+            await asyncio.sleep(0.05)
+
+    gateway.before = slow_exec
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc("exec", cmd="git checkout -b feature/x"),
+                tc("write_file", path="a.py", content="x"),
+                tc("read_file", path="a.py"),
+                tc("exec", cmd="git add -A"),
+            ),
+            says("done"),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = implement_dispatch(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert gateway.tools_called() == [
+        "sandbox.list_dir",
+        "sandbox.exec",
+        "sandbox.write_file",
+        "sandbox.read_file",
+        "sandbox.exec",
+        "sandbox.run_tests",
+    ]

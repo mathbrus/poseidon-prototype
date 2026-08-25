@@ -86,7 +86,7 @@ caller this is (`_decision_input` in `service.py`):
   A live registration belonging to another company is a cross-tenant
   claim, not a binding.
 
-Every compiled rule for a run-scoped tool (the six `sandbox.*` tools —
+Every compiled rule for a run-scoped tool (the seven `sandbox.*` tools —
 `schema.tools.RUN_SCOPED`) requires the flag, so a wrong, stale or revoked
 `run_id` fails closed at the policy layer. Retiring the registration at
 teardown is what makes a finished run's sandbox unreachable: same caller,
@@ -127,7 +127,7 @@ so the gateway cannot query a document the compiler never wrote.
 
 | Module | Owns |
 |---|---|
-| `app.py` | The ASGI app: FastMCP server over streamable HTTP, the auth middleware, the 16 tool registrations, and `POST`/`DELETE /admin/sandboxes`. |
+| `app.py` | The ASGI app: FastMCP server over streamable HTTP, the auth middleware, the 17 tool registrations, and `POST`/`DELETE /admin/sandboxes`. |
 | `service.py` | `GatewayService` — the pipeline above, plus one method per tool. |
 | `opa.py` | The OPA client, the per-caller decision path, the fail-closed empty-document handling. |
 | `git_backend.py` | Every platform-side git operation and the GitHub REST calls. The only place `GIT_TOKEN` is used. |
@@ -135,7 +135,7 @@ so the gateway cannot query a document the compiler never wrote.
 
 ## Tool surface
 
-The 16 tools — six sandbox tools proxied to the run's registered tool
+The 17 tools — seven sandbox tools proxied to the run's registered tool
 server, `repo.archive` and `git.open_pr` backed by platform-side clones,
 the issue and review tools, platform-only `git.merge_pr`, and
 `crew.request` — are documented one by one, with arguments, in
@@ -229,7 +229,7 @@ proves the server is up.
   goes through `asyncio.to_thread` — a slow or absent Postgres must not
   stall the event loop (the pool blocks long enough to fail the liveness
   probe if it ran there).
-- `schema.tools` names the same 16 tools; `compiler.rego` must emit the
+- `schema.tools` names the same 17 tools; `compiler.rego` must emit the
   same company slug — `tests/test_slug_invariant.py` pins that.
 - The [orchestrator](../orchestrator/README.md) is the platform-lifecycle
   caller: admin routes, `repo.archive`, post-gate `git.merge_pr`.
