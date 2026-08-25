@@ -149,7 +149,7 @@ class Runs:
         return RunRecord.from_row(rows[0]) if rows else None
 
     def active_count(self, company: str) -> int:
-        """Runs currently occupying delivery capacity — what the conduct
+        """Runs currently occupying delivery capacity — what the heartbeat
         heartbeat compares against `max_concurrent_runs`. Intake is not
         counted: it files tickets, it does not occupy a crew."""
         rows = self._db.query(
@@ -176,7 +176,7 @@ class Runs:
 
     def delivered_pr_urls(self, company: str) -> list[str]:
         """PRs the company's implement runs have opened and finished with —
-        the review side of the conduct heartbeat's observation, before the
+        the review side of the heartbeat's observation, before the
         already-reviewed set is subtracted."""
         rows = self._db.query(
             "SELECT pr_url FROM registry.runs"
@@ -189,7 +189,7 @@ class Runs:
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
         """The implement run that delivered a pull request — the PR's run
-        lineage, keyed the way the conduct observation keys PRs: the number
+        lineage, keyed the way the heartbeat observation keys PRs: the number
         is the URL's tail. The reviewer-independence check reads this; no
         row means the PR is not the company's own delivered work, which
         fails the check closed."""
@@ -217,11 +217,11 @@ class Runs:
         return {int(row["number"]) for row in rows}
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
-        # `conduct` decision rows exist only so the heartbeat's LLM call can
+        # `heartbeat` decision rows exist only so the heartbeat's LLM call can
         # bind; they are not work the company did, so they never enter the
         # observation's run history.
         rows = self._db.query(
-            "SELECT * FROM registry.runs WHERE workflow <> 'conduct'"
+            "SELECT * FROM registry.runs WHERE workflow <> 'heartbeat'"
             " ORDER BY created_at DESC LIMIT %s",
             (limit,),
         )

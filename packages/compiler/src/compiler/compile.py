@@ -18,9 +18,9 @@ from compiler.plan import (
     AgentInstanceCR,
     BudgetRegistration,
     CompanyCR,
-    ConductConfig,
     DeploymentPlan,
     EphemeralAgentSpec,
+    HeartbeatConfig,
     RegoBundle,
     WorkflowConfig,
 )
@@ -93,7 +93,7 @@ def compile_blueprint(
     ephemeral_agents = _ephemeral_agents(blueprint, crews_catalog)
     workflows = _workflows(blueprint)
     budgets = _budgets(blueprint)
-    conduct = _conduct(blueprint)
+    heartbeat = _heartbeat(blueprint)
     infra = build_infra(blueprint, namespace)
     bundle = RegoBundle(
         files=build_bundle(
@@ -101,7 +101,7 @@ def compile_blueprint(
             instances=list(instances),
             ephemeral_agents=list(ephemeral_agents),
             policies=blueprint.get("policies") or {},
-            conduct=conduct,
+            heartbeat=heartbeat,
             merge_delegation=_merge_delegation(workflows),
         )
     )
@@ -114,7 +114,7 @@ def compile_blueprint(
         infra=infra,
         bundle=bundle,
         platform_bundle=RegoBundle(files=build_platform_bundle(PLATFORM_SCOPE)),
-        conduct=conduct,
+        heartbeat=heartbeat,
         contract_tests=(blueprint.get("policies") or {}).get("contract_tests"),
     )
 
@@ -241,16 +241,16 @@ def _merge_delegation(workflows: tuple[WorkflowConfig, ...]) -> dict[str, Any] |
     return None
 
 
-def _conduct(blueprint: dict[str, Any]) -> ConductConfig | None:
-    conduct = blueprint.get("conduct")
-    if not conduct:
+def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig | None:
+    heartbeat = blueprint.get("heartbeat")
+    if not heartbeat:
         return None
-    return ConductConfig(
-        conductor=conduct["conductor"],
-        heartbeat_minutes=int(conduct["heartbeat_minutes"]),
-        max_concurrent_runs=int(conduct["max_concurrent_runs"]),
-        may_start=tuple(sorted(conduct["may_start"])),
-        daily_cap_usd=float(conduct["daily_cap"]["usd"]),
+    return HeartbeatConfig(
+        conductor=heartbeat["conductor"],
+        interval_minutes=int(heartbeat["interval_minutes"]),
+        max_concurrent_runs=int(heartbeat["max_concurrent_runs"]),
+        may_start=tuple(sorted(heartbeat["may_start"])),
+        daily_cap_usd=float(heartbeat["daily_cap"]["usd"]),
     )
 
 

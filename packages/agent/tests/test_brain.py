@@ -480,7 +480,7 @@ def test_prompt_rendering_survives_stray_braces(tmp_path, settings):
 
 
 OBSERVATION = (
-    "Conduct tick. Runs in flight: 0. Spent today: $0.00.\n"
+    "Heartbeat tick. Runs in flight: 0. Spent today: $0.00.\n"
     "Startable actions: implement, review, idle\n\n"
     "Open tickets:\n#5 — Add slugify\n\n"
     "Delivered pull requests awaiting review:\n(none)\n\n"
@@ -506,7 +506,7 @@ def test_decide_parses_the_two_line_contract(settings, gateway):
     messages, tools = llm.requests[0]
     assert tools is None
     assert gateway.calls == []
-    assert "conduct decision" in text_of(messages[0])
+    assert "heartbeat decision" in text_of(messages[0])
 
 
 def test_decide_idle_and_review_shapes(settings, gateway):

@@ -2,8 +2,8 @@
 
 The orchestrator queries OPA directly at two authorization chokepoints that
 are not a gateway tool call: the workflow-recorded `crew.request` (crew
-fulfilment under a conductor's authority) and the conduct heartbeat's
-`conduct.start`. Both send the same decision-input shape the gateway sends
+fulfilment under a conductor's authority) and the heartbeat's
+`heartbeat.start`. Both send the same decision-input shape the gateway sends
 and read the same default-deny bundle — this module is the one place the
 transport lives, so the two callers cannot drift on the endpoint, the
 slug, or the no-policy-installed default. What each does with the verdict —

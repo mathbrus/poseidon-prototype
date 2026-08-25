@@ -62,7 +62,7 @@ class BudgetLedger:
 
     def spent_today(self, company: str) -> float:
         """The company's attributed spend since UTC midnight — what the
-        conduct heartbeat's daily cap compares against before starting
+        heartbeat's daily cap compares against before starting
         another run."""
         rows = self._db.query(
             "SELECT COALESCE(SUM(usd), 0) AS spent"

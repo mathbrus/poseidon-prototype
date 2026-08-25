@@ -166,7 +166,7 @@ def test_gate_outcomes_are_process_gate_audit_events(settings, audit):
 
 def test_verdicts_are_journaled_audit_events(settings, audit):
     """The reviewer's structured verdict becomes an append-only
-    process-lifecycle row — the conduct.decide idiom: pass maps to allow,
+    process-lifecycle row — the heartbeat.decide idiom: pass maps to allow,
     fail to deny, and the one-line summary rides the rule field."""
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
     asyncio.run(

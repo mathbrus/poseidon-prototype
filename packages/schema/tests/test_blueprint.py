@@ -254,7 +254,7 @@ def test_delegation_under_a_human_gate_is_dead_configuration(blueprint):
 
 
 def test_delegation_declares_every_bound_or_nothing(blueprint):
-    """Explicit paths and an explicit rework bound, the conduct stance: a
+    """Explicit paths and an explicit rework bound, the heartbeat stance: a
     defaulted bound is authority nobody wrote down."""
     for field in ("paths", "max_reworks"):
         document = copy.deepcopy(blueprint)
@@ -370,52 +370,52 @@ def test_a_merge_gate_on_intake_is_not_writable(blueprint):
     assert any("merge" in p for p in problems_of(blueprint))
 
 
-# -- the conduct heartbeat -------------------------------------------------
+# -- the heartbeat -------------------------------------------------
 
 
-def conduct_section() -> dict:
+def heartbeat_section() -> dict:
     return {
         "conductor": "pm",
-        "heartbeat_minutes": 30,
+        "interval_minutes": 30,
         "max_concurrent_runs": 1,
         "may_start": ["implement", "review"],
         "daily_cap": {"usd": 20},
     }
 
 
-def test_conduct_section_validates(blueprint):
-    blueprint["conduct"] = conduct_section()
+def test_heartbeat_section_validates(blueprint):
+    blueprint["heartbeat"] = heartbeat_section()
     validate_blueprint(blueprint)
 
 
-def test_conduct_is_optional(blueprint):
-    assert "conduct" not in blueprint  # the lean example stays human-started
+def test_heartbeat_is_optional(blueprint):
+    assert "heartbeat" not in blueprint  # the lean example stays human-started
     validate_blueprint(blueprint)
 
 
-def test_conduct_declares_every_cap_or_nothing(blueprint):
+def test_heartbeat_declares_every_cap_or_nothing(blueprint):
     """A defaulted cap is authority nobody wrote down: once the section
     exists, every field is required."""
-    for field in conduct_section():
+    for field in heartbeat_section():
         document = copy.deepcopy(blueprint)
-        document["conduct"] = conduct_section()
-        del document["conduct"][field]
-        assert any("conduct" in p and field in p for p in problems_of(document))
+        document["heartbeat"] = heartbeat_section()
+        del document["heartbeat"][field]
+        assert any("heartbeat" in p and field in p for p in problems_of(document))
 
 
-def test_conduct_may_not_start_intake(blueprint):
+def test_heartbeat_may_not_start_intake(blueprint):
     """Goals enter through a human; the heartbeat may never feed itself
     new goals."""
-    blueprint["conduct"] = conduct_section()
-    blueprint["conduct"]["may_start"] = ["intake"]
+    blueprint["heartbeat"] = heartbeat_section()
+    blueprint["heartbeat"]["may_start"] = ["intake"]
     (problem,) = [p for p in problems_of(blueprint) if "intake" in p]
-    assert "conduct.may_start" in problem
+    assert "heartbeat.may_start" in problem
     assert "'implement'" in problem  # the allowed values are shown
 
 
-def test_conduct_typo_is_rejected_not_ignored(blueprint):
-    blueprint["conduct"] = conduct_section()
-    blueprint["conduct"]["heartbeat_mins"] = 5
-    del blueprint["conduct"]["heartbeat_minutes"]
+def test_heartbeat_typo_is_rejected_not_ignored(blueprint):
+    blueprint["heartbeat"] = heartbeat_section()
+    blueprint["heartbeat"]["heartbeat_mins"] = 5
+    del blueprint["heartbeat"]["interval_minutes"]
     problems = problems_of(blueprint)
     assert any("heartbeat_mins" in p and "spelling" in p for p in problems)

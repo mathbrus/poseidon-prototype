@@ -24,13 +24,13 @@ STEP_RETRY = RetryPolicy(maximum_attempts=3, backoff_coefficient=2.0)
 DISPATCH_RETRY = RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=0)
 TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 
-FAMILIES = ("implement", "intake", "review", "conduct")
+FAMILIES = ("implement", "intake", "review", "heartbeat")
 
 
 def workflow_id(family: str, key: str) -> str:
     """Deterministic workflow naming. The run-shaped families run one
-    workflow per run (`implement-{run_id}`); the conduct heartbeat is one
-    standing workflow per company (`conduct-{company}`), keyed by company
+    workflow per run (`implement-{run_id}`); the heartbeat is one
+    standing workflow per company (`heartbeat-{company}`), keyed by company
     because the loop is standing structure and its audit story correlates
     on that id."""
     return f"{family}-{key}"

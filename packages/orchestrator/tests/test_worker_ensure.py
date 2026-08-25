@@ -1,4 +1,4 @@
-"""The worker's conduct ensure pass: starts the heartbeat exactly when the
+"""The worker's heartbeat ensure pass: starts the heartbeat exactly when the
 applied blueprint declares one, and treats every failure as a next-pass
 retry — the loop only ever starts, never kills."""
 
@@ -8,7 +8,7 @@ import pytest
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from orchestrator.config import WorkerSettings
-from orchestrator.worker.__main__ import ensure_conduct_once
+from orchestrator.worker.__main__ import ensure_heartbeat_once
 from registry.memory import InMemoryCompanies
 
 pytestmark = pytest.mark.anyio
@@ -50,31 +50,31 @@ def settings(**overrides: Any) -> WorkerSettings:
 async def test_no_section_starts_nothing():
     client, companies = FakeTemporal(), InMemoryCompanies()
     companies.upsert(COMPANY, {"workflows": []})
-    await ensure_conduct_once(client, settings(), companies, Quiet())
+    await ensure_heartbeat_once(client, settings(), companies, Quiet())
     assert client.started == []
 
 
 async def test_declared_section_starts_the_heartbeat():
     client, companies = FakeTemporal(), InMemoryCompanies()
-    companies.upsert(COMPANY, {"conduct": {"heartbeat_minutes": 30}})
-    await ensure_conduct_once(client, settings(), companies, Quiet())
+    companies.upsert(COMPANY, {"heartbeat": {"interval_minutes": 30}})
+    await ensure_heartbeat_once(client, settings(), companies, Quiet())
     (call,) = client.started
-    assert call["name"] == "conduct"
-    assert call["id"] == f"conduct-{COMPANY}"
+    assert call["name"] == "heartbeat"
+    assert call["id"] == f"heartbeat-{COMPANY}"
     # No override: the blueprint's declared cadence stands.
     assert call["input"].tick_interval_s is None
     assert call["input"].timeouts is None
 
 
 async def test_already_beating_is_the_normal_case():
-    client = FakeTemporal(error=WorkflowAlreadyStartedError("conduct-x", "conduct"))
+    client = FakeTemporal(error=WorkflowAlreadyStartedError("heartbeat-x", "heartbeat"))
     companies = InMemoryCompanies()
-    companies.upsert(COMPANY, {"conduct": {"heartbeat_minutes": 30}})
-    await ensure_conduct_once(client, settings(), companies, Quiet())  # no raise
+    companies.upsert(COMPANY, {"heartbeat": {"interval_minutes": 30}})
+    await ensure_heartbeat_once(client, settings(), companies, Quiet())  # no raise
 
 
 async def test_a_hiccup_is_swallowed_for_the_next_pass():
     client = FakeTemporal(error=RuntimeError("temporal unreachable"))
     companies = InMemoryCompanies()
-    companies.upsert(COMPANY, {"conduct": {"heartbeat_minutes": 30}})
-    await ensure_conduct_once(client, settings(), companies, Quiet())  # no raise
+    companies.upsert(COMPANY, {"heartbeat": {"interval_minutes": 30}})
+    await ensure_heartbeat_once(client, settings(), companies, Quiet())  # no raise

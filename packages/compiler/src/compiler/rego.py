@@ -37,7 +37,7 @@ import json
 from typing import Any
 
 from common.policy import company_package, rego_slug
-from compiler.plan import AgentInstanceCR, ConductConfig, EphemeralAgentSpec
+from compiler.plan import AgentInstanceCR, EphemeralAgentSpec, HeartbeatConfig
 from schema.gates import UNDELEGATABLE_PATHS
 from schema.tools import RUN_SCOPED
 
@@ -219,10 +219,10 @@ def _crew_file(
     return _rego_file(company, body)
 
 
-def _conduct_file(company: str, conduct: ConductConfig) -> str:
-    """The heartbeat's start authority. `conduct.start` is not a gateway
+def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
+    """The heartbeat's start authority. `heartbeat.start` is not a gateway
     tool: it is the decision the orchestrator's conductor loop must win
-    before starting a workflow on its own initiative. No conduct section
+    before starting a workflow on its own initiative. No heartbeat section
     compiles no file, so an unattended start with no declared authority
     falls to the default deny — revocation is a blueprint diff.
 
@@ -230,32 +230,32 @@ def _conduct_file(company: str, conduct: ConductConfig) -> str:
     verified by the caller — the `active_spawns` idiom. Fail-safe defaults:
     absent counts deny, like the changed-paths rules."""
     allows = "".join(
-        f'\nallow_rules contains "conduct_start_{rego_slug(workflow)}" if {{\n'
+        f'\nallow_rules contains "heartbeat_start_{rego_slug(workflow)}" if {{\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
-        '\tinput.tool == "conduct.start"\n'
+        '\tinput.tool == "heartbeat.start"\n'
         f'\tinput.args.workflow == "{workflow}"\n'
         "}\n"
-        for workflow in sorted(conduct.may_start)
+        for workflow in sorted(heartbeat.may_start)
     )
     denies = (
-        '\ndeny_rules contains "conduct_start_over_concurrency" if {\n'
-        '\tinput.tool == "conduct.start"\n'
-        f"\tinput.args.active_runs >= {int(conduct.max_concurrent_runs)}\n"
+        '\ndeny_rules contains "heartbeat_start_over_concurrency" if {\n'
+        '\tinput.tool == "heartbeat.start"\n'
+        f"\tinput.args.active_runs >= {int(heartbeat.max_concurrent_runs)}\n"
         "}\n"
-        '\ndeny_rules contains "conduct_start_over_daily_cap" if {\n'
-        '\tinput.tool == "conduct.start"\n'
-        f"\tinput.args.daily_spent_usd >= {json.dumps(conduct.daily_cap_usd)}\n"
+        '\ndeny_rules contains "heartbeat_start_over_daily_cap" if {\n'
+        '\tinput.tool == "heartbeat.start"\n'
+        f"\tinput.args.daily_spent_usd >= {json.dumps(heartbeat.daily_cap_usd)}\n"
         "}\n"
         # object.get, not a bare reference: negating a builtin over an
         # undefined reference never fires, so a bare `not is_number(...)`
         # would fail open on the absent key it exists to catch.
-        '\ndeny_rules contains "conduct_start_counts_missing" if {\n'
-        '\tinput.tool == "conduct.start"\n'
+        '\ndeny_rules contains "heartbeat_start_counts_missing" if {\n'
+        '\tinput.tool == "heartbeat.start"\n'
         '\tnot is_number(object.get(input, ["args", "active_runs"], null))\n'
         "}\n"
-        '\ndeny_rules contains "conduct_start_spend_missing" if {\n'
-        '\tinput.tool == "conduct.start"\n'
+        '\ndeny_rules contains "heartbeat_start_spend_missing" if {\n'
+        '\tinput.tool == "heartbeat.start"\n'
         '\tnot is_number(object.get(input, ["args", "daily_spent_usd"], null))\n'
         "}\n"
     )
@@ -267,7 +267,7 @@ def _merge_gate_file(
 ) -> str:
     """The policy-resolved merge gate's authority. `merge.resolve` is not a
     gateway tool: it is the decision the review workflow must win before
-    merging without a human — the `conduct.start` idiom. The three
+    merging without a human — the `heartbeat.start` idiom. The three
     caller-verified facts ride the input (the reviewer's verdict, the
     platform's own model-free checks, reviewer-independence from the
     implementer); the delegated class, the carve-outs and the contract
@@ -471,7 +471,7 @@ def build_bundle(
     instances: list[AgentInstanceCR],
     ephemeral_agents: list[EphemeralAgentSpec],
     policies: dict[str, Any],
-    conduct: ConductConfig | None = None,
+    heartbeat: HeartbeatConfig | None = None,
     merge_delegation: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """The company bundle: per-role and per-ephemeral-agent files, plus the
@@ -498,8 +498,8 @@ def build_bundle(
             company, agent.crew, agent.crew_role, agent.role_template, list(agent.tools)
         )
     files["policies.rego"] = _policies_file(company, policies)
-    if conduct is not None:
-        files["conduct.rego"] = _conduct_file(company, conduct)
+    if heartbeat is not None:
+        files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
     if merge_delegation is not None:
         files["merge_gate.rego"] = _merge_gate_file(company, merge_delegation, policies)
     return files

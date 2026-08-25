@@ -2,7 +2,7 @@
 
 These are the checks the schema cannot make, because they are about a
 company being *coherent* rather than a document being well-formed: does this
-workflow have someone to conduct it, does every scope name a tool the
+workflow name a conductor that may spawn its crew, does every scope name a tool the
 gateway actually serves, can the budget pay for what is enabled.
 
 `compile_blueprint` accepts plain dicts and does not run the schema pass, so
@@ -10,7 +10,7 @@ the document-level catalog checks (`schema.coherence`) run here too — the
 compiler must fail closed on an unvalidated input, not KeyError halfway
 through emission.
 
-Deliberately absent: a child-⊆-parent scope check. A conducting PM is not a
+Deliberately absent: a child-⊆-parent scope check. A conductor is not a
 capability supersystem, and ⊆ would force the PM's declared allows to become
 the union of every ephemeral agent's scope. Spawn authority is `may_spawn` plus the crew
 template plus budget and concurrency caps; tool authority is the agent's
@@ -60,7 +60,7 @@ def check(
     problems += _spawnable_crews(blueprint, crews)
     problems += _policy_patterns(blueprint)
     problems += _budget_coverage(blueprint)
-    problems += _conduct_authority(blueprint, roles)
+    problems += _heartbeat_authority(blueprint, roles)
     # Document-level like the platform-tool rule, repeated here because the
     # compiler accepts unvalidated dicts and must fail closed on a
     # delegation validate_blueprint would have refused.
@@ -242,35 +242,35 @@ def _policy_patterns(blueprint: dict[str, Any]) -> list[str]:
     return []
 
 
-def _conduct_authority(
+def _heartbeat_authority(
     blueprint: dict[str, Any], roles: dict[str, RoleTemplate]
 ) -> list[str]:
     """The heartbeat's declared authority must be coherent: an active standing spawner
     to decide, enabled workflows to start, and a daily cap that can fund at
     least one run — a cap below the per-run budget makes the section dead
     configuration, and dead configuration is an error, not documentation."""
-    conduct = blueprint.get("conduct")
-    if not conduct:
+    heartbeat = blueprint.get("heartbeat")
+    if not heartbeat:
         return []
     problems = []
-    conductor = conduct.get("conductor")
+    conductor = heartbeat.get("conductor")
     if conductor not in _active_spawners(blueprint, roles):
         problems.append(
-            f"conduct.conductor: {conductor!r} is not an active standing spawner — "
+            f"heartbeat.conductor: {conductor!r} is not an active standing spawner — "
             "the heartbeat dispatches a standing conductor for its decisions"
         )
     enabled = _enabled_workflows(blueprint)
-    for workflow in conduct.get("may_start") or []:
+    for workflow in heartbeat.get("may_start") or []:
         if workflow not in enabled:
             problems.append(
-                f"conduct.may_start: {workflow!r} is not an enabled workflow "
+                f"heartbeat.may_start: {workflow!r} is not an enabled workflow "
                 "in this blueprint, so the grant could never start anything"
             )
     per_run = ((blueprint.get("budgets") or {}).get("per_run") or {}).get("usd") or 0
-    daily = (conduct.get("daily_cap") or {}).get("usd") or 0
+    daily = (heartbeat.get("daily_cap") or {}).get("usd") or 0
     if daily and per_run and daily < per_run:
         problems.append(
-            f"conduct.daily_cap.usd: {daily:g} cannot fund a single run "
+            f"heartbeat.daily_cap.usd: {daily:g} cannot fund a single run "
             f"(budgets.per_run.usd is {per_run:g}) — the heartbeat could "
             "never start one"
         )

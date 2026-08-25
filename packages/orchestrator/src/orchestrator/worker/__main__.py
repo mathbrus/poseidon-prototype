@@ -20,8 +20,8 @@ from temporalio.worker import Worker
 
 from common.telemetry import get_logger
 from orchestrator.activities import (
-    ConductActivities,
     CrewActivities,
+    HeartbeatActivities,
     ImplementActivities,
     IntakeActivities,
     ReviewActivities,
@@ -29,8 +29,8 @@ from orchestrator.activities import (
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import EphemeralPodProvisioner
 from orchestrator.workflows import (
-    ConductInput,
-    ConductWorkflow,
+    HeartbeatInput,
+    HeartbeatWorkflow,
     ImplementWorkflow,
     IntakeWorkflow,
     ReviewWorkflow,
@@ -49,37 +49,37 @@ from registry import (
 from sandbox.k8s_jobs import K8sJobsBackend
 
 
-async def ensure_conduct_loop(
+async def ensure_heartbeat_loop(
     client: Client, settings: WorkerSettings, companies: Companies, log
 ) -> None:
     """Reconcile-on-goal for the heartbeat: while the applied blueprint
-    declares a conduct section, the company's `conduct-{company}` workflow
+    declares a heartbeat section, the company's `heartbeat-{company}` workflow
     is running; start it if it is not. The other half of the loop is the
     workflow's own config read — it stops itself when the section is gone —
     so this side only ever starts, never kills."""
     while True:
-        await ensure_conduct_once(client, settings, companies, log)
-        await asyncio.sleep(settings.conduct_ensure_interval_s)
+        await ensure_heartbeat_once(client, settings, companies, log)
+        await asyncio.sleep(settings.heartbeat_ensure_interval_s)
 
 
-async def ensure_conduct_once(
+async def ensure_heartbeat_once(
     client: Client, settings: WorkerSettings, companies: Companies, log
 ) -> None:
     """One ensure pass, isolated so a hiccup never kills the loop."""
     try:
         spec = await asyncio.to_thread(companies.get, settings.company)
-        if (spec or {}).get("conduct"):
+        if (spec or {}).get("heartbeat"):
             await client.start_workflow(
-                "conduct",
-                ConductInput(company=settings.company),
-                id=workflow_id("conduct", settings.company),
+                "heartbeat",
+                HeartbeatInput(company=settings.company),
+                id=workflow_id("heartbeat", settings.company),
                 task_queue=settings.task_queue,
             )
-            log.info("conduct heartbeat started", extra={"company": settings.company})
+            log.info("heartbeat started", extra={"company": settings.company})
     except WorkflowAlreadyStartedError:
         pass  # the heartbeat is already beating — the normal case
     except Exception as exc:  # registry or Temporal hiccup: retry next pass
-        log.info("conduct ensure pass failed, retrying", extra={"error": str(exc)})
+        log.info("heartbeat ensure pass failed, retrying", extra={"error": str(exc)})
 
 
 async def main() -> None:
@@ -118,7 +118,7 @@ async def main() -> None:
         AuditStore(registry),
         RunParticipants(registry),
     )
-    conduct_activities = ConductActivities(
+    heartbeat_activities = HeartbeatActivities(
         settings,
         Runs(registry),
         Companies(registry),
@@ -151,13 +151,13 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=settings.task_queue,
-        workflows=[ConductWorkflow, ImplementWorkflow, IntakeWorkflow, ReviewWorkflow],
+        workflows=[HeartbeatWorkflow, ImplementWorkflow, IntakeWorkflow, ReviewWorkflow],
         activities=[
             *activities.all(),
             *crew_activities.all(),
             *intake_activities.all(),
             *review_activities.all(),
-            *conduct_activities.all(),
+            *heartbeat_activities.all(),
         ],
     )
     log.info(
@@ -165,7 +165,7 @@ async def main() -> None:
         extra={"address": settings.temporal_address, "task_queue": settings.task_queue},
     )
     ensure = asyncio.create_task(
-        ensure_conduct_loop(client, settings, Companies(registry), log)
+        ensure_heartbeat_loop(client, settings, Companies(registry), log)
     )
     try:
         async with worker:
