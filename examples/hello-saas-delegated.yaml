@@ -45,13 +45,13 @@ departments:
         max_concurrent: 2
 
 crews:
-  # The oracle's authors: one deliver-capable member, no planner — the
+  # The oracle's authors: one deliver-capable agent, no planner — the
   # contract ticket the PM files IS the brief. A crew of its own is what
   # makes the split positional: `contract-author` is not a template the
   # delivery crew contains, so the implementer cannot be the hand that
   # writes the spec it is graded by.
   contract-authoring:
-    members:
+    agents:
       author:
         role_template: contract-author
         tools:
@@ -64,7 +64,7 @@ crews:
           - git.open_pr
     budget_inheritance: run
   feature-delivery:
-    members:
+    agents:
       # LLM-only: reads the run's sandbox, writes nothing, produces the task
       # brief the executor's dispatch carries verbatim.
       planner:
@@ -86,7 +86,7 @@ crews:
           - git.open_pr
     budget_inheritance: run
   feature-review:
-    members:
+    agents:
       reviewer:
         role_template: sdet
         tools:

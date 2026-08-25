@@ -51,7 +51,7 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "member": "executor",
+                        "crew_role": "executor",
                         "role_template": "backend-engineer",
                         "parent_agent_id": "pm-1",
                     }

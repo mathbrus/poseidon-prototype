@@ -14,7 +14,7 @@ What the suite proves, and where:
   2 durable       test_happy_path (kill-worker resume), test_temporal,
                   test_registry_durability, test_crew_fulfillment
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
-                  leaked no participant row, no crew pod, no registration
+                  leaked no participant row, no ephemeral pod, no registration
   3 SDLC          test_intake + test_review_gate (intake → implement →
                   review with parked gate, escalation, API approval,
                   platform merge)
@@ -25,7 +25,7 @@ What the suite proves, and where:
   5 budgets       test_budgets (hard-stop, API-visible pause, process-gate
                   escalation, full {run, parent, participant, role} tuple)
   6 lean roster   test_operator_lifecycle (exactly one AgentInstance),
-                  test_pm, test_crew_identity, test_crew_pods,
+                  test_pm, test_ephemeral_identity, test_ephemeral_pods,
                   test_workload_identity; HERE: the registry's roster
                   agrees, and a live minted executor is denied outside its
                   compiled allow-list at the gateway
@@ -170,7 +170,7 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
     assert the *sandbox*
     leaked nothing and prove the crew sweep on a separate run. Here the
     clause is closed on the killed run itself: its participant rows
-    are terminated, its crew pod is gone, its sandbox registration is
+    are terminated, its ephemeral pod is gone, its sandbox registration is
     terminated — no leaked sandbox, identity, or participant row."""
     run_id = implement_run["run_id"]
 
@@ -186,7 +186,7 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
         assert row["terminated_at"], f"terminated without a timestamp: {row}"
 
     # No live pod of any kind still carries the run's label (sandbox Jobs
-    # and crew pods both do).
+    # and ephemeral pods both do).
     assert sandbox_pods(run_id) == [], "a labelled pod outlived the run"
 
     registrations = psql_json(
@@ -283,7 +283,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "member": "executor",
+                        "crew_role": "executor",
                         "role_template": "backend-engineer",
                         "parent_agent_id": "pm-1",
                     }

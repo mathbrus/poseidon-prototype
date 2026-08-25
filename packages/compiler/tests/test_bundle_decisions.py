@@ -116,12 +116,12 @@ def decide_conducted(tmp_path_factory):
     return _decider(tmp_path_factory, _company(conducted))
 
 
-def ephemeral(crew: str, member: str, template: str, **extra) -> dict:
+def ephemeral(crew: str, agent: str, template: str, **extra) -> dict:
     return {
         "company": "hello-saas",
         "lifecycle": "ephemeral",
         "crew_template": crew,
-        "crew_role": member,
+        "crew_role": agent,
         "role": template,
         "parent_agent_id": "pm-1",
         "run_id": "run-1",
@@ -161,12 +161,12 @@ def test_pm_cannot_call_executor_tools(decide):
         assert decision["allow"] is False, tool
 
 
-# -- crew members are distinct principals ---------------------------------
+# -- ephemeral agents are distinct principals ---------------------------------
 
 
 def test_planner_is_read_only(decide):
-    """Both members run the `backend-engineer` template, so without the
-    crew-member discriminator the planner would inherit delivery rights."""
+    """Both agents run the `backend-engineer` template, so without the
+    crew-slot discriminator the planner would inherit delivery rights."""
     read = decide(
         **ephemeral(
             "feature-delivery",
@@ -423,19 +423,19 @@ def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
 
 
 def test_crew_rule_compares_the_raw_member_name():
-    """`run_participants.crew_role` stores the member name as written; only
+    """`run_participants.crew_role` stores the agent name as written; only
     rule *names* are slugged. A slugged comparison would silently disable
-    every rule of a hyphenated member."""
-    from compiler.plan import CrewMemberSpec
+    every rule of a hyphenated agent."""
+    from compiler.plan import EphemeralAgentSpec
     from compiler.rego import build_bundle
 
     files = build_bundle(
         company="c",
         instances=[],
-        crew_members=[
-            CrewMemberSpec(
+        ephemeral_agents=[
+            EphemeralAgentSpec(
                 crew="feature-review",
-                member="code-reviewer",
+                crew_role="code-reviewer",
                 role_template="sdet",
                 tools=("git.read",),
                 needs_sandbox=True,
@@ -766,7 +766,7 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
 CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
 
 CONTRACT_CREW = {
-    "members": {
+    "agents": {
         "author": {
             "role_template": "contract-author",
             "tools": [

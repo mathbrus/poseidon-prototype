@@ -10,7 +10,7 @@ identity through the registry:
   platform ns / orchestrator SA -> platform lifecycle
   <company ns> / <agent_id>     -> the registry's `agent_instances` row
                                    (standing agents)
-  <company ns> / crew-*         -> a live `run_participants` row, looked
+  <company ns> / ephemeral-*         -> a live `run_participants` row, looked
                                    up by ServiceAccount name (ephemeral
                                    crew members); terminating the row
                                    revokes the identity on the next call,

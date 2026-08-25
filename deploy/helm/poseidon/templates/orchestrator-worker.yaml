@@ -56,7 +56,7 @@ spec:
               value: http://mcp-gateway:8080
             # The standing conductor's dispatch address.
             # Executors have no standing address: implement dispatches at
-            # the crew pod fulfill_crew provisioned.
+            # the ephemeral pod fulfill_crew provisioned.
             - name: PM_URL
               value: http://pm.{{ .Values.companyNamespace }}.svc.cluster.local:8000
             # The workflow-recorded crew request evaluates
@@ -79,7 +79,7 @@ spec:
             # value comes from the applied blueprint.
             - name: SANDBOX_IMAGE
               value: {{ .Values.orchestrator.sandbox.image | quote }}
-            # Crew pods run the agent image; the worker
+            # Ephemeral pods run the agent image; the worker
             # resolves gateway FQDNs from the platform namespace.
             - name: AGENT_IMAGE
               value: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"

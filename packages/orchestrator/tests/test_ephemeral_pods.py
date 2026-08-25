@@ -8,10 +8,10 @@ import pytest
 
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
-from orchestrator.crewpods import (
-    CREW_KIND,
+from orchestrator.ephemeral_pods import (
+    EPHEMERAL_KIND,
     TOKEN_MOUNT_DIR,
-    crew_pod_manifest,
+    ephemeral_pod_manifest,
     pod_name,
     service_account_name,
 )
@@ -31,7 +31,7 @@ SPEC = {
     "run_id": RUN_ID,
     "company": "hello-saas",
     "crew_template": "feature-delivery",
-    "member": "executor",
+    "crew_role": "executor",
     "role_template": "backend-engineer",
     "parent_agent_id": "pm-1",
 }
@@ -42,7 +42,7 @@ SPEC = {
 
 def test_manifest_is_contained_and_labeled():
     agent_id = ephemeral_agent_id("feature-delivery", "executor", RUN_ID)
-    manifest = crew_pod_manifest(
+    manifest = ephemeral_pod_manifest(
         agent_id=agent_id,
         run_id=RUN_ID,
         company="hello-saas",
@@ -53,7 +53,7 @@ def test_manifest_is_contained_and_labeled():
     # The kind label puts the pod inside the operator's agent envelope
     # (gateways-only egress, orchestrator-only ingress) the moment it
     # exists; the run label is the destroy selector's other half.
-    assert labels["poseidon.dev/kind"] == CREW_KIND
+    assert labels["poseidon.dev/kind"] == EPHEMERAL_KIND
     assert labels["poseidon.dev/run-id"] == RUN_ID
 
     spec = manifest["spec"]
@@ -95,14 +95,14 @@ class FakeProvisioner:
     def provision(
         self, *, agent_id, run_id, company, agent_image, env, still_wanted=None
     ):
-        from orchestrator.crewpods import CrewPodAbandoned, CrewPodHandle
+        from orchestrator.ephemeral_pods import EphemeralPodAbandoned, EphemeralPodHandle
 
         # Mirrors the real provisioner's race-guard contract: the caller's
         # verdict is consulted immediately before creation, never earlier.
         # A double that skipped it could not catch a guard that stopped
         # being wired up.
         if still_wanted is not None and not still_wanted():
-            raise CrewPodAbandoned(f"run {run_id} was torn down")
+            raise EphemeralPodAbandoned(f"run {run_id} was torn down")
         self.provisioned.append(
             {
                 "agent_id": agent_id,
@@ -112,9 +112,9 @@ class FakeProvisioner:
                 "env": dict(env),
             }
         )
-        # Per-pod URLs, so tests can see which member's brain host a
+        # Per-pod URLs, so tests can see which agent's brain host a
         # dispatch actually reached.
-        return CrewPodHandle(
+        return EphemeralPodHandle(
             agent_id=agent_id,
             pod_name=pod_name(agent_id),
             url=f"http://{pod_name(agent_id)}:8000",
@@ -168,7 +168,7 @@ def crew(settings, stores, provisioner) -> CrewActivities:
 
 def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisioner):
     participants, audit = stores
-    result = asyncio.run(crew.provision_crew_pod(dict(SPEC)))
+    result = asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
 
     (created,) = provisioner.provisioned
     assert created["agent_image"] == "poseidon-agent:abc123"
@@ -190,13 +190,13 @@ def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisio
     event = audit.events[-1]
     assert event.source == "process-lifecycle"
     assert event.tool == "lifecycle.provision_pod"
-    assert event.rule == "crew_pod_provisioned"
+    assert event.rule == "ephemeral_pod_provisioned"
 
 
 def test_provision_heartbeats_while_the_pod_comes_up(
     crew, stores, provisioner, monkeypatch
 ):
-    """fulfill_crew provisions one pod per member back to back, and a pod
+    """fulfill_crew provisions one pod per agent back to back, and a pod
     can take longer to come up than the activity heartbeat window —
     liveness must be signalled during the provision call itself."""
     import orchestrator.activities.crew as module
@@ -205,24 +205,24 @@ def test_provision_heartbeats_while_the_pod_comes_up(
     monkeypatch.setattr(module.activity, "in_activity", lambda: True)
     monkeypatch.setattr(module.activity, "heartbeat", lambda: beats.append(1))
 
-    asyncio.run(crew.provision_crew_pod(dict(SPEC)))
+    asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
     assert beats, "no heartbeat during pod provisioning"
 
 
 def test_destroy_audits_each_pod(crew, stores, provisioner):
     _, audit = stores
-    deleted = asyncio.run(crew.destroy_crew_pods(RUN_ID))
+    deleted = asyncio.run(crew.destroy_ephemeral_pods(RUN_ID))
     assert provisioner.destroyed == [RUN_ID]
-    assert deleted and all(name.startswith("crew-") for name in deleted)
+    assert deleted and all(name.startswith("ephemeral-") for name in deleted)
     assert [e.tool for e in audit.events] == ["lifecycle.destroy_pod"]
-    assert audit.events[0].rule == "crew_pod_destroyed"
+    assert audit.events[0].rule == "ephemeral_pod_destroyed"
 
 
 def test_provision_without_a_provisioner_fails_closed(settings, stores):
     participants, audit = stores
     lone = _crew(settings, participants, audit, provisioner=None)
     with pytest.raises(RuntimeError, match="provisioner"):
-        asyncio.run(lone.provision_crew_pod(dict(SPEC)))
+        asyncio.run(lone.provision_ephemeral_pod(dict(SPEC)))
     assert participants.rows == {}
 
 
@@ -277,16 +277,16 @@ def fulfill_world(settings, provisioner, monkeypatch):
         "hello-saas",
         {
             "namespace": "hello-saas",
-            "crewMembers": [
+            "ephemeralAgents": [
                 {
                     "crew": "feature-delivery",
-                    "member": "planner",
+                    "crew_role": "planner",
                     "role_template": "backend-engineer",
                     "needs_sandbox": False,
                 },
                 {
                     "crew": "feature-delivery",
-                    "member": "executor",
+                    "crew_role": "executor",
                     "role_template": "backend-engineer",
                     "needs_sandbox": True,
                 },
@@ -328,8 +328,8 @@ def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
         )
     )
 
-    # Both members bound with parentage — and each got its own pod.
-    assert result["members"] == ["executor", "planner"]
+    # Both agents bound with parentage — and each got its own pod.
+    assert result["agents"] == ["executor", "planner"]
     planner_id = ephemeral_agent_id("feature-delivery", "planner", RUN_ID)
     executor_id = ephemeral_agent_id("feature-delivery", "executor", RUN_ID)
     assert participants.active(planner_id)["parent_agent_id"] == "pm-1"
@@ -504,27 +504,27 @@ def test_workflow_path_with_no_policy_installed_fails_closed(fulfill_world, monk
     assert participants.rows == {}
 
 
-def test_crew_pod_carries_a_wall_clock_deadline():
+def test_ephemeral_pod_carries_a_wall_clock_deadline():
     """The race guard refuses to provision for a run
     whose teardown has passed, but a pod created in the last instant before
     that becomes true has no owner left to collect it. A deadline means an
     orphan stops burning compute by itself — the same device sandboxes
     already use."""
-    from orchestrator.crewpods import CREW_POD_DEADLINE_S
+    from orchestrator.ephemeral_pods import EPHEMERAL_POD_DEADLINE_S
 
-    manifest = crew_pod_manifest(
+    manifest = ephemeral_pod_manifest(
         agent_id="feature-delivery-executor-run-1",
         run_id="run-1",
         company="hello-saas",
         agent_image="poseidon-agent:test",
         env={},
     )
-    assert manifest["spec"]["activeDeadlineSeconds"] == CREW_POD_DEADLINE_S
+    assert manifest["spec"]["activeDeadlineSeconds"] == EPHEMERAL_POD_DEADLINE_S
     assert manifest["spec"]["restartPolicy"] == "Never"
 
 
-def test_crew_pod_runs_non_root_with_no_escalation_path():
-    manifest = crew_pod_manifest(
+def test_ephemeral_pod_runs_non_root_with_no_escalation_path():
+    manifest = ephemeral_pod_manifest(
         agent_id="feature-delivery-executor-run-1",
         run_id="run-1",
         company="hello-saas",
@@ -549,7 +549,7 @@ def test_a_run_torn_down_mid_provision_gets_no_pod(settings, stores):
     verdict taken before the remnant-deletion wait is stale by the time
     the pod is born. Here the run is torn down *during* provisioning:
     no pod."""
-    from orchestrator.crewpods import CrewPodAbandoned
+    from orchestrator.ephemeral_pods import EphemeralPodAbandoned
 
     participants, audit = stores
 
@@ -564,6 +564,6 @@ def test_a_run_torn_down_mid_provision_gets_no_pod(settings, stores):
     crew = _crew(settings, participants, audit, provisioner)
     asyncio.run(crew.bind_participant(dict(SPEC)))
 
-    with pytest.raises(CrewPodAbandoned):
-        asyncio.run(crew.provision_crew_pod(dict(SPEC)))
+    with pytest.raises(EphemeralPodAbandoned):
+        asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
     assert provisioner.provisioned == [], "a pod was created for a dead run"

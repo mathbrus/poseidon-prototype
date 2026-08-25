@@ -1,7 +1,7 @@
 """Cross-checks of a blueprint against the versioned catalogs.
 
 Properties of the *document* against a catalog — does every hire name a
-template, does every crew member stay inside its catalog member's
+template, does every ephemeral agent stay inside its catalog agent's
 allow-list — as opposed to well-formedness (the JSON Schema) or company
 coherence against cluster state (the compiler). Shared by `schema.validate`
 and `compiler.checks`: the compiler accepts unvalidated dicts and must fail
@@ -51,9 +51,9 @@ def crew_problems(
     *,
     report_unknown_tools: bool,
 ) -> list[str]:
-    """Every `crews:` section names a catalog crew; every member is one of
-    that crew's members, on the catalog's role template, with a non-empty
-    allow-list that narrows the catalog member's (never widens it) and holds
+    """Every `crews:` section names a catalog crew; every agent is one of
+    that crew's agents, on the catalog's role template, with a non-empty
+    allow-list that narrows the catalog agent's (never widens it) and holds
     nothing platform-only. Unknown tool names are reported only on request:
     the schema's enum already names them on the validate path."""
     problems = []
@@ -66,37 +66,35 @@ def crew_problems(
             problems.append(
                 f"crews.{crew_name}: not a known crew template (known: {_known(crews)})"
             )
-        members = crew.get("members")
-        for member_name, member in (members if isinstance(members, dict) else {}).items():
-            if not isinstance(member, dict):
+        agents = crew.get("agents")
+        for agent_name, agent in (agents if isinstance(agents, dict) else {}).items():
+            if not isinstance(agent, dict):
                 continue
-            where = f"crews.{crew_name}.members.{member_name}"
-            catalog_member = (
-                catalog_crew.members.get(member_name) if catalog_crew else None
-            )
-            if catalog_crew is not None and catalog_member is None:
+            where = f"crews.{crew_name}.agents.{agent_name}"
+            catalog_agent = catalog_crew.agents.get(agent_name) if catalog_crew else None
+            if catalog_crew is not None and catalog_agent is None:
                 problems.append(
-                    f"{where}: not a member of the {crew_name!r} crew "
-                    f"template (members: {_known(catalog_crew.members)})"
+                    f"{where}: not a agent of the {crew_name!r} crew "
+                    f"template (agents: {_known(catalog_crew.agents)})"
                 )
-            role_template = member.get("role_template")
+            role_template = agent.get("role_template")
             if isinstance(role_template, str) and role_template not in roles:
                 problems.append(
                     f"{where}.role_template: {role_template!r} is not in the "
                     f"role catalog (known: {_known(roles)})"
                 )
             elif (
-                catalog_member is not None
+                catalog_agent is not None
                 and isinstance(role_template, str)
-                and role_template != catalog_member.role_template
+                and role_template != catalog_agent.role_template
             ):
                 problems.append(
                     f"{where}.role_template: {role_template!r} does not match "
-                    f"the catalog's {catalog_member.role_template!r} for this "
-                    f"member — the blueprint names the template, the catalog "
+                    f"the catalog's {catalog_agent.role_template!r} for this "
+                    f"agent — the blueprint names the template, the catalog "
                     f"defines it"
                 )
-            declared_tools = member.get("tools")
+            declared_tools = agent.get("tools")
             tools = (
                 [t for t in declared_tools if isinstance(t, str)]
                 if isinstance(declared_tools, list)
@@ -112,11 +110,11 @@ def crew_problems(
                         )
                 elif tool in PLATFORM_ONLY:
                     continue  # platform_tool_problems names it
-                elif catalog_member is not None and tool not in catalog_member.tools:
+                elif catalog_agent is not None and tool not in catalog_agent.tools:
                     problems.append(
-                        f"{where}.tools: {tool!r} is not in the catalog member's "
+                        f"{where}.tools: {tool!r} is not in the catalog agent's "
                         f"allow-list — the blueprint narrows the catalog, never "
-                        f"widens it (allowed: {_known(catalog_member.tools)})"
+                        f"widens it (allowed: {_known(catalog_agent.tools)})"
                     )
             problems += platform_tool_problems(f"{where}.tools", tools)
     return problems

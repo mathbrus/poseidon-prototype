@@ -30,7 +30,7 @@ COMPANY_NS = "hello-saas"
 AUD = "poseidon-mcp-gateway"
 RUN_ID = "run-01AUTHN"
 CREW_ID = "feature-delivery-executor-run-01AUTHN"
-CREW_SA = f"crew-{CREW_ID}".lower()
+CREW_SA = f"ephemeral-{CREW_ID}".lower()
 
 
 class FakeReviewer:

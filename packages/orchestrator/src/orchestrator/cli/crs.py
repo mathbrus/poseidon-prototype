@@ -48,7 +48,7 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
             "infra": data["infra"],
             "workflows": data["workflows"],
             "budgets": data["budgets"],
-            "crewMembers": data["crew_members"],
+            "ephemeralAgents": data["ephemeral_agents"],
             # Only when declared: an absent heartbeat is a meaningful state
             # (human-started runs only), not an empty object.
             **({"conduct": data["conduct"]} if plan.conduct else {}),

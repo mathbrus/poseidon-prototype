@@ -39,7 +39,7 @@ def reviewer_token(participants) -> str:
         company="hello-saas",
         role_template="sdet",
         namespace="hello-saas",
-        service_account="crew-reviewer-01x",
+        service_account="ephemeral-reviewer-01x",
     )
     return REVIEWER_TOKEN
 

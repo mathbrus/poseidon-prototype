@@ -11,7 +11,7 @@ this module imports nothing from the activity implementations.
 The crew is the only execution path: fulfill_crew stands
 the ephemeral executor up (recording the crew request under the standing
 conductor's authority when none exists), the executor is dispatched at its
-crew pod, and its completion claim is advisory — the platform verify gate
+ephemeral pod, and its completion claim is advisory — the platform verify gate
 (`platform_verify`, the orchestrator's own run of the sandbox tests) is the
 gate of record. Red verify feeds the failure back for a bounded number of
 re-dispatches (the blueprint's `max_verify_retries`); only a green verify

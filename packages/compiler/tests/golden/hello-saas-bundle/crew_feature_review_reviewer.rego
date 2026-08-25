@@ -5,7 +5,7 @@ package poseidon.authz.hello_saas
 
 import rego.v1
 
-# feature-review/reviewer: ephemeral crew member on the sdet template.
+# feature-review/reviewer: ephemeral agent on the sdet template.
 allow_rules contains "crew_feature_review_reviewer_git_comment" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -14,7 +14,7 @@ allow_rules contains "crew_feature_review_reviewer_git_comment" if {
 	input.tool == "git.comment"
 }
 
-# feature-review/reviewer: ephemeral crew member on the sdet template.
+# feature-review/reviewer: ephemeral agent on the sdet template.
 allow_rules contains "crew_feature_review_reviewer_git_read" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -23,7 +23,7 @@ allow_rules contains "crew_feature_review_reviewer_git_read" if {
 	input.tool == "git.read"
 }
 
-# feature-review/reviewer: ephemeral crew member on the sdet template.
+# feature-review/reviewer: ephemeral agent on the sdet template.
 allow_rules contains "crew_feature_review_reviewer_issues_comment" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -32,7 +32,7 @@ allow_rules contains "crew_feature_review_reviewer_issues_comment" if {
 	input.tool == "issues.comment"
 }
 
-# feature-review/reviewer: ephemeral crew member on the sdet template.
+# feature-review/reviewer: ephemeral agent on the sdet template.
 allow_rules contains "crew_feature_review_reviewer_sandbox_exec" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -42,7 +42,7 @@ allow_rules contains "crew_feature_review_reviewer_sandbox_exec" if {
 	bound_to_run
 }
 
-# feature-review/reviewer: ephemeral crew member on the sdet template.
+# feature-review/reviewer: ephemeral agent on the sdet template.
 allow_rules contains "crew_feature_review_reviewer_sandbox_list_dir" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -52,7 +52,7 @@ allow_rules contains "crew_feature_review_reviewer_sandbox_list_dir" if {
 	bound_to_run
 }
 
-# feature-review/reviewer: ephemeral crew member on the sdet template.
+# feature-review/reviewer: ephemeral agent on the sdet template.
 allow_rules contains "crew_feature_review_reviewer_sandbox_read_file" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -62,7 +62,7 @@ allow_rules contains "crew_feature_review_reviewer_sandbox_read_file" if {
 	bound_to_run
 }
 
-# feature-review/reviewer: ephemeral crew member on the sdet template.
+# feature-review/reviewer: ephemeral agent on the sdet template.
 allow_rules contains "crew_feature_review_reviewer_sandbox_run_tests" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"

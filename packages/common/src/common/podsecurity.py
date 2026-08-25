@@ -1,7 +1,7 @@
 """The pod security posture every Poseidon workload runs under.
 
 One definition for the three builders that emit pod specs from Python —
-the sandbox Job manifest, the orchestrator's crew pods and the operator's
+the sandbox Job manifest, the orchestrator's ephemeral pods and the operator's
 standing-agent Deployments — so tightening the posture cannot silently
 skip one of them.
 

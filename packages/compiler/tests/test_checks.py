@@ -71,7 +71,7 @@ def test_spawn_authority_cannot_be_widened(blueprint):
 
 
 def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
-    planner = blueprint["crews"]["feature-delivery"]["members"]["planner"]
+    planner = blueprint["crews"]["feature-delivery"]["agents"]["planner"]
     planner["tools"].append("sandbox.write_file")
     assert any("never widens" in p for p in problems_of(blueprint))
 
@@ -97,7 +97,7 @@ def test_workflow_crew_must_be_spawnable_by_its_conductor(blueprint):
 
 
 def test_crew_member_needs_a_real_allow_list(blueprint):
-    blueprint["crews"]["feature-delivery"]["members"]["executor"]["tools"] = []
+    blueprint["crews"]["feature-delivery"]["agents"]["executor"]["tools"] = []
     assert any("must not be empty" in p for p in problems_of(blueprint))
 
 
@@ -111,7 +111,7 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
     Dropping ⊆-parent is deliberate — spawn authority is not a
     capability ceiling — so this must compile."""
     pm_tools = set(blueprint["tools"]["pm"]["allow"])
-    executor = set(blueprint["crews"]["feature-delivery"]["members"]["executor"]["tools"])
+    executor = set(blueprint["crews"]["feature-delivery"]["agents"]["executor"]["tools"])
     assert "git.open_pr" in executor and "git.open_pr" not in pm_tools
     assert compile_blueprint(blueprint) is not None
 

@@ -1,20 +1,20 @@
 """The ephemeral runtime provisioner.
 
-The orchestrator's bounded Kubernetes surface for crew pods: it creates
+The orchestrator's bounded Kubernetes surface for ephemeral pods: it creates
 and deletes **pods and their per-run ServiceAccounts only**, in the
 **company namespace only**, and every delete goes through the
-`{run_id, kind=crew-agent}` label selector, so nothing unlabeled (and no
+`{run_id, kind=ephemeral-agent}` label selector, so nothing unlabeled (and no
 sandbox pod sharing the run label) can ever be touched. Standing
 structure stays operator-owned: no Deployments, no Services, no CRs. The
 matching Role rules live in
 `poseidon_operator.resources.sandbox_provisioner_role`.
 
-A crew pod is one crew member's brain host: the same agent image a
-standing hire runs, labeled to its run. Every member gets its own pod —
+An ephemeral pod is one ephemeral agent's brain host: the same agent image a
+standing hire runs, labeled to its run. Every agent gets its own pod —
 one principal, one pod, one ServiceAccount — and its credential is the
 audience-scoped projected token the kubelet mounts and rotates, exactly
 the standing-agent posture. The gateway resolves the SA name to the
-member's live `run_participants` row. All members share the run's single
+agent's live `run_participants` row. All agents share the run's single
 sandbox through the gateway.
 
 An orphaned ServiceAccount (a worker dying between teardown steps) is
@@ -35,14 +35,14 @@ from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
 from common.telemetry import get_logger
 
 
-class CrewPodAbandoned(Exception):
-    """The run was torn down while its crew pod was being provisioned, so
+class EphemeralPodAbandoned(Exception):
+    """The run was torn down while its ephemeral pod was being provisioned, so
     the pod was never created. Not a failure of the run —
     the run is already over."""
 
 
 AGENT_PORT = 8000
-CREW_KIND = "crew-agent"
+EPHEMERAL_KIND = "ephemeral-agent"
 KIND_LABEL = "poseidon.dev/kind"
 RUN_ID_LABEL = "poseidon.dev/run-id"
 # Mirrors the operator's standing-agent constants
@@ -50,10 +50,10 @@ RUN_ID_LABEL = "poseidon.dev/run-id"
 # verification path at the gateways.
 TOKEN_AUDIENCE = "poseidon-mcp-gateway"
 TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
-# Wall-clock ceiling on a crew pod, generous enough never to interrupt a
+# Wall-clock ceiling on an ephemeral pod, generous enough never to interrupt a
 # real dispatch (the orchestrator destroys pods long before this) and short
 # enough that an orphaned one stops costing anything the same hour.
-CREW_POD_DEADLINE_S = 3600
+EPHEMERAL_POD_DEADLINE_S = 3600
 POD_READY_TIMEOUT_S = 180
 DELETE_TIMEOUT_S = 120
 
@@ -62,7 +62,7 @@ def pod_name(agent_id: str) -> str:
     # Lowercased: agent ids embed uppercase ULIDs, pod names are RFC 1123.
     # Not invertible, so the participants row persists the SA-name ->
     # agent_id mapping rather than deriving it.
-    return f"crew-{agent_id}".lower()[:63].rstrip("-")
+    return f"ephemeral-{agent_id}".lower()[:63].rstrip("-")
 
 
 # One name for both objects; the alias keeps call sites honest about which
@@ -70,21 +70,21 @@ def pod_name(agent_id: str) -> str:
 service_account_name = pod_name
 
 
-def crew_pod_manifest(
+def ephemeral_pod_manifest(
     *,
     agent_id: str,
     run_id: str,
     company: str,
     agent_image: str,
     env: dict[str, str],
-    deadline_s: int = CREW_POD_DEADLINE_S,
+    deadline_s: int = EPHEMERAL_POD_DEADLINE_S,
 ) -> dict[str, Any]:
     """The pod, whole and pure (unit-testable without a cluster).
 
     Mirrors the operator's standing-agent posture: the pod's only
     credential is the audience-scoped projected token of its own
     ServiceAccount (same name as the pod), no API-server token, no
-    service links, GPG_KEY blanked. The `crew-agent` kind label is what
+    service links, GPG_KEY blanked. The `ephemeral-agent` kind label is what
     the operator's company NetworkPolicies select (gateways-only egress,
     orchestrator-only ingress) and what the destroy selector requires.
 
@@ -93,7 +93,7 @@ def crew_pod_manifest(
     left to collect it, so it must stop on its own clock.
     """
     labels = {
-        KIND_LABEL: CREW_KIND,
+        KIND_LABEL: EPHEMERAL_KIND,
         RUN_ID_LABEL: run_id,
         "poseidon.dev/agent-id": agent_id[:63],
         "poseidon.dev/company": company,
@@ -165,13 +165,13 @@ def crew_pod_manifest(
 
 
 @dataclass(frozen=True)
-class CrewPodHandle:
+class EphemeralPodHandle:
     agent_id: str
     pod_name: str
     url: str
 
 
-class CrewPodProvisioner:
+class EphemeralPodProvisioner:
     def __init__(self, namespace: str, api_client: k8s.ApiClient | None = None) -> None:
         if api_client is None:
             try:
@@ -181,7 +181,7 @@ class CrewPodProvisioner:
             api_client = k8s.ApiClient()
         self._core = k8s.CoreV1Api(api_client)
         self._namespace = namespace
-        self._log = get_logger("orchestrator.crewpods")
+        self._log = get_logger("orchestrator.ephemeral_pods")
 
     def provision(
         self,
@@ -192,31 +192,31 @@ class CrewPodProvisioner:
         agent_image: str,
         env: dict[str, str],
         still_wanted: Callable[[], bool] | None = None,
-    ) -> CrewPodHandle:
-        """Create the crew pod and wait until its brain host answers.
+    ) -> EphemeralPodHandle:
+        """Create the ephemeral pod and wait until its brain host answers.
 
         Retry-safe: a remnant pod of the same deterministic agent_id (a
-        crashed earlier attempt) is removed first — one member, one pod.
+        crashed earlier attempt) is removed first — one agent, one pod.
 
         `still_wanted` is the caller's last word on whether the run this
         pod belongs to is still live; it is consulted immediately before
-        creation (see below) and refusing raises `CrewPodAbandoned`.
+        creation (see below) and refusing raises `EphemeralPodAbandoned`.
         """
         name = pod_name(agent_id)
         if self._delete_pod(name):
-            self._log.info("removed remnant crew pod", extra={"pod": name})
+            self._log.info("removed remnant ephemeral pod", extra={"pod": name})
         # The teardown race guard has to be evaluated *here*, not by the
         # caller before it calls us: removing a remnant waits for that pod
         # to actually terminate — long enough for the run's teardown to
         # sweep past a check made beforehand.
         if still_wanted is not None and not still_wanted():
-            raise CrewPodAbandoned(
+            raise EphemeralPodAbandoned(
                 f"run {run_id} was torn down before {name} could be created"
             )
         # The pod's ServiceAccount must exist before the pod references it.
         # Idempotent: a retry finds the SA already there and moves on.
         self._ensure_service_account(agent_id=agent_id, run_id=run_id, company=company)
-        manifest = crew_pod_manifest(
+        manifest = ephemeral_pod_manifest(
             agent_id=agent_id,
             run_id=run_id,
             company=company,
@@ -229,22 +229,22 @@ class CrewPodProvisioner:
         except Exception:
             self._delete_pod(name)
             raise
-        handle = CrewPodHandle(
+        handle = EphemeralPodHandle(
             agent_id=agent_id,
             pod_name=name,
             url=f"http://{pod.status.pod_ip}:{AGENT_PORT}",
         )
         self._log.info(
-            "crew pod provisioned", extra={"run_id": run_id, "url": handle.url}
+            "ephemeral pod provisioned", extra={"run_id": run_id, "url": handle.url}
         )
         return handle
 
     def destroy(self, run_id: str) -> list[str]:
-        """Delete the run's crew pods and their ServiceAccounts — by the
+        """Delete the run's ephemeral pods and their ServiceAccounts — by the
         label selector, never by name alone: the bound below is what
         guarantees nothing unlabeled (and nothing of another run) can be
         deleted through this surface."""
-        selector = f"{KIND_LABEL}={CREW_KIND},{RUN_ID_LABEL}={run_id}"
+        selector = f"{KIND_LABEL}={EPHEMERAL_KIND},{RUN_ID_LABEL}={run_id}"
         pods = self._core.list_namespaced_pod(self._namespace, label_selector=selector)
         deleted = []
         for pod in pods.items:
@@ -263,7 +263,7 @@ class CrewPodProvisioner:
                     raise
         if deleted:
             self._log.info(
-                "crew pods destroyed", extra={"run_id": run_id, "pods": deleted}
+                "ephemeral pods destroyed", extra={"run_id": run_id, "pods": deleted}
             )
         return deleted
 
@@ -278,7 +278,7 @@ class CrewPodProvisioner:
             "metadata": {
                 "name": service_account_name(agent_id),
                 "labels": {
-                    KIND_LABEL: CREW_KIND,
+                    KIND_LABEL: EPHEMERAL_KIND,
                     RUN_ID_LABEL: run_id,
                     "poseidon.dev/agent-id": agent_id[:63],
                     "poseidon.dev/company": company,
@@ -320,7 +320,7 @@ class CrewPodProvisioner:
             pod = self._core.read_namespaced_pod(name, self._namespace)
             phase = (pod.status and pod.status.phase) or ""
             if phase in ("Failed", "Succeeded"):
-                raise RuntimeError(f"crew pod {name} ended in phase {phase}")
+                raise RuntimeError(f"ephemeral pod {name} ended in phase {phase}")
             ready = any(
                 c.type == "Ready" and c.status == "True"
                 for c in (pod.status.conditions or [])
@@ -329,6 +329,6 @@ class CrewPodProvisioner:
                 return pod
             if time.monotonic() > deadline:
                 raise RuntimeError(
-                    f"crew pod {name} not ready after {POD_READY_TIMEOUT_S}s"
+                    f"ephemeral pod {name} not ready after {POD_READY_TIMEOUT_S}s"
                 )
             time.sleep(1)

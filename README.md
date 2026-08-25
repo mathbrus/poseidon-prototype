@@ -331,7 +331,7 @@ held in memory.
 flowchart TB
     subgraph company["company namespace"]
         PM["<b>PM</b><br/>standing agent"]
-        EX["<b>executor</b><br/>ephemeral crew pod"]
+        EX["<b>executor</b><br/>ephemeral ephemeral pod"]
         SBX["<b>sandbox</b><br/>K8s Job · untrusted code"]
     end
     subgraph platform["platform namespace"]
@@ -372,7 +372,7 @@ from the `run_id` alone.
 | Service | Holds | Responsible for |
 |---|---|---|
 | **operator** | — | Reconciling CRs into namespaces, NetworkPolicies, Deployments, RBAC; persisting bundles. Never runs a process, never creates an ephemeral agent. |
-| **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, crew pods and their per-run ServiceAccounts, identity binding, the human merge gate. No `GIT_TOKEN`, no signing key. |
+| **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, ephemeral pods and their per-run ServiceAccounts, identity binding, the human merge gate. No `GIT_TOKEN`, no signing key. |
 | **MCP gateway** | `GIT_TOKEN` | Every tool call: authenticate, decide, audit, act. |
 | **LLM gateway** | — | Every model call: authenticate, attribute to a run, check budget, route by tier, meter. |
 | **llm-proxy** | provider API key | Talking to the actual model provider. Reachable *only* from the LLM gateway. |
@@ -991,7 +991,7 @@ and how to test it.
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
 | [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
-| [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, crew pods, gates, the `poseidon` CLI |
+| [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates, the `poseidon` CLI |
 | [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
 | [`llm-gateway`](packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |
 | [`agent`](packages/agent/README.md) | The OpenHands SDK brain host |

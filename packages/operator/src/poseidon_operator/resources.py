@@ -51,13 +51,13 @@ def default_deny(company_ns: str) -> dict[str, Any]:
 def _agent_kinds_selector() -> dict[str, Any]:
     """Standing hires and ephemeral crew brains share the agent envelope
     (gateways-only egress, orchestrator-only ingress) — selected by kind,
-    so a crew pod is contained the moment it exists."""
+    so an ephemeral pod is contained the moment it exists."""
     return {
         "matchExpressions": [
             {
                 "key": "poseidon.dev/kind",
                 "operator": "In",
-                "values": ["standing-agent", "crew-agent"],
+                "values": ["standing-agent", "ephemeral-agent"],
             }
         ]
     }
@@ -196,7 +196,7 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     namespaces only — the Role is namespaced and operator-reconciled, so
     the worker can create no pod or SA in the platform namespace; the
     run_id+kind label-selector discipline on deletes lives in
-    `orchestrator.crewpods` (RBAC cannot express selectors), proven by the
+    `orchestrator.ephemeral_pods` (RBAC cannot express selectors), proven by the
     crew-pods e2e. Never Deployments, Services or CRs: standing structure stays
     operator-owned."""
     return {
@@ -216,7 +216,7 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
             {
                 "apiGroups": [""],
                 "resources": ["pods"],
-                # create/delete exist for crew pods.
+                # create/delete exist for ephemeral pods.
                 "verbs": ["create", "get", "list", "delete"],
             },
             {

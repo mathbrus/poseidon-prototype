@@ -63,17 +63,17 @@ def test_pm_scope_is_narrowed_not_widened(blueprint):
     assert "sandbox.exec" not in pm.tools
 
 
-def test_crew_members_are_specs_not_instances(blueprint):
-    """Ephemeral members exist only inside a run: the plan describes
+def test_ephemeral_agents_are_specs_not_instances(blueprint):
+    """Ephemeral agents exist only inside a run: the plan describes
     them, the operator never creates them."""
     plan = compile_blueprint(blueprint)
-    members = {(m.crew, m.member) for m in plan.crew_members}
-    assert members == {
+    agents = {(m.crew, m.crew_role) for m in plan.ephemeral_agents}
+    assert agents == {
         ("feature-delivery", "planner"),
         ("feature-delivery", "executor"),
         ("feature-review", "reviewer"),
     }
-    planner = next(m for m in plan.crew_members if m.member == "planner")
+    planner = next(m for m in plan.ephemeral_agents if m.crew_role == "planner")
     assert planner.needs_sandbox is False  # LLM-only, per the planner contract
 
 

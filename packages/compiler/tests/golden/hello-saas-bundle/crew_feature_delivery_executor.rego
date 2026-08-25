@@ -5,7 +5,7 @@ package poseidon.authz.hello_saas
 
 import rego.v1
 
-# feature-delivery/executor: ephemeral crew member on the backend-engineer template.
+# feature-delivery/executor: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_executor_git_open_pr" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -14,7 +14,7 @@ allow_rules contains "crew_feature_delivery_executor_git_open_pr" if {
 	input.tool == "git.open_pr"
 }
 
-# feature-delivery/executor: ephemeral crew member on the backend-engineer template.
+# feature-delivery/executor: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_executor_sandbox_exec" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -24,7 +24,7 @@ allow_rules contains "crew_feature_delivery_executor_sandbox_exec" if {
 	bound_to_run
 }
 
-# feature-delivery/executor: ephemeral crew member on the backend-engineer template.
+# feature-delivery/executor: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_executor_sandbox_git_bundle" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -34,7 +34,7 @@ allow_rules contains "crew_feature_delivery_executor_sandbox_git_bundle" if {
 	bound_to_run
 }
 
-# feature-delivery/executor: ephemeral crew member on the backend-engineer template.
+# feature-delivery/executor: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_executor_sandbox_list_dir" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -44,7 +44,7 @@ allow_rules contains "crew_feature_delivery_executor_sandbox_list_dir" if {
 	bound_to_run
 }
 
-# feature-delivery/executor: ephemeral crew member on the backend-engineer template.
+# feature-delivery/executor: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_executor_sandbox_read_file" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -54,7 +54,7 @@ allow_rules contains "crew_feature_delivery_executor_sandbox_read_file" if {
 	bound_to_run
 }
 
-# feature-delivery/executor: ephemeral crew member on the backend-engineer template.
+# feature-delivery/executor: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_executor_sandbox_run_tests" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
@@ -64,7 +64,7 @@ allow_rules contains "crew_feature_delivery_executor_sandbox_run_tests" if {
 	bound_to_run
 }
 
-# feature-delivery/executor: ephemeral crew member on the backend-engineer template.
+# feature-delivery/executor: ephemeral agent on the backend-engineer template.
 allow_rules contains "crew_feature_delivery_executor_sandbox_write_file" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"

@@ -2,7 +2,7 @@
 
 The full fulfillment path runs with the real machinery: the PM records
 intent through the gateway (policy-faced), fulfill consumes it, binds the
-crew, provisions each member its own brain-host pod (and per-run
+crew, provisions each agent its own brain-host pod (and per-run
 ServiceAccount), dispatches the planner on its own pod under its own
 identity, and hands the brief to the executor dispatch — which implements
 the task through the gateway and opens a real PR as the *ephemeral*
@@ -48,8 +48,8 @@ from .conftest import REPO_ROOT, TASK_QUEUE, deployed_timeouts
 @contextlib.contextmanager
 def _pod_forwarded_agent_client():
     """Route AgentClient's pod-IP URLs through kubectl port-forwards to the
-    crew pods those IPs belong to — one forward per pod, since every crew
-    member runs on its own pod and a dispatch must reach the member it
+    ephemeral pods those IPs belong to — one forward per pod, since every crew
+    agent runs on its own pod and a dispatch must reach the agent it
     names (the planner's calls must carry the planner's identity). Only a
     URL naming a company-namespace pod IP is rewritten; anything else
     reaches AgentClient untouched."""
@@ -100,8 +100,8 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
     stack: None, env: dict, tmp_path, pr_info
 ) -> None:
     from orchestrator.clients import AgentClient, GatewayClient
-    from orchestrator.crewpods import (
-        CrewPodProvisioner,
+    from orchestrator.ephemeral_pods import (
+        EphemeralPodProvisioner,
         pod_name,
         service_account_name,
     )
@@ -122,7 +122,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 
     with registry() as client:
         crew = crew_activities(
-            client, worker_settings(env, tmp_path), CrewPodProvisioner(COMPANY_NS)
+            client, worker_settings(env, tmp_path), EphemeralPodProvisioner(COMPANY_NS)
         )
         Runs(client).start(run_id, task_text, "implement", None, "hello-saas")
         try:
@@ -143,7 +143,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             assert not recorded.isError, recorded.content
 
             # 2. The run's single sandbox, exactly as implement provisions
-            #    it (both members share it through the gateway).
+            #    it (both agents share it through the gateway).
             workspace = asyncio.run(
                 _fetch_workspace(mcp, orchestrator_token, run_id, env["TARGET_REPO"])
             )
@@ -154,7 +154,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             )
             asyncio.run(_register(mcp, orchestrator_token, run_id, handle))
 
-            # 3. Fulfill: consume -> bind -> a pod per member -> planner
+            # 3. Fulfill: consume -> bind -> a pod per agent -> planner
             #    (on its own pod) -> brief.
             with _pod_forwarded_agent_client():
                 fulfilled = asyncio.run(
@@ -226,7 +226,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             planner_id = ephemeral_agent_id("feature-delivery", "planner", run_id)
             assert any(e["agent_id"] == planner_id for e in crew_events)
 
-            # A member outside its compiled allow-list is denied at the
+            # A agent outside its compiled allow-list is denied at the
             # gateway: the read-only planner cannot write. Its SA exists
             # (fulfilment provisioned the planner's own pod), so a fresh
             # projected token is the same credential the pod holds.
@@ -243,14 +243,14 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             #    dies with its row, the pod with its labels.
             swept = asyncio.run(crew.revoke_participants(run_id))
             assert executor_id in swept
-            gone = asyncio.run(crew.destroy_crew_pods(run_id))
+            gone = asyncio.run(crew.destroy_ephemeral_pods(run_id))
             assert pod_name(executor_id) in gone
         finally:
             if handle is not None:
                 with contextlib.suppress(Exception):
                     asyncio.run(_unregister(mcp, orchestrator_token, run_id))
                 backend.destroy(handle)
-            asyncio.run(crew.destroy_crew_pods(run_id))
+            asyncio.run(crew.destroy_ephemeral_pods(run_id))
             client.execute(
                 "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
             )
@@ -265,10 +265,10 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     *including* worker kill — the sweep rides the workflow's compensation,
     which Temporal replays on the restarted worker. The workflow stands
     its own crew up (fulfill_crew), so the kill lands on a
-    run with a live bound roster and crew pods."""
+    run with a live bound roster and ephemeral pods."""
     from temporalio.client import Client
 
-    from orchestrator.crewpods import pod_name
+    from orchestrator.ephemeral_pods import pod_name
     from orchestrator.identity import ephemeral_agent_id
 
     run_id = new_run_id()
@@ -289,7 +289,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
                 id=workflow_id("implement", run_id),
                 task_queue=TASK_QUEUE,
             )
-            # Wait for the fulfillment's own crew pod — the kill then lands
+            # Wait for the fulfillment's own ephemeral pod — the kill then lands
             # on a run with live ephemeral identities to sweep.
             deadline = time.monotonic() + 300
             while not kubectl(
@@ -298,13 +298,13 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
                 "get",
                 "pods",
                 "-l",
-                f"poseidon.dev/kind=crew-agent,poseidon.dev/run-id={run_id}",
+                f"poseidon.dev/kind=ephemeral-agent,poseidon.dev/run-id={run_id}",
                 "-o",
                 "jsonpath={.items[*].metadata.name}",
                 timeout=30,
             ):
                 if time.monotonic() > deadline:
-                    raise AssertionError("the workflow never provisioned a crew pod")
+                    raise AssertionError("the workflow never provisioned an ephemeral pod")
                 await asyncio.sleep(2)
             # Kill the worker mid-run; the replay finishes the run and its
             # teardown on the replacement pod.
@@ -346,7 +346,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
         if pods.returncode != 0:
             break
         assert time.monotonic() < deadline, (
-            f"the crew pod survived teardown: {pods.stdout.strip()}"
+            f"the ephemeral pod survived teardown: {pods.stdout.strip()}"
         )
         time.sleep(3)
 

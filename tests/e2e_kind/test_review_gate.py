@@ -203,7 +203,7 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
 
 
 def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> None:
-    """The reviewer is an ephemeral feature-review crew member under
+    """The reviewer is an ephemeral feature-review ephemeral agent under
     the PM's authority — it reads the diff, executes the suite in its own
     sandbox (provisioned from the PR ref), and comments on the PR."""
     run_id = review_chain["review_run_id"]

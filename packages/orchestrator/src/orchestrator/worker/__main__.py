@@ -27,7 +27,7 @@ from orchestrator.activities import (
     ReviewActivities,
 )
 from orchestrator.config import WorkerSettings
-from orchestrator.crewpods import CrewPodProvisioner
+from orchestrator.ephemeral_pods import EphemeralPodProvisioner
 from orchestrator.workflows import (
     ConductInput,
     ConductWorkflow,
@@ -97,7 +97,7 @@ async def main() -> None:
         Companies(registry),
         BudgetLedger(registry),
         Runs(registry),
-        provisioner=CrewPodProvisioner(settings.sandbox_namespace),
+        provisioner=EphemeralPodProvisioner(settings.sandbox_namespace),
     )
     activities = ImplementActivities(
         settings,

@@ -68,7 +68,7 @@ standing executors do not exist here.
 ```yaml
 crews:
   feature-delivery:
-    members:
+    agents:
       planner:
         needs_sandbox: false
         tools: [sandbox.read_file, sandbox.list_dir, issues.read]

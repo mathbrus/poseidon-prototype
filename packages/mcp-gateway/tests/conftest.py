@@ -61,7 +61,7 @@ class FakeReviewer:
         AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
         RUNNER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
         PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
-        REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "crew-reviewer-01x"),
+        REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "ephemeral-reviewer-01x"),
     }
 
     async def review(self, token: str, audience: str) -> ServiceAccount | None:

@@ -197,7 +197,7 @@ termination the gateway checks per call, not a property of the token.
 The credential is good for exactly one thing: authenticating
 to the Poseidon gateways. The LLM provider key lives in the llm-proxy,
 the git token in the MCP gateway. The pod specs that deploy this image —
-the operator for standing hires, the orchestrator for crew pods — also
+the operator for standing hires, the orchestrator for ephemeral pods — also
 blank `GPG_KEY`, which the python base image bakes in, so no token-shaped
 env value exists in a company-namespace pod at all; the images CI job
 asserts no secret-shaped env is baked in.

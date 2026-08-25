@@ -12,8 +12,8 @@ through emission.
 
 Deliberately absent: a child-⊆-parent scope check. A conducting PM is not a
 capability supersystem, and ⊆ would force the PM's declared allows to become
-the union of every crew member's scope. Spawn authority is `may_spawn` plus the crew
-template plus budget and concurrency caps; tool authority is the member's
+the union of every ephemeral agent's scope. Spawn authority is `may_spawn` plus the crew
+template plus budget and concurrency caps; tool authority is the agent's
 own compiled allow-list.
 
 The strict lean-roster rule: a standing hire with `count > 0` must be a *spawner*
@@ -82,7 +82,7 @@ def _company_name(blueprint: dict[str, Any]) -> list[str]:
 def _lean_roster(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
     """No standing executor counts — every hired (count > 0) role must be
     a spawner, and every enabled workflow's conductor must be one.
-    Executors exist only as ephemeral crew members under a conductor's
+    Executors exist only as ephemeral ephemeral agents under a conductor's
     authority."""
     problems = []
     for hire, role in _hires(blueprint).items():
@@ -153,9 +153,9 @@ def _tool_scopes(blueprint: dict[str, Any]) -> list[str]:
     # `count: 0` placeholder counts as unhired — that is what count 0 means.
     usable_roles = {r.get("template") for r in _standing_hires(blueprint).values()}
     usable_roles |= {
-        member.get("role_template")
+        agent.get("role_template")
         for crew in (blueprint.get("crews") or {}).values()
-        for member in (crew.get("members") or {}).values()
+        for agent in (crew.get("agents") or {}).values()
     }
     for role_name in blueprint.get("tools") or {}:
         if role_name not in usable_roles:

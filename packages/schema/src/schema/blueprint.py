@@ -111,7 +111,7 @@ _DEPARTMENTS = {
 _CREW_MEMBER = {
     "type": "object",
     "additionalProperties": False,
-    # The allow-list is explicit per member, always: an implicit scope is
+    # The allow-list is explicit per agent, always: an implicit scope is
     # what the compiler coherence check refuses to guess.
     "required": ["role_template", "tools"],
     "properties": {
@@ -126,9 +126,9 @@ _CREWS = {
     "additionalProperties": {
         "type": "object",
         "additionalProperties": False,
-        "required": ["members"],
+        "required": ["agents"],
         "properties": {
-            "members": {
+            "agents": {
                 "type": "object",
                 "minProperties": 1,
                 "additionalProperties": _CREW_MEMBER,

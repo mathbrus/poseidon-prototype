@@ -9,7 +9,7 @@ sends:
 plus, for ephemeral callers, `crew_template` and `crew_role`. That pair is a
 necessary refinement, not an embellishment: `role` carries the
 *catalog template*, and `feature-delivery`'s planner and executor both run
-the `backend-engineer` template. Without the member name, the planner's
+the `backend-engineer` template. Without the crew_role, the planner's
 read-only scope and the executor's delivery scope are the same principal to
 policy, which would hand every planner `git.open_pr`. The registry already
 records both columns on `run_participants`, so the gateway can inject them
@@ -37,7 +37,7 @@ import json
 from typing import Any
 
 from common.policy import company_package, rego_slug
-from compiler.plan import AgentInstanceCR, ConductConfig, CrewMemberSpec
+from compiler.plan import AgentInstanceCR, ConductConfig, EphemeralAgentSpec
 from schema.gates import UNDELEGATABLE_PATHS
 from schema.tools import RUN_SCOPED
 
@@ -92,12 +92,12 @@ allow_rules contains "role_{hire}_{tool_slug}" if {{
 """
 
 _CREW_RULE = """
-# {crew}/{member}: ephemeral crew member on the {template} template.
-allow_rules contains "crew_{crew_slug}_{member_slug}_{tool_slug}" if {{
+# {crew}/{agent}: ephemeral agent on the {template} template.
+allow_rules contains "crew_{crew_slug}_{agent_slug}_{tool_slug}" if {{
 	input.lifecycle == "ephemeral"
 	input.company == "{company}"
 	input.crew_template == "{crew}"
-	input.crew_role == "{member}"
+	input.crew_role == "{agent}"
 	input.tool == "{tool}"
 {extra}}}
 """
@@ -197,17 +197,17 @@ def _role_file(
 
 
 def _crew_file(
-    company: str, crew: str, member: str, template: str, tools: list[str]
+    company: str, crew: str, agent: str, template: str, tools: list[str]
 ) -> str:
     body = "".join(
         _CREW_RULE.format(
             crew=crew,
             crew_slug=rego_slug(crew),
             # Raw in the value comparison — `run_participants.crew_role`
-            # stores the member name as written; slugged only in the rule
+            # stores the crew_role as written; slugged only in the rule
             # name, like `crew` and `template`.
-            member=member,
-            member_slug=rego_slug(member),
+            agent=agent,
+            agent_slug=rego_slug(agent),
             template=template,
             company=company,
             tool=tool,
@@ -469,12 +469,12 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
 def build_bundle(
     company: str,
     instances: list[AgentInstanceCR],
-    crew_members: list[CrewMemberSpec],
+    ephemeral_agents: list[EphemeralAgentSpec],
     policies: dict[str, Any],
     conduct: ConductConfig | None = None,
     merge_delegation: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    """The company bundle: per-role and per-crew-member files, plus the
+    """The company bundle: per-role and per-ephemeral-agent files, plus the
     company's decision entrypoint and the blueprint's policy rules — all
     under the company's own package."""
     files = {"authz.rego": _decision_file(company_package(company), _NO_BUDGET_RULE)}
@@ -492,10 +492,10 @@ def build_bundle(
             tuple(i.agent_id for i in hire_instances),
             first.max_concurrent_spawns,
         )
-    for member in crew_members:
-        name = f"crew_{rego_slug(member.crew)}_{rego_slug(member.member)}.rego"
+    for agent in ephemeral_agents:
+        name = f"crew_{rego_slug(agent.crew)}_{rego_slug(agent.crew_role)}.rego"
         files[name] = _crew_file(
-            company, member.crew, member.member, member.role_template, list(member.tools)
+            company, agent.crew, agent.crew_role, agent.role_template, list(agent.tools)
         )
     files["policies.rego"] = _policies_file(company, policies)
     if conduct is not None:

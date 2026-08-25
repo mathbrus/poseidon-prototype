@@ -1,12 +1,12 @@
 """Versioned role-template and crew-template catalogs.
 
 A blueprint names templates; the compiler resolves them into agent specs and
-per-member Rego bundles. Templates carry tool scopes, model tier and runtime
+per-agent Rego bundles. Templates carry tool scopes, model tier and runtime
 hints — never counts, never secrets: how many of a role a company hires is
 the blueprint's business, and credentials never enter a spec at all.
 
 One rule the catalog encodes rather than documents: `backend-engineer` and
-`sdet` exist **only** as crew-member material. The schema does not forbid
+`sdet` exist **only** as ephemeral agents. The schema does not forbid
 standing counts structurally — the compiler error does.
 """
 
@@ -34,13 +34,13 @@ class RoleTemplate:
 
 
 @dataclass(frozen=True)
-class CrewMember:
+class EphemeralAgent:
     role_template: str
-    # The member's explicit allow-list — deliberately NOT required to be a
+    # The agent's explicit allow-list — deliberately NOT required to be a
     # subset of the conductor's scope: spawn authority is not a capability
     # ceiling.
     tools: tuple[str, ...]
-    # LLM-only members get no sandbox of their own (the planner contract).
+    # LLM-only agents get no sandbox of their own (the planner contract).
     needs_sandbox: bool = True
 
 
@@ -48,8 +48,8 @@ class CrewMember:
 class CrewTemplate:
     name: str
     summary: str
-    members: dict[str, CrewMember]
-    # Members inherit the run's budget; the ledger keeps them as separate
+    agents: dict[str, EphemeralAgent]
+    # Agents inherit the run's budget; the ledger keeps them as separate
     # dimensions so crew fan-out stays attributable.
     budget_inheritance: str = "run"
 
@@ -73,7 +73,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
     "backend-engineer": RoleTemplate(
         name="backend-engineer",
         summary=(
-            "Coding executor. Crew-member material only; "
+            "Coding executor. Crew-agent material only; "
             "standing counts are a compile error."
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
@@ -96,7 +96,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         name="contract-author",
         summary=(
             "Writes the contract/acceptance tests a slice is graded by. "
-            "Crew-member material only, like every executor."
+            "Crew-agent material only, like every executor."
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         model_tier="frontier",
@@ -114,13 +114,13 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
     "feature-delivery": CrewTemplate(
         name="feature-delivery",
         summary="Planner plus one coding executor for an implement run.",
-        members={
-            "planner": CrewMember(
+        agents={
+            "planner": EphemeralAgent(
                 role_template="backend-engineer",
                 tools=_PLANNER_TOOLS,
                 needs_sandbox=False,
             ),
-            "executor": CrewMember(
+            "executor": EphemeralAgent(
                 role_template="backend-engineer",
                 tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
             ),
@@ -129,8 +129,8 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
     "feature-review": CrewTemplate(
         name="feature-review",
         summary="One reviewer for a review run, against a sandbox from the PR ref.",
-        members={
-            "reviewer": CrewMember(
+        agents={
+            "reviewer": EphemeralAgent(
                 role_template="sdet",
                 tools=tuple(SANDBOX_TOOLS + REVIEW_TOOLS + ["issues.comment"]),
             ),
@@ -145,8 +145,8 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
     "contract-authoring": CrewTemplate(
         name="contract-authoring",
         summary="One contract author delivering the acceptance tests for a slice.",
-        members={
-            "author": CrewMember(
+        agents={
+            "author": EphemeralAgent(
                 role_template="contract-author",
                 tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
             ),

@@ -43,7 +43,7 @@ class FakeReviewer:
         if token == AGENT_TOKEN:
             return ServiceAccount(COMPANY, "backend-engineer-1")
         if token == CREW_TOKEN:
-            return ServiceAccount(COMPANY, "crew-executor-01x")
+            return ServiceAccount(COMPANY, "ephemeral-executor-01x")
         return None
 
 
@@ -322,7 +322,7 @@ def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores):
         company=COMPANY,
         role_template="backend-engineer",
         namespace=COMPANY,
-        service_account="crew-executor-01x",
+        service_account="ephemeral-executor-01x",
     )
     resp = call(app, token=CREW_TOKEN, run_id=RUN_ID)  # not its run
     assert resp.status_code == 403

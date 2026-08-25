@@ -10,8 +10,8 @@ from schema.catalog import (
     CATALOG_VERSION,
     CREW_TEMPLATES,
     ROLE_TEMPLATES,
-    CrewMember,
     CrewTemplate,
+    EphemeralAgent,
     RoleTemplate,
 )
 from schema.validate import (
@@ -25,7 +25,7 @@ __all__ = [
     "BLUEPRINT_SCHEMA",
     "CATALOG_VERSION",
     "CREW_TEMPLATES",
-    "CrewMember",
+    "EphemeralAgent",
     "CrewTemplate",
     "ROLE_TEMPLATES",
     "RoleTemplate",
