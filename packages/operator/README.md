@@ -69,6 +69,7 @@ cannot execute anything.
 | `resources.py` | Every Kubernetes object the operator owns, as **pure builders** — what the operator *would* apply is testable without a cluster. |
 | `kube.py` | `Cluster`: the intent-level client (`upsert_namespace`, `upsert_deployment`, …), one seam the reconciler tests replace with a fake. |
 | `bundleserver.py` | The OPA bundle server, a separate entry point sharing the package. |
+| `config.py` | `OperatorSettings`: the platform namespace, the agent image and run configuration the builders take as arguments. |
 
 ## What one Company converges to
 

@@ -16,9 +16,10 @@ system.
 
 | Path | Owns |
 |---|---|
-| `workflows/` | `intake`, `implement`, `review`, `conduct` — sequencing, timeouts, retries and compensation. Deterministic replay code; no I/O. |
+| `workflows/` | `intake`, `implement`, `review`, `conduct` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
 | `activities/` | The activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
-| `gates/` | `Gate` — a signal-driven wait point with an escalation timer — and the `process-gate` audit event shaping. |
+| `gates/` | `Gate` — a signal-driven wait point with an escalation timer. |
+| `audit.py` | `record_event` — the platform's own audit events, under its identity or a crew member's, on the shared ingestion contract. |
 | `crewpods.py` | The bounded Kubernetes surface for crew pods: **pods and their per-run ServiceAccounts only**, in the **company namespace only**, deleted only by label selector. |
 | `identity.py` | Ephemeral identity naming — the fulfill half of the identity contract; the gateways own the verify half. |
 | `clients.py` | `GatewayClient` (MCP + admin routes) and `AgentClient` (dispatch/poll). |
@@ -169,14 +170,14 @@ takes a deadline and an escalation point:
 outcome = await self._merge_gate.wait(
     timeout=timedelta(seconds=timeouts.merge_gate_s),
     escalate_after=timedelta(seconds=timeouts.merge_gate_s // 2),
-    on_escalate=lambda: self._record_gate(input.run_id, "merge", "escalated", timeouts),
+    on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated", timeouts),
 )
 ```
 
 Nobody home? The escalation fires at half the deadline and the wait
 continues; at the end the gate expires with a `timed_out` outcome. All
 three transitions — escalated, verdict (approved/rejected), timed out —
-are `source=process-gate` audit events, shaped in `gates/` but written by
+are `source=process-gate` audit events, written by
 the `record_gate_outcome` *activity*, because workflow code cannot reach
 the registry. The park itself is API-visible through the `state` query
 (`paused-merge_gate`, `paused-budget_exhausted`), so a waiting gate is

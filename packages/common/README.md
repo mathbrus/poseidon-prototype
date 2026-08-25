@@ -19,7 +19,8 @@ when `OTEL_EXPORTER_OTLP_ENDPOINT` is set).
 |---|---|
 | `identity.py` | `Identity` — who a verified credential says is calling: agent_id, role, company, lifecycle, plus the standing caller's namespace and the ephemeral caller's run binding and crew coordinates. Also `bearer_token()`, the Authorization-header parser. |
 | `authn.py` | `Authenticator`: resolves a bearer credential to an `Identity` and audits every rejection. Shared by both gateways so they cannot drift. |
-| `audit.py` | `AuditEvent` — one model, one registry table, one ingestion contract for every enforcement point. |
+| `audit.py` | `AuditEvent` — one model, one registry table, one ingestion contract for every enforcement point — and `args_digest`, the one way arguments are hashed into it. |
+| `policy.py` | The OPA naming contract: the Rego slug, a company's package and its decision path — shared by the compiler that emits bundles and the gateways and orchestrator that query them. |
 | `telemetry.py` | `get_logger(name)`: single-line JSON to stdout, `.bind(...)` for run/agent context. Optional OTLP export behind the `otel` extra. |
 | `podsecurity.py` | The pod/container security context the three Python pod-spec builders share (uid 10001, no privilege escalation, no capabilities, RuntimeDefault seccomp). |
 | `ids.py` | `new_run_id()` — ULID-based, sortable, `run-`-prefixed. |

@@ -23,7 +23,8 @@ heartbeat is simply one no heartbeat drives. The document format itself is intro
 | Module | Owns |
 |---|---|
 | `blueprint.py` | The JSON Schema (draft 2020-12) for the nine sections. Structure only; the tool enum is the one place it borrows from a catalog. |
-| `validate.py` | `validate_blueprint` / `load_blueprint`, plus the catalog cross-checks. Errors are rendered as a path and the allowed values, and reported all together. |
+| `validate.py` | `validate_blueprint` / `load_blueprint`. Errors are rendered as a path and the allowed values, and reported all together. |
+| `coherence.py` | The catalog cross-checks (templates exist, crews narrow the catalog, no platform-only tool for a role), as functions both `validate` and the compiler run. |
 | `catalog.py` | `ROLE_TEMPLATES` and `CREW_TEMPLATES`: what a blueprint may hire and spawn, with each template's tool scope, model tier and runtime hints. |
 | `tools.py` | The 16-name gateway tool surface, plus the two sets policy keys on: `PLATFORM_ONLY` and `RUN_SCOPED`. |
 

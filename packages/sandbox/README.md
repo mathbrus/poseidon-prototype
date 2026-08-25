@@ -25,8 +25,8 @@ containment.
 | Module | Owns |
 |---|---|
 | `contract.py` | `SandboxBackend`, `SandboxPolicy`, `SandboxHandle` — the narrow seam behind which runtimes are swapped. |
-| `backends/k8s_jobs/backend.py` | The default backend: one Job per run, workspace delivered over the Kubernetes exec API. |
-| `backends/k8s_jobs/manifest.py` | The Job manifest as a pure function of the policy — caps, deadline, workspace scope, env injection, security context. |
+| `k8s_jobs.py` | The backend: one Job per run, workspace delivered over the Kubernetes exec API. |
+| `manifest.py` | The Job manifest as a pure function of the policy — caps, deadline, workspace scope, env injection, security context. |
 | `toolserver/app.py` | The in-sandbox HTTP server the gateway proxies the six `sandbox.*` tools to. |
 | `egressproxy/proxy.py` | The forward proxy: host allowlist, per-run attribution, an audit event for every decision. |
 | `egressproxy/credentials.py` | The self-authenticating per-run credential, and `resolve_host`. |
