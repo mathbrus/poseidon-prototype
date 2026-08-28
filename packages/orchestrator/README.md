@@ -113,7 +113,11 @@ re-reads that section from the registry and stops when it is gone, so
 revoking the heartbeat is a blueprint diff, effective at the next tick.
 `heartbeat_observe` gathers the backlog, delivered-but-unreviewed PRs,
 run history, capacity and spend — numbers, titles and URLs only; issue
-bodies are untrusted input the implement run reads itself.
+bodies are untrusted input the implement run reads itself. The registry
+names the delivered PRs; the git host is asked whether each is still
+open, so a PR a human merged or closed by hand is never offered (and the
+review workflow's `read_pr` refuses one anyway, as `pr_not_open`, before
+a sandbox is spent on a head ref that may no longer exist).
 `heartbeat_decide` dispatches the standing conductor in `mode="decide"`
 with that observation and gets back one action with a required
 rationale, journaled as a `heartbeat.decide` audit event. The PM proposes

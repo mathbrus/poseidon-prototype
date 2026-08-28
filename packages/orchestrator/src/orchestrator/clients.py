@@ -145,9 +145,10 @@ class GatewayClient:
         return await self._tool("sandbox.run_tests", args)
 
     async def read_pr(self, run_id: str, repo: str, number: int) -> dict[str, Any]:
-        """PR metadata (head ref included) for the review workflow — how
-        the platform resolves the ref the review sandbox is provisioned
-        from."""
+        """PR metadata (state and head ref included) under the platform
+        identity — how the review workflow resolves the ref the review
+        sandbox is provisioned from, and how the heartbeat checks that a
+        delivered PR is still the world's to review."""
         return await self._tool(
             "git.read", {"run_id": run_id, "repo": repo, "number": number}
         )
@@ -233,6 +234,19 @@ class GatewayClient:
             raise GatewayError(
                 f"sandbox unregistration failed: {resp.status_code} {resp.text}"
             )
+
+
+def pr_settled(pr: dict[str, Any]) -> str | None:
+    """Why a pull request is no longer reviewable, from the metadata
+    `read_pr` returns: `"merged"`, `"closed"` (closed without merging), or
+    None while it is open. The git host is the authority on this — the
+    registry only knows which PRs the company delivered and which reviews
+    it ran, never what a human or another harness did to them since."""
+    if pr.get("merged"):
+        return "merged"
+    if str(pr.get("state") or "") != "open":
+        return "closed"
+    return None
 
 
 class AgentClient:

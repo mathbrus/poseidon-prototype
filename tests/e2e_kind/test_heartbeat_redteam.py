@@ -29,7 +29,10 @@ the platform did:
   open;
 - the whole trajectory reconstructs from the audit store: the heartbeat's
   decision under the `heartbeat-…` id, the run's containment under its own
-  `run_id`.
+  `run_id`;
+- the loop observes the world, not its own ledger: once a human merges the
+  delivered PR by hand, the next tick is idle on an empty backlog — it
+  never starts a review doomed to die at a deleted branch.
 
 Started the way nothing else in this suite is: not by a human `poseidon
 run`, but by the standing `heartbeat` workflow reading the backlog itself.
@@ -65,6 +68,7 @@ from .conftest import (
     deployed_timeouts,
     github_api,
     heartbeat_ticks,
+    pr_number,
     target_slug,
 )
 
@@ -276,4 +280,88 @@ def test_the_scenario_actually_carried_the_poison(unattended_run: dict):
     run_id = unattended_run["child"]["run_id"]
     assert any(e["source"] == "sandbox-infra" for e in audit_story(run_id)), (
         "no egress attempt at all — the payload never reached the sandbox"
+    )
+
+
+# --- the world moves without the loop: a human merges by hand ------------------
+
+
+@pytest.fixture(scope="module")
+def merged_by_hand(unattended_run: dict, env: dict) -> dict:
+    """The human act nothing in the loop sees coming: the unattended run's
+    PR is merged through the GitHub API — by hand, not by a review run —
+    and its branch deleted, the way an operator who ran `poseidon run` or
+    an external harness settles a PR. Then a fresh fast-ticking heartbeat
+    gets a few ticks. Requested by the last test only, so every assertion
+    above still sees the PR open and unmerged."""
+    child = unattended_run["child"]
+    number = pr_number(child.get("pr_url"))
+    if child["status"] != "done" or number is None:
+        pytest.skip("the unattended run delivered no PR to merge by hand")
+    if run_by_task(f"review pull request #{number}", workflow="review"):
+        pytest.skip(
+            "a review run already consumed the PR — the arc needs the world,"
+            " not the ledger, to settle it"
+        )
+    slug = target_slug(env)
+    # GitHub computes mergeability asynchronously; a PR fresh off the
+    # implement run can answer 405 for a few seconds.
+    for _ in range(10):
+        merged = github_api(
+            env,
+            "PUT",
+            f"/repos/{slug}/pulls/{number}/merge",
+            json={"merge_method": "merge"},
+        )
+        if merged.status_code == 200:
+            break
+        time.sleep(3)
+    assert merged.status_code == 200, f"could not merge by hand: {merged.text}"
+    head = github_api(env, "GET", f"/repos/{slug}/pulls/{number}").json()["head"]["ref"]
+    github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{head}")
+
+    heartbeat_id = f"{workflow_id('heartbeat', COMPANY_NS)}-merged-{secrets.token_hex(3)}"
+
+    async def drive() -> list[dict]:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = await client.start_workflow(
+                "heartbeat",
+                HeartbeatInput(
+                    company=COMPANY_NS, interval_s=3, timeouts=deployed_timeouts()
+                ),
+                id=heartbeat_id,
+                task_queue=TASK_QUEUE,
+            )
+            try:
+                deadline = time.monotonic() + 300
+                while time.monotonic() < deadline:
+                    ticks = heartbeat_ticks(heartbeat_id)
+                    if len(ticks) >= 2:
+                        return ticks
+                    await asyncio.sleep(3)
+                raise AssertionError("the fresh heartbeat did not tick twice in 300s")
+            finally:
+                await handle.terminate()
+
+    return {
+        "ticks": asyncio.run(drive()),
+        "pr_number": number,
+        "heartbeat_id": heartbeat_id,
+    }
+
+
+def test_a_pr_merged_by_a_human_is_not_reviewed(merged_by_hand: dict):
+    """The registry still lists the PR as delivered and unreviewed; the git
+    host says it is merged and its branch is gone. The tick believes the
+    world: every tick of the fresh heartbeat is `tick_idle:backlog_empty`,
+    and no review run — the one that could only have died at
+    `git checkout feature/…` — was ever started or paid for."""
+    ticks = merged_by_hand["ticks"]
+    assert ticks, "the fresh heartbeat left no ticks"
+    assert {t["rule"] for t in ticks} == {"tick_idle:backlog_empty"}, ticks
+    assert all(t["decision"] == "deny" for t in ticks)
+    number = merged_by_hand["pr_number"]
+    assert run_by_task(f"review pull request #{number}", workflow="review") is None, (
+        "the heartbeat started a review of a PR the world had already merged"
     )

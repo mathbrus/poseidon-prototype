@@ -599,8 +599,9 @@ one. A company whose blueprint declares a `heartbeat` section
 **heartbeat**: one durable workflow that wakes on the declared cadence
 and, each tick:
 
-1. **Observes** the open backlog, the delivered-but-unreviewed PRs, and
-   the day's spend.
+1. **Observes** the open backlog, the delivered-but-unreviewed PRs (each
+   one's live state read from the git host — a PR a human merged or closed
+   by hand is not offered), and the day's spend.
 2. **Dispatches the PM in a toolless *decide* mode** for exactly one
    action: implement a ticket, review a PR, or idle.
 3. **Starts the chosen run** only under the compiled `heartbeat.start`

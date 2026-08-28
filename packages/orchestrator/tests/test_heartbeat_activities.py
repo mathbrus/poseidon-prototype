@@ -60,15 +60,44 @@ def activities(settings, runs, companies, ledger, audit) -> HeartbeatActivities:
     return HeartbeatActivities(settings, runs, companies, ledger, audit)
 
 
-def _backlog_gateway(monkeypatch, fake_gateway, issues: list[dict[str, Any]]):
+def _pr(number: int, state: str = "open", merged: bool = False) -> dict[str, Any]:
+    return {
+        "number": number,
+        "state": state,
+        "merged": merged,
+        "head": f"feature/slugify-{number}",
+        "url": f"https://github.test/example/repo/pull/{number}",
+        "files": [],
+    }
+
+
+def _backlog_gateway(
+    monkeypatch,
+    fake_gateway,
+    issues: list[dict[str, Any]],
+    prs: dict[int, dict[str, Any]] | None = None,
+) -> list[tuple[str, int]]:
+    """The world as the gateway reports it: the open issues, and each PR's
+    live state by number (open unless `prs` says otherwise). Returns the
+    log of PR reads — (run_id, number) — so a test can assert under which
+    identity the world was consulted."""
     import orchestrator.activities.heartbeat as module
+
+    reads: list[tuple[str, int]] = []
 
     async def read_open_issues(self, run_id, repo):
         return issues
 
+    async def read_pr(self, run_id, repo, number):
+        reads.append((run_id, number))
+        return (prs or {}).get(number) or _pr(number)
+
     monkeypatch.setattr(
-        module, "GatewayClient", fake_gateway(read_open_issues=read_open_issues)
+        module,
+        "GatewayClient",
+        fake_gateway(read_open_issues=read_open_issues, read_pr=read_pr),
     )
+    return reads
 
 
 def _opa(monkeypatch, allow: bool, rule: str):
@@ -191,6 +220,40 @@ def test_observe_offers_delivered_unreviewed_prs(
     assert observed["reviewable_prs"] == [
         {"number": 4, "url": "https://github.test/example/repo/pull/4"}
     ]
+
+
+def test_observe_drops_delivered_prs_the_world_has_settled(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """The registry knows what the company delivered; only the git host
+    knows what happened to it since. A PR merged by a human's hand (or
+    closed by anyone) is not reviewable, whatever the ledger says — and
+    the check is a platform read under the heartbeat's own run id, not a
+    guess. Nothing is consumed by the drop: `reviewed_pr_numbers` stays a
+    record of reviews that ran, never of PRs the world settled."""
+    reads = _backlog_gateway(
+        monkeypatch,
+        fake_gateway,
+        [],
+        prs={
+            4: _pr(4, state="closed", merged=True),
+            6: _pr(6, state="closed"),
+            8: _pr(8),
+        },
+    )
+    for run_id, issue, pr in (("run-a", 3, 4), ("run-b", 5, 6), ("run-c", 7, 8)):
+        runs.start(run_id, f"implement issue #{issue}", "implement", company=COMPANY)
+        runs.finish(run_id, "done", pr_url=f"https://github.test/example/repo/pull/{pr}")
+    observed = asyncio.run(activities.heartbeat_observe())
+    assert observed["reviewable_prs"] == [
+        {"number": 8, "url": "https://github.test/example/repo/pull/8"}
+    ]
+    assert reads == [
+        (f"heartbeat-{COMPANY}", 4),
+        (f"heartbeat-{COMPANY}", 6),
+        (f"heartbeat-{COMPANY}", 8),
+    ]
+    assert runs.reviewed_pr_numbers(COMPANY) == set()
 
 
 # -- heartbeat_authorize -----------------------------------------------------

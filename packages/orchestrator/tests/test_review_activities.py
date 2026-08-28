@@ -7,6 +7,7 @@ import asyncio
 from typing import Any
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from orchestrator.activities.review import ReviewActivities
 from orchestrator.config import WorkerSettings
@@ -198,6 +199,7 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(
         return {
             "number": number,
             "title": "Add slugify",
+            "state": "open",
             "head": "feature/slugify-x",
             "url": "https://pr/41",
             "files": [{"path": "slugify.py", "patch": "+..."}],
@@ -290,12 +292,48 @@ def test_read_pr_refuses_a_headless_pr(settings, monkeypatch, fake_gateway):
     import orchestrator.activities.review as module
 
     async def read_pr(self, run_id, repo, number):
-        return {"number": number, "head": ""}
+        return {"number": number, "state": "open", "head": ""}
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
     with pytest.raises(RuntimeError, match="no head ref"):
         asyncio.run(activities.read_pr(RUN_ID, 41))
+
+
+@pytest.mark.parametrize(
+    ("pr", "settled"),
+    [
+        ({"state": "closed", "merged": True}, "merged"),
+        ({"state": "closed", "merged": False}, "closed"),
+    ],
+)
+def test_read_pr_refuses_a_settled_pr(
+    settings, audit, monkeypatch, fake_gateway, pr, settled
+):
+    """A merged or closed PR is refused at the fetch step with the named
+    rule, non-retryable and journaled in the run's story — before a
+    sandbox is provisioned from a head ref the world may have deleted.
+    The git host's word decides, not the head ref's presence: a merged PR
+    whose branch still exists is just as settled."""
+    import orchestrator.activities.review as module
+
+    async def read_pr(self, run_id, repo, number):
+        return {"number": number, "head": "feature/slugify-x", **pr}
+
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(activities.read_pr(RUN_ID, 41))
+    assert caught.value.non_retryable
+    assert str(caught.value).startswith(f"pr_not_open: pull request #41 is {settled}")
+    (event,) = [e for e in audit.events if e.run_id == RUN_ID]
+    assert (event.tool, event.decision, event.rule) == (
+        "review.read_pr",
+        "deny",
+        "pr_not_open",
+    )
+    assert event.source == "process-lifecycle"
+    assert event.workflow == f"review-{RUN_ID}"
 
 
 def test_merge_pr_raises_when_the_merge_does_not_land(

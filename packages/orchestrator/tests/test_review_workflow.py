@@ -36,6 +36,7 @@ from typing import Any
 import pytest
 from temporalio import activity
 from temporalio.client import Client, WorkflowHandle
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -79,6 +80,9 @@ class Harness:
     contract_paths: list[str] = field(default_factory=list)
     contract_verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
     deletions: dict[str, int] | None = None
+    # "merged" / "closed" makes read_pr refuse the PR as the real activity
+    # does when the git host says it is no longer open.
+    pr_settled: str | None = None
     independence: dict[str, Any] = field(
         default_factory=lambda: {"independent": True, "reason": "lineage run-impl"}
     )
@@ -128,6 +132,12 @@ class Harness:
         async def read_pr(
             run_id: str, pr_number: int, contract_paths: list[str]
         ) -> dict[str, Any]:
+            if harness.pr_settled:
+                raise ApplicationError(
+                    f"pr_not_open: pull request #{pr_number} is"
+                    f" {harness.pr_settled} — nothing to review",
+                    non_retryable=True,
+                )
             return {
                 "number": pr_number,
                 "title": "Add slugify utility",
@@ -684,3 +694,20 @@ async def test_a_missing_verdict_fails_before_any_gate(env):
     assert harness.gate_events == []
     assert record["status"] == "failed"
     assert record["error"] == "reviewer finished without a verdict"
+
+
+async def test_a_settled_pr_is_refused_before_any_sandbox_is_spent(env):
+    """A PR the world already merged or closed fails at the fetch step
+    with the named rule — no workspace fetched, no sandbox provisioned,
+    no crew, no gate — and the run record says why. The failed run still
+    consumes the PR in the registry, so the heartbeat never retries it."""
+    harness = Harness(merge_gate=HUMAN_GATE, pr_settled="merged")
+    record = await run_review(env.client, harness)
+
+    assert harness.fetches == []
+    assert harness.provisions == 0
+    assert harness.verdicts == []
+    assert harness.gate_events == []
+    assert harness.merges == []
+    assert record["status"] == "failed"
+    assert "pr_not_open: pull request #41 is merged" in record["error"]

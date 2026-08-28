@@ -266,7 +266,8 @@ and starts one durable workflow, `heartbeat-hello-saas`, on its own. Every
 `interval_minutes` (30 in the example — the cadence is yours to declare)
 a tick:
 
-1. **Observes** the open backlog, the delivered-but-unreviewed PRs, the
+1. **Observes** the open backlog, the delivered-but-unreviewed PRs (still
+   open on the git host — one you merged by hand simply drops out), the
    in-flight runs and today's spend.
 2. **Dispatches the PM in a toolless *decide* mode** for exactly one
    action — implement a ticket, review a PR, or idle — with a required

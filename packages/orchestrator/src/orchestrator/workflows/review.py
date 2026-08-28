@@ -1,6 +1,8 @@
 """The review workflow: PR in, human-gated merge out.
 
-    create_review_run -> check_budget -> review_config -> read_pr ->
+    create_review_run -> check_budget -> review_config -> read_pr (the
+    PR's live state under the platform identity; a merged or closed PR
+    is refused here as `pr_not_open`, before any sandbox is spent) ->
     fetch_workspace (PR head ref) -> provision_sandbox ->
     fulfill_crew (feature-review under the PM's conductor authority —
     process-initiated is a first-class recorded request,
