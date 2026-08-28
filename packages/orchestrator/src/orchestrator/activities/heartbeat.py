@@ -3,10 +3,11 @@ clients, as always — sequencing and the tick cadence live in the workflow.
 
 Retry safety, per activity:
     heartbeat_config    — read-only; safe.
-    heartbeat_observe   — read-only (registry + the open backlog under the
-                          platform identity); safe. Only numbers, titles
-                          and URLs leave here: issue bodies are untrusted
-                          input the implement run reads itself.
+    heartbeat_observe   — read-only (registry + the open backlog and the
+                          delivered PRs' live state under the platform
+                          identity); safe. Only numbers, titles and URLs
+                          leave here: issue bodies are untrusted input the
+                          implement run reads itself.
     heartbeat_decide    — dispatches the PM's decide mode and polls to
                           terminal; the PM answers 409 while running
                           (re-attach) like every dispatch. The chosen
@@ -37,7 +38,7 @@ from temporalio.exceptions import ApplicationError
 from common.audit import args_digest
 from common.telemetry import get_logger
 from orchestrator.audit import record_event
-from orchestrator.clients import GatewayClient, dispatch_and_poll
+from orchestrator.clients import GatewayClient, dispatch_and_poll, pr_settled
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from orchestrator.workflows.base import workflow_id
@@ -129,33 +130,53 @@ class HeartbeatActivities:
         in-flight runs, today's spend and the run history from the
         registry; the unconsumed open backlog and the delivered-but-
         unreviewed PRs as the candidate actions. Read under the platform
-        identity, like every platform read."""
+        identity, like every platform read.
+
+        The registry says which PRs the company delivered and which it has
+        reviewed; only the git host knows which of those the world has
+        since settled — a human who merged by hand, an external harness
+        that closed one. So every candidate's live state is read before it
+        is offered: a merged or closed PR is not reviewable, and a review
+        of it could only fail at the head ref."""
 
         def read() -> tuple[int, float, set[int], list[dict[str, Any]], list[Any]]:
             company = self._settings.company
             reviewed = self._runs.reviewed_pr_numbers(company)
-            reviewable = []
+            delivered = []
             for url in self._runs.delivered_pr_urls(company):
                 match = PR_URL_NUMBER_RE.search(url)
                 if match and int(match.group(1)) not in reviewed:
-                    reviewable.append({"number": int(match.group(1)), "url": url})
+                    delivered.append({"number": int(match.group(1)), "url": url})
             return (
                 self._runs.active_count(company),
                 self._ledger.spent_today(company),
                 self._runs.started_issue_numbers(company),
-                reviewable,
+                delivered,
                 self._runs.recent(RECENT_RUNS_LIMIT),
             )
 
-        active_runs, daily_spent, started, reviewable, recent = await asyncio.to_thread(
+        active_runs, daily_spent, started, delivered, recent = await asyncio.to_thread(
             read
         )
+        reviewable = []
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             issues = await gateway.read_open_issues(
                 self._ledger_run_id(), self._settings.target_repo
             )
+            for candidate in delivered:
+                pr = await gateway.read_pr(
+                    self._ledger_run_id(), self._settings.target_repo, candidate["number"]
+                )
+                settled = pr_settled(pr)
+                if settled:
+                    self._log.info(
+                        "delivered pr no longer reviewable",
+                        extra={"number": candidate["number"], "state": settled},
+                    )
+                    continue
+                reviewable.append(candidate)
         backlog = sorted(
             (
                 {

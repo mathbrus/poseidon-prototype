@@ -242,7 +242,9 @@ edit as every other authority change.
 The loop itself is one durable workflow per company (`heartbeat-{company}`),
 kept running by the orchestrator worker while the applied blueprint
 declares the section. Each tick observes the open backlog, the delivered
-PRs awaiting review, the in-flight runs and today's ledger spend, then
+PRs awaiting review (the registry names them, the git host confirms each
+is still open — a PR merged or closed by anyone else is not a candidate),
+the in-flight runs and today's ledger spend, then
 dispatches the standing PM in a toolless *decide* mode: one action —
 `implement #n`, `review #n`, or `idle` — with a required one-line
 rationale, journaled as a `heartbeat.decide` audit event (the append-only

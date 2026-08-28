@@ -5,6 +5,11 @@ Retry safety, per activity:
     create_review_run   — upserts the run row; safe.
     review_config       — read-only; safe.
     read_pr             — read-only against GitHub via the gateway; safe.
+                          A merged or closed PR is refused here with the
+                          named rule `pr_not_open` (non-retryable, audited)
+                          — nothing downstream can succeed on it, and the
+                          ledger should not pay for a run that can only
+                          fail at the head ref.
     record_gate_outcome — appends an audit event; a retried append
                           duplicates a row, never loses one (the audit
                           store is append-only by design).
@@ -38,12 +43,13 @@ import time
 from typing import Any
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.telemetry import get_logger
 from orchestrator.activities.blueprint import workflow_config
 from orchestrator.audit import record_event
-from orchestrator.clients import GatewayClient
+from orchestrator.clients import GatewayClient, pr_settled
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from orchestrator.workflows.base import workflow_id
@@ -57,6 +63,11 @@ from registry import AgentInstances, AuditStore, Companies, RunParticipants, Run
 # parse can shrink autonomy, never extend it.
 REWORK_TITLE_RE = re.compile(r"^Rework (\d+) for PR #(\d+)")
 IMPLEMENT_ISSUE_TASK_RE = re.compile(r"^implement issue #(\d+)$")
+
+# The named rule a review run fails with when its PR is already merged or
+# closed — the run record's error starts with it, and the audit row
+# carries it, the way `budget_exhausted` names the other birth refusal.
+PR_NOT_OPEN = "pr_not_open"
 
 
 def rework_title(attempt: int, root_pr: int, pr_title: str) -> str:
@@ -207,11 +218,34 @@ class ReviewActivities:
     ) -> dict[str, Any]:
         """PR metadata under the platform identity: the head ref is what
         the review sandbox is provisioned from, the title and URL
-        seed the reviewer's task text and the run record."""
+        seed the reviewer's task text and the run record.
+
+        The PR must still be open. The heartbeat offers only open PRs, but
+        the world moves between its observation and this read — and a
+        human's `poseidon run` can name any number — so the state is the
+        git host's word at the moment of the read. A settled PR is a
+        refusal with a named rule, journaled in the run's story, never a
+        crash further down at a branch that no longer exists."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             pr = await gateway.read_pr(run_id, self._settings.target_repo, pr_number)
+        settled = pr_settled(pr)
+        if settled:
+            await self._append_event(
+                run_id=run_id,
+                tool="review.read_pr",
+                payload={"number": pr_number, "state": settled},
+                decision="deny",
+                rule=PR_NOT_OPEN,
+                source="process-lifecycle",
+                workflow_id=workflow_id("review", run_id),
+            )
+            raise ApplicationError(
+                f"{PR_NOT_OPEN}: pull request #{pr_number} is {settled}"
+                " — nothing to review",
+                non_retryable=True,
+            )
         if not pr.get("head"):
             raise RuntimeError(
                 f"pull request #{pr_number} has no head ref — nothing to"
