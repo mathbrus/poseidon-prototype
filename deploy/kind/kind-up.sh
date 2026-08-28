@@ -110,7 +110,7 @@ else
   LITELLM_IMAGE=$(uv run python -c '
 import yaml
 image = yaml.safe_load(open("deploy/helm/poseidon/values.yaml"))["images"]["llmProxy"]
-print(f"{image[\"repository\"]}:{image[\"tag\"]}")
+print(image["repository"] + ":" + image["tag"])
 ')
   docker pull "$LITELLM_IMAGE"
   kind load docker-image "$LITELLM_IMAGE" --name "$CLUSTER_NAME"
