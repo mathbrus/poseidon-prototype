@@ -72,7 +72,7 @@ from typing import Any
 
 import httpx
 import pytest
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowExecutionStatus
 
 from common.ids import new_run_id
 from mockllm.brain import (
@@ -91,7 +91,6 @@ from .cluster import (
     audit_story,
     db_now,
     kill_worker_pod,
-    psql_json,
     run_kubectl,
     sandbox_pods,
     temporal_port_forward,
@@ -493,34 +492,42 @@ def apply_profile(path: Path, env: dict) -> None:
     assertions anchor on (both start the run; the one-live-run index kills
     the loser's child at birth). `path` must declare a heartbeat section."""
     sweep_repo_debris(env)
-    since = db_now()
     apply_blueprint(path)
     wait_for_convergence()
-    await_bare_heartbeat_tick(since)
+    await_bare_heartbeat_asleep()
 
 
-def await_bare_heartbeat_tick(since: str, deadline_s: int = 300) -> None:
-    """Block until the ensure loop's `heartbeat-{company}` has recorded a
-    tick after `since` (the registry's own clock, from `db_now()`) — the
-    moment the bare heartbeat has seen the empty campsite and gone to
-    sleep for the blueprint's `interval_minutes`."""
+def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
+    """Block until the ensure loop's `heartbeat-{company}` is running and
+    asleep — it has observed the swept campsite and will not tick again
+    for the blueprint's `interval_minutes`. Read off the workflow's own
+    `state` query, on its current run only: a profile re-applied over
+    itself finds the standing heartbeat already asleep, and a terminated
+    one (a quiesced earlier profile) does not count until the ensure loop
+    has started its successor."""
     bare = workflow_id("heartbeat", COMPANY_NS)
-    deadline = time.monotonic() + deadline_s
-    while time.monotonic() < deadline:
-        ticks = psql_json(
-            "SELECT COALESCE(json_agg(e), '[]'::json) FROM ("
-            "SELECT rule FROM registry.audit_events"
-            " WHERE tool = 'heartbeat.tick' AND workflow = :'bare'"
-            "   AND ts > :'since'::timestamptz) e",
-            bare=bare,
-            since=since,
-        )
-        if ticks:
-            return
-        time.sleep(3)
-    raise AssertionError(
-        f"the bare heartbeat {bare} never ticked within {deadline_s}s of the apply"
-    )
+
+    async def wait() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = client.get_workflow_handle(bare)
+            deadline = time.monotonic() + deadline_s
+            while time.monotonic() < deadline:
+                # Not started yet, or between runs: keep waiting.
+                with contextlib.suppress(Exception):
+                    description = await handle.describe()
+                    if (
+                        description.status == WorkflowExecutionStatus.RUNNING
+                        and await handle.query("state") == "sleeping"
+                    ):
+                        return
+                await asyncio.sleep(3)
+            raise AssertionError(
+                f"the bare heartbeat {bare} was not asleep within {deadline_s}s"
+                " of the apply"
+            )
+
+    asyncio.run(wait())
 
 
 def sweep_repo_debris(env: dict) -> None:
