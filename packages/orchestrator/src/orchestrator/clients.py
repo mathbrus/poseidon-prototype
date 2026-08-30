@@ -189,6 +189,16 @@ class GatewayClient:
             {"run_id": run_id, "repo": repo, "number": number, "body": body},
         )
 
+    async def comment_issue(
+        self, run_id: str, repo: str, number: int, body: str
+    ) -> dict[str, Any]:
+        """A platform comment on an issue — how the world learns that the
+        heartbeat spent its last attempt on a ticket."""
+        return await self._tool(
+            "issues.comment",
+            {"run_id": run_id, "repo": repo, "number": number, "body": body},
+        )
+
     async def merge_pr(
         self, run_id: str, repo: str, number: int, method: str = "merge"
     ) -> dict[str, Any]:

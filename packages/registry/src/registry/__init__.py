@@ -17,7 +17,7 @@ from registry.instances import AgentInstances
 from registry.ledger import BudgetLedger
 from registry.participants import ParticipantRevoked, RunParticipants
 from registry.policy import PolicyBundles, StoredBundle, pack
-from registry.runs import RunRecord, Runs
+from registry.runs import ISSUE_TASK_RE, REVIEW_TASK_RE, Attempts, RunRecord, Runs
 from registry.sandboxes import SandboxRegistrations
 
 __all__ = [
@@ -30,6 +30,9 @@ __all__ = [
     "PolicyBundles",
     "Registry",
     "RunParticipants",
+    "Attempts",
+    "ISSUE_TASK_RE",
+    "REVIEW_TASK_RE",
     "RunRecord",
     "Runs",
     "SandboxRegistrations",

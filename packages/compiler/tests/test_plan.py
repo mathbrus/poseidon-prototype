@@ -125,6 +125,7 @@ def test_heartbeat_compiles_into_plan_and_bundle(heartbeat_blueprint):
     assert plan.heartbeat.conductor == "pm"
     assert plan.heartbeat.interval_minutes == 30
     assert plan.heartbeat.max_concurrent_runs == 1
+    assert plan.heartbeat.max_attempts == 2
     assert plan.heartbeat.may_start == ("implement",)
     assert plan.heartbeat.daily_cap_usd == 20.0
     assert "heartbeat.rego" in plan.bundle.files

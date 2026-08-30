@@ -273,9 +273,15 @@ a tick:
    action — implement a ticket, review a PR, or idle — with a required
    one-line rationale, journaled as a `heartbeat.decide` audit event.
 3. **Starts the chosen run** only if it wins the compiled `heartbeat.start`
-   decision: within `max_concurrent_runs`, under the `daily_cap`, and only
-   a workflow on the `may_start` list. `intake` is deliberately not on
-   that list — goals always enter through a human.
+   decision: within `max_concurrent_runs`, under the `daily_cap`, on an
+   item fewer than `max_attempts` runs have taken up, and only a workflow
+   on the `may_start` list. `intake` is deliberately not on that list —
+   goals always enter through a human.
+
+A run that dies before concluding anything (the model call timed out, the
+reviewer hit its step cap) does not take its ticket or PR down with it:
+the item is offered again until `max_attempts` runs have tried, and the
+run that spends the last attempt leaves a comment on it saying so.
 
 Your job shrinks to two acts: feed goals in
 (`poseidon run --workflow intake …`) and answer merge gates. Watch it work:

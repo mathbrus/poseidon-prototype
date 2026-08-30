@@ -294,6 +294,7 @@ _HEARTBEAT = {
         "conductor",
         "interval_minutes",
         "max_concurrent_runs",
+        "max_attempts",
         "may_start",
         "daily_cap",
     ],
@@ -302,6 +303,12 @@ _HEARTBEAT = {
         "conductor": _NAME,
         "interval_minutes": {"type": "integer", "minimum": 1},
         "max_concurrent_runs": {"type": "integer", "minimum": 1},
+        # How many runs the heartbeat may start on one work item — an
+        # issue or a PR — before it stops offering it. A run that
+        # concluded (delivered, or reached a verdict) consumes the item
+        # at once; this bounds the aborted ones (a timed-out model call,
+        # a step cap, a cancel). 1 means every run is the only try.
+        "max_attempts": {"type": "integer", "minimum": 1},
         "may_start": {
             "type": "array",
             "items": {"type": "string", "enum": ["implement", "review"]},

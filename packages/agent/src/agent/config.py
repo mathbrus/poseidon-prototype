@@ -24,6 +24,9 @@ class AgentSettings(BaseSettings):
     # checked by the gateway per call, not a property of the token.
     gateway_token_file: str = ""
     target_repo: str
+    # How many advisory verify cycles an implement dispatch gets before it
+    # reports the tests still failing. Implement only: the other modes
+    # run under their own step caps (`brain.py`), not this knob.
     max_iterations: int = 10
 
     def resolve_gateway_token(self) -> str:

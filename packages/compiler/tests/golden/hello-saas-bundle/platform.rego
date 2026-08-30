@@ -76,6 +76,14 @@ allow_rules contains "platform_git_read" if {
 # The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
 # merge that only the workflow may perform after the human gate.
+allow_rules contains "platform_issues_comment" if {
+	input.lifecycle == "platform"
+	input.tool == "issues.comment"
+}
+
+# The orchestrator's own privileged calls (the `platform` lifecycle):
+# workspace fetch, sandbox registration, the platform verify gate, and the
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform_issues_create" if {
 	input.lifecycle == "platform"
 	input.tool == "issues.create"

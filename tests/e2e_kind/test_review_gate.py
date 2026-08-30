@@ -280,20 +280,23 @@ def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
 def test_merge_is_a_gateway_call_strictly_after_the_gate(review_chain: dict) -> None:
     """git.merge_pr is a gateway-audited call under
     the platform lifecycle, and it happens after the gate's approval —
-    never before, never around the gateway."""
+    never before, never around the gateway. The activity's step retry may
+    re-issue the call when the git host errors (a fresh PR whose
+    mergeability GitHub has not computed yet answers 405); every attempt
+    is audited, and every one of them must still follow the approval."""
     run_id = review_chain["review_run_id"]
     story = audit_story(run_id)
     merges = [(i, e) for i, e in enumerate(story) if e["tool"] == "git.merge_pr"]
-    assert len(merges) == 1
-    merge_index, merge = merges[0]
-    assert merge["decision"] == "allow"
-    assert merge["lifecycle"] == "platform"
+    assert merges, "no audited merge call in the story"
+    assert all(e["decision"] == "allow" for _, e in merges)
+    assert all(e["lifecycle"] == "platform" for _, e in merges)
+    assert merges[-1][1]["backend_status"] == "ok", merges
     approvals = [
         i
         for i, e in enumerate(story)
         if e["source"] == "process-gate" and e["rule"] == "gate_approved"
     ]
-    assert approvals and max(approvals) < merge_index, (
+    assert approvals and max(approvals) < min(i for i, _ in merges), (
         "the merge does not follow the gate approval in the story"
     )
 

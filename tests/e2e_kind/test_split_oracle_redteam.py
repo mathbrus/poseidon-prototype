@@ -68,17 +68,17 @@ from mockllm.brain import (
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.review import ReviewInput
 
-from .blueprints import DELEGATED, apply_blueprint, restore_pristine, wait_for_convergence
+from .blueprints import DELEGATED, restore_pristine
 from .cluster import audit_story, participants, run_spend, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
+    apply_profile,
     close_pr,
     deployed_timeouts,
     github_api,
     pr_number,
     read_repo_file,
     run_implement_from_issue,
-    sweep_repo_debris,
     target_slug,
 )
 
@@ -165,13 +165,11 @@ def split(stack: None, repo_baseline: dict):
     """The split declared on the cluster: the delegated blueprint
     carries `policies.contract_tests` and the contract-authoring crew.
     Restore the pristine company after, so later suites are unaffected."""
-    # An empty campsite before the heartbeat blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
-    # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot.
-    sweep_repo_debris(repo_baseline)
-    apply_blueprint(DELEGATED)
-    wait_for_convergence()
+    # The delegated profile declares a heartbeat: arrive the way every
+    # heartbeat module does — swept campsite, apply, converge, and the bare
+    # heartbeat's first tick behind us, so it never reviews a PR this
+    # module opened while its own review is the one under test.
+    apply_profile(DELEGATED, repo_baseline)
     yield
     restore_pristine()
 

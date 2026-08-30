@@ -47,7 +47,12 @@ CREATE TABLE IF NOT EXISTS registry.agent_instances (
 );
 
 -- Runs. The workflow id maps a run to its Temporal workflow; artifacts
--- (tickets, PR) are recorded against the run.
+-- (tickets, PR) are recorded against the run. Two columns say whether a
+-- run *concluded* its work item, whatever its terminal status: an
+-- implement run concluded when it delivered (pr_url), a review run when
+-- the reviewer reached a verdict (verdict). A run that ended with neither
+-- aborted, and the heartbeat may offer its item again — bounded by the
+-- blueprint's attempt cap.
 CREATE TABLE IF NOT EXISTS registry.runs (
     run_id      text PRIMARY KEY,
     workflow    text NOT NULL DEFAULT 'implement',
@@ -56,6 +61,7 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     task        text NOT NULL DEFAULT '',
     status      text NOT NULL,
     pr_url      text,
+    verdict     text,
     ticket_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
     iterations  integer NOT NULL DEFAULT 0,
     error       text,
@@ -72,6 +78,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_issue_run
     ON registry.runs (company, task)
     WHERE status = 'running' AND workflow = 'implement'
       AND task LIKE 'implement issue #%';
+-- One live review run per pull request, by the same construction: the
+-- canonical review-run task is the key, so a heartbeat re-offering an
+-- aborted review and a human `poseidon run` cannot review one PR twice
+-- at once.
+CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_review_run
+    ON registry.runs (company, task)
+    WHERE status = 'running' AND workflow = 'review'
+      AND task LIKE 'review pull request #%';
 
 -- Ephemeral agents, kept out of agent_instances so hire/fire diffs
 -- stay clean. Revocation is a row termination, checked live on every

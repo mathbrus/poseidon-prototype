@@ -5,9 +5,9 @@ Retry safety, per activity:
     heartbeat_config    — read-only; safe.
     heartbeat_observe   — read-only (registry + the open backlog and the
                           delivered PRs' live state under the platform
-                          identity); safe. Only numbers, titles and URLs
-                          leave here: issue bodies are untrusted input the
-                          implement run reads itself.
+                          identity); safe. Only numbers, titles, URLs and
+                          attempt counts leave here: issue bodies are
+                          untrusted input the implement run reads itself.
     heartbeat_decide    — dispatches the PM's decide mode and polls to
                           terminal; the PM answers 409 while running
                           (re-attach) like every dispatch. The chosen
@@ -42,7 +42,7 @@ from orchestrator.clients import GatewayClient, dispatch_and_poll, pr_settled
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from orchestrator.workflows.base import workflow_id
-from registry import AuditStore, BudgetLedger, Companies, Runs
+from registry import Attempts, AuditStore, BudgetLedger, Companies, Runs
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 # The observation is a prompt, not a database dump: enough candidates to
@@ -58,11 +58,24 @@ FAMILY = "heartbeat"
 # LLM gateway binds every call to a registry run — so the row must exist
 # before the PM speaks, or every tick dies `llm_unknown_run`. It carries
 # the heartbeat family so the observation ignores it (active_count and
-# started_issue_numbers scope to implement/review; recent() filters it —
+# the attempt aggregates scope to implement/review; recent() filters it —
 # `registry.runs.recent` spells the same family name), and a started child
 # reclaims the id through its own idempotent create_run. The task text is
 # a label for humans reading the runs table; nothing parses it.
 DECIDE_TASK = "heartbeat decision"
+
+
+def consumed(attempts: Attempts | None, max_attempts: int) -> bool:
+    """Whether a work item — an issue or a delivered PR — is off the
+    backlog: a run on it is live, a run concluded it (delivered, or
+    reached a verdict), or the blueprint's attempt cap is spent. Nothing
+    else consumes: a run that aborted before any conclusion (a timed-out
+    model call, a step cap, a cancel) leaves the item for another try,
+    as many as the charter allows. `max_attempts: 1` is the one-shot
+    company, where every run is the only try."""
+    if attempts is None:
+        return False
+    return attempts.live or attempts.concluded or attempts.count >= max_attempts
 
 
 def _section(header: str, lines: list[str]) -> str:
@@ -125,12 +138,18 @@ class HeartbeatActivities:
         return spec.get("heartbeat") or None
 
     @activity.defn(name="heartbeat_observe")
-    async def heartbeat_observe(self) -> dict[str, Any]:
+    async def heartbeat_observe(self, max_attempts: int) -> dict[str, Any]:
         """What the tick decides from — the PM's whole decision basis:
         in-flight runs, today's spend and the run history from the
         registry; the unconsumed open backlog and the delivered-but-
         unreviewed PRs as the candidate actions. Read under the platform
         identity, like every platform read.
+
+        Consumption is `consumed`: an item with a live run, a concluded
+        run, or `max_attempts` runs on it is not offered; one whose runs
+        all aborted short of a conclusion is offered again, carrying its
+        prior attempt count so the compiled heartbeat.start decision can
+        bound the retry independently of this code.
 
         The registry says which PRs the company delivered and which it has
         reviewed; only the git host knows which of those the world has
@@ -139,30 +158,43 @@ class HeartbeatActivities:
         is offered: a merged or closed PR is not reviewable, and a review
         of it could only fail at the head ref."""
 
-        def read() -> tuple[int, float, set[int], list[dict[str, Any]], list[Any]]:
+        def read() -> tuple[
+            int, float, dict[int, Attempts], list[dict[str, Any]], list[Any]
+        ]:
             company = self._settings.company
-            reviewed = self._runs.reviewed_pr_numbers(company)
+            reviews = self._runs.review_attempts(company)
             delivered = []
             for url in self._runs.delivered_pr_urls(company):
                 match = PR_URL_NUMBER_RE.search(url)
-                if match and int(match.group(1)) not in reviewed:
-                    delivered.append({"number": int(match.group(1)), "url": url})
+                if not match:
+                    continue
+                number = int(match.group(1))
+                attempts = reviews.get(number)
+                if consumed(attempts, max_attempts):
+                    continue
+                delivered.append(
+                    {
+                        "number": number,
+                        "url": url,
+                        "attempts": attempts.count if attempts else 0,
+                    }
+                )
             return (
                 self._runs.active_count(company),
                 self._ledger.spent_today(company),
-                self._runs.started_issue_numbers(company),
+                self._runs.issue_attempts(company),
                 delivered,
                 self._runs.recent(RECENT_RUNS_LIMIT),
             )
 
-        active_runs, daily_spent, started, delivered, recent = await asyncio.to_thread(
+        active_runs, daily_spent, issues, delivered, recent = await asyncio.to_thread(
             read
         )
         reviewable = []
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            issues = await gateway.read_open_issues(
+            open_issues = await gateway.read_open_issues(
                 self._ledger_run_id(), self._settings.target_repo
             )
             for candidate in delivered:
@@ -183,9 +215,14 @@ class HeartbeatActivities:
                     "number": int(issue["number"]),
                     "title": str(issue.get("title") or ""),
                     "url": str(issue.get("url") or ""),
+                    "attempts": (
+                        attempts.count
+                        if (attempts := issues.get(int(issue["number"])))
+                        else 0
+                    ),
                 }
-                for issue in issues
-                if int(issue["number"]) not in started
+                for issue in open_issues
+                if not consumed(issues.get(int(issue["number"])), max_attempts)
             ),
             key=lambda issue: issue["number"],
         )[:BACKLOG_LIMIT]
@@ -305,11 +342,13 @@ class HeartbeatActivities:
         workflow_name: str,
         active_runs: int,
         daily_spent_usd: float,
+        attempts: int,
     ) -> None:
         """Evaluate the compiled heartbeat.start decision — the caps and the
         startable set bind here as policy, not as this module's opinion.
-        The live counts ride the input (the active_spawns idiom); the
-        decision is audited either way; a deny ends the tick."""
+        The live counts ride the input (the active_spawns idiom): runs in
+        flight, today's spend, and the runs already made on the target
+        item; the decision is audited either way; a deny ends the tick."""
         company = self._settings.company
         decision_input = {
             "company": company,
@@ -324,6 +363,7 @@ class HeartbeatActivities:
                 "workflow": workflow_name,
                 "active_runs": active_runs,
                 "daily_spent_usd": daily_spent_usd,
+                "attempts": attempts,
             },
             "run_binding_verified": False,
         }

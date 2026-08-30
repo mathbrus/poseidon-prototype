@@ -341,6 +341,11 @@ class ReviewWorkflow(RunWorkflow):
         result: dict[str, Any] | None = None
         error: str | None = None
         cancelled = False
+        # Whether the reviewer reached a verdict — the review's conclusion,
+        # whatever the gate then does with it. A run that ends without one
+        # aborted, and the attempt accounting below decides whether the PR
+        # stays on the backlog.
+        concluded = False
         try:
             await workflow.execute_activity(
                 "create_review_run",
@@ -440,6 +445,7 @@ class ReviewWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
                 retry_policy=STEP_RETRY,
             )
+            concluded = True
             # The run record links the PR under review whatever the gate
             # decides — the review happened either way.
             result = dict(result or {})
@@ -489,6 +495,8 @@ class ReviewWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
             retry_policy=TEARDOWN_RETRY,
         )
+        if not concluded:
+            await self.record_attempts(input.run_id, timeouts)
         if cancelled:
             raise asyncio.CancelledError()
         return record

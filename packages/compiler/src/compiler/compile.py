@@ -56,6 +56,11 @@ PLATFORM_SCOPE = sorted(
         # so the human resolving the merge signal reads them first — a
         # gutted spec must be impossible to approve silently.
         "git.comment",
+        # The attempt-exhaustion notice: when the heartbeat's last allowed
+        # run on a PR or issue aborts, the platform says so on the item
+        # itself (git.comment above for a PR, issues.comment for a ticket),
+        # so the abandonment is never silent.
+        "issues.comment",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",
     }
@@ -249,6 +254,7 @@ def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig | None:
         conductor=heartbeat["conductor"],
         interval_minutes=int(heartbeat["interval_minutes"]),
         max_concurrent_runs=int(heartbeat["max_concurrent_runs"]),
+        max_attempts=int(heartbeat["max_attempts"]),
         may_start=tuple(sorted(heartbeat["may_start"])),
         daily_cap_usd=float(heartbeat["daily_cap"]["usd"]),
     )

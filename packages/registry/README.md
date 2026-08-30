@@ -23,7 +23,7 @@ the runtime path reports here (what every enforcement point decided).
 | `companies` | operator | The applied blueprint spec, one row per company. |
 | `agent_instances` | operator | The standing agents, including the namespace workload identity checks against. |
 | `policy_bundles` | operator | The compiled OPA bundle tarball and its revision. |
-| `runs` | orchestrator | The run record: task, status, artifacts, terminal state. |
+| `runs` | orchestrator | The run record: task, status, artifacts, terminal state — and whether the run *concluded* its work item (`pr_url` for implement, `verdict` for review), which the heartbeat's attempt accounting reads. |
 | `run_participants` | orchestrator | One row per bound ephemeral identity — the whole identity, ServiceAccount name included. Revocation is a row termination. |
 | `crew_requests` | gateway **and** orchestrator | Recorded spawn authorization and intent — never fulfillment. |
 | `sandbox_registrations` | gateway | Run → sandbox address. The registration *is* the run binding. |
@@ -90,7 +90,10 @@ re-executed after crashes and worker deaths ([root README, section
 "the retry lands on the same row" a property of the SQL, not a hope:
 
 - `Runs.start` upserts — a re-attempt resets the same row (and clears a
-  stale terminal state) instead of creating a second run.
+  stale terminal state) instead of creating a second run; a *different*
+  run claiming the same live issue or PR task dies on the one-live-run
+  partial indexes instead, so a re-offered item can never be worked twice
+  at once.
 - `RunParticipants.add` upserts on the deterministic `agent_id` the mint
   activity derives from `{crew, crew_role, run}` — a retried mint converges
   on one identity instead of leaking two.

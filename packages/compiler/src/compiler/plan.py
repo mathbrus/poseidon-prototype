@@ -77,6 +77,9 @@ class HeartbeatConfig:
     conductor: str
     interval_minutes: int
     max_concurrent_runs: int
+    # Runs the heartbeat may start on one issue or PR before it stops
+    # offering it; concluded runs consume the item regardless.
+    max_attempts: int
     may_start: tuple[str, ...]
     daily_cap_usd: float
 

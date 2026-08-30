@@ -375,6 +375,18 @@ def run_by_task(task: str, workflow: str | None = None) -> dict[str, Any] | None
     )
 
 
+def runs_by_task(task: str, workflow: str | None = None) -> list[dict[str, Any]]:
+    """Every run on one canonical task, oldest first — the attempts the
+    heartbeat made on one issue or PR."""
+    return psql_json(
+        "SELECT COALESCE(json_agg(r ORDER BY r.created_at), '[]'::json) "
+        "FROM registry.runs r "
+        "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow')",
+        task=task,
+        workflow=workflow or "",
+    )
+
+
 def await_run(task: str, terminal: bool, deadline_s: int = 1800) -> dict[str, Any]:
     """Poll the registry for a run by its task — optionally until it
     reaches a terminal state."""

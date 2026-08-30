@@ -18,6 +18,10 @@ Retry safety, per activity:
     platform_verify   — read-only against the sandbox; safe.
     teardown          — destroy is idempotent; the participants sweep and
                         the run row finalization are upserts.
+    record_attempts_exhausted
+                      — an append-only audit write plus one comment; a
+                        retry can duplicate both (a second notice on the
+                        item, never a lost one).
 """
 
 import asyncio
@@ -28,14 +32,43 @@ from temporalio import activity
 if TYPE_CHECKING:
     from orchestrator.activities.crew import CrewActivities
 
+from common.audit import args_digest
 from common.telemetry import get_logger
 from compiler.infra import DEFAULT_IMAGE
 from orchestrator.activities.blueprint import workflow_config
+from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient, dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import workflow_id
-from registry import AgentInstances, Companies, Runs
+from registry import (
+    ISSUE_TASK_RE,
+    REVIEW_TASK_RE,
+    AgentInstances,
+    AuditStore,
+    Companies,
+    Runs,
+)
 from sandbox.contract import SandboxBackend, SandboxHandle, SandboxPolicy
+
+# The process-gate event a run writes when it spent the last attempt the
+# blueprint allows on its issue or PR: `gate.heartbeat_attempts` /
+# `gate_exhausted`, the shape of the rework bound's `gate_rework_exhausted`
+# and the daily cap's `gate_halted`.
+ATTEMPTS_GATE = "heartbeat_attempts"
+
+
+def attempts_exhausted_comment(kind: str, count: int, max_attempts: int) -> str:
+    """The notice the platform leaves on the item itself, so the
+    abandonment is visible where a human looks — not only in the ledger."""
+    item = "pull request" if kind == "review" else "issue"
+    return (
+        f"Poseidon ran {count} {kind} run(s) on this {item} and none concluded"
+        f" — no {'verdict' if kind == 'review' else 'pull request'} was"
+        f" reached. That is the blueprint's `heartbeat.max_attempts`"
+        f" ({max_attempts}), so the heartbeat will not start another on its"
+        f" own. A human can: `poseidon {'review' if kind == 'review' else 'run'}"
+        f" <number>`."
+    )
 
 
 class ImplementActivities:
@@ -46,11 +79,13 @@ class ImplementActivities:
         runs: Runs,
         companies: Companies,
         instances: AgentInstances,
+        audit: AuditStore,
         crew: "CrewActivities | None" = None,
     ) -> None:
         self._settings = settings
         self._backend = backend
         self._runs = runs
+        self._audit = audit
         # Read-only: the applied blueprint's infra IR is the SandboxPolicy
         # source, and its workflow config directs the crew-only flow.
         self._companies = companies
@@ -308,6 +343,79 @@ class ImplementActivities:
         log.info("run finalized", extra={"status": record.status})
         return record.as_dict()
 
+    @activity.defn(name="record_attempts_exhausted")
+    async def record_attempts_exhausted(
+        self, run_id: str, workflow_id: str
+    ) -> dict[str, Any]:
+        """Called after teardown by a run that concluded nothing. If that
+        run was the last the blueprint's `heartbeat.max_attempts` allows on
+        its issue or PR, say so twice: a `gate.heartbeat_attempts` /
+        `gate_exhausted` process-gate event under this run's id, and a
+        platform comment on the item, so the world learns the company has
+        stopped trying. Nothing to record when the company has no
+        heartbeat section (no bound exists), when the run's task is not
+        heartbeat-startable work (a task file), when attempts remain, or
+        when another run already concluded the item (it is consumed by
+        that conclusion, not by exhaustion)."""
+        log = self._log.bind(run_id=run_id)
+
+        def read() -> tuple[str, int, int, int] | None:
+            run = self._runs.get(run_id)
+            if run is None:
+                return None
+            spec = self._companies.get(self._settings.company) or {}
+            max_attempts = (spec.get("heartbeat") or {}).get("max_attempts")
+            if max_attempts is None:
+                return None
+            kind = run.workflow
+            pattern, aggregate = {
+                "implement": (ISSUE_TASK_RE, self._runs.issue_attempts),
+                "review": (REVIEW_TASK_RE, self._runs.review_attempts),
+            }.get(kind, (None, None))
+            match = pattern.match(run.task) if pattern else None
+            if not match:
+                return None
+            number = int(match.group(1))
+            attempts = aggregate(self._settings.company).get(number)
+            if attempts is None or attempts.concluded:
+                return None
+            if attempts.count < int(max_attempts):
+                return None
+            return kind, number, attempts.count, int(max_attempts)
+
+        found = await asyncio.to_thread(read)
+        if found is None:
+            return {"exhausted": False}
+        kind, number, count, max_attempts = found
+        await record_event(
+            self._audit,
+            run_id=run_id,
+            tool=f"gate.{ATTEMPTS_GATE}",
+            digest=args_digest(
+                {"gate": ATTEMPTS_GATE, "outcome": "exhausted", "attempts": count}
+            ),
+            decision="deny",
+            rule="gate_exhausted",
+            source="process-gate",
+            company=self._settings.company,
+            workflow=workflow_id,
+        )
+        body = attempts_exhausted_comment(kind, count, max_attempts)
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            if kind == "review":
+                await gateway.comment_pr(run_id, self._settings.target_repo, number, body)
+            else:
+                await gateway.comment_issue(
+                    run_id, self._settings.target_repo, number, body
+                )
+        log.info(
+            "attempts exhausted",
+            extra={"workflow": kind, "number": number, "attempts": count},
+        )
+        return {"exhausted": True, "attempts": count}
+
     def all(self) -> list[Any]:
         return [
             self.create_run,
@@ -318,4 +426,5 @@ class ImplementActivities:
             self.dispatch_executor,
             self.platform_verify,
             self.teardown,
+            self.record_attempts_exhausted,
         ]

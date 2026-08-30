@@ -67,6 +67,11 @@ from common.telemetry import get_logger
 PM_STEP_CAP = 10
 # SDK steps allowed within one act cycle before tests are forced to run.
 ACT_STEP_CAP = 20
+# The reviewer's whole dispatch: read the diff, run the suite, post
+# findings, judge. An engineering limit of its own — `MAX_ITERATIONS`
+# bounds implement's verify cycles and says nothing about how many
+# steps a review takes; money is bounded by the per-run cap either way.
+REVIEW_STEP_CAP = 30
 # The planner reads a handful of files and answers; the cap keeps a
 # survey from becoming an implementation.
 PLAN_STEP_CAP = 8
@@ -486,8 +491,7 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     only: no write_file, no open_pr, and the compiled sdet scope enforces
     the same at the gateway. A dispatch without posted findings or without
     a verdict is a failed review."""
-    max_steps = settings.max_iterations * 2
-    with _session(settings, run_id, "review", REVIEWER_TOOLS, max_steps) as s:
+    with _session(settings, run_id, "review", REVIEWER_TOOLS, REVIEW_STEP_CAP) as s:
         convo, records = s.convo, s.records
         convo.send_message(f"Task:\n{task_text}")
         convo.run()

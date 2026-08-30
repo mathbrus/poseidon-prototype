@@ -16,6 +16,7 @@ from mockllm.brain import (
     GUTTED_CONTRACT_PY,
     MERGE_GATE_REDTEAM_MARKER,
     ORACLE_SMUGGLE_MARKER,
+    REVIEW_ABORT_MARKER,
     REVIEW_FAIL_MARKER,
     SLUGIFY_PY,
     SMUGGLED_CONTRACT_PATH,
@@ -402,6 +403,33 @@ def test_review_fail_marker_scripts_a_blocking_review():
     verdict = next_completion(review_history(FAILING_REVIEW_TASK, *steps), REVIEW_TOOLS)
     assert verdict.tool_calls[0].name == "verdict"
     assert verdict.tool_calls[0].arguments["verdict"] == "fail"
+
+
+def test_review_abort_marker_posts_findings_but_never_judges():
+    """The aborted review: findings go up, the verdict never comes, and a
+    plain answer ends the conversation — the host then reports a review
+    without a verdict, which is the platform's attempt accounting's cue."""
+    task = f"Task:\nReview pull request #41 (url): Add slugify ({REVIEW_ABORT_MARKER})"
+    steps = [("read_pr", "{}"), ("run_tests", "{}")]
+    comment = next_completion(review_history(task, *steps), REVIEW_TOOLS)
+    assert names(comment) == ["comment_pr"]
+    steps.append(("comment_pr", "{}"))
+    end = next_completion(review_history(task, *steps), REVIEW_TOOLS)
+    assert end.tool_calls == [] and end.content
+
+
+def test_deliver_stamps_the_review_abort_marker_into_the_pr_title():
+    """The marker's route to the reviewer: the issue title reaches the
+    deliver task, the delivery puts it in the PR title, and the review
+    task is composed from that title."""
+    marked = f"{HAPPY_TASK}\n\n{REVIEW_ABORT_MARKER}"
+    deliver = next_completion(history(marked, "write_file", "write_file"), DELIVER_TOOLS)
+    assert names(deliver) == ["exec", "open_pr"]
+    assert REVIEW_ABORT_MARKER in deliver.tool_calls[1].arguments["title"]
+    plain = next_completion(
+        history(HAPPY_TASK, "write_file", "write_file"), DELIVER_TOOLS
+    )
+    assert plain.tool_calls[1].arguments["title"] == "Add slugify utility"
 
 
 def test_steered_review_obeys_the_diff_and_passes():

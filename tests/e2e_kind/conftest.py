@@ -38,9 +38,11 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   and one parked review holds `max_concurrent_runs`' whole slot for a day.
   So a fixture closes the PRs it opened the moment their openness has been
   verified; a module that applies a heartbeat-declaring blueprint sweeps
-  BEFORE the apply (the bare heartbeat ticks once, immediately) and
-  restores the pristine blueprint after; the session sweeper catches
-  whatever a failure path dropped.
+  BEFORE the apply, waits for the bare heartbeat's first tick on that
+  empty backlog (`apply_profile` — the ensure loop starts it a minute or
+  two after the apply, and until it has ticked once and gone to sleep it
+  can steal the module's own ticket) and restores the pristine blueprint
+  after; the session sweeper catches whatever a failure path dropped.
 - **Quiet, asserted** (`test_quiet`, ordered last): when the suite exits
   green, no workflow is running and no run is non-terminal — a failing
   assertion, not a person asking.
@@ -70,7 +72,7 @@ from typing import Any
 
 import httpx
 import pytest
-from temporalio.client import Client
+from temporalio.client import Client, WorkflowExecutionStatus
 
 from common.ids import new_run_id
 from mockllm.brain import (
@@ -477,14 +479,55 @@ def pr_state(env: dict, pr_url: str | None) -> str:
 
 
 def apply_profile(path: Path, env: dict) -> None:
-    """Sweep, apply, converge — the way a module that declares a heartbeat
-    must arrive. An empty campsite first: the ensure loop's bare heartbeat
-    ticks once the moment the section is declared, and any open PR or
-    issue an earlier module left becomes its backlog — a review parked on
-    a day-long gate that holds the one concurrency slot."""
+    """Sweep, apply, converge, and let the bare heartbeat tick — the way a
+    module that declares a heartbeat must arrive. An empty campsite first:
+    the ensure loop's bare heartbeat ticks once the moment it starts, and
+    any open PR or issue an earlier module left becomes its backlog — a
+    review parked on a day-long gate that holds the one concurrency slot.
+    Then the wait: the ensure loop starts the bare heartbeat on its own
+    cadence, a minute or two after the apply, and its first tick lands on
+    the swept backlog and sleeps `interval_minutes` — but a module that
+    files its goal before that tick races the bare heartbeat for its own
+    ticket, and the module's heartbeat loses the attribution its
+    assertions anchor on (both start the run; the one-live-run index kills
+    the loser's child at birth). `path` must declare a heartbeat section."""
     sweep_repo_debris(env)
     apply_blueprint(path)
     wait_for_convergence()
+    await_bare_heartbeat_asleep()
+
+
+def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
+    """Block until the ensure loop's `heartbeat-{company}` is running and
+    asleep — it has observed the swept campsite and will not tick again
+    for the blueprint's `interval_minutes`. Read off the workflow's own
+    `state` query, on its current run only: a profile re-applied over
+    itself finds the standing heartbeat already asleep, and a terminated
+    one (a quiesced earlier profile) does not count until the ensure loop
+    has started its successor."""
+    bare = workflow_id("heartbeat", COMPANY_NS)
+
+    async def wait() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = client.get_workflow_handle(bare)
+            deadline = time.monotonic() + deadline_s
+            while time.monotonic() < deadline:
+                # Not started yet, or between runs: keep waiting.
+                with contextlib.suppress(Exception):
+                    description = await handle.describe()
+                    if (
+                        description.status == WorkflowExecutionStatus.RUNNING
+                        and await handle.query("state") == "sleeping"
+                    ):
+                        return
+                await asyncio.sleep(3)
+            raise AssertionError(
+                f"the bare heartbeat {bare} was not asleep within {deadline_s}s"
+                " of the apply"
+            )
+
+    asyncio.run(wait())
 
 
 def sweep_repo_debris(env: dict) -> None:
