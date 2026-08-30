@@ -7,6 +7,7 @@ import pytest
 from common.audit import AuditEvent
 from registry import (
     AgentInstances,
+    Attempts,
     AuditStore,
     BudgetLedger,
     Companies,
@@ -503,14 +504,24 @@ def test_active_count_counts_running_delivery_runs(registry: Registry):
     assert Runs(registry).active_count("hello-saas") == 2
 
 
-def test_started_issue_numbers_parses_the_canonical_task(registry: Registry):
+def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
+    """One `Attempts` per issue, from the canonical task: the count spans
+    every status, `live` is any running run, and `concluded` is a delivered
+    PR on any of them — a failed run that delivered still concluded, an
+    aborted one did not. Free-form tasks and other companies are not
+    keyed."""
     runs = Runs(registry)
     runs.start("run-in-1", "implement issue #3", "implement", None, "hello-saas")
     runs.start("run-in-2", "implement issue #12", "implement", None, "hello-saas")
-    runs.finish("run-in-2", "failed", error="boom")  # every status counts
-    runs.start("run-in-3", "a free-form task file", "implement", None, "hello-saas")
-    runs.start("run-in-4", "implement issue #7", "implement", None, "other-co")
-    assert Runs(registry).started_issue_numbers("hello-saas") == {3, 12}
+    runs.finish("run-in-2", "failed", error="litellm.Timeout")  # aborted
+    runs.start("run-in-3", "implement issue #12", "implement", None, "hello-saas")
+    runs.finish("run-in-3", "failed", error="teardown: boom", pr_url="https://p/9")
+    runs.start("run-in-4", "a free-form task file", "implement", None, "hello-saas")
+    runs.start("run-in-5", "implement issue #7", "implement", None, "other-co")
+    assert Runs(registry).issue_attempts("hello-saas") == {
+        3: Attempts(count=1, live=True, concluded=False),
+        12: Attempts(count=2, live=False, concluded=True),
+    }
 
 
 def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
@@ -550,13 +561,26 @@ def test_delivered_pr_urls_are_done_implement_runs_only(registry: Registry):
     ]
 
 
-def test_reviewed_pr_numbers_parses_the_canonical_task(registry: Registry):
+def test_review_attempts_conclude_on_a_recorded_verdict(registry: Registry):
+    """The review's conclusion is the verdict on its row, not its status:
+    a failed run whose reviewer judged (rework filed, gate rejected) stays
+    concluded; a failed run with no verdict aborted."""
     runs = Runs(registry)
     runs.start("run-rv-1", "review pull request #4", "review", None, "hello-saas")
     runs.start("run-rv-2", "review pull request #9", "review", None, "hello-saas")
-    runs.finish("run-rv-2", "failed", error="boom")  # every status counts
-    runs.start("run-rv-3", "review pull request #8", "review", None, "other-co")
-    assert Runs(registry).reviewed_pr_numbers("hello-saas") == {4, 9}
+    runs.finish("run-rv-2", "failed", error="agent loop did not finish")
+    runs.start("run-rv-3", "review pull request #11", "review", None, "hello-saas")
+    runs.record_verdict("run-rv-3", "fail")
+    runs.finish("run-rv-3", "failed", error="merge gate rejected")
+    runs.start("run-rv-4", "review pull request #8", "review", None, "other-co")
+    assert Runs(registry).review_attempts("hello-saas") == {
+        4: Attempts(count=1, live=True, concluded=False),
+        9: Attempts(count=1, live=False, concluded=False),
+        11: Attempts(count=1, live=False, concluded=True),
+    }
+    assert Runs(registry).get("run-rv-3").verdict == "fail"
+    assert Runs(registry).get("run-rv-3").as_dict()["verdict"] == "fail"
+    assert Runs(registry).get("run-rv-2").verdict is None
 
 
 def test_one_live_implement_run_per_issue(registry: Registry):
@@ -565,12 +589,26 @@ def test_one_live_implement_run_per_issue(registry: Registry):
     row; a finished run frees the slot; other companies are unaffected."""
     runs = Runs(registry)
     runs.start("run-dup-1", "implement issue #7", "implement", None, "hello-saas")
-    with pytest.raises(RuntimeError, match="one live implement run per issue"):
+    with pytest.raises(RuntimeError, match="one live run per work item"):
         runs.start("run-dup-2", "implement issue #7", "implement", None, "hello-saas")
     runs.start("run-dup-1", "implement issue #7", "implement", None, "hello-saas")
     runs.finish("run-dup-1", "done")
     runs.start("run-dup-3", "implement issue #7", "implement", None, "hello-saas")
     runs.start("run-dup-4", "implement issue #7", "implement", None, "other-co")
+
+
+def test_one_live_review_run_per_pr(registry: Registry):
+    """The review twin of the issue index: a second live review of one PR
+    dies structurally, a retry lands on its own row, a finished run frees
+    the slot, and other companies are unaffected."""
+    runs = Runs(registry)
+    runs.start("run-rd-1", "review pull request #7", "review", None, "hello-saas")
+    with pytest.raises(RuntimeError, match="one live run per work item"):
+        runs.start("run-rd-2", "review pull request #7", "review", None, "hello-saas")
+    runs.start("run-rd-1", "review pull request #7", "review", None, "hello-saas")
+    runs.finish("run-rd-1", "failed", error="no verdict")
+    runs.start("run-rd-3", "review pull request #7", "review", None, "hello-saas")
+    runs.start("run-rd-4", "review pull request #7", "review", None, "other-co")
 
 
 def test_free_form_tasks_are_not_constrained(registry: Registry):

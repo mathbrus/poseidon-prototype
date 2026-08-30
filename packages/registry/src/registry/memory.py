@@ -14,11 +14,12 @@ failure modes than the real thing hides exactly the bugs it exists to catch.
 """
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from common.audit import AuditEvent
 from registry.participants import ParticipantRevoked
-from registry.runs import RunRecord
+from registry.runs import ISSUE_TASK_RE, REVIEW_TASK_RE, Attempts, RunRecord
 
 
 class InMemoryAuditStore:
@@ -352,21 +353,23 @@ class InMemoryRuns:
     ) -> None:
         # Upsert like the real accessor: a retried start lands on the same
         # row and keeps recorded artifacts, resetting only the run state.
-        # And like the real accessor's one-live-issue-run index: a
-        # *different* run claiming the same live issue task is refused.
-        if workflow == "implement" and task.startswith("implement issue #"):
+        # And like the real accessor's one-live-run indexes: a *different*
+        # run claiming the same live issue or PR task is refused.
+        keyed = (workflow == "implement" and ISSUE_TASK_RE.match(task)) or (
+            workflow == "review" and REVIEW_TASK_RE.match(task)
+        )
+        if keyed:
             for other in self.rows.values():
                 if (
                     other.run_id != run_id
                     and other.company == company
-                    and other.workflow == "implement"
+                    and other.workflow == workflow
                     and other.status == "running"
                     and other.task == task
                 ):
                     raise RuntimeError(
-                        f"run {run_id!r} refused: another live implement run"
-                        f" already holds {task!r} — one live implement run"
-                        " per issue"
+                        f"run {run_id!r} refused: another live {workflow} run"
+                        f" already holds {task!r} — one live run per work item"
                     )
         record = self.rows.get(run_id) or RunRecord(run_id=run_id)
         record.task = task
@@ -386,6 +389,11 @@ class InMemoryRuns:
             return
         record.pr_url = pr_url or record.pr_url
         record.ticket_urls = ticket_urls or record.ticket_urls
+
+    def record_verdict(self, run_id: str, verdict: str) -> None:
+        record = self.rows.get(run_id)
+        if record is not None:
+            record.verdict = verdict
 
     def finish(
         self,
@@ -416,15 +424,38 @@ class InMemoryRuns:
             and r.workflow in ("implement", "review")
         )
 
-    def started_issue_numbers(self, company: str) -> set[int]:
-        numbers = set()
+    def issue_attempts(self, company: str) -> dict[int, Attempts]:
+        return self._attempts(
+            company, "implement", ISSUE_TASK_RE, lambda r: r.pr_url is not None
+        )
+
+    def review_attempts(self, company: str) -> dict[int, Attempts]:
+        return self._attempts(
+            company, "review", REVIEW_TASK_RE, lambda r: r.verdict is not None
+        )
+
+    def _attempts(
+        self,
+        company: str,
+        workflow: str,
+        task_re: re.Pattern[str],
+        concluded: Callable[[RunRecord], bool],
+    ) -> dict[int, Attempts]:
+        grouped: dict[int, list[RunRecord]] = {}
         for record in self.rows.values():
-            if record.company != company or record.workflow != "implement":
+            if record.company != company or record.workflow != workflow:
                 continue
-            match = re.fullmatch(r"implement issue #(\d+)", record.task)
+            match = task_re.match(record.task)
             if match:
-                numbers.add(int(match.group(1)))
-        return numbers
+                grouped.setdefault(int(match.group(1)), []).append(record)
+        return {
+            number: Attempts(
+                count=len(records),
+                live=any(r.status == "running" for r in records),
+                concluded=any(concluded(r) for r in records),
+            )
+            for number, records in grouped.items()
+        }
 
     def delivered_pr_urls(self, company: str) -> list[str]:
         return [
@@ -435,16 +466,6 @@ class InMemoryRuns:
             and r.status == "done"
             and r.pr_url
         ]
-
-    def reviewed_pr_numbers(self, company: str) -> set[int]:
-        numbers = set()
-        for record in self.rows.values():
-            if record.company != company or record.workflow != "review":
-                continue
-            match = re.fullmatch(r"review pull request #(\d+)", record.task)
-            if match:
-                numbers.add(int(match.group(1)))
-        return numbers
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
         candidates = [

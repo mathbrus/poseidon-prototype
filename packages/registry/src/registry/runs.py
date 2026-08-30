@@ -2,15 +2,41 @@
 
 One row per run: its task, workflow, status and artifacts. The row is the
 workflow's terminal record and what the CLI prints when a run completes.
+
+The row also says whether the run *concluded* its work item, which is a
+different question from whether it succeeded: an implement run concluded
+when it delivered a PR (`pr_url`), a review run when its reviewer reached
+a verdict (`verdict`) — a rework filed or a gate rejected is still a
+conclusion. A run that ended with neither aborted (a timed-out model
+call, a step cap, a cancel), and the heartbeat's consumption rule reads
+that difference off the attempt aggregates below.
 """
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from psycopg.errors import UniqueViolation
 
 from registry.db import Registry
+
+# The canonical task texts of heartbeat-startable work. The number is the
+# work item's key: every run on one issue or one PR carries the same
+# text, which is what the live-run indexes and the attempt aggregates
+# group by.
+ISSUE_TASK_RE = re.compile(r"^implement issue #(\d+)$")
+REVIEW_TASK_RE = re.compile(r"^review pull request #(\d+)$")
+
+
+@dataclass(frozen=True)
+class Attempts:
+    """Every run ever made on one work item, folded: how many, whether one
+    is still running, and whether any concluded it."""
+
+    count: int
+    live: bool
+    concluded: bool
 
 
 @dataclass
@@ -22,6 +48,7 @@ class RunRecord:
     workflow_id: str | None = None
     company: str | None = None
     pr_url: str | None = None
+    verdict: str | None = None
     ticket_urls: list[str] = field(default_factory=list)
     iterations: int = 0
     error: str | None = None
@@ -38,6 +65,7 @@ class RunRecord:
             workflow_id=row["workflow_id"],
             company=row["company"],
             pr_url=row["pr_url"],
+            verdict=row["verdict"],
             ticket_urls=list(row["ticket_urls"] or []),
             iterations=row["iterations"],
             error=row["error"],
@@ -53,6 +81,7 @@ class RunRecord:
             "status": self.status,
             "workflow": self.workflow,
             "pr_url": self.pr_url,
+            "verdict": self.verdict,
             "ticket_urls": self.ticket_urls,
             "iterations": self.iterations,
             "error": self.error,
@@ -76,8 +105,8 @@ class Runs:
         """Create or reset the run row. Retry-safe: an activity re-attempt
         after a worker death must land on the same row, not a second one —
         the ON CONFLICT arbiter is run_id, so a retry updates its own row
-        while a *different* run claiming the same live issue task still
-        dies on the one-live-issue-run index."""
+        while a *different* run claiming the same live issue or PR task
+        still dies on the one-live-run indexes."""
         try:
             self._db.execute(
                 """
@@ -97,8 +126,8 @@ class Runs:
             )
         except UniqueViolation as exc:
             raise RuntimeError(
-                f"run {run_id!r} refused: another live implement run already"
-                f" holds {task!r} — one live implement run per issue"
+                f"run {run_id!r} refused: another live {workflow} run already"
+                f" holds {task!r} — one live run per work item"
             ) from exc
 
     def record_artifacts(
@@ -112,6 +141,16 @@ class Runs:
              WHERE run_id = %s
             """,
             (pr_url, json.dumps(ticket_urls) if ticket_urls else None, run_id),
+        )
+
+    def record_verdict(self, run_id: str, verdict: str) -> None:
+        """The review's conclusion, as a fact on its row — mirroring
+        `pr_url` for implement. Written beside the journaled `review.verdict`
+        audit event; this is the copy the consumption rule reads, so `Runs`
+        never has to read the audit ledger."""
+        self._db.execute(
+            "UPDATE registry.runs SET verdict = %s WHERE run_id = %s",
+            (verdict, run_id),
         )
 
     def finish(
@@ -160,24 +199,50 @@ class Runs:
         )
         return int(rows[0]["n"])
 
-    def started_issue_numbers(self, company: str) -> set[int]:
-        """Issues any run has ever consumed, parsed from the canonical
-        issue-run task (`implement issue #N`). Every status counts: a
-        failed issue-run is a recorded outcome for a human to read, not an
-        invitation for the heartbeat to retry it forever."""
-        rows = self._db.query(
-            r"SELECT DISTINCT (regexp_match(task, '^implement issue #(\d+)$'))[1]::int"
-            r" AS number FROM registry.runs"
-            r" WHERE company = %s AND workflow = 'implement'"
-            r"   AND task ~ '^implement issue #\d+$'",
-            (company,),
+    def issue_attempts(self, company: str) -> dict[int, Attempts]:
+        """Every issue the company's implement runs ever took up, keyed by
+        number, with the runs on it folded into one `Attempts`. Concluded
+        means delivered: a `pr_url` on any of the runs, whatever their
+        status — a failed teardown after delivery still delivered."""
+        return self._attempts(
+            company, "implement", ISSUE_TASK_RE.pattern, "pr_url IS NOT NULL"
         )
-        return {int(row["number"]) for row in rows}
+
+    def review_attempts(self, company: str) -> dict[int, Attempts]:
+        """Every PR the company's review runs ever took up, keyed by
+        number. Concluded means a verdict was reached — a rework filed or
+        a gate rejected on that verdict is still a review that concluded,
+        and stays consumed."""
+        return self._attempts(
+            company, "review", REVIEW_TASK_RE.pattern, "verdict IS NOT NULL"
+        )
+
+    def _attempts(
+        self, company: str, workflow: str, task_pattern: str, concluded: str
+    ) -> dict[int, Attempts]:
+        rows = self._db.query(
+            f"SELECT (regexp_match(task, %s))[1]::int AS number,"
+            f"       COUNT(*) AS count,"
+            f"       bool_or(status = 'running') AS live,"
+            f"       bool_or({concluded}) AS concluded"
+            f"  FROM registry.runs"
+            f" WHERE company = %s AND workflow = %s AND task ~ %s"
+            f" GROUP BY 1",
+            (task_pattern, company, workflow, task_pattern),
+        )
+        return {
+            int(row["number"]): Attempts(
+                count=int(row["count"]),
+                live=bool(row["live"]),
+                concluded=bool(row["concluded"]),
+            )
+            for row in rows
+        }
 
     def delivered_pr_urls(self, company: str) -> list[str]:
         """PRs the company's implement runs have opened and finished with —
-        the review side of the heartbeat's observation, before the
-        already-reviewed set is subtracted."""
+        the review side of the heartbeat's observation, before the consumed
+        ones (`review_attempts`) are subtracted."""
         rows = self._db.query(
             "SELECT pr_url FROM registry.runs"
             " WHERE company = %s AND workflow = 'implement'"
@@ -201,20 +266,6 @@ class Runs:
             (company, f"/{int(pr_number)}$"),
         )
         return RunRecord.from_row(rows[0]) if rows else None
-
-    def reviewed_pr_numbers(self, company: str) -> set[int]:
-        """PRs any review run has ever consumed, parsed from the canonical
-        review-run task (`review pull request #N`) — same rule as issues:
-        every status counts, a failed review is a recorded outcome."""
-        rows = self._db.query(
-            r"SELECT DISTINCT"
-            r" (regexp_match(task, '^review pull request #(\d+)$'))[1]::int"
-            r" AS number FROM registry.runs"
-            r" WHERE company = %s AND workflow = 'review'"
-            r"   AND task ~ '^review pull request #\d+$'",
-            (company,),
-        )
-        return {int(row["number"]) for row in rows}
 
     def recent(self, limit: int = 20) -> list[RunRecord]:
         # Heartbeat decision rows exist only so the heartbeat's LLM call can
