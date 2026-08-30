@@ -38,9 +38,11 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   and one parked review holds `max_concurrent_runs`' whole slot for a day.
   So a fixture closes the PRs it opened the moment their openness has been
   verified; a module that applies a heartbeat-declaring blueprint sweeps
-  BEFORE the apply (the bare heartbeat ticks once, immediately) and
-  restores the pristine blueprint after; the session sweeper catches
-  whatever a failure path dropped.
+  BEFORE the apply, waits for the bare heartbeat's first tick on that
+  empty backlog (`apply_profile` — the ensure loop starts it a minute or
+  two after the apply, and until it has ticked once and gone to sleep it
+  can steal the module's own ticket) and restores the pristine blueprint
+  after; the session sweeper catches whatever a failure path dropped.
 - **Quiet, asserted** (`test_quiet`, ordered last): when the suite exits
   green, no workflow is running and no run is non-terminal — a failing
   assertion, not a person asking.
@@ -89,6 +91,7 @@ from .cluster import (
     audit_story,
     db_now,
     kill_worker_pod,
+    psql_json,
     run_kubectl,
     sandbox_pods,
     temporal_port_forward,
@@ -477,14 +480,47 @@ def pr_state(env: dict, pr_url: str | None) -> str:
 
 
 def apply_profile(path: Path, env: dict) -> None:
-    """Sweep, apply, converge — the way a module that declares a heartbeat
-    must arrive. An empty campsite first: the ensure loop's bare heartbeat
-    ticks once the moment the section is declared, and any open PR or
-    issue an earlier module left becomes its backlog — a review parked on
-    a day-long gate that holds the one concurrency slot."""
+    """Sweep, apply, converge, and let the bare heartbeat tick — the way a
+    module that declares a heartbeat must arrive. An empty campsite first:
+    the ensure loop's bare heartbeat ticks once the moment it starts, and
+    any open PR or issue an earlier module left becomes its backlog — a
+    review parked on a day-long gate that holds the one concurrency slot.
+    Then the wait: the ensure loop starts the bare heartbeat on its own
+    cadence, a minute or two after the apply, and its first tick lands on
+    the swept backlog and sleeps `interval_minutes` — but a module that
+    files its goal before that tick races the bare heartbeat for its own
+    ticket, and the module's heartbeat loses the attribution its
+    assertions anchor on (both start the run; the one-live-run index kills
+    the loser's child at birth). `path` must declare a heartbeat section."""
     sweep_repo_debris(env)
+    since = db_now()
     apply_blueprint(path)
     wait_for_convergence()
+    await_bare_heartbeat_tick(since)
+
+
+def await_bare_heartbeat_tick(since: str, deadline_s: int = 300) -> None:
+    """Block until the ensure loop's `heartbeat-{company}` has recorded a
+    tick after `since` (the registry's own clock, from `db_now()`) — the
+    moment the bare heartbeat has seen the empty campsite and gone to
+    sleep for the blueprint's `interval_minutes`."""
+    bare = workflow_id("heartbeat", COMPANY_NS)
+    deadline = time.monotonic() + deadline_s
+    while time.monotonic() < deadline:
+        ticks = psql_json(
+            "SELECT COALESCE(json_agg(e), '[]'::json) FROM ("
+            "SELECT rule FROM registry.audit_events"
+            " WHERE tool = 'heartbeat.tick' AND workflow = :'bare'"
+            "   AND ts > :'since'::timestamptz) e",
+            bare=bare,
+            since=since,
+        )
+        if ticks:
+            return
+        time.sleep(3)
+    raise AssertionError(
+        f"the bare heartbeat {bare} never ticked within {deadline_s}s of the apply"
+    )
 
 
 def sweep_repo_debris(env: dict) -> None:
