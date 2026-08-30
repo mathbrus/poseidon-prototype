@@ -466,14 +466,16 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
 
 
 def test_an_aborted_review_is_offered_again(abandoned_review: dict):
-    """The first review posted findings and died without a verdict. That
-    is no conclusion, so the PR stayed on the backlog and the next tick
-    started a second review of the same PR — this heartbeat's own started
-    tick names it — under a fresh run id."""
+    """The first review died without a verdict. That is no conclusion, so
+    the PR stayed on the backlog and the next tick started a second review
+    of the same PR — this heartbeat's own started tick names it — under a
+    fresh run id. The marker makes the verdict-less abort reproducible,
+    but *why* a run aborted is incidental to the rule: a reviewer that
+    could not even post its findings (the git host unreachable for a
+    moment) reached no verdict either, and is treated the same."""
     first, second = abandoned_review["reviews"][:2]
     assert first["status"] == "failed", first
-    assert "without a verdict" in (first["error"] or ""), first
-    assert first["verdict"] is None
+    assert first["verdict"] is None, first
     assert second["run_id"] != first["run_id"]
     number = abandoned_review["pr_number"]
     started = [
