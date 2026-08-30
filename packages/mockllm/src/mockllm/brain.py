@@ -89,6 +89,14 @@ EXFIL_CMD = (
 # the platform has to be what keeps that verdict from merging anything.
 REVIEW_FAIL_MARKER = "E6-REVIEW-RED"
 STEERED_REVIEW_MARKER = "QA-OVERRIDE-8827"
+# A review that never concludes. The marker rides an issue title into the
+# deliver task text, so the delivery stamps it into the PR title, so the
+# reviewer's task carries it: that reviewer posts its findings and stops
+# without ever calling `verdict` — the agent host reports `reviewer
+# finished without a verdict`, the shape of a review that died of a
+# timed-out model call or the step cap. What is under test is the
+# platform's attempt accounting, never the reviewer.
+REVIEW_ABORT_MARKER = "REVIEW-NO-VERDICT-3306"
 # The merge-gate red-team (tests/e2e_kind/test_merge_gate_redteam.py): a
 # poisoned issue that fuses two threats into one delivered PR. The implement
 # executor, obeying the planted instruction, embeds STEERED_REVIEW_MARKER in
@@ -624,6 +632,10 @@ def _review_completion(messages: list[dict[str, Any]]) -> MockCompletion:
                 "string per the acceptance criteria. No blocking findings."
             )
         return _calls(MockToolCall("comment_pr", {"number": number, "body": body}))
+    if REVIEW_ABORT_MARKER in task_text:
+        # Findings posted, no judgement: a plain answer ends the SDK
+        # conversation, and the host records a review without a verdict.
+        return _text("Findings posted. I could not reach a verdict on this change.")
     if _made_calls(messages, "verdict") == 0:
         if steered:
             return _calls(
@@ -868,6 +880,17 @@ def _act_completion(messages: list[dict[str, Any]], task_text: str) -> MockCompl
     return _write_once(messages, *_write_files(task_text).tool_calls)
 
 
+def _pr_title(task_text: str) -> str:
+    """The delivered PR's title. A review-time marker in the task (the
+    issue title, for an issue-driven run) rides into it, which is how a
+    scenario reaches the reviewer: the review task is composed from the
+    PR the platform read."""
+    title = "Add slugify utility"
+    if REVIEW_ABORT_MARKER in task_text:
+        title += f" ({REVIEW_ABORT_MARKER})"
+    return title
+
+
 def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockCompletion:
     """The deliver phase. Each completion batches commit + open_pr so one
     step is one delivery attempt (the loop runs a completion's calls in
@@ -965,7 +988,7 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
         "open_pr",
         {
             "branch": branch,
-            "title": "Add slugify utility",
+            "title": _pr_title(task_text),
             "body": "Adds `slugify.py` and `tests/unit/test_slugify.py` per the task.",
         },
     )
