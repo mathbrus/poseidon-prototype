@@ -447,6 +447,24 @@ def test_planner_that_never_answers_is_an_error(settings, gateway):
     assert result.error == f"agent loop did not finish within {PLAN_STEP_CAP} steps"
 
 
+def test_reviewer_step_budget_is_its_own_cap_not_max_iterations(settings, gateway):
+    """The reviewer's budget is `REVIEW_STEP_CAP`, decoupled from
+    `max_iterations` — that knob bounds implement's verify cycles, and a
+    deployment that tunes it low must not starve the reviewer of the
+    steps a diff-read, a test run, findings and a verdict take."""
+    from agent.brain import REVIEW_STEP_CAP
+
+    assert REVIEW_STEP_CAP > settings.max_iterations * 2
+    llm = ScriptedLLM(
+        [calls(tc("read_file", path=f"src/m{i}.py")) for i in range(REVIEW_STEP_CAP)]
+    )
+
+    with scripted(gateway, llm):
+        result = review_dispatch(settings, RUN_ID, "Review pull request #41")
+
+    assert result.error == f"agent loop did not finish within {REVIEW_STEP_CAP} steps"
+
+
 # --- the LLM client shape -------------------------------------------------------
 
 

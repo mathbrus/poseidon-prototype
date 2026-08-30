@@ -136,7 +136,11 @@ never contacted.)
 The reviewer's surface is read-and-judge: it reads the PR and executes
 the suite in its review sandbox, but has no `write_file` and no
 `open_pr` — and the compiled sdet scope enforces the same at the gateway,
-so the in-process surface is a convenience, not the boundary.
+so the in-process surface is a convenience, not the boundary. Its step
+budget is `REVIEW_STEP_CAP`, a constant of its own beside `ACT_STEP_CAP`
+and `PLAN_STEP_CAP`: `MAX_ITERATIONS` bounds only how many advisory
+verify cycles an implement dispatch gets, and a deployment that tunes it
+low for implement never starves the reviewer.
 
 Every runner fails on missing evidence rather than on the model's word: a
 deliver dispatch with no PR opened, a review with no findings posted, a
@@ -273,8 +277,9 @@ uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 
 `poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and crew
 pods run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
-`MODEL`, `TARGET_REPO`, `ROLE_TEMPLATE`, `MAX_ITERATIONS`, and one of
-`GATEWAY_TOKEN_FILE` / `GATEWAY_TOKEN`.
+`MODEL`, `TARGET_REPO`, `ROLE_TEMPLATE`, `MAX_ITERATIONS` (implement's
+verify-cycle bound; every other mode runs under its own step cap), and
+one of `GATEWAY_TOKEN_FILE` / `GATEWAY_TOKEN`.
 
 ## Cross-package interactions
 
