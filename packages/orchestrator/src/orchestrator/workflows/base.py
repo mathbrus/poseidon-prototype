@@ -119,6 +119,19 @@ class RunWorkflow:
             retry_policy=STEP_RETRY,
         )
 
+    async def record_attempts(self, run_id: str, timeouts: Timeouts) -> None:
+        """After teardown of a run that concluded nothing — no PR delivered,
+        no verdict reached — let the platform record whether that run spent
+        the last attempt the blueprint allows on its issue or PR. Runs
+        after teardown so the finished row counts, and before a cancelled
+        run re-raises, so a cancel that exhausts an item is not silent."""
+        await workflow.execute_activity(
+            "record_attempts_exhausted",
+            args=[run_id, workflow.info().workflow_id],
+            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            retry_policy=STEP_RETRY,
+        )
+
     async def dispatch(
         self, run_id: str, task_text: str, url: str, mode: str, timeouts: Timeouts
     ) -> dict[str, Any]:

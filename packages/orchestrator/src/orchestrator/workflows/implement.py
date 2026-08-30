@@ -282,6 +282,11 @@ class ImplementWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
             retry_policy=TEARDOWN_RETRY,
         )
+        # Delivered is concluded, whatever happened after (a failed
+        # teardown still delivered); a run that opened no PR aborted, and
+        # the attempt accounting decides whether its issue stays offered.
+        if not record.get("pr_url"):
+            await self.record_attempts(input.run_id, timeouts)
         if cancelled:
             raise asyncio.CancelledError()
         return record

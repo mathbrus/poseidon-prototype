@@ -10,8 +10,13 @@ from conftest import heartbeat_spec
 from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
-from orchestrator.activities.heartbeat import HeartbeatActivities, decision_prompt
+from orchestrator.activities.heartbeat import (
+    HeartbeatActivities,
+    consumed,
+    decision_prompt,
+)
 from orchestrator.config import WorkerSettings
+from registry import Attempts
 from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
@@ -22,6 +27,7 @@ from registry.memory import (
 COMPANY = "hello-saas"
 
 HEARTBEAT_SPEC = heartbeat_spec()
+MAX_ATTEMPTS = HEARTBEAT_SPEC["max_attempts"]
 
 
 def settings(tmp_path) -> WorkerSettings:
@@ -164,10 +170,14 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
 ):
     _backlog_gateway(monkeypatch, fake_gateway, [_issue(7), _issue(3), _issue(5)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    observed = asyncio.run(activities.heartbeat_observe())
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert [i["number"] for i in observed["backlog"]] == [5, 7]
-    # Bodies are untrusted input; only number, title and URL feed the tick.
-    assert all(set(i) == {"number", "title", "url"} for i in observed["backlog"])
+    # Bodies are untrusted input; only number, title, URL and the attempt
+    # count feed the tick.
+    assert all(
+        set(i) == {"number", "title", "url", "attempts"} for i in observed["backlog"]
+    )
+    assert all(i["attempts"] == 0 for i in observed["backlog"])
 
 
 def test_observe_counts_running_delivery_runs_and_todays_spend(
@@ -188,23 +198,73 @@ def test_observe_counts_running_delivery_runs_and_todays_spend(
         completion_tokens=1,
         usd=2.5,
     )
-    observed = asyncio.run(activities.heartbeat_observe())
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["active_runs"] == 1
     assert observed["daily_spent_usd"] == 2.5
     assert observed["backlog"] == []
     assert len(observed["recent_runs"]) == 3
 
 
-def test_observe_exhausted_backlog_offers_nothing(
+def test_consumed_is_live_or_concluded_or_at_the_cap():
+    """The one consumption rule, for issues and PRs alike."""
+    assert consumed(None, 2) is False
+    assert consumed(Attempts(count=1, live=True, concluded=False), 2) is True
+    assert consumed(Attempts(count=1, live=False, concluded=True), 2) is True
+    assert consumed(Attempts(count=1, live=False, concluded=False), 2) is False
+    assert consumed(Attempts(count=2, live=False, concluded=False), 2) is True
+    # max_attempts: 1 is the one-shot company — every run is the only try.
+    assert consumed(Attempts(count=1, live=False, concluded=False), 1) is True
+
+
+def test_observe_reoffers_an_aborted_issue_run_with_its_attempt_count(
     activities, runs, monkeypatch, fake_gateway
 ):
-    """A failed issue-run is a recorded outcome, not an invitation to
-    retry forever: every consumed issue stays consumed."""
+    """An implement run that aborted before delivering (a timed-out model
+    call, a step cap) is not the company's last word on the ticket: under
+    `max_attempts: 2` the issue is offered again, carrying the one attempt
+    already spent for the compiled decision to bound."""
     _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    runs.finish("run-a", "failed", error="boom")
-    observed = asyncio.run(activities.heartbeat_observe())
+    runs.finish("run-a", "failed", error="litellm.Timeout")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert [(i["number"], i["attempts"]) for i in observed["backlog"]] == [(3, 1)]
+
+
+def test_observe_excludes_an_issue_with_a_live_run(
+    activities, runs, monkeypatch, fake_gateway
+):
+    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
+    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["backlog"] == []
+
+
+def test_observe_excludes_a_delivered_issue_whatever_the_run_status(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """Delivered is concluded: a run that opened its PR and then failed at
+    teardown still consumed the ticket."""
+    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
+    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
+    runs.finish("run-a", "failed", error="teardown: boom", pr_url="https://p/4")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert observed["backlog"] == []
+
+
+def test_observe_excludes_an_issue_at_the_attempt_cap(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """Two aborted runs under `max_attempts: 2`: the cap is spent and the
+    issue stays consumed — bounded, never a retry loop."""
+    _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
+    for run_id in ("run-a", "run-b"):
+        runs.start(run_id, "implement issue #3", "implement", company=COMPANY)
+        runs.finish(run_id, "failed", error="boom")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert observed["backlog"] == []
+    # max_attempts: 1 reproduces the one-shot rule exactly.
+    runs.rows.pop("run-b")
+    assert asyncio.run(activities.heartbeat_observe(1))["backlog"] == []
 
 
 def test_observe_offers_delivered_unreviewed_prs(
@@ -216,10 +276,55 @@ def test_observe_offers_delivered_unreviewed_prs(
     runs.start("run-b", "implement issue #5", "implement", company=COMPANY)
     runs.finish("run-b", "done", pr_url="https://github.test/example/repo/pull/6")
     runs.start("run-c", "review pull request #6", "review", company=COMPANY)
-    observed = asyncio.run(activities.heartbeat_observe())
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == [
-        {"number": 4, "url": "https://github.test/example/repo/pull/4"}
+        {"number": 4, "url": "https://github.test/example/repo/pull/4", "attempts": 0}
     ]
+
+
+def test_observe_reoffers_a_review_that_aborted_without_a_verdict(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """The finding this exists for: a review that died of a timed-out
+    model call or the step cap reached no verdict, so the PR is still
+    unreviewed — offered again with its attempt count, not abandoned."""
+    _backlog_gateway(monkeypatch, fake_gateway, [])
+    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
+    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
+    runs.start("run-b", "review pull request #4", "review", company=COMPANY)
+    runs.finish("run-b", "failed", error="agent loop did not finish within 30 steps")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert observed["reviewable_prs"] == [
+        {"number": 4, "url": "https://github.test/example/repo/pull/4", "attempts": 1}
+    ]
+
+
+def test_observe_excludes_a_review_that_concluded_whatever_its_status(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """A verdict is a conclusion: a failed review whose reviewer judged
+    (rework filed, gate rejected or expired) stays consumed."""
+    _backlog_gateway(monkeypatch, fake_gateway, [])
+    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
+    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
+    runs.start("run-b", "review pull request #4", "review", company=COMPANY)
+    runs.record_verdict("run-b", "fail")
+    runs.finish("run-b", "failed", error="policy merge gate: rework ticket filed")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert observed["reviewable_prs"] == []
+
+
+def test_observe_excludes_a_review_at_the_attempt_cap(
+    activities, runs, monkeypatch, fake_gateway
+):
+    _backlog_gateway(monkeypatch, fake_gateway, [])
+    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
+    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
+    for run_id in ("run-b", "run-c"):
+        runs.start(run_id, "review pull request #4", "review", company=COMPANY)
+        runs.finish(run_id, "failed", error="litellm.Timeout")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert observed["reviewable_prs"] == []
 
 
 def test_observe_drops_delivered_prs_the_world_has_settled(
@@ -229,7 +334,7 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
     knows what happened to it since. A PR merged by a human's hand (or
     closed by anyone) is not reviewable, whatever the ledger says — and
     the check is a platform read under the heartbeat's own run id, not a
-    guess. Nothing is consumed by the drop: `reviewed_pr_numbers` stays a
+    guess. Nothing is consumed by the drop: the attempt aggregate stays a
     record of reviews that ran, never of PRs the world settled."""
     reads = _backlog_gateway(
         monkeypatch,
@@ -244,16 +349,16 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
     for run_id, issue, pr in (("run-a", 3, 4), ("run-b", 5, 6), ("run-c", 7, 8)):
         runs.start(run_id, f"implement issue #{issue}", "implement", company=COMPANY)
         runs.finish(run_id, "done", pr_url=f"https://github.test/example/repo/pull/{pr}")
-    observed = asyncio.run(activities.heartbeat_observe())
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == [
-        {"number": 8, "url": "https://github.test/example/repo/pull/8"}
+        {"number": 8, "url": "https://github.test/example/repo/pull/8", "attempts": 0}
     ]
     assert reads == [
         (f"heartbeat-{COMPANY}", 4),
         (f"heartbeat-{COMPANY}", 6),
         (f"heartbeat-{COMPANY}", 8),
     ]
-    assert runs.reviewed_pr_numbers(COMPANY) == set()
+    assert runs.review_attempts(COMPANY) == {}
 
 
 # -- heartbeat_authorize -----------------------------------------------------
@@ -261,14 +366,16 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
 
 def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
     http = _opa(monkeypatch, allow=True, rule="heartbeat_start_implement")
-    asyncio.run(activities.heartbeat_authorize("auto-1", "implement", 0, 3.5))
+    asyncio.run(activities.heartbeat_authorize("auto-1", "implement", 0, 3.5, 1))
     assert "/v1/data/poseidon/authz/hello_saas/decision" in http.last.url
     assert http.last.input["tool"] == "heartbeat.start"
     assert http.last.input["lifecycle"] == "platform"
+    # Every cap's live count rides the input, the target's attempts too.
     assert http.last.input["args"] == {
         "workflow": "implement",
         "active_runs": 0,
         "daily_spent_usd": 3.5,
+        "attempts": 1,
     }
     (event,) = audit.story("auto-1")
     assert event["decision"] == "allow"
@@ -279,7 +386,7 @@ def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
 def test_authorize_deny_raises_nonretryable_and_audits(activities, audit, monkeypatch):
     _opa(monkeypatch, allow=False, rule="heartbeat_start_over_daily_cap")
     with pytest.raises(ApplicationError) as caught:
-        asyncio.run(activities.heartbeat_authorize("auto-2", "implement", 0, 20.0))
+        asyncio.run(activities.heartbeat_authorize("auto-2", "implement", 0, 20.0, 0))
     assert caught.value.non_retryable
     assert "heartbeat_start_over_daily_cap" in str(caught.value)
     (event,) = audit.story("auto-2")

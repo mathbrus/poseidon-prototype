@@ -105,6 +105,7 @@ async def main() -> None:
         Runs(registry),
         Companies(registry),
         AgentInstances(registry),
+        AuditStore(registry),
         crew_activities,
     )
     intake_activities = IntakeActivities(

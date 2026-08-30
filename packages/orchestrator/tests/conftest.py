@@ -30,6 +30,7 @@ def heartbeat_spec(**overrides) -> dict:
         "conductor": "pm",
         "interval_minutes": 30,
         "max_concurrent_runs": 1,
+        "max_attempts": 2,
         "may_start": ["implement"],
         "daily_cap_usd": 20.0,
         **overrides,

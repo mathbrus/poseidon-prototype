@@ -13,8 +13,9 @@ Retry safety, per activity:
     record_gate_outcome — appends an audit event; a retried append
                           duplicates a row, never loses one (the audit
                           store is append-only by design).
-    record_verdict      — appends the reviewer's journaled verdict; same
-                          append-only posture.
+    record_verdict      — appends the reviewer's journaled verdict (same
+                          append-only posture) and sets it on the run row,
+                          an idempotent update.
     reviewer_independent— read-only against the registry; safe.
     resolve_merge       — re-evaluates the compiled merge.resolve decision
                           and re-audits; the honest record of what was
@@ -322,7 +323,11 @@ class ReviewActivities:
         """One `source=process-lifecycle` audit event journaling the
         reviewer's structured verdict — the heartbeat.decide idiom: the
         judgement and its one-line why become an append-only row in the
-        run's story, distinct from the gate outcome that acts on it."""
+        run's story, distinct from the gate outcome that acts on it. The
+        verdict also lands on the run row: the fact that this review
+        *concluded*, which is what keeps its PR off the heartbeat's
+        backlog whatever the gate then decides."""
+        await asyncio.to_thread(self._runs.record_verdict, run_id, verdict)
         await self._append_event(
             run_id=run_id,
             tool="review.verdict",

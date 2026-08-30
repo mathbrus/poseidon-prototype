@@ -10,7 +10,12 @@ import pytest
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.implement import issue_placeholder
-from registry.memory import InMemoryAgentInstances, InMemoryCompanies, InMemoryRuns
+from registry.memory import (
+    InMemoryAgentInstances,
+    InMemoryAuditStore,
+    InMemoryCompanies,
+    InMemoryRuns,
+)
 from sandbox.contract import SandboxHandle, SandboxPolicy
 
 RUN_ID = "run-test-0001"
@@ -95,7 +100,7 @@ def activities(
     companies: InMemoryCompanies,
 ) -> ImplementActivities:
     return ImplementActivities(
-        settings, backend, runs, companies, InMemoryAgentInstances()
+        settings, backend, runs, companies, InMemoryAgentInstances(), InMemoryAuditStore()
     )
 
 
@@ -188,7 +193,12 @@ def test_custom_toolchain_image_passes_through(activities, companies):
 
 def test_provision_without_an_applied_blueprint_fails_closed(settings, backend, runs):
     lone = ImplementActivities(
-        settings, backend, runs, InMemoryCompanies(), InMemoryAgentInstances()
+        settings,
+        backend,
+        runs,
+        InMemoryCompanies(),
+        InMemoryAgentInstances(),
+        InMemoryAuditStore(),
     )
     with pytest.raises(RuntimeError, match="no applied blueprint"):
         lone._sandbox_policy(RUN_ID)
@@ -386,7 +396,9 @@ def _config_activities(settings, backend, runs, spec, instances):
     companies = InMemoryCompanies()
     if spec is not None:
         companies.upsert("hello-saas", spec)
-    return ImplementActivities(settings, backend, runs, companies, instances)
+    return ImplementActivities(
+        settings, backend, runs, companies, instances, InMemoryAuditStore()
+    )
 
 
 def test_implement_config_resolves_crew_and_conductor(settings, backend, runs):
@@ -461,7 +473,7 @@ def test_teardown_revokes_participants_on_every_terminal_path(
         runs,
     )
     activities = ImplementActivities(
-        settings, backend, runs, companies, InMemoryAgentInstances(), crew
+        settings, backend, runs, companies, InMemoryAgentInstances(), audit, crew
     )
 
     participants.add(
@@ -502,7 +514,13 @@ def test_revoke_failure_is_loud_but_not_masking(settings, backend, runs, compani
             raise RuntimeError("registry unreachable")
 
     activities = ImplementActivities(
-        settings, backend, runs, companies, InMemoryAgentInstances(), BrokenCrew()
+        settings,
+        backend,
+        runs,
+        companies,
+        InMemoryAgentInstances(),
+        InMemoryAuditStore(),
+        BrokenCrew(),
     )
     record = asyncio.run(
         activities.teardown(RUN_ID, dict(JOB_HANDLE), {"status": "done"}, None)
@@ -517,8 +535,162 @@ def test_create_run_refuses_a_second_live_run_for_the_same_issue(activities, run
     here, so neither a heartbeat tick nor a human `poseidon run <n>` can
     duplicate work already in flight."""
     asyncio.run(activities.create_run(RUN_ID, issue_placeholder(42)))
-    with pytest.raises(RuntimeError, match="one live implement run per issue"):
+    with pytest.raises(RuntimeError, match="one live run per work item"):
         asyncio.run(activities.create_run("run-elsewhere", issue_placeholder(42)))
     # The losing run never clobbered the live row.
     assert runs.get(RUN_ID).status == "running"
     assert runs.get("run-elsewhere") is None
+
+
+# -- record_attempts_exhausted ---------------------------------------------------
+
+
+HEARTBEAT_APPLIED_SPEC = {**APPLIED_SPEC, "heartbeat": {"max_attempts": 2}}
+
+
+@pytest.fixture
+def audit() -> InMemoryAuditStore:
+    return InMemoryAuditStore()
+
+
+def _exhaustion_gateway(monkeypatch, fake_gateway) -> list[tuple[str, str, int, str]]:
+    """The world's side of the notice: every comment the activity posts,
+    as (item kind, run_id, number, body)."""
+    import orchestrator.activities.implement as module
+
+    comments: list[tuple[str, str, int, str]] = []
+
+    async def comment_pr(self, run_id, repo, number, body):
+        comments.append(("pr", run_id, number, body))
+        return {}
+
+    async def comment_issue(self, run_id, repo, number, body):
+        comments.append(("issue", run_id, number, body))
+        return {}
+
+    monkeypatch.setattr(
+        module,
+        "GatewayClient",
+        fake_gateway(comment_pr=comment_pr, comment_issue=comment_issue),
+    )
+    return comments
+
+
+def _attempt_activities(settings, backend, runs, audit, spec=HEARTBEAT_APPLIED_SPEC):
+    companies = InMemoryCompanies()
+    companies.upsert("hello-saas", spec)
+    return ImplementActivities(
+        settings, backend, runs, companies, InMemoryAgentInstances(), audit
+    )
+
+
+def _aborted(runs: InMemoryRuns, run_id: str, task: str, workflow: str) -> None:
+    runs.start(run_id, task, workflow, company="hello-saas")
+    runs.finish(run_id, "failed", error="litellm.Timeout")
+
+
+def test_the_last_aborted_review_records_exhaustion_and_tells_the_pr(
+    settings, backend, runs, audit, monkeypatch, fake_gateway
+):
+    """Two reviews of one PR aborted without a verdict under
+    `max_attempts: 2`: the second is the last the blueprint allows, so it
+    writes the process-gate event under its own run id and the notice on
+    the PR — the shape of `gate_rework_exhausted`, the abandonment made
+    visible in the ledger and in the world."""
+    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    _aborted(runs, "run-r1", "review pull request #7", "review")
+    _aborted(runs, "run-r2", "review pull request #7", "review")
+    activities = _attempt_activities(settings, backend, runs, audit)
+
+    out = asyncio.run(activities.record_attempts_exhausted("run-r2", "review-run-r2"))
+
+    assert out == {"exhausted": True, "attempts": 2}
+    (event,) = audit.story("run-r2")
+    assert event["tool"] == "gate.heartbeat_attempts"
+    assert event["rule"] == "gate_exhausted"
+    assert event["decision"] == "deny"
+    assert event["source"] == "process-gate"
+    assert event["workflow"] == "review-run-r2"
+    assert audit.story("run-r1") == []
+    ((kind, run_id, number, body),) = comments
+    assert (kind, run_id, number) == ("pr", "run-r2", 7)
+    assert "max_attempts" in body and "2" in body
+
+
+def test_the_last_aborted_issue_run_tells_the_issue(
+    settings, backend, runs, audit, monkeypatch, fake_gateway
+):
+    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    _aborted(runs, "run-i1", "implement issue #3", "implement")
+    _aborted(runs, "run-i2", "implement issue #3", "implement")
+    activities = _attempt_activities(settings, backend, runs, audit)
+
+    out = asyncio.run(activities.record_attempts_exhausted("run-i2", "implement-run-i2"))
+
+    assert out["exhausted"] is True
+    assert [e["rule"] for e in audit.story("run-i2")] == ["gate_exhausted"]
+    assert [(c[0], c[2]) for c in comments] == [("issue", 3)]
+
+
+def test_an_abort_with_attempts_left_records_nothing(
+    settings, backend, runs, audit, monkeypatch, fake_gateway
+):
+    """The first abort is not an abandonment: the item goes back on the
+    backlog, and nothing is written until the cap is actually spent."""
+    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    _aborted(runs, "run-i1", "implement issue #3", "implement")
+    activities = _attempt_activities(settings, backend, runs, audit)
+
+    out = asyncio.run(activities.record_attempts_exhausted("run-i1", "implement-run-i1"))
+
+    assert out == {"exhausted": False}
+    assert audit.story("run-i1") == [] and comments == []
+
+
+def test_a_concluded_item_is_consumed_by_its_conclusion_not_by_exhaustion(
+    settings, backend, runs, audit, monkeypatch, fake_gateway
+):
+    """A review that reached a verdict concluded the PR whatever the gate
+    did next; a later abort on the same PR (a human's re-run) spends no
+    heartbeat attempt and announces no exhaustion."""
+    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    runs.start("run-r1", "review pull request #7", "review", company="hello-saas")
+    runs.record_verdict("run-r1", "fail")
+    runs.finish("run-r1", "failed", error="merge gate rejected")
+    _aborted(runs, "run-r2", "review pull request #7", "review")
+    activities = _attempt_activities(settings, backend, runs, audit)
+
+    out = asyncio.run(activities.record_attempts_exhausted("run-r2", "review-run-r2"))
+
+    assert out == {"exhausted": False}
+    assert audit.story("run-r2") == [] and comments == []
+
+
+def test_no_heartbeat_section_means_no_attempt_bound(
+    settings, backend, runs, audit, monkeypatch, fake_gateway
+):
+    """A human-started company has no `max_attempts`: nothing offers work
+    again, so nothing is exhausted — the human decides what to re-run."""
+    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    _aborted(runs, "run-r1", "review pull request #7", "review")
+    _aborted(runs, "run-r2", "review pull request #7", "review")
+    activities = _attempt_activities(settings, backend, runs, audit, APPLIED_SPEC)
+
+    out = asyncio.run(activities.record_attempts_exhausted("run-r2", "review-run-r2"))
+
+    assert out == {"exhausted": False}
+    assert audit.story("run-r2") == [] and comments == []
+
+
+def test_a_task_file_run_is_not_heartbeat_work(
+    settings, backend, runs, audit, monkeypatch, fake_gateway
+):
+    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
+    _aborted(runs, "run-t1", "the whole task file text", "implement")
+    _aborted(runs, "run-t2", "the whole task file text", "implement")
+    activities = _attempt_activities(settings, backend, runs, audit)
+
+    out = asyncio.run(activities.record_attempts_exhausted("run-t2", "implement-run-t2"))
+
+    assert out == {"exhausted": False}
+    assert audit.story("run-t2") == [] and comments == []

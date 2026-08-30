@@ -56,6 +56,11 @@ PLATFORM_SCOPE = sorted(
         # so the human resolving the merge signal reads them first — a
         # gutted spec must be impossible to approve silently.
         "git.comment",
+        # The attempt-exhaustion notice: when the heartbeat's last allowed
+        # run on a PR or issue aborts, the platform says so on the item
+        # itself (git.comment above for a PR, issues.comment for a ticket),
+        # so the abandonment is never silent.
+        "issues.comment",
         "/admin/sandboxes",
         "/admin/sandboxes.delete",
     }

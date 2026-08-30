@@ -106,6 +106,12 @@ class Harness:
     torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
         default_factory=list
     )
+    # The runs that asked the platform, after teardown, whether they spent
+    # the last attempt on their PR — only runs that reached no verdict.
+    attempts_recorded: list[str] = field(default_factory=list)
+    # A dispatch that never answers, so a test can cancel the run mid-flight.
+    dispatch_hangs: bool = False
+    dispatches: int = 0
 
     def activities(self) -> list[Any]:
         harness = self
@@ -173,6 +179,11 @@ class Harness:
         async def dispatch_executor(
             run_id: str, task_text: str, url: str, mode: str
         ) -> dict[str, Any]:
+            harness.dispatches += 1
+            while harness.dispatch_hangs:
+                # Heartbeat so the workflow's cancel reaches the activity.
+                activity.heartbeat()
+                await asyncio.sleep(0.05)
             return dict(harness.dispatch)
 
         @activity.defn(name="record_verdict")
@@ -249,6 +260,11 @@ class Harness:
             harness.merges.append(pr_number)
             return {"merged": True, "sha": "abc123"}
 
+        @activity.defn(name="record_attempts_exhausted")
+        async def record_attempts_exhausted(run_id: str, workflow_id: str) -> dict:
+            harness.attempts_recorded.append(run_id)
+            return {"exhausted": False}
+
         @activity.defn(name="teardown")
         async def teardown(
             run_id: str,
@@ -259,7 +275,9 @@ class Harness:
             harness.torn_down.append((result, error))
             # Spread first: the dispatch result carries its own status
             # field, and the record's status/error must win, like the
-            # real teardown's honest terminal write.
+            # real teardown's honest terminal write — which also reads a
+            # dispatch's own error when the workflow passed none.
+            error = error or (result or {}).get("error")
             return {
                 **(result or {}),
                 "run_id": run_id,
@@ -285,6 +303,7 @@ class Harness:
             file_rework,
             record_gate_outcome,
             merge_pr,
+            record_attempts_exhausted,
             teardown,
         ]
 
@@ -694,13 +713,87 @@ async def test_a_missing_verdict_fails_before_any_gate(env):
     assert harness.gate_events == []
     assert record["status"] == "failed"
     assert record["error"] == "reviewer finished without a verdict"
+    # No verdict is no conclusion: the run asks, after teardown, whether
+    # it spent the PR's last attempt.
+    assert harness.attempts_recorded == [RUN_ID]
+
+
+# -- an aborted review is not the company's last word on the PR --------------
+
+
+async def test_a_reviewer_that_died_mid_flight_leaves_the_pr_for_another_try(env):
+    """The finding this exists for: a dispatch that came back with an
+    error and no verdict (a timed-out model call, the step cap) reached no
+    conclusion. Teardown finalizes the run failed, then the attempt
+    accounting runs — the PR is the heartbeat's to offer again, bounded
+    by the blueprint's cap."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        dispatch=dispatch_result(
+            status="failed", error="litellm.Timeout", verdict=None, comment_urls=[]
+        ),
+    )
+    record = await run_review(env.client, harness)
+
+    assert record["status"] == "failed"
+    assert harness.verdicts == [] and harness.gate_events == []
+    assert harness.attempts_recorded == [RUN_ID]
+
+
+async def test_a_verdict_bearing_failure_is_a_conclusion(env):
+    """A fail verdict that filed a rework, or a pass the human then
+    rejected, concluded the review: the run finalizes failed, and the
+    attempt accounting is never asked — the PR is consumed by the verdict
+    on its row, not by the attempt cap."""
+    for harness in (
+        Harness(merge_gate=POLICY_GATE, dispatch=dispatch_result(verdict="fail")),
+        Harness(merge_gate=HUMAN_GATE),
+    ):
+        worker, handle = await start_review(env.client, harness)
+        try:
+            if harness.merge_gate is HUMAN_GATE:
+                await wait_for_park(handle)
+                await handle.signal("merge", args=[False, "no"])
+            record = await handle.result()
+        finally:
+            await worker.__aexit__(None, None, None)
+        assert record["status"] == "failed"
+        assert len(harness.verdicts) == 1
+        assert harness.attempts_recorded == []
+
+
+async def test_a_cancel_on_an_unconcluded_review_still_records_the_attempt(env):
+    """A review cancelled while its reviewer is dispatched reached no
+    verdict either: the cancellation surfaces as the dispatch's, the run
+    finalizes failed on it, and the attempt accounting still runs after
+    teardown — a cancel that spends the PR's last attempt is not a silent
+    one."""
+    harness = Harness(merge_gate=HUMAN_GATE, dispatch_hangs=True)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        for _ in range(200):
+            if harness.dispatches:
+                break
+            await asyncio.sleep(0.05)
+        assert harness.dispatches, "the reviewer was never dispatched"
+        await handle.cancel()
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+    assert record["status"] == "failed"
+    assert "cancelled" in record["error"].lower()
+    assert harness.verdicts == []
+    assert harness.attempts_recorded == [RUN_ID]
 
 
 async def test_a_settled_pr_is_refused_before_any_sandbox_is_spent(env):
     """A PR the world already merged or closed fails at the fetch step
     with the named rule — no workspace fetched, no sandbox provisioned,
-    no crew, no gate — and the run record says why. The failed run still
-    consumes the PR in the registry, so the heartbeat never retries it."""
+    no crew, no gate — and the run record says why. The heartbeat never
+    retries it because the git host says it is settled (the observation
+    reads every candidate's live state), not because the run consumed
+    it: a refusal reaches no verdict, so the attempt accounting runs like
+    any other abort."""
     harness = Harness(merge_gate=HUMAN_GATE, pr_settled="merged")
     record = await run_review(env.client, harness)
 
@@ -711,3 +804,4 @@ async def test_a_settled_pr_is_refused_before_any_sandbox_is_spent(env):
     assert harness.merges == []
     assert record["status"] == "failed"
     assert "pr_not_open: pull request #41 is merged" in record["error"]
+    assert harness.attempts_recorded == [RUN_ID]

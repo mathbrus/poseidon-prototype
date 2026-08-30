@@ -34,7 +34,9 @@ def observation(**overrides: Any) -> dict[str, Any]:
     observed = {
         "active_runs": 0,
         "daily_spent_usd": 0.0,
-        "backlog": [{"number": 5, "title": "Add slugify", "url": "https://i/5"}],
+        "backlog": [
+            {"number": 5, "title": "Add slugify", "url": "https://i/5", "attempts": 0}
+        ],
         "reviewable_prs": [],
         "recent_runs": [],
     }
@@ -53,8 +55,9 @@ class Harness:
     decisions: list[dict[str, Any]] = field(default_factory=list)
     deny_rules: list[str | None] = field(default_factory=list)
 
+    observed_caps: list[int] = field(default_factory=list)
     decide_calls: list[tuple[str, list[str]]] = field(default_factory=list)
-    authorized: list[tuple[str, str, int, float]] = field(default_factory=list)
+    authorized: list[tuple[str, str, int, float, int]] = field(default_factory=list)
     ticks: list[tuple[str, str]] = field(default_factory=list)
     gate_events: list[tuple[str, str, str]] = field(default_factory=list)
 
@@ -70,7 +73,8 @@ class Harness:
             return harness.configs.pop(0) if harness.configs else None
 
         @activity.defn(name="heartbeat_observe")
-        async def heartbeat_observe() -> dict[str, Any]:
+        async def heartbeat_observe(max_attempts: int) -> dict[str, Any]:
+            harness.observed_caps.append(max_attempts)
             return harness.observations.pop(0)
 
         @activity.defn(name="heartbeat_decide")
@@ -82,7 +86,11 @@ class Harness:
 
         @activity.defn(name="heartbeat_authorize")
         async def heartbeat_authorize(
-            run_id: str, workflow_name: str, active_runs: int, daily_spent: float
+            run_id: str,
+            workflow_name: str,
+            active_runs: int,
+            daily_spent: float,
+            attempts: int,
         ) -> None:
             rule = harness.deny_rules.pop(0) if harness.deny_rules else None
             if rule:
@@ -90,7 +98,9 @@ class Harness:
                     f"heartbeat.start refused by policy rule {rule!r}",
                     non_retryable=True,
                 )
-            harness.authorized.append((run_id, workflow_name, active_runs, daily_spent))
+            harness.authorized.append(
+                (run_id, workflow_name, active_runs, daily_spent, attempts)
+            )
 
         @activity.defn(name="record_tick")
         async def record_tick(outcome: str, rule: str, workflow_id: str) -> None:
@@ -182,8 +192,10 @@ async def test_started_tick_authorizes_then_spawns_the_chosen_child(env):
 
     (decide_run_id, may_start) = harness.decide_calls[0]
     assert may_start == ["implement", "review"]
-    # Policy first, then the child — under the same minted run id.
-    assert harness.authorized == [(decide_run_id, "implement", 0, 0.0)]
+    # Policy first, then the child — under the same minted run id, with
+    # the blueprint's attempt cap having reached the observation.
+    assert harness.observed_caps == [CONFIG["max_attempts"]]
+    assert harness.authorized == [(decide_run_id, "implement", 0, 0.0, 0)]
     (kind, child_input) = harness.children[0]
     assert kind == "implement"
     assert child_input["issue_number"] == 5
@@ -198,7 +210,10 @@ async def test_review_decision_starts_a_review_child(env):
     harness = Harness(
         configs=[CONFIG],
         observations=[
-            observation(backlog=[], reviewable_prs=[{"number": 4, "url": "u"}])
+            observation(
+                backlog=[],
+                reviewable_prs=[{"number": 4, "url": "u", "attempts": 1}],
+            )
         ],
         decisions=[{"action": "review", "target": 4, "rationale": "finish first"}],
     )
@@ -206,6 +221,25 @@ async def test_review_decision_starts_a_review_child(env):
     (kind, child_input) = harness.children[0]
     assert kind == "review"
     assert child_input["pr_number"] == 4
+    # The chosen PR's prior attempt rode the policy input: a second review
+    # of a PR whose first aborted is bounded by the compiled decision.
+    assert harness.authorized[0][1:] == ("review", 0, 0.0, 1)
+
+
+async def test_an_undeclared_attempt_cap_refuses_the_tick_but_not_the_heartbeat(env):
+    """An applied section without `max_attempts` (a blueprint from before
+    the cap existed) defaults nothing: the tick is refused by name, the
+    observation is never even read, and the loop keeps ticking until a
+    complete section is applied — then stops through revocation like
+    every other test here."""
+    undeclared = heartbeat_spec()
+    del undeclared["max_attempts"]
+    harness = Harness(configs=[undeclared, CONFIG], observations=[observation()])
+    harness.decisions = [{"action": "idle", "target": None, "rationale": "later"}]
+    await run_heartbeat(env.client, harness)
+    assert harness.ticks[0] == ("refused", "max_attempts_undeclared")
+    assert harness.observed_caps == [CONFIG["max_attempts"]]
+    assert harness.ticks[1] == ("idle", "pm_chose_idle")
 
 
 async def test_second_eligible_issue_waits_at_the_concurrency_cap(env):

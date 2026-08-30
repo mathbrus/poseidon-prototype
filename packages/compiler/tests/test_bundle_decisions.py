@@ -335,6 +335,18 @@ def test_platform_may_retire_a_sandbox_registration(decide):
         ), tool
 
 
+def test_platform_may_leave_the_attempts_exhausted_notice(decide):
+    """The exhaustion notice lands on the item itself: git.comment for a
+    PR, issues.comment for a ticket — both platform writes."""
+    for tool in ("git.comment", "issues.comment"):
+        assert (
+            decide(
+                PLATFORM_QUERY, lifecycle="platform", tool=tool, run_id="run-1", args={}
+            )["allow"]
+            is True
+        ), tool
+
+
 def test_company_lifecycles_find_nothing_in_the_platform_package(decide):
     """The platform package carries only platform rules: a standing or
     ephemeral caller routed there by mistake still gets default-deny."""

@@ -169,12 +169,19 @@ def test_verdicts_are_journaled_audit_events(settings, audit):
     """The reviewer's structured verdict becomes an append-only
     process-lifecycle row — the heartbeat.decide idiom: pass maps to allow,
     fail to deny, and the one-line summary rides the rule field."""
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    runs = InMemoryRuns()
+    runs.start(RUN_ID, "review pull request #41", "review", company="hello-saas")
+    activities = _activities(
+        settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit, runs=runs
+    )
     asyncio.run(
         activities.record_verdict(
             RUN_ID, "pass", "Suite green; in scope.", f"review-{RUN_ID}"
         )
     )
+    # The conclusion also lands on the row — the fact the consumption
+    # rule reads, so the PR stays consumed whatever the gate decides.
+    assert runs.get(RUN_ID).verdict == "pass"
     asyncio.run(
         activities.record_verdict(
             RUN_ID, "fail", "Blocking: criteria unmet.", f"review-{RUN_ID}"
