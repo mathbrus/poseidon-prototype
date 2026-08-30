@@ -227,8 +227,9 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
     falls to the default deny — revocation is a blueprint diff.
 
     The caps are compiled literals and the live counts ride the input,
-    verified by the caller — the `active_spawns` idiom. Fail-safe defaults:
-    absent counts deny, like the changed-paths rules."""
+    verified by the caller — the `active_spawns` idiom: runs in flight,
+    today's spend, and the target item's prior attempts. Fail-safe
+    defaults: absent counts deny, like the changed-paths rules."""
     allows = "".join(
         f'\nallow_rules contains "heartbeat_start_{rego_slug(workflow)}" if {{\n'
         '\tinput.lifecycle == "platform"\n'
@@ -247,6 +248,10 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
         '\tinput.tool == "heartbeat.start"\n'
         f"\tinput.args.daily_spent_usd >= {json.dumps(heartbeat.daily_cap_usd)}\n"
         "}\n"
+        '\ndeny_rules contains "heartbeat_start_over_attempts" if {\n'
+        '\tinput.tool == "heartbeat.start"\n'
+        f"\tinput.args.attempts >= {int(heartbeat.max_attempts)}\n"
+        "}\n"
         # object.get, not a bare reference: negating a builtin over an
         # undefined reference never fires, so a bare `not is_number(...)`
         # would fail open on the absent key it exists to catch.
@@ -257,6 +262,10 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
         '\ndeny_rules contains "heartbeat_start_spend_missing" if {\n'
         '\tinput.tool == "heartbeat.start"\n'
         '\tnot is_number(object.get(input, ["args", "daily_spent_usd"], null))\n'
+        "}\n"
+        '\ndeny_rules contains "heartbeat_start_attempts_missing" if {\n'
+        '\tinput.tool == "heartbeat.start"\n'
+        '\tnot is_number(object.get(input, ["args", "attempts"], null))\n'
         "}\n"
     )
     return _rego_file(company, allows + denies)

@@ -510,11 +510,13 @@ def test_crew_request_without_budget_headroom_is_denied(decide):
 
 
 def heartbeat_start(workflow: str, **args) -> dict:
+    """A platform heartbeat.start input. The target's prior attempts ride
+    it like the other counts; a fresh item has none."""
     return {
         "company": "hello-saas",
         "lifecycle": "platform",
         "tool": "heartbeat.start",
-        "args": {"workflow": workflow, **args},
+        "args": {"workflow": workflow, "attempts": 0, **args},
     }
 
 
@@ -556,12 +558,32 @@ def test_heartbeat_daily_cap_denies(decide_heartbeat):
     assert decision["rule"] == "heartbeat_start_over_daily_cap"
 
 
+def test_heartbeat_attempt_cap_denies(decide_heartbeat):
+    """`max_attempts: 2`: an item two runs already took up may not be
+    started on again — the aborted-run retry is bounded by policy, not
+    only by the observation that offers candidates."""
+    decision = decide_heartbeat(
+        **heartbeat_start("implement", active_runs=0, daily_spent_usd=0, attempts=2)
+    )
+    assert decision["allow"] is False
+    assert decision["rule"] == "heartbeat_start_over_attempts"
+    decision = decide_heartbeat(
+        **heartbeat_start("implement", active_runs=0, daily_spent_usd=0, attempts=1)
+    )
+    assert decision["allow"] is True
+
+
 def test_heartbeat_start_fails_closed_without_the_counts(decide_heartbeat):
     """Fail-safe defaults: the dangerous condition is the absent input,
     and absence denies — the changed-paths posture, applied to caps."""
     decision = decide_heartbeat(**heartbeat_start("implement", daily_spent_usd=0))
     assert decision["allow"] is False
     assert decision["rule"] == "heartbeat_start_counts_missing"
+    absent_attempts = heartbeat_start("implement", active_runs=0, daily_spent_usd=0)
+    del absent_attempts["args"]["attempts"]
+    decision = decide_heartbeat(**absent_attempts)
+    assert decision["allow"] is False
+    assert decision["rule"] == "heartbeat_start_attempts_missing"
 
 
 def test_agents_cannot_claim_heartbeat_authority(decide_heartbeat):
@@ -569,7 +591,12 @@ def test_agents_cannot_claim_heartbeat_authority(decide_heartbeat):
     ephemeral caller reciting the tool name matches no rule."""
     decision = decide_heartbeat(
         **standing("pm", tool="heartbeat.start"),
-        args={"workflow": "implement", "active_runs": 0, "daily_spent_usd": 0},
+        args={
+            "workflow": "implement",
+            "active_runs": 0,
+            "daily_spent_usd": 0,
+            "attempts": 0,
+        },
     )
     assert decision["allow"] is False
 

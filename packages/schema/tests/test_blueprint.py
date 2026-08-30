@@ -378,6 +378,7 @@ def heartbeat_section() -> dict:
         "conductor": "pm",
         "interval_minutes": 30,
         "max_concurrent_runs": 1,
+        "max_attempts": 2,
         "may_start": ["implement", "review"],
         "daily_cap": {"usd": 20},
     }
@@ -401,6 +402,17 @@ def test_heartbeat_declares_every_cap_or_nothing(blueprint):
         document["heartbeat"] = heartbeat_section()
         del document["heartbeat"][field]
         assert any("heartbeat" in p and field in p for p in problems_of(document))
+
+
+def test_heartbeat_attempts_start_at_one(blueprint):
+    """`max_attempts: 1` is the one-shot company (every run is the only
+    try); zero would mean the heartbeat may start nothing, which is what
+    omitting the section says."""
+    blueprint["heartbeat"] = heartbeat_section()
+    blueprint["heartbeat"]["max_attempts"] = 0
+    assert any("max_attempts" in p for p in problems_of(blueprint))
+    blueprint["heartbeat"]["max_attempts"] = 1
+    validate_blueprint(blueprint)
 
 
 def test_heartbeat_may_not_start_intake(blueprint):

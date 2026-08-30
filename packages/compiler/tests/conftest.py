@@ -21,6 +21,7 @@ HEARTBEAT_SECTION = {
     "conductor": "pm",
     "interval_minutes": 30,
     "max_concurrent_runs": 1,
+    "max_attempts": 2,
     "may_start": ["implement"],
     "daily_cap": {"usd": 20},
 }

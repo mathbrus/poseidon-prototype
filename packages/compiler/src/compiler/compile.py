@@ -249,6 +249,7 @@ def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig | None:
         conductor=heartbeat["conductor"],
         interval_minutes=int(heartbeat["interval_minutes"]),
         max_concurrent_runs=int(heartbeat["max_concurrent_runs"]),
+        max_attempts=int(heartbeat["max_attempts"]),
         may_start=tuple(sorted(heartbeat["may_start"])),
         daily_cap_usd=float(heartbeat["daily_cap"]["usd"]),
     )
