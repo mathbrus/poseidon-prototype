@@ -33,7 +33,9 @@ What the suite proves, and where:
     neutral       context and .env alone; the kind-specific piece is
                   deploy/kind/kind-up.sh.
   8 unattended    test_heartbeat_redteam (an attacker-filed issue consumed by
-                  the heartbeat dies at the gates) and test_overnight
+                  the heartbeat dies at the gates; a review that dies
+                  without a verdict is retried once under max_attempts,
+                  then abandoned on the record) and test_overnight
                   (the whole arc with two human acts: one goal in, one
                   merge approval out).
   9 merge policy  test_delegated (in-class passing work merges with zero

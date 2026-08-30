@@ -32,7 +32,11 @@ the platform did:
   `run_id`;
 - the loop observes the world, not its own ledger: once a human merges the
   delivered PR by hand, the next tick is idle on an empty backlog — it
-  never starts a review doomed to die at a deleted branch.
+  never starts a review doomed to die at a deleted branch;
+- an aborted run is not the company's last word: a review that dies
+  without a verdict leaves its PR for one more try under the blueprint's
+  `max_attempts`, the run that spends the last attempt records the
+  exhaustion and says so on the PR, and no third attempt is ever started.
 
 Started the way nothing else in this suite is: not by a human `poseidon
 run`, but by the standing `heartbeat` workflow reading the backlog itself.
@@ -48,7 +52,7 @@ import time
 import pytest
 from temporalio.client import Client
 
-from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST
+from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST, REVIEW_ABORT_MARKER
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.heartbeat import HeartbeatInput
 
@@ -57,8 +61,10 @@ from .cluster import (
     COMPANY_NS,
     audit_story,
     await_egress_deny,
+    await_run,
     run_by_task,
     run_spend,
+    runs_by_task,
     temporal_port_forward,
 )
 from .conftest import (
@@ -365,3 +371,162 @@ def test_a_pr_merged_by_a_human_is_not_reviewed(merged_by_hand: dict):
     assert run_by_task(f"review pull request #{number}", workflow="review") is None, (
         "the heartbeat started a review of a PR the world had already merged"
     )
+
+
+# --- an aborted review is not the company's last word --------------------------
+
+
+@pytest.fixture(scope="module")
+def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
+    """The eval finding, replayed on the mock: an issue whose title carries
+    `REVIEW_ABORT_MARKER` is implemented unattended, its PR delivered with
+    the marker in the title, and every review of that PR posts findings
+    but never reaches a verdict — the shape of a paid reviewer dying of a
+    timed-out model call. Under the blueprint's `max_attempts: 2` the
+    heartbeat must try the review twice and then stop, with the
+    exhaustion on the record. Requested after `merged_by_hand`, so the
+    world is settled: the earlier PR is merged, the earlier issue
+    consumed, and this fresh heartbeat has one candidate at a time."""
+    nonce = secrets.token_hex(3)
+    slug = target_slug(env)
+    created = github_api(
+        env,
+        "POST",
+        f"/repos/{slug}/issues",
+        json={
+            "title": f"Add slugify utility ({REVIEW_ABORT_MARKER})",
+            "body": (
+                "Add a slugify utility with tests.\n\n"
+                f"Deliver your work on the branch `feature/slugify-{nonce}`."
+            ),
+        },
+    )
+    assert created.status_code == 201, f"could not file issue: {created.text}"
+    issue_number = created.json()["number"]
+    heartbeat_id = f"{workflow_id('heartbeat', COMPANY_NS)}-abort-{nonce}"
+    result: dict = {"issue_number": issue_number, "heartbeat_id": heartbeat_id}
+
+    async def drive() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = await client.start_workflow(
+                "heartbeat",
+                HeartbeatInput(
+                    company=COMPANY_NS, interval_s=3, timeouts=deployed_timeouts()
+                ),
+                id=heartbeat_id,
+                task_queue=TASK_QUEUE,
+            )
+            try:
+                implement = await asyncio.to_thread(
+                    await_run, f"implement issue #{issue_number}", True
+                )
+                assert implement["status"] == "done", f"unattended implement: {implement}"
+                number = pr_number(implement["pr_url"])
+                assert number is not None, f"not a PR url: {implement['pr_url']!r}"
+                result["implement"] = implement
+                result["pr_number"] = number
+                task = f"review pull request #{number}"
+                # Two review attempts, each to a terminal state.
+                deadline = time.monotonic() + 1200
+                reviews: list[dict] = []
+                while time.monotonic() < deadline:
+                    reviews = runs_by_task(task, workflow="review")
+                    if len(reviews) >= 2 and all(
+                        r["status"] in ("done", "failed") for r in reviews
+                    ):
+                        break
+                    await asyncio.sleep(5)
+                assert len(reviews) >= 2, f"the heartbeat never retried: {reviews}"
+                # Then a few more ticks, to see what the loop does once the
+                # cap is spent.
+                seen = len(heartbeat_ticks(heartbeat_id))
+                deadline = time.monotonic() + 300
+                while time.monotonic() < deadline:
+                    if len(heartbeat_ticks(heartbeat_id)) >= seen + 3:
+                        break
+                    await asyncio.sleep(3)
+                result["reviews"] = runs_by_task(task, workflow="review")
+                result["ticks"] = heartbeat_ticks(heartbeat_id)
+            finally:
+                await handle.terminate()
+
+    asyncio.run(drive())
+
+    yield result
+
+    close_pr_url(env, (result.get("implement") or {}).get("pr_url"))
+    with contextlib.suppress(Exception):
+        github_api(
+            env,
+            "PATCH",
+            f"/repos/{slug}/issues/{issue_number}",
+            json={"state": "closed"},
+        )
+
+
+def test_an_aborted_review_is_offered_again(abandoned_review: dict):
+    """The first review posted findings and died without a verdict. That
+    is no conclusion, so the PR stayed on the backlog and the next tick
+    started a second review of the same PR — this heartbeat's own started
+    tick names it — under a fresh run id."""
+    first, second = abandoned_review["reviews"][:2]
+    assert first["status"] == "failed", first
+    assert "without a verdict" in (first["error"] or ""), first
+    assert first["verdict"] is None
+    assert second["run_id"] != first["run_id"]
+    number = abandoned_review["pr_number"]
+    started = [
+        t
+        for t in abandoned_review["ticks"]
+        if t["decision"] == "allow" and f"review_{number}_as_" in (t["rule"] or "")
+    ]
+    assert [t["rule"] for t in started] == [
+        f"review_{number}_as_{first['run_id']}",
+        f"review_{number}_as_{second['run_id']}",
+    ]
+
+
+def test_the_run_that_spent_the_last_attempt_recorded_it(
+    abandoned_review: dict, env: dict
+):
+    """The second review died the same way and was the last the blueprint
+    allows: its story carries `gate.heartbeat_attempts` / `gate_exhausted`
+    (the first's does not — it left an attempt), and the world was told on
+    the PR itself under the platform identity."""
+    first, second = abandoned_review["reviews"][:2]
+    assert second["status"] == "failed" and second["verdict"] is None, second
+    exhausted = [
+        e
+        for e in audit_story(second["run_id"])
+        if e["tool"] == "gate.heartbeat_attempts" and e["rule"] == "gate_exhausted"
+    ]
+    assert exhausted, "no exhaustion event under the last attempt's run id"
+    assert all(
+        e["source"] == "process-gate" and e["decision"] == "deny" for e in exhausted
+    )
+    assert not any(
+        e["tool"] == "gate.heartbeat_attempts" for e in audit_story(first["run_id"])
+    )
+    comments = github_api(
+        env,
+        "GET",
+        f"/repos/{target_slug(env)}/issues/{abandoned_review['pr_number']}/comments",
+    ).json()
+    assert any("max_attempts" in (c.get("body") or "") for c in comments), (
+        "no platform notice on the PR"
+    )
+
+
+def test_no_third_attempt_and_the_loop_goes_idle(abandoned_review: dict):
+    """`max_attempts: 2` is a bound, not a retry loop: exactly two review
+    runs exist, and the ticks after the second one finished are idle on
+    an empty backlog — the PR is consumed by exhaustion, the issue by its
+    delivery, and the company has stopped trying without a human."""
+    assert len(abandoned_review["reviews"]) == 2, abandoned_review["reviews"]
+    ticks = abandoned_review["ticks"]
+    last_start = max(i for i, t in enumerate(ticks) if t["decision"] == "allow")
+    after = [t["rule"] for t in ticks[last_start + 1 :]]
+    assert after, "no ticks after the last start"
+    assert set(after) <= {"tick_idle:runs_in_flight", "tick_idle:backlog_empty"}, after
+    assert after[-1] == "tick_idle:backlog_empty", after
