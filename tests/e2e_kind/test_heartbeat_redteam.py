@@ -482,8 +482,8 @@ def test_an_aborted_review_is_offered_again(abandoned_review: dict):
         if t["decision"] == "allow" and f"review_{number}_as_" in (t["rule"] or "")
     ]
     assert [t["rule"] for t in started] == [
-        f"review_{number}_as_{first['run_id']}",
-        f"review_{number}_as_{second['run_id']}",
+        f"tick_started:review_{number}_as_{first['run_id']}",
+        f"tick_started:review_{number}_as_{second['run_id']}",
     ]
 
 
