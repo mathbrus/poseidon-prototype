@@ -112,12 +112,23 @@ whenever the applied blueprint declares a `heartbeat` section. Each tick
 re-reads that section from the registry and stops when it is gone, so
 revoking the heartbeat is a blueprint diff, effective at the next tick.
 `heartbeat_observe` gathers the backlog, delivered-but-unreviewed PRs,
-run history, capacity and spend — numbers, titles and URLs only; issue
-bodies are untrusted input the implement run reads itself. The registry
-names the delivered PRs; the git host is asked whether each is still
-open, so a PR a human merged or closed by hand is never offered (and the
-review workflow's `read_pr` refuses one anyway, as `pr_not_open`, before
-a sandbox is spent on a head ref that may no longer exist).
+run history, capacity and spend — numbers, titles, URLs and attempt
+counts only; issue bodies are untrusted input the implement run reads
+itself. The registry names the delivered PRs; the git host is asked
+whether each is still open, so a PR a human merged or closed by hand is
+never offered (and the review workflow's `read_pr` refuses one anyway, as
+`pr_not_open`, before a sandbox is spent on a head ref that may no longer
+exist). What counts as consumed is one rule for issues and PRs alike
+(`consumed`): a live run on the item, a run that concluded it (an
+implement run with a `pr_url`, a review run with a `verdict` on its row —
+`record_verdict` writes it beside the audit event), or `max_attempts`
+runs on it. An aborted run — no PR, no verdict — leaves the item for
+another try, carrying its prior attempt count into the policy input;
+after teardown, an unconcluded run calls `record_attempts_exhausted`,
+which at the cap writes `gate.heartbeat_attempts` / `gate_exhausted`
+under that run's id and comments on the PR or issue under the platform
+identity. An applied section without `max_attempts` refuses every tick
+as `tick_refused:max_attempts_undeclared`.
 `heartbeat_decide` dispatches the standing conductor in `mode="decide"`
 with that observation and gets back one action with a required
 rationale, journaled as a `heartbeat.decide` audit event. The PM proposes
@@ -127,7 +138,8 @@ compiled `heartbeat.start` decision at OPA before the tick starts
 anything — the caps (`max_concurrent_runs`, `daily_cap_usd`, the
 `may_start` list) are checked in the workflow for the honest audit
 reason and again by policy for the refusal that does not depend on this
-code. A started child run is abandoned, not supervised: the tick starts
+code (`max_attempts` rides as the target's prior attempts). A started
+child run is abandoned, not supervised: the tick starts
 work, it does not supervise it — progress and gates belong to the run. Every tick
 outcome — started, idle and why, refused and why — is an audit event
 under the `heartbeat-{company}` run id, and the daily-cap halt is a

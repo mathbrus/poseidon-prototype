@@ -215,6 +215,7 @@ heartbeat:
   conductor: pm
   interval_minutes: 30
   max_concurrent_runs: 1
+  max_attempts: 2
   may_start: [implement, review]
   daily_cap: {usd: 20}
 ```
@@ -226,13 +227,28 @@ starts one, which is everything this reference described so far.
 Declaring it grants the platform a bounded authority to start work on its
 own initiative: every `interval_minutes`, the named conductor is dispatched
 to choose the next action from the backlog, and the chosen workflow may
-start only within `max_concurrent_runs` and under the `daily_cap`. Every
-field is required once the section exists — a defaulted cap is authority
-nobody wrote down — and `intake` is deliberately not startable: goals enter
-through a human.
+start only within `max_concurrent_runs`, under the `daily_cap`, and on an
+item fewer than `max_attempts` runs have taken up. Every field is required
+once the section exists — a defaulted cap is authority nobody wrote down
+(an applied section without `max_attempts` refuses every tick as
+`tick_refused:max_attempts_undeclared` until a complete one is applied) —
+and `intake` is deliberately not startable: goals enter through a human.
+
+`max_attempts` is what bounds an aborted run. An issue or a delivered PR
+is off the backlog while a run on it is live, once a run *concluded* it
+(an implement run that delivered a PR, a review run whose reviewer reached
+a verdict — a rework filed or a gate rejected on that verdict is still a
+conclusion), or once `max_attempts` runs took it up. A run that ended
+short of any conclusion — a timed-out model call, a step cap, a cancel —
+leaves the item for another try, as many as the charter allows; `1` is
+the one-shot company where every run is the only try. The run that spends
+the last attempt records it as a `gate.heartbeat_attempts` /
+`gate_exhausted` process-gate event under its own run id and leaves a
+platform comment on the PR or issue, so the abandonment is never silent.
 
 The caps compile into the company's policy bundle as a `heartbeat.start`
-decision (deny over-cap, deny absent counts — fail-safe defaults again),
+decision (deny over-cap, deny absent counts — fail-safe defaults again;
+the target item's prior attempts ride the input like the other counts),
 which is the decision the heartbeat must win before starting anything.
 Only the platform lifecycle can match its allow rules: an agent reciting
 `heartbeat.start` at the gateway matches nothing, and a blueprint diff that

@@ -612,6 +612,17 @@ the caps and answers the merge gate. Nothing about a run changes — the
 same fulfilment, verify, delivery, review and gate above — only who
 pressed start.
 
+What the heartbeat offers is bounded too. An issue or a delivered PR is
+off the backlog while a run on it is live, once a run *concluded* it (a
+PR delivered, a verdict reached — whatever the gate did with it), or once
+the blueprint's `max_attempts` runs took it up. A run that aborted short
+of any conclusion — a timed-out model call, a step cap — leaves its item
+for another try, as many as the charter allows, and the run that spends
+the last attempt says so: a `gate.heartbeat_attempts` / `gate_exhausted`
+process-gate event in its story, and a platform comment on the PR or
+issue. The company never silently abandons finished work after one flaky
+call, and never retries forever.
+
 `tests/e2e_kind/test_overnight.py` runs the whole arc with exactly two
 human acts: one goal in, one approval out. When the blueprint also
 delegates the merge gate, the approval drops too:
