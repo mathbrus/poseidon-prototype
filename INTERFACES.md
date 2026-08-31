@@ -175,7 +175,7 @@ heartbeat per company, `heartbeat-{company}`.
 | `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text=None, timeouts=None, issue_number=None)` — exactly one of `task_text` or `issue_number` | The delivery pipeline: crew fulfilment, planning, implementation, verify gate, PR. With `issue_number`, the platform resolves the open issue first and composes the task from it. |
 | `intake` | `intake-{run_id}` | `IntakeInput(run_id, goal_text, timeouts=None)` | The PM scoping a goal into tickets and a recorded crew request. |
 | `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number, timeouts=None)` | Ephemeral review of a PR, then the merge gate — resolved by a human signal or by compiled policy, as the blueprint declares. |
-| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, tick_interval_s=None, timeouts=None)` | The company's own cadence: each tick observes the backlog, asks the conductor to choose one action, and starts it under the compiled `heartbeat.start` decision. Started by the worker's ensure loop, never by a human; stops itself when the blueprint's `heartbeat` section is gone. |
+| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, timeouts=None, pending_wake=False)` | The company's standing loop: each tick observes the backlog, asks the conductor to choose one action, and starts it under the compiled `heartbeat.start` decision. Event-triggered — the platform's `wake` signal ends the wait between ticks, and the blueprint's `reconcile_minutes` is the backstop. Started by the worker's ensure loop, never by a human; stops itself when the blueprint's `heartbeat` section is gone. |
 
 `timeouts=None` keeps the generous real-brain activity bounds (and lets
 old histories replay); the CLI's `--fast-timeouts` passes the mock-brain
@@ -183,12 +183,14 @@ preset instead.
 
 ### Signals
 
-Signals are how verdicts enter a parked workflow. All four share one
-signature — `(approved: bool, payload: str | None)` — which is exactly
-what `poseidon signal` sends.
+Signals are how verdicts enter a parked workflow — the four gate signals
+share one signature, `(approved: bool, payload: str | None)`, which is
+exactly what `poseidon signal` sends. The heartbeat's `wake` is the one
+exception: it carries nothing at all, because it decides nothing.
 
 | Workflow | Signal | Resolves |
 |---|---|---|
+| `heartbeat` | `wake` | Nothing — no arguments, no verdict. It ends the wait to the next tick, which observes, decides and is authorized like any other; the platform sends one when a run of the company reaches its end. |
 | `intake` | `intake` | The intake gate, when the blueprint declares `resolved_by: human` (the shipped example declares no intake gate). |
 | `implement` | `budget` | A budget pause: approved means the cap was raised and the run continues; rejected finalizes the run. |
 | `review` | `budget` | Same as in implement. |
@@ -196,7 +198,7 @@ what `poseidon signal` sends.
 
 ### Queries
 
-All three workflows expose a `state` query returning the current phase as
+Every workflow exposes a `state` query returning the current phase as
 a string — the mechanism behind the claim that a parked gate or a budget
 stop is "an API-visible paused state, never a silent hang."
 

@@ -9,6 +9,7 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from orchestrator.gates import Gate
 
@@ -131,6 +132,22 @@ class RunWorkflow:
             start_to_close_timeout=timedelta(seconds=timeouts.step_s),
             retry_policy=STEP_RETRY,
         )
+
+    async def wake_heartbeat(self, timeouts: Timeouts) -> None:
+        """Nudge the company's standing heartbeat that this run changed
+        the world it watches. Doubly best-effort: the activity swallows
+        its own failures (an absent heartbeat is the normal state), and
+        the guard here means even a wedged connection cannot fail a run
+        that already tore down — a missed nudge costs at most one
+        reconcile interval."""
+        try:
+            await workflow.execute_activity(
+                "wake_heartbeat",
+                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError:
+            workflow.logger.info("heartbeat wake failed; the reconcile timer covers it")
 
     async def dispatch(
         self, run_id: str, task_text: str, url: str, mode: str, timeouts: Timeouts

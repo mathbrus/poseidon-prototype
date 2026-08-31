@@ -358,6 +358,48 @@ def test_observe_skips_an_unreadable_delivered_pr(
     assert [i["number"] for i in observed["backlog"]] == [9]
 
 
+def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypatch):
+    import orchestrator.activities.heartbeat as module
+
+    sent: list[tuple[str, str]] = []
+
+    class FakeHandle:
+        def __init__(self, workflow_id: str):
+            self._id = workflow_id
+
+        async def signal(self, name: str) -> None:
+            sent.append((self._id, name))
+
+    class FakeClient:
+        @staticmethod
+        async def connect(address, namespace):
+            client = FakeClient()
+            client.address, client.namespace = address, namespace
+            return client
+
+        def get_workflow_handle(self, workflow_id: str) -> FakeHandle:
+            return FakeHandle(workflow_id)
+
+    monkeypatch.setattr(module, "Client", FakeClient)
+    asyncio.run(activities.wake_heartbeat())
+    assert sent == [(f"heartbeat-{COMPANY}", "wake")]
+
+
+def test_wake_heartbeat_swallows_every_failure(activities, monkeypatch):
+    """Best-effort by design: no heartbeat to signal (no section applied)
+    or no Temporal to reach must never fail the run sending the nudge —
+    a missed one costs at most a reconcile interval."""
+    import orchestrator.activities.heartbeat as module
+
+    class DownClient:
+        @staticmethod
+        async def connect(address, namespace):
+            raise RuntimeError("temporal unreachable")
+
+    monkeypatch.setattr(module, "Client", DownClient)
+    assert asyncio.run(activities.wake_heartbeat()) is None
+
+
 def test_observe_drops_delivered_prs_the_world_has_settled(
     activities, runs, monkeypatch, fake_gateway
 ):

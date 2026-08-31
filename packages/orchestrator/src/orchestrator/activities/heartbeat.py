@@ -33,6 +33,7 @@ import time
 from typing import Any
 
 from temporalio import activity
+from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
@@ -443,6 +444,25 @@ class HeartbeatActivities:
             latency_ms=latency_ms,
         )
 
+    @activity.defn(name="wake_heartbeat")
+    async def wake_heartbeat(self) -> None:
+        """Nudge the company's standing heartbeat: a run just changed the
+        world it watches. Best-effort by design — an absent heartbeat is
+        the normal state whenever no heartbeat section is applied, and a
+        missed nudge costs at most one reconcile interval — so every
+        failure is swallowed; this can never fail the run that sends it."""
+        try:
+            client = await Client.connect(
+                self._settings.temporal_address,
+                namespace=self._settings.temporal_namespace,
+            )
+            handle = client.get_workflow_handle(
+                workflow_id(FAMILY, self._settings.company)
+            )
+            await handle.signal("wake")
+        except Exception as exc:
+            self._log.info("heartbeat wake skipped", extra={"error": str(exc)})
+
     def all(self) -> list[Any]:
         return [
             self.heartbeat_config,
@@ -450,4 +470,5 @@ class HeartbeatActivities:
             self.heartbeat_decide,
             self.heartbeat_authorize,
             self.record_tick,
+            self.wake_heartbeat,
         ]

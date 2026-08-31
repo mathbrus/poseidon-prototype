@@ -109,6 +109,7 @@ class Harness:
     # The runs that asked the platform, after teardown, whether they spent
     # the last attempt on their PR — only runs that reached no verdict.
     attempts_recorded: list[str] = field(default_factory=list)
+    wakes: int = 0
     # A dispatch that never answers, so a test can cancel the run mid-flight.
     dispatch_hangs: bool = False
     dispatches: int = 0
@@ -285,6 +286,10 @@ class Harness:
                 "error": error,
             }
 
+        @activity.defn(name="wake_heartbeat")
+        async def wake_heartbeat() -> None:
+            harness.wakes += 1
+
         return [
             create_review_run,
             check_budget,
@@ -305,6 +310,7 @@ class Harness:
             merge_pr,
             record_attempts_exhausted,
             teardown,
+            wake_heartbeat,
         ]
 
 
@@ -436,6 +442,7 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     assert record["status"] == "done"
     assert record["merged"] is True
     assert record["merge_sha"] == "abc123"
+    assert harness.wakes == 1  # the concluded review frees the slot: a nudge
 
 
 # -- the contract layer ------------------------------------------------------
@@ -738,6 +745,7 @@ async def test_a_reviewer_that_died_mid_flight_leaves_the_pr_for_another_try(env
     assert record["status"] == "failed"
     assert harness.verdicts == [] and harness.gate_events == []
     assert harness.attempts_recorded == [RUN_ID]
+    assert harness.wakes == 1  # the reoffered PR is the heartbeat's to see
 
 
 async def test_a_verdict_bearing_failure_is_a_conclusion(env):
