@@ -596,8 +596,10 @@ sandbox torn down, the registration retired, the run record written.
 Everything above describes one run, and by default a human starts each
 one. A company whose blueprint declares a `heartbeat` section
 ([the blueprint reference](docs/blueprint.md)) also runs a standing
-**heartbeat**: one durable workflow that wakes on the declared cadence
-and, each tick:
+**heartbeat**: one durable workflow that wakes when the company's own
+runs change the world — every finished run nudges it — and at least every
+`reconcile_minutes`, the declared bound on how stale its view of changes
+only the outside world saw may grow. Each tick it:
 
 1. **Observes** the open backlog, the delivered-but-unreviewed PRs (each
    one's live state read from the git host — a PR a human merged or closed
@@ -607,8 +609,8 @@ and, each tick:
 3. **Starts the chosen run** only under the compiled `heartbeat.start`
    decision and the declared caps.
 
-The PM proposes; the platform disposes; the human declares the cadence and
-the caps and answers the merge gate. Nothing about a run changes — the
+The PM proposes; the platform disposes; the human declares the backstop
+cadence and the caps and answers the merge gate. Nothing about a run changes — the
 same fulfilment, verify, delivery, review and gate above — only who
 pressed start.
 
