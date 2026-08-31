@@ -34,7 +34,6 @@ from temporalio.client import Client
 
 from common.ids import new_run_id
 from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.heartbeat import HeartbeatInput
 from orchestrator.workflows.intake import IntakeInput
 
 from .blueprints import HEARTBEAT, restore_pristine
@@ -48,6 +47,7 @@ from .conftest import (
     heartbeat_ticks,
     pr_number,
     target_slug,
+    wake_until_run_started,
 )
 
 
@@ -66,7 +66,7 @@ def overnight(stack: None, env: dict) -> dict:
         f"Ship the slugify utility (e2e overnight goal {nonce})\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    heartbeat_id = f"{workflow_id('heartbeat', COMPANY_NS)}-overnight-{nonce}"
+    heartbeat_id = workflow_id("heartbeat", COMPANY_NS)
     result: dict = {"env": env, "heartbeat_id": heartbeat_id}
 
     async def drive() -> None:
@@ -91,54 +91,54 @@ def overnight(stack: None, env: dict) -> dict:
             issue_number = int(issue_match.group(1))
             result["issue_number"] = issue_number
 
-            # --- touch nothing: the heartbeat runs the company -----------
-            beat = await client.start_workflow(
-                "heartbeat",
-                HeartbeatInput(
-                    company=COMPANY_NS, interval_s=3, timeouts=deployed_timeouts()
-                ),
-                id=heartbeat_id,
-                task_queue=TASK_QUEUE,
+            # --- touch nothing: the standing heartbeat runs the company —
+            # the intake's finishing nudge wakes it onto the ticket it filed,
+            # and the re-nudge below covers a backlog read that landed before
+            # the ticket was visible on the git host.
+            await asyncio.to_thread(
+                wake_until_run_started,
+                f"implement issue #{issue_number}",
+                "implement",
             )
-            try:
-                implement = await asyncio.to_thread(
-                    await_run, f"implement issue #{issue_number}", True
-                )
-                assert implement["status"] == "done", f"unattended implement: {implement}"
-                assert implement["pr_url"], "the unattended implement produced no PR"
-                result["implement"] = implement
-                number = pr_number(implement["pr_url"])
-                assert number is not None, f"not a PR url: {implement['pr_url']!r}"
-                result["pr_number"] = number
+            implement = await asyncio.to_thread(
+                await_run, f"implement issue #{issue_number}", True
+            )
+            assert implement["status"] == "done", f"unattended implement: {implement}"
+            assert implement["pr_url"], "the unattended implement produced no PR"
+            result["implement"] = implement
+            number = pr_number(implement["pr_url"])
+            assert number is not None, f"not a PR url: {implement['pr_url']!r}"
+            result["pr_number"] = number
 
-                # The heartbeat sees the delivered PR and starts a review,
-                # which parks on the human merge gate.
-                review = await asyncio.to_thread(
-                    await_run, f"review pull request #{number}", False
-                )
-                result["review"] = review
-                review_handle = client.get_workflow_handle(
-                    workflow_id("review", review["run_id"])
-                )
-                deadline = time.monotonic() + 600
-                while time.monotonic() < deadline:
-                    if await review_handle.query("state") == "paused-merge_gate":
-                        break
-                    await asyncio.sleep(2)
-                else:
-                    raise AssertionError("the unattended review never parked to merge")
-                result["parked_pr"] = github_api(
-                    env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
-                ).json()
+            # The implement's finishing nudge wakes the heartbeat onto
+            # the delivered PR; the review it starts parks on the human
+            # merge gate.
+            await asyncio.to_thread(
+                wake_until_run_started, f"review pull request #{number}", "review"
+            )
+            review = await asyncio.to_thread(
+                await_run, f"review pull request #{number}", False
+            )
+            result["review"] = review
+            review_handle = client.get_workflow_handle(
+                workflow_id("review", review["run_id"])
+            )
+            deadline = time.monotonic() + 600
+            while time.monotonic() < deadline:
+                if await review_handle.query("state") == "paused-merge_gate":
+                    break
+                await asyncio.sleep(2)
+            else:
+                raise AssertionError("the unattended review never parked to merge")
+            result["parked_pr"] = github_api(
+                env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
+            ).json()
 
-                # --- human act 2: one approval out -----------------------
-                await review_handle.signal("merge", args=[True, "overnight: approved"])
-                result["review_record"] = await asyncio.wait_for(
-                    review_handle.result(), timeout=300
-                )
-            finally:
-                with contextlib.suppress(Exception):
-                    await beat.terminate()
+            # --- human act 2: one approval out -----------------------
+            await review_handle.signal("merge", args=[True, "overnight: approved"])
+            result["review_record"] = await asyncio.wait_for(
+                review_handle.result(), timeout=300
+            )
 
     asyncio.run(drive())
 
@@ -158,8 +158,7 @@ def overnight(stack: None, env: dict) -> dict:
 def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     """No human ran the implement: the heartbeat consumed the intake ticket
     and produced a PR, under an auto-minted run id. Asserted on the run and
-    on this heartbeat's own attributable ticks — never on winning a race
-    against the ensure loop's bare heartbeat."""
+    on the heartbeat's own ticks — the started tick names the child run."""
     implement = overnight["implement"]
     assert implement["run_id"].startswith("auto-"), implement["run_id"]
     assert implement["workflow"] == "implement"
@@ -170,7 +169,7 @@ def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     # heartbeat asked.
     story = audit_story(implement["run_id"])
     assert any(e["tool"] == "heartbeat.start" and e["decision"] == "allow" for e in story)
-    # And it was THIS test's heartbeat that started it: the tick that
+    # And the standing heartbeat recorded starting it: the tick that
     # names the child run carries the writing workflow's own id.
     started = [
         t

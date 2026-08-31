@@ -33,16 +33,19 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   gets reads, not commits. No module may depend on what a previous run
   left behind.
 - **A clean campsite** (`close_pr`, `sweep_repo_debris`, `repo_sweeper`,
-  `blueprints.quiesce_heartbeat`): debris feeds contention — the ensure
-  loop's bare heartbeat treats any open PR or issue as reviewable backlog,
-  and one parked review holds `max_concurrent_runs`' whole slot for a day.
-  So a fixture closes the PRs it opened the moment their openness has been
-  verified; a module that applies a heartbeat-declaring blueprint sweeps
-  BEFORE the apply, waits for the bare heartbeat's first tick on that
-  empty backlog (`apply_profile` — the ensure loop starts it a minute or
-  two after the apply, and until it has ticked once and gone to sleep it
-  can steal the module's own ticket) and restores the pristine blueprint
-  after; the session sweeper catches whatever a failure path dropped.
+  `blueprints.quiesce_heartbeat`): debris feeds contention — the standing
+  heartbeat treats any open PR or issue as reviewable backlog, wakes the
+  moment any run of the company finishes, and one parked review holds
+  `max_concurrent_runs`' whole slot for a day. So a fixture closes the PRs
+  it opened the moment their openness has been verified; a module whose
+  arc the heartbeat drives sweeps BEFORE the apply, waits for the
+  heartbeat's arrival tick on that empty backlog (`apply_profile`), then
+  rides that one heartbeat — its runs wake it forward, and
+  `wake_bare_heartbeat` stands in for changes only the outside world saw —
+  and restores the pristine blueprint after; a module that drives runs
+  explicitly applies a variant that declares no heartbeat
+  (`blueprints.derived_blueprint`), so nothing is woken into its lane;
+  the session sweeper catches whatever a failure path dropped.
 - **Quiet, asserted** (`test_quiet`, ordered last): when the suite exits
   green, no workflow is running and no run is non-terminal — a failing
   assertion, not a person asking.
@@ -50,9 +53,11 @@ state, enforced stops, verified quiet — via four session-level guarantees:
 What a new module owes: declare repo preconditions against `repo_baseline`
 (and put deviations back); close every PR it opens and delete the branch
 (`close_pr`); if it applies another blueprint profile, sweep before the
-apply and `blueprints.restore_pristine()` after; and anchor assertions on
-runs and gate events — attributable whichever heartbeat acted
-(`heartbeat_ticks`) — never on winning a race against the ensure loop.
+apply and `blueprints.restore_pristine()` after; declare a heartbeat only
+when the heartbeat drives the arc — explicit runs under a
+heartbeat-bearing profile would wake it into the module's own lane; and
+anchor assertions on runs, gate events and tick windows (`heartbeat_ticks`
+past a counted mark), never on the ledger's whole history.
 
 Collection order is the hook's, not the filenames': the capstones run
 after every module whose runs they read, and `test_quiet` runs last.
@@ -91,6 +96,7 @@ from .cluster import (
     audit_story,
     db_now,
     kill_worker_pod,
+    run_by_task,
     run_kubectl,
     sandbox_pods,
     temporal_port_forward,
@@ -317,18 +323,74 @@ def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
 
 
 def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
-    """The tick rows this exact heartbeat wrote. Every heartbeat of a
-    company journals under the shared `heartbeat-{company}` run id, but
-    each tick row carries the writing workflow's own id in the `workflow`
-    column — so this is attributable to one heartbeat even while the ensure
-    loop runs a second one beside it. Assert on these, never on
-    `audit_story(<your heartbeat id>)`: the decide/tick ledger is keyed by
-    the company, and winning a race is not a claim."""
+    """The tick rows one heartbeat workflow wrote — the ledger journals
+    every tick under the shared `heartbeat-{company}` run id, and each row
+    carries the writing workflow's own id in the `workflow` column. The
+    standing heartbeat keeps its id across restarts, so this list grows
+    for as long as the session runs: scope assertions to a window (count
+    the rows, act, assert on the rows past the mark) or to rules that
+    name a run, never to the whole history."""
     return [
         e
         for e in audit_story(workflow_id("heartbeat", COMPANY_NS))
         if e["tool"] == "heartbeat.tick" and e["workflow"] == heartbeat_id
     ]
+
+
+def bare_heartbeat_id() -> str:
+    """The standing heartbeat's workflow id — the one the ensure loop
+    keeps running and the platform's own wakes reach."""
+    return workflow_id("heartbeat", COMPANY_NS)
+
+
+def wake_bare_heartbeat() -> None:
+    """Send the platform's own `wake` signal to the standing heartbeat —
+    the harness's stand-in for a change only the outside world saw (an
+    issue filed by hand, a PR merged by hand), compressed from the
+    reconcile wait to now. A real capability exercised, not a seam:
+    production sends the same signal."""
+
+    async def send() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            await client.get_workflow_handle(bare_heartbeat_id()).signal("wake")
+
+    asyncio.run(send())
+
+
+def await_new_ticks(mark: int, n: int, deadline_s: int = 180) -> list[dict[str, Any]]:
+    """Block until the standing heartbeat has journaled at least `mark + n`
+    tick rows and return the rows past the mark. Count-then-wake
+    discipline: take the mark, wake once, wait here before waking again —
+    a wake landing mid-tick coalesces, so blind sends under-count."""
+    deadline = time.monotonic() + deadline_s
+    while time.monotonic() < deadline:
+        ticks = heartbeat_ticks(bare_heartbeat_id())
+        if len(ticks) >= mark + n:
+            return ticks[mark:]
+        time.sleep(3)
+    raise AssertionError(
+        f"the heartbeat wrote {len(heartbeat_ticks(bare_heartbeat_id()))} ticks"
+        f" within {deadline_s}s; needed {mark + n}"
+    )
+
+
+def wake_until_run_started(task: str, workflow: str, deadline_s: int = 600) -> None:
+    """Nudge the standing heartbeat until the run it should start exists.
+    One wake usually does it; the re-nudge covers a tick whose backlog
+    read landed before the just-filed issue or just-delivered PR was
+    visible on the git host — the extra ticks it may cause are idle rows,
+    never actions."""
+    deadline = time.monotonic() + deadline_s
+    next_wake = 0.0
+    while time.monotonic() < deadline:
+        if run_by_task(task, workflow=workflow) is not None:
+            return
+        if time.monotonic() >= next_wake:
+            wake_bare_heartbeat()
+            next_wake = time.monotonic() + 60
+        time.sleep(3)
+    raise AssertionError(f"the heartbeat never started {task!r}")
 
 
 # --- the repo-state contract ------------------------------------------------
@@ -435,13 +497,14 @@ def repo_baseline(env: dict[str, str]) -> dict[str, str]:
 
 # --- leave the campsite clean ------------------------------------------------
 #
-# Debris feeds contention: the ensure loop's bare heartbeat treats any open
-# PR as reviewable backlog, so PRs a module leaves behind become another
-# module's race. Fixtures close the PRs they opened the moment they are
-# done with them; the session sweeper catches what inline tests and failure
-# paths drop; and modules that applied a heartbeat-declaring blueprint
-# terminate the bare heartbeat their apply caused, instead of leaving it
-# asleep for up to reconcile_minutes after the pristine restore.
+# Debris feeds contention: the standing heartbeat treats any open PR as
+# reviewable backlog — and it wakes whenever a run finishes — so PRs a
+# module leaves behind become another module's race. Fixtures close the
+# PRs they opened the moment they are done with them; the session sweeper
+# catches what inline tests and failure paths drop; and modules that
+# applied a heartbeat-declaring blueprint terminate the heartbeat their
+# apply caused, instead of leaving it parked on its wait after the
+# pristine restore.
 
 
 def pr_number(pr_url: str | None) -> int | None:
@@ -479,18 +542,16 @@ def pr_state(env: dict, pr_url: str | None) -> str:
 
 
 def apply_profile(path: Path, env: dict) -> None:
-    """Sweep, apply, converge, and let the bare heartbeat tick — the way a
-    module that declares a heartbeat must arrive. An empty campsite first:
-    the ensure loop's bare heartbeat ticks once the moment it starts, and
-    any open PR or issue an earlier module left becomes its backlog — a
-    review parked on a day-long gate that holds the one concurrency slot.
-    Then the wait: the ensure loop starts the bare heartbeat on its own
-    cadence, a minute or two after the apply, and its first tick lands on
-    the swept backlog and sleeps `reconcile_minutes` — but a module that
-    files its goal before that tick races the bare heartbeat for its own
-    ticket, and the module's heartbeat loses the attribution its
-    assertions anchor on (both start the run; the one-live-run index kills
-    the loser's child at birth). `path` must declare a heartbeat section."""
+    """Sweep, apply, converge, and let the standing heartbeat arrive — the
+    way a module whose arc the heartbeat drives must start. An empty
+    campsite first: the heartbeat ticks once the moment the ensure loop
+    starts it, and any open PR or issue an earlier module left becomes its
+    backlog — a review parked on a day-long gate that holds the one
+    concurrency slot. Then the wait: once the arrival tick has landed on
+    the swept backlog and the loop is parked on its wait, every tick that
+    follows is one the module caused — its own runs wake the heartbeat
+    forward, and `wake_bare_heartbeat` stands in for the outside world.
+    `path` must declare a heartbeat section."""
     sweep_repo_debris(env)
     apply_blueprint(path)
     wait_for_convergence()
@@ -499,12 +560,14 @@ def apply_profile(path: Path, env: dict) -> None:
 
 def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
     """Block until the ensure loop's `heartbeat-{company}` is running and
-    asleep — it has observed the swept campsite and will not tick again
-    for the blueprint's `reconcile_minutes`. Read off the workflow's own
-    `state` query, on its current run only: a profile re-applied over
-    itself finds the standing heartbeat already asleep, and a terminated
-    one (a quiesced earlier profile) does not count until the ensure loop
-    has started its successor."""
+    parked on its wait — its arrival tick has observed the swept campsite
+    and is journaled, so tick counts taken after this are the module's
+    own. Read off the workflow's own `state` query, on its current run
+    only: a profile re-applied over itself finds the standing heartbeat
+    already waiting, and a terminated one (a quiesced earlier profile)
+    does not count until the ensure loop has started its successor. The
+    parked loop answers a wake immediately — "sleeping" means ready,
+    never dormant."""
     bare = workflow_id("heartbeat", COMPANY_NS)
 
     async def wait() -> None:
