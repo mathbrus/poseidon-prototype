@@ -139,7 +139,7 @@ budgets:
 
 heartbeat:
   conductor: pm
-  interval_minutes: 30
+  reconcile_minutes: 30
   max_concurrent_runs: 1
   # A run that aborts before concluding (a timed-out model call, a step
   # cap) leaves its issue or PR on the backlog for one more try; a run

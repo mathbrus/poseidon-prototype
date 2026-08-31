@@ -43,6 +43,7 @@ class Harness:
         default_factory=list
     )
     attempts_recorded: list[str] = field(default_factory=list)
+    wakes: int = 0
 
     def activities(self) -> list[Any]:
         harness = self
@@ -121,6 +122,10 @@ class Harness:
                 "error": error,
             }
 
+        @activity.defn(name="wake_heartbeat")
+        async def wake_heartbeat() -> None:
+            harness.wakes += 1
+
         return [
             create_run,
             check_budget,
@@ -133,6 +138,7 @@ class Harness:
             platform_verify,
             record_attempts_exhausted,
             teardown,
+            wake_heartbeat,
         ]
 
 
@@ -179,6 +185,7 @@ async def test_a_delivered_run_concluded_its_issue(env):
     assert record["status"] == "done" and record["pr_url"] == PR_URL
     assert harness.dispatches == ["implement", "deliver"]
     assert harness.attempts_recorded == []
+    assert harness.wakes == 1  # the delivered PR is the heartbeat's to offer
 
 
 async def test_an_executor_that_died_leaves_the_issue_for_another_try(env):
@@ -190,6 +197,7 @@ async def test_an_executor_that_died_leaves_the_issue_for_another_try(env):
     assert record["status"] == "failed"
     assert harness.dispatches == ["implement"]
     assert harness.attempts_recorded == [RUN_ID]
+    assert harness.wakes == 1  # a failed run frees the slot: still a nudge
 
 
 async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):

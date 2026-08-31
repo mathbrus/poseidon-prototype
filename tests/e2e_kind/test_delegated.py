@@ -43,11 +43,16 @@ from temporalio.client import Client
 from common.ids import new_run_id
 from mockllm.brain import CONTRACT_GOAL_MARKER, CONTRACT_TEST_PATH
 from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.heartbeat import HeartbeatInput
 from orchestrator.workflows.intake import IntakeInput
 from orchestrator.workflows.review import ReviewInput
 
-from .blueprints import DELEGATED, restore_pristine
+from .blueprints import (
+    DELEGATED,
+    apply_blueprint,
+    delegated_without_heartbeat,
+    restore_pristine,
+    wait_for_convergence,
+)
 from .cluster import (
     COMPANY_NS,
     audit_story,
@@ -65,7 +70,9 @@ from .conftest import (
     github_api,
     pr_number,
     run_implement_from_issue,
+    sweep_repo_debris,
     target_slug,
+    wake_until_run_started,
 )
 
 
@@ -88,7 +95,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
         f"Ship the slugify utility (e2e delegated goal {nonce})\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    heartbeat_id = f"{workflow_id('heartbeat', COMPANY_NS)}-delegated-{nonce}"
+    heartbeat_id = workflow_id("heartbeat", COMPANY_NS)
     result: dict = {"env": env, "heartbeat_id": heartbeat_id}
 
     async def drive() -> None:
@@ -113,36 +120,35 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
             issue_number = int(issue_match.group(1))
             result["issue_number"] = issue_number
 
-            # --- touch nothing more: the heartbeat runs the whole arc ----
-            beat = await client.start_workflow(
-                "heartbeat",
-                HeartbeatInput(
-                    company=COMPANY_NS, interval_s=3, timeouts=deployed_timeouts()
-                ),
-                id=heartbeat_id,
-                task_queue=TASK_QUEUE,
+            # --- touch nothing more: the standing heartbeat runs the
+            # whole arc — the intake's finishing nudge wakes it onto the
+            # ticket, and the re-nudge below covers a backlog read that
+            # landed before the ticket was visible on the git host.
+            await asyncio.to_thread(
+                wake_until_run_started,
+                f"implement issue #{issue_number}",
+                "implement",
             )
-            try:
-                implement = await asyncio.to_thread(
-                    await_run, f"implement issue #{issue_number}", True
-                )
-                assert implement["status"] == "done", f"unattended implement: {implement}"
-                assert implement["pr_url"], "the unattended implement produced no PR"
-                result["implement"] = implement
-                number = pr_number(implement["pr_url"])
-                assert number is not None, f"not a PR url: {implement['pr_url']!r}"
-                result["pr_number"] = number
+            implement = await asyncio.to_thread(
+                await_run, f"implement issue #{issue_number}", True
+            )
+            assert implement["status"] == "done", f"unattended implement: {implement}"
+            assert implement["pr_url"], "the unattended implement produced no PR"
+            result["implement"] = implement
+            number = pr_number(implement["pr_url"])
+            assert number is not None, f"not a PR url: {implement['pr_url']!r}"
+            result["pr_number"] = number
 
-                # The heartbeat sees the delivered PR, reviews it, and —
-                # in-class, review passed, checks green — MERGES it. No
-                # human signal is ever sent.
-                review = await asyncio.to_thread(
-                    await_run, f"review pull request #{number}", True
-                )
-                result["review"] = review
-            finally:
-                with contextlib.suppress(Exception):
-                    await beat.terminate()
+            # The implement's finishing nudge wakes the heartbeat onto
+            # the delivered PR; it reviews it and — in-class, review
+            # passed, checks green — MERGES it. No human signal is sent.
+            await asyncio.to_thread(
+                wake_until_run_started, f"review pull request #{number}", "review"
+            )
+            review = await asyncio.to_thread(
+                await_run, f"review pull request #{number}", True
+            )
+            result["review"] = review
 
     asyncio.run(drive())
 
@@ -235,10 +241,10 @@ def test_delegated_arc_had_exactly_one_human_act(delegated_overnight: dict):
 # it. The whole arc has exactly one human act — the merge of the contract PR
 # — and everything else is the platform's.
 #
-# It is driven with explicit workflow starts rather than the heartbeat, so
-# the human-in-the-middle step is deterministic (the contract review parks on
-# a 60s fast-profile gate; a heartbeat racing it for the single concurrency
-# slot is exactly the flake this capstone must not have). The unattended
+# It is driven with explicit workflow starts rather than the heartbeat — the
+# blueprint variant it applies declares none, so nothing can be woken into
+# racing the single concurrency slot while the contract review parks on its
+# 60s fast-profile gate. The unattended
 # *sequencing* — that the PM files contract-then-implement with no command
 # between — is asserted where it is observable: the one intake dispatch files
 # the ordered pair.
@@ -292,7 +298,9 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     its PR parks for the single human merge, and then the implementation
     auto-merges on a green base-ref contract — no other command."""
     env = repo_baseline
-    apply_profile(DELEGATED, env)
+    sweep_repo_debris(env)
+    apply_blueprint(delegated_without_heartbeat())
+    wait_for_convergence()
     # The declared deviation from the session baseline: the tree is declared
     # by the blueprint but deleted from `main`, so an implementation cannot
     # merge until the spec lands — which is the whole point of sequencing

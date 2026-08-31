@@ -1,11 +1,14 @@
 """The heartbeat's guardrails, proven at the workflow layer: the
 real HeartbeatWorkflow runs against Temporal's time-skipping test environment
-with scripted activities — the tick's sequencing, cap halts, refusals and
-revocation are exactly what the activity units cannot see.
+with scripted activities — the tick's sequencing, cap halts, refusals,
+revocation and the wake path are exactly what the activity units cannot see.
 
 Each test scripts a queue of per-tick configs ending in None, so the loop
 always stops itself through the same revocation path production uses —
-every test is therefore also a revocation test."""
+every test is therefore also a revocation test. And because the
+time-skipping clock only advances while a result is awaited, every test
+that chains ticks without sending a wake is also a reconcile-backstop
+test: the full wait between those ticks ended by timer, not by signal."""
 
 import asyncio
 import uuid
@@ -175,7 +178,7 @@ async def run_heartbeat(client: Client, harness: Harness) -> dict[str, Any]:
     ):
         handle = await client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, interval_s=1, timeouts=FAST_TIMEOUTS),
+            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
@@ -362,7 +365,7 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
     async with worker():
         handle = await env.client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, interval_s=1, timeouts=FAST_TIMEOUTS),
+            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
@@ -375,3 +378,112 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
     assert result["stopped"].startswith("no heartbeat section")
     assert [t[0] for t in harness.ticks] == ["started", "stopped"]
     assert len(harness.children) == 1  # the replay started nothing twice
+
+
+def _quiet(n: int) -> list[dict[str, Any]]:
+    return [observation(backlog=[], reviewable_prs=[]) for _ in range(n)]
+
+
+async def test_wake_cuts_the_sleep_short(env):
+    """While no result is awaited the test clock is frozen, so the
+    reconcile timer cannot fire: the second tick below can only have been
+    caused by the wake signal."""
+    harness = Harness(configs=[CONFIG, CONFIG, None], observations=_quiet(2))
+    task_queue = f"tq-{uuid.uuid4().hex[:8]}"
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview],
+        activities=harness.activities(),
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await env.client.start_workflow(
+            "heartbeat",
+            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS),
+            id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
+            task_queue=task_queue,
+        )
+        while await handle.query("state") != "sleeping":
+            await asyncio.sleep(0.05)
+        await handle.signal("wake")
+        while len(harness.ticks) < 2:
+            await asyncio.sleep(0.05)
+        result = await handle.result()
+    assert [t[0] for t in harness.ticks] == ["idle", "idle", "stopped"]
+    assert result["stopped"].startswith("no heartbeat section")
+
+
+async def test_wakes_mid_tick_coalesce_to_one_extra_tick(env):
+    """Two wakes land while a tick is still observing: the sleep is
+    skipped once and exactly one extra tick follows — a flag, not a
+    queue, so wakes can never pile into a storm."""
+    harness = Harness(configs=[CONFIG, CONFIG, None], observations=_quiet(2))
+    observing = asyncio.Event()
+    release = asyncio.Event()
+
+    @activity.defn(name="heartbeat_observe")
+    async def blocking_observe(max_attempts: int) -> dict[str, Any]:
+        if not release.is_set():
+            observing.set()
+            await release.wait()
+        harness.observed_caps.append(max_attempts)
+        return harness.observations.pop(0)
+
+    activities = harness.activities()
+    activities[1] = blocking_observe
+    task_queue = f"tq-{uuid.uuid4().hex[:8]}"
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview],
+        activities=activities,
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await env.client.start_workflow(
+            "heartbeat",
+            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS),
+            id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
+            task_queue=task_queue,
+        )
+        await observing.wait()
+        await handle.signal("wake")
+        await handle.signal("wake")
+        release.set()
+        while len(harness.ticks) < 2:
+            await asyncio.sleep(0.05)
+        # The frozen clock rules the timer out and no further wake was
+        # sent: a third tick now would be the coalescing gone wrong.
+        await asyncio.sleep(0.5)
+        assert len(harness.ticks) == 2
+        assert await handle.query("state") == "sleeping"
+        await handle.result()
+    assert [t[0] for t in harness.ticks] == ["idle", "idle", "stopped"]
+
+
+async def test_a_pending_wake_skips_the_first_sleep_then_the_loop_rests(env):
+    """A wake that raced the previous run's close rides the input: the
+    first sleep is skipped, and — the regression this pins — the flag is
+    consumed, so the loop settles back onto its wait instead of spinning."""
+    harness = Harness(configs=[CONFIG, CONFIG, None], observations=_quiet(2))
+    task_queue = f"tq-{uuid.uuid4().hex[:8]}"
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview],
+        activities=harness.activities(),
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await env.client.start_workflow(
+            "heartbeat",
+            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS, pending_wake=True),
+            id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
+            task_queue=task_queue,
+        )
+        # Both ticks land under the frozen clock: the input alone cut the
+        # first sleep short.
+        while len(harness.ticks) < 2:
+            await asyncio.sleep(0.05)
+        assert await handle.query("state") == "sleeping"
+        result = await handle.result()
+    assert [t[0] for t in harness.ticks] == ["idle", "idle", "stopped"]
+    assert result["stopped"].startswith("no heartbeat section")

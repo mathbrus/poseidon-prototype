@@ -127,6 +127,10 @@ class IntakeWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
             retry_policy=TEARDOWN_RETRY,
         )
+        # The tickets this run filed are the standing heartbeat's next
+        # backlog — nudge it; the reconcile timer covers a nudge that
+        # goes missing.
+        await self.wake_heartbeat(timeouts)
         return record
 
 

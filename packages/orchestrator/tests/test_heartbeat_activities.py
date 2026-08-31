@@ -327,6 +327,79 @@ def test_observe_excludes_a_review_at_the_attempt_cap(
     assert observed["reviewable_prs"] == []
 
 
+def test_observe_skips_an_unreadable_delivered_pr(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """A candidate the gateway cannot read (a 404 — for instance a registry
+    that remembers a PR from another repository) is skipped like a settled
+    one, instead of blinding the whole observation: every other candidate
+    and the backlog still reach the PM."""
+    import orchestrator.activities.heartbeat as module
+
+    async def read_open_issues(self, run_id, repo):
+        return [_issue(9)]
+
+    async def read_pr(self, run_id, repo, number):
+        if number == 4:
+            raise clients.GatewayError("GitHub GET /pulls/4 failed: 404")
+        return _pr(number)
+
+    monkeypatch.setattr(
+        module,
+        "GatewayClient",
+        fake_gateway(read_open_issues=read_open_issues, read_pr=read_pr),
+    )
+    runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
+    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
+    runs.start("run-b", "implement issue #5", "implement", company=COMPANY)
+    runs.finish("run-b", "done", pr_url="https://github.test/example/repo/pull/6")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert [p["number"] for p in observed["reviewable_prs"]] == [6]
+    assert [i["number"] for i in observed["backlog"]] == [9]
+
+
+def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypatch):
+    import orchestrator.activities.heartbeat as module
+
+    sent: list[tuple[str, str]] = []
+
+    class FakeHandle:
+        def __init__(self, workflow_id: str):
+            self._id = workflow_id
+
+        async def signal(self, name: str) -> None:
+            sent.append((self._id, name))
+
+    class FakeClient:
+        @staticmethod
+        async def connect(address, namespace):
+            client = FakeClient()
+            client.address, client.namespace = address, namespace
+            return client
+
+        def get_workflow_handle(self, workflow_id: str) -> FakeHandle:
+            return FakeHandle(workflow_id)
+
+    monkeypatch.setattr(module, "Client", FakeClient)
+    asyncio.run(activities.wake_heartbeat())
+    assert sent == [(f"heartbeat-{COMPANY}", "wake")]
+
+
+def test_wake_heartbeat_swallows_every_failure(activities, monkeypatch):
+    """Best-effort by design: no heartbeat to signal (no section applied)
+    or no Temporal to reach must never fail the run sending the nudge —
+    a missed one costs at most a reconcile interval."""
+    import orchestrator.activities.heartbeat as module
+
+    class DownClient:
+        @staticmethod
+        async def connect(address, namespace):
+            raise RuntimeError("temporal unreachable")
+
+    monkeypatch.setattr(module, "Client", DownClient)
+    assert asyncio.run(activities.wake_heartbeat()) is None
+
+
 def test_observe_drops_delivered_prs_the_world_has_settled(
     activities, runs, monkeypatch, fake_gateway
 ):

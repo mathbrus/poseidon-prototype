@@ -1,5 +1,6 @@
 """The heartbeat's eyes, its authorization and its audit trail. Thin
-clients, as always — sequencing and the tick cadence live in the workflow.
+clients, as always — sequencing and the wait between ticks live in the
+workflow.
 
 Retry safety, per activity:
     heartbeat_config    — read-only; safe.
@@ -33,12 +34,18 @@ import time
 from typing import Any
 
 from temporalio import activity
+from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.telemetry import get_logger
 from orchestrator.audit import record_event
-from orchestrator.clients import GatewayClient, dispatch_and_poll, pr_settled
+from orchestrator.clients import (
+    GatewayClient,
+    GatewayError,
+    dispatch_and_poll,
+    pr_settled,
+)
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from orchestrator.workflows.base import workflow_id
@@ -198,9 +205,22 @@ class HeartbeatActivities:
                 self._ledger_run_id(), self._settings.target_repo
             )
             for candidate in delivered:
-                pr = await gateway.read_pr(
-                    self._ledger_run_id(), self._settings.target_repo, candidate["number"]
-                )
+                try:
+                    pr = await gateway.read_pr(
+                        self._ledger_run_id(),
+                        self._settings.target_repo,
+                        candidate["number"],
+                    )
+                except GatewayError as exc:
+                    # One unreadable candidate must not blind the whole
+                    # tick: skip it like a settled one — not offered now,
+                    # read again next time. Everything else observed this
+                    # tick still reaches the PM.
+                    self._log.info(
+                        "delivered pr unreadable, skipped",
+                        extra={"number": candidate["number"], "error": str(exc)},
+                    )
+                    continue
                 settled = pr_settled(pr)
                 if settled:
                     self._log.info(
@@ -425,6 +445,25 @@ class HeartbeatActivities:
             latency_ms=latency_ms,
         )
 
+    @activity.defn(name="wake_heartbeat")
+    async def wake_heartbeat(self) -> None:
+        """Nudge the company's standing heartbeat: a run just changed the
+        world it watches. Best-effort by design — an absent heartbeat is
+        the normal state whenever no heartbeat section is applied, and a
+        missed nudge costs at most one reconcile interval — so every
+        failure is swallowed; this can never fail the run that sends it."""
+        try:
+            client = await Client.connect(
+                self._settings.temporal_address,
+                namespace=self._settings.temporal_namespace,
+            )
+            handle = client.get_workflow_handle(
+                workflow_id(FAMILY, self._settings.company)
+            )
+            await handle.signal("wake")
+        except Exception as exc:
+            self._log.info("heartbeat wake skipped", extra={"error": str(exc)})
+
     def all(self) -> list[Any]:
         return [
             self.heartbeat_config,
@@ -432,4 +471,5 @@ class HeartbeatActivities:
             self.heartbeat_decide,
             self.heartbeat_authorize,
             self.record_tick,
+            self.wake_heartbeat,
         ]

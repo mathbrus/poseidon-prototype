@@ -9,6 +9,7 @@ from typing import Any
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from orchestrator.gates import Gate
 
@@ -24,7 +25,7 @@ STEP_RETRY = RetryPolicy(maximum_attempts=3, backoff_coefficient=2.0)
 DISPATCH_RETRY = RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=0)
 TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 
-# The `heartbeat` family is the company's own cadence — one standing
+# The `heartbeat` family is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats
 # above (`dispatch_heartbeat_s`), which are liveness pings on a dispatch.
 FAMILIES = ("implement", "intake", "review", "heartbeat")
@@ -131,6 +132,22 @@ class RunWorkflow:
             start_to_close_timeout=timedelta(seconds=timeouts.step_s),
             retry_policy=STEP_RETRY,
         )
+
+    async def wake_heartbeat(self, timeouts: Timeouts) -> None:
+        """Nudge the company's standing heartbeat that this run changed
+        the world it watches. Doubly best-effort: the activity swallows
+        its own failures (an absent heartbeat is the normal state), and
+        the guard here means even a wedged connection cannot fail a run
+        that already tore down — a missed nudge costs at most one
+        reconcile interval."""
+        try:
+            await workflow.execute_activity(
+                "wake_heartbeat",
+                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError:
+            workflow.logger.info("heartbeat wake failed; the reconcile timer covers it")
 
     async def dispatch(
         self, run_id: str, task_text: str, url: str, mode: str, timeouts: Timeouts

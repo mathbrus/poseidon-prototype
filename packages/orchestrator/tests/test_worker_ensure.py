@@ -63,7 +63,7 @@ async def test_declared_section_starts_the_heartbeat():
     assert call["name"] == "heartbeat"
     assert call["id"] == f"heartbeat-{COMPANY}"
     # No override: the blueprint's declared cadence stands.
-    assert call["input"].interval_s is None
+    assert call["input"].pending_wake is False
     assert call["input"].timeouts is None
 
 

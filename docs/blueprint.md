@@ -206,14 +206,14 @@ Every budget line you can write here is a hard stop.
 </details>
 
 <details>
-<summary><b><code>heartbeat</code> — the company's own cadence (opt-in)</b></summary>
+<summary><b><code>heartbeat</code> — the company's own initiative (opt-in)</b></summary>
 
 <br>
 
 ```yaml
 heartbeat:
   conductor: pm
-  interval_minutes: 30
+  reconcile_minutes: 30
   max_concurrent_runs: 1
   max_attempts: 2
   may_start: [implement, review]
@@ -225,8 +225,9 @@ meaningful state: with no `heartbeat` section, runs start only when a human
 starts one, which is everything this reference described so far.
 
 Declaring it grants the platform a bounded authority to start work on its
-own initiative: every `interval_minutes`, the named conductor is dispatched
-to choose the next action from the backlog, and the chosen workflow may
+own initiative: whenever a run of the company finishes — and at least every
+`reconcile_minutes` — the named conductor is dispatched to choose the next
+action from the backlog, and the chosen workflow may
 start only within `max_concurrent_runs`, under the `daily_cap`, and on an
 item fewer than `max_attempts` runs have taken up. Every field is required
 once the section exists — a defaulted cap is authority nobody wrote down
@@ -257,7 +258,13 @@ edit as every other authority change.
 
 The loop itself is one durable workflow per company (`heartbeat-{company}`),
 kept running by the orchestrator worker while the applied blueprint
-declares the section. Each tick observes the open backlog, the delivered
+declares the section. Ticks are event-triggered: the platform nudges the
+loop with a `wake` signal when one of the company's own runs reaches its
+end, and `reconcile_minutes` is the backstop — the longest a change only
+the outside world saw (an issue filed by hand, a PR merged by hand) can
+wait for a look. A wake carries no instruction: the tick it causes
+observes, decides and is authorized exactly like one the timer caused.
+Each tick observes the open backlog, the delivered
 PRs awaiting review (the registry names them, the git host confirms each
 is still open — a PR merged or closed by anyone else is not a candidate),
 the in-flight runs and today's ledger spend, then

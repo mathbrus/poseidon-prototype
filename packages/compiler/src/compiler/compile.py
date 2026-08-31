@@ -252,7 +252,7 @@ def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig | None:
         return None
     return HeartbeatConfig(
         conductor=heartbeat["conductor"],
-        interval_minutes=int(heartbeat["interval_minutes"]),
+        reconcile_minutes=int(heartbeat["reconcile_minutes"]),
         max_concurrent_runs=int(heartbeat["max_concurrent_runs"]),
         max_attempts=int(heartbeat["max_attempts"]),
         may_start=tuple(sorted(heartbeat["may_start"])),

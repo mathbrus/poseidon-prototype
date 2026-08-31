@@ -376,7 +376,7 @@ def test_a_merge_gate_on_intake_is_not_writable(blueprint):
 def heartbeat_section() -> dict:
     return {
         "conductor": "pm",
-        "interval_minutes": 30,
+        "reconcile_minutes": 30,
         "max_concurrent_runs": 1,
         "max_attempts": 2,
         "may_start": ["implement", "review"],
@@ -428,6 +428,6 @@ def test_heartbeat_may_not_start_intake(blueprint):
 def test_heartbeat_typo_is_rejected_not_ignored(blueprint):
     blueprint["heartbeat"] = heartbeat_section()
     blueprint["heartbeat"]["heartbeat_mins"] = 5
-    del blueprint["heartbeat"]["interval_minutes"]
+    del blueprint["heartbeat"]["reconcile_minutes"]
     problems = problems_of(blueprint)
     assert any("heartbeat_mins" in p and "spelling" in p for p in problems)

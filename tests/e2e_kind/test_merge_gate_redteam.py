@@ -53,7 +53,12 @@ from mockllm.brain import (
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.review import ReviewInput
 
-from .blueprints import DELEGATED, apply_blueprint, restore_pristine, wait_for_convergence
+from .blueprints import (
+    apply_blueprint,
+    delegated_without_heartbeat,
+    restore_pristine,
+    wait_for_convergence,
+)
 from .cluster import audit_story, run_spend, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
@@ -91,12 +96,13 @@ def delegated(stack: None, repo_baseline: dict):
     layer is red and files a rework — `merge.resolve` would never be
     evaluated, and this red-team would fail for a reason that has nothing
     to do with the carve-out it is about."""
-    # An empty campsite before the heartbeat blueprint lands: the ensure
-    # loop's bare heartbeat ticks once the moment heartbeat is declared, and
-    # any open PR or issue an earlier module left becomes its backlog — a
-    # review parked on a day-long gate that holds the one concurrency slot.
+    # The delegated example minus its heartbeat section: this module
+    # drives the implement and the review itself, and a standing
+    # heartbeat — woken the moment the implement delivers — would race it
+    # for the single concurrency slot. The sweep still matters: an open
+    # PR or issue would be backlog for whichever profile follows.
     sweep_repo_debris(repo_baseline)
-    apply_blueprint(DELEGATED)
+    apply_blueprint(delegated_without_heartbeat())
     wait_for_convergence()
     yield
     restore_pristine()

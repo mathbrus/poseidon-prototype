@@ -497,6 +497,10 @@ class ReviewWorkflow(RunWorkflow):
         )
         if not concluded:
             await self.record_attempts(input.run_id, timeouts)
+        # However this run ended, it changed the world the standing
+        # heartbeat watches — nudge it; the reconcile timer covers a
+        # nudge that goes missing.
+        await self.wake_heartbeat(timeouts)
         if cancelled:
             raise asyncio.CancelledError()
         return record

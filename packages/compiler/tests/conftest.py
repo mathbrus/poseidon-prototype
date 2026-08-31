@@ -19,7 +19,7 @@ def blueprint() -> dict:
 # $5 runs.
 HEARTBEAT_SECTION = {
     "conductor": "pm",
-    "interval_minutes": 30,
+    "reconcile_minutes": 30,
     "max_concurrent_runs": 1,
     "max_attempts": 2,
     "may_start": ["implement"],

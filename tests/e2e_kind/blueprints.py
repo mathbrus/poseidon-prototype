@@ -6,10 +6,13 @@ the pods be Ready."""
 import asyncio
 import contextlib
 import subprocess
+import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
+import yaml
 from temporalio.client import Client
 
 from orchestrator.workflows.base import workflow_id
@@ -21,6 +24,42 @@ EXAMPLES = REPO_ROOT / "examples"
 HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
 HEARTBEAT = EXAMPLES / "hello-saas-heartbeat.yaml"
 DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
+
+
+def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) -> Path:
+    """A harness-local variant of an example blueprint: the example's
+    document with one declared difference, written to a temp file for
+    `apply_blueprint`. The module story stays "the example, minus the
+    piece this module's explicit drive must not race"."""
+    document = yaml.safe_load(base.read_text())
+    mutate(document)
+    path = Path(tempfile.mkdtemp(prefix="poseidon-bp-")) / f"{base.stem}-{label}.yaml"
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
+    return path
+
+
+def delegated_without_heartbeat() -> Path:
+    """The delegated example minus its `heartbeat` section, for modules
+    that drive implement and review runs themselves: with no section
+    declared the ensure loop starts nothing and wakes land on nobody, so
+    the module's explicit arc cannot be raced for its concurrency slot."""
+
+    def drop(document: dict) -> None:
+        document.pop("heartbeat", None)
+
+    return derived_blueprint(DELEGATED, drop, "no-heartbeat")
+
+
+def heartbeat_implement_only() -> Path:
+    """The heartbeat example with `may_start: [implement]`: the company
+    still runs its own backlog, but a delivered PR waits for the outside
+    world instead of being reviewed on the next wake — the declaration a
+    module needs to watch what happens to a PR only a human settles."""
+
+    def implement_only(document: dict) -> None:
+        document["heartbeat"]["may_start"] = ["implement"]
+
+    return derived_blueprint(HEARTBEAT, implement_only, "implement-only")
 
 
 def apply_blueprint(path: Path) -> None:
@@ -83,10 +122,9 @@ def bundle_revision_from_cr() -> str:
 def quiesce_heartbeat() -> None:
     """Terminate the ensure loop's bare `heartbeat-{company}` heartbeat after
     the pristine blueprint is back. Revocation-by-diff stops it on its own
-    — the product claim, pinned at the workflow layer — but on the
-    blueprint's `interval_minutes` cadence, which would leave a competitor
-    asleep through the next module's arc. The campsite rule wants the
-    quiet now: call this after the pristine apply, so the ensure loop has
+    — the product claim, pinned at the workflow layer — but only at
+    its next tick, up to `reconcile_minutes` away. The campsite rule wants
+    the quiet now: call this after the pristine apply, so the ensure loop has
     nothing to restart."""
 
     async def terminate() -> None:
