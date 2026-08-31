@@ -23,10 +23,6 @@ class LlmGatewaySettings(WorkloadAuthnSettings):
     tier_models: str = ""
     # For unmapped tiers and callers without an instance row.
     default_model: str = "mock-brain"
-    # Flat pricing per 1K tokens (prompt + completion). Per-model price
-    # tables are a future concern; what matters is that spend accrues
-    # from real usage and the cap bites.
-    price_per_1k_tokens: float = 0.002
 
     def tier_model_map(self) -> dict[str, str]:
         if not self.tier_models:

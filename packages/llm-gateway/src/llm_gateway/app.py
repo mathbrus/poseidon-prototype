@@ -13,17 +13,22 @@ Pipeline per completion call:
     -> model-tier routing: the caller's instance tier resolves to a model
        from cluster config; the request's own model field is overridden
     -> forward upstream (LiteLLM holding the provider keys, or the mock)
-    -> meter: usage -> budget_ledger row under {company, run_id, agent,
-       parent, role, model}; audit event (source=llm-gateway)
+    -> meter: the provider-reported cost (`x-litellm-response-cost`) and
+       usage -> budget_ledger row under {company, run_id, agent, parent,
+       role, model}; audit event (source=llm-gateway). A 200 with no
+       parseable cost is withheld (`llm_cost_unreported`) — spend accrues
+       from what the provider reports, never from guesses, so an unpriced
+       completion is never delivered.
 
 Run with: uvicorn --factory llm_gateway.app:create_app
 """
 
 import asyncio
+import math
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 from fastapi import FastAPI, Request
@@ -65,12 +70,35 @@ def _responses_digest_fields(body: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _usage_tokens(usage: dict[str, Any]) -> tuple[int, int]:
+class Usage(NamedTuple):
+    prompt: int
+    completion: int
+    cached: int
+    reasoning: int
+
+
+def _usage_tokens(usage: dict[str, Any]) -> Usage:
     """Both usage vocabularies onto the ledger's columns: chat completions
-    report prompt/completion tokens, Responses reports input/output."""
-    prompt = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
-    completion = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
-    return prompt, completion
+    report prompt/completion tokens, Responses reports input/output. The
+    details blocks carry the cached/reasoning breakdown; providers may
+    omit them, so absence is zero — cost is the governed quantity, the
+    breakdown is audit enrichment."""
+    prompt_details = (
+        usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
+    )
+    completion_details = (
+        usage.get("completion_tokens_details")
+        or usage.get("output_tokens_details")
+        or {}
+    )
+    return Usage(
+        prompt=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
+        completion=int(
+            usage.get("completion_tokens") or usage.get("output_tokens") or 0
+        ),
+        cached=int(prompt_details.get("cached_tokens") or 0),
+        reasoning=int(completion_details.get("reasoning_tokens") or 0),
+    )
 
 
 class AuthMiddleware:
@@ -302,8 +330,34 @@ def create_app(
             return JSONResponse(upstream.json(), status_code=upstream.status_code)
 
         payload = upstream.json()
-        prompt_tokens, completion_tokens = _usage_tokens(payload.get("usage") or {})
-        usd = (prompt_tokens + completion_tokens) / 1000 * settings.price_per_1k_tokens
+        try:
+            usd = float(upstream.headers["x-litellm-response-cost"])
+        except (KeyError, ValueError):
+            usd = -1.0
+        if not math.isfinite(usd) or usd < 0.0:
+            # The backend served the call but did not price it. Spend
+            # accrues from what the provider reports, never from guesses —
+            # so an unpriced completion is withheld, not delivered: the
+            # cost of one leaked provider call, in exchange for a
+            # misconfigured proxy failing loudly on every call instead of
+            # running the company for free. Zero is a price (free models
+            # exist); missing, negative, or unparseable is not. The
+            # gateway itself refuses here, hence a deny, unlike the
+            # upstream failures above.
+            await audited(
+                "deny",
+                "llm_cost_unreported",
+                run_id=run_id,
+                workflow=workflow,
+                backend_status="error",
+            )
+            return _error(
+                502,
+                "upstream reported no cost (x-litellm-response-cost header);"
+                " completion withheld, nothing metered",
+                "llm_cost_unreported",
+            )
+        usage = _usage_tokens(payload.get("usage") or {})
 
         await asyncio.to_thread(
             ledger.record,
@@ -313,8 +367,10 @@ def create_app(
             parent_agent_id=identity.parent_agent_id or "",
             role=identity.role,
             model=model,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
+            prompt_tokens=usage.prompt,
+            completion_tokens=usage.completion,
+            cached_tokens=usage.cached,
+            reasoning_tokens=usage.reasoning,
             usd=usd,
         )
         await audited(
