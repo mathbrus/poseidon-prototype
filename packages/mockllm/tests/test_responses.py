@@ -6,6 +6,7 @@ parse (`Message.from_llm_responses_output`)."""
 
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mockllm.app import create_app
@@ -59,6 +60,33 @@ def test_planner_brief_is_a_completed_message_not_a_404():
     usage = body["usage"]
     assert usage["input_tokens"] > 0 and usage["output_tokens"] > 0
     assert usage["total_tokens"] == usage["input_tokens"] + usage["output_tokens"]
+    assert usage["input_tokens_details"]["cached_tokens"] == usage["input_tokens"] // 2
+    assert (
+        usage["output_tokens_details"]["reasoning_tokens"]
+        == usage["output_tokens"] // 2
+    )
+
+
+def test_both_surfaces_report_their_cost_in_the_litellm_header():
+    """The gateway meters spend from `x-litellm-response-cost`; the mock,
+    impersonating the proxy, must report a deterministic cost derived from
+    its own usage on every completion — chat and Responses alike."""
+    for path, in_key, out_key in (
+        ("/v1/chat/completions", "prompt_tokens", "completion_tokens"),
+        ("/v1/responses", "input_tokens", "output_tokens"),
+    ):
+        body = {"model": "mock-brain"}
+        if "chat" in path:
+            body["messages"] = [{"role": "user", "content": "hello there"}]
+        else:
+            body["input"] = "hello there"
+        resp = client.post(path, json=body)
+        assert resp.status_code == 200, resp.text
+        usage = resp.json()["usage"]
+        expected = (usage[in_key] + usage[out_key]) / 1000 * 0.002
+        assert float(resp.headers["x-litellm-response-cost"]) == pytest.approx(
+            expected
+        )
 
 
 def test_both_path_aliases_serve_the_same_surface():
