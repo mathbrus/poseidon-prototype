@@ -38,7 +38,12 @@ from temporalio.exceptions import ApplicationError
 from common.audit import args_digest
 from common.telemetry import get_logger
 from orchestrator.audit import record_event
-from orchestrator.clients import GatewayClient, dispatch_and_poll, pr_settled
+from orchestrator.clients import (
+    GatewayClient,
+    GatewayError,
+    dispatch_and_poll,
+    pr_settled,
+)
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from orchestrator.workflows.base import workflow_id
@@ -198,9 +203,22 @@ class HeartbeatActivities:
                 self._ledger_run_id(), self._settings.target_repo
             )
             for candidate in delivered:
-                pr = await gateway.read_pr(
-                    self._ledger_run_id(), self._settings.target_repo, candidate["number"]
-                )
+                try:
+                    pr = await gateway.read_pr(
+                        self._ledger_run_id(),
+                        self._settings.target_repo,
+                        candidate["number"],
+                    )
+                except GatewayError as exc:
+                    # One unreadable candidate must not blind the whole
+                    # tick: skip it like a settled one — not offered now,
+                    # read again next time. Everything else observed this
+                    # tick still reaches the PM.
+                    self._log.info(
+                        "delivered pr unreadable, skipped",
+                        extra={"number": candidate["number"], "error": str(exc)},
+                    )
+                    continue
                 settled = pr_settled(pr)
                 if settled:
                     self._log.info(
