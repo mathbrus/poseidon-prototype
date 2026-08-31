@@ -113,71 +113,6 @@ async def _run_until_paused_then_reject(
     return await asyncio.wait_for(handle.result(), timeout=300)
 
 
-async def _run_until_paused_then_approve(
-    address: str, run_id: str, task_text: str
-) -> dict:
-    """The approval mirror of the rejection driver: park on the budget
-    stop, then — as a human who has decided the run is worth it — raise the
-    cap by re-applying the real blueprint and approve. The workflow
-    re-dispatches with headroom and runs to completion."""
-    client = await Client.connect(address)
-    handle = await client.start_workflow(
-        "implement",
-        ImplementInput(run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()),
-        id=workflow_id("implement", run_id),
-        task_queue=TASK_QUEUE,
-    )
-    deadline = time.monotonic() + 300
-    while True:
-        state = await handle.query("state")
-        if state == "paused-budget_exhausted":
-            break
-        assert time.monotonic() < deadline, f"never paused (state={state!r})"
-        await asyncio.sleep(2)
-    # The human raises the cap: re-apply the real blueprint (the gateway
-    # reads the cap from the registry per call, so the upsert is enough),
-    # then approve — the run may continue.
-    await asyncio.to_thread(apply_blueprint, HELLO_SAAS)
-    await handle.signal("budget", args=[True, "worth the spend"])
-    return await asyncio.wait_for(handle.result(), timeout=300)
-
-
-def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) -> None:
-    """The run that stopped for money is not the end: with the cap raised
-    and the human's approval, the workflow re-dispatches and delivers.
-    The approval is a `gate.budget` `gate_approved` process-gate event, the
-    run finishes `done` with a PR, and the ledger shows spend past the tiny
-    cap — real work the first stop had blocked."""
-    run_id = new_run_id()
-    nonce = secrets.token_hex(3)
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
-        f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
-    )
-    record = None
-    try:
-        with temporal_port_forward() as address:
-            record = asyncio.run(
-                _run_until_paused_then_approve(address, run_id, task_text)
-            )
-        assert record["status"] == "done", f"the approved run did not finish: {record}"
-        assert record["pr_url"], "the approved run delivered no PR"
-
-        gate_rules = [
-            e["rule"]
-            for e in audit_story(run_id)
-            if e["source"] == "process-gate" and e["tool"] == "gate.budget"
-        ]
-        assert "gate_approved" in gate_rules, gate_rules
-
-        entries = ledger_entries(run_id)
-        assert sum(float(e["usd"]) for e in entries) > TINY_CAP, (
-            "no spend past the raised cap — the run never resumed real work"
-        )
-    finally:
-        if record is not None:
-            close_pr(env, pr_number(record.get("pr_url")) or 0)
-
-
 def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> None:
     run_id = new_run_id()
     task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text()
@@ -273,3 +208,68 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
             timeout=15,
         )
     assert resp.status_code == 401
+
+
+async def _run_until_paused_then_approve(
+    address: str, run_id: str, task_text: str
+) -> dict:
+    """The approval mirror of the rejection driver: park on the budget
+    stop, then — as a human who has decided the run is worth it — raise the
+    cap by re-applying the real blueprint and approve. The workflow
+    re-dispatches with headroom and runs to completion."""
+    client = await Client.connect(address)
+    handle = await client.start_workflow(
+        "implement",
+        ImplementInput(run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()),
+        id=workflow_id("implement", run_id),
+        task_queue=TASK_QUEUE,
+    )
+    deadline = time.monotonic() + 300
+    while True:
+        state = await handle.query("state")
+        if state == "paused-budget_exhausted":
+            break
+        assert time.monotonic() < deadline, f"never paused (state={state!r})"
+        await asyncio.sleep(2)
+    # The human raises the cap: re-apply the real blueprint (the gateway
+    # reads the cap from the registry per call, so the upsert is enough),
+    # then approve — the run may continue.
+    await asyncio.to_thread(apply_blueprint, HELLO_SAAS)
+    await handle.signal("budget", args=[True, "worth the spend"])
+    return await asyncio.wait_for(handle.result(), timeout=300)
+
+
+def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) -> None:
+    """The run that stopped for money is not the end: with the cap raised
+    and the human's approval, the workflow re-dispatches and delivers.
+    The approval is a `gate.budget` `gate_approved` process-gate event, the
+    run finishes `done` with a PR, and the ledger shows spend past the tiny
+    cap — real work the first stop had blocked."""
+    run_id = new_run_id()
+    nonce = secrets.token_hex(3)
+    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
+        f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
+    )
+    record = None
+    try:
+        with temporal_port_forward() as address:
+            record = asyncio.run(
+                _run_until_paused_then_approve(address, run_id, task_text)
+            )
+        assert record["status"] == "done", f"the approved run did not finish: {record}"
+        assert record["pr_url"], "the approved run delivered no PR"
+
+        gate_rules = [
+            e["rule"]
+            for e in audit_story(run_id)
+            if e["source"] == "process-gate" and e["tool"] == "gate.budget"
+        ]
+        assert "gate_approved" in gate_rules, gate_rules
+
+        entries = ledger_entries(run_id)
+        assert sum(float(e["usd"]) for e in entries) > TINY_CAP, (
+            "no spend past the raised cap — the run never resumed real work"
+        )
+    finally:
+        if record is not None:
+            close_pr(env, pr_number(record.get("pr_url")) or 0)
