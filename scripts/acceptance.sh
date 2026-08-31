@@ -59,6 +59,6 @@ case "$BRAIN" in
 esac
 
 echo "== Acceptance suite against $(kubectl config current-context)"
-uv run pytest tests/e2e_kind -m e2e_kind "$@"
+uv run pytest tests/e2e_kind -m e2e_kind --durations=25 "$@"
 
 echo "== green: tests/e2e_kind/test_acceptance.py indexes which module proved what"
