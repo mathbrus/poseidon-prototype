@@ -168,25 +168,29 @@ routing for ephemeral agents is future work the config comment admits
 
 ## Metering
 
-On a 200 from upstream, the gateway reads the response's `usage` block
-and accrues `(prompt_tokens + completion_tokens) / 1000 *
-PRICE_PER_1K_TOKENS` (default `0.002`) to the ledger, then writes an
-`allow` audit event (`rule=budget_headroom`, `backend_status=ok`). The
-mock brain reports real token-ish usage precisely so this arithmetic is
+On a 200 from upstream, the gateway accrues the provider-computed cost
+from the `x-litellm-response-cost` response header to the ledger,
+verbatim, together with the usage block's token breakdown (prompt,
+completion, cached, reasoning), then writes an `allow` audit event
+(`rule=budget_headroom`, `backend_status=ok`). The mock brain reports
+the same header and details deterministically, so the whole path is
 exercised end to end without a paid provider.
 
-An unreachable upstream returns `502` (`llm_upstream_error`); a non-200
-is passed through verbatim. Both are audited with
-`backend_status=error` — and *not* metered, because there is no usage
-to meter. Spend accrues from what the provider reports, never from
-guesses.
+A 200 whose cost header is missing, negative, or unparseable is
+withheld: `502` (`llm_cost_unreported`), audited as a `deny` with
+`backend_status=error`, nothing metered, the completion never
+delivered. Zero is a price (free models exist) and is recorded. An
+unreachable upstream returns `502` (`llm_upstream_error`); a non-200 is
+passed through verbatim — both audited with `backend_status=error` and
+*not* metered, because nothing was served. Spend accrues from what the
+provider reports, never from guesses.
 
 ## Module map
 
 | Module | Owns |
 |---|---|
 | `app.py` | The FastAPI app and the whole pipeline above. |
-| `config.py` | Settings: the shared workload-authn shape plus tier→model config and the per-1K-token price the ledger accrues at. |
+| `config.py` | Settings: the shared workload-authn shape plus tier→model config. |
 | `__main__.py` | The entry point. |
 
 ## Entry points
@@ -247,6 +251,6 @@ never carry prompt text.
   and `ANTHROPIC_API_KEY` in the upstream's secret. That is intentional
   — LiteLLM reads the provider-specific name matching the model prefix
   — not a leak of one key into two places.
-- Pricing is flat per 1K tokens. Per-model price tables are a future
-  concern; what matters is that spend accrues from real usage and the
-  cap bites.
+- The gateway holds no price. The upstream proxy computes each call's
+  cost and reports it; a completion the proxy cannot price is withheld
+  rather than guessed at or given away.
