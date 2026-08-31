@@ -15,7 +15,6 @@ answer.
 """
 
 import asyncio
-import contextlib
 import re
 import time
 
@@ -27,10 +26,12 @@ from orchestrator.workflows.implement import issue_placeholder
 from orchestrator.workflows.intake import IntakeInput
 from orchestrator.workflows.review import ReviewInput
 
-from .cluster import audit_story, psql_json, registry, temporal_port_forward
+from .cluster import audit_story, registry, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
+    close_issue,
     close_pr,
+    crew_requests,
     deployed_timeouts,
     github_api,
     run_implement_from_issue,
@@ -157,17 +158,10 @@ def review_chain(stack: None, env: dict) -> dict:
     # The merged PR's branch goes too; the merge itself is what the
     # assertions read, and it survives the branch.
     close_pr(env, chain["pr_number"])
-    slug = target_slug(env)
     for url in chain["intake"].get("ticket_urls") or []:
         number = re.search(r"/issues/(\d+)$", url)
         if number:
-            with contextlib.suppress(Exception):
-                github_api(
-                    env,
-                    "PATCH",
-                    f"/repos/{slug}/issues/{number.group(1)}",
-                    json={"state": "closed"},
-                )
+            close_issue(env, number.group(1))
     with registry() as client:
         client.execute(
             "DELETE FROM registry.crew_requests WHERE run_id = %s", (intake_run,)
@@ -244,12 +238,7 @@ def test_the_crew_request_was_recorded_under_conductor_authority(
     the same crew_requests row and the same audited compiled decision an
     agent-issued request produces."""
     run_id = review_chain["review_run_id"]
-    rows = psql_json(
-        "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
-        "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
-        ") c",
-        run_id=run_id,
-    )
+    rows = crew_requests(run_id)
     assert len(rows) == 1
     assert rows[0]["conductor"] == "pm-1"
     assert rows[0]["crew_template"] == "feature-review"

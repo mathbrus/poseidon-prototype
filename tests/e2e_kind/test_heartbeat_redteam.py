@@ -44,7 +44,6 @@ and the full example (review startable again) is applied mid-module for
 the aborted-review arc. The pristine blueprint is restored after.
 """
 
-import contextlib
 import secrets
 import time
 
@@ -70,6 +69,7 @@ from .conftest import (
     apply_profile,
     await_new_ticks,
     bare_heartbeat_id,
+    close_issue,
     close_pr_url,
     github_api,
     heartbeat_ticks,
@@ -141,13 +141,7 @@ def unattended_run(heartbeat_profile, env: dict) -> dict:
     yield {**record, "issue_number": issue_number}
 
     close_pr_url(env, (record.get("child") or {}).get("pr_url"))
-    with contextlib.suppress(Exception):
-        github_api(
-            env,
-            "PATCH",
-            f"/repos/{slug}/issues/{issue_number}",
-            json={"state": "closed"},
-        )
+    close_issue(env, issue_number)
 
 
 # --- the decision: the poisoned title cannot escalate -------------------------
@@ -393,13 +387,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     yield result
 
     close_pr_url(env, (result.get("implement") or {}).get("pr_url"))
-    with contextlib.suppress(Exception):
-        github_api(
-            env,
-            "PATCH",
-            f"/repos/{slug}/issues/{issue_number}",
-            json={"state": "closed"},
-        )
+    close_issue(env, issue_number)
 
 
 def test_an_aborted_review_is_offered_again(abandoned_review: dict):

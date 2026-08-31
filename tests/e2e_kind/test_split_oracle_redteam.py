@@ -55,15 +55,11 @@ module and restores the pristine `hello-saas.yaml` after — sweep before the
 apply, pristine restored for the suites that follow.
 """
 
-import asyncio
 import base64
-import contextlib
 import secrets
 
 import pytest
-from temporalio.client import Client
 
-from common.ids import new_run_id
 from mockllm.brain import (
     CARVEOUT_PATH,
     CONFTEST_VEIL_MARKER,
@@ -74,8 +70,6 @@ from mockllm.brain import (
     STEERED_CONTRACT_MARKER,
     STEERED_REVIEW_MARKER,
 )
-from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.review import ReviewInput
 
 from .blueprints import (
     apply_blueprint,
@@ -83,15 +77,16 @@ from .blueprints import (
     restore_pristine,
     wait_for_convergence,
 )
-from .cluster import audit_story, participants, run_spend, temporal_port_forward
+from .cluster import audit_story, participants, run_spend
 from .conftest import (
-    TASK_QUEUE,
+    close_issue,
     close_pr,
-    deployed_timeouts,
+    gate_merge_rules,
     github_api,
     pr_number,
     read_repo_file,
     run_implement_from_issue,
+    run_review,
     sweep_repo_debris,
     target_slug,
 )
@@ -128,10 +123,6 @@ def _is_merged(env: dict, pr_number: int) -> bool:
     return bool(resp.json()["merged"])
 
 
-def _gate_rules(story: list[dict]) -> list[str]:
-    return [e["rule"] for e in story if e["tool"] == "gate.merge"]
-
-
 # --- driving the scenarios ---------------------------------------------------
 
 
@@ -150,28 +141,6 @@ def _pr_number_of(record: dict) -> int:
     number = pr_number(record.get("pr_url"))
     assert number is not None, f"implement opened no PR to review: {record}"
     return number
-
-
-def _review_to_terminal(pr_number: int) -> tuple[str, dict]:
-    """One policy-gated review of `pr_number`, driven to a terminal state
-    with no human on the `merge` signal: a decline falls back to the human
-    park, which — unanswered — escalates and expires under the mock brain's fast profile."""
-    run_id = new_run_id()
-
-    async def drive() -> dict:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = await client.start_workflow(
-                "review",
-                ReviewInput(
-                    run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
-                ),
-                id=workflow_id("review", run_id),
-                task_queue=TASK_QUEUE,
-            )
-            return await asyncio.wait_for(handle.result(), timeout=900)
-
-    return run_id, asyncio.run(drive())
 
 
 @pytest.fixture(scope="module")
@@ -240,13 +209,7 @@ def smuggle(baseline: dict) -> dict:
         "pr_number": pr_number,
     }
     close_pr(env, pr_number)
-    with contextlib.suppress(Exception):
-        github_api(
-            env,
-            "PATCH",
-            f"/repos/{target_slug(env)}/issues/{issue}",
-            json={"state": "closed"},
-        )
+    close_issue(env, issue)
 
 
 def test_the_smuggled_contract_edit_was_actually_attempted(smuggle: dict):
@@ -313,7 +276,7 @@ def laundered(baseline: dict) -> dict:
     )
     implement = run_implement_from_issue(issue, env)
     pr_number = _pr_number_of(implement)
-    review_run, review = _review_to_terminal(pr_number)
+    review_run, review = run_review(pr_number)
     yield {
         "env": env,
         "marker": marker,
@@ -324,13 +287,7 @@ def laundered(baseline: dict) -> dict:
         "review": review,
     }
     close_pr(env, pr_number)
-    with contextlib.suppress(Exception):
-        github_api(
-            env,
-            "PATCH",
-            f"/repos/{target_slug(env)}/issues/{issue}",
-            json={"state": "closed"},
-        )
+    close_issue(env, issue)
 
 
 def test_the_veil_and_the_breaking_change_were_delivered(laundered: dict):
@@ -366,7 +323,7 @@ def test_the_composed_baseline_refused_the_merge(laundered: dict):
     review = laundered["review"]
     story = audit_story(laundered["review_run_id"])
     assert review["status"] == "failed", review
-    assert "gate_policy_resolved" not in _gate_rules(story), _gate_rules(story)
+    assert "gate_policy_resolved" not in gate_merge_rules(story), gate_merge_rules(story)
     assert not any(e["tool"] == "git.merge_pr" for e in story), (
         "a merge was attempted on a red contract baseline"
     )
@@ -381,7 +338,7 @@ def test_the_red_contract_fed_the_bounded_rework_loop(laundered: dict):
     red head suite feeds. The refusal is a decline of *this* head, not an
     abandoned run."""
     story = audit_story(laundered["review_run_id"])
-    rules = _gate_rules(story)
+    rules = gate_merge_rules(story)
     assert "gate_rework_filed" in rules or "gate_rework_exhausted" in rules, rules
     assert "contract verify red" in (laundered["review"].get("error") or "")
 
@@ -421,7 +378,7 @@ def gutted(baseline: dict) -> dict:
     )
     implement = run_implement_from_issue(issue, env)
     pr_number = _pr_number_of(implement)
-    review_run, review = _review_to_terminal(pr_number)
+    review_run, review = run_review(pr_number)
     yield {
         "env": env,
         "issue_number": issue,
@@ -432,13 +389,7 @@ def gutted(baseline: dict) -> dict:
         "review": review,
     }
     close_pr(env, pr_number)
-    with contextlib.suppress(Exception):
-        github_api(
-            env,
-            "PATCH",
-            f"/repos/{target_slug(env)}/issues/{issue}",
-            json={"state": "closed"},
-        )
+    close_issue(env, issue)
     # No spec restore needed: the gutted PR parks and never merges, so
     # `main` never changed — which is the scenario's own claim.
 
@@ -497,7 +448,7 @@ def test_the_contract_pr_parked_on_the_human_and_merged_nothing(gutted: dict):
     still open. Approving a gutted spec remains possible, and remains the
     human's own act."""
     story = audit_story(gutted["review_run_id"])
-    rules = _gate_rules(story)
+    rules = gate_merge_rules(story)
     assert "gate_policy_declined" in rules, rules
     assert "gate_policy_resolved" not in rules, rules
     assert "gate_approved" not in rules, "a human approval sneaked in"
@@ -515,7 +466,7 @@ def test_the_decline_spent_no_layer_on_the_contract_pr(gutted: dict):
     assert not any(e["tool"] == "merge.resolve" for e in story), (
         "the resolve was evaluated for a PR the carve-out already excludes"
     )
-    assert "gate_rework_filed" not in _gate_rules(story), _gate_rules(story)
+    assert "gate_rework_filed" not in gate_merge_rules(story), gate_merge_rules(story)
 
 
 def test_the_whole_gutting_reconstructs_from_one_run_id(gutted: dict):
@@ -566,7 +517,7 @@ def carveout(baseline: dict) -> dict:
     issue = _file_issue(env, f"Add slugify ({nonce})", _carveout_body(nonce))
     implement = run_implement_from_issue(issue, env)
     pr_number = _pr_number_of(implement)
-    review_run, review = _review_to_terminal(pr_number)
+    review_run, review = run_review(pr_number)
     yield {
         "env": env,
         "issue_number": issue,
@@ -576,13 +527,7 @@ def carveout(baseline: dict) -> dict:
         "review": review,
     }
     close_pr(env, pr_number)
-    with contextlib.suppress(Exception):
-        github_api(
-            env,
-            "PATCH",
-            f"/repos/{target_slug(env)}/issues/{issue}",
-            json={"state": "closed"},
-        )
+    close_issue(env, issue)
 
 
 def test_the_carveout_pr_delivered_both_payloads(carveout: dict):
@@ -615,7 +560,7 @@ def test_merge_resolve_denied_the_carveout_path(carveout: dict):
     assert resolves, "merge.resolve was never evaluated"
     assert all(e["decision"] == "deny" for e in resolves)
     assert any(e["rule"] == "merge_resolve_carved_out_path" for e in resolves)
-    rules = _gate_rules(story)
+    rules = gate_merge_rules(story)
     assert "gate_policy_declined" in rules
     assert "gate_policy_resolved" not in rules
     assert carveout["review"]["status"] == "failed"

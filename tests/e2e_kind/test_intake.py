@@ -12,7 +12,6 @@ test_governance.py::test_pm_is_denied_executor_tools_at_the_gateway.
 """
 
 import asyncio
-import contextlib
 import re
 
 from common.ids import new_run_id
@@ -24,11 +23,17 @@ from .cluster import (
     COMPANY_NS,
     audit_story,
     kubectl,
-    psql_json,
     registry,
     temporal_port_forward,
 )
-from .conftest import TASK_QUEUE, deployed_timeouts, github_api, target_slug
+from .conftest import (
+    TASK_QUEUE,
+    close_issue,
+    crew_requests,
+    deployed_timeouts,
+    github_api,
+    target_slug,
+)
 
 
 def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> None:
@@ -81,12 +86,7 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
 
         # The recorded, expiring request under the PM's authority — the
         # intake -> implement handoff a later implement run consumes.
-        rows = psql_json(
-            "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
-            "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
-            ") c",
-            run_id=run_id,
-        )
+        rows = crew_requests(run_id)
         assert len(rows) == 1
         assert rows[0]["conductor"] == "pm-1"
         assert rows[0]["crew_template"] == "feature-delivery"
@@ -105,13 +105,7 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
             assert event["workflow"] == "intake"
     finally:
         if issue_number is not None:
-            with contextlib.suppress(Exception):
-                github_api(
-                    env,
-                    "PATCH",
-                    f"/repos/{target_slug(env)}/issues/{issue_number}",
-                    json={"state": "closed"},
-                )
+            close_issue(env, issue_number)
         with registry() as client:
             client.execute(
                 "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)

@@ -25,7 +25,6 @@ for the module and the pristine one restored after.
 """
 
 import asyncio
-import contextlib
 import re
 import time
 
@@ -41,6 +40,7 @@ from .cluster import COMPANY_NS, audit_story, await_run, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
     apply_profile,
+    close_issue,
     close_pr,
     deployed_timeouts,
     github_api,
@@ -145,13 +145,7 @@ def overnight(stack: None, env: dict) -> dict:
     yield result
 
     close_pr(env, result.get("pr_number") or 0)
-    with contextlib.suppress(Exception):
-        github_api(
-            env,
-            "PATCH",
-            f"/repos/{target_slug(env)}/issues/{result.get('issue_number')}",
-            json={"state": "closed"},
-        )
+    close_issue(env, result.get("issue_number"))
     restore_pristine()
 
 

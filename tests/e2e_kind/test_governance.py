@@ -27,8 +27,8 @@ from .cluster import (
     port_forward,
     projected_token,
     psql,
-    psql_json,
 )
+from .conftest import crew_requests
 
 COMPANY_DECISION = "poseidon/authz/hello_saas/decision"
 
@@ -147,12 +147,7 @@ def test_pm_records_crew_intent_at_the_gateway(stack: None, env: dict) -> None:
     )
     assert json.loads(again.content[0].text)["id"] == recorded["id"]
 
-    rows = psql_json(
-        "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
-        "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
-        ") c",
-        run_id=run_id,
-    )
+    rows = crew_requests(run_id)
     assert len(rows) == 1 and rows[0]["status"] == "recorded"
     assert rows[0]["expires_at"] is not None
 

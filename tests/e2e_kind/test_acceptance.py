@@ -17,10 +17,13 @@ What the suite proves, and where:
                   leaked no participant row, no ephemeral pod, no registration
   3 SDLC          test_intake + test_review_gate (intake → implement →
                   review with parked gate, escalation, API approval,
-                  platform merge)
+                  platform merge); test_verify_gate (the platform's own
+                  test run, not the executor's claim, is the gate of record);
+                  test_audit_story (one run_id reconstructs a run's whole story)
   4 governance    test_injection (injection vs compiled policy), test_governance,
-                  test_injected_conductor, test_redteam, test_containment,
-                  test_redteam; HERE: all five audit sources are real in
+                  test_injected_conductor, test_redteam (sandbox containment +
+                  egress), test_containment, test_sandbox_k8s (the deadline
+                  kills a runaway); HERE: all five audit sources are real in
                   this suite execution — nothing seeded
   5 budgets       test_budgets (hard-stop, API-visible pause, process-gate
                   escalation, full {run, parent, participant, role} tuple)
@@ -44,12 +47,17 @@ What the suite proves, and where:
                   a carve-out change is refused by the compiled decision,
                   not the model).
  10 split oracle  test_split_oracle_redteam (the implementer cannot PR the
-                  contract tree, cannot launder a red baseline to green two
-                  ways, and a steered contract author's gutted spec parks on
-                  a human with its deletions counted) and test_delegated's
-                  contract arc (the PM files contract-then-implement, the
-                  contract PR parks for one human merge, then in-class work
-                  auto-merges on a green base-ref contract).
+                  contract tree, cannot launder a red baseline to green
+                  through a committed collect-ignore, and a steered contract
+                  author's gutted spec parks on a human with its deletions
+                  counted) and test_delegated's contract arc (the PM files
+                  contract-then-implement, the contract PR parks for one human
+                  merge, then in-class work auto-merges on a green base-ref
+                  contract).
+
+The suite's own discipline is proved too: test_brain_guard (the session
+refuses a paid brain without the explicit opt-in) and test_quiet (the exit
+contract, ordered last: no workflow running, no run non-terminal).
 
 The conftest orders this module after every module whose runs it reads:
 the five-source assertion reads what the whole suite really produced.
