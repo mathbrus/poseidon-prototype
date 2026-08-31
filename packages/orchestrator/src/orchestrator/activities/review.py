@@ -404,14 +404,13 @@ class ReviewActivities:
 
         Read from the *consumed* ticket, not from any freely-filed one, so
         a standalone ticket forging a low depth changes nothing (proven in
-        test_review_activities). Recorded gap, not yet closed: the consumed
-        ticket's title is the platform's own `file_rework` output, but the
-        bound trusts that title's integrity — and the PM template holds
-        `issues.update`, so a compromised conductor could edit a rework
-        ticket's depth downward and extend the chain. The durable fix is a
-        depth the platform stores on its own row rather than parses back
-        from a mutable title; flagged here so it is a decision, not an
-        oversight."""
+        test_review_activities). The title it trusts is the platform's own
+        `file_rework` output, and no company role can rewrite it: the tool
+        that would edit an issue's title is not in any compiled allow-list,
+        so a compromised conductor cannot walk a rework ticket's depth
+        downward. A depth the platform stores on its own row would be more
+        robust still, but the mutation path the parse-back would have to
+        fear does not exist."""
 
         def lineage_issue() -> int | None:
             implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)

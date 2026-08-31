@@ -76,7 +76,7 @@ crews:
 
 tools:
   pm:
-    allow: [issues.create, issues.read, issues.update, issues.comment, crew.request]
+    allow: [issues.create, issues.read, issues.comment, crew.request]
 ```
 
 Look at what the PM's list does *not* contain: no `sandbox.*`, no
@@ -104,9 +104,6 @@ workflows:
     conductor: pm
     crew: feature-delivery
     max_verify_retries: 2
-    drain:
-      on_conductor_drain: abort_crew
-      timeout_minutes: 30
   review:
     enabled: true
     conductor: pm
@@ -122,10 +119,7 @@ gate is an object naming its resolver, and a gate nobody declares is a stop
 nobody takes, so goals a human submits dispatch the PM without a second
 stop.
 `max_verify_retries` bounds how many times a red verify
-re-dispatches the executor before the run fails. `drain` answers a question
-most orchestration designs leave implicit: what happens to a running crew
-when its conductor is being retired? Here, the crew is aborted rather than
-orphaned, with a bounded timeout.
+re-dispatches the executor before the run fails.
 
 `gates.merge.resolved_by: human` is what makes the review workflow park and
 wait for a person; leaving `gates.merge` out entirely means the review ends

@@ -60,7 +60,6 @@ class WorkflowConfig:
     # not stop there.
     gates: dict[str, Any]
     max_verify_retries: int
-    drain: dict[str, Any]
 
 
 @dataclass(frozen=True)

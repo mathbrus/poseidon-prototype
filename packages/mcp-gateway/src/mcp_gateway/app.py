@@ -293,20 +293,6 @@ def create_app(
     ) -> dict[str, Any]:
         return await service.issues_read(identity_of(ctx), run_id, repo, number)
 
-    @mcp.tool(name="issues.update")
-    async def issues_update(
-        run_id: str,
-        repo: str,
-        number: int,
-        ctx: Context,
-        title: str | None = None,
-        body: str | None = None,
-        state: str | None = None,
-    ) -> dict[str, Any]:
-        return await service.issues_update(
-            identity_of(ctx), run_id, repo, number, title, body, state
-        )
-
     @mcp.tool(name="issues.comment")
     async def issues_comment(
         run_id: str, repo: str, number: int, body: str, ctx: Context

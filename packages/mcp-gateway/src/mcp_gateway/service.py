@@ -399,31 +399,6 @@ class GatewayService:
             identity, "issues.read", args, lambda: self._git.read_issues(repo, number)
         )
 
-    async def issues_update(
-        self,
-        identity: Identity,
-        run_id: str,
-        repo: str,
-        number: int,
-        title: str | None,
-        body: str | None,
-        state: str | None,
-    ) -> Any:
-        args = {
-            "run_id": run_id,
-            "repo": repo,
-            "number": number,
-            "title": title,
-            "body": body,
-            "state": state,
-        }
-        return await self.call(
-            identity,
-            "issues.update",
-            args,
-            lambda: self._git.update_issue(repo, number, title, body, state),
-        )
-
     async def issues_comment(
         self, identity: Identity, run_id: str, repo: str, number: int, body: str
     ) -> Any:

@@ -67,7 +67,6 @@ PLATFORM_SCOPE = sorted(
 )
 
 DEFAULT_VERIFY_RETRIES = 2
-DEFAULT_DRAIN = {"on_conductor_drain": "abort_crew", "timeout_minutes": 30}
 
 
 def compile_blueprint(
@@ -226,9 +225,6 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
                 gates=dict(sorted((workflow.get("gates") or {}).items())),
                 max_verify_retries=int(
                     workflow.get("max_verify_retries", DEFAULT_VERIFY_RETRIES)
-                ),
-                drain=dict(
-                    sorted({**DEFAULT_DRAIN, **(workflow.get("drain") or {})}.items())
                 ),
             )
         )

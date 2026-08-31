@@ -17,7 +17,7 @@ SANDBOX_TOOLS = [
 REPO_TOOLS = ["repo.archive"]
 GIT_TOOLS = ["git.open_pr"]
 
-ISSUE_TOOLS = ["issues.create", "issues.read", "issues.update", "issues.comment"]
+ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment"]
 REVIEW_TOOLS = ["git.read", "git.comment"]
 # Platform lifecycle only: the orchestrator calls it after the gate.
 PLATFORM_TOOLS = ["git.merge_pr"]
