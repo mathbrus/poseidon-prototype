@@ -2,7 +2,7 @@
 
     heartbeat_config -> heartbeat_observe -> heartbeat_decide (the PM) ->
     heartbeat_authorize -> start child run -> record_tick ->
-    sleep -> continue-as-new
+    wait for a wake or the reconcile backstop -> continue-as-new
 
 One durable workflow per company (`heartbeat-{company}`), kept running by the
 worker's ensure loop while the applied blueprint declares a `heartbeat`
@@ -12,6 +12,15 @@ next tick even if the ensure loop has not noticed yet. The compiled
 `heartbeat.start` decision is the second, independent refusal: a tick that
 somehow survived the config read still cannot start anything the bundle
 does not allow.
+
+Ticks are event-triggered. A `wake` signal — the platform sends one when
+a run of the company reaches its end — cuts the wait short, and the
+blueprint's `reconcile_minutes` is the backstop bounding how stale the
+view of the outside world may grow (an issue filed by hand, a PR merged
+by hand: changes nothing in the cluster can see happen). A wake is a
+nudge, never a command: the tick it causes observes, decides and is
+authorized exactly like any other, and a wake landing mid-tick just runs
+one more tick before the next wait — many wakes, one extra tick.
 
 The tick's authority is bounded exactly as declared: it starts nothing over
 `max_concurrent_runs`, nothing at the `daily_cap`, nothing on an item that
@@ -43,7 +52,6 @@ still cannot start anything — only this workflow actuates, and only after
 policy says yes.
 """
 
-import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -65,19 +73,30 @@ from orchestrator.workflows.review import ReviewInput
 
 @dataclass
 class HeartbeatInput:
-    """`interval_s` compresses the blueprint's minutes for the mock
-    brain's e2e (None keeps the declared cadence); `timeouts` rides into
-    the child runs the tick starts, for the same reason the CLI's does."""
+    """`timeouts` rides into the child runs the tick starts — sizing
+    depends on the brain, which only the client knows. `pending_wake`
+    carries a wake that landed too close to a continue-as-new for the
+    closing run to service; the successor honors it as if it had just
+    arrived."""
 
     company: str
-    interval_s: int | None = None
     timeouts: Timeouts | None = None
+    pending_wake: bool = False
 
 
 @workflow.defn(name="heartbeat")
 class HeartbeatWorkflow(RunWorkflow):
     def __init__(self) -> None:
         self._phase = "ticking"
+        self._woken = False
+
+    @workflow.signal
+    def wake(self) -> None:
+        """A nudge that something changed the world this loop watches —
+        never an instruction. The sleeping wait ends (or the running tick
+        is followed by one more), and the tick that results observes,
+        decides and is authorized like any other."""
+        self._woken = True
 
     @workflow.query
     def state(self) -> str:
@@ -85,6 +104,7 @@ class HeartbeatWorkflow(RunWorkflow):
 
     @workflow.run
     async def run(self, input: HeartbeatInput) -> dict[str, Any]:
+        self._woken = bool(input.pending_wake)
         timeouts = input.timeouts or Timeouts()
         step = timedelta(seconds=timeouts.step_s)
 
@@ -142,12 +162,28 @@ class HeartbeatWorkflow(RunWorkflow):
         await self._record(outcome, rule, timeouts)
 
         self._phase = "sleeping"
-        if input.interval_s is not None:
-            interval = input.interval_s
-        else:
-            interval = int(config["reconcile_minutes"]) * 60
-        await asyncio.sleep(interval)
-        workflow.continue_as_new(input)
+        # A wake that landed during the tick skips the wait: one more tick
+        # services it, however many wakes coalesced into the flag. The
+        # reset before continue-as-new consumes the wake this run answers
+        # for; one arriving between the reset and the continue rides
+        # `pending_wake` into the successor instead of being dropped.
+        woke_early, self._woken = self._woken, False
+        if not woke_early:
+            try:
+                await workflow.wait_condition(
+                    lambda: self._woken,
+                    timeout=timedelta(seconds=int(config["reconcile_minutes"]) * 60),
+                )
+            except TimeoutError:
+                pass
+            self._woken = False
+        workflow.continue_as_new(
+            HeartbeatInput(
+                company=input.company,
+                timeouts=input.timeouts,
+                pending_wake=self._woken,
+            )
+        )
 
     async def _choose_and_start(
         self,
