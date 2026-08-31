@@ -1,18 +1,17 @@
 """Governance, against policy compiled from
 `examples/hello-saas.yaml` and *installed* on the live cluster.
 
-Two layers. The OPA half queries the running OPA's decision paths directly
-(port-forward), so what is asserted is the bundle the operator actually
-served — per-role scoping, the blueprint's branch and path policies, run
-binding, cross-company tenancy, the platform scope. The gateway half drives
-real calls with projected workload tokens through the whole pipeline:
-authn -> registry enrichment -> compiled decision -> audit.
-
-The standing agents is lean: the PM is the only standing agent and execution is
-ephemeral crews, so the executor-side checks here use the ephemeral input
-shape (role + crew_template + crew_role), and a standing backend-engineer
-input finds nothing in the compiled bundle. Injection deny + recovery runs in
-test_injection.py through the crew executor's deliver dispatch.
+Two layers. The OPA half is a smoke pair against the running OPA's decision
+path (port-forward): what it asserts is that the bundle the operator
+actually served decides. The decision *matrix* — per-role scoping, branch
+and path policies, tenancy, crew narrowing, merge delegation — is pinned
+per-decision against the real OPA in
+packages/compiler/tests/test_bundle_decisions.py, and test_acceptance
+proves the served revision is this compiler's output for this blueprint.
+The gateway half drives real calls with projected workload tokens through
+the whole pipeline: authn -> registry enrichment -> compiled decision ->
+audit. Injection deny + recovery runs in test_injection.py through the
+crew executor's deliver dispatch.
 """
 
 import json
@@ -32,7 +31,6 @@ from .cluster import (
 )
 
 COMPANY_DECISION = "poseidon/authz/hello_saas/decision"
-PLATFORM_DECISION = "poseidon/platform/decision"
 
 
 def _decide(base: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -41,28 +39,6 @@ def _decide(base: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
     result = resp.json().get("result")
     assert result is not None, f"no decision document at {path}"
     return result
-
-
-def standing(
-    role: str,
-    tool: str,
-    *,
-    verified: bool = True,
-    args: dict | None = None,
-    company: str = "hello-saas",
-) -> dict[str, Any]:
-    return {
-        "company": company,
-        "agent_id": f"{role}-1",
-        "lifecycle": "standing",
-        "parent_agent_id": "",
-        "role": role,
-        "run_id": "run-gov",
-        "workflow": "implement",
-        "tool": tool,
-        "args": args or {},
-        "run_binding_verified": verified,
-    }
 
 
 def executor(
@@ -93,12 +69,12 @@ def executor(
 # -- the installed bundle decides (OPA layer) --------------------------------
 
 
-def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
+def test_the_served_bundle_decides(stack: None) -> None:
+    """The smoke pair: the served bundle answers with compiled decisions —
+    one allow (the crew executor inside a verified run binding) and one
+    deny (the same call unbound, failing closed on the run-binding fact)."""
     with port_forward("svc/opa", 8181) as port:
         base = f"http://127.0.0.1:{port}"
-        # Per-role scoping: the crew executor works inside a verified run
-        # binding; without one the same call fails closed (wrong/stale
-        # run_id — the data.runs.assignments successor).
         allowed = _decide(base, COMPANY_DECISION, executor("sandbox.exec"))
         assert allowed["allow"] is True
 
@@ -106,71 +82,6 @@ def test_installed_bundle_enforces_the_blueprint(stack: None) -> None:
             base, COMPANY_DECISION, executor("sandbox.exec", verified=False)
         )
         assert unbound == {"allow": False, "rule": "default_deny"}
-
-        # Provable in policy: a standing
-        # backend-engineer finds nothing in the compiled bundle — the role
-        # exists only as ephemeral agents.
-        fired = _decide(
-            base, COMPANY_DECISION, standing("backend-engineer", "sandbox.exec")
-        )
-        assert fired == {"allow": False, "rule": "default_deny"}
-
-        # The PM cannot call executor tools — a rule, not a prompt.
-        for tool in ("sandbox.exec", "sandbox.write_file", "git.open_pr"):
-            denied = _decide(
-                base,
-                COMPANY_DECISION,
-                standing("pm", tool, args={"branch": "feature/x", "paths": []}),
-            )
-            assert denied["allow"] is False, tool
-
-        # The blueprint's own policies, on real argument shapes.
-        # `main` violates both branch rules; the lowest-sorting deny wins,
-        # so pin the family, not which of the two fired.
-        protected = _decide(
-            base,
-            COMPANY_DECISION,
-            executor("git.open_pr", args={"branch": "main", "paths": ["a.py"]}),
-        )
-        assert protected["allow"] is False
-        assert protected["rule"].startswith("git_open_pr_")
-
-        ci_paths = _decide(
-            base,
-            COMPANY_DECISION,
-            executor(
-                "git.open_pr",
-                args={"branch": "feature/x", "paths": [".github/workflows/ci.yml"]},
-            ),
-        )
-        assert ci_paths == {"allow": False, "rule": "git_open_pr_denied_paths"}
-
-        # Tenancy: another company's caller finds nothing in this package.
-        alien = _decide(
-            base, COMPANY_DECISION, executor("sandbox.exec", company="evil-corp")
-        )
-        assert alien == {"allow": False, "rule": "default_deny"}
-
-        # The platform scope lives in its own package: merge is platform-only.
-        merge = _decide(
-            base,
-            PLATFORM_DECISION,
-            {
-                "company": "",
-                "agent_id": "orchestrator",
-                "lifecycle": "platform",
-                "parent_agent_id": "",
-                "role": "platform",
-                "run_id": "run-gov",
-                "workflow": "",
-                "tool": "git.merge_pr",
-                "args": {},
-                "run_binding_verified": False,
-            },
-        )
-        assert merge["allow"] is True
-        company_merge = _decide(base, COMPANY_DECISION, executor("git.merge_pr"))
-        assert company_merge["allow"] is False
 
 
 # -- the whole pipeline decides (gateway layer) ------------------------------
@@ -200,58 +111,6 @@ def test_denies_are_in_the_audit_story(stack: None) -> None:
 
 
 # -- the whole tool surface, live --------------------------------------------
-
-
-def test_installed_bundle_scopes_issue_review_and_crew_tools(stack: None) -> None:
-    """Per-role scoping beyond the sandbox tools: PM owns issues + crew
-    intent, the reviewer owns the review tools, nobody else does — and
-    crew.request is narrowed to the conductor's may_spawn list."""
-    with port_forward("svc/opa", 8181) as port:
-        base = f"http://127.0.0.1:{port}"
-        assert (
-            _decide(base, COMPANY_DECISION, standing("pm", "issues.create"))["allow"]
-            is True
-        )
-        assert (
-            _decide(base, COMPANY_DECISION, executor("issues.create"))["allow"] is False
-        )
-
-        ok = _decide(
-            base,
-            COMPANY_DECISION,
-            standing(
-                "pm",
-                "crew.request",
-                args={"crew_template": "feature-delivery", "reason": "r"},
-            ),
-        )
-        assert ok["allow"] is True
-        outside = _decide(
-            base,
-            COMPANY_DECISION,
-            standing("pm", "crew.request", args={"crew_template": "shadow-ops"}),
-        )
-        assert outside["allow"] is False
-
-        reviewer = {
-            "company": "hello-saas",
-            "agent_id": "reviewer-01X",
-            "lifecycle": "ephemeral",
-            "parent_agent_id": "pm-1",
-            "role": "sdet",
-            "crew_template": "feature-review",
-            "crew_role": "reviewer",
-            "run_id": "run-gov",
-            "workflow": "review",
-            "tool": "git.read",
-            "args": {},
-            "run_binding_verified": True,
-        }
-        assert _decide(base, COMPANY_DECISION, reviewer)["allow"] is True
-        assert (
-            _decide(base, COMPANY_DECISION, {**reviewer, "tool": "git.merge_pr"})["allow"]
-            is False
-        )
 
 
 def test_pm_records_crew_intent_at_the_gateway(stack: None, env: dict) -> None:

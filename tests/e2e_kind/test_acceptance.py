@@ -11,7 +11,7 @@ What the suite proves, and where:
                   failed post-teardown call); HERE: compile and preview as
                   scripted e2e steps, and compile-is-what's-live (the local
                   compile's content-addressed revision == the served one)
-  2 durable       test_happy_path (kill-worker resume), test_temporal,
+  2 durable       test_happy_path (kill-worker resume),
                   test_registry_durability, test_crew_fulfillment
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
                   leaked no participant row, no ephemeral pod, no registration
@@ -19,13 +19,13 @@ What the suite proves, and where:
                   review with parked gate, escalation, API approval,
                   platform merge)
   4 governance    test_injection (injection vs compiled policy), test_governance,
-                  test_injected_conductor, test_egress, test_containment,
+                  test_injected_conductor, test_redteam, test_containment,
                   test_redteam; HERE: all five audit sources are real in
                   this suite execution — nothing seeded
   5 budgets       test_budgets (hard-stop, API-visible pause, process-gate
                   escalation, full {run, parent, participant, role} tuple)
   6 lean standing test_operator_lifecycle (exactly one AgentInstance),
-                  test_pm, test_ephemeral_identity, test_ephemeral_pods,
+                  test_intake, test_ephemeral_identity, test_ephemeral_pods,
                   test_workload_identity; HERE: the registry's standing agents
                   agrees, and a live minted executor is denied outside its
                   compiled allow-list at the gateway
@@ -40,9 +40,9 @@ What the suite proves, and where:
                   merge approval out).
   9 merge policy  test_delegated (in-class passing work merges with zero
                   human commands — the arc runs through the merge) and
-                  test_merge_gate_redteam (a steered reviewer smuggling a
-                  carve-out change is refused by the compiled decision, not
-                  the model).
+                  test_split_oracle_redteam (a steered reviewer smuggling
+                  a carve-out change is refused by the compiled decision,
+                  not the model).
  10 split oracle  test_split_oracle_redteam (the implementer cannot PR the
                   contract tree, cannot launder a red baseline to green two
                   ways, and a steered contract author's gutted spec parks on

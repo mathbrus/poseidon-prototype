@@ -152,21 +152,20 @@ Driven by markers in the files under `examples/`:
   without a verdict — the shape of a review that died of a timed-out
   model call — so the heartbeat's attempt accounting, not the reviewer,
   is what the e2e watches.
-- Merge-gate red-team (`MERGE_GATE_REDTEAM_MARKER` in an issue): the
+- Merge-gate carve-out (`MERGE_GATE_REDTEAM_MARKER` in an issue): the
   executor delivers working code carrying the reviewer steer *and* a
   change under `.github/`, so a steered pass meets the merge gate's
-  carve-out deny.
+  carve-out deny (test_split_oracle_redteam, scenario 4).
 - Contract-first (`CONTRACT_GOAL_MARKER` in a goal): the PM files the
   ordered contract-then-implement ticket pair; the contract author plays
   the `Crew: contract-authoring` ticket, gutting the spec under
   `STEERED_CONTRACT_MARKER` so the platform's deletion facts surface it.
 - Adversarial implementers against the contract tree: `ORACLE_SMUGGLE_MARKER`
   (also writes into the tree, recovers from the gateway's
-  `git_open_pr_contract_tree` deny), `GREEN_SUITE_MARKER` (a committed
-  `pytest.ini` ignores the tree so the head suite is green while the code
-  breaks the contract) and `CONFTEST_VEIL_MARKER` (the same through a root
-  `conftest.py`). Only the platform's composed base-ref contract run can
-  refuse these.
+  `git_open_pr_contract_tree` deny) and `CONFTEST_VEIL_MARKER` (a committed
+  root `conftest.py` drops the tree from collection so the head suite is
+  green while the code breaks the contract). Only the platform's composed
+  base-ref contract run can refuse these.
 
 **A credulous brain is the correct brain for these tests.** Every
 scenario asserts that compiled policy, the egress proxy or the merge

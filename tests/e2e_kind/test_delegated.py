@@ -18,8 +18,8 @@ What the platform still refuses is proven where it is exact and cheap, not
 by paying for more unattended cluster runs here:
 
 - a carve-out PR parks on the human `merge` signal even with a perfect
-  review — `test_merge_gate_redteam` drives that on the cluster, and
-  `test_review_workflow` at the workflow layer;
+  review — `test_split_oracle_redteam` drives that on the cluster (the
+  carve-out scenario), and `test_review_workflow` at the workflow layer;
 - a failed quality layer feeds the bounded rework loop and, at the bound,
   escalates to the human — `test_review_workflow` (exhausted chain) and
   `test_review_activities` (depth-from-lineage) prove it exactly.

@@ -1,8 +1,14 @@
-"""Intake on the live cluster: a goal becomes GitHub issues
-carrying the PM's summary comment, plus a recorded `crew_requests` row
-under the PM's authority; the runs row links the tickets; and the PM's
-tool calls appear in the audit story under the run's `run_id`. Started exactly as `poseidon run --workflow intake`
-starts it — a thin Temporal client; the in-cluster worker drives the PM.
+"""The PM's affirmative half, on the live cluster: the operator-deployed
+PM answers the intake dispatch, a goal becomes GitHub issues carrying the
+PM's summary comment, a `crew_requests` row is recorded under the PM's own
+standing identity, the runs row links the tickets, and the PM's tool calls
+appear in the audit story under the run's `run_id`. Started exactly as
+`poseidon run --workflow intake` starts it — a thin Temporal client; the
+in-cluster worker dispatches the deployed PM.
+
+The denial half ("a PM attempt at sandbox.exec or git.open_pr is denied at
+the gateway and audited") is proven by
+test_governance.py::test_pm_is_denied_executor_tools_at_the_gateway.
 """
 
 import asyncio
@@ -14,12 +20,25 @@ from mockllm.brain import PM_SUMMARY
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.intake import IntakeInput
 
-from .cluster import audit_story, psql_json, registry, temporal_port_forward
+from .cluster import (
+    COMPANY_NS,
+    audit_story,
+    kubectl,
+    psql_json,
+    registry,
+    temporal_port_forward,
+)
 from .conftest import TASK_QUEUE, deployed_timeouts, github_api, target_slug
 
 
 def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> None:
     from temporalio.client import Client
+
+    # The conductor answering this dispatch is the operator-deployed PM.
+    ready = kubectl(
+        "-n", COMPANY_NS, "get", "deployment/pm", "-o", "jsonpath={.status.readyReplicas}"
+    )
+    assert ready == "1", "the PM instance is not deployed/ready"
 
     run_id = new_run_id()
     goal = (
@@ -81,6 +100,8 @@ def test_goal_becomes_tickets_and_recorded_intent(stack: None, env: dict) -> Non
         for event in story:
             assert event["agent_id"] == "pm-1"
             assert event["lifecycle"] == "standing"
+            assert event["company"] == "hello-saas"
+            assert event["decision"] == "allow"
             assert event["workflow"] == "intake"
     finally:
         if issue_number is not None:
