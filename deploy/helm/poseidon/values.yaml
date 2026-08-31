@@ -97,7 +97,6 @@ llmGateway:
     frontier: gpt-5.6-luna
     standard: gpt-5.6-luna
     small: gpt-5.6-luna
-  pricePer1kTokens: "0.002"
 
 # Sandbox egress proxy. The allowlist is the applied
 # blueprint's compiled IR projection, resolved per run via
