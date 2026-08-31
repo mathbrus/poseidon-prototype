@@ -25,20 +25,24 @@ for the module and the pristine one restored after.
 """
 
 import asyncio
+import json
+import os
 import re
+import subprocess
+import tempfile
 import time
+from pathlib import Path
 
 import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
 from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.intake import IntakeInput
 
 from .blueprints import HEARTBEAT, restore_pristine
 from .cluster import COMPANY_NS, audit_story, await_run, temporal_port_forward
 from .conftest import (
-    TASK_QUEUE,
+    REPO_ROOT,
     apply_profile,
     close_issue,
     close_pr,
@@ -49,6 +53,40 @@ from .conftest import (
     target_slug,
     wake_until_run_started,
 )
+
+
+def _poseidon(args: list[str], address: str, timeout: int) -> subprocess.CompletedProcess:
+    """`poseidon …` as the human runs it, pointed at the cluster's Temporal
+    through an open port-forward — the CLI the two human acts go through."""
+    return subprocess.run(
+        ["uv", "run", "poseidon", *args],
+        cwd=REPO_ROOT,
+        env={**os.environ, "TEMPORAL_ADDRESS": address},
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def _run_intake(goal_path: Path, run_id: str, address: str) -> dict:
+    """Human act 1: `poseidon run <goal> --workflow intake`. Blocks until
+    intake completes and prints the run record; returns it."""
+    fast = ["--fast-timeouts"] if deployed_timeouts() is not None else []
+    proc = _poseidon(
+        ["run", str(goal_path), "--workflow", "intake", "--run-id", run_id, *fast],
+        address,
+        650,
+    )
+    assert proc.returncode == 0, f"poseidon run intake: {proc.stderr}\n{proc.stdout}"
+    return json.loads(proc.stdout)
+
+
+def _signal_merge(run_id: str, address: str) -> None:
+    """Human act 2: `poseidon signal <run> merge --approved --workflow review`."""
+    proc = _poseidon(
+        ["signal", run_id, "merge", "--approved", "--workflow", "review"], address, 60
+    )
+    assert proc.returncode == 0, f"poseidon signal merge: {proc.stderr}"
 
 
 @pytest.fixture(scope="module")
@@ -66,6 +104,8 @@ def overnight(stack: None, env: dict) -> dict:
         f"Ship the slugify utility (e2e overnight goal {nonce})\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
+    goal_path = Path(tempfile.mkdtemp(prefix="poseidon-goal-")) / "overnight-goal.md"
+    goal_path.write_text(goal)
     heartbeat_id = workflow_id("heartbeat", COMPANY_NS)
     result: dict = {"env": env, "heartbeat_id": heartbeat_id}
 
@@ -73,16 +113,10 @@ def overnight(stack: None, env: dict) -> dict:
         with temporal_port_forward() as address:
             client = await Client.connect(address)
 
-            # --- human act 1: one goal in --------------------------------
-            intake_handle = await client.start_workflow(
-                "intake",
-                IntakeInput(
-                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
-                ),
-                id=workflow_id("intake", intake_run),
-                task_queue=TASK_QUEUE,
+            # --- human act 1: one goal in, through the real CLI ----------
+            result["intake"] = await asyncio.to_thread(
+                _run_intake, goal_path, intake_run, address
             )
-            result["intake"] = await asyncio.wait_for(intake_handle.result(), timeout=600)
             ticket_urls = result["intake"].get("ticket_urls") or []
             issue_match = next(
                 (re.search(r"/issues/(\d+)$", u) for u in ticket_urls if u), None
@@ -134,8 +168,8 @@ def overnight(stack: None, env: dict) -> dict:
                 env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
             ).json()
 
-            # --- human act 2: one approval out -----------------------
-            await review_handle.signal("merge", args=[True, "overnight: approved"])
+            # --- human act 2: one approval out, through the real CLI -----
+            await asyncio.to_thread(_signal_merge, review["run_id"], address)
             result["review_record"] = await asyncio.wait_for(
                 review_handle.result(), timeout=300
             )
