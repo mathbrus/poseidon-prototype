@@ -1,6 +1,8 @@
 # Stock LiteLLM in single-model mode: holds the provider key so the agent pod
 # never sees it. The metered llm-gateway (packages/llm-gateway) is the only
-# service that can reach it.
+# service that can reach it, and it meters spend from the
+# x-litellm-response-cost header this proxy sets on every completion —
+# a model missing from LiteLLM's price map reports 0.0 and accrues nothing.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

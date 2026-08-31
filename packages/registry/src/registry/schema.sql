@@ -144,7 +144,9 @@ CREATE TABLE IF NOT EXISTS registry.budget_ledger (
     model             text,
     prompt_tokens     integer NOT NULL DEFAULT 0,
     completion_tokens integer NOT NULL DEFAULT 0,
-    usd               numeric(12, 6) NOT NULL DEFAULT 0
+    cached_tokens     integer NOT NULL DEFAULT 0,
+    reasoning_tokens  integer NOT NULL DEFAULT 0,
+    usd               numeric(16, 10) NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS budget_ledger_run_id_idx ON registry.budget_ledger (run_id);
 

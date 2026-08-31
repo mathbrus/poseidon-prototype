@@ -57,6 +57,18 @@ class Upstream:
         self.paths: list[str] = []
         self.prompt_tokens = 100
         self.completion_tokens = 50
+        self.cached_tokens = 50
+        self.reasoning_tokens = 25
+        self.cost = 0.0003
+        self.send_cost_header = True
+        self.cost_header_override: str | None = None
+
+    def _headers(self) -> dict[str, str]:
+        if not self.send_cost_header:
+            return {}
+        if self.cost_header_override is not None:
+            return {"x-litellm-response-cost": self.cost_header_override}
+        return {"x-litellm-response-cost": f"{self.cost:.10f}"}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         import json
@@ -67,6 +79,7 @@ class Upstream:
         if request.url.path.endswith("/responses"):
             return httpx.Response(
                 200,
+                headers=self._headers(),
                 json={
                     "id": "up-resp-1",
                     "object": "response",
@@ -88,11 +101,16 @@ class Upstream:
                         "input_tokens": self.prompt_tokens,
                         "output_tokens": self.completion_tokens,
                         "total_tokens": self.prompt_tokens + self.completion_tokens,
+                        "input_tokens_details": {"cached_tokens": self.cached_tokens},
+                        "output_tokens_details": {
+                            "reasoning_tokens": self.reasoning_tokens
+                        },
                     },
                 },
             )
         return httpx.Response(
             200,
+            headers=self._headers(),
             json={
                 "id": "up-1",
                 "object": "chat.completion",
@@ -108,6 +126,10 @@ class Upstream:
                     "prompt_tokens": self.prompt_tokens,
                     "completion_tokens": self.completion_tokens,
                     "total_tokens": self.prompt_tokens + self.completion_tokens,
+                    "prompt_tokens_details": {"cached_tokens": self.cached_tokens},
+                    "completion_tokens_details": {
+                        "reasoning_tokens": self.reasoning_tokens
+                    },
                 },
             },
         )
@@ -160,7 +182,6 @@ def app(stores, upstream):
     settings = LlmGatewaySettings(
         tier_models='{"frontier": "big-model", "standard": "small-model"}',
         default_model="fallback-model",
-        price_per_1k_tokens=0.002,
     )
     return create_app(
         settings,
@@ -263,7 +284,8 @@ def test_tier_routes_the_model_and_meters_the_ledger(app, stores, upstream):
     assert entry["role"] == "backend-engineer"
     assert entry["model"] == "big-model"
     assert entry["prompt_tokens"] == 100 and entry["completion_tokens"] == 50
-    assert abs(entry["usd"] - 0.0003) < 1e-9  # 150 tokens at 0.002/1K
+    assert entry["cached_tokens"] == 50 and entry["reasoning_tokens"] == 25
+    assert entry["usd"] == upstream.cost  # verbatim from the cost header
 
     event = audit.events[-1]
     assert event.decision == "allow" and event.rule == "budget_headroom"
@@ -283,6 +305,8 @@ def test_exhausted_cap_hard_stops_with_a_distinguishable_error(app, stores, path
         model="big-model",
         prompt_tokens=1,
         completion_tokens=1,
+        cached_tokens=0,
+        reasoning_tokens=0,
         usd=5.0,
     )
 
@@ -305,7 +329,7 @@ def test_cap_bites_only_at_the_cap(app, stores, upstream):
     for _ in range(3):
         assert call(app).status_code == 200
     assert len(ledger.entries_for_run(RUN_ID)) == 3
-    assert abs(ledger.spent_for_run(RUN_ID) - 0.0009) < 1e-9
+    assert abs(ledger.spent_for_run(RUN_ID) - 3 * upstream.cost) < 1e-9
 
 
 def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores):
@@ -338,6 +362,43 @@ def test_uncapped_company_is_not_blocked(app, stores, upstream):
     assert call(app).status_code == 200
 
 
+@pytest.mark.parametrize("path", SURFACES)
+def test_unpriced_completion_is_withheld_and_never_metered(app, stores, upstream, path):
+    """Spend accrues from what the provider reports; a 200 with no cost
+    header is a completion the gateway refuses to deliver — no payload,
+    no ledger row, a deny on the audit stream."""
+    audit, ledger = stores.audit, stores.ledger
+    upstream.send_cost_header = False
+
+    resp = call(app, path=path)
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["error"]["code"] == "llm_cost_unreported"
+    assert set(body) == {"error"}  # the upstream completion stayed withheld
+
+    assert ledger.entries_for_run(RUN_ID) == []
+    event = audit.events[-1]
+    assert event.decision == "deny" and event.rule == "llm_cost_unreported"
+    assert event.source == "llm-gateway"
+
+
+@pytest.mark.parametrize("bad_cost", ["not-a-number", "-0.1", "nan"])
+def test_garbled_cost_header_is_withheld_too(app, stores, upstream, bad_cost):
+    """Zero is a price; missing, negative, or unparseable is not."""
+    upstream.cost_header_override = bad_cost
+    resp = call(app)
+    assert resp.status_code == 502
+    assert resp.json()["error"]["code"] == "llm_cost_unreported"
+    assert stores.ledger.entries_for_run(RUN_ID) == []
+
+
+def test_zero_cost_is_a_price_and_is_recorded(app, stores, upstream):
+    upstream.cost = 0.0
+    assert call(app).status_code == 200
+    (entry,) = stores.ledger.entries_for_run(RUN_ID)
+    assert entry["usd"] == 0.0
+
+
 # ---------------------------------------------------------------------------
 # The OpenAI Responses surface: same chokepoint pipeline, different wire
 # shape (SDKs auto-select it for models that list it, e.g. gpt-5*).
@@ -360,7 +421,8 @@ def test_responses_routes_the_tier_forwards_and_meters(app, stores, upstream, pa
     # columns; the schema does not change per surface.
     (entry,) = ledger.entries_for_run(RUN_ID)
     assert entry["prompt_tokens"] == 100 and entry["completion_tokens"] == 50
-    assert abs(entry["usd"] - 0.0003) < 1e-9
+    assert entry["cached_tokens"] == 50 and entry["reasoning_tokens"] == 25
+    assert entry["usd"] == upstream.cost
 
     event = audit.events[-1]
     assert event.decision == "allow" and event.rule == "budget_headroom"

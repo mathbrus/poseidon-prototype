@@ -36,7 +36,11 @@ from .cluster import (
 )
 from .conftest import REPO_ROOT, TASK_QUEUE, deployed_timeouts
 
-TINY_CAP = 0.0001  # below one mock completion's cost at $0.002/1K tokens
+# Below one mock completion's reported cost: the mock prices every
+# completion in `x-litellm-response-cost` at $0.002/1K over its
+# deterministic token counts, and the planner's brief alone crosses 50
+# tokens, so the very first metered call exhausts this cap.
+TINY_CAP = 0.0001
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -137,6 +141,8 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
         assert entry["role"] == "backend-engineer"
         assert entry["model"] == "mock-brain"
         assert entry["prompt_tokens"] > 0
+        # The token breakdown behind the cost reaches Postgres.
+        assert int(entry["cached_tokens"]) > 0
     assert sum(float(e["usd"]) for e in entries) >= TINY_CAP
 
     # Budget events are in the one audit story: metered

@@ -196,6 +196,8 @@ def test_observe_counts_running_delivery_runs_and_todays_spend(
         model="mock",
         prompt_tokens=1,
         completion_tokens=1,
+        cached_tokens=0,
+        reasoning_tokens=0,
         usd=2.5,
     )
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))

@@ -50,8 +50,6 @@ spec:
               value: {{ .Values.llmGateway.tierModels | toJson | quote }}
             - name: DEFAULT_MODEL
               value: {{ .Values.run.model | quote }}
-            - name: PRICE_PER_1K_TOKENS
-              value: {{ .Values.llmGateway.pricePer1kTokens | quote }}
           readinessProbe:
             httpGet: {path: /healthz, port: 4000}
             periodSeconds: 5

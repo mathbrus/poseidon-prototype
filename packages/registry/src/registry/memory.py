@@ -127,6 +127,8 @@ class InMemoryBudgetLedger:
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
+        cached_tokens: int,
+        reasoning_tokens: int,
         usd: float,
     ) -> None:
         self.entries.append(
@@ -139,6 +141,8 @@ class InMemoryBudgetLedger:
                 "model": model,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "cached_tokens": cached_tokens,
+                "reasoning_tokens": reasoning_tokens,
                 "usd": usd,
             }
         )

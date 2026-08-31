@@ -222,7 +222,11 @@ runs LiteLLM or this.
   and budget-gates it exactly as it would a real provider. Token usage
   is a deterministic estimate (~4 chars/token) — nonzero so metering and
   the budget hard-stop have real usage to account, stable so e2e
-  assertions can rely on it.
+  assertions can rely on it — and every completion reports its cost in
+  the `x-litellm-response-cost` header at a fixed $0.002/1K tokens,
+  because the gateway meters spend from what the provider reports. The
+  usage details blocks (cached, reasoning tokens) are fixed fractions of
+  their totals so ledger assertions see nonzero breakdowns.
 - Drives [`agent`](../agent/README.md)'s production SDK loops; the
   denial texts its scripts recover from are the ones the real gateway
   emits (`git_open_pr_protected_branch`, `egress_not_allowlisted`).

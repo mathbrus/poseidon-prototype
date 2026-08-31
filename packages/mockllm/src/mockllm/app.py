@@ -8,6 +8,9 @@ surface for models that list it, e.g. gpt-5*) and the
 `/health/liveliness` probe the llm-proxy Deployment template expects.
 Requests are not authenticated — the real proxy ignores the agent's
 placeholder bearer token too, and this service never leaves the dev cluster.
+Every completion carries the `x-litellm-response-cost` header the real
+proxy sets: the gateway meters spend from what the provider reports, so
+this provider reports — deterministically, at a fixed rate per token.
 
 The Responses routes are a wire-shape adapter only: the request's
 `instructions`/`input` items are translated into the chat `messages` the
@@ -20,6 +23,7 @@ import uuid
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from mockllm.brain import MockCompletion, next_completion
@@ -33,10 +37,13 @@ class ChatRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
 
 
-def _usage(messages: list[dict[str, Any]], message: dict[str, Any]) -> dict[str, int]:
+def _usage(messages: list[dict[str, Any]], message: dict[str, Any]) -> dict[str, Any]:
     """Deterministic token estimate (~4 chars/token): nonzero so the LLM
     gateway's metering and budget hard-stop have real usage
-    to account, stable so e2e assertions can rely on it."""
+    to account, stable so e2e assertions can rely on it. The details
+    blocks are fixed fractions of their totals — valid subsets, nonzero
+    for any realistic call, so tests can prove the breakdown flows all
+    the way to the ledger."""
     prompt = sum(len(str(m.get("content") or "")) for m in messages) // 4 + 1
     completion = len(str(message.get("content") or "")) // 4 + 1
     for call in message.get("tool_calls") or []:
@@ -45,6 +52,8 @@ def _usage(messages: list[dict[str, Any]], message: dict[str, Any]) -> dict[str,
         "prompt_tokens": prompt,
         "completion_tokens": completion,
         "total_tokens": prompt + completion,
+        "prompt_tokens_details": {"cached_tokens": prompt // 2},
+        "completion_tokens_details": {"reasoning_tokens": completion // 2},
     }
 
 
@@ -207,8 +216,22 @@ def _responses_body(
             "input_tokens": usage["prompt_tokens"],
             "output_tokens": usage["completion_tokens"],
             "total_tokens": usage["total_tokens"],
+            "input_tokens_details": usage["prompt_tokens_details"],
+            "output_tokens_details": usage["completion_tokens_details"],
         },
     }
+
+
+# What this fake provider charges per 1K tokens. The gateway meters
+# whatever the header reports; the rate only has to be stable and nonzero
+# so budget e2e stories (tiny caps, spend ceilings) stay deterministic.
+COST_PER_1K_TOKENS = 0.002
+
+
+def _priced(body: dict[str, Any]) -> JSONResponse:
+    """The completion wrapped with the cost header LiteLLM's proxy sets."""
+    cost = body["usage"]["total_tokens"] / 1000 * COST_PER_1K_TOKENS
+    return JSONResponse(body, headers={"x-litellm-response-cost": f"{cost:.10f}"})
 
 
 def create_app() -> FastAPI:
@@ -220,21 +243,25 @@ def create_app() -> FastAPI:
 
     @app.post("/chat/completions")
     @app.post("/v1/chat/completions")
-    def chat(request: ChatRequest) -> dict[str, Any]:
-        return _response(
-            request.model,
-            request.messages,
-            next_completion(request.messages, request.tools),
+    def chat(request: ChatRequest) -> JSONResponse:
+        return _priced(
+            _response(
+                request.model,
+                request.messages,
+                next_completion(request.messages, request.tools),
+            )
         )
 
     @app.post("/responses")
     @app.post("/v1/responses")
-    def responses(request: ResponsesRequest) -> dict[str, Any]:
+    def responses(request: ResponsesRequest) -> JSONResponse:
         messages = _chat_messages(request)
-        return _responses_body(
-            request.model,
-            messages,
-            next_completion(messages, _chat_tools(request.tools)),
+        return _priced(
+            _responses_body(
+                request.model,
+                messages,
+                next_completion(messages, _chat_tools(request.tools)),
+            )
         )
 
     return app
