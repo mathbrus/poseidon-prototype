@@ -1,5 +1,6 @@
 """The heartbeat's eyes, its authorization and its audit trail. Thin
-clients, as always — sequencing and the tick cadence live in the workflow.
+clients, as always — sequencing and the wait between ticks live in the
+workflow.
 
 Retry safety, per activity:
     heartbeat_config    — read-only; safe.

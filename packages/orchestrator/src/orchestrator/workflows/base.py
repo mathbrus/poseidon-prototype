@@ -25,7 +25,7 @@ STEP_RETRY = RetryPolicy(maximum_attempts=3, backoff_coefficient=2.0)
 DISPATCH_RETRY = RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=0)
 TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 
-# The `heartbeat` family is the company's own cadence — one standing
+# The `heartbeat` family is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats
 # above (`dispatch_heartbeat_s`), which are liveness pings on a dispatch.
 FAMILIES = ("implement", "intake", "review", "heartbeat")
