@@ -55,6 +55,7 @@ The conftest orders this module after every module whose runs it reads:
 the five-source assertion reads what the whole suite really produced.
 """
 
+import asyncio
 import json
 import os
 import subprocess
@@ -67,9 +68,9 @@ from .blueprints import HELLO_SAAS, bundle_revision_from_cr
 from .cluster import (
     COMPANY_NS,
     POSTGRES_USER,
-    agent_image,
     audit_story,
     cluster_secret,
+    crew_activities,
     events_since,
     kubectl,
     mcp_call,
@@ -79,6 +80,7 @@ from .cluster import (
     registry,
     run_kubectl,
     sandbox_pods,
+    worker_settings,
 )
 from .conftest import REPO_ROOT
 
@@ -241,41 +243,13 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
     gateway (deny by rule, audited), while its in-scope surface still
     answers. The planner half of this claim is proven mid-run in
     test_crew_fulfillment; this is the executor's."""
-    import asyncio
-
-    from orchestrator.activities.crew import CrewActivities
-    from orchestrator.config import WorkerSettings
-    from registry import (
-        AuditStore,
-        BudgetLedger,
-        Companies,
-        CrewRequests,
-        RunParticipants,
-        Runs,
-    )
+    from registry import Runs
 
     run_id = new_run_id()
-    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
-    token_file = tmp_path / "unused-token"
-    token_file.write_text("unused")
     repo = env.get("TARGET_REPO", "github.com/example/repo")
 
     with registry() as db:
-        settings = WorkerSettings(
-            gateway_token_file=str(token_file),
-            mcp_gateway_url=gateway_url,
-            target_repo=repo,
-            agent_image=agent_image(),
-        )
-        crew = CrewActivities(
-            settings,
-            RunParticipants(db),
-            AuditStore(db),
-            CrewRequests(db),
-            Companies(db),
-            BudgetLedger(db),
-            Runs(db),
-        )
+        crew = crew_activities(db, worker_settings(env, tmp_path))
         Runs(db).start(run_id, "executor scope check", "implement", None, "hello-saas")
         sa_name = None
         try:

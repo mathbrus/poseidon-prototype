@@ -25,6 +25,7 @@ from .blueprints import (
     HELLO_SAAS,
     apply_blueprint,
     bundle_revision_from_cr,
+    mark_drifted,
     restore_pristine,
     wait_for_convergence,
 )
@@ -194,6 +195,7 @@ def test_company_delete_revokes(stack: None, env: dict):
 
     kubectl("delete", "company", COMPANY_NS, "--timeout=120s", timeout=150)
     kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s", timeout=200)
+    mark_drifted()  # the cluster no longer matches any applied document
 
     # Revocation at the delivery layer: the bundle is no longer served.
     with port_forward("svc/bundle-server", 8081) as port:

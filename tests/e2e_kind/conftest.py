@@ -36,7 +36,8 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   `blueprints.quiesce_heartbeat`): debris feeds contention — the standing
   heartbeat treats any open PR or issue as reviewable backlog, wakes the
   moment any run of the company finishes, and one parked review holds
-  `max_concurrent_runs`' whole slot for a day. So a fixture closes the PRs
+  `max_concurrent_runs`' whole slot until its merge gate expires — a full
+  day at the paid-brain defaults. So a fixture closes the PRs
   it opened the moment their openness has been verified; a module whose
   arc the heartbeat drives sweeps BEFORE the apply, waits for the
   heartbeat's arrival tick on that empty backlog (`apply_profile`), then
@@ -468,14 +469,11 @@ REPO_BASELINE: dict[str, str] = {
     CONTRACT_TEST_PATH: CONTRACT_TESTS_PY,
 }
 
-# Shapes the baseline refuses to inherit: an implementer-owned test tree
-# beside the contract tree (at a path no laundering veil ignores, it breaks
-# head suites for the wrong reason) and root-level collection config (a
+# Shapes the baseline refuses to inherit: root-level collection config (a
 # merged pytest.ini/conftest.py would neuter every later run's suite the
-# way the red-team's veils neuter one PR's).
+# way the red-team's veils neuter one PR's) and stray gate-counter state a
+# run that died mid-arc may have left on main.
 REPO_PRUNED: tuple[str, ...] = (
-    "tests/test_slugify.py",
-    "tests/test_gate.py",
     "pytest.ini",
     "conftest.py",
     "gate-counter.txt",

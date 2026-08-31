@@ -194,17 +194,13 @@ def baseline(split, repo_baseline: dict) -> dict:
 def test_the_seeded_baseline_is_a_real_spec(baseline: dict):
     """Guard against a vacuously green module: a contract tree that is
     absent, empty, or toothless would make every refusal below hold for the
-    wrong reason. The baseline on `main` carries the four acceptance cases,
-    and no implementer-owned `tests/test_slugify.py` sits beside it."""
+    wrong reason. The baseline on `main` carries the four acceptance cases."""
     env = baseline["env"]
     seeded = read_repo_file(env, CONTRACT_TEST_PATH)
     assert seeded, "no contract tree on the base ref"
     text = base64.b64decode(seeded["content"]).decode()
     assert text.count("def test_contract_") == 4, text
     assert "assert slugify(" in text, "the seeded contract asserts nothing"
-    assert read_repo_file(env, "tests/test_slugify.py") is None, (
-        "an implementer-owned tests/test_slugify.py is on main"
-    )
 
 
 # --- 1. smuggling the oracle into the implementation's own PR ----------------
