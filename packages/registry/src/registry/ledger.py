@@ -28,14 +28,17 @@ class BudgetLedger:
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
+        cached_tokens: int,
+        reasoning_tokens: int,
         usd: float,
     ) -> None:
         self._db.execute(
             """
             INSERT INTO registry.budget_ledger
                 (company, run_id, agent_id, parent_agent_id, role, model,
-                 prompt_tokens, completion_tokens, usd)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 prompt_tokens, completion_tokens, cached_tokens,
+                 reasoning_tokens, usd)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 company,
@@ -46,6 +49,8 @@ class BudgetLedger:
                 model,
                 prompt_tokens,
                 completion_tokens,
+                cached_tokens,
+                reasoning_tokens,
                 usd,
             ),
         )
@@ -76,7 +81,8 @@ class BudgetLedger:
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return self._db.query(
             "SELECT ts, company, run_id, agent_id, parent_agent_id, role,"
-            " model, prompt_tokens, completion_tokens, usd"
+            " model, prompt_tokens, completion_tokens, cached_tokens,"
+            " reasoning_tokens, usd"
             " FROM registry.budget_ledger WHERE run_id = %s ORDER BY ts, id",
             (run_id,),
         )

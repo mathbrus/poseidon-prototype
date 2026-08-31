@@ -297,6 +297,8 @@ async def test_exhausted_budget_denies_crew_request(app, ledger, crew_requests, 
         model="mock-brain",
         prompt_tokens=1,
         completion_tokens=1,
+        cached_tokens=0,
+        reasoning_tokens=0,
         usd=5.0,
     )
     async with mcp_session(app, PM_TOKEN) as session:

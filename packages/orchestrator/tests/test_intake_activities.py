@@ -88,6 +88,8 @@ def test_budget_boundary_fails_born_exhausted_runs(world):
         model="mock-brain",
         prompt_tokens=1,
         completion_tokens=1,
+        cached_tokens=0,
+        reasoning_tokens=0,
         usd=5.0,
     )
     with pytest.raises(RuntimeError, match="budget_exhausted"):

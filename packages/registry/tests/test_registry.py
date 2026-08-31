@@ -332,6 +332,8 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
         model="mock-brain",
         prompt_tokens=100,
         completion_tokens=50,
+        cached_tokens=50,
+        reasoning_tokens=25,
         usd=0.0003,
     )
     ledger.record(
@@ -343,12 +345,16 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
         model="mock-brain",
         prompt_tokens=10,
         completion_tokens=5,
+        cached_tokens=5,
+        reasoning_tokens=2,
         usd=0.0001,
     )
     assert abs(ledger.spent_for_run(RUN_ID) - 0.0004) < 1e-9
     entries = ledger.entries_for_run(RUN_ID)
     assert [e["agent_id"] for e in entries] == ["backend-engineer-1", "executor-01X"]
     assert entries[1]["parent_agent_id"] == "pm-1"
+    assert (entries[0]["cached_tokens"], entries[0]["reasoning_tokens"]) == (50, 25)
+    assert (entries[1]["cached_tokens"], entries[1]["reasoning_tokens"]) == (5, 2)
     assert ledger.spent_for_run("run-unmetered") == 0.0
 
 
@@ -533,6 +539,8 @@ def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
         model="mock",
         prompt_tokens=1,
         completion_tokens=1,
+        cached_tokens=0,
+        reasoning_tokens=0,
     )
     ledger.record(company="hello-saas", run_id="run-sp-1", usd=2.5, **entry)
     ledger.record(company="hello-saas", run_id="run-sp-2", usd=1.5, **entry)
