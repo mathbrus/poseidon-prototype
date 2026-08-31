@@ -17,7 +17,6 @@ from mockllm.brain import (
     MERGE_GATE_REDTEAM_MARKER,
     ORACLE_SMUGGLE_MARKER,
     REVIEW_ABORT_MARKER,
-    REVIEW_FAIL_MARKER,
     SLUGIFY_PY,
     SMUGGLED_CONTRACT_PATH,
     STEERED_CONTRACT_MARKER,
@@ -348,9 +347,6 @@ REVIEW_TOOLS = [
     )
 ]
 REVIEW_TASK = "Task:\nReview pull request #41 (url): Add slugify utility"
-FAILING_REVIEW_TASK = (
-    f"Task:\nReview pull request #41 (url): {REVIEW_FAIL_MARKER} regression"
-)
 
 
 def review_history(task: str, *steps: tuple[str, str]) -> list[dict]:
@@ -393,16 +389,6 @@ def test_review_happy_path_ends_with_a_pass_verdict():
     assert call.tool_calls == [] and call.content  # plain text ends the loop
     verdict = next_completion(review_history(REVIEW_TASK, *steps[:-1]), REVIEW_TOOLS)
     assert verdict.tool_calls[0].arguments["verdict"] == "pass"
-
-
-def test_review_fail_marker_scripts_a_blocking_review():
-    steps = [("read_pr", "{}"), ("run_tests", "{}")]
-    comment = next_completion(review_history(FAILING_REVIEW_TASK, *steps), REVIEW_TOOLS)
-    assert REVIEW_FAIL_MARKER in comment.tool_calls[0].arguments["body"]
-    steps.append(("comment_pr", "{}"))
-    verdict = next_completion(review_history(FAILING_REVIEW_TASK, *steps), REVIEW_TOOLS)
-    assert verdict.tool_calls[0].name == "verdict"
-    assert verdict.tool_calls[0].arguments["verdict"] == "fail"
 
 
 def test_review_abort_marker_posts_findings_but_never_judges():

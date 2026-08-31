@@ -79,7 +79,7 @@ The checks run in order; the first match wins:
 |---|---|---|
 | `"heartbeat decision"` in the system prompt | decide | a single completion naming one action from the observation, with a rationale |
 | `"product manager"` in the system prompt | PM | file one ticket (an ordered contract-then-implement pair under a contract-first goal), record the crew request, post the one-paragraph summary as a comment on each ticket filed (numbers read back from the `create_issue` observations), then stop |
-| `comment_pr` offered | reviewer | read the PR diff, run the suite, post one findings comment, end with a structured pass/fail verdict (fail on `REVIEW_FAIL_MARKER` in the task; injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read; findings and then silence — no verdict at all — on `REVIEW_ABORT_MARKER`) |
+| `comment_pr` offered | reviewer | read the PR diff, run the suite, post one findings comment, end with a structured verdict (injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read; findings and then silence — no verdict at all — on `REVIEW_ABORT_MARKER`) |
 | `"You are the planner"` in the system prompt | planner | the task brief on the first turn, echoing the branch line and any scenario marker (the planner holds read tools, so its prompt is what sets it apart) |
 | `Crew: contract-authoring` in the task | contract author | write the contract tree (gutted to a smoke check under `STEERED_CONTRACT_MARKER`), then deliver it |
 | tools without `open_pr` | act | write `slugify.py` + its test once, then answer in plain text — which ends the SDK conversation so the host runs the advisory verify |
@@ -144,9 +144,8 @@ Driven by markers in the files under `examples/`:
   can recompute the gateway's `args_digest` and prove which spawn the
   audited deny refers to — the audit event stores a digest of the args,
   never their cleartext.
-- Review-time markers ride the PR rather than a file: `REVIEW_FAIL_MARKER`
-  in the PR title makes the reviewer post a blocking finding and a fail
-  verdict; `STEERED_REVIEW_MARKER` in the diff it reads makes it skip the
+- Review-time markers ride the PR rather than a file:
+  `STEERED_REVIEW_MARKER` in the diff the reviewer reads makes it skip the
   suite and pass — the merge gate, not the reviewer, must hold.
   `REVIEW_ABORT_MARKER` in an issue title rides the delivery into the PR
   title, and a reviewer whose task carries it posts findings and stops
