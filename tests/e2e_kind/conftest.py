@@ -441,7 +441,7 @@ def repo_baseline(env: dict[str, str]) -> dict[str, str]:
 # done with them; the session sweeper catches what inline tests and failure
 # paths drop; and modules that applied a heartbeat-declaring blueprint
 # terminate the bare heartbeat their apply caused, instead of leaving it
-# asleep for up to interval_minutes after the pristine restore.
+# asleep for up to reconcile_minutes after the pristine restore.
 
 
 def pr_number(pr_url: str | None) -> int | None:
@@ -486,7 +486,7 @@ def apply_profile(path: Path, env: dict) -> None:
     review parked on a day-long gate that holds the one concurrency slot.
     Then the wait: the ensure loop starts the bare heartbeat on its own
     cadence, a minute or two after the apply, and its first tick lands on
-    the swept backlog and sleeps `interval_minutes` — but a module that
+    the swept backlog and sleeps `reconcile_minutes` — but a module that
     files its goal before that tick races the bare heartbeat for its own
     ticket, and the module's heartbeat loses the attribution its
     assertions anchor on (both start the run; the one-live-run index kills
@@ -500,7 +500,7 @@ def apply_profile(path: Path, env: dict) -> None:
 def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
     """Block until the ensure loop's `heartbeat-{company}` is running and
     asleep — it has observed the swept campsite and will not tick again
-    for the blueprint's `interval_minutes`. Read off the workflow's own
+    for the blueprint's `reconcile_minutes`. Read off the workflow's own
     `state` query, on its current run only: a profile re-applied over
     itself finds the standing heartbeat already asleep, and a terminated
     one (a quiesced earlier profile) does not count until the ensure loop

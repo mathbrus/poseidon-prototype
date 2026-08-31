@@ -213,7 +213,7 @@ Every budget line you can write here is a hard stop.
 ```yaml
 heartbeat:
   conductor: pm
-  interval_minutes: 30
+  reconcile_minutes: 30
   max_concurrent_runs: 1
   max_attempts: 2
   may_start: [implement, review]
@@ -225,7 +225,7 @@ meaningful state: with no `heartbeat` section, runs start only when a human
 starts one, which is everything this reference described so far.
 
 Declaring it grants the platform a bounded authority to start work on its
-own initiative: every `interval_minutes`, the named conductor is dispatched
+own initiative: every `reconcile_minutes`, the named conductor is dispatched
 to choose the next action from the backlog, and the chosen workflow may
 start only within `max_concurrent_runs`, under the `daily_cap`, and on an
 item fewer than `max_attempts` runs have taken up. Every field is required

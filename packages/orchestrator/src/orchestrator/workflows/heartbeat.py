@@ -145,7 +145,7 @@ class HeartbeatWorkflow(RunWorkflow):
         if input.interval_s is not None:
             interval = input.interval_s
         else:
-            interval = int(config["interval_minutes"]) * 60
+            interval = int(config["reconcile_minutes"]) * 60
         await asyncio.sleep(interval)
         workflow.continue_as_new(input)
 

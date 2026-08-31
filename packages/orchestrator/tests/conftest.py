@@ -28,7 +28,7 @@ def heartbeat_spec(**overrides) -> dict:
     """A compiled heartbeat section (the plan's shape, not the blueprint's)."""
     return {
         "conductor": "pm",
-        "interval_minutes": 30,
+        "reconcile_minutes": 30,
         "max_concurrent_runs": 1,
         "max_attempts": 2,
         "may_start": ["implement"],

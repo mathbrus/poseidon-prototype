@@ -263,7 +263,7 @@ uv run poseidon blueprint apply examples/hello-saas-heartbeat.yaml --yes
 No command starts the heartbeat — that is the point. The orchestrator
 worker notices that the applied blueprint now declares a `heartbeat` section
 and starts one durable workflow, `heartbeat-hello-saas`, on its own. Every
-`interval_minutes` (30 in the example — the cadence is yours to declare)
+`reconcile_minutes` (30 in the example — the cadence is yours to declare)
 a tick:
 
 1. **Observes** the open backlog, the delivered-but-unreviewed PRs (still

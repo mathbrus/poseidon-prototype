@@ -1,7 +1,7 @@
 """The suite's exit contract: quiet, asserted.
 
 "Suite finished" and "cluster quiet" can differ by up to
-`interval_minutes`: a module that applies a heartbeat-declaring blueprint
+`reconcile_minutes`: a module that applies a heartbeat-declaring blueprint
 leaves the ensure loop's bare heartbeat asleep behind it, and a killed run
 leaves workflows parked on day-long gates. A person asking "is something
 still running?" is the wrong detector for either. The conftest orders this

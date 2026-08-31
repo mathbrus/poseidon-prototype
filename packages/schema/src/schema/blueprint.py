@@ -281,8 +281,9 @@ _POLICIES = {
     },
 }
 
-# The standing heartbeat's declared authority: cadence, concurrency, what
-# it may start on its own initiative, and a daily hard stop. Opt-in and
+# The standing heartbeat's declared authority: how stale its view of the
+# world may grow, concurrency, what it may start on its own initiative,
+# and a daily hard stop. Opt-in and
 # all-explicit — a company that declares a heartbeat declares every cap,
 # because a defaulted cap is authority nobody wrote down. Absent means what
 # it always meant: runs start only when a human starts one. `intake` is
@@ -292,7 +293,7 @@ _HEARTBEAT = {
     "additionalProperties": False,
     "required": [
         "conductor",
-        "interval_minutes",
+        "reconcile_minutes",
         "max_concurrent_runs",
         "max_attempts",
         "may_start",
@@ -301,7 +302,10 @@ _HEARTBEAT = {
     "properties": {
         # The standing role dispatched to decide the next action.
         "conductor": _NAME,
-        "interval_minutes": {"type": "integer", "minimum": 1},
+        # The reconcile backstop: the platform's own completions wake the
+        # tick immediately; this bounds how long a change only the outside
+        # world saw (an issue filed by hand, a PR merged by hand) can wait.
+        "reconcile_minutes": {"type": "integer", "minimum": 1},
         "max_concurrent_runs": {"type": "integer", "minimum": 1},
         # How many runs the heartbeat may start on one work item — an
         # issue or a PR — before it stops offering it. A run that

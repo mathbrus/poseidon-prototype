@@ -84,7 +84,7 @@ def quiesce_heartbeat() -> None:
     """Terminate the ensure loop's bare `heartbeat-{company}` heartbeat after
     the pristine blueprint is back. Revocation-by-diff stops it on its own
     — the product claim, pinned at the workflow layer — but on the
-    blueprint's `interval_minutes` cadence, which would leave a competitor
+    blueprint's `reconcile_minutes` cadence, which would leave a competitor
     asleep through the next module's arc. The campsite rule wants the
     quiet now: call this after the pristine apply, so the ensure loop has
     nothing to restart."""

@@ -75,7 +75,7 @@ class HeartbeatConfig:
     one."""
 
     conductor: str
-    interval_minutes: int
+    reconcile_minutes: int
     max_concurrent_runs: int
     # Runs the heartbeat may start on one issue or PR before it stops
     # offering it; concluded runs consume the item regardless.

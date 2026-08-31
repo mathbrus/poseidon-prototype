@@ -123,7 +123,7 @@ def test_a_plan_without_heartbeat_stays_human_started(blueprint):
 def test_heartbeat_compiles_into_plan_and_bundle(heartbeat_blueprint):
     plan = compile_blueprint(heartbeat_blueprint)
     assert plan.heartbeat.conductor == "pm"
-    assert plan.heartbeat.interval_minutes == 30
+    assert plan.heartbeat.reconcile_minutes == 30
     assert plan.heartbeat.max_concurrent_runs == 1
     assert plan.heartbeat.max_attempts == 2
     assert plan.heartbeat.may_start == ("implement",)
