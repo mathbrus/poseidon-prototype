@@ -101,9 +101,7 @@ class Upstream:
                         "input_tokens": self.prompt_tokens,
                         "output_tokens": self.completion_tokens,
                         "total_tokens": self.prompt_tokens + self.completion_tokens,
-                        "input_tokens_details": {
-                            "cached_tokens": self.cached_tokens
-                        },
+                        "input_tokens_details": {"cached_tokens": self.cached_tokens},
                         "output_tokens_details": {
                             "reasoning_tokens": self.reasoning_tokens
                         },
@@ -365,9 +363,7 @@ def test_uncapped_company_is_not_blocked(app, stores, upstream):
 
 
 @pytest.mark.parametrize("path", SURFACES)
-def test_unpriced_completion_is_withheld_and_never_metered(
-    app, stores, upstream, path
-):
+def test_unpriced_completion_is_withheld_and_never_metered(app, stores, upstream, path):
     """Spend accrues from what the provider reports; a 200 with no cost
     header is a completion the gateway refuses to deliver — no payload,
     no ledger row, a deny on the audit stream."""

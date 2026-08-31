@@ -37,9 +37,7 @@ class ChatRequest(BaseModel):
     tools: list[dict[str, Any]] | None = None
 
 
-def _usage(
-    messages: list[dict[str, Any]], message: dict[str, Any]
-) -> dict[str, Any]:
+def _usage(messages: list[dict[str, Any]], message: dict[str, Any]) -> dict[str, Any]:
     """Deterministic token estimate (~4 chars/token): nonzero so the LLM
     gateway's metering and budget hard-stop have real usage
     to account, stable so e2e assertions can rely on it. The details
@@ -219,11 +217,7 @@ def _responses_body(
             "output_tokens": usage["completion_tokens"],
             "total_tokens": usage["total_tokens"],
             "input_tokens_details": usage["prompt_tokens_details"],
-            "output_tokens_details": {
-                "reasoning_tokens": usage["completion_tokens_details"][
-                    "reasoning_tokens"
-                ]
-            },
+            "output_tokens_details": usage["completion_tokens_details"],
         },
     }
 

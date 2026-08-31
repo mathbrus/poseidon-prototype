@@ -87,18 +87,27 @@ def _usage_tokens(usage: dict[str, Any]) -> Usage:
         usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
     )
     completion_details = (
-        usage.get("completion_tokens_details")
-        or usage.get("output_tokens_details")
-        or {}
+        usage.get("completion_tokens_details") or usage.get("output_tokens_details") or {}
     )
     return Usage(
         prompt=int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
-        completion=int(
-            usage.get("completion_tokens") or usage.get("output_tokens") or 0
-        ),
+        completion=int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
         cached=int(prompt_details.get("cached_tokens") or 0),
         reasoning=int(completion_details.get("reasoning_tokens") or 0),
     )
+
+
+def _reported_cost(headers: httpx.Headers) -> float | None:
+    """The provider-computed cost of the call, or None when the upstream
+    did not report a usable one. Zero is a price (free models exist);
+    missing, negative, or unparseable is not."""
+    try:
+        usd = float(headers["x-litellm-response-cost"])
+    except (KeyError, ValueError):
+        return None
+    if not math.isfinite(usd) or usd < 0.0:
+        return None
+    return usd
 
 
 class AuthMiddleware:
@@ -329,21 +338,11 @@ def create_app(
             )
             return JSONResponse(upstream.json(), status_code=upstream.status_code)
 
-        payload = upstream.json()
-        try:
-            usd = float(upstream.headers["x-litellm-response-cost"])
-        except (KeyError, ValueError):
-            usd = -1.0
-        if not math.isfinite(usd) or usd < 0.0:
-            # The backend served the call but did not price it. Spend
-            # accrues from what the provider reports, never from guesses —
-            # so an unpriced completion is withheld, not delivered: the
-            # cost of one leaked provider call, in exchange for a
-            # misconfigured proxy failing loudly on every call instead of
-            # running the company for free. Zero is a price (free models
-            # exist); missing, negative, or unparseable is not. The
-            # gateway itself refuses here, hence a deny, unlike the
-            # upstream failures above.
+        usd = _reported_cost(upstream.headers)
+        if usd is None:
+            # An unpriced completion is withheld, not delivered. The
+            # gateway itself refuses here — a deny, unlike the upstream
+            # failures above, where the backend failed the call.
             await audited(
                 "deny",
                 "llm_cost_unreported",
@@ -357,6 +356,7 @@ def create_app(
                 " completion withheld, nothing metered",
                 "llm_cost_unreported",
             )
+        payload = upstream.json()
         usage = _usage_tokens(payload.get("usage") or {})
 
         await asyncio.to_thread(
