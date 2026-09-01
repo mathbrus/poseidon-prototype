@@ -307,7 +307,6 @@ intake.
 |---|---|---|
 | `issues.create` | `run_id, repo, title, body` | Files a new issue — how a goal becomes tickets. |
 | `issues.read` | `run_id, repo, number=None` | Reads one issue by number (refusing pull requests — those belong to `git.read`), or the open backlog when `number` is omitted. Also in the platform scope: an issue-driven implement run resolves its ticket through this tool. |
-| `issues.update` | `run_id, repo, number, title=None, body=None, state=None` | Edits an issue's title, body, or open/closed state; omitted fields are left untouched. |
 | `issues.comment` | `run_id, repo, number, body` | Comments on an issue — how the PM leaves its one-paragraph intake summary on each ticket it files. |
 
 ### Crew tools

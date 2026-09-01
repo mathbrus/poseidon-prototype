@@ -37,7 +37,7 @@ from .cluster import (
     psql_json,
     temporal_port_forward,
 )
-from .conftest import REPO_ROOT, TASK_QUEUE, close_pr, deployed_timeouts, pr_number
+from .conftest import REPO_ROOT, TASK_QUEUE, close_pr_url, deployed_timeouts
 
 # Below one mock completion's reported cost: the mock prices every
 # completion in `x-litellm-response-cost` at $0.002/1K over its
@@ -53,8 +53,11 @@ def restore_budget(stack: None):
     restore_pristine()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def tiny_cap_applied(stack: None, tmp_path_factory) -> None:
+    """Function-scoped: every test that needs the tiny cap re-applies it, so
+    the approve test's mid-body cap-raise cannot leak the real cap into a
+    later test — order stops mattering."""
     document = yaml.safe_load(HELLO_SAAS.read_text())
     document["budgets"]["per_run"]["usd"] = TINY_CAP
     edited = tmp_path_factory.mktemp("budget") / "hello-saas-tiny-cap.yaml"
@@ -212,11 +215,14 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
 
 async def _run_until_paused_then_approve(
     address: str, run_id: str, task_text: str
-) -> dict:
+) -> tuple[dict, float]:
     """The approval mirror of the rejection driver: park on the budget
     stop, then — as a human who has decided the run is worth it — raise the
     cap by re-applying the real blueprint and approve. The workflow
-    re-dispatches with headroom and runs to completion."""
+    re-dispatches with headroom and runs to completion. Returns the terminal
+    record and the ledger total captured at the pause, so the caller can
+    assert the run spent *more* after resuming — a run that resumed but made
+    no further model call would leave that total unchanged."""
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "implement",
@@ -231,12 +237,14 @@ async def _run_until_paused_then_approve(
             break
         assert time.monotonic() < deadline, f"never paused (state={state!r})"
         await asyncio.sleep(2)
+    spend_at_pause = sum(float(e["usd"]) for e in ledger_entries(run_id))
     # The human raises the cap: re-apply the real blueprint (the gateway
     # reads the cap from the registry per call, so the upsert is enough),
     # then approve — the run may continue.
     await asyncio.to_thread(apply_blueprint, HELLO_SAAS)
     await handle.signal("budget", args=[True, "worth the spend"])
-    return await asyncio.wait_for(handle.result(), timeout=300)
+    record = await asyncio.wait_for(handle.result(), timeout=300)
+    return record, spend_at_pause
 
 
 def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) -> None:
@@ -253,7 +261,7 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
     record = None
     try:
         with temporal_port_forward() as address:
-            record = asyncio.run(
+            record, spend_at_pause = asyncio.run(
                 _run_until_paused_then_approve(address, run_id, task_text)
             )
         assert record["status"] == "done", f"the approved run did not finish: {record}"
@@ -266,10 +274,14 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
         ]
         assert "gate_approved" in gate_rules, gate_rules
 
-        entries = ledger_entries(run_id)
-        assert sum(float(e["usd"]) for e in entries) > TINY_CAP, (
-            "no spend past the raised cap — the run never resumed real work"
+        # The run spent *more* after the cap was raised: the pre-pause total
+        # already exceeds TINY_CAP by construction, so only a strictly larger
+        # final total proves the approval actually resumed real model work.
+        final_spend = sum(float(e["usd"]) for e in ledger_entries(run_id))
+        assert final_spend > spend_at_pause, (
+            f"no spend past the raised cap ({final_spend} == {spend_at_pause}) — "
+            "the run never resumed real work"
         )
     finally:
         if record is not None:
-            close_pr(env, pr_number(record.get("pr_url")) or 0)
+            close_pr_url(env, record.get("pr_url"))

@@ -160,8 +160,16 @@ def test_allowlisted_egress_succeeds_and_is_audited(target: Target) -> None:
     record, correlated by run_id."""
     exit_code, output = target.sh("pip install --no-cache-dir --quiet six")
     assert exit_code == 0, output
-    allows = [e for e in audit_story(target.run_id) if e["decision"] == "allow"]
-    assert allows, "pip install left no allow events"
+    # The proxy's own allowlisted-egress allow, by rule — not any allow on
+    # the run: the sandbox registration itself writes a gateway allow under
+    # this run_id, so filtering on decision alone would pass even if the
+    # proxy stopped auditing egress entirely (the regression this guards).
+    allows = [
+        e
+        for e in audit_story(target.run_id)
+        if e["source"] == "sandbox-infra" and e["rule"] == "egress_allowlisted"
+    ]
+    assert allows, "the allowlisted egress left no audited allow"
 
 
 # --- secret scraping ----------------------------------------------------------

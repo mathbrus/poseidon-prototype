@@ -18,3 +18,15 @@ def test_prepare_keeps_platform_and_build_artifacts_out_of_deliveries():
         assert pattern in cmd
     # The marker is still written for the tool server to read.
     assert "git rev-parse HEAD > .poseidon-base" in cmd
+
+
+def test_prepare_strips_every_git_remote_from_the_workspace():
+    """Containment, not tidiness: the workspace is a clone of the target
+    repo, so it arrives with an `origin` remote — a push/fetch path around
+    the gateway and the merge gate. Preparation removes every remote before
+    the agent ever runs, so the only way code leaves the sandbox is the
+    governed `git.open_pr` tool. (The live e2e that provisioned a real
+    sandbox and asserted `git remote` was empty was retired; this pins the
+    command that made it true.)"""
+    cmd = _PREPARE_CMD.format(workspace="/workspace")
+    assert "git remote | xargs -r -n1 git remote remove" in cmd

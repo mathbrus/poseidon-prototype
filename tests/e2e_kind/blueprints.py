@@ -62,17 +62,10 @@ def heartbeat_implement_only() -> Path:
     return derived_blueprint(HEARTBEAT, implement_only, "implement-only")
 
 
-# The path most recently applied through this harness. Lets a pristine
-# restore skip the apply+converge when nothing was applied since the last
-# one — the cluster cannot have drifted except through `apply_blueprint`.
-_last_applied: Path | None = None
-
-
 def apply_blueprint(path: Path) -> None:
     """`poseidon blueprint apply`. The registry may be unreachable from the
     host — apply degrades to diffing against nothing and still submits
     the CRs."""
-    global _last_applied
     proc = subprocess.run(
         ["uv", "run", "poseidon", "blueprint", "apply", str(path), "--yes"],
         capture_output=True,
@@ -81,15 +74,6 @@ def apply_blueprint(path: Path) -> None:
         cwd=REPO_ROOT,
     )
     assert proc.returncode == 0, f"blueprint apply failed: {proc.stderr}"
-    _last_applied = path
-
-
-def mark_drifted() -> None:
-    """Forget the last applied blueprint. Owed by any test that mutates
-    company state outside `apply_blueprint` (e.g. deleting the Company CR
-    directly), so the next `restore_pristine` cannot skip the re-apply."""
-    global _last_applied
-    _last_applied = None
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:
@@ -155,12 +139,10 @@ def quiesce_heartbeat() -> None:
 
 def restore_pristine() -> None:
     """Back to `hello-saas.yaml`, converged and quiet — what every module
-    that applied another profile owes the modules after it. Idempotent:
-    when the pristine document is already the last one applied, only the
-    quiesce runs (cheap, and safe to repeat), so consecutive restores —
-    e.g. two module fixtures tearing down back to back — pay one converge,
-    not two."""
-    if _last_applied != HELLO_SAAS:
-        apply_blueprint(HELLO_SAAS)
-        wait_for_convergence()
+    that applied another profile owes the modules after it. Always
+    re-applies and waits for convergence (OPA bundle activation included):
+    a restore that skipped the wait could hand the next module a company
+    that never re-converged."""
+    apply_blueprint(HELLO_SAAS)
+    wait_for_convergence()
     quiesce_heartbeat()

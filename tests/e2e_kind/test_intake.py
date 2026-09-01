@@ -75,9 +75,6 @@ def gated_intake(stack: None, env: dict) -> dict:
     )
     assert ready == "1", "the PM instance is not deployed/ready"
 
-    apply_blueprint(_intake_gated())
-    wait_for_convergence()
-
     run_id = new_run_id()
     goal = (
         "Expose a /stats endpoint summarizing stored slugs "
@@ -110,25 +107,32 @@ def gated_intake(stack: None, env: dict) -> dict:
             await handle.signal("intake", args=[True, "e2e: intake approved"])
             return await asyncio.wait_for(handle.result(), timeout=600)
 
-    result["record"] = asyncio.run(drive())
-    yield result
-
-    match = re.search(r"/issues/(\d+)$", (result["record"].get("ticket_urls") or [""])[0])
-    close_issue(env, int(match.group(1)) if match else None)
-    with registry() as client:
-        client.execute("DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,))
-        client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
-    restore_pristine()
+    # Everything from the apply on is inside try/finally: a failure mid-drive
+    # (the park never observed, the result timing out) must still restore the
+    # pristine blueprint, or the intake gate stays armed and every later
+    # module's intake run parks on a gate nobody answers.
+    apply_blueprint(_intake_gated())
+    wait_for_convergence()
+    try:
+        result["record"] = asyncio.run(drive())
+        yield result
+    finally:
+        record = result.get("record") or {}
+        match = re.search(r"/issues/(\d+)$", (record.get("ticket_urls") or [""])[0])
+        close_issue(env, int(match.group(1)) if match else None)
+        with registry() as client:
+            client.execute(
+                "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
+            )
+            client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
+        restore_pristine()
 
 
 def test_the_goal_parked_on_the_human_before_any_dispatch(gated_intake: dict):
     """The gate did its one job: the run halted at `paused-intake_gate`
     with no PM tool call yet — no issue created, no crew recorded — so the
     human's approval, not the goal's arrival, is what let the PM run."""
-    assert "issues.create" not in gated_intake["tools_at_park"], gated_intake[
-        "tools_at_park"
-    ]
-    assert "crew.request" not in gated_intake["tools_at_park"]
+    assert gated_intake["tools_at_park"] == [], gated_intake["tools_at_park"]
 
 
 def test_the_human_approval_is_a_process_gate_event(gated_intake: dict):
