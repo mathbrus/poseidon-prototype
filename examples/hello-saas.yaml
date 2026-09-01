@@ -83,7 +83,6 @@ tools:
     allow:
       - issues.create
       - issues.read
-      - issues.update
       - issues.comment
       - crew.request
   sdet:
@@ -107,9 +106,6 @@ workflows:
     conductor: pm
     crew: feature-delivery
     max_verify_retries: 2
-    drain:
-      on_conductor_drain: abort_crew
-      timeout_minutes: 30
   review:
     enabled: true
     conductor: pm
@@ -119,9 +115,6 @@ workflows:
       # its platform identity only after this signal arrives.
       merge:
         resolved_by: human
-    drain:
-      on_conductor_drain: abort_crew
-      timeout_minutes: 30
 
 policies:
   branch_protection:

@@ -38,14 +38,6 @@ allow_rules contains "role_pm_issues_read" if {
 	input.tool == "issues.read"
 }
 
-# pm: standing agent of the pm template.
-allow_rules contains "role_pm_issues_update" if {
-	input.lifecycle == "standing"
-	input.company == "hello-saas"
-	input.role == "pm"
-	input.tool == "issues.update"
-}
-
 # pm-1: at most 2 concurrent crews (spawn denials are
 # first-class governance events).
 deny_rules contains "crew_request_over_cap" if {

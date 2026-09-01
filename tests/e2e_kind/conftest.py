@@ -36,7 +36,8 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   `blueprints.quiesce_heartbeat`): debris feeds contention — the standing
   heartbeat treats any open PR or issue as reviewable backlog, wakes the
   moment any run of the company finishes, and one parked review holds
-  `max_concurrent_runs`' whole slot for a day. So a fixture closes the PRs
+  `max_concurrent_runs`' whole slot until its merge gate expires — a full
+  day at the paid-brain defaults. So a fixture closes the PRs
   it opened the moment their openness has been verified; a module whose
   arc the heartbeat drives sweeps BEFORE the apply, waits for the
   heartbeat's arrival tick on that empty backlog (`apply_profile`), then
@@ -88,6 +89,7 @@ from mockllm.brain import (
 )
 from orchestrator.workflows.base import FAST_TIMEOUTS, Timeouts, workflow_id
 from orchestrator.workflows.implement import ImplementInput
+from orchestrator.workflows.review import ReviewInput
 
 from .blueprints import apply_blueprint, wait_for_convergence
 from .cluster import (
@@ -96,6 +98,7 @@ from .cluster import (
     audit_story,
     db_now,
     kill_worker_pod,
+    psql_json,
     run_by_task,
     run_kubectl,
     sandbox_pods,
@@ -468,14 +471,11 @@ REPO_BASELINE: dict[str, str] = {
     CONTRACT_TEST_PATH: CONTRACT_TESTS_PY,
 }
 
-# Shapes the baseline refuses to inherit: an implementer-owned test tree
-# beside the contract tree (at a path no laundering veil ignores, it breaks
-# head suites for the wrong reason) and root-level collection config (a
+# Shapes the baseline refuses to inherit: root-level collection config (a
 # merged pytest.ini/conftest.py would neuter every later run's suite the
-# way the red-team's veils neuter one PR's).
+# way the red-team's veils neuter one PR's) and stray gate-counter state a
+# run that died mid-arc may have left on main.
 REPO_PRUNED: tuple[str, ...] = (
-    "tests/test_slugify.py",
-    "tests/test_gate.py",
     "pytest.ini",
     "conftest.py",
     "gate-counter.txt",
@@ -531,6 +531,69 @@ def close_pr_url(env: dict, pr_url: str | None) -> None:
     number = pr_number(pr_url)
     if number is not None:
         close_pr(env, number)
+
+
+def close_issue(env: dict, number: int | None) -> None:
+    """Close one issue by number. Cleanup only — suppressed so an API
+    hiccup never masks the test outcome."""
+    if number is None:
+        return
+    with contextlib.suppress(Exception):
+        github_api(
+            env,
+            "PATCH",
+            f"/repos/{target_slug(env)}/issues/{number}",
+            json={"state": "closed"},
+        )
+
+
+def crew_requests(run_id: str) -> list[dict]:
+    """The `crew_requests` rows a run recorded, read through the cluster's
+    registry — the intake -> implement handoff, as JSON."""
+    return psql_json(
+        "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
+        "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
+        ") c",
+        run_id=run_id,
+    )
+
+
+def gate_merge_rules(story: list[dict]) -> list[str]:
+    """The merge-gate rules a run's audit story recorded, in order."""
+    return [e["rule"] for e in story if e["tool"] == "gate.merge"]
+
+
+def run_review(pr_number: int, approve: bool | None = None) -> tuple[str, dict]:
+    """One policy-gated review of `pr_number`, driven to a terminal state.
+    With `approve` None, no human touches the `merge` signal — an in-class
+    PR auto-merges on its own, and a declined one escalates and expires
+    under the mock brain's fast profile. With `approve` a bool, wait for the
+    merge-gate park and deliver that one human verdict. Returns the review
+    run id and its terminal record."""
+    run_id = new_run_id()
+
+    async def drive() -> dict:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = await client.start_workflow(
+                "review",
+                ReviewInput(
+                    run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
+                ),
+                id=workflow_id("review", run_id),
+                task_queue=TASK_QUEUE,
+            )
+            if approve is not None:
+                for _ in range(240):
+                    if await handle.query("state") == "paused-merge_gate":
+                        break
+                    await asyncio.sleep(0.25)
+                else:
+                    raise AssertionError(f"review of #{pr_number} never parked on merge")
+                await handle.signal("merge", args=[approve, "capstone: spec approved"])
+            return await asyncio.wait_for(handle.result(), timeout=900)
+
+    return run_id, asyncio.run(drive())
 
 
 def pr_state(env: dict, pr_url: str | None) -> str:

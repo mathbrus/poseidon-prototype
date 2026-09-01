@@ -23,7 +23,6 @@ the conductor half and an implement run for the payload half.
 """
 
 import asyncio
-import contextlib
 import re
 
 import pytest
@@ -43,30 +42,20 @@ from .cluster import (
     audit_story,
     await_egress_deny,
     participants,
-    psql_json,
     registry,
     temporal_port_forward,
 )
 from .conftest import (
     REPO_ROOT,
     TASK_QUEUE,
+    close_issue,
     close_pr_url,
+    crew_requests,
     deployed_timeouts,
-    github_api,
     run_implement,
-    target_slug,
 )
 
 GOAL_FILE = REPO_ROOT / "examples" / "goal-injected-conductor.md"
-
-
-def _crew_requests(run_id: str) -> list[dict]:
-    return psql_json(
-        "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
-        "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
-        ") c",
-        run_id=run_id,
-    )
 
 
 @pytest.fixture(scope="module")
@@ -94,13 +83,7 @@ def conductor_intake(stack: None, env: dict) -> dict:
     for url in record.get("ticket_urls") or []:
         match = re.search(r"/issues/(\d+)$", url)
         if match:
-            with contextlib.suppress(Exception):
-                github_api(
-                    env,
-                    "PATCH",
-                    f"/repos/{target_slug(env)}/issues/{match.group(1)}",
-                    json={"state": "closed"},
-                )
+            close_issue(env, match.group(1))
     with registry() as client:
         client.execute("DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,))
         client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
@@ -161,7 +144,7 @@ def test_the_forbidden_crew_is_never_recorded_or_minted(conductor_intake: dict):
     """A denied spawn is not a spawn: no intent row, no identity, no pod.
     The only recorded request is the one the PM was authorized to make."""
     run_id = conductor_intake["run_id"]
-    templates = [row["crew_template"] for row in _crew_requests(run_id)]
+    templates = [row["crew_template"] for row in crew_requests(run_id)]
     assert FORBIDDEN_CREW not in templates
     assert templates == ["feature-delivery"]
 

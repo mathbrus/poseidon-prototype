@@ -11,21 +11,24 @@ What the suite proves, and where:
                   failed post-teardown call); HERE: compile and preview as
                   scripted e2e steps, and compile-is-what's-live (the local
                   compile's content-addressed revision == the served one)
-  2 durable       test_happy_path (kill-worker resume), test_temporal,
+  2 durable       test_happy_path (kill-worker resume),
                   test_registry_durability, test_crew_fulfillment
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
                   leaked no participant row, no ephemeral pod, no registration
   3 SDLC          test_intake + test_review_gate (intake → implement →
                   review with parked gate, escalation, API approval,
-                  platform merge)
+                  platform merge); test_verify_gate (the platform's own
+                  test run, not the executor's claim, is the gate of record);
+                  test_audit_story (one run_id reconstructs a run's whole story)
   4 governance    test_injection (injection vs compiled policy), test_governance,
-                  test_injected_conductor, test_egress, test_containment,
-                  test_redteam; HERE: all five audit sources are real in
+                  test_injected_conductor, test_redteam (sandbox containment +
+                  egress), test_containment, test_sandbox_k8s (the deadline
+                  kills a runaway); HERE: all five audit sources are real in
                   this suite execution — nothing seeded
   5 budgets       test_budgets (hard-stop, API-visible pause, process-gate
                   escalation, full {run, parent, participant, role} tuple)
   6 lean standing test_operator_lifecycle (exactly one AgentInstance),
-                  test_pm, test_ephemeral_identity, test_ephemeral_pods,
+                  test_intake, test_ephemeral_identity, test_ephemeral_pods,
                   test_workload_identity; HERE: the registry's standing agents
                   agrees, and a live minted executor is denied outside its
                   compiled allow-list at the gateway
@@ -40,21 +43,27 @@ What the suite proves, and where:
                   merge approval out).
   9 merge policy  test_delegated (in-class passing work merges with zero
                   human commands — the arc runs through the merge) and
-                  test_merge_gate_redteam (a steered reviewer smuggling a
-                  carve-out change is refused by the compiled decision, not
-                  the model).
+                  test_split_oracle_redteam (a steered reviewer smuggling
+                  a carve-out change is refused by the compiled decision,
+                  not the model).
  10 split oracle  test_split_oracle_redteam (the implementer cannot PR the
-                  contract tree, cannot launder a red baseline to green two
-                  ways, and a steered contract author's gutted spec parks on
-                  a human with its deletions counted) and test_delegated's
-                  contract arc (the PM files contract-then-implement, the
-                  contract PR parks for one human merge, then in-class work
-                  auto-merges on a green base-ref contract).
+                  contract tree, cannot launder a red baseline to green
+                  through a committed collect-ignore, and a steered contract
+                  author's gutted spec parks on a human with its deletions
+                  counted) and test_delegated's contract arc (the PM files
+                  contract-then-implement, the contract PR parks for one human
+                  merge, then in-class work auto-merges on a green base-ref
+                  contract).
+
+The suite's own discipline is proved too: test_brain_guard (the session
+refuses a paid brain without the explicit opt-in) and test_quiet (the exit
+contract, ordered last: no workflow running, no run non-terminal).
 
 The conftest orders this module after every module whose runs it reads:
 the five-source assertion reads what the whole suite really produced.
 """
 
+import asyncio
 import json
 import os
 import subprocess
@@ -67,9 +76,9 @@ from .blueprints import HELLO_SAAS, bundle_revision_from_cr
 from .cluster import (
     COMPANY_NS,
     POSTGRES_USER,
-    agent_image,
     audit_story,
     cluster_secret,
+    crew_activities,
     events_since,
     kubectl,
     mcp_call,
@@ -79,6 +88,7 @@ from .cluster import (
     registry,
     run_kubectl,
     sandbox_pods,
+    worker_settings,
 )
 from .conftest import REPO_ROOT
 
@@ -241,41 +251,13 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
     gateway (deny by rule, audited), while its in-scope surface still
     answers. The planner half of this claim is proven mid-run in
     test_crew_fulfillment; this is the executor's."""
-    import asyncio
-
-    from orchestrator.activities.crew import CrewActivities
-    from orchestrator.config import WorkerSettings
-    from registry import (
-        AuditStore,
-        BudgetLedger,
-        Companies,
-        CrewRequests,
-        RunParticipants,
-        Runs,
-    )
+    from registry import Runs
 
     run_id = new_run_id()
-    gateway_url = env.get("MCP_GATEWAY_URL", "http://127.0.0.1:8080")
-    token_file = tmp_path / "unused-token"
-    token_file.write_text("unused")
     repo = env.get("TARGET_REPO", "github.com/example/repo")
 
     with registry() as db:
-        settings = WorkerSettings(
-            gateway_token_file=str(token_file),
-            mcp_gateway_url=gateway_url,
-            target_repo=repo,
-            agent_image=agent_image(),
-        )
-        crew = CrewActivities(
-            settings,
-            RunParticipants(db),
-            AuditStore(db),
-            CrewRequests(db),
-            Companies(db),
-            BudgetLedger(db),
-            Runs(db),
-        )
+        crew = crew_activities(db, worker_settings(env, tmp_path))
         Runs(db).start(run_id, "executor scope check", "implement", None, "hello-saas")
         sa_name = None
         try:

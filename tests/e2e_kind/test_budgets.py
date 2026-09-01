@@ -5,14 +5,17 @@ brain's second model call must exceed; the LLM gateway hard-stops the run
 (`budget_exhausted`, audited, never silent), the implement workflow pauses
 into an API-visible `paused-budget_exhausted` state, a rejection signal
 finalizes it, the ledger fully attributes the spend, and the budget events
-sit in the run's one audit story. Unattributed model calls are rejected
-outright.
+sit in the run's one audit story. And the mirror image: a human who
+decides the run is worth more raises the cap (re-applies the real
+blueprint) and approves — the workflow re-dispatches with headroom and
+runs to a delivered PR. Unattributed model calls are rejected outright.
 
 The module finalizer re-applies the pristine blueprint so later suites run
 against the real cap.
 """
 
 import asyncio
+import secrets
 import time
 from typing import Any
 
@@ -34,7 +37,7 @@ from .cluster import (
     psql_json,
     temporal_port_forward,
 )
-from .conftest import REPO_ROOT, TASK_QUEUE, deployed_timeouts
+from .conftest import REPO_ROOT, TASK_QUEUE, close_pr_url, deployed_timeouts
 
 # Below one mock completion's reported cost: the mock prices every
 # completion in `x-litellm-response-cost` at $0.002/1K over its
@@ -50,8 +53,11 @@ def restore_budget(stack: None):
     restore_pristine()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def tiny_cap_applied(stack: None, tmp_path_factory) -> None:
+    """Function-scoped: every test that needs the tiny cap re-applies it, so
+    the approve test's mid-body cap-raise cannot leak the real cap into a
+    later test — order stops mattering."""
     document = yaml.safe_load(HELLO_SAAS.read_text())
     document["budgets"]["per_run"]["usd"] = TINY_CAP
     edited = tmp_path_factory.mktemp("budget") / "hello-saas-tiny-cap.yaml"
@@ -205,3 +211,77 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
             timeout=15,
         )
     assert resp.status_code == 401
+
+
+async def _run_until_paused_then_approve(
+    address: str, run_id: str, task_text: str
+) -> tuple[dict, float]:
+    """The approval mirror of the rejection driver: park on the budget
+    stop, then — as a human who has decided the run is worth it — raise the
+    cap by re-applying the real blueprint and approve. The workflow
+    re-dispatches with headroom and runs to completion. Returns the terminal
+    record and the ledger total captured at the pause, so the caller can
+    assert the run spent *more* after resuming — a run that resumed but made
+    no further model call would leave that total unchanged."""
+    client = await Client.connect(address)
+    handle = await client.start_workflow(
+        "implement",
+        ImplementInput(run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()),
+        id=workflow_id("implement", run_id),
+        task_queue=TASK_QUEUE,
+    )
+    deadline = time.monotonic() + 300
+    while True:
+        state = await handle.query("state")
+        if state == "paused-budget_exhausted":
+            break
+        assert time.monotonic() < deadline, f"never paused (state={state!r})"
+        await asyncio.sleep(2)
+    spend_at_pause = sum(float(e["usd"]) for e in ledger_entries(run_id))
+    # The human raises the cap: re-apply the real blueprint (the gateway
+    # reads the cap from the registry per call, so the upsert is enough),
+    # then approve — the run may continue.
+    await asyncio.to_thread(apply_blueprint, HELLO_SAAS)
+    await handle.signal("budget", args=[True, "worth the spend"])
+    record = await asyncio.wait_for(handle.result(), timeout=300)
+    return record, spend_at_pause
+
+
+def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) -> None:
+    """The run that stopped for money is not the end: with the cap raised
+    and the human's approval, the workflow re-dispatches and delivers.
+    The approval is a `gate.budget` `gate_approved` process-gate event, the
+    run finishes `done` with a PR, and the ledger shows spend past the tiny
+    cap — real work the first stop had blocked."""
+    run_id = new_run_id()
+    nonce = secrets.token_hex(3)
+    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
+        f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
+    )
+    record = None
+    try:
+        with temporal_port_forward() as address:
+            record, spend_at_pause = asyncio.run(
+                _run_until_paused_then_approve(address, run_id, task_text)
+            )
+        assert record["status"] == "done", f"the approved run did not finish: {record}"
+        assert record["pr_url"], "the approved run delivered no PR"
+
+        gate_rules = [
+            e["rule"]
+            for e in audit_story(run_id)
+            if e["source"] == "process-gate" and e["tool"] == "gate.budget"
+        ]
+        assert "gate_approved" in gate_rules, gate_rules
+
+        # The run spent *more* after the cap was raised: the pre-pause total
+        # already exceeds TINY_CAP by construction, so only a strictly larger
+        # final total proves the approval actually resumed real model work.
+        final_spend = sum(float(e["usd"]) for e in ledger_entries(run_id))
+        assert final_spend > spend_at_pause, (
+            f"no spend past the raised cap ({final_spend} == {spend_at_pause}) — "
+            "the run never resumed real work"
+        )
+    finally:
+        if record is not None:
+            close_pr_url(env, record.get("pr_url"))

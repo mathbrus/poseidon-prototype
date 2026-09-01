@@ -18,8 +18,8 @@ What the platform still refuses is proven where it is exact and cheap, not
 by paying for more unattended cluster runs here:
 
 - a carve-out PR parks on the human `merge` signal even with a perfect
-  review — `test_merge_gate_redteam` drives that on the cluster, and
-  `test_review_workflow` at the workflow layer;
+  review — `test_split_oracle_redteam` drives that on the cluster (the
+  carve-out scenario), and `test_review_workflow` at the workflow layer;
 - a failed quality layer feeds the bounded rework loop and, at the bound,
   escalates to the human — `test_review_workflow` (exhausted chain) and
   `test_review_activities` (depth-from-lineage) prove it exactly.
@@ -34,7 +34,6 @@ after.
 """
 
 import asyncio
-import contextlib
 import re
 
 import pytest
@@ -44,7 +43,6 @@ from common.ids import new_run_id
 from mockllm.brain import CONTRACT_GOAL_MARKER, CONTRACT_TEST_PATH
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.intake import IntakeInput
-from orchestrator.workflows.review import ReviewInput
 
 from .blueprints import (
     DELEGATED,
@@ -64,12 +62,15 @@ from .cluster import (
 from .conftest import (
     TASK_QUEUE,
     apply_profile,
+    close_issue,
     close_pr,
     delete_repo_file,
     deployed_timeouts,
+    gate_merge_rules,
     github_api,
     pr_number,
     run_implement_from_issue,
+    run_review,
     sweep_repo_debris,
     target_slug,
     wake_until_run_started,
@@ -160,13 +161,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
     yield result
 
     close_pr(env, result.get("pr_number") or 0)
-    with contextlib.suppress(Exception):
-        github_api(
-            env,
-            "PATCH",
-            f"/repos/{target_slug(env)}/issues/{result.get('issue_number')}",
-            json={"state": "closed"},
-        )
+    close_issue(env, result.get("issue_number"))
     restore_pristine()
 
 
@@ -197,7 +192,7 @@ def test_the_merge_was_released_by_policy_not_a_human(delegated_overnight: dict)
     The review's story carries a policy_resolved gate outcome and a
     merge.resolve allow — and NO human gate_approved event."""
     story = audit_story(delegated_overnight["review"]["run_id"])
-    gate_rules = [e["rule"] for e in story if e["tool"] == "gate.merge"]
+    gate_rules = gate_merge_rules(story)
     assert "gate_policy_resolved" in gate_rules, gate_rules
     assert "gate_approved" not in gate_rules, "a human approval sneaked in"
     resolves = [e for e in story if e["tool"] == "merge.resolve"]
@@ -259,37 +254,6 @@ def _issue_title(env: dict, number: int) -> str:
     )
 
 
-def _drive_review(pr_number: int, approve: bool | None) -> tuple[str, dict]:
-    """One policy-gated review of `pr_number`. With `approve` None, await the
-    terminal state with no signal — an in-class PR must auto-merge on its own.
-    With `approve` a bool, wait for the merge-gate park and deliver that human
-    verdict — the one human act the contract PR needs."""
-    run_id = new_run_id()
-
-    async def drive() -> dict:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = await client.start_workflow(
-                "review",
-                ReviewInput(
-                    run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
-                ),
-                id=workflow_id("review", run_id),
-                task_queue=TASK_QUEUE,
-            )
-            if approve is not None:
-                for _ in range(240):
-                    if await handle.query("state") == "paused-merge_gate":
-                        break
-                    await asyncio.sleep(0.25)
-                else:
-                    raise AssertionError(f"review of #{pr_number} never parked on merge")
-                await handle.signal("merge", args=[approve, "capstone: spec approved"])
-            return await asyncio.wait_for(handle.result(), timeout=900)
-
-    return run_id, asyncio.run(drive())
-
-
 @pytest.fixture(scope="module")
 def contract_first(stack: None, repo_baseline: dict) -> dict:
     """One goal in, one contract merge out. Reset `main` to the pre-contract
@@ -344,7 +308,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     contract_pr = pr_number(contract_impl["pr_url"])
     assert contract_pr is not None, f"the contract run opened no PR: {contract_impl}"
     result["contract_pr"] = contract_pr
-    c_review_run, c_review = _drive_review(contract_pr, approve=True)
+    c_review_run, c_review = run_review(contract_pr, approve=True)
     result["contract_review_run_id"] = c_review_run
     result["contract_review"] = c_review
 
@@ -354,7 +318,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     impl_pr = pr_number(impl["pr_url"])
     assert impl_pr is not None, f"the implement run opened no PR: {impl}"
     result["implement_pr"] = impl_pr
-    i_review_run, i_review = _drive_review(impl_pr, approve=None)
+    i_review_run, i_review = run_review(impl_pr, approve=None)
     result["implement_review_run_id"] = i_review_run
     result["implement_review"] = i_review
 
@@ -371,13 +335,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
         if pr:
             close_pr(env, pr)
     for issue in (contract_issue, implement_issue):
-        with contextlib.suppress(Exception):
-            github_api(
-                env,
-                "PATCH",
-                f"/repos/{target_slug(env)}/issues/{issue}",
-                json={"state": "closed"},
-            )
+        close_issue(env, issue)
     restore_pristine()
 
 
@@ -405,7 +363,7 @@ def test_the_contract_pr_needed_the_one_human_merge(contract_first: dict):
     policy-merge, so it parked and the human's approval is what merged it —
     the spec changes under a person's hand, by construction."""
     story = audit_story(contract_first["contract_review_run_id"])
-    rules = [e["rule"] for e in story if e["tool"] == "gate.merge"]
+    rules = gate_merge_rules(story)
     assert "gate_policy_declined" in rules, rules
     assert "gate_approved" in rules, rules
     assert "gate_policy_resolved" not in rules, rules
@@ -424,7 +382,7 @@ def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict
     assert contract_first["implement_merged"]["merged"] is True, (
         "in-class work did not merge"
     )
-    gate_rules = [e["rule"] for e in story if e["tool"] == "gate.merge"]
+    gate_rules = gate_merge_rules(story)
     assert "gate_policy_resolved" in gate_rules, gate_rules
     assert "gate_approved" not in gate_rules, (
         "a human approval sneaked into the implement merge"

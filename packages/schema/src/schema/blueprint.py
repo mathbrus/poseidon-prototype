@@ -194,19 +194,6 @@ def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
         "crew": _NAME,
         # Bounded verify re-dispatches.
         "max_verify_retries": {"type": "integer", "minimum": 0},
-        "drain": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                # What happens to in-flight runs when the conductor is
-                # drained by a blueprint diff.
-                "on_conductor_drain": {
-                    "type": "string",
-                    "enum": ["abort_crew", "finish_run"],
-                },
-                "timeout_minutes": {"type": "integer", "minimum": 1},
-            },
-        },
     }
     if gates:
         properties["gates"] = {

@@ -139,7 +139,10 @@ def quiesce_heartbeat() -> None:
 
 def restore_pristine() -> None:
     """Back to `hello-saas.yaml`, converged and quiet — what every module
-    that applied another profile owes the modules after it."""
+    that applied another profile owes the modules after it. Always
+    re-applies and waits for convergence (OPA bundle activation included):
+    a restore that skipped the wait could hand the next module a company
+    that never re-converged."""
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
     quiesce_heartbeat()

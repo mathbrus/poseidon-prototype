@@ -944,12 +944,12 @@ revoke. What it does *not* remove is honest to state:
   is provisioned from the PR head read then); the merge does not re-assert
   the head SHA. A PR head that moves between review and merge re-opens the
   gap between what was reviewed and what lands — recorded, not yet closed.
-- **The rework bound trusts a mutable ticket title.** The rework-chain depth
-  is parsed back from the platform-written ticket title, and the PM role
-  holds `issues.update`; a compromised conductor could edit a depth
-  downward and extend the loop. The durable fix — a depth the platform
-  stores rather than parses — is deferred and flagged in the code, so it is
-  a decision, not an oversight.
+- **The rework bound parses a ticket title, but nothing can rewrite it.** The
+  rework-chain depth is read back from the platform-written ticket title.
+  No company role holds a tool that can edit an issue's title, so a
+  compromised conductor cannot walk a depth downward — the mutation path is
+  positionally closed. A depth the platform stores on its own row rather
+  than parses back would be more robust still, and is flagged in the code.
 
 The compiled decision does refuse what it claims to: a steered reviewer
 cannot merge a change touching a protected surface, an implementer cannot

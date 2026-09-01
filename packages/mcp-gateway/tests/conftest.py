@@ -128,7 +128,6 @@ class Backends:
             if tool in (
                 "issues.create",
                 "issues.read",
-                "issues.update",
                 "issues.comment",
             ):
                 return {"allow": True, "rule": f"role_pm_{tool}"}

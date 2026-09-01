@@ -23,9 +23,10 @@ One residual risk this suite measures rather than prevents:
 payload *attempts* are stopped by the egress layer rather than by the tool
 allow-list (asserted in test_injected_conductor).
 
-The baseline egress path — allowlisted host allowed, non-allowlisted host
-denied and audited, NetworkPolicy backstop, revocation on unregistration —
-is proven by test_egress; this suite adds the attacker-shaped variants.
+The baseline egress path lives here too, on the same sandbox: allowlisted
+host allowed and audited, non-allowlisted host denied and audited,
+NetworkPolicy backstop beneath, and — placed last, because it retires the
+shared registration — revocation on unregistration.
 """
 
 import contextlib
@@ -150,6 +151,25 @@ def test_the_one_permitted_route_out_still_works(
         "sys.exit(0 if rc == 0 else 1)"
     )
     assert exit_code == 0, f"the sandbox cannot reach its own egress proxy: {output}"
+
+
+def test_allowlisted_egress_succeeds_and_is_audited(target: Target) -> None:
+    """The affirmative baseline on the same registered sandbox: an
+    allowlisted `pip install` goes through the audited proxy (the per-run
+    proxy env is baked into the container), and the allow is on the
+    record, correlated by run_id."""
+    exit_code, output = target.sh("pip install --no-cache-dir --quiet six")
+    assert exit_code == 0, output
+    # The proxy's own allowlisted-egress allow, by rule — not any allow on
+    # the run: the sandbox registration itself writes a gateway allow under
+    # this run_id, so filtering on decision alone would pass even if the
+    # proxy stopped auditing egress entirely (the regression this guards).
+    allows = [
+        e
+        for e in audit_story(target.run_id)
+        if e["source"] == "sandbox-infra" and e["rule"] == "egress_allowlisted"
+    ]
+    assert allows, "the allowlisted egress left no audited allow"
 
 
 # --- secret scraping ----------------------------------------------------------
@@ -504,3 +524,24 @@ def test_every_blocked_attempt_that_has_a_source_is_in_the_audit_store(
     denies = await_egress_deny(target.run_id)
     assert denies, "a proxy deny left no audit event"
     assert denies[0]["run_id"] == target.run_id
+
+
+# --- revocation (keep last: it retires the shared target's registration) ------
+
+
+def test_unregistration_revokes_egress(target: Target, env: dict) -> None:
+    """Retiring the registration revokes egress entirely: the proxy
+    resolves the run to nothing (within its short cache TTL), so even an
+    allowlisted host refuses. Ordered last in this module by placement —
+    every earlier test rides the registration this one removes."""
+    admin_sandbox(env, "unregister", target.run_id)
+    deadline = time.monotonic() + 30
+    while True:
+        exit_code, output = target.py(
+            "import urllib.request; urllib.request.urlopen("
+            "'https://pypi.org', timeout=15)"
+        )
+        if exit_code != 0 and "403" in output:
+            break
+        assert time.monotonic() < deadline, "egress survived unregistration"
+        time.sleep(2)

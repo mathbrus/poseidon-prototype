@@ -331,26 +331,6 @@ class GitBackend:
             "issues": [self._issue_view(i) for i in listing if "pull_request" not in i]
         }
 
-    async def update_issue(
-        self,
-        repo: str,
-        number: int,
-        title: str | None = None,
-        body: str | None = None,
-        state: str | None = None,
-    ) -> dict[str, Any]:
-        fields = {
-            k: v
-            for k, v in (("title", title), ("body", body), ("state", state))
-            if v is not None
-        }
-        if not fields:
-            raise GitBackendError("issues.update: nothing to update")
-        issue = await self._github(
-            "PATCH", f"/repos/{repo_slug(repo)}/issues/{number}", json=fields
-        )
-        return self._issue_view(issue)
-
     async def comment_issue(self, repo: str, number: int, body: str) -> dict[str, Any]:
         """One endpoint serves both `issues.comment` and `git.comment` —
         GitHub PR conversations are issue comments."""

@@ -63,14 +63,6 @@ async def test_pm_runs_the_issue_lifecycle(app, backends, audit):
         # The GitHub issues listing includes PRs; the backlog must not.
         assert [i["number"] for i in backlog["issues"]] == [7]
 
-        updated = payload(
-            await session.call_tool(
-                "issues.update",
-                {"run_id": RUN_ID, "repo": REPO, "number": 7, "state": "closed"},
-            )
-        )
-        assert updated["state"] == "closed"
-
         comment = payload(
             await session.call_tool(
                 "issues.comment",
@@ -83,7 +75,6 @@ async def test_pm_runs_the_issue_lifecycle(app, backends, audit):
     assert events == [
         ("issues.create", "allow"),
         ("issues.read", "allow"),
-        ("issues.update", "allow"),
         ("issues.comment", "allow"),
     ]
     assert all(e["agent_id"] == "pm-1" for e in audit_events(audit))
