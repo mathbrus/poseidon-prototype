@@ -4,9 +4,10 @@
 # Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
 
 # The bootstrap company's namespace — platform-side wiring only: the worker's
-# PM_URL/SANDBOX_NAMESPACE, the platform NetworkPolicies that select the
-# company namespace, and the OPA bundle config key. The namespace itself
-# is operator-created.
+# SANDBOX_NAMESPACE, the platform NetworkPolicies that select the company
+# namespace, and the OPA bundle config key. The namespace itself is
+# operator-created; conductor addresses are derived from the converged
+# instances, never configured here.
 companyNamespace: hello-saas
 
 # Every poseidon-* image is built from the root Dockerfile by
@@ -75,7 +76,9 @@ run:
   model: gpt-5.6-luna
   targetRepo: github.com/example-org/example-repo
   baseRef: main
-  maxIterations: 10
+  # Implement's advisory verify cycles before the executor reports the
+  # tests still failing; every other procedure has its own step cap.
+  verifyCycles: 10
 
 orchestrator:
   temporalAddress: temporal-frontend:7233

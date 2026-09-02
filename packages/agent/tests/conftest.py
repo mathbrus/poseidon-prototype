@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 from litellm.types.utils import ModelResponse
 
-import agent.brain as brain
+import agent.procedures as procedures
 from agent.config import AgentSettings
 from agent.gateway_client import ToolCallError
 
@@ -227,7 +227,9 @@ def scripted(gateway: FakeGateway, llm: ScriptedLLM):
     """Run a brain dispatch against the doubles: the fake bridge replaces
     the MCP session, the scripted responses replace the LLM transport —
     everything in between is the production loop."""
-    with patch.object(brain, "GatewayBridge", lambda url, token: FakeBridge(gateway)):
+    with patch.object(
+        procedures, "GatewayBridge", lambda url, token: FakeBridge(gateway)
+    ):
         with patch("openhands.sdk.llm.llm.litellm_completion", side_effect=llm):
             yield
 
@@ -246,6 +248,7 @@ def settings(tmp_path) -> AgentSettings:
         llm_proxy_url="http://llm.test:4000",
         model="test-model",
         gateway_token_file=str(token),
+        role="backend-engineer",
         target_repo="example/target",
-        max_iterations=3,
+        verify_cycles=3,
     )

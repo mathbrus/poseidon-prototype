@@ -9,7 +9,7 @@ Retry safety, per activity:
                           identity); safe. Only numbers, titles, URLs and
                           attempt counts leave here: issue bodies are
                           untrusted input the implement run reads itself.
-    heartbeat_decide    — dispatches the PM's decide mode and polls to
+    heartbeat_decide    — dispatches the conductor's decide procedure and polls to
                           terminal; the PM answers 409 while running
                           (re-attach) like every dispatch. The chosen
                           action is validated against the observation and
@@ -39,6 +39,7 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.telemetry import get_logger
+from orchestrator.activities.blueprint import conductor
 from orchestrator.audit import record_event
 from orchestrator.clients import (
     GatewayClient,
@@ -49,7 +50,7 @@ from orchestrator.clients import (
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from orchestrator.workflows.base import workflow_id
-from registry import Attempts, AuditStore, BudgetLedger, Companies, Runs
+from registry import AgentInstances, Attempts, AuditStore, BudgetLedger, Companies, Runs
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 # The observation is a prompt, not a database dump: enough candidates to
@@ -123,12 +124,14 @@ class HeartbeatActivities:
         settings: WorkerSettings,
         runs: Runs,
         companies: Companies,
+        instances: AgentInstances,
         ledger: BudgetLedger,
         audit: AuditStore,
     ) -> None:
         self._settings = settings
         self._runs = runs
         self._companies = companies
+        self._instances = instances
         self._ledger = ledger
         self._audit = audit
         self._log = get_logger("orchestrator.heartbeat")
@@ -276,15 +279,27 @@ class HeartbeatActivities:
     async def heartbeat_decide(
         self, run_id: str, observed: dict[str, Any], may_start: list[str]
     ) -> dict[str, Any]:
-        """Dispatch the PM's decide mode with the observation and validate
-        the answer. The PM proposes; the platform disposes: the action must
-        be in `may_start`, the target must be in the observation, and the
-        rationale is journaled either way — a `heartbeat.decide` audit event
-        is the append-only record of *why* the company did what it did.
-        The dispatch runs under `run_id` (the run the tick would start), so
-        the decision's own LLM spend is attributed to the work it chose."""
-        if not self._settings.pm_url:
-            raise RuntimeError("PM_URL is not configured on the worker")
+        """Dispatch the conductor's decide procedure with the observation
+        and validate the answer. The PM proposes; the platform disposes: the
+        action must be in `may_start`, the target must be in the
+        observation, and the rationale is journaled either way — a
+        `heartbeat.decide` audit event is the append-only record of *why*
+        the company did what it did. The dispatch runs under `run_id` (the
+        run the tick would start), so the decision's own LLM spend is
+        attributed to the work it chose."""
+
+        def address() -> str:
+            spec = self._companies.get(self._settings.company) or {}
+            standing_role = (spec.get("heartbeat") or {}).get("conductor")
+            if not standing_role:
+                raise RuntimeError(
+                    "the applied blueprint declares no heartbeat conductor"
+                )
+            return conductor(self._instances, self._settings.company, standing_role)[
+                "url"
+            ]
+
+        conductor_url = await asyncio.to_thread(address)
         # Register the decision run before the PM's LLM call can bind to it.
         await asyncio.to_thread(
             self._runs.start,
@@ -298,11 +313,7 @@ class HeartbeatActivities:
         try:
             prompt = decision_prompt(observed, may_start)
             status = await dispatch_and_poll(
-                self._settings.pm_url,
-                run_id,
-                prompt,
-                "decide",
-                self._settings.poll_interval_s,
+                conductor_url, run_id, "decide", prompt, self._settings.poll_interval_s
             )
             decision = status.get("decision")
             if status["status"] != "done" or not decision:

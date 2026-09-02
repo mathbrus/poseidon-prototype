@@ -18,6 +18,10 @@ CATALOG_VERSION = "v1"
 
 MODEL_TIERS = ("small", "standard", "frontier")
 
+# The agent host's units of work. A dispatch names one; a role declares
+# which it may run, and the host refuses the rest before any model call.
+PROCEDURES = ("scope", "decide", "implement", "deliver", "review")
+
 
 @dataclass(frozen=True)
 class RoleTemplate:
@@ -27,6 +31,8 @@ class RoleTemplate:
     # narrows them further. The compiler emits the intersection.
     tools: tuple[str, ...]
     model_tier: str
+    # The procedures a dispatch may ask an agent of this role to run.
+    procedures: tuple[str, ...]
     # Crew templates this role may request, when the blueprint grants them.
     may_spawn: tuple[str, ...] = ()
     # Prompt/runtime hints the brain host reads; not policy.
@@ -62,6 +68,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         ),
         tools=tuple(ISSUE_TOOLS + CREW_TOOLS),
         model_tier="standard",
+        procedures=("scope", "decide"),
         may_spawn=("contract-authoring", "feature-delivery", "feature-review"),
         runtime_hints={
             "memory": "none",  # cross-run state is tickets + registry runs
@@ -75,6 +82,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         model_tier="frontier",
+        procedures=("implement", "deliver"),
         runtime_hints={"dispatch": "http", "brain": "coding"},
     ),
     "sdet": RoleTemplate(
@@ -82,6 +90,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         summary="Reviewer: reads the diff, runs tests, posts findings.",
         tools=tuple(SANDBOX_TOOLS + REVIEW_TOOLS + ["issues.comment"]),
         model_tier="standard",
+        procedures=("review",),
         runtime_hints={"dispatch": "http", "brain": "review"},
     ),
     # Deliver-capable on purpose, unlike `sdet`: the contract tree is
@@ -97,6 +106,7 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         model_tier="frontier",
+        procedures=("implement", "deliver"),
         runtime_hints={"dispatch": "http", "brain": "coding"},
     ),
 }

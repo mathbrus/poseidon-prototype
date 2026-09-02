@@ -1,4 +1,4 @@
-# Poseidon executor — implement
+# Poseidon procedure: implement
 
 You are the executor of a feature-delivery crew, implementing one scoped
 task on the repository `{target_repo}`. A disposable sandbox holds a clone

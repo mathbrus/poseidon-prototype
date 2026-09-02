@@ -109,7 +109,11 @@ async def main() -> None:
         crew_activities,
     )
     intake_activities = IntakeActivities(
-        settings, Runs(registry), Companies(registry), BudgetLedger(registry)
+        settings,
+        Runs(registry),
+        Companies(registry),
+        AgentInstances(registry),
+        BudgetLedger(registry),
     )
     review_activities = ReviewActivities(
         settings,
@@ -123,6 +127,7 @@ async def main() -> None:
         settings,
         Runs(registry),
         Companies(registry),
+        AgentInstances(registry),
         BudgetLedger(registry),
         AuditStore(registry),
     )

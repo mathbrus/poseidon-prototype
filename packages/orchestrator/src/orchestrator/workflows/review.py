@@ -6,7 +6,7 @@
     fetch_workspace (PR head ref) -> provision_sandbox ->
     fulfill_crew (feature-review under the PM's conductor authority —
     process-initiated is a first-class recorded request,
-    not a bypass) -> dispatch the ephemeral reviewer (mode="review":
+    not a bypass) -> dispatch the ephemeral reviewer (the review procedure:
     reads the diff via git.read, runs the tests in its own sandbox,
     posts findings via git.comment, ends with a structured pass/fail
     verdict) -> record_verdict (the journaled judgement) -> MERGE GATE ->
@@ -425,9 +425,9 @@ class ReviewWorkflow(RunWorkflow):
             )
             result = await self.dispatch(
                 input.run_id,
-                review_task(input.pr_number, pr["title"], pr["url"]),
                 crew_agent(crew)["url"],
                 "review",
+                review_task(input.pr_number, pr["title"], pr["url"]),
                 timeouts,
             )
             if (result or {}).get("error"):

@@ -28,7 +28,7 @@ coding heuristics. Nothing else crosses the boundary:
   the pod's disk, which holds nothing.
 - Its default system prompt is not used either. It addresses a user in
   the loop, an OpenHands identity, a networked machine, and a writable
-  `AGENTS.md`; none exist here. `prompting.py` composes each mode's
+  `AGENTS.md`; none exist here. `prompting.py` composes each procedure's
   prompt as Poseidon's own procedure followed by the SDK sections that
   say nothing about who the model is or which tools it holds
   (efficiency, file hygiene, code quality, per-model-family guidance),
@@ -45,19 +45,19 @@ for it.
 | Module | Owns |
 |---|---|
 | `app.py` | The HTTP API: `POST /task`, `GET /task/{run_id}`. |
-| `brain.py` | The mode runners, the SDK conversation setup, `GatewayBridge`. |
+| `procedures.py` | The five procedures (`run_scope`, `run_decide`, `run_implement`, `run_deliver`, `run_review`), the SDK conversation setup, `GatewayBridge`. |
 | `hands.py` | The model-facing tool schemas, each resolving to a gateway call. |
-| `prompting.py` | Everything that reaches the model before its first turn: the mode's procedure followed by the SDK's heuristic sections, and the repository's `AGENTS.md` as untrusted context. |
+| `prompting.py` | Everything that reaches the model before its first turn: the procedure's text followed by the SDK's heuristic sections, and the repository's `AGENTS.md` as untrusted context. |
 | `gateway_client.py` | The async MCP client (`McpGateway`, `ToolCallError`). |
-| `config.py` | Settings, including gateway-credential resolution. |
-| `prompts/` | One file per dispatch mode (`pm.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. Two sentences are contracts with the mock brain's phase keying: `pm.md` opens "You are the product manager" and `decide.md` says "a heartbeat decision". |
+| `config.py` | Settings, including the pod's role and gateway-credential resolution. |
+| `prompts/` | One file per procedure (`scope.md`, `decide.md`, `implement.md`, `deliver.md`, `review.md`), edited as prose. Each opens with the one line that is a contract with the mock brain: `# Poseidon procedure: <name>` (`PROCEDURE_HEADER`), which the host also checks against the file's name. |
 
 ## Dispatch: the /task API
 
 The orchestrator's workflows drive this host through one small API.
-`POST /task {run_id, task_text, mode?}` answers 202 and runs the
-dispatch on a background task; `GET /task/{run_id}` reports `status`
-plus every field of the brain's `RunResult` (`pr_url`, `iterations`,
+`POST /task {run_id, procedure, task_text}` answers 202 and runs the
+procedure on a background task; `GET /task/{run_id}` reports `status`
+plus every field of the `ProcedureResult` (`pr_url`, `iterations`,
 `error`, `ticket_urls`, `crew_request_id`, `comment_urls`,
 `verdict`, `verdict_summary`, `decision`) — the HTTP shape is derived
 from the result type, so a new field cannot be dropped at the
@@ -65,12 +65,13 @@ boundary. The workflow polls — the brain owns no
 process-level retries, timeouts or cancellation, because Temporal already
 owns all three.
 
-`mode` selects the runner: `implement` (the default), `plan`, `deliver`,
-`review`, `decide`. A sixth loop hides behind the default: a pod deployed
-with `ROLE_TEMPLATE=pm` routes default-mode dispatches to the PM runtime
-instead of the engineer loop — the PM is a different standing instance of
-the same image, not a different mode of the same agent. The PM's dispatch
-ends only once its one-paragraph summary is a comment on every ticket it
+`procedure` names one of five: `scope`, `decide`, `implement`, `deliver`,
+`review`. The pod's `ROLE` bounds which of them it runs — the catalog
+declares `pm: scope, decide`, the coding roles `implement, deliver`, the
+reviewer `review` — and a dispatch outside that set is refused with 422
+before any model call. That is defence in depth under the gateway's
+compiled tool policy, not a substitute for it. The scope procedure ends
+only once its one-paragraph summary is a comment on every ticket it
 filed: a ticket without one is an unfinished dispatch, reported as such
 with the tickets still linked.
 
@@ -84,15 +85,15 @@ Two status-code rules carry real semantics:
   is lifted, the workflow re-dispatches the same `run_id`; if that
   answered 409 too, it would poll a stale failure forever.
 
-## Four tool surfaces, five runners
+## Five procedures, four tool surfaces
 
 From `hands.py`, verbatim:
 
 ```python
-ACT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
-DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
-PM_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
-REVIEWER_TOOLS = [
+IMPLEMENT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
+DELIVER_TOOLS = IMPLEMENT_TOOLS + ["open_pr"]
+SCOPE_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
+REVIEW_TOOLS = [
     "list_dir",
     "read_file",
     "exec",
@@ -103,13 +104,13 @@ REVIEWER_TOOLS = [
 ]
 ```
 
-| Runner | Tools | Ends at |
+| Procedure | Tools | Ends at |
 |---|---|---|
-| `implement` | `ACT_TOOLS` | a completion claim |
-| `deliver` | `DELIVER_TOOLS` | the PR URL |
-| `review` | `REVIEWER_TOOLS` | posted findings + a structured pass/fail verdict |
-| `pm` | `PM_TOOLS` | tickets + recorded crew intent + the PM's summary, commented on each ticket |
+| `scope` | `SCOPE_TOOLS` | tickets + recorded crew intent + the PM's summary, commented on each ticket |
 | `decide` | none — one completion, no tool loop | one action per heartbeat tick, with its rationale |
+| `implement` | `IMPLEMENT_TOOLS` | a completion claim |
+| `deliver` | `DELIVER_TOOLS` | the PR URL |
+| `review` | `REVIEW_TOOLS` | posted findings + a structured pass/fail verdict |
 
 `edit_file` is the partial edit coding models are trained on —
 `str_replace` of text that occurs exactly once, or `insert` after a line —
@@ -118,14 +119,14 @@ an edit has something to anchor on. Both resolve to run-scoped gateway
 tools like every other sandbox call.
 
 **Delivery before verification is structurally impossible.** The
-implement surface has no `open_pr` at all. `implement_dispatch` seeds the
+implement surface has no `open_pr` at all. `run_implement` seeds the
 conversation with the task plus the workspace survey (below), then runs
 an *advisory* verify — its own `sandbox.run_tests`
 call between conversation turns — feeding failures back until green or
-`max_iterations`. Advisory green ends the dispatch with nothing but a
+`VERIFY_CYCLES`. Advisory green ends the dispatch with nothing but a
 claim; the gate of record is the platform's own verify in the workflow.
-Only after that is green does the workflow issue a separate
-`mode="deliver"` dispatch whose conversation contains `open_pr`. The
+Only after that is green does the workflow issue a separate `deliver`
+dispatch whose conversation contains `open_pr`. The
 model cannot self-deliver by deciding it is finished, because in the
 conversation it is having, the tool does not exist. (A model that calls
 `open_pr` anyway gets the SDK's tool-not-found feedback; the gateway is
@@ -135,18 +136,19 @@ The reviewer's surface is read-and-judge: it reads the PR and executes
 the suite in its review sandbox, but has no `write_file` and no
 `open_pr` — and the compiled sdet scope enforces the same at the gateway,
 so the in-process surface is a convenience, not the boundary. Its step
-budget is `REVIEW_STEP_CAP`, a constant of its own beside
-`ACT_STEP_CAP`: `MAX_ITERATIONS` bounds only how many advisory
-verify cycles an implement dispatch gets, and a deployment that tunes it
-low for implement never starves the reviewer.
+budget is `REVIEW_STEP_CAP`, one of the per-procedure caps beside
+`SCOPE_STEP_CAP`, `IMPLEMENT_STEP_CAP` and `DELIVER_STEP_CAP`:
+`VERIFY_CYCLES` bounds only how many advisory verify cycles an implement
+dispatch gets, and a deployment that tunes it low never starves another
+procedure.
 
-Every runner fails on missing evidence rather than on the model's word: a
+Every procedure fails on missing evidence rather than on the model's word: a
 deliver dispatch with no PR opened, a review with no findings posted, a
 PM dispatch with no ticket filed — each is an
 explicit error. So is a loop that stops short: the SDK sets `ERROR` at
 the step cap and `STUCK` when its detector sees the same action and
 observation repeat, and `_loop_failure` turns either into a named
-failure in every runner. The detector is on for every model — the host
+failure in every procedure. The detector is on for every model — the host
 does not know which brain is behind the proxy, and should not.
 
 ## The workspace survey
@@ -261,9 +263,10 @@ uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 
 `poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and crew
 pods run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
-`MODEL`, `TARGET_REPO`, `ROLE_TEMPLATE`, `MAX_ITERATIONS` (implement's
-verify-cycle bound; every other mode runs under its own step cap), and
-one of `GATEWAY_TOKEN_FILE` / `GATEWAY_TOKEN`.
+`MODEL`, `TARGET_REPO`, `ROLE` (the catalog role, which bounds the
+procedures the host accepts), `VERIFY_CYCLES` (implement's verify-cycle
+bound; every other procedure runs under its own step cap), and
+`GATEWAY_TOKEN_FILE`.
 
 ## Cross-package interactions
 

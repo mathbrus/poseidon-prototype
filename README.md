@@ -474,7 +474,7 @@ fed back and the executor is re-dispatched, a bounded number of times
 ### Delivery: a bundle, not a push
 
 Only after a green verify does the workflow issue a *separate*
-`mode="deliver"` dispatch — the only dispatch whose tool surface contains
+`deliver` dispatch — the only dispatch whose tool surface contains
 `open_pr` at all.
 
 > [!IMPORTANT]
@@ -598,7 +598,7 @@ only the outside world saw may grow. Each tick it:
 1. **Observes** the open backlog, the delivered-but-unreviewed PRs (each
    one's live state read from the git host — a PR a human merged or closed
    by hand is not offered), and the day's spend.
-2. **Dispatches the PM in a toolless *decide* mode** for exactly one
+2. **Dispatches the PM's toolless *decide* procedure** for exactly one
    action: implement a ticket, review a PR, or idle.
 3. **Starts the chosen run** only under the compiled `heartbeat.start`
    decision and the declared caps.

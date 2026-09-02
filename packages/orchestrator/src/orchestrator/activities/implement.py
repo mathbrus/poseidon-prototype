@@ -11,7 +11,7 @@ Retry safety, per activity:
     implement_config  — read-only; safe.
     read_issue        — read plus an idempotent artifact link (COALESCE
                         upsert of the ticket URL); safe.
-    dispatch_executor — the agent answers 409 to a re-dispatch and the
+    dispatch_agent    — the agent answers 409 to a re-dispatch and the
                         activity falls through to polling; if the agent
                         lost the run (restart), the poll raises and the
                         retry re-dispatches from scratch.
@@ -235,22 +235,22 @@ class ImplementActivities:
         self._log.bind(run_id=run_id).info("sandbox ready", extra={"url": handle.url})
         return handle.model_dump()
 
-    @activity.defn(name="dispatch_executor")
-    async def dispatch_executor(
-        self, run_id: str, task_text: str, url: str, mode: str = "implement"
+    @activity.defn(name="dispatch_agent")
+    async def dispatch_agent(
+        self, run_id: str, url: str, procedure: str, task_text: str
     ) -> dict[str, Any]:
-        """Dispatch the ephemeral executor on its ephemeral pod and poll until it
+        """Ask the agent at `url` — a standing conductor's Service or an
+        ephemeral pod — to run one procedure on the text, and poll until it
         reaches a terminal state, heartbeating every poll. The pod's own
-        projected ServiceAccount token is the credential — no
-        token rides this call or the workflow history. mode="implement"
-        works to a completion claim; mode="deliver" is the separate,
-        workflow-directed delivery dispatch, only
-        ever issued after the platform verify gate is green."""
+        projected ServiceAccount token is the credential: no token rides
+        this call or the workflow history. Which procedures reach which
+        agent is the workflow's sequencing (`deliver` only after a green
+        platform verify) and the role's declared set at the host."""
         status = await dispatch_and_poll(
-            url, run_id, task_text, mode, self._settings.poll_interval_s
+            url, run_id, procedure, task_text, self._settings.poll_interval_s
         )
         self._log.bind(run_id=run_id).info(
-            "agent finished", extra={"agent_status": status, "mode": mode}
+            "agent finished", extra={"agent_status": status, "procedure": procedure}
         )
         return status
 
@@ -423,7 +423,7 @@ class ImplementActivities:
             self.fetch_workspace,
             self.provision_sandbox,
             self.implement_config,
-            self.dispatch_executor,
+            self.dispatch_agent,
             self.platform_verify,
             self.teardown,
             self.record_attempts_exhausted,

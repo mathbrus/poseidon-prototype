@@ -364,7 +364,7 @@ def agent_deployment(
                                     "name": "MODEL_TIER",
                                     "value": spec.get("modelTier", ""),
                                 },
-                                {"name": "ROLE_TEMPLATE", "value": spec["roleTemplate"]},
+                                {"name": "ROLE", "value": spec["roleTemplate"]},
                                 {
                                     "name": "TOOLS",
                                     "value": ",".join(sorted(spec.get("tools") or [])),
@@ -378,8 +378,8 @@ def agent_deployment(
                                     "value": settings.target_repo,
                                 },
                                 {
-                                    "name": "MAX_ITERATIONS",
-                                    "value": str(settings.max_iterations),
+                                    "name": "VERIFY_CYCLES",
+                                    "value": str(settings.verify_cycles),
                                 },
                                 {
                                     "name": "GATEWAY_TOKEN_FILE",

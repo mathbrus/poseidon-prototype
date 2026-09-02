@@ -271,17 +271,13 @@ class AgentClient:
     async def __aexit__(self, *exc_info: Any) -> None:
         await self._http.aclose()
 
-    async def dispatch(
-        self,
-        run_id: str,
-        task_text: str,
-        mode: str = "implement",
-    ) -> None:
-        """Idempotent under retry: 409 means the agent already has the run
-        (a previous attempt dispatched it before the worker died) — the
-        caller proceeds to polling either way. No credential rides the
-        dispatch — every pod holds its own projected token."""
-        payload: dict[str, Any] = {"run_id": run_id, "task_text": task_text, "mode": mode}
+    async def dispatch(self, run_id: str, procedure: str, task_text: str) -> None:
+        """Ask the agent to run `procedure` on `task_text`. Idempotent under
+        retry: 409 means the agent already has the run (a previous attempt
+        dispatched it before the worker died) — the caller proceeds to
+        polling either way. No credential rides the dispatch — every pod
+        holds its own projected token."""
+        payload = {"run_id": run_id, "procedure": procedure, "task_text": task_text}
         resp = await self._http.post("/task", json=payload)
         if resp.status_code not in (202, 409):
             raise AgentError(f"task dispatch failed: {resp.status_code} {resp.text}")
@@ -296,15 +292,15 @@ class AgentClient:
 
 
 async def dispatch_and_poll(
-    url: str, run_id: str, task_text: str, mode: str, poll_interval_s: float
+    url: str, run_id: str, procedure: str, task_text: str, poll_interval_s: float
 ) -> dict[str, Any]:
-    """Dispatch a task to the brain host at `url` and poll it to a terminal
+    """Dispatch a procedure to the agent at `url` and poll it to a terminal
     status, heartbeating every poll so a dead worker is noticed fast. The
     pod's own projected token is its credential — nothing rides this call
     or the workflow history. Callable outside an activity (unit tests): the
     heartbeat is skipped when there is no activity context."""
     async with AgentClient(url) as agent:
-        await agent.dispatch(run_id, task_text, mode=mode)
+        await agent.dispatch(run_id, procedure, task_text)
         while True:
             if activity.in_activity():
                 activity.heartbeat()

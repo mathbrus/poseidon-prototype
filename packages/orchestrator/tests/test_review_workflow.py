@@ -181,9 +181,9 @@ class Harness:
                 },
             }
 
-        @activity.defn(name="dispatch_executor")
-        async def dispatch_executor(
-            run_id: str, task_text: str, url: str, mode: str
+        @activity.defn(name="dispatch_agent")
+        async def dispatch_agent(
+            run_id: str, url: str, procedure: str, task_text: str
         ) -> dict[str, Any]:
             harness.dispatches += 1
             while harness.dispatch_hangs:
@@ -304,7 +304,7 @@ class Harness:
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
-            dispatch_executor,
+            dispatch_agent,
             record_verdict,
             platform_verify,
             reviewer_independent,

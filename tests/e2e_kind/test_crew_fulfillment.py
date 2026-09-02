@@ -171,9 +171,9 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 #    at a completion claim; the separate deliver dispatch
                 #    (issued here in the platform verify gate's stead) opens
                 #    the PR.
-                async def dispatch(mode: str, text: str) -> dict:
+                async def dispatch(procedure: str, text: str) -> dict:
                     async with AgentClient(executor["url"]) as agent:
-                        await agent.dispatch(run_id, text, mode=mode)
+                        await agent.dispatch(run_id, procedure, text)
                         while True:
                             status = await agent.status(run_id)
                             if status["status"] != "running":

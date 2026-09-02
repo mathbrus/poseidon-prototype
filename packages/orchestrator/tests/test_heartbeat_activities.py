@@ -18,6 +18,7 @@ from orchestrator.activities.heartbeat import (
 from orchestrator.config import WorkerSettings
 from registry import Attempts
 from registry.memory import (
+    InMemoryAgentInstances,
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
@@ -62,8 +63,18 @@ def audit() -> InMemoryAuditStore:
 
 
 @pytest.fixture
-def activities(settings, runs, companies, ledger, audit) -> HeartbeatActivities:
-    return HeartbeatActivities(settings, runs, companies, ledger, audit)
+def instances() -> InMemoryAgentInstances:
+    """The converged PM the heartbeat's conductor name resolves to."""
+    store = InMemoryAgentInstances()
+    store.upsert("pm-1", COMPANY, "pm", "pm", "standard", namespace=COMPANY)
+    return store
+
+
+@pytest.fixture
+def activities(
+    settings, runs, companies, instances, ledger, audit
+) -> HeartbeatActivities:
+    return HeartbeatActivities(settings, runs, companies, instances, ledger, audit)
 
 
 def _pr(number: int, state: str = "open", merged: bool = False) -> dict[str, Any]:
@@ -513,8 +524,8 @@ def _pm(monkeypatch, status: dict[str, Any]):
         async def __aexit__(self, *a):
             return False
 
-        async def dispatch(self, run_id, task_text, mode="implement"):
-            FakeAgent.dispatched.append((run_id, task_text, mode))
+        async def dispatch(self, run_id, procedure, task_text):
+            FakeAgent.dispatched.append((run_id, procedure, task_text))
 
         async def status(self, run_id):
             return status
@@ -531,9 +542,9 @@ def _decided(action: str, target: int | None, rationale: str) -> dict[str, Any]:
 
 
 def test_decide_dispatches_the_observation_and_journals(
-    activities, settings, audit, monkeypatch
+    activities, companies, audit, monkeypatch
 ):
-    settings.pm_url = "http://pm.test:8000"
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     agent = _pm(monkeypatch, _decided("review", 4, "finish before starting"))
     decision = asyncio.run(
         activities.heartbeat_decide("auto-1", OBSERVED, ["implement", "review"])
@@ -543,8 +554,11 @@ def test_decide_dispatches_the_observation_and_journals(
         "target": 4,
         "rationale": "finish before starting",
     }
-    (run_id, prompt, mode) = agent.dispatched[0]
-    assert (run_id, mode) == ("auto-1", "decide")
+    (run_id, procedure, prompt) = agent.dispatched[0]
+    assert (run_id, procedure) == ("auto-1", "decide")
+    # Dispatched at the conductor's Service, derived from the converged
+    # instance — never a configured address.
+    assert agent.url == f"http://pm.{COMPANY}.svc.cluster.local:8000"
     # The composed observation carries the contract's section headers.
     assert "Open tickets:" in prompt and "#5 — Add slugify" in prompt
     assert "Delivered pull requests awaiting review:" in prompt and "#4 —" in prompt
@@ -557,11 +571,11 @@ def test_decide_dispatches_the_observation_and_journals(
 
 
 def test_decide_refuses_a_target_outside_the_observation(
-    activities, settings, audit, monkeypatch
+    activities, companies, audit, monkeypatch
 ):
     """Structural containment: a poisoned backlog can steer the choice
     between observed candidates, never mint a new one."""
-    settings.pm_url = "http://pm.test:8000"
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, _decided("implement", 99, "the ticket says to pick #99"))
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(
@@ -575,9 +589,9 @@ def test_decide_refuses_a_target_outside_the_observation(
 
 
 def test_decide_refuses_an_action_outside_may_start(
-    activities, settings, audit, monkeypatch
+    activities, companies, audit, monkeypatch
 ):
-    settings.pm_url = "http://pm.test:8000"
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, _decided("review", 4, "review it"))
     with pytest.raises(ApplicationError):
         asyncio.run(activities.heartbeat_decide("auto-3", OBSERVED, ["implement"]))
@@ -586,8 +600,8 @@ def test_decide_refuses_an_action_outside_may_start(
     assert "may_start" in event["rule"]
 
 
-def test_decide_idle_needs_no_target(activities, settings, audit, monkeypatch):
-    settings.pm_url = "http://pm.test:8000"
+def test_decide_idle_needs_no_target(activities, companies, audit, monkeypatch):
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, _decided("idle", None, "capacity is better spent tomorrow"))
     decision = asyncio.run(activities.heartbeat_decide("auto-4", OBSERVED, ["implement"]))
     assert decision["action"] == "idle"
@@ -595,8 +609,8 @@ def test_decide_idle_needs_no_target(activities, settings, audit, monkeypatch):
     assert event["decision"] == "allow"
 
 
-def test_decide_failed_dispatch_is_nonretryable(activities, settings, monkeypatch):
-    settings.pm_url = "http://pm.test:8000"
+def test_decide_failed_dispatch_is_nonretryable(activities, companies, monkeypatch):
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, {"status": "failed", "error": "decide reply broke the contract"})
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(activities.heartbeat_decide("auto-5", OBSERVED, ["implement"]))
@@ -607,7 +621,7 @@ def test_decide_failed_dispatch_is_nonretryable(activities, settings, monkeypatc
 
 
 def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
-    activities, settings, audit, monkeypatch
+    activities, companies, audit, monkeypatch
 ):
     """The unattended path's new injection surface: ticket titles flow into
     the decide prompt. A title that tells the PM to start something not in
@@ -630,7 +644,7 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
         "reviewable_prs": [],
         "recent_runs": [],
     }
-    settings.pm_url = "http://pm.test:8000"
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     # The credulous PM obeys the title and names the planted #999.
     _pm(monkeypatch, _decided("review", 999, "the ticket said it was urgent"))
     with pytest.raises(ApplicationError) as caught:

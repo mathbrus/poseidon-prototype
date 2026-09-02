@@ -14,5 +14,5 @@ class OperatorSettings(BaseSettings):
     # Cluster-level agent config that rides every standing pod template.
     model: str = "mock-brain"
     target_repo: str = ""
-    max_iterations: int = 10
+    verify_cycles: int = 10
     bundle_port: int = 8081

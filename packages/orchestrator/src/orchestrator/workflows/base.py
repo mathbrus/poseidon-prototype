@@ -160,7 +160,7 @@ class RunWorkflow:
             workflow.logger.info("heartbeat wake failed; the reconcile timer covers it")
 
     async def dispatch(
-        self, run_id: str, task_text: str, url: str, mode: str, timeouts: Timeouts
+        self, run_id: str, url: str, procedure: str, task_text: str, timeouts: Timeouts
     ) -> dict[str, Any]:
         """One agent dispatch, budget-pause aware: a `budget_exhausted`
         result parks the workflow on the `budget` signal in an API-visible
@@ -170,8 +170,8 @@ class RunWorkflow:
         like the merge gate's — one Gate spine, one audit contract."""
         while True:
             result = await workflow.execute_activity(
-                "dispatch_executor",
-                args=[run_id, task_text, url, mode],
+                "dispatch_agent",
+                args=[run_id, url, procedure, task_text],
                 start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
                 schedule_to_close_timeout=timedelta(
                     seconds=timeouts.dispatch_schedule_to_close_s

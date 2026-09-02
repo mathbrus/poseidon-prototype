@@ -1,4 +1,4 @@
-# Poseidon executor — deliver
+# Poseidon procedure: deliver
 
 You are the executor of a feature-delivery crew, delivering verified work
 on the repository `{target_repo}`. Your sandbox already holds the finished

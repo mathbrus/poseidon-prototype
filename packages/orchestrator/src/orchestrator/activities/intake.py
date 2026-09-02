@@ -7,9 +7,8 @@ Retry safety, per activity:
                         headroom check: enforcement stays local at the LLM
                         gateway, but a run that would be born exhausted
                         fails here, before any dispatch.
-    intake_gate_config— read-only (the applied blueprint's workflow gates).
-    dispatch_pm       — the PM answers 409 while running (re-attach) and
-                        restarts terminal runs on re-dispatch.
+    intake_config     — read-only (the applied blueprint's intake block
+                        and the conductor's address).
     finalize_intake   — record_artifacts + finish are upserts.
 """
 
@@ -19,10 +18,10 @@ from typing import Any
 from temporalio import activity
 
 from common.telemetry import get_logger
-from orchestrator.clients import dispatch_and_poll
+from orchestrator.activities.blueprint import workflow_config
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import workflow_id
-from registry import BudgetLedger, Companies, Runs
+from registry import AgentInstances, BudgetLedger, Companies, Runs
 
 
 class IntakeActivities:
@@ -31,11 +30,13 @@ class IntakeActivities:
         settings: WorkerSettings,
         runs: Runs,
         companies: Companies,
+        instances: AgentInstances,
         ledger: BudgetLedger,
     ) -> None:
         self._settings = settings
         self._runs = runs
         self._companies = companies
+        self._instances = instances
         self._ledger = ledger
         self._log = get_logger("orchestrator.intake")
 
@@ -71,32 +72,26 @@ class IntakeActivities:
             )
         return {"cap_usd": cap, "spent_usd": spent}
 
-    @activity.defn(name="intake_gate_config")
-    async def intake_gate_config(self) -> dict[str, Any]:
-        """The intake workflow's gate configuration from the applied
-        blueprint — the gate slot reads config, never hardcodes."""
-        spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}
-        for workflow in spec.get("workflows") or []:
-            if workflow.get("name") == "intake":
-                return dict(workflow.get("gates") or {})
-        return {}
+    @activity.defn(name="intake_config")
+    async def intake_config(self) -> dict[str, Any]:
+        """The intake workflow's shape from the applied blueprint: its gates
+        (the gate slot reads config, never hardcodes) and the conductor's
+        dispatch address. Fail-closed like the other config reads."""
 
-    @activity.defn(name="dispatch_pm")
-    async def dispatch_pm(self, run_id: str, goal_text: str) -> dict[str, Any]:
-        """Dispatch the standing PM to scope the goal and poll to terminal —
-        the PM files tickets and records the crew request itself, through
-        governed tools."""
-        if not self._settings.pm_url:
-            raise RuntimeError("PM_URL is not configured on the worker")
-        status = await dispatch_and_poll(
-            self._settings.pm_url,
-            run_id,
-            goal_text,
-            "implement",
-            self._settings.poll_interval_s,
-        )
-        self._log.bind(run_id=run_id).info("pm finished", extra={"pm_status": status})
-        return status
+        def read() -> dict[str, Any]:
+            config, conductor = workflow_config(
+                self._companies,
+                self._instances,
+                self._settings.company,
+                "intake",
+                crew_required=False,
+            )
+            return {
+                "gates": dict(config.get("gates") or {}),
+                "conductor_url": conductor["conductor_url"],
+            }
+
+        return await asyncio.to_thread(read)
 
     @activity.defn(name="finalize_intake")
     async def finalize_intake(
@@ -128,7 +123,6 @@ class IntakeActivities:
         return [
             self.create_intake_run,
             self.check_budget,
-            self.intake_gate_config,
-            self.dispatch_pm,
+            self.intake_config,
             self.finalize_intake,
         ]

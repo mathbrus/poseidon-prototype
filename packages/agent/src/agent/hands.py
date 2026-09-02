@@ -38,13 +38,13 @@ from agent.config import AgentSettings
 from agent.gateway_client import ToolCallError
 from common.text import numbered_lines
 
-# Per-phase tool surfaces — the structural guarantee: the implement agent
-# has no `open_pr` (delivery before the platform verify gate is impossible
-# by construction); the reviewer writes nothing but its findings comment.
-ACT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
-DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
-PM_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
-REVIEWER_TOOLS = [
+# Per-procedure tool surfaces — the structural guarantee: implement has
+# no `open_pr` (delivery before the platform verify gate is impossible by
+# construction); review writes nothing but its findings comment.
+IMPLEMENT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
+DELIVER_TOOLS = IMPLEMENT_TOOLS + ["open_pr"]
+SCOPE_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
+REVIEW_TOOLS = [
     "list_dir",
     "read_file",
     "exec",
@@ -53,8 +53,8 @@ REVIEWER_TOOLS = [
     "comment_pr",
     "verdict",
 ]
-# The tools that address the run's sandbox: a mode holding any of them
-# gets the host's workspace survey before its first turn.
+# The tools that address the run's sandbox: a procedure holding any of
+# them gets the host's workspace survey before its first turn.
 WORKSPACE_TOOLS = frozenset(
     {"list_dir", "read_file", "write_file", "edit_file", "exec", "run_tests"}
 )
@@ -74,7 +74,7 @@ class ToolRecords:
     crew_request_id: str | None = None
     # The reviewer's findings on the PR, or the PM's summary on its tickets.
     comment_urls: list[str] = field(default_factory=list)
-    # Reviewer mode: the structured verdict. The reviewer *proposes*
+    # Review: the structured verdict. The reviewer *proposes*
     # pass/fail; what a verdict releases is the platform's decision, made
     # against compiled policy — never this record's.
     verdict: str | None = None

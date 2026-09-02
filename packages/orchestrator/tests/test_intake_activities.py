@@ -1,15 +1,15 @@
 """The intake activities against doubles: the run row, the
-budget-headroom boundary, the blueprint-read gate slot, the PM dispatch,
-and finalization linking tickets."""
+budget-headroom boundary, the blueprint-read intake shape (gates and the
+conductor's address), and finalization linking tickets."""
 
 import asyncio
 
-import httpx
 import pytest
 
 from orchestrator.activities.intake import IntakeActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
+    InMemoryAgentInstances,
     InMemoryBudgetLedger,
     InMemoryCompanies,
     InMemoryRuns,
@@ -24,7 +24,6 @@ def settings(tmp_path) -> WorkerSettings:
     return WorkerSettings(
         gateway_token_file=str(token),
         mcp_gateway_url="http://gateway.test:8080",
-        pm_url="http://pm.test:8000",
         target_repo="github.com/example/repo",
         poll_interval_s=0.01,
     )
@@ -39,7 +38,7 @@ def companies() -> InMemoryCompanies:
             "namespace": "hello-saas",
             "budgets": {"per_run_usd": 5.0},
             "workflows": [
-                {"name": "intake"},
+                {"name": "intake", "enabled": True, "conductor": "pm"},
                 {"name": "review", "gates": {"merge": {"resolved_by": "human"}}},
             ],
         },
@@ -48,10 +47,17 @@ def companies() -> InMemoryCompanies:
 
 
 @pytest.fixture
-def world(settings, companies):
+def instances() -> InMemoryAgentInstances:
+    store = InMemoryAgentInstances()
+    store.upsert("pm-1", "hello-saas", "pm", "pm", "standard", namespace="hello-saas")
+    return store
+
+
+@pytest.fixture
+def world(settings, companies, instances):
     runs = InMemoryRuns()
     ledger = InMemoryBudgetLedger()
-    return IntakeActivities(settings, runs, companies, ledger), runs, ledger
+    return IntakeActivities(settings, runs, companies, instances, ledger), runs, ledger
 
 
 def test_create_and_finalize_link_tickets(world):
@@ -96,51 +102,31 @@ def test_budget_boundary_fails_born_exhausted_runs(world):
         asyncio.run(intake.check_budget(RUN_ID))
 
 
-def test_gate_config_reads_the_applied_blueprint(world, companies):
+def test_intake_config_reads_gates_and_the_conductor_address(world, companies):
+    """The gate slot reads config, never hardcodes; the conductor's address
+    is derived from the converged instance, never configured."""
     intake, _, _ = world
-    assert asyncio.run(intake.intake_gate_config()) == {}
+    config = asyncio.run(intake.intake_config())
+    assert config == {
+        "gates": {},
+        "conductor_url": "http://pm.hello-saas.svc.cluster.local:8000",
+    }
 
     spec = companies.get("hello-saas")
     spec["workflows"][0]["gates"] = {"intake": {"resolved_by": "human"}}
     companies.upsert("hello-saas", spec)
-    assert asyncio.run(intake.intake_gate_config()) == {
+    assert asyncio.run(intake.intake_config())["gates"] == {
         "intake": {"resolved_by": "human"}
     }
 
 
-def test_dispatch_pm_polls_to_terminal(world, monkeypatch):
-    intake, _, _ = world
-    statuses = [
-        {"status": "running"},
-        {
-            "status": "done",
-            "pr_url": None,
-            "iterations": 0,
-            "error": None,
-            "ticket_urls": ["https://github.test/i/7"],
-            "crew_request_id": "crq-1",
-        },
-    ]
-
-    def handler(request):
-        if request.method == "POST":
-            return httpx.Response(202, json={})
-        return httpx.Response(
-            200, json=statuses.pop(0) if len(statuses) > 1 else statuses[0]
-        )
-
-    from orchestrator import clients
-
-    original_init = clients.AgentClient.__init__
-
-    def patched(self, url: str) -> None:
-        assert url == "http://pm.test:8000"  # the PM, not the engineer
-        original_init(self, url)
-        self._http = httpx.AsyncClient(
-            base_url=url, transport=httpx.MockTransport(handler)
-        )
-
-    monkeypatch.setattr(clients.AgentClient, "__init__", patched)
-    status = asyncio.run(intake.dispatch_pm(RUN_ID, "goal"))
-    assert status["ticket_urls"] == ["https://github.test/i/7"]
-    assert status["crew_request_id"] == "crq-1"
+def test_intake_config_fails_closed_without_a_conductor_instance(settings, companies):
+    intake = IntakeActivities(
+        settings,
+        InMemoryRuns(),
+        companies,
+        InMemoryAgentInstances(),
+        InMemoryBudgetLedger(),
+    )
+    with pytest.raises(RuntimeError, match="no standing instance"):
+        asyncio.run(intake.intake_config())

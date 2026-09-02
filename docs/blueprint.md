@@ -255,7 +255,7 @@ Each tick observes the open backlog, the delivered
 PRs awaiting review (the registry names them, the git host confirms each
 is still open — a PR merged or closed by anyone else is not a candidate),
 the in-flight runs and today's ledger spend, then
-dispatches the standing PM in a toolless *decide* mode: one action —
+dispatches the standing PM's toolless *decide* procedure: one action —
 `implement #n`, `review #n`, or `idle` — with a required one-line
 rationale, journaled as a `heartbeat.decide` audit event (the append-only
 record of *why* the company did what it did; the PM's cross-run state is

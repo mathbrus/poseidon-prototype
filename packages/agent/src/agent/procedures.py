@@ -1,5 +1,5 @@
-"""The brain host: the OpenHands Agent SDK as a library
-behind Poseidon contracts.
+"""The procedures an agent host runs: the OpenHands Agent SDK as a
+library behind Poseidon contracts.
 
 The SDK owns the reasoning loop, context machinery and coding heuristics —
 nothing else. Enforced boundaries:
@@ -12,14 +12,15 @@ nothing else. Enforced boundaries:
   retries/timeouts/cancellation — the workflow dispatches into this host
   and waits; `num_retries=1` keeps the SDK from grinding on errors the
   workflow owns (a `budget_exhausted` 429 surfaces immediately).
-- The implement dispatch ends at a completion claim: its tool surface has
+- The implement procedure ends at a completion claim: its tool surface has
   no `open_pr`, its advisory verify (host-driven `sandbox.run_tests`
   between conversation turns) only shapes iteration, and delivery is the
-  separate workflow-directed `mode="deliver"` dispatch after the platform
+  separate workflow-directed `deliver` procedure after the platform
   verify gate.
 
-The mode runners are synchronous — the SDK conversation loop is blocking —
-and run in a worker thread under the async dispatch app (`asyncio.to_thread`).
+Every procedure is one synchronous function — the SDK conversation loop
+is blocking — run in a worker thread under the async dispatch app
+(`asyncio.to_thread`).
 The `GatewayBridge` gives the executors a sync facade over the async MCP
 client by parking the session on a dedicated event-loop thread.
 """
@@ -49,10 +50,10 @@ from pydantic import BaseModel, SecretStr
 from agent.config import AgentSettings
 from agent.gateway_client import McpGateway, ToolCallError
 from agent.hands import (
-    ACT_TOOLS,
     DELIVER_TOOLS,
-    PM_TOOLS,
-    REVIEWER_TOOLS,
+    IMPLEMENT_TOOLS,
+    REVIEW_TOOLS,
+    SCOPE_TOOLS,
     WORKSPACE_TOOLS,
     HandsContext,
     ToolRecords,
@@ -61,14 +62,16 @@ from agent.hands import (
 from agent.prompting import REPO_INSTRUCTIONS_FILE, repo_instructions, system_prompt
 from common.telemetry import get_logger
 
-# The PM's whole dispatch is a handful of tool calls; the cap is a backstop.
-PM_STEP_CAP = 10
-# SDK steps allowed within one act cycle before tests are forced to run.
-ACT_STEP_CAP = 20
-# The reviewer's whole dispatch: read the diff, run the suite, post
-# findings, judge. An engineering limit of its own — `MAX_ITERATIONS`
-# bounds implement's verify cycles and says nothing about how many
-# steps a review takes; money is bounded by the per-run cap either way.
+# Step caps per procedure — engineering limits on how long one SDK loop
+# may run; money is bounded by the per-run cap either way.
+# Scope is a handful of tool calls; the cap is a backstop.
+SCOPE_STEP_CAP = 10
+# Steps allowed within one implement cycle before tests are forced to run.
+IMPLEMENT_STEP_CAP = 20
+# One SDK step is one delivery attempt (commit + open_pr); a denied
+# attempt and its recovery must fit.
+DELIVER_STEP_CAP = 4
+# Read the diff, run the suite, post findings, judge.
 REVIEW_STEP_CAP = 30
 # Condensation is real context machinery for a real model; the sizes keep it
 # far out of reach of the short deterministic e2e conversations.
@@ -78,27 +81,30 @@ CONDENSER_KEEP_FIRST = 4
 TOOL_CONCURRENCY = 4
 _OUTPUT_CLIP = 4000
 
-log = get_logger("agent.brain")
+log = get_logger("agent.procedures")
 
 
-class RunResult(BaseModel):
+class ProcedureResult(BaseModel):
+    """What a procedure reports back: only fields captured from tool
+    results or parsed from a typed reply, never the model's prose."""
+
     pr_url: str | None = None
     iterations: int = 0
     error: str | None = None
-    # PM runtime: the tickets it filed and the crew intent
-    # it recorded — what an intake run links to the run record.
+    # Scope: the tickets it filed and the crew intent it recorded — what
+    # an intake run links to the run record.
     ticket_urls: list[str] = []
     crew_request_id: str | None = None
     # The comments a dispatch posted: the reviewer's findings on the PR,
     # or the PM's summary on the ticket(s) it filed.
     comment_urls: list[str] = []
-    # Reviewer mode: the structured verdict — pass/fail plus a one-line
+    # Review: the structured verdict — pass/fail plus a one-line
     # summary. The review workflow refuses to reach the merge gate without
     # a verdict; what the verdict releases is compiled policy's decision,
     # never the reviewer's.
     verdict: str | None = None
     verdict_summary: str | None = None
-    # Decide mode: {action, target, rationale} — the heartbeat's
+    # Decide: {action, target, rationale} — the heartbeat's
     # chosen next action. The PM proposes; the platform validates,
     # authorizes and starts.
     decision: dict[str, Any] | None = None
@@ -356,11 +362,11 @@ class Session:
 
 @contextmanager
 def _session(
-    settings: AgentSettings, run_id: str, mode: str, tools: list[str], max_steps: int
+    settings: AgentSettings, run_id: str, procedure: str, tools: list[str], max_steps: int
 ) -> Iterator[Session]:
     """One dispatch's machinery: a gateway session under the pod's own
-    token, a scratch workspace, and an SDK conversation on the mode's
-    prompt and tool surface. A mode that holds sandbox tools surveys the
+    token, a scratch workspace, and an SDK conversation on the procedure's
+    prompt and tool surface. A procedure that holds sandbox tools surveys the
     run's sandbox first, so the conversation opens knowing the tree and
     the repository's instructions. The records capture every tool result;
     the conversation is closed on the way out, whatever happened inside."""
@@ -375,7 +381,7 @@ def _session(
         with tempfile.TemporaryDirectory(prefix="brain-") as scratch:
             convo = _build_conversation(
                 llm,
-                system_prompt(mode, settings, llm.model),
+                system_prompt(procedure, settings, llm.model),
                 tools,
                 ctx,
                 scratch,
@@ -401,19 +407,23 @@ def _completion(llm: LLM, system_prompt: str, user_text: str) -> str:
     ).strip()
 
 
-def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """mode=implement: the SDK loop acts (read/write/list/exec, never
-    open_pr), the host runs the ADVISORY verify between turns, and advisory
-    green ends the dispatch with a completion claim. The gate of record is
-    the platform's own `sandbox.run_tests` in the implement workflow."""
-    with _session(settings, run_id, "implement", ACT_TOOLS, ACT_STEP_CAP) as s:
+def run_implement(
+    settings: AgentSettings, run_id: str, task_text: str
+) -> ProcedureResult:
+    """implement: the SDK loop acts (read/write/list/exec, never open_pr),
+    the host runs the ADVISORY verify between turns, and advisory green
+    ends the dispatch with a completion claim. The gate of record is the
+    platform's own `sandbox.run_tests` in the implement workflow."""
+    with _session(
+        settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP
+    ) as s:
         convo = s.convo
         convo.send_message(_act_prompt(task_text, s.workspace.entries))
         iterations = 0
         while True:
             convo.run()
             if failure := _loop_failure(convo):
-                return RunResult(
+                return ProcedureResult(
                     iterations=iterations,
                     error=f"{failure} (after {iterations} verify cycles)",
                 )
@@ -428,25 +438,22 @@ def implement_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> 
                 # Advisory green = the completion claim: the platform verify
                 # is the gate of record, and the workflow directs delivery
                 # in a separate dispatch.
-                return RunResult(iterations=iterations)
-            if iterations >= settings.max_iterations:
-                return RunResult(
+                return ProcedureResult(iterations=iterations)
+            if iterations >= settings.verify_cycles:
+                return ProcedureResult(
                     iterations=iterations,
                     error=f"tests still failing after {iterations} iterations",
                 )
             convo.send_message(_test_report(result) + "\n\nFix the failures.")
 
 
-def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """The workflow-directed delivery dispatch:
-    only ever dispatched after the platform verify gate passed.
-    Commit the sandbox's work on the task's branch, bundle it, open the PR.
-    A policy denial comes back as the tool observation so the model can
-    recover — deny-and-recover, not deny-and-halt."""
-    # One SDK step is one delivery attempt (commit + open_pr); the injected
-    # scenario must fit attempt-deny-recover.
-    max_steps = max(settings.max_iterations, 4)
-    with _session(settings, run_id, "deliver", DELIVER_TOOLS, max_steps) as s:
+def run_deliver(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+    """deliver: the workflow-directed delivery, only ever dispatched after
+    the platform verify gate passed. Commit the sandbox's work on the
+    task's branch, bundle it, open the PR. A policy denial comes back as
+    the tool observation so the model can recover — deny-and-recover, not
+    deny-and-halt."""
+    with _session(settings, run_id, "deliver", DELIVER_TOOLS, DELIVER_STEP_CAP) as s:
         convo, records = s.convo, s.records
         convo.send_message(
             f"Task:\n{task_text}\n\n"
@@ -458,16 +465,16 @@ def deliver_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Ru
         convo.run()
         failure = _loop_failure(convo)
     if records.pr_url is None:
-        return RunResult(
+        return ProcedureResult(
             error=failure or "agent stopped without opening a pull request",
             iterations=1,
         )
     log.info("delivered", extra={"pr_url": records.pr_url})
-    return RunResult(pr_url=records.pr_url, iterations=1)
+    return ProcedureResult(pr_url=records.pr_url, iterations=1)
 
 
-def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """The ephemeral reviewer's dispatch: read the
+def run_review(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+    """review: the ephemeral reviewer's dispatch: read the
     diff via git.read, execute the suite in the run's sandbox (provisioned
     from the PR ref), post findings via git.comment, and end with the
     `verdict` tool — pass/fail plus a one-line summary, captured as a
@@ -475,15 +482,15 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     only: no write_file, no open_pr, and the compiled sdet scope enforces
     the same at the gateway. A dispatch without posted findings or without
     a verdict is a failed review."""
-    with _session(settings, run_id, "review", REVIEWER_TOOLS, REVIEW_STEP_CAP) as s:
+    with _session(settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP) as s:
         convo, records = s.convo, s.records
         convo.send_message(f"Task:\n{task_text}")
         convo.run()
         failure = _loop_failure(convo)
     if not records.comment_urls:
-        return RunResult(error=failure or "reviewer posted no findings")
+        return ProcedureResult(error=failure or "reviewer posted no findings")
     if records.verdict is None:
-        return RunResult(
+        return ProcedureResult(
             error=failure or "reviewer finished without a verdict",
             comment_urls=records.comment_urls,
         )
@@ -491,15 +498,15 @@ def review_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
         "review finished",
         extra={"comments": records.comment_urls, "verdict": records.verdict},
     )
-    return RunResult(
+    return ProcedureResult(
         comment_urls=records.comment_urls,
         verdict=records.verdict,
         verdict_summary=records.verdict_summary,
     )
 
 
-def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """The PM runtime: scope a goal, file tickets, record crew intent, and
+def run_scope(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+    """scope: the PM turns a goal into tickets, records crew intent, and
     leave a one-paragraph summary as a comment on each ticket filed — all
     through governed tools. No sandbox, no delivery, no private memory: the
     backlog is the PM's cross-run state, and the summary comment is what a
@@ -507,7 +514,7 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
     posted no summary is a failed dispatch — the tickets are still reported,
     so they stay linked to the run. Executor-tool refusal is the gateway's
     job; a deny surfaces as a tool observation the model sees."""
-    with _session(settings, run_id, "pm", PM_TOOLS, PM_STEP_CAP) as s:
+    with _session(settings, run_id, "scope", SCOPE_TOOLS, SCOPE_STEP_CAP) as s:
         convo, records = s.convo, s.records
         convo.send_message(f"Goal:\n{task_text}")
         convo.run()
@@ -518,11 +525,13 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
         comment_urls=records.comment_urls,
     )
     if failure:
-        return RunResult(error=failure, **partial)
+        return ProcedureResult(error=failure, **partial)
     if not records.ticket_urls:
-        return RunResult(error="PM filed no ticket for the goal")
+        return ProcedureResult(error="PM filed no ticket for the goal")
     if not records.comment_urls:
-        return RunResult(error="PM filed tickets without posting its summary", **partial)
+        return ProcedureResult(
+            error="PM filed tickets without posting its summary", **partial
+        )
     log.info(
         "pm finished",
         extra={
@@ -531,7 +540,7 @@ def pm_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResu
             "comments": records.comment_urls,
         },
     )
-    return RunResult(**partial)
+    return ProcedureResult(**partial)
 
 
 # The decide contract: exactly one DECISION line and one RATIONALE line.
@@ -555,8 +564,8 @@ def parse_decision(text: str) -> dict[str, Any] | None:
     }
 
 
-def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """mode=decide: the heartbeat's question. LLM-only — one
+def run_decide(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+    """decide: the heartbeat's question. LLM-only — one
     completion, no tools, no gateway session: the observation in the task
     text is everything the PM may consider, and the platform validates the
     answer against it. The PM chooses; it starts nothing — actuation stays
@@ -565,8 +574,8 @@ def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
     text = _completion(llm, system_prompt("decide", settings, llm.model), task_text)
     decision = parse_decision(text)
     if decision is None:
-        return RunResult(
+        return ProcedureResult(
             error=f"decide reply broke the two-line contract: {text[:200]!r}"
         )
     log.info("decision", extra=decision)
-    return RunResult(decision=decision)
+    return ProcedureResult(decision=decision)

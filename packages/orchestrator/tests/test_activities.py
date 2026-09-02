@@ -250,11 +250,11 @@ def test_teardown_destroys_and_finalizes_done(activities, settings, backend, run
 def test_teardown_records_error_and_still_destroys(activities, settings, backend):
     asyncio.run(activities.create_run(RUN_ID, "task"))
     record = asyncio.run(
-        activities.teardown(RUN_ID, dict(JOB_HANDLE), None, "dispatch_executor: boom")
+        activities.teardown(RUN_ID, dict(JOB_HANDLE), None, "dispatch_agent: boom")
     )
     assert backend.destroyed == [JOB_HANDLE["job_name"]]
     assert record["status"] == "failed"
-    assert record["error"] == "dispatch_executor: boom"
+    assert record["error"] == "dispatch_agent: boom"
 
 
 def test_teardown_without_sandbox_finalizes_failed(activities, settings, backend):
@@ -323,7 +323,7 @@ def _patch_agent(monkeypatch, transport: FakeAgentTransport) -> None:
 EPHEMERAL_POD_URL = "http://10.0.0.7:8000"
 
 
-def test_dispatch_executor_polls_to_terminal(activities, monkeypatch):
+def test_dispatch_agent_polls_to_terminal(activities, monkeypatch):
     transport = FakeAgentTransport(
         dispatch_codes=[202],
         statuses=[
@@ -332,12 +332,14 @@ def test_dispatch_executor_polls_to_terminal(activities, monkeypatch):
         ],
     )
     _patch_agent(monkeypatch, transport)
-    status = asyncio.run(activities.dispatch_executor(RUN_ID, "task", EPHEMERAL_POD_URL))
+    status = asyncio.run(
+        activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task")
+    )
     assert status["status"] == "done"
     assert status["pr_url"] == "https://pr"
 
 
-def test_dispatch_executor_tolerates_conflict_and_reattaches(activities, monkeypatch):
+def test_dispatch_agent_tolerates_conflict_and_reattaches(activities, monkeypatch):
     """A retry after worker death re-dispatches, gets 409, and polls the
     already-running agent to completion."""
     transport = FakeAgentTransport(
@@ -345,18 +347,22 @@ def test_dispatch_executor_tolerates_conflict_and_reattaches(activities, monkeyp
         statuses=[{"status": "done", "pr_url": None, "iterations": 1, "error": "red"}],
     )
     _patch_agent(monkeypatch, transport)
-    status = asyncio.run(activities.dispatch_executor(RUN_ID, "task", EPHEMERAL_POD_URL))
+    status = asyncio.run(
+        activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task")
+    )
     assert transport.dispatches == 1
     assert status["error"] == "red"
 
 
-def test_dispatch_executor_raises_when_agent_lost_the_run(activities, monkeypatch):
+def test_dispatch_agent_raises_when_agent_lost_the_run(activities, monkeypatch):
     from orchestrator.clients import AgentRunLost
 
     transport = FakeAgentTransport(dispatch_codes=[409], statuses=[{"__code": 404}])
     _patch_agent(monkeypatch, transport)
     with pytest.raises(AgentRunLost):
-        asyncio.run(activities.dispatch_executor(RUN_ID, "task", EPHEMERAL_POD_URL))
+        asyncio.run(
+            activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task")
+        )
 
 
 # -- implement_config ---------------------------------------------------------
@@ -389,6 +395,7 @@ PM_ROW = {
     "company": "hello-saas",
     "standing_role": "pm",
     "role_template": "pm",
+    "namespace": "hello-saas",
 }
 
 
@@ -411,6 +418,7 @@ def test_implement_config_resolves_crew_and_conductor(settings, backend, runs):
         "crew_template": "feature-delivery",
         "conductor": "pm-1",
         "conductor_role": "pm",
+        "conductor_url": "http://pm.hello-saas.svc.cluster.local:8000",
         "max_verify_retries": 2,
     }
 

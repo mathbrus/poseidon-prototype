@@ -15,9 +15,9 @@ ephemeral pod with the task text, and its completion claim is advisory — the
 platform verify gate (`platform_verify`, the orchestrator's own run of the
 sandbox tests) is the gate of record. Red verify feeds the failure back for
 a bounded number of re-dispatches (the blueprint's `max_verify_retries`);
-only a green verify releases the separate mode="deliver" dispatch that
-opens the PR. Delivery before verify is structurally impossible: the
-implement-mode toolset has no `git.open_pr`, and the deliver dispatch is
+only a green verify releases the separate `deliver` dispatch that opens
+the PR. Delivery before verify is structurally impossible: the implement
+procedure's toolset has no `git.open_pr`, and the deliver dispatch is
 sequenced strictly after the gate.
 
 The budget pause (`RunWorkflow.dispatch`) rides the same Gate skeleton as
@@ -224,7 +224,7 @@ class ImplementWorkflow(RunWorkflow):
             verified = False
             while True:
                 result = await self.dispatch(
-                    input.run_id, task_text, executor_url, "implement", timeouts
+                    input.run_id, executor_url, "implement", task_text, timeouts
                 )
                 if (result or {}).get("error"):
                     break
@@ -252,7 +252,7 @@ class ImplementWorkflow(RunWorkflow):
             # the same task text the implementation worked from.
             if verified and not error and not (result or {}).get("error"):
                 delivery = await self.dispatch(
-                    input.run_id, task_source, executor_url, "deliver", timeouts
+                    input.run_id, executor_url, "deliver", task_source, timeouts
                 )
                 if (delivery or {}).get("error"):
                     error = f"delivery failed: {delivery['error']}"

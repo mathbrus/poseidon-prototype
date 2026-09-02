@@ -45,6 +45,7 @@ PM_ROW = {
     "company": "hello-saas",
     "standing_role": "pm",
     "role_template": "pm",
+    "namespace": "hello-saas",
 }
 
 
@@ -93,6 +94,7 @@ def test_review_config_resolves_crew_conductor_and_gate(settings):
         "crew_template": "feature-review",
         "conductor": "pm-1",
         "conductor_role": "pm",
+        "conductor_url": "http://pm.hello-saas.svc.cluster.local:8000",
         "merge_gate": {"resolved_by": "human"},
         "contract_paths": [],
     }

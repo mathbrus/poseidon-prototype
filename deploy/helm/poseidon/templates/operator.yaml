@@ -120,8 +120,8 @@ spec:
               value: {{ .Values.run.model | quote }}
             - name: TARGET_REPO
               value: {{ .Values.run.targetRepo | quote }}
-            - name: MAX_ITERATIONS
-              value: {{ .Values.run.maxIterations | quote }}
+            - name: VERIFY_CYCLES
+              value: {{ .Values.run.verifyCycles | quote }}
             {{- include "poseidon.registryDsnEnv" . | nindent 12 }}
           livenessProbe:
             httpGet: {path: /healthz, port: 8080}

@@ -63,8 +63,10 @@ Two visible consequences:
 ## The four workflows
 
 **intake** — goal text in, tickets and recorded crew intent out:
-`create_intake_run → check_budget → [gate slot] → dispatch_pm →
-finalize_intake`. The PM does the scoping itself through governed tools
+`create_intake_run → check_budget → intake_config → [gate slot] →
+dispatch the conductor's `scope` procedure → finalize_intake`. The
+conductor's address is derived from its converged instance (the operator
+names its Service after the standing role), never configured. The PM does the scoping itself through governed tools
 (`issues.*`, `crew.request`) — files the tickets, records the crew request,
 and comments its summary on each ticket; the workflow never touches GitHub
 or the crew tables directly. This is the injection surface for the standing
@@ -83,7 +85,7 @@ and hands back each agent's identity and dispatch address, by crew role.
 **review** — PR in, gated merge out: read the PR under the platform
 identity, provision a *full* sandbox from its head ref (the reviewer runs
 tests, it does not just read diffs), fulfill a review crew, dispatch the
-ephemeral reviewer (`mode="review"`), journal its structured verdict,
+ephemeral reviewer (the `review` procedure), journal its structured verdict,
 then resolve the merge gate as the blueprint declares. `resolved_by:
 human` parks on the `merge` signal; approve merges under the platform
 identity, reject or timeout is an honest failure. `resolved_by: policy`
@@ -129,7 +131,7 @@ which at the cap writes `gate.heartbeat_attempts` / `gate_exhausted`
 under that run's id and comments on the PR or issue under the platform
 identity. An applied section without `max_attempts` refuses every tick
 as `tick_refused:max_attempts_undeclared`.
-`heartbeat_decide` dispatches the standing conductor in `mode="decide"`
+`heartbeat_decide` dispatches the standing conductor's `decide` procedure
 with that observation and gets back one action with a required
 rationale, journaled as a `heartbeat.decide` audit event. The PM proposes
 and the platform disposes: the action set is closed, the target must
@@ -162,16 +164,16 @@ code, does delivery become reachable:
 ```python
 if verified and not error and not (result or {}).get("error"):
     delivery = await self._dispatch(
-        input.run_id, input.task_text, executor_url, "deliver", timeouts
+        input.run_id, executor_url, "deliver", task_source, timeouts
     )
 ```
 
-`mode="deliver"` is a *separate dispatch* whose tool surface is the
-implement surface **plus `open_pr`** (mode table in the
+`deliver` is a *separate dispatch* whose tool surface is the implement
+surface **plus `open_pr`** (procedure table in the
 [agent README](../agent/README.md)). During implementation the delivery
 tool does not exist in the model's conversation, so two independent
-mechanisms must both fail for unverified code to ship: the implement-mode
-toolset has no `open_pr`, and the deliver dispatch is sequenced strictly
+mechanisms must both fail for unverified code to ship: the implement
+procedure's toolset has no `open_pr`, and the deliver dispatch is sequenced strictly
 after a green verify. The deliver dispatch carries the same task text
 the implementation worked from.
 

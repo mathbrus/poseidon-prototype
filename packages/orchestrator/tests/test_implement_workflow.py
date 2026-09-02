@@ -91,16 +91,16 @@ class Harness:
                 },
             }
 
-        @activity.defn(name="dispatch_executor")
-        async def dispatch_executor(
-            run_id: str, task_text: str, url: str, mode: str
+        @activity.defn(name="dispatch_agent")
+        async def dispatch_agent(
+            run_id: str, url: str, procedure: str, task_text: str
         ) -> dict[str, Any]:
-            harness.dispatches.append(mode)
+            harness.dispatches.append(procedure)
             while harness.dispatch_hangs:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
                 await asyncio.sleep(0.05)
-            return dict(harness.deliver if mode == "deliver" else harness.implement)
+            return dict(harness.deliver if procedure == "deliver" else harness.implement)
 
         @activity.defn(name="platform_verify")
         async def platform_verify(run_id: str) -> dict[str, Any]:
@@ -139,7 +139,7 @@ class Harness:
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
-            dispatch_executor,
+            dispatch_agent,
             platform_verify,
             record_attempts_exhausted,
             teardown,

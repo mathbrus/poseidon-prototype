@@ -50,15 +50,12 @@ class WorkerSettings(TemporalSettings):
     # sandbox image), and the platform namespace for gateway FQDNs.
     agent_image: str
     platform_namespace: str = "poseidon-platform"
-    # The standing PM's dispatch address (intake dispatches
-    # the conductor; implement dispatches ephemeral executors at their
-    # crew-pod URLs — there is no standing executor address).
-    pm_url: str = ""
     # The workflow-recorded crew-request path evaluates the
     # same compiled decision the crew.request tool faces, directly at OPA.
     opa_url: str = "http://opa:8181"
     model: str = "mock-brain"
-    max_iterations: int = 10
+    # Implement's advisory verify cycles, handed to every agent pod.
+    verify_cycles: int = 10
     poll_interval_s: float = 2
     # How often the worker's ensure loop checks that the company's declared
     # heartbeat workflow is running (reconcile-on-goal: the applied

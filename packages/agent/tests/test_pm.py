@@ -5,8 +5,8 @@ surfaces as a tool observation the model sees, never a crash."""
 import pytest
 from conftest import ISSUE_COMMENT_URL, ScriptedLLM, calls, says, scripted, tc, text_of
 
-from agent.brain import pm_dispatch
 from agent.config import AgentSettings
+from agent.procedures import run_scope
 
 SUMMARY = "Set up: ticket 7, crew requested."
 
@@ -19,7 +19,7 @@ def settings(tmp_path) -> AgentSettings:
         mcp_gateway_url="http://gateway.test:8080",
         llm_proxy_url="http://llm.test:4000",
         model="mock-brain",
-        role_template="pm",
+        role="pm",
         gateway_token_file=str(token),
         target_repo="github.test/example/target",
     )
@@ -45,7 +45,7 @@ def test_pm_files_ticket_records_intent_and_posts_its_summary(settings, gateway)
     )
 
     with scripted(gateway, llm):
-        result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
+        result = run_scope(settings, "run-pm-1", "Ship a slug endpoint")
 
     assert result.error is None
     assert result.ticket_urls == ["https://github.test/i/7"]
@@ -83,7 +83,7 @@ def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
+        result = run_scope(settings, "run-pm-1", "Ship a slug endpoint")
 
     assert result.error is None
     assert result.ticket_urls == ["https://github.test/i/7"]
@@ -95,7 +95,7 @@ def test_pm_without_a_ticket_fails_honestly(settings, gateway):
     llm = ScriptedLLM([says("nothing to do here")])
 
     with scripted(gateway, llm):
-        result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
+        result = run_scope(settings, "run-pm-1", "Ship a slug endpoint")
 
     assert result.error == "PM filed no ticket for the goal"
 
@@ -114,7 +114,7 @@ def test_pm_that_files_but_never_summarizes_fails_honestly(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
+        result = run_scope(settings, "run-pm-1", "Ship a slug endpoint")
 
     assert result.error == "PM filed tickets without posting its summary"
     assert result.ticket_urls == ["https://github.test/i/7"]
@@ -138,7 +138,7 @@ def test_pm_summary_comment_denied_is_a_tool_error_then_an_honest_failure(
     )
 
     with scripted(gateway, llm):
-        result = pm_dispatch(settings, "run-pm-1", "Ship a slug endpoint")
+        result = run_scope(settings, "run-pm-1", "Ship a slug endpoint")
 
     assert result.error == "PM filed tickets without posting its summary"
     assert result.ticket_urls == ["https://github.test/i/7"]

@@ -13,7 +13,7 @@ from mockllm.app import COST_PER_1K_TOKENS, create_app
 
 client = TestClient(create_app())
 
-PM_SYSTEM = "You are the product manager of an agent software company."
+PM_SYSTEM = "# Poseidon procedure: scope\nYou are the product manager."
 GOAL_ITEM = {
     "type": "message",
     "role": "user",
@@ -65,7 +65,7 @@ def test_a_toolless_completion_is_a_completed_message_not_a_404():
     body = post(
         {
             "model": "gpt-5.6-luna",
-            "instructions": "You are the product manager. A heartbeat decision.",
+            "instructions": "# Poseidon procedure: decide\nChoose the next action.",
             "input": [DECIDE_ITEM],
         }
     )
@@ -174,7 +174,7 @@ def test_chat_completions_surface_is_unchanged():
         json={
             "model": "mock-brain",
             "messages": [
-                {"role": "system", "content": "You are an engineer."},
+                {"role": "system", "content": "# Poseidon procedure: implement\n…"},
                 {"role": "user", "content": "Task: anything"},
             ],
         },

@@ -193,6 +193,7 @@ exception: it carries nothing at all, because it decides nothing.
 | `heartbeat` | `wake` | Nothing — no arguments, no verdict. It ends the wait to the next tick, which observes, decides and is authorized like any other; the platform sends one when a run of the company reaches its end. |
 | `intake` | `intake` | The intake gate, when the blueprint declares `resolved_by: human` (the shipped example declares no intake gate). |
 | `implement` | `budget` | A budget pause: approved means the cap was raised and the run continues; rejected finalizes the run. |
+| `intake` | `budget` | Same as in implement. |
 | `review` | `budget` | Same as in implement. |
 | `review` | `merge` | **The merge gate.** Approved releases the platform-identity merge; rejected closes the run without merging. Under `resolved_by: policy` the compiled decision may release the merge itself before the gate ever parks — but this signal still resolves it, so the human override survives delegation (see below). |
 

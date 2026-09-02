@@ -176,8 +176,9 @@ class CrewActivities:
             "MCP_GATEWAY_URL": f"http://mcp-gateway.{platform}.svc.cluster.local:8080",
             "LLM_PROXY_URL": f"http://llm-gateway.{platform}.svc.cluster.local:4000",
             "MODEL": self._settings.model,
+            "ROLE": spec["role_template"],
             "TARGET_REPO": self._settings.target_repo,
-            "MAX_ITERATIONS": str(self._settings.max_iterations),
+            "VERIFY_CYCLES": str(self._settings.verify_cycles),
             "GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token",
         }
         # The teardown race guard: a retry still in flight while the run

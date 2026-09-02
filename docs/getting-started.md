@@ -271,7 +271,7 @@ waits for a look. Each tick:
 1. **Observes** the open backlog, the delivered-but-unreviewed PRs (still
    open on the git host — one you merged by hand simply drops out), the
    in-flight runs and today's spend.
-2. **Dispatches the PM in a toolless *decide* mode** for exactly one
+2. **Dispatches the PM's toolless *decide* procedure** for exactly one
    action — implement a ticket, review a PR, or idle — with a required
    one-line rationale, journaled as a `heartbeat.decide` audit event.
 3. **Starts the chosen run** only if it wins the compiled `heartbeat.start`

@@ -242,6 +242,12 @@ class InMemoryAgentInstances:
             "status": status,
         }
 
+    def for_company(self, company: str) -> list[dict[str, Any]]:
+        return sorted(
+            (dict(r) for r in self.rows.values() if r["company"] == company),
+            key=lambda r: r["standing_role"],
+        )
+
     def get(self, agent_id: str) -> dict[str, Any] | None:
         return self.rows.get(agent_id)
 

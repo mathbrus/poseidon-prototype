@@ -60,32 +60,24 @@ Progress is recovered from the history itself — `_made_calls` counts how
 often the assistant already called a given tool — rather than from any
 counter the server would lose on restart.
 
-Phase selection mirrors how the real dispatch modes actually differ: by
-the **offered tool surface** and the system prompt. The SDK's own
-`finish`/`think` control tools ride along on every conversation and say
-nothing about the Poseidon phase, so they are filtered out first:
+The script is chosen by the **procedure** the system prompt names: every
+prompt file the agent host ships opens with `# Poseidon procedure: <name>`
+(the host's `PROCEDURE_HEADER`), and that one line is the whole key —
+the offered tools are accepted on the wire and ignored. A prompt without
+the header gets a plain reply saying so.
 
-```python
-_CONTROL_TOOLS = {"finish", "think"}
+| Procedure | Scripted behaviour |
+|---|---|
+| `decide` | a single completion naming one action from the observation, with a rationale |
+| `scope` | file one ticket (an ordered contract-then-implement pair under a contract-first goal), record the crew request, post the one-paragraph summary as a comment on each ticket filed (numbers read back from the `create_issue` observations), then stop |
+| `review` | read the PR diff, run the suite, post one findings comment, end with a structured verdict (injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read; findings and then silence — no verdict at all — on `REVIEW_ABORT_MARKER`) |
+| `implement` | write `slugify.py` + its test once, then answer in plain text — which ends the SDK conversation so the host runs the advisory verify |
+| `deliver` | commit and open the PR in one batch |
 
-
-def _offered(tools: list[dict[str, Any]] | None) -> set[str]:
-    return {t["function"]["name"] for t in tools or []} - _CONTROL_TOOLS
-```
-
-The checks run in order; the first match wins:
-
-| Keyed on | Phase | Scripted behaviour |
-|---|---|---|
-| `"heartbeat decision"` in the system prompt | decide | a single completion naming one action from the observation, with a rationale |
-| `"product manager"` in the system prompt | PM | file one ticket (an ordered contract-then-implement pair under a contract-first goal), record the crew request, post the one-paragraph summary as a comment on each ticket filed (numbers read back from the `create_issue` observations), then stop |
-| `comment_pr` offered | reviewer | read the PR diff, run the suite, post one findings comment, end with a structured verdict (injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read; findings and then silence — no verdict at all — on `REVIEW_ABORT_MARKER`) |
-| `Crew: contract-authoring` in the task | contract author | write the contract tree (gutted to a smoke check under `STEERED_CONTRACT_MARKER`), then deliver it |
-| tools without `open_pr` | act | write `slugify.py` + its test once, then answer in plain text — which ends the SDK conversation so the host runs the advisory verify |
-| tools with `open_pr` | deliver | commit and open the PR in one batch |
-
-The decide and PM loops are keyed on the system prompt, not on a tool
-surface, which is why they are checked before the tool-keyed phases. The deliver script batches commit +
+Within `implement` and `deliver`, a task carrying the `Crew:
+contract-authoring` trailer plays the contract author instead: write the
+contract tree (gutted to a smoke check under `STEERED_CONTRACT_MARKER`),
+then deliver it. The deliver script batches commit +
 `open_pr` into one completion so one SDK step is one delivery attempt:
 the deliver-step cap is small, and the injected scenario must fit
 attempt–deny–recover within it. Once a delivery succeeded (`_pr_opened`

@@ -1,8 +1,8 @@
 """The intake workflow: goal text in, tickets and
 recorded crew intent out.
 
-    create_intake_run -> check_budget -> [gate slot] -> dispatch_pm ->
-    finalize_intake
+    create_intake_run -> check_budget -> intake_config -> [gate slot] ->
+    dispatch the conductor's scope procedure -> finalize_intake
 
 The PM does the scoping itself, through governed tools: it files tickets
 via `issues.*` and records the `crew.request` for feature-delivery under
@@ -18,7 +18,8 @@ list) — the injected-conductor red-team test enters here.
 No human gate by default — but the slot exists and reads the blueprint's
 `workflows.intake.gates` like any other gate: declare
 `gates.intake.resolved_by: human` and the workflow parks on the `intake`
-signal before dispatching the PM.
+signal before dispatching the PM. The dispatch rides `RunWorkflow.dispatch`,
+so a budget stop parks on the `budget` signal exactly as in implement.
 """
 
 import asyncio
@@ -31,7 +32,6 @@ from temporalio.exceptions import ActivityError
 
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
-    DISPATCH_RETRY,
     STEP_RETRY,
     TEARDOWN_RETRY,
     RunWorkflow,
@@ -50,7 +50,14 @@ class IntakeInput:
 class IntakeWorkflow(RunWorkflow):
     def __init__(self) -> None:
         self._phase = "running"
+        self._budget_gate = Gate("budget")
         self._intake_gate = Gate("intake")
+
+    @workflow.signal
+    def budget(self, approved: bool, payload: str | None = None) -> None:
+        """`poseidon signal <run_id> budget --workflow intake`: resolve a
+        budget pause, exactly as in implement."""
+        self._budget_gate.resolve(approved, payload)
 
     @workflow.signal
     def intake(self, approved: bool, payload: str | None = None) -> None:
@@ -80,13 +87,13 @@ class IntakeWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
                 retry_policy=STEP_RETRY,
             )
-            gates = await workflow.execute_activity(
-                "intake_gate_config",
+            config = await workflow.execute_activity(
+                "intake_config",
                 args=[],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
-            if ((gates or {}).get("intake") or {}).get("resolved_by") == "human":
+            if (config["gates"].get("intake") or {}).get("resolved_by") == "human":
                 # The configured gate: park until a human answers or the
                 # escalation deadline lapses. Transitions are
                 # process-gate audit events like every other gate's.
@@ -103,15 +110,8 @@ class IntakeWorkflow(RunWorkflow):
                 if outcome.kind != "approved":
                     error = f"intake gate {outcome.kind}"
                     raise _GateClosed()
-            result = await workflow.execute_activity(
-                "dispatch_pm",
-                args=[input.run_id, input.goal_text],
-                start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
-                schedule_to_close_timeout=timedelta(
-                    seconds=timeouts.dispatch_schedule_to_close_s
-                ),
-                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
-                retry_policy=DISPATCH_RETRY,
+            result = await self.dispatch(
+                input.run_id, config["conductor_url"], "scope", input.goal_text, timeouts
             )
         except _GateClosed:
             pass

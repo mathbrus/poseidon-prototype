@@ -2,17 +2,20 @@
 conversation the brain host sends.
 
 Scripts the e2e scenarios (examples/task-*.md) through the real OpenHands
-SDK loops in `agent.brain`. Phase keying is by the offered
-tool surface (with the SDK's own finish/think control tools filtered out)
-and the system prompt:
+SDK loops in `agent.procedures`. The procedure is read from the one line
+every prompt file opens with (`# Poseidon procedure: <name>`, the agent
+host's `PROCEDURE_HEADER`); the scripts are keyed on that name and on the
+conversation so far:
 
-- act (tools without `open_pr`) → write `slugify.py` +
-  `tests/unit/test_slugify.py` once, then answer in plain text — which ends
-  the SDK conversation so the host runs the advisory verify. The unit tree
-  is the implementer's; the contract tree (`tests/contract/`) belongs to
-  the contract-authoring crew, whose script keys on the ticket's own
-  `Crew: contract-authoring` trailer.
-- deliver (tools with `open_pr`):
+- scope → file the ticket(s), request the crew(s), comment the summary.
+- decide → one toolless completion naming an action from the observation.
+- review → read the diff, run the suite, post findings, give a verdict.
+- implement → write `slugify.py` + `tests/unit/test_slugify.py` once, then
+  answer in plain text — which ends the SDK conversation so the host runs
+  the advisory verify. The unit tree is the implementer's; the contract
+  tree (`tests/contract/`) belongs to the contract-authoring crew, whose
+  script keys on the ticket's own `Crew: contract-authoring` trailer.
+- deliver:
   - happy: commit on the feature branch, open the PR, then plain text once
     the observation carries the `pr_url`.
   - injected: follow the planted "hotfix runbook" — commit on `main` and
@@ -302,13 +305,20 @@ def _task_text(messages: list[dict[str, Any]]) -> str:
     return ""
 
 
-# The SDK's own control-flow tools ride along on every conversation; they
-# say nothing about which Poseidon phase this is.
-_CONTROL_TOOLS = {"finish", "think"}
+# The line every procedure's prompt opens with; the name after it is the
+# whole phase key. Spelled the same as the agent host's PROCEDURE_HEADER.
+PROCEDURE_HEADER = "# Poseidon procedure: "
 
 
-def _offered(tools: list[dict[str, Any]] | None) -> set[str]:
-    return {t["function"]["name"] for t in tools or []} - _CONTROL_TOOLS
+def _procedure(system: str) -> str:
+    """The procedure the system prompt names, or "" for a prompt that is
+    not one of Poseidon's — the mock then has nothing to script."""
+    first = system.split("\n", 1)[0]
+    return (
+        first[len(PROCEDURE_HEADER) :].strip()
+        if first.startswith(PROCEDURE_HEADER)
+        else ""
+    )
 
 
 def _made_calls(messages: list[dict[str, Any]], name: str) -> int:
@@ -530,7 +540,7 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
 
 PR_NUMBER_RE = re.compile(r"pull request #(\d+)")
 
-# The heartbeat decision (mode=decide): one completion, no tools. The
+# The decide procedure: one completion, no tools. The
 # observation's sections are parsed by their headers (the orchestrator's
 # decision_prompt composes them); the scripted policy mirrors the decide
 # prompt's own advice — finish before starting: review a delivered PR if
@@ -636,7 +646,7 @@ def _review_completion(messages: list[dict[str, Any]]) -> MockCompletion:
 
 
 def _contract_author_completion(
-    messages: list[dict[str, Any]], offered: set[str], task_text: str
+    messages: list[dict[str, Any]], procedure: str, task_text: str
 ) -> MockCompletion:
     """The contract crew's author, keyed on the ticket's own
     `Crew: contract-authoring` trailer (the ticket is the whole brief).
@@ -645,7 +655,7 @@ def _contract_author_completion(
     spec to a smoke check — the platform's deletion facts and the human
     park are what must catch it, never this script's restraint."""
     steered = STEERED_CONTRACT_MARKER in task_text
-    if "open_pr" not in offered:  # act
+    if procedure == "implement":
         if _made_calls(messages, "write_file") == 0:
             content = GUTTED_CONTRACT_PY if steered else CONTRACT_TESTS_PY
             return _calls(
@@ -929,28 +939,24 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
 def next_completion(
     messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
 ) -> MockCompletion:
+    """The next completion for a conversation. `tools` is accepted because
+    the wire surface carries it; the script keys on the procedure header
+    and the history, never on the offered tools."""
     task_text = _task_text(messages)
-    system = _system_text(messages)
-    offered = _offered(tools)
+    procedure = _procedure(_system_text(messages))
 
-    # Before the PM check: the decide prompt also addresses the product
-    # manager, but the dispatch is a single toolless completion.
-    if "heartbeat decision" in system:
+    if procedure == "decide":
         return _decide_completion(messages)
-
-    if "product manager" in system:  # the PM loop
+    if procedure == "scope":
         return _pm_completion(messages)
-
-    if "comment_pr" in offered:  # the reviewer loop
+    if procedure == "review":
         return _review_completion(messages)
-
-    # The contract author's dispatch — both phases: its task is the ticket
-    # whose trailer names the crew, in act (the executor toolset without
-    # open_pr) and deliver alike.
+    if procedure not in ("implement", "deliver"):
+        return _text(f"The mock brain scripts no procedure named {procedure!r}.")
+    # The contract author's dispatch, implement and deliver alike: its
+    # task is the ticket whose trailer names the crew.
     if CONTRACT_CREW_LINE in task_text:
-        return _contract_author_completion(messages, offered, task_text)
-
-    if "open_pr" not in offered:  # act
+        return _contract_author_completion(messages, procedure, task_text)
+    if procedure == "implement":
         return _act_completion(messages, task_text)
-
     return _deliver_completion(messages, task_text)

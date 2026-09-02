@@ -16,8 +16,8 @@ import pytest
 import uvicorn
 from mcp.server.fastmcp import FastMCP
 
-from agent.brain import GatewayBridge
 from agent.gateway_client import ToolCallError
+from agent.procedures import GatewayBridge
 
 
 @pytest.fixture(scope="module")

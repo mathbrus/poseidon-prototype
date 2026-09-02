@@ -1,5 +1,5 @@
 """The free e2e rehearsal: the real brain host
-(`agent.brain`) driven over real HTTP against the mock server — proving the
+(`agent.procedures`) driven over real HTTP against the mock server — proving the
 whole wire contract (routes, response shape, tool-call JSON, the SDK's
 litellm transport) without a cluster or a paid token.
 
@@ -24,14 +24,14 @@ import httpx
 import pytest
 import uvicorn
 
-import agent.brain as brain
-from agent.brain import (
-    deliver_dispatch,
-    implement_dispatch,
-    review_dispatch,
-)
+import agent.procedures as procedures
 from agent.config import AgentSettings
 from agent.gateway_client import ToolCallError
+from agent.procedures import (
+    run_deliver,
+    run_implement,
+    run_review,
+)
 from mockllm.app import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -72,9 +72,10 @@ def settings(llm_url: str, model: str = "mock-brain") -> AgentSettings:
         mcp_gateway_url="http://gateway.test:8080",
         llm_proxy_url=llm_url,
         model=model,
+        role="backend-engineer",
         gateway_token_file=str(token),
         target_repo="example/target",
-        max_iterations=3,
+        verify_cycles=3,
     )
 
 
@@ -147,7 +148,9 @@ class FakeBridge:
 
 
 def bridged(gateway: FakeGateway):
-    return patch.object(brain, "GatewayBridge", lambda url, token: FakeBridge(gateway))
+    return patch.object(
+        procedures, "GatewayBridge", lambda url, token: FakeBridge(gateway)
+    )
 
 
 def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
@@ -160,14 +163,14 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        claim = implement_dispatch(cfg, "run-mock-e1", task_text)
+        claim = run_implement(cfg, "run-mock-e1", task_text)
     assert claim.error is None
     assert claim.pr_url is None  # the brain never self-delivers
     assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
     assert not any(tool == "git.open_pr" for tool, _ in gateway.calls)
 
     with bridged(gateway):
-        delivered = deliver_dispatch(cfg, "run-mock-e1", task_text)
+        delivered = run_deliver(cfg, "run-mock-e1", task_text)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
@@ -186,13 +189,13 @@ def test_happy_task_over_the_responses_surface(mock_llm_url):
     cfg = settings(mock_llm_url, model="gpt-5.6-luna")
     gateway = FakeGateway()
     with bridged(gateway):
-        claim = implement_dispatch(cfg, "run-mock-resp", task_text)
+        claim = run_implement(cfg, "run-mock-resp", task_text)
     assert claim.error is None
     assert claim.pr_url is None
     assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
 
     with bridged(gateway):
-        delivered = deliver_dispatch(cfg, "run-mock-resp", task_text)
+        delivered = run_deliver(cfg, "run-mock-resp", task_text)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
@@ -206,11 +209,11 @@ def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        claim = implement_dispatch(cfg, "run-mock-e2", task_text)
+        claim = run_implement(cfg, "run-mock-e2", task_text)
     assert claim.error is None and claim.pr_url is None
 
     with bridged(gateway):
-        delivered = deliver_dispatch(cfg, "run-mock-e2", task_text)
+        delivered = run_deliver(cfg, "run-mock-e2", task_text)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"]
@@ -263,7 +266,7 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     gateway = GatedFakeGateway()
 
     with bridged(gateway):
-        claim = implement_dispatch(cfg, "run-mock-e3", task_text)
+        claim = run_implement(cfg, "run-mock-e3", task_text)
     assert claim.error is None and claim.pr_url is None
     assert "tests/unit/test_gate.py" in gateway.files
 
@@ -281,21 +284,21 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
         " pass. Test output (tail):\n1 failed"
     )
     with bridged(gateway):
-        reclaim = implement_dispatch(cfg, "run-mock-e3", feedback)
+        reclaim = run_implement(cfg, "run-mock-e3", feedback)
     assert reclaim.error is None
     assert "tests/unit/test_gate.py" not in gateway.files
 
     # The platform's re-verify is green; only now is delivery dispatched.
     assert (asyncio.run(gateway.call("sandbox.run_tests", {})))["exit_code"] == 0
     with bridged(gateway):
-        delivered = deliver_dispatch(cfg, "run-mock-e3", task_text)
+        delivered = run_deliver(cfg, "run-mock-e3", task_text)
     assert delivered.pr_url == PR_URL
 
 
 def test_review_dispatch_reads_executes_and_posts_findings(mock_llm_url):
     """The reviewer's script: read the PR diff, run
     the suite in the review sandbox, post exactly one findings comment —
-    driven by the production review_dispatch against the mock brain, with
+    driven by the production run_review against the mock brain, with
     the same task-text shape orchestrator.workflows.review.review_task
     composes."""
     task_text = (
@@ -307,7 +310,7 @@ def test_review_dispatch_reads_executes_and_posts_findings(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        result = review_dispatch(cfg, "run-mock-review", task_text)
+        result = run_review(cfg, "run-mock-review", task_text)
     assert result.error is None
     assert result.comment_urls == [f"{PR_URL}#issuecomment-1"]
     assert result.verdict == "pass"
