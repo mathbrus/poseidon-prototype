@@ -10,8 +10,8 @@ def make_event(**overrides):
     fields = {
         "ts": "2026-07-20T17:00:00+00:00",
         "run_id": "run-01JZXA0000000000000000000A",
-        "agent_id": "backend-engineer-1",
-        "role": "backend-engineer",
+        "agent_id": "implementer-1",
+        "role": "implementer",
         "tool": "sandbox.read_file",
         "args_digest": "a" * 64,
         "decision": "allow",
@@ -34,8 +34,8 @@ def test_round_trip_matches_contract():
     assert parsed == {
         "ts": "2026-07-20T17:00:00+00:00",
         "run_id": "run-01JZXA0000000000000000000A",
-        "agent_id": "backend-engineer-1",
-        "role": "backend-engineer",
+        "agent_id": "implementer-1",
+        "role": "implementer",
         "tool": "sandbox.read_file",
         "args_digest": "a" * 64,
         "decision": "deny",

@@ -57,17 +57,17 @@ answer.
 A compiled Poseidon rule looks like this:
 
 ```rego
-allow_rules contains "crew_feature_delivery_executor_sandbox_exec" if {
+allow_rules contains "crew_feature_delivery_implementer_sandbox_exec" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-delivery"
-	input.crew_role == "executor"
+	input.role == "implementer"
 	input.tool == "sandbox.exec"
 	bound_to_run
 }
 ```
 
-Read it as: *an ephemeral caller of hello-saas, acting as the executor of a
+Read it as: *an ephemeral caller of hello-saas, acting as the implementer of a
 feature-delivery crew, may call `sandbox.exec` — provided its run binding
 was verified.* Everything is default-deny; the lowest-sorting deny wins over
 any allow.
@@ -200,7 +200,7 @@ It never appears in the standing agents and leaves no standing structure behind.
 
 The rule the compiler enforces is that **execution is always ephemeral**. A
 standing agent must be a *spawner* — a conductor with `may_spawn` authority.
-A blueprint that tries to hire a standing `backend-engineer` is a compile
+A blueprint that tries to hire a standing `implementer` is a compile
 error, because a standing agent holding write tools is exactly the thing
 whose blast radius you cannot bound.
 

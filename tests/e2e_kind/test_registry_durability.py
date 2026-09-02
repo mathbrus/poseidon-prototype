@@ -82,8 +82,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "crew_role": "executor",
-                        "role_template": "backend-engineer",
+                        "role": "implementer",
                         "parent_agent_id": "pm-1",
                     }
                 )

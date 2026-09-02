@@ -96,12 +96,10 @@ async def test_bound_agent_call_is_proxied_to_sandbox(app, backends, audit):
 
     event = audit_events(audit)[-1]
     assert event["tool"] == "sandbox.read_file"
-    assert (
-        event["agent_id"] == "backend-engineer-1" and event["role"] == "backend-engineer"
-    )
+    assert event["agent_id"] == "implementer-1" and event["role"] == "implementer"
     assert event["run_id"] == RUN_ID
     assert event["decision"] == "allow"
-    assert event["rule"] == "role_backend_engineer_sandbox.read_file"
+    assert event["rule"] == "role_implementer_sandbox.read_file"
     assert event["backend_status"] == "ok"
     assert SHA256_HEX.match(event["args_digest"])
 

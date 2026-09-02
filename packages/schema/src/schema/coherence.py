@@ -1,63 +1,53 @@
 """Cross-checks of a blueprint against the versioned catalogs.
 
-Properties of the *document* against a catalog — does every standing_role name a
-template, does every ephemeral agent stay inside its catalog agent's
-allow-list — as opposed to well-formedness (the JSON Schema) or company
-coherence against cluster state (the compiler). Shared by `schema.validate`
-and `compiler.checks`: the compiler accepts unvalidated dicts and must fail
-closed on the same problems, so one implementation serves both. Malformed
-values are skipped, never reported: the schema pass names those.
+Properties of the *document* against a catalog — does every hire name a
+role, does every crew list its catalog roles, does every tool scope stay
+inside its role's ceiling — as opposed to well-formedness (the JSON
+Schema) or company coherence against cluster state (the compiler). Shared
+by `schema.validate` and `compiler.checks`: the compiler accepts
+unvalidated dicts and must fail closed on the same problems, so one
+implementation serves both. Malformed values are skipped, never reported:
+the schema pass names those.
 """
 
 from typing import Any
 
-from schema.catalog import CrewTemplate, RoleTemplate
+from schema.catalog import CrewTemplate, Role
 from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
-def _known(names: dict[str, Any]) -> str:
+def _known(names: dict[str, Any] | tuple[str, ...]) -> str:
     return ", ".join(sorted(names))
 
 
-def role_template_problems(
-    document: Any, roles: dict[str, RoleTemplate], crews: dict[str, CrewTemplate]
+def hire_problems(
+    document: Any, roles: dict[str, Role], crews: dict[str, CrewTemplate]
 ) -> list[str]:
-    """Every standing_role names a catalog role template, and every crew it may spawn
-    names a catalog crew template."""
+    """Every hire names a catalog role, and every crew it may spawn names a
+    catalog crew."""
     problems = []
-    standing_roles = document.get("standing") or {}
-    for standing_role, role in (
-        standing_roles.items() if isinstance(standing_roles, dict) else []
-    ):
-        if not isinstance(role, dict) or not isinstance(role.get("template"), str):
+    standing = document.get("standing") or {}
+    for name, hire in standing.items() if isinstance(standing, dict) else []:
+        if not isinstance(hire, dict) or not isinstance(hire.get("role"), str):
             continue
-        if role["template"] not in roles:
+        if hire["role"] not in roles:
             problems.append(
-                f"standing.{standing_role}.template: {role['template']!r} is "
-                f"not in the role catalog (known: {_known(roles)})"
+                f"standing.{name}.role: {hire['role']!r} is not in the role "
+                f"catalog (known: {_known(roles)})"
             )
             continue
-        for crew in (role.get("may_spawn") or {}).get("crew") or []:
+        for crew in (hire.get("may_spawn") or {}).get("crew") or []:
             if crew not in crews:
                 problems.append(
-                    f"standing.{standing_role}.may_spawn.crew: {crew!r} is "
-                    f"not a known crew template (known: {_known(crews)})"
+                    f"standing.{name}.may_spawn.crew: {crew!r} is not a known "
+                    f"crew (known: {_known(crews)})"
                 )
     return problems
 
 
-def crew_problems(
-    document: Any,
-    roles: dict[str, RoleTemplate],
-    crews: dict[str, CrewTemplate],
-    *,
-    report_unknown_tools: bool,
-) -> list[str]:
-    """Every `crews:` section names a catalog crew; every agent is one of
-    that crew's agents, on the catalog's role template, with a non-empty
-    allow-list that narrows the catalog agent's (never widens it) and holds
-    nothing platform-only. Unknown tool names are reported only on request:
-    the schema's enum already names them on the validate path."""
+def crew_problems(document: Any, crews: dict[str, CrewTemplate]) -> list[str]:
+    """Every `crews:` entry names a catalog crew and lists exactly that
+    crew's roles — the blueprint names the crew, the catalog defines it."""
     problems = []
     declared = document.get("crews") or {}
     for crew_name, crew in declared.items() if isinstance(declared, dict) else []:
@@ -66,59 +56,63 @@ def crew_problems(
         catalog_crew = crews.get(crew_name)
         if catalog_crew is None:
             problems.append(
-                f"crews.{crew_name}: not a known crew template (known: {_known(crews)})"
+                f"crews.{crew_name}: not a known crew (known: {_known(crews)})"
             )
-        agents = crew.get("agents")
-        for agent_name, agent in (agents if isinstance(agents, dict) else {}).items():
-            if not isinstance(agent, dict):
-                continue
-            where = f"crews.{crew_name}.agents.{agent_name}"
-            catalog_agent = catalog_crew.agents.get(agent_name) if catalog_crew else None
-            if catalog_crew is not None and catalog_agent is None:
-                problems.append(
-                    f"{where}: not a agent of the {crew_name!r} crew "
-                    f"template (agents: {_known(catalog_crew.agents)})"
-                )
-            role_template = agent.get("role_template")
-            if isinstance(role_template, str) and role_template not in roles:
-                problems.append(
-                    f"{where}.role_template: {role_template!r} is not in the "
-                    f"role catalog (known: {_known(roles)})"
-                )
-            elif (
-                catalog_agent is not None
-                and isinstance(role_template, str)
-                and role_template != catalog_agent.role_template
-            ):
-                problems.append(
-                    f"{where}.role_template: {role_template!r} does not match "
-                    f"the catalog's {catalog_agent.role_template!r} for this "
-                    f"agent — the blueprint names the template, the catalog "
-                    f"defines it"
-                )
-            declared_tools = agent.get("tools")
-            tools = (
-                [t for t in declared_tools if isinstance(t, str)]
-                if isinstance(declared_tools, list)
-                else []
+            continue
+        listed = crew.get("roles")
+        if not isinstance(listed, list) or not all(isinstance(r, str) for r in listed):
+            continue
+        if set(listed) != set(catalog_crew.roles):
+            problems.append(
+                f"crews.{crew_name}.roles: {sorted(listed)} does not match the "
+                f"catalog's {sorted(catalog_crew.roles)} — the blueprint names "
+                f"the crew, the catalog defines it"
             )
-            if isinstance(declared_tools, list) and not tools:
-                problems.append(f"{where}.tools: must not be empty")
-            for tool in tools:
-                if tool not in KNOWN_TOOLS:
-                    if report_unknown_tools:
-                        problems.append(
-                            f"{where}.tools: {tool!r} is not a tool the gateway serves"
-                        )
-                elif tool in PLATFORM_ONLY:
-                    continue  # platform_tool_problems names it
-                elif catalog_agent is not None and tool not in catalog_agent.tools:
-                    problems.append(
-                        f"{where}.tools: {tool!r} is not in the catalog agent's "
-                        f"allow-list — the blueprint narrows the catalog, never "
-                        f"widens it (allowed: {_known(catalog_agent.tools)})"
-                    )
-            problems += platform_tool_problems(f"{where}.tools", tools)
+    return problems
+
+
+def tool_scope_problems(
+    document: Any, roles: dict[str, Role], *, report_unknown_tools: bool
+) -> list[str]:
+    """Every `tools.<role>` names a catalog role and holds a non-empty
+    allow-list that narrows the role's catalog tools (never widens them)
+    and holds nothing platform-only. Unknown tool names are reported only
+    on request: the schema's enum already names them on the validate
+    path."""
+    problems = []
+    scopes = document.get("tools") or {}
+    for role_name, scope in scopes.items() if isinstance(scopes, dict) else []:
+        if not isinstance(scope, dict):
+            continue
+        where = f"tools.{role_name}.allow"
+        role = roles.get(role_name)
+        if role is None:
+            problems.append(
+                f"tools.{role_name}: {role_name!r} is not in the role catalog "
+                f"(known: {_known(roles)})"
+            )
+            continue
+        declared = scope.get("allow")
+        tools = (
+            [t for t in declared if isinstance(t, str)]
+            if isinstance(declared, list)
+            else []
+        )
+        if isinstance(declared, list) and not tools:
+            problems.append(f"{where}: must not be empty")
+        for tool in tools:
+            if tool not in KNOWN_TOOLS:
+                if report_unknown_tools:
+                    problems.append(f"{where}: {tool!r} is not a tool the gateway serves")
+            elif tool in PLATFORM_ONLY:
+                continue  # platform_tool_problems names it
+            elif tool not in role.tools:
+                problems.append(
+                    f"{where}: {tool!r} is not in the {role_name!r} role's "
+                    f"catalog tools — the blueprint narrows the catalog, never "
+                    f"widens it (allowed: {_known(role.tools)})"
+                )
+        problems += platform_tool_problems(where, tools)
     return problems
 
 
@@ -135,10 +129,10 @@ def platform_tool_problems(where: str, declared: list[str]) -> list[str]:
     ]
 
 
-def contract_role_problems(document: Any, roles: dict[str, RoleTemplate]) -> list[str]:
-    """The contract tree's owners name catalog role templates — a caller is
-    keyed on what it *is*, and an unknown owner would compile a tree nobody
-    can ever deliver into: the spec frozen by typo."""
+def contract_role_problems(document: Any, roles: dict[str, Role]) -> list[str]:
+    """The contract tree's owners name catalog roles — a caller is keyed on
+    what it *is*, and an unknown owner would compile a tree nobody can ever
+    deliver into: the spec frozen by typo."""
     contract = (document.get("policies") or {}).get("contract_tests")
     declared = contract.get("roles") if isinstance(contract, dict) else None
     return [

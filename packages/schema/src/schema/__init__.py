@@ -3,16 +3,15 @@
 The blueprint is the one source of truth the compiler turns into
 every enforcement projection. This package owns what a blueprint may say —
 JSON Schema for the nine sections plus the versioned role and crew
-template catalogs — and nothing about what it compiles to.
+catalogs — and nothing about what it compiles to.
 """
 
 from schema.catalog import (
     CATALOG_VERSION,
     CREW_TEMPLATES,
-    ROLE_TEMPLATES,
+    ROLES,
     CrewTemplate,
-    EphemeralAgent,
-    RoleTemplate,
+    Role,
 )
 from schema.validate import (
     BLUEPRINT_SCHEMA,
@@ -25,10 +24,9 @@ __all__ = [
     "BLUEPRINT_SCHEMA",
     "CATALOG_VERSION",
     "CREW_TEMPLATES",
-    "EphemeralAgent",
     "CrewTemplate",
-    "ROLE_TEMPLATES",
-    "RoleTemplate",
+    "ROLES",
+    "Role",
     "ValidationError",
     "load_blueprint",
     "validate_blueprint",

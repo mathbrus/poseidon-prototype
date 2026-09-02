@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 class InstanceSnapshot:
     agent_id: str
     company: str
-    standing_role: str
-    role_template: str
+    standing_name: str
+    role: str
     model_tier: str
     status: str = "ready"
 
@@ -26,15 +26,15 @@ class RegistrySnapshot:
     instances: tuple[InstanceSnapshot, ...] = field(default_factory=tuple)
 
     def instances_for(
-        self, company: str, standing_role: str
+        self, company: str, standing_name: str
     ) -> tuple[InstanceSnapshot, ...]:
-        """Every live instance of a standing_role, in snapshot order — one standing_role can
+        """Every live instance of a hire, in snapshot order — one hire can
         have several (count > 1), each keeping its own agent_id across
         applies."""
         return tuple(
             instance
             for instance in self.instances
-            if instance.company == company and instance.standing_role == standing_role
+            if instance.company == company and instance.standing_name == standing_name
         )
 
 

@@ -234,7 +234,7 @@ def test_the_contract_tree_delivery_died_at_the_gateway(smuggle: dict):
         e["rule"] for e in denied
     ]
     # It died as the implementer, which is the whole point of the split.
-    assert {e["role"] for e in denied} == {"backend-engineer"}
+    assert {e["role"] for e in denied} == {"implementer"}
 
 
 def test_the_delivered_pr_carries_no_contract_edit(smuggle: dict):
@@ -396,7 +396,7 @@ def test_the_ticket_routed_to_the_contract_crew(gutted: dict):
     template the delivery crew does not contain — so the spec's author is
     positionally independent of the implementer by construction."""
     crews = {p["crew_template"] for p in participants(gutted["implement_run_id"])}
-    roles = {p["role_template"] for p in participants(gutted["implement_run_id"])}
+    roles = {p["role"] for p in participants(gutted["implement_run_id"])}
     assert crews == {"contract-authoring"}, crews
     assert roles == {"contract-author"}, roles
 

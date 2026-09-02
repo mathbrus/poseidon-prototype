@@ -59,7 +59,7 @@ async def test_task_lifecycle_running_then_done():
         await release.wait()
         return ProcedureResult(pr_url="https://github.test/pull/1", iterations=2)
 
-    async with client(app_for("backend-engineer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=runner)) as http:
         resp = await post(http, "implement", "do it")
         assert resp.status_code == 202
 
@@ -101,7 +101,7 @@ async def test_procedure_result_error_maps_to_failed():
             iterations=3, error="tests still failing after 3 iterations"
         )
 
-    async with client(app_for("backend-engineer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=runner)) as http:
         await post(http, "implement", "do it")
         status = await poll_until_terminal(http, RUN_ID)
 
@@ -114,7 +114,7 @@ async def test_runner_crash_maps_to_failed():
     async def runner(run_id: str, task_text: str) -> ProcedureResult:
         raise RuntimeError("gateway unreachable")
 
-    async with client(app_for("backend-engineer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=runner)) as http:
         await post(http, "implement", "do it")
         status = await poll_until_terminal(http, RUN_ID)
 
@@ -123,7 +123,7 @@ async def test_runner_crash_maps_to_failed():
 
 
 async def test_unknown_run_is_404():
-    async with client(app_for("backend-engineer")) as http:
+    async with client(app_for("implementer")) as http:
         resp = await http.get("/task/run-GHOST")
     assert resp.status_code == 404
 
@@ -135,7 +135,7 @@ async def test_duplicate_run_id_is_409():
         await started.wait()
         return ProcedureResult(pr_url="https://pr", iterations=1)
 
-    async with client(app_for("backend-engineer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=runner)) as http:
         first = await post(http, "implement", "a")
         second = await post(http, "implement", "b")
         started.set()
@@ -157,7 +157,7 @@ async def test_terminal_run_restarts_on_redispatch():
             return ProcedureResult(error="budget_exhausted: cap reached")
         return ProcedureResult(pr_url="https://github.test/pull/2", iterations=1)
 
-    async with client(app_for("backend-engineer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=runner)) as http:
         first = await post(http, "implement", "one")
         assert first.status_code == 202
         status = await poll_until_terminal(http, RUN_ID)
@@ -178,7 +178,7 @@ async def test_running_run_still_answers_409():
         await release.wait()
         return ProcedureResult()
 
-    async with client(app_for("backend-engineer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=runner)) as http:
         await post(http, "implement", "one")
         conflict = await post(http, "implement", "again")
         assert conflict.status_code == 409
@@ -201,7 +201,7 @@ async def test_a_role_runs_only_its_own_procedures():
         assert "does not run the implement procedure" in refused.json()["detail"]
         assert (await http.get(f"/task/{RUN_ID}")).status_code == 404
 
-    async with client(app_for("backend-engineer", scope=never)) as http:
+    async with client(app_for("implementer", scope=never)) as http:
         assert (await post(http, "scope", "a goal")).status_code == 422
 
     async with client(app_for("no-such-role", implement=never)) as http:
@@ -209,7 +209,7 @@ async def test_a_role_runs_only_its_own_procedures():
 
 
 async def test_a_dispatch_must_name_its_procedure():
-    async with client(app_for("backend-engineer")) as http:
+    async with client(app_for("implementer")) as http:
         resp = await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
     assert resp.status_code == 422
 
@@ -227,7 +227,7 @@ async def test_review_verdict_flows_through_the_status_api():
             verdict_summary="Suite green; in scope.",
         )
 
-    async with client(app_for("sdet", review=fake_review)) as http:
+    async with client(app_for("reviewer", review=fake_review)) as http:
         await post(http, "review", "review")
         status = await poll_until_terminal(http, RUN_ID)
 

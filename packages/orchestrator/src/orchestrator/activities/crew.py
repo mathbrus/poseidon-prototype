@@ -2,8 +2,8 @@
 
 Bind writes the `run_participants` binding row (the fulfill half of the
 ephemeral-identity contract; the gateways own the verify half): the row
-maps the agent's per-run ServiceAccount to its run, crew coordinates,
-company and catalog template. Revoke terminates rows — the write that
+maps the agent's per-run ServiceAccount to its run, crew, company and
+catalog role. Revoke terminates rows — the write that
 kills the identity on its next gateway call, however long its projected
 tokens live.
 
@@ -79,24 +79,22 @@ class CrewActivities:
     async def bind_participant(self, spec: dict[str, Any]) -> dict[str, Any]:
         """Bind one ephemeral agent to one run: the participants row *is* the
         identity — it maps the agent's per-run ServiceAccount to its run,
-        crew coordinates, company and catalog template, and the gateways
-        resolve the SA against it on every call. Nothing is signed here.
+        crew, company and catalog role, and the gateways resolve the SA
+        against it on every call. Nothing is signed here.
 
-        spec: {run_id, company, crew_template, crew_role, role_template,
-        parent_agent_id}. Retry-safe: the agent_id derives from
-        {crew, crew_role, run}, so a re-bind lands on the same row — one
-        identity, never two. A re-bind after the run's teardown swept the
-        row raises `ParticipantRevoked`: revocation is final.
+        spec: {run_id, company, crew_template, role, parent_agent_id}.
+        Retry-safe: the agent_id derives from {crew, role, run}, so a
+        re-bind lands on the same row — one identity, never two. A re-bind
+        after the run's teardown swept the row raises `ParticipantRevoked`:
+        revocation is final.
         """
         started = time.monotonic()
-        agent_id = ephemeral_agent_id(
-            spec["crew_template"], spec["crew_role"], spec["run_id"]
-        )
+        agent_id = ephemeral_agent_id(spec["crew_template"], spec["role"], spec["run_id"])
         await asyncio.to_thread(self._bind_row, agent_id, spec)
         await self._emit(
             run_id=spec["run_id"],
             agent_id=agent_id,
-            role=spec["role_template"],
+            role=spec["role"],
             company=spec["company"],
             parent_agent_id=spec["parent_agent_id"],
             tool="lifecycle.bind",
@@ -122,9 +120,8 @@ class CrewActivities:
             spec["run_id"],
             spec["parent_agent_id"],
             spec["crew_template"],
-            spec["crew_role"],
+            spec["role"],
             company=spec["company"],
-            role_template=spec["role_template"],
             namespace=self._settings.sandbox_namespace,
             service_account=service_account_name(agent_id),
         )
@@ -160,23 +157,21 @@ class CrewActivities:
         The pod's only credential is the projected token the kubelet
         mounts — nothing token-shaped enters the env or workflow history.
 
-        spec: {run_id, company, crew_template, crew_role, role_template,
-        parent_agent_id}. Re-asserting the binding row lets a retry after
-        a crash converge on the same identity; a retry that lost the race
-        with its run's teardown raises `ParticipantRevoked` instead.
+        spec: {run_id, company, crew_template, role, parent_agent_id}.
+        Re-asserting the binding row lets a retry after a crash converge on
+        the same identity; a retry that lost the race with its run's
+        teardown raises `ParticipantRevoked` instead.
         """
         started = time.monotonic()
         provisioner = self._require_provisioner()
-        agent_id = ephemeral_agent_id(
-            spec["crew_template"], spec["crew_role"], spec["run_id"]
-        )
+        agent_id = ephemeral_agent_id(spec["crew_template"], spec["role"], spec["run_id"])
         await asyncio.to_thread(self._bind_row, agent_id, spec)
         platform = self._settings.platform_namespace
         env = {
             "MCP_GATEWAY_URL": f"http://mcp-gateway.{platform}.svc.cluster.local:8080",
             "LLM_PROXY_URL": f"http://llm-gateway.{platform}.svc.cluster.local:4000",
             "MODEL": self._settings.model,
-            "ROLE": spec["role_template"],
+            "ROLE": spec["role"],
             "TARGET_REPO": self._settings.target_repo,
             "VERIFY_CYCLES": str(self._settings.verify_cycles),
             "GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token",
@@ -202,7 +197,7 @@ class CrewActivities:
         await self._emit(
             run_id=spec["run_id"],
             agent_id=agent_id,
-            role=spec["role_template"],
+            role=spec["role"],
             company=spec["company"],
             parent_agent_id=spec["parent_agent_id"],
             tool="lifecycle.provision_pod",
@@ -276,8 +271,8 @@ class CrewActivities:
         """The fulfillment composition: consume the recorded request, then
         bind every agent of the crew and give each its own pod (one
         principal, one pod, one ServiceAccount). Returns the agents by
-        crew role, each with its identity and dispatch address; the
-        workflow dispatches, this activity never does.
+        role, each with its identity and dispatch address; the workflow
+        dispatches, this activity never does.
 
         spec: {run_id, company, crew_template, conductor, workflow?}.
         `workflow` names the calling workflow in the recorded decision
@@ -342,24 +337,20 @@ class CrewActivities:
         # to hand around.
         provisioned: dict[str, dict[str, Any]] = {}
         for agent in agents:
-            member_spec = {
+            agent_spec = {
                 "run_id": run_id,
                 "company": spec["company"],
                 "crew_template": crew_template,
-                "crew_role": agent["crew_role"],
-                "role_template": agent["role_template"],
+                "role": agent["role"],
                 "parent_agent_id": conductor,
             }
-            await self.bind_participant(member_spec)
-            pod = await self.provision_ephemeral_pod(member_spec)
-            provisioned[agent["crew_role"]] = {
-                "agent_id": pod["agent_id"],
-                "url": pod["url"],
-            }
+            await self.bind_participant(agent_spec)
+            pod = await self.provision_ephemeral_pod(agent_spec)
+            provisioned[agent["role"]] = {"agent_id": pod["agent_id"], "url": pod["url"]}
             await self._emit(
                 run_id=run_id,
                 agent_id=pod["agent_id"],
-                role=agent["role_template"],
+                role=agent["role"],
                 company=spec["company"],
                 parent_agent_id=conductor,
                 tool="lifecycle.fulfill",

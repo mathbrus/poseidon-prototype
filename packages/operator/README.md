@@ -104,7 +104,7 @@ cannot execute anything.
 
 `reconcile_instance` upserts the **ServiceAccount first** — named by the
 `agentId`, it is the identity the Deployment runs as — then the
-Deployment (named by the `standingRole`) and a Service, and records the instance
+Deployment (named by the `standingName`) and a Service, and records the instance
 in `registry.agent_instances` with its namespace. The gateway resolves
 `system:serviceaccount:<ns>:<agent_id>` against that row and requires
 the namespace to match, so a same-named ServiceAccount anywhere else

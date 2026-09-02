@@ -63,8 +63,7 @@ namespace **must** match the token's: the same SA name in another
 namespace is an impersonation attempt and is refused.
 
 For an ephemeral caller the row *is* the identity — run binding, crew
-coordinates (`crew_template`, `crew_role`), parentage, company, catalog
-template. A verified token alone is never enough. Why not? Because a
+(`crew_template`), parentage, company, catalog role. A verified token alone is never enough. Why not? Because a
 token can only prove who it was issued to — it cannot say anything about
 what happened since. If a run is torn down or an agent is revoked
 mid-run, every token that identity holds must die *now*, not at expiry.

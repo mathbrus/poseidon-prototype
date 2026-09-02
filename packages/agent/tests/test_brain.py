@@ -234,7 +234,7 @@ def test_review_prompt_is_the_reviewers(settings, gateway):
 
     system = text_of(llm.requests[0][0][0])
     assert "comment_pr" in system
-    assert "backend-engineer-1" not in system
+    assert "implementer-1" not in system
     assert "write_file" not in system
 
 

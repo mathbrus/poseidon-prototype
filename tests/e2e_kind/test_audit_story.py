@@ -10,7 +10,7 @@ from .cluster import audit_story
 def _executor_id(run_id: str) -> str:
     from orchestrator.identity import ephemeral_agent_id
 
-    return ephemeral_agent_id("feature-delivery", "executor", run_id)
+    return ephemeral_agent_id("feature-delivery", "implementer", run_id)
 
 
 def test_story_covers_the_whole_run(implement_run: dict) -> None:

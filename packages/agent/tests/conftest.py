@@ -248,7 +248,7 @@ def settings(tmp_path) -> AgentSettings:
         llm_proxy_url="http://llm.test:4000",
         model="test-model",
         gateway_token_file=str(token),
-        role="backend-engineer",
+        role="implementer",
         target_repo="example/target",
         verify_cycles=3,
     )

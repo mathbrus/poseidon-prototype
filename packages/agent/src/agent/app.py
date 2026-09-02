@@ -25,7 +25,7 @@ from agent import procedures
 from agent.config import AgentSettings
 from agent.procedures import ProcedureResult
 from common.telemetry import get_logger
-from schema.catalog import ROLE_TEMPLATES
+from schema.catalog import ROLES
 
 Procedure = Literal["scope", "decide", "implement", "deliver", "review"]
 Runner = Callable[[str, str], Awaitable[ProcedureResult]]
@@ -104,7 +104,7 @@ def create_app(
     @app.post("/task", status_code=202)
     async def submit_task(request: TaskRequest) -> TaskStatus:
         role = _settings().role
-        allowed = ROLE_TEMPLATES[role].procedures if role in ROLE_TEMPLATES else ()
+        allowed = ROLES[role].procedures if role in ROLES else ()
         if request.procedure not in allowed:
             raise HTTPException(
                 status_code=422,

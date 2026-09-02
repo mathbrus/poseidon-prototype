@@ -43,8 +43,8 @@ REVIEW_SPEC = {
 PM_ROW = {
     "agent_id": "pm-1",
     "company": "hello-saas",
-    "standing_role": "pm",
-    "role_template": "pm",
+    "standing_name": "pm",
+    "role": "pm",
     "namespace": "hello-saas",
 }
 
@@ -376,7 +376,7 @@ def _lineage(runs, participants, *, implement_agents, review_agents):
     runs.finish("run-impl", "done", pr_url="https://git.test/repo/pulls/41")
     runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
     for agent_id in implement_agents:
-        participants.add(agent_id, "run-impl", "pm-1", "feature-delivery", "executor")
+        participants.add(agent_id, "run-impl", "pm-1", "feature-delivery", "implementer")
     for agent_id in review_agents:
         participants.add(agent_id, RUN_ID, "pm-1", "feature-review", "reviewer")
     participants.terminate_for_run("run-impl")
@@ -411,7 +411,7 @@ def test_the_delivery_crew_may_not_review_its_own_change(settings):
     runs.start("run-impl", "implement issue #7", "implement", "wf-impl", "hello-saas")
     runs.finish("run-impl", "done", pr_url="https://git.test/repo/pulls/41")
     runs.start(RUN_ID, "review pull request #41", "review", "wf-rev", "hello-saas")
-    participants.add("exec-impl-1", "run-impl", "pm-1", "feature-delivery", "executor")
+    participants.add("exec-impl-1", "run-impl", "pm-1", "feature-delivery", "implementer")
     participants.terminate_for_run("run-impl")
     participants.add("rev-1", RUN_ID, "pm-1", "feature-delivery", "reviewer")
     activities = _activities(

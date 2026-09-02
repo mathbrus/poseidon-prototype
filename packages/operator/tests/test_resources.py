@@ -11,8 +11,8 @@ from poseidon_operator.config import OperatorSettings
 SPEC = {
     "agentId": "pm-1",
     "company": "hello-saas",
-    "standingRole": "pm",
-    "roleTemplate": "pm",
+    "standingName": "pm",
+    "role": "pm",
     "modelTier": "standard",
     "tools": ["issues.read", "crew.request"],
 }
@@ -172,7 +172,7 @@ def test_spec_edits_change_the_pod_template():
         for e in small["spec"]["template"]["spec"]["containers"][0]["env"]
     }
     assert env["MODEL_TIER"] == "small"
-    assert env["ROLE"] == SPEC["roleTemplate"]
+    assert env["ROLE"] == SPEC["role"] == "pm"
     assert env["TOOLS"] == ",".join(sorted(SPEC["tools"]))
     labels = small["spec"]["template"]["metadata"]["labels"]
     assert labels["poseidon.dev/model-tier"] == "small"

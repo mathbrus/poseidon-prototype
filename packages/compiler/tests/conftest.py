@@ -40,8 +40,8 @@ def standing_executor(blueprint: dict) -> dict:
     """The blueprint with an executor hired as a standing role — the shape
     the strict lean-standing rule refuses."""
     document = copy.deepcopy(blueprint)
-    document["standing"]["backend-engineer"] = {
-        "template": "backend-engineer",
+    document["standing"]["implementer"] = {
+        "role": "implementer",
         "count": 1,
         "model_tier": "frontier",
     }

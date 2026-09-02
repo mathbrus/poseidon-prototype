@@ -130,7 +130,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     # run's ephemeral executor, the only identity that spoke to a model.
     from orchestrator.identity import ephemeral_agent_id
 
-    executor_id = ephemeral_agent_id("feature-delivery", "executor", run_id)
+    executor_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     entries = ledger_entries(run_id)
     assert entries, "no ledger rows for the run"
     for entry in entries:
@@ -140,7 +140,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
         assert entry["company"] == "hello-saas"
         assert entry["agent_id"] == executor_id
         assert entry["parent_agent_id"] == "pm-1"
-        assert entry["role"] == "backend-engineer"
+        assert entry["role"] == "implementer"
         assert entry["model"] == "mock-brain"
         assert entry["prompt_tokens"] > 0
         # The token breakdown behind the cost reaches Postgres.

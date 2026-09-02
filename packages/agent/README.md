@@ -134,7 +134,7 @@ never contacted.)
 
 The reviewer's surface is read-and-judge: it reads the PR and executes
 the suite in its review sandbox, but has no `write_file` and no
-`open_pr` — and the compiled sdet scope enforces the same at the gateway,
+`open_pr` — and the compiled reviewer scope enforces the same at the gateway,
 so the in-process surface is a convenience, not the boundary. Its step
 budget is `REVIEW_STEP_CAP`, one of the per-procedure caps beside
 `SCOPE_STEP_CAP`, `IMPLEMENT_STEP_CAP` and `DELIVER_STEP_CAP`:

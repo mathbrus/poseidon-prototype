@@ -291,11 +291,11 @@ def agent_deployment(
     No API-server token is mounted (automount stays off), and no
     token-shaped env var exists in the pod at all.
     """
-    standing_role = spec["standingRole"]
+    standing_name = spec["standingName"]
     platform_ns = settings.platform_namespace
     labels = {
         **LABELS,
-        "app": standing_role,
+        "app": standing_name,
         "poseidon.dev/kind": "standing-agent",
         "poseidon.dev/company": spec["company"],
         "poseidon.dev/agent-id": spec["agentId"],
@@ -306,10 +306,10 @@ def agent_deployment(
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
-        "metadata": {"name": standing_role, "namespace": company_ns, "labels": labels},
+        "metadata": {"name": standing_name, "namespace": company_ns, "labels": labels},
         "spec": {
             "replicas": 1,
-            "selector": {"matchLabels": {"app": standing_role}},
+            "selector": {"matchLabels": {"app": standing_name}},
             "template": {
                 "metadata": {"labels": labels},
                 "spec": {
@@ -364,7 +364,7 @@ def agent_deployment(
                                     "name": "MODEL_TIER",
                                     "value": spec.get("modelTier", ""),
                                 },
-                                {"name": "ROLE", "value": spec["roleTemplate"]},
+                                {"name": "ROLE", "value": spec["role"]},
                                 {
                                     "name": "TOOLS",
                                     "value": ",".join(sorted(spec.get("tools") or [])),
@@ -411,13 +411,13 @@ def agent_deployment(
 
 
 def agent_service(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
-    standing_role = spec["standingRole"]
+    standing_name = spec["standingName"]
     return {
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": {"name": standing_role, "namespace": company_ns, "labels": LABELS},
+        "metadata": {"name": standing_name, "namespace": company_ns, "labels": LABELS},
         "spec": {
-            "selector": {"app": standing_role},
+            "selector": {"app": standing_name},
             "ports": [{"port": AGENT_PORT, "targetPort": AGENT_PORT}],
         },
     }

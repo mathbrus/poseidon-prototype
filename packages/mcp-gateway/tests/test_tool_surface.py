@@ -27,7 +27,7 @@ def payload(result) -> dict:
 
 
 def reviewer_token(participants) -> str:
-    """A bound ephemeral reviewer (the review workflow's sdet ephemeral agent):
+    """A bound ephemeral reviewer (the review workflow's reviewer ephemeral agent):
     its credential is its pod's projected SA token, and the participants
     row — looked up by SA name — is the whole identity."""
     participants.add(
@@ -37,7 +37,6 @@ def reviewer_token(participants) -> str:
         "feature-review",
         "reviewer",
         company="hello-saas",
-        role_template="sdet",
         namespace="hello-saas",
         service_account="ephemeral-reviewer-01x",
     )
@@ -259,7 +258,7 @@ async def test_over_cap_crew_request_is_denied_and_audited(
 ):
     """The conductor's live spawn count rides the decision input and
     the compiled cap denies by rule — a first-class governance event."""
-    participants.add("fd-executor-a", "run-a", "pm-1", "feature-delivery", "executor")
+    participants.add("fd-executor-a", "run-a", "pm-1", "feature-delivery", "implementer")
     participants.add("fr-reviewer-b", "run-b", "pm-1", "feature-review", "reviewer")
 
     async with mcp_session(app, PM_TOKEN) as session:
@@ -282,9 +281,9 @@ async def test_exhausted_budget_denies_crew_request(app, ledger, crew_requests, 
     ledger.record(
         company="hello-saas",
         run_id=RUN_ID,
-        agent_id="backend-engineer-1",
+        agent_id="implementer-1",
         parent_agent_id="",
-        role="backend-engineer",
+        role="implementer",
         model="mock-brain",
         prompt_tokens=1,
         completion_tokens=1,

@@ -27,8 +27,8 @@ class AgentInstanceCR:
 
     agent_id: str
     company: str
-    standing_role: str
-    role_template: str
+    standing_name: str
+    role: str
     model_tier: str
     tools: tuple[str, ...]
     may_spawn: tuple[str, ...] = ()
@@ -38,14 +38,12 @@ class AgentInstanceCR:
 
 @dataclass(frozen=True)
 class EphemeralAgentSpec:
-    """Crew-template artifact: what an ephemeral agent is allowed to be.
-    Not an instance — agents exist only inside a run."""
+    """Crew artifact: what an ephemeral agent is allowed to be. Not an
+    instance — agents exist only inside a run."""
 
     crew: str
-    crew_role: str
-    role_template: str
+    role: str
     tools: tuple[str, ...]
-    budget_inheritance: str
 
 
 @dataclass(frozen=True)

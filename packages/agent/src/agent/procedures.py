@@ -479,7 +479,7 @@ def run_review(settings: AgentSettings, run_id: str, task_text: str) -> Procedur
     from the PR ref), post findings via git.comment, and end with the
     `verdict` tool — pass/fail plus a one-line summary, captured as a
     record like every other tool result. Read-and-judge
-    only: no write_file, no open_pr, and the compiled sdet scope enforces
+    only: no write_file, no open_pr, and the compiled reviewer scope enforces
     the same at the gateway. A dispatch without posted findings or without
     a verdict is a failed review."""
     with _session(settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP) as s:

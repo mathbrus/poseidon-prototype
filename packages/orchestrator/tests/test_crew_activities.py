@@ -1,5 +1,5 @@
 """Identity binding against doubles: bind writes one deterministic
-participants row per {crew, crew_role, run} — the row *is* the identity the
+participants row per {crew, role, run} — the row *is* the identity the
 gateways resolve a crew ServiceAccount against; revoke sweeps every live
 participant; both land process-lifecycle audit events; a retried bind
 converges on the same row instead of leaking a second identity — and never
@@ -28,8 +28,7 @@ SPEC = {
     "run_id": RUN_ID,
     "company": "hello-saas",
     "crew_template": "feature-delivery",
-    "crew_role": "executor",
-    "role_template": "backend-engineer",
+    "role": "implementer",
     "parent_agent_id": "pm-1",
 }
 
@@ -70,20 +69,19 @@ def crew(settings, participants, audit) -> CrewActivities:
 def test_bind_writes_the_whole_identity_row(crew, participants, audit):
     bound = asyncio.run(crew.bind_participant(dict(SPEC)))
 
-    expected_id = ephemeral_agent_id("feature-delivery", "executor", RUN_ID)
+    expected_id = ephemeral_agent_id("feature-delivery", "implementer", RUN_ID)
     assert bound["agent_id"] == expected_id
     assert bound["service_account"] == service_account_name(expected_id)
 
     # The row is what the gateways verify against — the whole identity:
-    # crew coordinates for the compiled crew rules, plus company, catalog
-    # template and namespace.
+    # the crew and role the compiled crew rules key on, plus company and
+    # namespace.
     row = participants.active(expected_id)
     assert row["run_id"] == RUN_ID
     assert row["parent_agent_id"] == "pm-1"
     assert row["crew_template"] == "feature-delivery"
-    assert row["role"] == "executor"  # the agent name = crew_role
+    assert row["role"] == "implementer"
     assert row["company"] == "hello-saas"
-    assert row["role_template"] == "backend-engineer"  # the catalog template
     assert row["namespace"] == "hello-saas"
     assert row["service_account"] == service_account_name(expected_id)
 
@@ -120,13 +118,13 @@ def test_a_bind_that_lost_the_race_with_teardown_is_refused(crew, participants):
 
 def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):
     asyncio.run(crew.bind_participant(dict(SPEC)))
-    asyncio.run(crew.bind_participant({**SPEC, "crew_role": "second"}))
+    asyncio.run(crew.bind_participant({**SPEC, "role": "second"}))
     audit.events.clear()
 
     swept = asyncio.run(crew.revoke_participants(RUN_ID))
     assert sorted(swept) == sorted(
         [
-            ephemeral_agent_id("feature-delivery", "executor", RUN_ID),
+            ephemeral_agent_id("feature-delivery", "implementer", RUN_ID),
             ephemeral_agent_id("feature-delivery", "second", RUN_ID),
         ]
     )

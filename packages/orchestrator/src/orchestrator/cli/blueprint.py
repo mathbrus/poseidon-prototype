@@ -51,7 +51,7 @@ def _snapshot(live: bool) -> RegistrySnapshot:
 
     try:
         rows = open_registry(migrate=False).query(
-            "SELECT agent_id, company, standing_role, role_template, model_tier, status"
+            "SELECT agent_id, company, standing_name, role, model_tier, status"
             " FROM registry.agent_instances"
         )
     except Exception as exc:

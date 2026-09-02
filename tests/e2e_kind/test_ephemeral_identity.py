@@ -51,8 +51,7 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "crew_role": "executor",
-                        "role_template": "backend-engineer",
+                        "role": "implementer",
                         "parent_agent_id": "pm-1",
                     }
                 )
@@ -163,12 +162,11 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
 
         executor = {
             "company": "hello-saas",
-            "agent_id": "feature-delivery-executor-x",
+            "agent_id": "feature-delivery-implementer-x",
             "lifecycle": "ephemeral",
             "parent_agent_id": "pm-1",
-            "role": "backend-engineer",
+            "role": "implementer",
             "crew_template": "feature-delivery",
-            "crew_role": "executor",
             "run_id": "run-binding-check",
             "workflow": "implement",
             "tool": "sandbox.exec",

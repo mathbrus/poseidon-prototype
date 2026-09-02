@@ -48,16 +48,15 @@ def executor(
     args: dict | None = None,
     company: str = "hello-saas",
 ) -> dict[str, Any]:
-    """The crew executor's input shape — the only execution identity
-    there is no standing backend-engineer role."""
+    """The crew implementer's input shape — the only execution identity;
+    there is no standing implementer."""
     return {
         "company": company,
-        "agent_id": "feature-delivery-executor-run-gov",
+        "agent_id": "feature-delivery-implementer-run-gov",
         "lifecycle": "ephemeral",
         "parent_agent_id": "pm-1",
-        "role": "backend-engineer",
+        "role": "implementer",
         "crew_template": "feature-delivery",
-        "crew_role": "executor",
         "run_id": "run-gov",
         "workflow": "implement",
         "tool": tool,

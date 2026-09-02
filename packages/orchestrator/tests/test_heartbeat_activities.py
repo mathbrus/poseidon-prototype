@@ -201,9 +201,9 @@ def test_observe_counts_running_delivery_runs_and_todays_spend(
     ledger.record(
         company=COMPANY,
         run_id="run-a",
-        agent_id="executor",
+        agent_id="fd-implementer-1",
         parent_agent_id="pm-1",
-        role="backend-engineer",
+        role="implementer",
         model="mock",
         prompt_tokens=1,
         completion_tokens=1,

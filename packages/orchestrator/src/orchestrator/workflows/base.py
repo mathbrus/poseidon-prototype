@@ -33,9 +33,9 @@ FAMILIES = ("implement", "intake", "review", "heartbeat")
 
 def crew_agent(crew: dict[str, Any]) -> dict[str, Any]:
     """The agent a fulfilled crew dispatches. Fulfilment returns the crew's
-    agents by crew role (`{crew_role: {agent_id, url}}`), and every
-    workflow dispatches exactly one — fulfilment refuses a crew that
-    declares more, so the unpacking cannot fail here."""
+    agents by role (`{role: {agent_id, url}}`), and every workflow
+    dispatches exactly one — fulfilment refuses a crew that declares more,
+    so the unpacking cannot fail here."""
     (agent,) = crew["agents"].values()
     return agent
 

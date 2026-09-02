@@ -158,8 +158,8 @@ def reconcile_instance(
     AgentInstances(_db()).upsert(
         agent_id=spec["agentId"],
         company=spec["company"],
-        standing_role=spec["standingRole"],
-        role_template=spec["roleTemplate"],
+        standing_name=spec["standingName"],
+        role=spec["role"],
         model_tier=spec.get("modelTier", ""),
         namespace=namespace,
     )
@@ -175,8 +175,8 @@ def teardown_instance(spec: dict[str, Any], namespace: str, **_: Any) -> None:
     exists, so a fired agent's projected token dies with it (bounded by the
     gateway's authn cache TTL)."""
     cluster = _cluster()
-    cluster.delete_deployment(namespace, spec["standingRole"])
-    cluster.delete_service(namespace, spec["standingRole"])
+    cluster.delete_deployment(namespace, spec["standingName"])
+    cluster.delete_service(namespace, spec["standingName"])
     cluster.delete_service_account(namespace, spec["agentId"])
     AgentInstances(_db()).delete(spec["agentId"])
     _log.info("instance removed", extra={"agent_id": spec["agentId"]})

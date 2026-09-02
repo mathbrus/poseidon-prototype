@@ -393,8 +393,8 @@ class FakeInstances:
 PM_ROW = {
     "agent_id": "pm-1",
     "company": "hello-saas",
-    "standing_role": "pm",
-    "role_template": "pm",
+    "standing_name": "pm",
+    "role": "pm",
     "namespace": "hello-saas",
 }
 
@@ -434,7 +434,7 @@ def test_implement_config_fails_closed_without_a_blueprint(settings, backend, ru
 def test_implement_config_fails_closed_without_a_conductor_instance(
     settings, backend, runs
 ):
-    """The blueprint names a conductor standing_role, but no standing instance has
+    """The blueprint names a conductor standing_name, but no standing instance has
     converged for it — refuse before anything is provisioned."""
     activities = _config_activities(
         settings, backend, runs, WORKFLOWS_SPEC, FakeInstances([])
@@ -485,15 +485,15 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     )
 
     participants.add(
-        "feature-delivery-executor-" + RUN_ID,
+        "feature-delivery-implementer-" + RUN_ID,
         RUN_ID,
         "pm-1",
         "feature-delivery",
-        "executor",
+        "implementer",
     )
     record = asyncio.run(activities.teardown(RUN_ID, None, None, "early failure"))
     assert record["status"] == "failed"
-    assert participants.active("feature-delivery-executor-" + RUN_ID) is None
+    assert participants.active("feature-delivery-implementer-" + RUN_ID) is None
     assert [e.tool for e in audit.events] == ["lifecycle.revoke"]
 
     # Success path, with a handle: sweep still runs first.

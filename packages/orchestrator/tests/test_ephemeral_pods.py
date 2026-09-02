@@ -31,8 +31,7 @@ SPEC = {
     "run_id": RUN_ID,
     "company": "hello-saas",
     "crew_template": "feature-delivery",
-    "crew_role": "executor",
-    "role_template": "backend-engineer",
+    "role": "implementer",
     "parent_agent_id": "pm-1",
 }
 
@@ -41,7 +40,7 @@ SPEC = {
 
 
 def test_manifest_is_contained_and_labeled():
-    agent_id = ephemeral_agent_id("feature-delivery", "executor", RUN_ID)
+    agent_id = ephemeral_agent_id("feature-delivery", "implementer", RUN_ID)
     manifest = ephemeral_pod_manifest(
         agent_id=agent_id,
         run_id=RUN_ID,
@@ -79,7 +78,7 @@ def test_manifest_is_contained_and_labeled():
 
 def test_pod_name_fits_kubernetes():
     agent_id = ephemeral_agent_id(
-        "feature-delivery", "executor", "run-01HXXXXXXXXXXXXXXXXXXXXXXXXX"
+        "feature-delivery", "implementer", "run-01HXXXXXXXXXXXXXXXXXXXXXXXXX"
     )
     assert len(pod_name(agent_id)) <= 63
 
@@ -122,7 +121,7 @@ class FakeProvisioner:
 
     def destroy(self, run_id: str) -> list[str]:
         self.destroyed.append(run_id)
-        return [pod_name(ephemeral_agent_id("feature-delivery", "executor", run_id))]
+        return [pod_name(ephemeral_agent_id("feature-delivery", "implementer", run_id))]
 
 
 def _crew(settings, participants, audit, provisioner=None, requests=None, companies=None):
@@ -233,11 +232,7 @@ def _company(agents: list[dict]) -> dict:
     return {"namespace": "hello-saas", "ephemeralAgents": agents}
 
 
-EXECUTOR_AGENT = {
-    "crew": "feature-delivery",
-    "crew_role": "executor",
-    "role_template": "backend-engineer",
-}
+IMPLEMENTER = {"crew": "feature-delivery", "role": "implementer"}
 
 
 @pytest.fixture
@@ -253,7 +248,7 @@ def fulfill_world(settings, provisioner):
     audit = InMemoryAuditStore()
     requests = InMemoryCrewRequests()
     companies = InMemoryCompanies()
-    companies.upsert("hello-saas", _company([EXECUTOR_AGENT]))
+    companies.upsert("hello-saas", _company([IMPLEMENTER]))
     crew = _crew(settings, participants, audit, provisioner, requests, companies)
     return crew, participants, audit, requests, companies
 
@@ -274,14 +269,14 @@ def test_fulfill_binds_and_provisions_the_crew(fulfill_world, provisioner):
     )
 
     # The agent is bound with parentage and got its own pod; the result
-    # names it by crew role with its identity and dispatch address.
-    executor_id = ephemeral_agent_id("feature-delivery", "executor", RUN_ID)
-    assert participants.active(executor_id)["parent_agent_id"] == "pm-1"
-    assert {p["agent_id"] for p in provisioner.provisioned} == {executor_id}
+    # names it by role with its identity and dispatch address.
+    implementer_id = ephemeral_agent_id("feature-delivery", "implementer", RUN_ID)
+    assert participants.active(implementer_id)["parent_agent_id"] == "pm-1"
+    assert {p["agent_id"] for p in provisioner.provisioned} == {implementer_id}
     assert result["agents"] == {
-        "executor": {
-            "agent_id": executor_id,
-            "url": f"http://{pod_name(executor_id)}:8000",
+        "implementer": {
+            "agent_id": implementer_id,
+            "url": f"http://{pod_name(implementer_id)}:8000",
         }
     }
 
@@ -297,7 +292,7 @@ def test_fulfill_binds_and_provisions_the_crew(fulfill_world, provisioner):
             }
         )
     )
-    assert again["agents"]["executor"]["agent_id"] == executor_id
+    assert again["agents"]["implementer"]["agent_id"] == implementer_id
 
     tools = [e.tool for e in audit.events]
     assert "lifecycle.fulfill" in tools
@@ -310,7 +305,7 @@ def test_fulfill_refuses_a_crew_with_more_than_one_agent(fulfill_world):
     crew, participants, _, requests, companies = fulfill_world
     companies.upsert(
         "hello-saas",
-        _company([EXECUTOR_AGENT, {**EXECUTOR_AGENT, "crew_role": "second"}]),
+        _company([IMPLEMENTER, {**IMPLEMENTER, "role": "second"}]),
     )
     requests.record("pm-1", "feature-delivery", RUN_ID, "ship ticket 7")
     with pytest.raises(RuntimeError, match="declares 2 agents"):
@@ -396,7 +391,7 @@ def test_workflow_path_records_under_conductor_authority(fulfill_world, monkeypa
     monkeypatch.setattr(opa_module, "httpx", opa)
 
     result = asyncio.run(crew.fulfill_crew(_fulfill_spec()))
-    assert set(result["agents"]) == {"executor"}
+    assert set(result["agents"]) == {"implementer"}
 
     # The decision went to the company's compiled package with the
     # enriched conductor input — not to some hand-rolled check.
@@ -470,7 +465,7 @@ def test_ephemeral_pod_carries_a_wall_clock_deadline():
     from orchestrator.ephemeral_pods import EPHEMERAL_POD_DEADLINE_S
 
     manifest = ephemeral_pod_manifest(
-        agent_id="feature-delivery-executor-run-1",
+        agent_id="feature-delivery-implementer-run-1",
         run_id="run-1",
         company="hello-saas",
         agent_image="poseidon-agent:test",
@@ -482,7 +477,7 @@ def test_ephemeral_pod_carries_a_wall_clock_deadline():
 
 def test_ephemeral_pod_runs_non_root_with_no_escalation_path():
     manifest = ephemeral_pod_manifest(
-        agent_id="feature-delivery-executor-run-1",
+        agent_id="feature-delivery-implementer-run-1",
         run_id="run-1",
         company="hello-saas",
         agent_image="poseidon-agent:test",

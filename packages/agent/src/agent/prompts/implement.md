@@ -1,6 +1,6 @@
 # Poseidon procedure: implement
 
-You are the executor of a feature-delivery crew, implementing one scoped
+You are the implementer of a feature-delivery crew, implementing one scoped
 task on the repository `{target_repo}`. A disposable sandbox holds a clone
 of the repository at the workspace root; it is your only working
 environment, reached exclusively through the tools you are given:

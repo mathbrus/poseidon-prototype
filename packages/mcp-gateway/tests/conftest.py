@@ -48,7 +48,7 @@ FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 COMPANY = "hello-saas"
 COMPANY_NS = "hello-saas"
 PLATFORM_NS = "poseidon-platform"
-AGENT_ID = "backend-engineer-1"
+AGENT_ID = "implementer-1"
 COMPANY_DECISION = "/v1/data/poseidon/authz/hello_saas/decision"
 PLATFORM_DECISION = "/v1/data/poseidon/platform/decision"
 
@@ -147,7 +147,7 @@ class Backends:
             policy_input.get("lifecycle") == "ephemeral"
             and policy_input.get("company") == COMPANY
             and policy_input.get("crew_template") == "feature-review"
-            and policy_input.get("crew_role") == "reviewer"
+            and policy_input.get("role") == "reviewer"
         ):
             if tool in ("git.read", "git.comment", "issues.comment"):
                 return {"allow": True, "rule": f"crew_feature_review_reviewer_{tool}"}
@@ -155,10 +155,10 @@ class Backends:
         if (
             policy_input.get("lifecycle") == "standing"
             and policy_input.get("company") == COMPANY
-            and policy_input.get("role") == "backend-engineer"
+            and policy_input.get("role") == "implementer"
         ):
             if tool.startswith("sandbox.") and policy_input.get("run_binding_verified"):
-                return {"allow": True, "rule": f"role_backend_engineer_{tool}"}
+                return {"allow": True, "rule": f"role_implementer_{tool}"}
             if tool == "git.open_pr":
                 branch = args.get("branch", "")
                 if branch.lower() in {"main", "master"}:
@@ -169,7 +169,7 @@ class Backends:
                     return {"allow": False, "rule": "git_open_pr_paths_missing"}
                 if any(p.startswith(".github/workflows/") for p in args["paths"]):
                     return {"allow": False, "rule": "git_open_pr_denied_paths"}
-                return {"allow": True, "rule": "role_backend_engineer_git_open_pr"}
+                return {"allow": True, "rule": "role_implementer_git_open_pr"}
         return {"allow": False, "rule": "default_deny"}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -307,8 +307,8 @@ def instances() -> InMemoryAgentInstances:
     store.upsert(
         AGENT_ID,
         COMPANY,
-        "backend-engineer",
-        "backend-engineer",
+        "implementer",
+        "implementer",
         "frontier",
         namespace=COMPANY_NS,
     )

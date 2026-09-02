@@ -87,7 +87,7 @@ class Harness:
             return {
                 "request_id": "crq-1",
                 "agents": {
-                    "executor": {"agent_id": "fd-executor", "url": "http://crew:8000"}
+                    "implementer": {"agent_id": "fd-impl", "url": "http://crew:8000"}
                 },
             }
 

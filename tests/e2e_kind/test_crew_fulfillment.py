@@ -113,7 +113,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
     )
     mcp = gateway_url(env)
     orchestrator_token = projected_token(PLATFORM_NS, "orchestrator-worker")
-    executor_id = ephemeral_agent_id("feature-delivery", "executor", run_id)
+    executor_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     handle = None
 
@@ -164,7 +164,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                         }
                     )
                 )
-                executor = fulfilled["agents"]["executor"]
+                executor = fulfilled["agents"]["implementer"]
                 assert executor["agent_id"] == executor_id
 
                 # 4. The executor dispatch carries the task verbatim. It ends
@@ -275,7 +275,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    executor_id = ephemeral_agent_id("feature-delivery", "executor", run_id)
+    executor_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
 
     async def run() -> dict:
         with temporal_port_forward() as address:

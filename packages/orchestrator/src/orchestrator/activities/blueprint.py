@@ -9,31 +9,31 @@ AGENT_PORT = 8000
 
 
 def conductor(
-    instances: AgentInstances, company: str, standing_role: str
+    instances: AgentInstances, company: str, standing_name: str
 ) -> dict[str, Any]:
     """The converged standing instance behind a blueprint's conductor name,
     as `{agent_id, role, url}`: the identity a crew request is recorded
-    under and the address a dispatch reaches it at. The operator names
-    the instance's Service after the standing role in the company
-    namespace, so the address is derived, never configured. Fail-closed:
-    no converged instance refuses the run before anything is provisioned."""
+    under and the address a dispatch reaches it at. The operator names the
+    instance's Service after the hire in the company namespace, so the
+    address is derived, never configured. Fail-closed: no converged
+    instance refuses the run before anything is provisioned."""
     instance = next(
         (
             i
             for i in instances.for_company(company)
-            if i.get("standing_role") == standing_role
+            if i.get("standing_name") == standing_name
         ),
         None,
     )
     if instance is None:
         raise RuntimeError(
-            f"no standing instance for conductor standing_role {standing_role!r}"
+            f"no standing instance for conductor {standing_name!r}"
             " — is the company converged?"
         )
     return {
         "agent_id": instance["agent_id"],
-        "role": instance["role_template"],
-        "url": f"http://{standing_role}.{instance['namespace']}.svc.cluster.local:{AGENT_PORT}",
+        "role": instance["role"],
+        "url": f"http://{standing_name}.{instance['namespace']}.svc.cluster.local:{AGENT_PORT}",
     }
 
 

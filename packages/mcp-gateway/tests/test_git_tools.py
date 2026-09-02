@@ -181,7 +181,7 @@ async def test_feature_branch_pr_is_pushed_and_opened(
     event = audit_events(audit)[-1]
     assert event["tool"] == "git.open_pr" and event["run_id"] == RUN_ID
     assert event["decision"] == "allow"
-    assert event["rule"] == "role_backend_engineer_git_open_pr"
+    assert event["rule"] == "role_implementer_git_open_pr"
     assert event["backend_status"] == "ok"
 
 

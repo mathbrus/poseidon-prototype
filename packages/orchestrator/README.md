@@ -217,7 +217,7 @@ finalizes the run with the budget error.
 
 ## Identity: bound deterministically, revoked by a row
 
-Agent ids are deterministic from `{crew, crew_role, run}` —
+Agent ids are deterministic from `{crew, role, run}` —
 `ephemeral_agent_id()` is string concatenation, nothing more — so a bind
 retried after a worker death lands on the *same* participants row,
 instead of leaking a second identity. Nothing is signed: the agent's

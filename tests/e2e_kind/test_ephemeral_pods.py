@@ -89,8 +89,7 @@ def test_ephemeral_pod_round_trips_and_destroy_is_label_bounded(
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "crew_role": "executor",
-                        "role_template": "backend-engineer",
+                        "role": "implementer",
                         "parent_agent_id": "pm-1",
                     }
                 )

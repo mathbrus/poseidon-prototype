@@ -290,12 +290,12 @@ class HeartbeatActivities:
 
         def address() -> str:
             spec = self._companies.get(self._settings.company) or {}
-            standing_role = (spec.get("heartbeat") or {}).get("conductor")
-            if not standing_role:
+            standing_name = (spec.get("heartbeat") or {}).get("conductor")
+            if not standing_name:
                 raise RuntimeError(
                     "the applied blueprint declares no heartbeat conductor"
                 )
-            return conductor(self._instances, self._settings.company, standing_role)[
+            return conductor(self._instances, self._settings.company, standing_name)[
                 "url"
             ]
 

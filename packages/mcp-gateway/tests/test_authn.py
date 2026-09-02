@@ -29,7 +29,7 @@ PLATFORM_NS = "poseidon-platform"
 COMPANY_NS = "hello-saas"
 AUD = "poseidon-mcp-gateway"
 RUN_ID = "run-01AUTHN"
-CREW_ID = "feature-delivery-executor-run-01AUTHN"
+CREW_ID = "feature-delivery-implementer-run-01AUTHN"
 CREW_SA = f"ephemeral-{CREW_ID}".lower()
 
 
@@ -64,10 +64,10 @@ def audit() -> InMemoryAuditStore:
 def instances() -> InMemoryAgentInstances:
     store = InMemoryAgentInstances()
     store.upsert(
-        "backend-engineer-1",
+        "implementer-1",
         COMPANY_NS,
-        "backend-engineer",
-        "backend-engineer",
+        "implementer",
+        "implementer",
         "standard",
         namespace=COMPANY_NS,
     )
@@ -84,9 +84,9 @@ def reviewer() -> FakeReviewer:
     return FakeReviewer(
         {
             "sa-orchestrator": ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
-            "sa-agent": ServiceAccount(COMPANY_NS, "backend-engineer-1"),
+            "sa-agent": ServiceAccount(COMPANY_NS, "implementer-1"),
             "sa-stranger": ServiceAccount("default", "default"),
-            "sa-impostor": ServiceAccount("evil-ns", "backend-engineer-1"),
+            "sa-impostor": ServiceAccount("evil-ns", "implementer-1"),
             "sa-crew": ServiceAccount(COMPANY_NS, CREW_SA),
             "sa-crew-impostor": ServiceAccount("evil-ns", CREW_SA),
         }
@@ -99,9 +99,8 @@ def bind_crew_row(participants, run_id: str = RUN_ID) -> None:
         run_id,
         "pm-1",
         "feature-delivery",
-        "executor",
+        "implementer",
         company=COMPANY_NS,
-        role_template="backend-engineer",
         namespace=COMPANY_NS,
         service_account=CREW_SA,
     )
@@ -136,8 +135,8 @@ async def test_orchestrator_token_maps_to_platform_lifecycle(authenticator):
 async def test_standing_agent_token_maps_through_the_registry(authenticator):
     identity = await authenticator.authenticate("Bearer sa-agent", "/mcp")
     assert identity is not None
-    assert identity.agent_id == "backend-engineer-1"
-    assert identity.role == "backend-engineer"
+    assert identity.agent_id == "implementer-1"
+    assert identity.role == "implementer"
     assert identity.company == COMPANY_NS
     assert identity.lifecycle == "standing"
     assert identity.namespace == COMPANY_NS
@@ -213,13 +212,12 @@ async def test_crew_sa_with_live_row_is_accepted(authenticator, participants):
     assert identity is not None
     assert identity.lifecycle == "ephemeral"
     # The row is the whole identity: the canonical agent_id (the SA name
-    # is its lowercased, non-invertible projection), the catalog template
-    # as the policy role, and the crew coordinates and parentage.
+    # is its lowercased, non-invertible projection), the catalog role, the
+    # crew and the parentage.
     assert identity.agent_id == CREW_ID
     assert identity.company == COMPANY_NS
-    assert identity.role == "backend-engineer"
+    assert identity.role == "implementer"
     assert identity.crew_template == "feature-delivery"
-    assert identity.crew_role == "executor"
     assert identity.parent_agent_id == "pm-1"
     assert identity.run_id == RUN_ID
     assert identity.namespace == COMPANY_NS
@@ -260,7 +258,7 @@ async def test_standing_row_deletion_revokes_despite_a_warm_cache(
     """The cache proves token->SA only; firing a standing agent (its
     instance row deleted) bites on the very next call."""
     assert await authenticator.authenticate("Bearer sa-agent", "/mcp") is not None
-    instances.rows.pop("backend-engineer-1")
+    instances.rows.pop("implementer-1")
     assert await authenticator.authenticate("Bearer sa-agent", "/mcp") is None
     assert rules(audit) == ["authn_unknown_service_account"]
 
@@ -288,7 +286,7 @@ async def test_kube_token_reviewer_speaks_tokenreview(tmp_path):
                     "status": {
                         "authenticated": True,
                         "user": {
-                            "username": "system:serviceaccount:hello-saas:backend-engineer-1"
+                            "username": "system:serviceaccount:hello-saas:implementer-1"
                         },
                     }
                 },
@@ -302,7 +300,7 @@ async def test_kube_token_reviewer_speaks_tokenreview(tmp_path):
         "https://kube.test", str(own), "unused-ca", http_client=client
     )
     account = await reviewer.review("good", AUD)
-    assert account == ServiceAccount("hello-saas", "backend-engineer-1")
+    assert account == ServiceAccount("hello-saas", "implementer-1")
     assert await reviewer.review("bad", AUD) is None
     assert len(seen) == 2
 

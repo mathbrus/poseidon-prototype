@@ -42,7 +42,7 @@ means zero egress, which is a perfectly reasonable choice.
 ```yaml
 standing:
     pm:
-      template: pm
+      role: pm
       count: 1
       may_spawn:
         crew: [feature-delivery, feature-review]
@@ -53,9 +53,9 @@ One standing agent: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 
-A role at `count: 0` is a documented growth path that produces no instance.
-Try setting a `backend-engineer` to `count: 1` and the compiler refuses:
-standing executors do not exist here.
+A hire at `count: 0` is a documented growth path that produces no instance.
+Try hiring an `implementer` at `count: 1` and the compiler refuses:
+standing coders do not exist here.
 
 </details>
 
@@ -67,18 +67,26 @@ standing executors do not exist here.
 ```yaml
 crews:
   feature-delivery:
-    agents:
-      executor:
-        tools: [..., sandbox.exec, git.open_pr]
+    roles: [implementer]
+  feature-review:
+    roles: [reviewer]
 
 tools:
   pm:
     allow: [issues.create, issues.read, issues.comment, crew.request]
+  reviewer:
+    allow: [sandbox.read_file, sandbox.list_dir, sandbox.exec, sandbox.run_tests, git.read, git.comment, issues.comment]
 ```
 
+A crew is the list of catalog roles fulfilled together for one run; the
+blueprint names the crew, the catalog defines it. `tools` is the one place
+a role's scope is narrowed, and it applies to every agent of that role,
+standing or ephemeral: the reviewer's list drops the write tools its
+catalog entry would allow, and a role not listed gets its catalog tools.
+
 Look at what the PM's list does *not* contain: no `sandbox.*`, no
-`git.open_pr`. The conductor that spawns the executor cannot do the
-executor's job. Spawn authority is not capability.
+`git.open_pr`. The conductor that spawns the implementer cannot do the
+implementer's job. Spawn authority is not capability.
 
 </details>
 

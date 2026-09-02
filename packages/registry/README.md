@@ -95,7 +95,7 @@ re-executed after crashes and worker deaths ([root README, section
   partial indexes instead, so a re-offered item can never be worked twice
   at once.
 - `RunParticipants.add` upserts on the deterministic `agent_id` the mint
-  activity derives from `{crew, crew_role, run}` — a retried mint converges
+  activity derives from `{crew, role, run}` — a retried mint converges
   on one identity instead of leaking two.
 - `CrewRequests` derives its id from `{conductor, crew_template, run_id}`
   so a retried request refreshes rather than duplicates; `consume` is an
@@ -119,7 +119,6 @@ CREATE TABLE IF NOT EXISTS registry.run_participants (
     crew_template   text NOT NULL,
     role            text NOT NULL,
     company         text NOT NULL DEFAULT '',
-    role_template   text NOT NULL DEFAULT '',
     namespace       text NOT NULL DEFAULT '',
     service_account text,
     status          text NOT NULL DEFAULT 'active',

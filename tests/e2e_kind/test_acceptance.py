@@ -222,10 +222,10 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     suite, after every module's teardown/re-apply cycles."""
     rows = psql_json(
         "SELECT COALESCE(json_agg(i ORDER BY i.agent_id), '[]'::json) FROM ("
-        "SELECT agent_id, standing_role, role_template, namespace"
+        "SELECT agent_id, standing_name, role, namespace"
         " FROM registry.agent_instances WHERE company = 'hello-saas') i"
     )
-    assert [(r["agent_id"], r["role_template"], r["namespace"]) for r in rows] == [
+    assert [(r["agent_id"], r["role"], r["namespace"]) for r in rows] == [
         ("pm-1", "pm", COMPANY_NS)
     ], f"the registry's standing agents are not the lean blueprint's: {rows}"
 
@@ -267,8 +267,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "crew_role": "executor",
-                        "role_template": "backend-engineer",
+                        "role": "implementer",
                         "parent_agent_id": "pm-1",
                     }
                 )

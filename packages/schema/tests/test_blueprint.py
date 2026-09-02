@@ -42,7 +42,7 @@ def test_hello_saas_is_the_lean_profile(blueprint):
     roles = blueprint["standing"]
     assert roles["pm"]["count"] == 1
     assert set(roles) == {"pm"}
-    assert "backend-engineer" not in roles
+    assert "implementer" not in roles  # no standing coder
 
 
 def test_pm_holds_no_executor_tools(blueprint):
@@ -86,10 +86,17 @@ def test_unknown_model_tier_lists_the_tiers(blueprint):
     assert "'small'" in problem and "'frontier'" in problem
 
 
-def test_crew_member_without_an_allow_list_is_rejected(blueprint):
-    del blueprint["crews"]["feature-delivery"]["agents"]["executor"]["tools"]
+def test_a_crew_must_list_its_roles(blueprint):
+    del blueprint["crews"]["feature-delivery"]["roles"]
     problems = problems_of(blueprint)
-    assert any("executor" in p and "tools" in p for p in problems)
+    assert any("feature-delivery" in p and "roles" in p for p in problems)
+
+
+def test_an_empty_tool_scope_is_rejected(blueprint):
+    blueprint["tools"]["reviewer"]["allow"] = []
+    assert any(
+        "tools.reviewer.allow" in p and "empty" in p for p in problems_of(blueprint)
+    )
 
 
 def test_every_problem_is_reported_together(blueprint):
@@ -106,11 +113,11 @@ def test_a_non_mapping_document_is_rejected():
 # -- catalog cross-checks -------------------------------------------------
 
 
-def test_unknown_role_template_lists_the_catalog(blueprint):
-    blueprint["standing"]["pm"]["template"] = "product-manager"
+def test_unknown_role_lists_the_catalog(blueprint):
+    blueprint["standing"]["pm"]["role"] = "product-manager"
     (problem,) = [p for p in problems_of(blueprint) if "product-manager" in p]
     assert "role catalog" in problem
-    assert "pm" in problem and "sdet" in problem
+    assert "pm" in problem and "reviewer" in problem
 
 
 def test_unknown_crew_in_may_spawn_is_caught(blueprint):
@@ -119,9 +126,15 @@ def test_unknown_crew_in_may_spawn_is_caught(blueprint):
     assert "feature-delivery" in problem
 
 
-def test_unknown_crew_member_template_is_caught(blueprint):
-    blueprint["crews"]["feature-review"]["agents"]["reviewer"]["role_template"] = "qa"
-    assert any("role_template" in p for p in problems_of(blueprint))
+def test_a_crew_naming_an_unknown_role_is_caught(blueprint):
+    blueprint["crews"]["feature-review"]["roles"] = ["qa"]
+    assert any("does not match the catalog" in p for p in problems_of(blueprint))
+
+
+def test_a_tool_scope_for_an_unknown_role_is_caught(blueprint):
+    blueprint["tools"]["qa"] = {"allow": ["git.read"]}
+    (problem,) = [p for p in problems_of(blueprint) if "tools.qa" in p]
+    assert "role catalog" in problem
 
 
 def test_company_role_cannot_hold_the_platform_merge_tool(blueprint):
@@ -132,9 +145,8 @@ def test_company_role_cannot_hold_the_platform_merge_tool(blueprint):
     assert "platform identity" in problem
 
 
-def test_crew_member_cannot_hold_the_platform_merge_tool(blueprint):
-    agents = blueprint["crews"]["feature-delivery"]["agents"]
-    agents["executor"]["tools"].append("git.merge_pr")
+def test_no_role_scope_can_hold_the_platform_merge_tool(blueprint):
+    blueprint["tools"]["reviewer"]["allow"].append("git.merge_pr")
     assert any("platform identity" in p for p in problems_of(blueprint))
 
 
@@ -145,42 +157,35 @@ def test_unknown_crew_name_is_caught(blueprint):
         blueprint["crews"]["feature-review"]
     )
     (problem,) = [p for p in problems_of(blueprint) if p.startswith("crews.hotfix-swat:")]
-    assert "crew template" in problem
+    assert "not a known crew" in problem
     assert "feature-delivery" in problem  # the known values are shown
 
 
-def test_unknown_crew_member_name_is_caught(blueprint):
-    agents = blueprint["crews"]["feature-review"]["agents"]
-    agents["stenographer"] = copy.deepcopy(agents["reviewer"])
-    (problem,) = [p for p in problems_of(blueprint) if "stenographer" in p]
-    assert "not a agent" in problem
-    assert "reviewer" in problem  # the catalog's agents are shown
-
-
-def test_crew_member_template_must_match_the_catalog(blueprint):
-    """The catalog defines who the reviewer is; a document swapping in a
-    different (but existing) template is wrong about the crew, not hiring."""
-    blueprint["crews"]["feature-review"]["agents"]["reviewer"]["role_template"] = (
-        "backend-engineer"
-    )
+def test_a_crew_must_list_exactly_the_catalog_roles(blueprint):
+    """The catalog defines who is in a crew; a document adding a role, or
+    swapping in a different (but existing) one, is wrong about the crew,
+    not hiring."""
+    blueprint["crews"]["feature-review"]["roles"] = ["reviewer", "implementer"]
     (problem,) = [p for p in problems_of(blueprint) if "does not match the catalog" in p]
-    assert "'sdet'" in problem
+    assert "'reviewer'" in problem
+    blueprint["crews"]["feature-review"]["roles"] = ["implementer"]
+    assert any("does not match the catalog" in p for p in problems_of(blueprint))
 
 
-def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
+def test_a_tool_scope_cannot_widen_the_catalog(blueprint):
     """The reviewer-cannot-deliver contract is a catalog property: a
     blueprint granting the reviewer `git.open_pr` must fail validation,
     not compile into a wider bundle."""
-    reviewer = blueprint["crews"]["feature-review"]["agents"]["reviewer"]
-    reviewer["tools"].append("git.open_pr")
+    blueprint["tools"]["reviewer"]["allow"].append("git.open_pr")
     (problem,) = [p for p in problems_of(blueprint) if "git.open_pr" in p]
     assert "never widens" in problem
     assert "sandbox.read_file" in problem  # the allowed values are shown
 
 
-def test_crew_member_tools_may_narrow_the_catalog(blueprint):
-    executor = blueprint["crews"]["feature-delivery"]["agents"]["executor"]
-    executor["tools"] = ["sandbox.read_file", "sandbox.run_tests"]
+def test_a_tool_scope_may_narrow_the_catalog(blueprint):
+    blueprint["tools"]["implementer"] = {
+        "allow": ["sandbox.read_file", "sandbox.run_tests"]
+    }
     assert validate_blueprint(blueprint) is blueprint
 
 
@@ -193,8 +198,8 @@ def test_lean_roster_profile_validates(blueprint):
     standing-executor document still *validates* structurally."""
     assert validate_blueprint(blueprint) is blueprint
     standing_executor = copy.deepcopy(blueprint)
-    standing_executor["standing"]["backend-engineer"] = {
-        "template": "backend-engineer",
+    standing_executor["standing"]["implementer"] = {
+        "role": "implementer",
         "count": 1,
     }
     assert validate_blueprint(standing_executor) is standing_executor
@@ -318,7 +323,7 @@ def test_a_contract_tree_under_a_deny_path_is_refused(blueprint):
     blueprint["policies"]["deny_paths"] = [".github/workflows/", "specs/"]
     blueprint["policies"]["contract_tests"] = {
         "paths": ["specs/contract/"],
-        "roles": ["sdet"],
+        "roles": ["reviewer"],
     }
     assert any("no role could ever deliver" in p for p in problems_of(blueprint))
 

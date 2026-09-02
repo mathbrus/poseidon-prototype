@@ -57,15 +57,15 @@ class FakeInstances:
         self,
         agent_id,
         company,
-        standing_role,
-        role_template,
+        standing_name,
+        role,
         model_tier,
         namespace=None,
         status="ready",
     ):
         self.rows[agent_id] = {
             "company": company,
-            "standingRole": standing_role,
+            "standingName": standing_name,
             "namespace": namespace,
             "status": status,
         }
@@ -124,8 +124,8 @@ COMPANY_SPEC = {
 INSTANCE_SPEC = {
     "agentId": "pm-1",
     "company": "hello-saas",
-    "standingRole": "pm",
-    "roleTemplate": "pm",
+    "standingName": "pm",
+    "role": "pm",
     "modelTier": "standard",
     "tools": ["issues.read", "crew.request"],
 }

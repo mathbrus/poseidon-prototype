@@ -58,7 +58,7 @@ field through everything it becomes. In `examples/hello-saas.yaml`:
 
 ```yaml
 pm:
-  template: pm
+  role: pm
   count: 1
   model_tier: standard
   may_spawn:
@@ -124,12 +124,12 @@ nothing while making the entrypoint safe for every blueprint.
 
 ### Why `bound_to_run` appears on sandbox rules only
 
-Compare the executor's `git.open_pr` rule with its `sandbox.exec` rule
+Compare the implementer's `git.open_pr` rule with its `sandbox.exec` rule
 in the goldens: only the latter ends in `bound_to_run`, a predicate
 requiring `input.run_binding_verified == true` — a flag the gateway sets
 after checking the caller's run binding against the registry. Sandbox
 tools address *a specific run's* workspace, so a role allow-list alone
-would quietly permit cross-run access: any executor could read any run's
+would quietly permit cross-run access: any implementer could read any run's
 files. `git.open_pr` targets the repository, not a run, so run binding
 is the wrong guard — its guards are the deny rules below. Which tools
 carry the requirement is declared in `schema.tools.RUN_SCOPED`, a
@@ -189,7 +189,7 @@ sufficient to fix the document: what is wrong, where, and what is allowed
 instead. One real example (the lean-standing rule, from `test_checks.py`):
 
 ```
-standing.backend-engineer: standing count 1 on non-spawner template 'backend-engineer' — execution is ephemeral crews; declare a conductor with may_spawn, or set count: 0
+standing.implementer: standing count 1 on non-spawner role 'implementer' — execution is ephemeral crews; declare a conductor with may_spawn, or set count: 0
 ```
 
 Two subtleties. First, `compile_blueprint` accepts plain dicts and does

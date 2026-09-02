@@ -27,8 +27,8 @@ def event(**overrides) -> AuditEvent:
     fields = {
         "ts": datetime.now(UTC).isoformat(),
         "run_id": RUN_ID,
-        "agent_id": "backend-engineer-1",
-        "role": "backend-engineer",
+        "agent_id": "implementer-1",
+        "role": "implementer",
         "tool": "sandbox.exec",
         "args_digest": "a" * 64,
         "decision": "allow",
@@ -176,7 +176,7 @@ def test_story_spans_every_source(registry: Registry):
     )
     audit.append(
         event(
-            agent_id="backend-engineer-1",
+            agent_id="implementer-1",
             source="llm-gateway",
             tool="llm.complete",
             lifecycle="standing",
@@ -257,16 +257,17 @@ def test_company_rows_and_instance_sweep(registry: Registry):
 def test_agent_instance_lookup_carries_namespace(registry: Registry):
     instances = AgentInstances(registry)
     instances.upsert(
-        "backend-engineer-1",
+        "implementer-1",
         "hello-saas",
-        "backend-engineer",
-        "backend-engineer",
+        "implementer",
+        "implementer",
         "standard",
         namespace="hello-saas",
     )
-    row = instances.get("backend-engineer-1")
+    row = instances.get("implementer-1")
     assert row["namespace"] == "hello-saas"
-    assert row["role_template"] == "backend-engineer"
+    assert row["standing_name"] == "implementer"
+    assert row["role"] == "implementer"
     assert instances.get("nobody") is None
 
 
@@ -279,7 +280,7 @@ def test_participant_active_goes_dark_on_termination(registry: Registry):
             (agent_id, run_id, parent_agent_id, crew_template, role)
         VALUES (%s, %s, %s, %s, %s)
         """,
-        ("executor-01X", RUN_ID, "pm-1", "feature-delivery", "backend-engineer"),
+        ("executor-01X", RUN_ID, "pm-1", "feature-delivery", "implementer"),
     )
     participants = RunParticipants(registry)
     assert participants.active("executor-01X")["run_id"] == RUN_ID
@@ -326,9 +327,9 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     ledger.record(
         company="hello-saas",
         run_id=RUN_ID,
-        agent_id="backend-engineer-1",
+        agent_id="implementer-1",
         parent_agent_id="",
-        role="backend-engineer",
+        role="implementer",
         model="mock-brain",
         prompt_tokens=100,
         completion_tokens=50,
@@ -341,7 +342,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
         run_id=RUN_ID,
         agent_id="executor-01X",
         parent_agent_id="pm-1",
-        role="backend-engineer",
+        role="implementer",
         model="mock-brain",
         prompt_tokens=10,
         completion_tokens=5,
@@ -351,7 +352,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     )
     assert abs(ledger.spent_for_run(RUN_ID) - 0.0004) < 1e-9
     entries = ledger.entries_for_run(RUN_ID)
-    assert [e["agent_id"] for e in entries] == ["backend-engineer-1", "executor-01X"]
+    assert [e["agent_id"] for e in entries] == ["implementer-1", "executor-01X"]
     assert entries[1]["parent_agent_id"] == "pm-1"
     assert (entries[0]["cached_tokens"], entries[0]["reasoning_tokens"]) == (50, 25)
     assert (entries[1]["cached_tokens"], entries[1]["reasoning_tokens"]) == (5, 2)
@@ -389,20 +390,28 @@ def test_participant_bind_is_retry_safe_and_sweepable(registry: Registry):
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
     participants.add(
-        "feature-delivery-executor-x", RUN_ID, "pm-1", "feature-delivery", "executor"
+        "feature-delivery-implementer-x",
+        RUN_ID,
+        "pm-1",
+        "feature-delivery",
+        "implementer",
     )
     # A retry against the live row converges — one identity, never two.
     participants.add(
-        "feature-delivery-executor-x", RUN_ID, "pm-1", "feature-delivery", "executor"
+        "feature-delivery-implementer-x",
+        RUN_ID,
+        "pm-1",
+        "feature-delivery",
+        "implementer",
     )
-    assert participants.active("feature-delivery-executor-x") is not None
+    assert participants.active("feature-delivery-implementer-x") is not None
 
     participants.add(
         "feature-review-reviewer-x", RUN_ID, "pm-1", "feature-review", "reviewer"
     )
     swept = participants.terminate_for_run(RUN_ID)
     assert sorted(swept) == [
-        "feature-delivery-executor-x",
+        "feature-delivery-implementer-x",
         "feature-review-reviewer-x",
     ]
     assert participants.active("feature-review-reviewer-x") is None
@@ -417,28 +426,28 @@ def test_participant_row_resolves_by_service_account(registry: Registry):
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
     participants.add(
-        "feature-delivery-executor-X",
+        "feature-delivery-implementer-X",
         RUN_ID,
         "pm-1",
         "feature-delivery",
-        "executor",
+        "implementer",
         company="hello-saas",
-        role_template="backend-engineer",
         namespace="hello-saas",
-        service_account="ephemeral-feature-delivery-executor-x",
+        service_account="ephemeral-feature-delivery-implementer-x",
     )
-    row = participants.by_service_account("ephemeral-feature-delivery-executor-x")
+    row = participants.by_service_account("ephemeral-feature-delivery-implementer-x")
     assert row is not None
     # Lowercasing the SA name is not invertible; the canonical id is
     # read from the row, never derived from the name.
-    assert row["agent_id"] == "feature-delivery-executor-X"
+    assert row["agent_id"] == "feature-delivery-implementer-X"
     assert row["company"] == "hello-saas"
-    assert row["role_template"] == "backend-engineer"
+    assert row["role"] == "implementer"  # the catalog role, as written
     assert row["namespace"] == "hello-saas"
 
-    participants.terminate("feature-delivery-executor-X")
+    participants.terminate("feature-delivery-implementer-X")
     assert (
-        participants.by_service_account("ephemeral-feature-delivery-executor-x") is None
+        participants.by_service_account("ephemeral-feature-delivery-implementer-x")
+        is None
     )
 
 
@@ -457,7 +466,7 @@ def test_crew_request_consume_and_spawn_count(registry: Registry):
     assert requests.consume(recorded["id"], "run-other") is None
     assert requests.consume("crq-missing", RUN_ID) is None
 
-    participants.add("fd-executor-1", RUN_ID, "pm-1", "feature-delivery", "executor")
+    participants.add("fd-executor-1", RUN_ID, "pm-1", "feature-delivery", "implementer")
     participants.add("fd-second-1", RUN_ID, "pm-1", "feature-delivery", "second")
     assert participants.active_spawn_count("pm-1") == 1  # one crew, two agents
     participants.add("fr-reviewer-1", RUN_ID, "pm-1", "feature-review", "reviewer")
@@ -475,23 +484,27 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
     participants.add(
-        "feature-delivery-executor-z", RUN_ID, "pm-1", "feature-delivery", "executor"
+        "feature-delivery-implementer-z",
+        RUN_ID,
+        "pm-1",
+        "feature-delivery",
+        "implementer",
     )
-    assert participants.terminate_for_run(RUN_ID) == ["feature-delivery-executor-z"]
+    assert participants.terminate_for_run(RUN_ID) == ["feature-delivery-implementer-z"]
 
     with pytest.raises(ParticipantRevoked):
         participants.add(
-            "feature-delivery-executor-z",
+            "feature-delivery-implementer-z",
             RUN_ID,
             "pm-1",
             "feature-delivery",
-            "executor",
+            "implementer",
         )
     # Still revoked: the failed mint changed nothing.
-    assert participants.active("feature-delivery-executor-z") is None
+    assert participants.active("feature-delivery-implementer-z") is None
     rows = registry.query(
         "SELECT status FROM registry.run_participants WHERE agent_id = %s",
-        ("feature-delivery-executor-z",),
+        ("feature-delivery-implementer-z",),
     )
     assert rows[0]["status"] == "terminated"
 
@@ -533,9 +546,9 @@ def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
 def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
     ledger = BudgetLedger(registry)
     entry = dict(
-        agent_id="executor",
+        agent_id="fd-implementer-1",
         parent_agent_id="pm-1",
-        role="backend-engineer",
+        role="implementer",
         model="mock",
         prompt_tokens=1,
         completion_tokens=1,
@@ -649,7 +662,7 @@ def test_participants_for_run_includes_terminated_rows(registry: Registry):
     runs = Runs(registry)
     runs.start("run-lin-a", "implement issue #5", "implement", None, "hello-saas")
     participants = RunParticipants(registry)
-    participants.add("lin-exec-1", "run-lin-a", "pm-1", "feature-delivery", "executor")
+    participants.add("lin-exec-1", "run-lin-a", "pm-1", "feature-delivery", "implementer")
     participants.terminate_for_run("run-lin-a")
     rows = participants.for_run("run-lin-a")
     assert [(r["agent_id"], r["status"]) for r in rows] == [("lin-exec-1", "terminated")]

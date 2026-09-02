@@ -1,4 +1,4 @@
-"""Preview: standing_role, fire and reorg are blueprint diffs, and you can read them
+"""Preview: standing_name, fire and reorg are blueprint diffs, and you can read them
 before they converge."""
 
 from compiler import (
@@ -10,17 +10,17 @@ from compiler import (
 )
 
 
-def live(*standing_roles: tuple[str, str, str]) -> RegistrySnapshot:
+def live(*hires: tuple[str, str, str]) -> RegistrySnapshot:
     return RegistrySnapshot(
         instances=tuple(
             InstanceSnapshot(
-                agent_id=f"{standing_role}-1",
+                agent_id=f"{standing_name}-1",
                 company="hello-saas",
-                standing_role=standing_role,
-                role_template=template,
+                standing_name=standing_name,
+                role=role,
                 model_tier=tier,
             )
-            for standing_role, template, tier in standing_roles
+            for standing_name, role, tier in hires
         )
     )
 
@@ -51,22 +51,18 @@ def test_a_small_edit_shows_a_minimal_diff(blueprint):
 def test_the_firing_diff_is_a_deletion(blueprint):
     """Firing a standing agent is a blueprint edit — the live demo of
     fire-as-diff: the standing agents the blueprint no longer names is deleted."""
-    snapshot = live(
-        ("pm", "pm", "standard"), ("backend-engineer", "backend-engineer", "frontier")
-    )
+    snapshot = live(("pm", "pm", "standard"), ("implementer", "implementer", "frontier"))
     diff = diff_plan(compile_blueprint(blueprint, snapshot=snapshot), snapshot)
-    assert [(c.agent_id, c.action) for c in diff.changes] == [
-        ("backend-engineer-1", "delete")
-    ]
+    assert [(c.agent_id, c.action) for c in diff.changes] == [("implementer-1", "delete")]
 
 
 def test_count_growth_is_distinct_creates(blueprint):
     """count > 1 mints one agent_id per instance and previews the growth;
-    a diff keyed on the standing_role alone would collapse it into 'no changes'."""
+    a diff keyed on the standing_name alone would collapse it into 'no changes'."""
     snapshot = live(("pm", "pm", "standard"))
     blueprint["standing"]["pm"]["count"] = 3
     plan = compile_blueprint(blueprint, snapshot=snapshot)
-    pm_ids = [i.agent_id for i in plan.instances if i.standing_role == "pm"]
+    pm_ids = [i.agent_id for i in plan.instances if i.standing_name == "pm"]
     assert len(pm_ids) == len(set(pm_ids)) == 3
     assert pm_ids[0] == "pm-1"  # the live instance keeps its id
     diff = diff_plan(plan, snapshot)
@@ -82,14 +78,14 @@ def test_existing_agent_ids_are_preserved(blueprint):
             InstanceSnapshot(
                 agent_id="pm-original",
                 company="hello-saas",
-                standing_role="pm",
-                role_template="pm",
+                standing_name="pm",
+                role="pm",
                 model_tier="standard",
             ),
         )
     )
     plan = compile_blueprint(blueprint, snapshot=snapshot)
-    pm = next(i for i in plan.instances if i.standing_role == "pm")
+    pm = next(i for i in plan.instances if i.standing_name == "pm")
     assert pm.agent_id == "pm-original"
 
 

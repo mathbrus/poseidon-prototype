@@ -1,9 +1,10 @@
 """Caller identity: who a verified credential says is calling.
 
-An `Identity` carries company, agent_id, lifecycle and role —
-plus what the verifier learned on the way: the standing caller's namespace
-(for run-binding enrichment), and the ephemeral caller's run binding and
-crew coordinates from its live `run_participants` row.
+An `Identity` carries company, agent_id, lifecycle and role (the catalog
+role, for every lifecycle) — plus what the verifier learned on the way:
+the standing caller's namespace (for run-binding enrichment), and the
+ephemeral caller's run binding, parentage and crew from its live
+`run_participants` row.
 
 Produced exclusively by `common.authn` from one credential shape: a
 projected Kubernetes service-account token, verified through TokenReview.
@@ -32,12 +33,11 @@ class Identity(BaseModel):
     # in — compared against a sandbox registration's namespace when
     # verifying a run binding.
     namespace: str | None = None
-    # Ephemeral callers: the parentage and crew coordinates, read from
-    # the live run_participants row at verification time.
+    # Ephemeral callers: the parentage and crew, read from the live
+    # run_participants row at verification time.
     run_id: str | None = None
     parent_agent_id: str | None = None
     crew_template: str | None = None
-    crew_role: str | None = None
 
 
 def bearer_token(authorization: str | None) -> str | None:
