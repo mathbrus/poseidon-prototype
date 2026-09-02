@@ -189,9 +189,6 @@ def _ephemeral_agents(
         catalog_crew = crews_catalog.get(crew_name)
         for agent_name, agent in sorted((crew.get("agents") or {}).items()):
             catalog_agent = catalog_crew.agents.get(agent_name) if catalog_crew else None
-            needs_sandbox = agent.get("needs_sandbox")
-            if needs_sandbox is None:
-                needs_sandbox = catalog_agent.needs_sandbox if catalog_agent else True
             # Narrowed against the catalog agent like standing tools are
             # narrowed against the role template: a widening blueprint is a
             # checks.py error, and even past that, nothing wider than the
@@ -205,7 +202,6 @@ def _ephemeral_agents(
                     crew_role=agent_name,
                     role_template=agent["role_template"],
                     tools=tuple(sorted(declared)),
-                    needs_sandbox=bool(needs_sandbox),
                     budget_inheritance=crew.get("budget_inheritance", "run"),
                 )
             )

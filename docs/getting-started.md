@@ -114,7 +114,7 @@ must be brought up with `REAL_LLM=1`. Nothing does that for you.
 
 The provider key never enters an agent pod. It lands only in the
 `llm-proxy`, behind the LLM gateway; LiteLLM is started in single-model
-mode, so every role — PM, planner, executor, reviewer — is served the
+mode, so every role — PM, executor, reviewer — is served the
 same `MODEL`.
 
 Edit `deploy/kind/.env` (create it from `.env.example` if you have not
@@ -214,7 +214,7 @@ default workflow is implement:
 uv run poseidon run examples/task-tetris.md
 ```
 
-The crew planner writes a brief, the executor implements it, the
+The crew's executor implements the task, the
 *platform* runs `pytest -q` as the verify gate of record, and only a
 green verify releases the deliver dispatch that opens the pull request.
 Success JSON has `"status": "done"` and a `pr_url` whose head ref matches

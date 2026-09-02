@@ -83,31 +83,19 @@ standing-executor document still validates structurally.
 
 ## The crew catalog
 
-Three crew templates: `feature-delivery` (a planner plus one coding
-executor), `feature-review` (one reviewer, run against a sandbox
-provisioned from the PR ref) and `contract-authoring` (one contract
-author, no planner — the contract ticket is the brief). Crew names,
+Three crew templates: `feature-delivery` (one coding executor),
+`feature-review` (one reviewer, run against a sandbox provisioned from
+the PR ref) and `contract-authoring` (one contract author, working from
+the contract ticket). Crew names,
 agent names and each agent's `role_template` in a blueprint must all
 match the catalog: a `crews:` key outside it would validate structurally
 and then resolve against nothing in the compiler, which is the failure
 mode these cross-checks exist to kill.
 
-The planner is the catalog's most deliberate agent:
-
-```python
-# The planner is LLM-only: read-only against the run's one sandbox, no
-# sandbox of its own, no write tools. It produces
-# exactly one artifact — the task brief the executor's dispatch carries.
-_PLANNER_TOOLS = ("sandbox.read_file", "sandbox.list_dir", "issues.read")
-```
-
-`needs_sandbox: False` on that agent is the other half of the same
-contract: LLM-only agents get no sandbox of their own.
-
 A blueprint may **narrow** a catalog agent's allow-list, never widen it.
-A document granting the planner `sandbox.write_file` fails validation
+A document granting the reviewer `git.open_pr` fails validation
 with a message quoting the catalog's list — because the
-planner-is-read-only contract is a catalog property, and a wider document
+reviewer-cannot-deliver contract is a catalog property, and a wider document
 must fail here rather than compile into a wider bundle. Narrowing,
 though, is fine: an executor declared with only `sandbox.read_file` and
 `sandbox.run_tests` validates.

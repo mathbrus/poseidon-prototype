@@ -403,7 +403,7 @@ flowchart LR
         IN["PM scopes the goal,<br/>files tickets"]
     end
     subgraph implement ["implement run"]
-        FU["fulfil crew<br/>+ sandbox"] --> PL["plan"] --> IM["implement"] --> VG["verify<br/>gate"] --> DE["deliver<br/>PR"]
+        FU["fulfil crew<br/>+ sandbox"] --> IM["implement"] --> VG["verify<br/>gate"] --> DE["deliver<br/>PR"]
     end
     subgraph review ["review run"]
         RV["independent<br/>review"] --> MG["merge<br/>gate"]
@@ -452,19 +452,13 @@ A human starts an implement run from a ticket (or the heartbeat does — see
 > configured and no credential anywhere in it. There is nothing to steal
 > and nowhere to push.
 
-### Planning: a read-only brief
-
-The planner is dispatched first, on its own pod, with no sandbox of its own
-(`needs_sandbox: false`). It reads the run's shared sandbox through the
-gateway — the tree, the files the task will touch, the repository's own
-`AGENTS.md` — under its own projected token, so its read-only compiled
-scope is what policy enforces. Its output is a task brief for the executor.
-
 ### Implementation: work under audit
 
-The executor is dispatched with that brief. It reads, writes and runs
-commands in the sandbox — all through the gateway, all policy-checked, all
-audited. Then it says it is done.
+The executor is dispatched with the task text — a file's contents or the
+ticket the company filed, verbatim. It surveys the sandbox (the tree and
+the repository's own `AGENTS.md`), then reads, writes and runs commands in
+it — all through the gateway, all policy-checked, all audited. Then it says
+it is done.
 
 > [!IMPORTANT]
 > The executor's claim of success is **advisory**. Nothing that ships
@@ -729,8 +723,8 @@ Read it as the answer to "what do I actually get?"
   tear down a whole company from a single blueprint; hiring and firing are
   diffs you read before they happen; firing revokes an agent's identity the
   moment its row is deleted.
-- **A full SDLC.** Goal → tickets (intake) → implementation with a planner
-  and executor crew → platform-run verification → pull request → ephemeral
+- **A full SDLC.** Goal → tickets (intake) → implementation by an ephemeral
+  executor crew → platform-run verification → pull request → ephemeral
   review with a posted findings comment and a structured verdict → merge.
 - **Quality as a gate policy owns, not the agent.** The merge gate resolves
   the way the blueprint declares. Delegate it, and a change in the declared

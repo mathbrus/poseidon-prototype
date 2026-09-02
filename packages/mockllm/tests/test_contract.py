@@ -28,7 +28,6 @@ import agent.brain as brain
 from agent.brain import (
     deliver_dispatch,
     implement_dispatch,
-    plan_dispatch,
     review_dispatch,
 )
 from agent.config import AgentSettings
@@ -217,23 +216,6 @@ def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
     opened = [args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"]
     assert opened[0] == "main"  # attempted, denied by the policy double
     assert FEATURE_BRANCH_RE.match(opened[1])  # recovered
-
-
-def test_planner_brief_echoes_branch_and_scenario_markers(mock_llm_url):
-    """Lossless handoff: the brief REPLACES the task text for the
-    executor, so the mock planner must echo the branch line (and the
-    flaky-gate marker) into it."""
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
-        "\n\nDeliver your work on the branch `feature/slugify-brief1`.\n"
-    )
-    cfg = settings(mock_llm_url)
-    gateway = FakeGateway()
-    with bridged(gateway):
-        result = plan_dispatch(cfg, "run-mock-plan", task_text)
-    assert result.error is None
-    assert "feature/slugify-brief1" in result.brief
-    # The planner surveyed read-only — no writes, no tests, no delivery.
-    assert [tool for tool, _ in gateway.calls] == ["sandbox.list_dir"]
 
 
 class GatedFakeGateway(FakeGateway):

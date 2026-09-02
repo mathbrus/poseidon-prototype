@@ -42,21 +42,38 @@ def post(body: dict, path: str = "/v1/responses") -> dict:
     return resp.json()
 
 
-def test_planner_brief_is_a_completed_message_not_a_404():
-    """No tools offered -> the planner phase; the brief comes back as one
-    completed output message with usage in Responses vocabulary."""
+DECIDE_ITEM = {
+    "type": "message",
+    "role": "user",
+    "content": [
+        {
+            "type": "input_text",
+            "text": (
+                "Heartbeat tick. Runs in flight: 0. Spent today: $0.00.\n"
+                "Startable actions: implement, review, idle\n\n"
+                "Open tickets:\n(none)\n\nDelivered pull requests awaiting review:\n"
+                "(none)\n\nRecent runs:\n(none)"
+            ),
+        }
+    ],
+}
+
+
+def test_a_toolless_completion_is_a_completed_message_not_a_404():
+    """No tools offered and a decide prompt -> the decision comes back as
+    one completed output message with usage in Responses vocabulary."""
     body = post(
         {
             "model": "gpt-5.6-luna",
-            "instructions": "You are the planner.",
-            "input": [GOAL_ITEM],
+            "instructions": "You are the product manager. A heartbeat decision.",
+            "input": [DECIDE_ITEM],
         }
     )
     assert body["object"] == "response"
     assert body["status"] == "completed"
     (item,) = body["output"]
     assert item["type"] == "message" and item["role"] == "assistant"
-    assert "slugify.py" in item["content"][0]["text"]
+    assert "DECISION: idle" in item["content"][0]["text"]
     usage = body["usage"]
     assert usage["input_tokens"] > 0 and usage["output_tokens"] > 0
     assert usage["total_tokens"] == usage["input_tokens"] + usage["output_tokens"]
@@ -157,8 +174,8 @@ def test_chat_completions_surface_is_unchanged():
         json={
             "model": "mock-brain",
             "messages": [
-                {"role": "system", "content": "You are the planner."},
-                {"role": "user", "content": "Goal: anything"},
+                {"role": "system", "content": "You are an engineer."},
+                {"role": "user", "content": "Task: anything"},
             ],
         },
     )

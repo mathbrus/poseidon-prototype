@@ -111,7 +111,6 @@ _CREW_MEMBER = {
     "properties": {
         "role_template": _NAME,
         "tools": _TOOL_LIST,
-        "needs_sandbox": {"type": "boolean"},
     },
 }
 

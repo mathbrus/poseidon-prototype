@@ -43,7 +43,6 @@ from openhands.sdk import (
 )
 from openhands.sdk.agent.parallel_executor import ParallelToolExecutor
 from openhands.sdk.context import AgentContext
-from openhands.sdk.conversation import get_agent_final_response
 from openhands.sdk.llm import Message, TextContent
 from pydantic import BaseModel, SecretStr
 
@@ -52,7 +51,6 @@ from agent.gateway_client import McpGateway, ToolCallError
 from agent.hands import (
     ACT_TOOLS,
     DELIVER_TOOLS,
-    PLAN_TOOLS,
     PM_TOOLS,
     REVIEWER_TOOLS,
     WORKSPACE_TOOLS,
@@ -72,9 +70,6 @@ ACT_STEP_CAP = 20
 # bounds implement's verify cycles and says nothing about how many
 # steps a review takes; money is bounded by the per-run cap either way.
 REVIEW_STEP_CAP = 30
-# The planner reads a handful of files and answers; the cap keeps a
-# survey from becoming an implementation.
-PLAN_STEP_CAP = 8
 # Condensation is real context machinery for a real model; the sizes keep it
 # far out of reach of the short deterministic e2e conversations.
 CONDENSER_MAX_SIZE = 120
@@ -90,9 +85,6 @@ class RunResult(BaseModel):
     pr_url: str | None = None
     iterations: int = 0
     error: str | None = None
-    # Planner mode: the task brief the executor's
-    # dispatch carries verbatim.
-    brief: str | None = None
     # PM runtime: the tickets it filed and the crew intent
     # it recorded — what an intake run links to the run record.
     ticket_urls: list[str] = []
@@ -354,14 +346,6 @@ def _act_prompt(task_text: str, entries: str) -> str:
     )
 
 
-def _plan_prompt(task_text: str, entries: str) -> str:
-    return (
-        f"Task:\n{task_text}\n\n"
-        f"Workspace root entries: {entries}\n\n"
-        "Write only the numbered brief."
-    )
-
-
 @dataclass
 class Session:
     convo: Conversation
@@ -586,21 +570,3 @@ def decide_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> Run
         )
     log.info("decision", extra=decision)
     return RunResult(decision=decision)
-
-
-def plan_dispatch(settings: AgentSettings, run_id: str, task_text: str) -> RunResult:
-    """Planner mode: read the run's sandbox, write nothing, answer with
-    the task brief. The loop offers only the read tools — the planner's
-    compiled scope is read-only, and it calls the gateway under its own
-    pod's token, so policy enforces the same. The brief is the agent's
-    final text, whether it ended with a plain reply or `finish`."""
-    with _session(settings, run_id, "plan", PLAN_TOOLS, PLAN_STEP_CAP) as s:
-        convo = s.convo
-        convo.send_message(_plan_prompt(task_text, s.workspace.entries))
-        convo.run()
-        if failure := _loop_failure(convo):
-            return RunResult(error=failure)
-        brief = get_agent_final_response(convo.state.events).strip()
-    if not brief:
-        return RunResult(error="planner produced an empty brief")
-    return RunResult(brief=brief)

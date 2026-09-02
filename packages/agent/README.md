@@ -50,7 +50,7 @@ for it.
 | `prompting.py` | Everything that reaches the model before its first turn: the mode's procedure followed by the SDK's heuristic sections, and the repository's `AGENTS.md` as untrusted context. |
 | `gateway_client.py` | The async MCP client (`McpGateway`, `ToolCallError`). |
 | `config.py` | Settings, including gateway-credential resolution. |
-| `prompts/` | One file per dispatch mode (`pm.md`, `plan.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. Two sentences are contracts with the mock brain's phase keying: `pm.md` opens "You are the product manager" and `decide.md` says "a heartbeat decision". |
+| `prompts/` | One file per dispatch mode (`pm.md`, `implement.md`, `deliver.md`, `review.md`, `decide.md`), edited as prose. Two sentences are contracts with the mock brain's phase keying: `pm.md` opens "You are the product manager" and `decide.md` says "a heartbeat decision". |
 
 ## Dispatch: the /task API
 
@@ -58,7 +58,7 @@ The orchestrator's workflows drive this host through one small API.
 `POST /task {run_id, task_text, mode?}` answers 202 and runs the
 dispatch on a background task; `GET /task/{run_id}` reports `status`
 plus every field of the brain's `RunResult` (`pr_url`, `iterations`,
-`error`, `brief`, `ticket_urls`, `crew_request_id`, `comment_urls`,
+`error`, `ticket_urls`, `crew_request_id`, `comment_urls`,
 `verdict`, `verdict_summary`, `decision`) — the HTTP shape is derived
 from the result type, so a new field cannot be dropped at the
 boundary. The workflow polls — the brain owns no
@@ -84,14 +84,13 @@ Two status-code rules carry real semantics:
   is lifted, the workflow re-dispatches the same `run_id`; if that
   answered 409 too, it would poll a stale failure forever.
 
-## Five tool surfaces, six runners
+## Four tool surfaces, five runners
 
 From `hands.py`, verbatim:
 
 ```python
 ACT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
-PLAN_TOOLS = ["list_dir", "read_file"]
 PM_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
 REVIEWER_TOOLS = [
     "list_dir",
@@ -110,7 +109,6 @@ REVIEWER_TOOLS = [
 | `deliver` | `DELIVER_TOOLS` | the PR URL |
 | `review` | `REVIEWER_TOOLS` | posted findings + a structured pass/fail verdict |
 | `pm` | `PM_TOOLS` | tickets + recorded crew intent + the PM's summary, commented on each ticket |
-| `plan` | `PLAN_TOOLS` | the task brief — the agent's final text |
 | `decide` | none — one completion, no tool loop | one action per heartbeat tick, with its rationale |
 
 `edit_file` is the partial edit coding models are trained on —
@@ -137,14 +135,14 @@ The reviewer's surface is read-and-judge: it reads the PR and executes
 the suite in its review sandbox, but has no `write_file` and no
 `open_pr` — and the compiled sdet scope enforces the same at the gateway,
 so the in-process surface is a convenience, not the boundary. Its step
-budget is `REVIEW_STEP_CAP`, a constant of its own beside `ACT_STEP_CAP`
-and `PLAN_STEP_CAP`: `MAX_ITERATIONS` bounds only how many advisory
+budget is `REVIEW_STEP_CAP`, a constant of its own beside
+`ACT_STEP_CAP`: `MAX_ITERATIONS` bounds only how many advisory
 verify cycles an implement dispatch gets, and a deployment that tunes it
 low for implement never starves the reviewer.
 
 Every runner fails on missing evidence rather than on the model's word: a
 deliver dispatch with no PR opened, a review with no findings posted, a
-PM dispatch with no ticket filed, a planner with no brief — each is an
+PM dispatch with no ticket filed — each is an
 explicit error. So is a loop that stops short: the SDK sets `ERROR` at
 the step cap and `STUCK` when its detector sees the same action and
 observation repeat, and `_loop_failure` turns either into a named
@@ -213,20 +211,6 @@ thread, at first `send_message` — so the per-dispatch context is a
 module-level current-context bound by `HandsContext.activate()`, not a
 contextvar. That is safe only because the 409 rule means one dispatch per
 host at a time; there is never a second context to race with.
-
-## The planner reads before it briefs
-
-`mode="plan"` is a short loop over the two read tools: the survey, a few
-reads of the files the task will touch, then the brief — the agent's
-final text, whether it ended with a plain reply or `finish` — which the
-executor's next dispatch carries verbatim. A planner that reads until
-its step cap has no brief, and says so.
-
-The planner runs on its own pod, under its own per-run ServiceAccount —
-one principal, one pod, one projected token, like every other agent. No
-credential rides the dispatch; the survey, the reads and the LLM calls
-all run under the pod's own token, so what policy enforces is the
-planner's compiled read-only scope.
 
 ## Credential posture
 

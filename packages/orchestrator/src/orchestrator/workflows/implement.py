@@ -11,11 +11,11 @@ this module imports nothing from the activity implementations.
 The crew is the only execution path: fulfill_crew stands
 the ephemeral executor up (recording the crew request under the standing
 conductor's authority when none exists), the executor is dispatched at its
-ephemeral pod, and its completion claim is advisory — the platform verify gate
-(`platform_verify`, the orchestrator's own run of the sandbox tests) is the
-gate of record. Red verify feeds the failure back for a bounded number of
-re-dispatches (the blueprint's `max_verify_retries`); only a green verify
-releases the separate mode="deliver" dispatch that
+ephemeral pod with the task text, and its completion claim is advisory — the
+platform verify gate (`platform_verify`, the orchestrator's own run of the
+sandbox tests) is the gate of record. Red verify feeds the failure back for
+a bounded number of re-dispatches (the blueprint's `max_verify_retries`);
+only a green verify releases the separate mode="deliver" dispatch that
 opens the PR. Delivery before verify is structurally impossible: the
 implement-mode toolset has no `git.open_pr`, and the deliver dispatch is
 sequenced strictly after the gate.
@@ -41,6 +41,7 @@ from orchestrator.workflows.base import (
     TEARDOWN_RETRY,
     RunWorkflow,
     Timeouts,
+    crew_agent,
 )
 
 
@@ -92,12 +93,12 @@ def ticket_crew(task_source: str) -> str | None:
     return matches[-1] if matches else None
 
 
-def verify_feedback(brief: str, output: str) -> str:
-    """The red-path re-dispatch text: the brief the executor already worked
+def verify_feedback(task: str, output: str) -> str:
+    """The red-path re-dispatch text: the task the executor already worked
     from, plus what the platform's own test run said. Deterministic —
     workflow code composes it on replay."""
     return (
-        f"{brief}\n\n"
+        f"{task}\n\n"
         "The platform ran the test suite after your completion claim and it"
         " FAILED. Fix the failures; do not claim completion until the tests"
         " pass. Test output (tail):\n"
@@ -191,8 +192,8 @@ class ImplementWorkflow(RunWorkflow):
             # The crew is the only execution path: fulfill stands the
             # ephemeral crew up — recording the crew request under the
             # conductor's authority via the same compiled decision the
-            # crew.request tool faces — and hands back the planner's brief
-            # plus the executor's crew-pod address.
+            # crew.request tool faces — and hands back the executor's
+            # identity and dispatch address.
             crew = await workflow.execute_activity(
                 "fulfill_crew",
                 args=[
@@ -207,21 +208,19 @@ class ImplementWorkflow(RunWorkflow):
                         or config["crew_template"],
                         "conductor": config["conductor"],
                         "conductor_role": config["conductor_role"],
-                        "task_text": task_source,
                         "record_under_authority": True,
                     }
                 ],
-                start_to_close_timeout=timedelta(seconds=timeouts.fulfill_s),
+                start_to_close_timeout=timedelta(seconds=timeouts.provision_s),
                 heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
                 retry_policy=STEP_RETRY,
             )
-            brief = crew["brief"]
-            executor_url = crew["executor_url"]
+            executor_url = crew_agent(crew)["url"]
 
             # Implement to a completion claim; the platform verify gate is
             # the gate of record. Red feeds back, bounded by the blueprint.
             verify_failures = 0
-            task_text = brief
+            task_text = task_source
             verified = False
             while True:
                 result = await self.dispatch(
@@ -246,12 +245,11 @@ class ImplementWorkflow(RunWorkflow):
                         f" max_verify_retries={config['max_verify_retries']}"
                     )
                     break
-                task_text = verify_feedback(brief, verify["output"])
+                task_text = verify_feedback(task_source, verify["output"])
 
-            # Delivery is workflow-directed and gated: only a
-            # green platform verify releases the deliver dispatch. The
-            # source text rides it — not the planner's brief — so the
-            # delivery constraints (branch, markers) survive verbatim.
+            # Delivery is workflow-directed and gated: only a green
+            # platform verify releases the deliver dispatch, which carries
+            # the same task text the implementation worked from.
             if verified and not error and not (result or {}).get("error"):
                 delivery = await self.dispatch(
                     input.run_id, task_source, executor_url, "deliver", timeouts

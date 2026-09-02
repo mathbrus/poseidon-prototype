@@ -279,10 +279,8 @@ class AgentClient:
     ) -> None:
         """Idempotent under retry: 409 means the agent already has the run
         (a previous attempt dispatched it before the worker died) — the
-        caller proceeds to polling either way. Mode `plan` runs the
-        read-only planner on the planner's own brain host; no
-        credential rides the dispatch — every pod holds its own projected
-        token."""
+        caller proceeds to polling either way. No credential rides the
+        dispatch — every pod holds its own projected token."""
         payload: dict[str, Any] = {"run_id": run_id, "task_text": task_text, "mode": mode}
         resp = await self._http.post("/task", json=payload)
         if resp.status_code not in (202, 409):

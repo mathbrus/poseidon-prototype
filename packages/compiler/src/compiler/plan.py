@@ -45,7 +45,6 @@ class EphemeralAgentSpec:
     crew_role: str
     role_template: str
     tools: tuple[str, ...]
-    needs_sandbox: bool
     budget_inheritance: str
 
 

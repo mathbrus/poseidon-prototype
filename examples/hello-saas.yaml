@@ -39,15 +39,6 @@ standing:
 crews:
   feature-delivery:
     agents:
-      # LLM-only: reads the run's sandbox, writes nothing, produces the task
-      # brief the executor's dispatch carries verbatim.
-      planner:
-        role_template: backend-engineer
-        needs_sandbox: false
-        tools:
-          - sandbox.read_file
-          - sandbox.list_dir
-          - issues.read
       executor:
         role_template: backend-engineer
         tools:

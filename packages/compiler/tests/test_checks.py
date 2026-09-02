@@ -71,8 +71,8 @@ def test_spawn_authority_cannot_be_widened(blueprint):
 
 
 def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
-    planner = blueprint["crews"]["feature-delivery"]["agents"]["planner"]
-    planner["tools"].append("sandbox.write_file")
+    reviewer = blueprint["crews"]["feature-review"]["agents"]["reviewer"]
+    reviewer["tools"].append("git.open_pr")
     assert any("never widens" in p for p in problems_of(blueprint))
 
 

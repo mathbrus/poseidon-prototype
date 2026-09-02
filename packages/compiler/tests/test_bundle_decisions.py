@@ -164,43 +164,6 @@ def test_pm_cannot_call_executor_tools(decide):
 # -- ephemeral agents are distinct principals ---------------------------------
 
 
-def test_planner_is_read_only(decide):
-    """Both agents run the `backend-engineer` template, so without the
-    crew-slot discriminator the planner would inherit delivery rights."""
-    read = decide(
-        **ephemeral(
-            "feature-delivery",
-            "planner",
-            "backend-engineer",
-            tool="sandbox.read_file",
-            run_binding_verified=True,
-            args={},
-        )
-    )
-    write = decide(
-        **ephemeral(
-            "feature-delivery",
-            "planner",
-            "backend-engineer",
-            tool="sandbox.write_file",
-            run_binding_verified=True,
-            args={},
-        )
-    )
-    deliver = decide(
-        **ephemeral(
-            "feature-delivery",
-            "planner",
-            "backend-engineer",
-            tool="git.open_pr",
-            args={"branch": "feature/x", "paths": []},
-        )
-    )
-    assert read["allow"] is True
-    assert write["allow"] is False
-    assert deliver["allow"] is False
-
-
 def test_executor_delivers_on_feature_branches(decide):
     decision = decide(
         **ephemeral(
@@ -450,7 +413,6 @@ def test_crew_rule_compares_the_raw_member_name():
                 crew_role="code-reviewer",
                 role_template="sdet",
                 tools=("git.read",),
-                needs_sandbox=True,
                 budget_inheritance="run",
             )
         ],

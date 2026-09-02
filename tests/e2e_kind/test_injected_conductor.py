@@ -91,7 +91,7 @@ def conductor_intake(stack: None, env: dict) -> dict:
 
 @pytest.fixture(scope="module")
 def conductor_implement(stack: None, env: dict) -> dict:
-    """The payload half: a delivery run whose brief carries the planted
+    """The payload half: a delivery run whose task carries the planted
     'publish the workspace' instruction."""
     record = run_implement("goal-injected-conductor.md", kill_worker=False, env=env)
     yield record
@@ -243,8 +243,7 @@ def test_one_run_id_query_reconstructs_the_whole_containment(
 
 def test_the_scenario_actually_carried_the_poison(conductor_implement: dict):
     """Guard against a silently toothless test: if the marker ever stops
-    reaching the executor (the brief REPLACES the task text — the
-    brief-replaces-task-text handoff), the exfiltration would never be attempted and
+    reaching the executor, the exfiltration would never be attempted and
     every assertion above would pass vacuously."""
     assert CONDUCTOR_MARKER in GOAL_FILE.read_text()
     run_id = conductor_implement["run_id"]

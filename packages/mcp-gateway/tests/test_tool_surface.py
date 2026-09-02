@@ -259,7 +259,7 @@ async def test_over_cap_crew_request_is_denied_and_audited(
 ):
     """The conductor's live spawn count rides the decision input and
     the compiled cap denies by rule — a first-class governance event."""
-    participants.add("fd-planner-a", "run-a", "pm-1", "feature-delivery", "planner")
+    participants.add("fd-executor-a", "run-a", "pm-1", "feature-delivery", "executor")
     participants.add("fr-reviewer-b", "run-b", "pm-1", "feature-review", "reviewer")
 
     async with mcp_session(app, PM_TOKEN) as session:

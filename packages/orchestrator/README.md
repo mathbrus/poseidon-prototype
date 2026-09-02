@@ -78,7 +78,7 @@ signal before dispatching (the shipped example declares no intake gate).
 check_budget → implement_config → fetch_workspace → provision_sandbox →
 fulfill_crew`, then the dispatch/verify loop below, then the deliver
 dispatch, then teardown. `fulfill_crew` stands the ephemeral crew up
-and hands back the planner's brief plus the executor's crew-pod address.
+and hands back each agent's identity and dispatch address, by crew role.
 
 **review** — PR in, gated merge out: read the PR under the platform
 identity, provision a *full* sandbox from its head ref (the reviewer runs
@@ -155,7 +155,7 @@ of the same ledger.
 The executor's completion claim is *advisory* — nothing depends on it.
 The gate of record is `platform_verify`: the orchestrator's own
 `sandbox.run_tests` call under its own identity. Red verify composes the
-brief plus the failing output into a re-dispatch (`verify_feedback`),
+task plus the failing output into a re-dispatch (`verify_feedback`),
 bounded by the blueprint's `max_verify_retries`. Only then, in workflow
 code, does delivery become reachable:
 
@@ -172,9 +172,8 @@ implement surface **plus `open_pr`** (mode table in the
 tool does not exist in the model's conversation, so two independent
 mechanisms must both fail for unverified code to ship: the implement-mode
 toolset has no `open_pr`, and the deliver dispatch is sequenced strictly
-after a green verify. The deliver dispatch carries the *original* task
-text, not the brief, so the delivery constraints (branch, markers)
-survive verbatim.
+after a green verify. The deliver dispatch carries the same task text
+the implementation worked from.
 
 ## Gates: park, escalate, expire
 
@@ -229,8 +228,8 @@ caller abandons the identity — revocation is final, and a retry that lost
 the race with teardown must not build on it.
 
 `fulfill_crew` composes the whole fulfilment: consume the recorded crew
-request, bind every agent and give each its own pod, run the
-planner, hand back the brief. Two details carry the design:
+request, bind every agent and give each its own pod, hand back the agents
+by crew role. Two details carry the design:
 
 - **Fulfilment never improvises authority.** Without a recorded,
   unexpired crew request it refuses. When a workflow records one itself
@@ -238,13 +237,11 @@ planner, hand back the brief. Two details carry the design:
   compiled decision the `crew.request` *tool* would face allows it: the
   activity evaluates the same bundle at OPA with the same enriched input
   (`may_spawn` narrowing, live spawn count, budget headroom).
-- **The planner reads and writes nothing.** It needs no sandbox of its
-  own — it reads the run's — but it runs on its own pod under its own
-  ServiceAccount, so its gateway calls carry its own projected token and
-  its compiled read-only scope is what policy enforces. Its brief
-  replaces the raw task text for the executor dispatch — the
-  orchestrator-fixed graph *is* the planner→executor handoff; there is
-  no free-form chat.
+- **Fulfilment provisions; it never dispatches.** Provisioning handles
+  any number of agents, but every workflow dispatches exactly one, so a
+  crew declaring more is refused before any pod exists. The workflow
+  dispatches the agent with the task text itself — the orchestrator-fixed
+  graph is the only handoff; there is no free-form crew chat.
 
 Every bind, revoke, provision and destroy lands a `process-lifecycle`
 audit event: a run's story shows who existed, when, under whose authority.

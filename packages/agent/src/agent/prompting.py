@@ -53,7 +53,6 @@ SECTIONS: dict[str, tuple[type[PromptSection], ...]] = {
     "implement": _CODING,
     "deliver": _CODING,
     "review": _READING,
-    "plan": _READING,
     "pm": _MODEL,
     "decide": _MODEL,
 }

@@ -490,11 +490,11 @@ def test_teardown_revokes_participants_on_every_terminal_path(
 
     # Success path, with a handle: sweep still runs first.
     participants.add(
-        "feature-delivery-planner-" + RUN_ID,
+        "feature-review-reviewer-" + RUN_ID,
         RUN_ID,
         "pm-1",
-        "feature-delivery",
-        "planner",
+        "feature-review",
+        "reviewer",
     )
     record = asyncio.run(
         activities.teardown(
@@ -502,7 +502,7 @@ def test_teardown_revokes_participants_on_every_terminal_path(
         )
     )
     assert record["status"] == "done"
-    assert participants.active("feature-delivery-planner-" + RUN_ID) is None
+    assert participants.active("feature-review-reviewer-" + RUN_ID) is None
 
 
 def test_revoke_failure_is_loud_but_not_masking(settings, backend, runs, companies):

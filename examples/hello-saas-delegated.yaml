@@ -44,8 +44,8 @@ standing:
       max_concurrent: 2
 
 crews:
-  # The oracle's authors: one deliver-capable agent, no planner — the
-  # contract ticket the PM files IS the brief. A crew of its own is what
+  # The oracle's authors: one deliver-capable agent working from the
+  # contract ticket the PM files. A crew of its own is what
   # makes the split positional: `contract-author` is not a template the
   # delivery crew contains, so the implementer cannot be the hand that
   # writes the spec it is graded by.
@@ -65,15 +65,6 @@ crews:
     budget_inheritance: run
   feature-delivery:
     agents:
-      # LLM-only: reads the run's sandbox, writes nothing, produces the task
-      # brief the executor's dispatch carries verbatim.
-      planner:
-        role_template: backend-engineer
-        needs_sandbox: false
-        tools:
-          - sandbox.read_file
-          - sandbox.list_dir
-          - issues.read
       executor:
         role_template: backend-engineer
         tools:

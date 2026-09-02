@@ -249,8 +249,8 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
     per-run ServiceAccount, a projected token, a participants row, full
     pipeline — is denied the tools outside its compiled allow-list at the
     gateway (deny by rule, audited), while its in-scope surface still
-    answers. The planner half of this claim is proven mid-run in
-    test_crew_fulfillment; this is the executor's."""
+    answers. test_crew_fulfillment proves the same mid-run on a live
+    executor; this is the bound-identity proof in isolation."""
     from registry import Runs
 
     run_id = new_run_id()

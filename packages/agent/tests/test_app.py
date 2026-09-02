@@ -48,7 +48,6 @@ async def test_task_lifecycle_running_then_done():
             "pr_url": None,
             "iterations": 0,
             "error": None,
-            "brief": None,
             "ticket_urls": [],
             "crew_request_id": None,
             "comment_urls": [],
@@ -65,7 +64,6 @@ async def test_task_lifecycle_running_then_done():
         "pr_url": "https://github.test/pull/1",
         "iterations": 2,
         "error": None,
-        "brief": None,
         "ticket_urls": [],
         "crew_request_id": None,
         "comment_urls": [],
@@ -166,35 +164,6 @@ async def test_running_run_still_answers_409():
         assert conflict.status_code == 409
         release.set()
         await poll_until_terminal(http, RUN_ID)
-
-
-async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
-    seen: list[tuple[str, str]] = []
-
-    async def planner(run_id: str, task_text: str) -> RunResult:
-        seen.append((run_id, task_text))
-        return RunResult(brief="1. read\n2. brief")
-
-    async def never(run_id: str, task_text: str) -> RunResult:
-        raise AssertionError("implement runner must not run in plan mode")
-
-    async with client(create_app(runners={"implement": never, "plan": planner})) as http:
-        resp = await http.post(
-            "/task",
-            json={
-                "run_id": RUN_ID,
-                "task_text": "scope it",
-                "mode": "plan",
-            },
-        )
-        assert resp.status_code == 202
-        status = await poll_until_terminal(http, RUN_ID)
-
-    assert status["status"] == "done"
-    assert status["brief"] == "1. read\n2. brief"
-    # No credential rides the dispatch: the planner's pod holds its own
-    # projected token and acts as itself.
-    assert seen == [(RUN_ID, "scope it")]
 
 
 async def test_review_verdict_flows_through_the_status_api():

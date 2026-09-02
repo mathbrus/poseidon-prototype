@@ -398,14 +398,14 @@ def test_participant_bind_is_retry_safe_and_sweepable(registry: Registry):
     assert participants.active("feature-delivery-executor-x") is not None
 
     participants.add(
-        "feature-delivery-planner-x", RUN_ID, "pm-1", "feature-delivery", "planner"
+        "feature-review-reviewer-x", RUN_ID, "pm-1", "feature-review", "reviewer"
     )
     swept = participants.terminate_for_run(RUN_ID)
     assert sorted(swept) == [
         "feature-delivery-executor-x",
-        "feature-delivery-planner-x",
+        "feature-review-reviewer-x",
     ]
-    assert participants.active("feature-delivery-planner-x") is None
+    assert participants.active("feature-review-reviewer-x") is None
     assert participants.terminate_for_run(RUN_ID) == []  # idempotent
 
 
@@ -457,9 +457,9 @@ def test_crew_request_consume_and_spawn_count(registry: Registry):
     assert requests.consume(recorded["id"], "run-other") is None
     assert requests.consume("crq-missing", RUN_ID) is None
 
-    participants.add("fd-planner-1", RUN_ID, "pm-1", "feature-delivery", "planner")
     participants.add("fd-executor-1", RUN_ID, "pm-1", "feature-delivery", "executor")
-    assert participants.active_spawn_count("pm-1") == 1  # one crew, two members
+    participants.add("fd-second-1", RUN_ID, "pm-1", "feature-delivery", "second")
+    assert participants.active_spawn_count("pm-1") == 1  # one crew, two agents
     participants.add("fr-reviewer-1", RUN_ID, "pm-1", "feature-review", "reviewer")
     assert participants.active_spawn_count("pm-1") == 2
     participants.terminate_for_run(RUN_ID)

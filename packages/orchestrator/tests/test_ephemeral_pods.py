@@ -229,39 +229,19 @@ def test_provision_without_a_provisioner_fails_closed(settings, stores):
 # -- fulfill_crew (the fulfillment composition) ------------------------------
 
 
-class FakePlanHost:
-    """Answers AgentClient's dispatch/status at the httpx layer."""
+def _company(agents: list[dict]) -> dict:
+    return {"namespace": "hello-saas", "ephemeralAgents": agents}
 
-    def __init__(self, brief: str = "1. do the thing") -> None:
-        self.brief = brief
-        self.dispatches: list[dict] = []
 
-    def handler(self, request):
-        import json as _json
-
-        import httpx
-
-        if request.method == "POST" and request.url.path == "/task":
-            self.dispatches.append(
-                {**_json.loads(request.content), "host": request.url.host}
-            )
-            return httpx.Response(202, json={})
-        if request.method == "GET" and request.url.path.startswith("/task/"):
-            return httpx.Response(
-                200,
-                json={
-                    "status": "done",
-                    "pr_url": None,
-                    "iterations": 0,
-                    "error": None,
-                    "brief": self.brief,
-                },
-            )
-        return httpx.Response(404)
+EXECUTOR_AGENT = {
+    "crew": "feature-delivery",
+    "crew_role": "executor",
+    "role_template": "backend-engineer",
+}
 
 
 @pytest.fixture
-def fulfill_world(settings, provisioner, monkeypatch):
+def fulfill_world(settings, provisioner):
     from registry.memory import (
         InMemoryAuditStore,
         InMemoryCompanies,
@@ -273,47 +253,13 @@ def fulfill_world(settings, provisioner, monkeypatch):
     audit = InMemoryAuditStore()
     requests = InMemoryCrewRequests()
     companies = InMemoryCompanies()
-    companies.upsert(
-        "hello-saas",
-        {
-            "namespace": "hello-saas",
-            "ephemeralAgents": [
-                {
-                    "crew": "feature-delivery",
-                    "crew_role": "planner",
-                    "role_template": "backend-engineer",
-                    "needs_sandbox": False,
-                },
-                {
-                    "crew": "feature-delivery",
-                    "crew_role": "executor",
-                    "role_template": "backend-engineer",
-                    "needs_sandbox": True,
-                },
-            ],
-        },
-    )
-    plan_host = FakePlanHost()
-
-    import httpx
-
-    from orchestrator import clients
-
-    original_init = clients.AgentClient.__init__
-
-    def patched(self, url: str) -> None:
-        original_init(self, url)
-        self._http = httpx.AsyncClient(
-            base_url=url, transport=httpx.MockTransport(plan_host.handler)
-        )
-
-    monkeypatch.setattr(clients.AgentClient, "__init__", patched)
+    companies.upsert("hello-saas", _company([EXECUTOR_AGENT]))
     crew = _crew(settings, participants, audit, provisioner, requests, companies)
-    return crew, participants, audit, requests, plan_host
+    return crew, participants, audit, requests, companies
 
 
-def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
-    crew, participants, audit, requests, plan_host = fulfill_world
+def test_fulfill_binds_and_provisions_the_crew(fulfill_world, provisioner):
+    crew, participants, audit, requests, _ = fulfill_world
     requests.record("pm-1", "feature-delivery", RUN_ID, "ship ticket 7")
 
     result = asyncio.run(
@@ -323,31 +269,21 @@ def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
                 "company": "hello-saas",
                 "crew_template": "feature-delivery",
                 "conductor": "pm-1",
-                "task_text": "the raw goal",
             }
         )
     )
 
-    # Both agents bound with parentage — and each got its own pod.
-    assert result["agents"] == ["executor", "planner"]
-    planner_id = ephemeral_agent_id("feature-delivery", "planner", RUN_ID)
+    # The agent is bound with parentage and got its own pod; the result
+    # names it by crew role with its identity and dispatch address.
     executor_id = ephemeral_agent_id("feature-delivery", "executor", RUN_ID)
-    assert participants.active(planner_id)["parent_agent_id"] == "pm-1"
-    assert participants.active(executor_id) is not None
-    assert {p["agent_id"] for p in provisioner.provisioned} == {
-        planner_id,
-        executor_id,
+    assert participants.active(executor_id)["parent_agent_id"] == "pm-1"
+    assert {p["agent_id"] for p in provisioner.provisioned} == {executor_id}
+    assert result["agents"] == {
+        "executor": {
+            "agent_id": executor_id,
+            "url": f"http://{pod_name(executor_id)}:8000",
+        }
     }
-    assert result["executor_agent_id"] == executor_id
-    assert result["executor_url"] == f"http://{pod_name(executor_id)}:8000"
-
-    # The planner ran on its OWN brain host in plan mode, with no
-    # credential riding the dispatch, and its brief is the handoff.
-    (dispatch,) = plan_host.dispatches
-    assert dispatch["mode"] == "plan"
-    assert "gateway_token" not in dispatch
-    assert dispatch["host"] == pod_name(planner_id)
-    assert result["brief"] == "1. do the thing"
 
     # The request is consumed; a retry converges instead of duplicating.
     assert requests.rows[list(requests.rows)[0]]["status"] == "fulfilled"
@@ -358,14 +294,37 @@ def test_fulfill_composes_the_whole_handoff(fulfill_world, provisioner):
                 "company": "hello-saas",
                 "crew_template": "feature-delivery",
                 "conductor": "pm-1",
-                "task_text": "the raw goal",
             }
         )
     )
-    assert again["executor_agent_id"] == executor_id
+    assert again["agents"]["executor"]["agent_id"] == executor_id
 
     tools = [e.tool for e in audit.events]
     assert "lifecycle.fulfill" in tools
+
+
+def test_fulfill_refuses_a_crew_with_more_than_one_agent(fulfill_world):
+    """Provisioning handles any number of agents, but no workflow defines
+    a multi-agent dispatch, so a crew declaring two is refused before any
+    pod exists."""
+    crew, participants, _, requests, companies = fulfill_world
+    companies.upsert(
+        "hello-saas",
+        _company([EXECUTOR_AGENT, {**EXECUTOR_AGENT, "crew_role": "second"}]),
+    )
+    requests.record("pm-1", "feature-delivery", RUN_ID, "ship ticket 7")
+    with pytest.raises(RuntimeError, match="declares 2 agents"):
+        asyncio.run(
+            crew.fulfill_crew(
+                {
+                    "run_id": RUN_ID,
+                    "company": "hello-saas",
+                    "crew_template": "feature-delivery",
+                    "conductor": "pm-1",
+                }
+            )
+        )
+    assert participants.rows == {}
 
 
 def test_fulfill_without_recorded_intent_refuses(fulfill_world):
@@ -378,7 +337,6 @@ def test_fulfill_without_recorded_intent_refuses(fulfill_world):
                     "company": "hello-saas",
                     "crew_template": "feature-delivery",
                     "conductor": "pm-1",
-                    "task_text": "t",
                 }
             )
         )
@@ -423,7 +381,6 @@ def _fulfill_spec():
         "crew_template": "feature-delivery",
         "conductor": "pm-1",
         "conductor_role": "pm",
-        "task_text": "the raw goal",
         "record_under_authority": True,
     }
 
@@ -439,7 +396,7 @@ def test_workflow_path_records_under_conductor_authority(fulfill_world, monkeypa
     monkeypatch.setattr(opa_module, "httpx", opa)
 
     result = asyncio.run(crew.fulfill_crew(_fulfill_spec()))
-    assert result["brief"] == "1. do the thing"
+    assert set(result["agents"]) == {"executor"}
 
     # The decision went to the company's compiled package with the
     # enriched conductor input — not to some hand-rolled check.

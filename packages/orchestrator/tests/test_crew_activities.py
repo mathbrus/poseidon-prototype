@@ -120,14 +120,14 @@ def test_a_bind_that_lost_the_race_with_teardown_is_refused(crew, participants):
 
 def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):
     asyncio.run(crew.bind_participant(dict(SPEC)))
-    asyncio.run(crew.bind_participant({**SPEC, "crew_role": "planner"}))
+    asyncio.run(crew.bind_participant({**SPEC, "crew_role": "second"}))
     audit.events.clear()
 
     swept = asyncio.run(crew.revoke_participants(RUN_ID))
     assert sorted(swept) == sorted(
         [
             ephemeral_agent_id("feature-delivery", "executor", RUN_ID),
-            ephemeral_agent_id("feature-delivery", "planner", RUN_ID),
+            ephemeral_agent_id("feature-delivery", "second", RUN_ID),
         ]
     )
     for agent_id in swept:

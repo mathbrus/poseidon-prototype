@@ -40,8 +40,6 @@ class EphemeralAgent:
     # subset of the conductor's scope: spawn authority is not a capability
     # ceiling.
     tools: tuple[str, ...]
-    # LLM-only agents get no sandbox of their own (the planner contract).
-    needs_sandbox: bool = True
 
 
 @dataclass(frozen=True)
@@ -104,21 +102,11 @@ ROLE_TEMPLATES: dict[str, RoleTemplate] = {
 }
 
 
-# The planner is LLM-only: read-only against the run's one sandbox, no
-# sandbox of its own, no write tools. It produces
-# exactly one artifact — the task brief the executor's dispatch carries.
-_PLANNER_TOOLS = ("sandbox.read_file", "sandbox.list_dir", "issues.read")
-
 CREW_TEMPLATES: dict[str, CrewTemplate] = {
     "feature-delivery": CrewTemplate(
         name="feature-delivery",
-        summary="Planner plus one coding executor for an implement run.",
+        summary="One coding executor for an implement run.",
         agents={
-            "planner": EphemeralAgent(
-                role_template="backend-engineer",
-                tools=_PLANNER_TOOLS,
-                needs_sandbox=False,
-            ),
             "executor": EphemeralAgent(
                 role_template="backend-engineer",
                 tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
@@ -135,7 +123,7 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
             ),
         },
     ),
-    # One author, no planner: the contract ticket IS the brief. A distinct
+    # One author, working from the contract ticket itself. A distinct
     # crew template is load-bearing twice over — the crew-request row keys
     # on `sha256(conductor|crew_template|run_id)`, so a same-template
     # second crew in one run would collide onto one row, and reviewer

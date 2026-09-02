@@ -58,16 +58,6 @@ def test_review_merge_gate_is_human_resolved(blueprint):
     assert blueprint["workflows"]["review"]["gates"]["merge"] == {"resolved_by": "human"}
 
 
-def test_planner_is_read_only(blueprint):
-    planner = blueprint["crews"]["feature-delivery"]["agents"]["planner"]
-    assert planner["needs_sandbox"] is False
-    assert set(planner["tools"]) == {
-        "sandbox.read_file",
-        "sandbox.list_dir",
-        "issues.read",
-    }
-
-
 # -- structural errors ----------------------------------------------------
 
 
@@ -178,12 +168,12 @@ def test_crew_member_template_must_match_the_catalog(blueprint):
 
 
 def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
-    """The planner-is-read-only contract is a catalog property: a blueprint
-    granting the planner a write tool must fail validation, not compile
-    into a wider bundle."""
-    planner = blueprint["crews"]["feature-delivery"]["agents"]["planner"]
-    planner["tools"].append("sandbox.write_file")
-    (problem,) = [p for p in problems_of(blueprint) if "sandbox.write_file" in p]
+    """The reviewer-cannot-deliver contract is a catalog property: a
+    blueprint granting the reviewer `git.open_pr` must fail validation,
+    not compile into a wider bundle."""
+    reviewer = blueprint["crews"]["feature-review"]["agents"]["reviewer"]
+    reviewer["tools"].append("git.open_pr")
+    (problem,) = [p for p in problems_of(blueprint) if "git.open_pr" in p]
     assert "never widens" in problem
     assert "sandbox.read_file" in problem  # the allowed values are shown
 

@@ -59,6 +59,7 @@ from orchestrator.workflows.base import (
     TEARDOWN_RETRY,
     RunWorkflow,
     Timeouts,
+    crew_agent,
 )
 
 
@@ -414,17 +415,20 @@ class ReviewWorkflow(RunWorkflow):
                         "crew_template": config["crew_template"],
                         "conductor": config["conductor"],
                         "conductor_role": config["conductor_role"],
-                        "task_text": review_task(input.pr_number, pr["title"], pr["url"]),
                         "record_under_authority": True,
                         "workflow": "review",
                     }
                 ],
-                start_to_close_timeout=timedelta(seconds=timeouts.fulfill_s),
+                start_to_close_timeout=timedelta(seconds=timeouts.provision_s),
                 heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
                 retry_policy=STEP_RETRY,
             )
             result = await self.dispatch(
-                input.run_id, crew["brief"], crew["executor_url"], "review", timeouts
+                input.run_id,
+                review_task(input.pr_number, pr["title"], pr["url"]),
+                crew_agent(crew)["url"],
+                "review",
+                timeouts,
             )
             if (result or {}).get("error"):
                 raise _ReviewOver()

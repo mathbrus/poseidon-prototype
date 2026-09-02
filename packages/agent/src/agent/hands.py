@@ -43,7 +43,6 @@ from common.text import numbered_lines
 # by construction); the reviewer writes nothing but its findings comment.
 ACT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
 DELIVER_TOOLS = ACT_TOOLS + ["open_pr"]
-PLAN_TOOLS = ["list_dir", "read_file"]
 PM_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
 REVIEWER_TOOLS = [
     "list_dir",

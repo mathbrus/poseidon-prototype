@@ -68,9 +68,6 @@ standing executors do not exist here.
 crews:
   feature-delivery:
     agents:
-      planner:
-        needs_sandbox: false
-        tools: [sandbox.read_file, sandbox.list_dir, issues.read]
       executor:
         tools: [..., sandbox.exec, git.open_pr]
 
@@ -82,10 +79,6 @@ tools:
 Look at what the PM's list does *not* contain: no `sandbox.*`, no
 `git.open_pr`. The conductor that spawns the executor cannot do the
 executor's job. Spawn authority is not capability.
-
-The planner has no sandbox of its own and no write tools. It reads the run's
-shared sandbox and produces one artifact: the brief the executor's dispatch
-carries verbatim.
 
 </details>
 

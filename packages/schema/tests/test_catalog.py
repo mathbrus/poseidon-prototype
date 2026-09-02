@@ -48,20 +48,10 @@ def test_crew_templates_are_the_catalog_crews():
     }
 
 
-def test_feature_delivery_is_planner_plus_one_executor():
+def test_feature_delivery_is_one_executor():
     agents = CREW_TEMPLATES["feature-delivery"].agents
-    assert set(agents) == {"planner", "executor"}
-    assert all(m.role_template == "backend-engineer" for m in agents.values())
-
-
-def test_planner_is_llm_only_and_write_free():
-    planner = CREW_TEMPLATES["feature-delivery"].agents["planner"]
-    assert planner.needs_sandbox is False
-    assert set(planner.tools) == {
-        "sandbox.read_file",
-        "sandbox.list_dir",
-        "issues.read",
-    }
+    assert set(agents) == {"executor"}
+    assert agents["executor"].role_template == "backend-engineer"
 
 
 def test_every_crew_member_has_an_explicit_allow_list():
@@ -95,7 +85,6 @@ def test_contract_authoring_is_one_deliver_capable_author():
     assert set(agents) == {"author"}
     author = agents["author"]
     assert author.role_template == "contract-author"
-    assert author.needs_sandbox is True  # the acting executor at fulfill
     assert "git.open_pr" in author.tools
     assert "git.open_pr" in ROLE_TEMPLATES["contract-author"].tools
     assert "git.open_pr" not in ROLE_TEMPLATES["sdet"].tools

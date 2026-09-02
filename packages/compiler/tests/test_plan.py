@@ -69,12 +69,9 @@ def test_ephemeral_agents_are_specs_not_instances(blueprint):
     plan = compile_blueprint(blueprint)
     agents = {(m.crew, m.crew_role) for m in plan.ephemeral_agents}
     assert agents == {
-        ("feature-delivery", "planner"),
         ("feature-delivery", "executor"),
         ("feature-review", "reviewer"),
     }
-    planner = next(m for m in plan.ephemeral_agents if m.crew_role == "planner")
-    assert planner.needs_sandbox is False  # LLM-only, per the planner contract
 
 
 def test_gate_config_comes_from_the_blueprint(blueprint):

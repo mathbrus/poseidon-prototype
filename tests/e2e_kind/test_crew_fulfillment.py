@@ -2,13 +2,11 @@
 
 The full fulfillment path runs with the real machinery: the PM records
 intent through the gateway (policy-faced), fulfill consumes it, binds the
-crew, provisions each agent its own brain-host pod (and per-run
-ServiceAccount), dispatches the planner on its own pod under its own
-identity, and hands the brief to the executor dispatch — which implements
-the task through the gateway and opens a real PR as the *ephemeral*
-executor, parentage on every decision. Then the
-sweep: identities revoked and rows terminal after teardown, including
-worker kill.
+crew and provisions each agent its own brain-host pod (and per-run
+ServiceAccount); the executor dispatch then implements the task through
+the gateway and opens a real PR as the *ephemeral* executor, parentage on
+every decision. Then the sweep: identities revoked and rows terminal
+after teardown, including worker kill.
 
 Pod IPs are not host-routable on kind, so AgentClient is routed through
 `kubectl port-forward` (which bypasses NetworkPolicy by design — it rides
@@ -50,9 +48,8 @@ def _pod_forwarded_agent_client():
     """Route AgentClient's pod-IP URLs through kubectl port-forwards to the
     ephemeral pods those IPs belong to — one forward per pod, since every crew
     agent runs on its own pod and a dispatch must reach the agent it
-    names (the planner's calls must carry the planner's identity). Only a
-    URL naming a company-namespace pod IP is rewritten; anything else
-    reaches AgentClient untouched."""
+    names. Only a URL naming a company-namespace pod IP is rewritten;
+    anything else reaches AgentClient untouched."""
     from orchestrator import clients
 
     stack = contextlib.ExitStack()
@@ -143,7 +140,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             assert not recorded.isError, recorded.content
 
             # 2. The run's single sandbox, exactly as implement provisions
-            #    it (both agents share it through the gateway).
+            #    it (the crew works it through the gateway).
             workspace = asyncio.run(
                 _fetch_workspace(mcp, orchestrator_token, run_id, env["TARGET_REPO"])
             )
@@ -154,8 +151,8 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             )
             asyncio.run(_register(mcp, orchestrator_token, run_id, handle))
 
-            # 3. Fulfill: consume -> bind -> a pod per agent -> planner
-            #    (on its own pod) -> brief.
+            # 3. Fulfill: consume -> bind -> a pod per agent, returned by
+            #    crew role with its identity and address.
             with _pod_forwarded_agent_client():
                 fulfilled = asyncio.run(
                     crew.fulfill_crew(
@@ -164,20 +161,18 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                             "company": "hello-saas",
                             "crew_template": "feature-delivery",
                             "conductor": "pm-1",
-                            "task_text": task_text,
                         }
                     )
                 )
-                assert f"feature/slugify-{nonce}" in fulfilled["brief"], (
-                    "the brief lost the delivery constraint"
-                )
+                executor = fulfilled["agents"]["executor"]
+                assert executor["agent_id"] == executor_id
 
-                # 4. The executor dispatch carries the brief verbatim — the
-                #    orchestrator-fixed graph IS the handoff. It ends at a
-                #    completion claim; the separate deliver dispatch (issued
-                #    here in the platform verify gate's stead) opens the PR.
+                # 4. The executor dispatch carries the task verbatim. It ends
+                #    at a completion claim; the separate deliver dispatch
+                #    (issued here in the platform verify gate's stead) opens
+                #    the PR.
                 async def dispatch(mode: str, text: str) -> dict:
-                    async with AgentClient(fulfilled["executor_url"]) as agent:
+                    async with AgentClient(executor["url"]) as agent:
                         await agent.dispatch(run_id, text, mode=mode)
                         while True:
                             status = await agent.status(run_id)
@@ -185,7 +180,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                                 return status
                             await asyncio.sleep(2)
 
-                claim = asyncio.run(dispatch("implement", fulfilled["brief"]))
+                claim = asyncio.run(dispatch("implement", task_text))
                 assert claim["status"] == "done", f"executor failed: {claim}"
                 assert claim["pr_url"] is None, (
                     "the implement dispatch must end at a claim, not a PR"
@@ -222,20 +217,24 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 and e["decision"] == "allow"
                 for e in crew_events
             ), "the PR was not opened by the ephemeral executor"
-            # The planner acted too, as itself.
-            planner_id = ephemeral_agent_id("feature-delivery", "planner", run_id)
-            assert any(e["agent_id"] == planner_id for e in crew_events)
 
-            # A agent outside its compiled allow-list is denied at the
-            # gateway: the read-only planner cannot write. Its SA exists
-            # (fulfilment provisioned the planner's own pod), so a fresh
-            # projected token is the same credential the pod holds.
-            planner_token = projected_token(COMPANY_NS, service_account_name(planner_id))
+            # An agent outside its compiled allow-list is denied at the
+            # gateway: the executor holds no issue tools. Its SA exists
+            # (fulfilment provisioned its pod), so a fresh projected token
+            # is the same credential the pod holds.
+            executor_token = projected_token(
+                COMPANY_NS, service_account_name(executor_id)
+            )
             denied = mcp_call(
                 env,
-                planner_token,
-                "sandbox.write_file",
-                {"run_id": run_id, "path": "x.py", "content": "x"},
+                executor_token,
+                "issues.create",
+                {
+                    "run_id": run_id,
+                    "repo": env["TARGET_REPO"],
+                    "title": "x",
+                    "body": "x",
+                },
             )
             assert denied.isError and "default_deny" in denied.content[0].text
 

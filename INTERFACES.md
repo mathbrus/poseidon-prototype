@@ -262,7 +262,7 @@ Three things to keep in mind while reading the signatures:
 - **Who may call what is compiled policy**, not a property of the tool.
   The "typical caller" notes below describe the shipped `hello-saas`
   blueprint, where the executor holds the sandbox tools plus `git.open_pr`,
-  the planner reads only, the reviewer reads and comments, the PM handles
+  the reviewer reads and comments, the PM handles
   issues and crew requests, and `git.merge_pr` and `repo.archive` belong
   to the platform lifecycle alone.
 
@@ -282,8 +282,8 @@ participant of the very run it names.
 | `sandbox.run_tests` | `run_id, paths?` | Runs the blueprint's `test_command` (the sandbox's `TEST_CMD`) and returns the result. Agents may call it to check their work; the verify gate of record is the orchestrator's own separate invocation. With `paths`, the run is scoped to those test paths — the platform's contract-verify call, where collecting nothing from a named path is a red exit, not a silent pass, so a config that ignores the tree cannot green it. |
 | `sandbox.git_bundle` | `run_id, branch` | Produces a git bundle of the named branch's commits since the recorded base ref, base64-encoded. This is how work leaves the sandbox: as verifiable content, not as a push. |
 
-Typical callers: the executor (all seven), the planner (`read_file`,
-`list_dir` only), the reviewer (reads plus `exec`/`run_tests`).
+Typical callers: the executor (all seven), the reviewer (reads plus
+`exec`/`run_tests`).
 
 ### Repository and pull-request tools
 

@@ -6,14 +6,12 @@ sends:
     {company, agent_id, lifecycle, parent_agent_id, role, run_id,
      workflow, tool, args}
 
-plus, for ephemeral callers, `crew_template` and `crew_role`. That pair is a
-necessary refinement, not an embellishment: `role` carries the
-*catalog template*, and `feature-delivery`'s planner and executor both run
-the `backend-engineer` template. Without the crew_role, the planner's
-read-only scope and the executor's delivery scope are the same principal to
-policy, which would hand every planner `git.open_pr`. The registry already
-records both columns on `run_participants`, so the gateway can inject them
-with the rest of the verified binding.
+plus, for ephemeral callers, `crew_template` and `crew_role`. That pair is
+what scopes an ephemeral rule to one position in one crew: `role` carries
+the *catalog template*, which several crew positions may share, while the
+allow-list is the crew position's own. The registry records both columns on
+`run_participants`, so the gateway can inject them with the rest of the
+verified binding.
 
 Structure: a default-deny `decision`, `allow_rules` and `deny_rules` as
 sets, and the lowest-sorting deny wins. Bundles are installed by the

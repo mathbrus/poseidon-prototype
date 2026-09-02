@@ -31,6 +31,15 @@ TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 FAMILIES = ("implement", "intake", "review", "heartbeat")
 
 
+def crew_agent(crew: dict[str, Any]) -> dict[str, Any]:
+    """The agent a fulfilled crew dispatches. Fulfilment returns the crew's
+    agents by crew role (`{crew_role: {agent_id, url}}`), and every
+    workflow dispatches exactly one — fulfilment refuses a crew that
+    declares more, so the unpacking cannot fail here."""
+    (agent,) = crew["agents"].values()
+    return agent
+
+
 def workflow_id(family: str, key: str) -> str:
     """Deterministic workflow naming. The run-shaped families run one
     workflow per run (`implement-{run_id}`); the heartbeat is one
@@ -61,9 +70,10 @@ class Timeouts:
     dispatch_s: int = 3600
     dispatch_schedule_to_close_s: int = 7200
     dispatch_heartbeat_s: int = 60
-    # fulfill_crew hosts the planner's whole LLM loop, so it is
-    # dispatch-shaped, not step-shaped.
-    fulfill_s: int = 3600
+    # Crew fulfilment: identity binding plus one pod per agent, each
+    # waited to readiness — slower than a registry step, far shorter than
+    # a model loop.
+    provision_s: int = 900
     verify_s: int = 900
     teardown_s: int = 300
     # How long a budget pause waits for the `budget` signal before giving
@@ -84,7 +94,7 @@ FAST_TIMEOUTS = Timeouts(
     dispatch_s=300,
     dispatch_schedule_to_close_s=600,
     dispatch_heartbeat_s=30,
-    fulfill_s=300,
+    provision_s=300,
     verify_s=120,
     teardown_s=60,
     budget_gate_s=90,

@@ -2,11 +2,11 @@
 
 POST /task {run_id, task_text, mode?} -> 202, runs the
 dispatch in a background task (one concurrent run per host);
-GET /task/{run_id} -> {status, pr_url, iterations, error, brief}.
+GET /task/{run_id} -> {status, pr_url, iterations, error, ...} — every
+field of the brain's `RunResult`.
 
-Mode `plan` runs the read-only planner and finishes with
-`brief`; like every mode it acts under the pod's own projected token —
-each ephemeral agent runs on its own brain host.
+Every mode acts under the pod's own projected token — each ephemeral
+agent runs on its own brain host.
 
 Run with: uvicorn --factory agent.app:create_app
 """
@@ -23,7 +23,7 @@ from agent.brain import RunResult
 from agent.config import AgentSettings
 from common.telemetry import get_logger
 
-Mode = Literal["implement", "plan", "deliver", "review", "decide"]
+Mode = Literal["implement", "deliver", "review", "decide"]
 Runner = Callable[[str, str], Awaitable[RunResult]]
 
 
@@ -76,7 +76,6 @@ def create_app(
 
     modes: dict[str, Runner] = {
         "implement": implement,
-        "plan": in_thread(brain.plan_dispatch),
         "deliver": in_thread(brain.deliver_dispatch),
         "review": in_thread(brain.review_dispatch),
         "decide": in_thread(brain.decide_dispatch),

@@ -28,7 +28,6 @@ from temporalio import activity
 from common.audit import args_digest
 from common.telemetry import get_logger
 from orchestrator.audit import record_event
-from orchestrator.clients import dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
     TOKEN_MOUNT_DIR,
@@ -273,16 +272,15 @@ class CrewActivities:
 
     @activity.defn(name="fulfill_crew")
     async def fulfill_crew(self, spec: dict[str, Any]) -> dict[str, Any]:
-        """The fulfillment composition: consume the recorded request ->
-        bind every agent and give each its own pod (one principal, one
-        pod, one ServiceAccount) -> dispatch the planner on its own brain
-        host -> hand back the brief for the executor dispatch. The
-        orchestrator-fixed graph IS the planner->executor handoff; there is
-        no free-form crew chat.
+        """The fulfillment composition: consume the recorded request, then
+        bind every agent of the crew and give each its own pod (one
+        principal, one pod, one ServiceAccount). Returns the agents by
+        crew role, each with its identity and dispatch address; the
+        workflow dispatches, this activity never does.
 
-        spec: {run_id, company, crew_template, conductor, task_text,
-        workflow?}. `workflow` names the calling workflow in the recorded
-        decision input (implement by default, or review).
+        spec: {run_id, company, crew_template, conductor, workflow?}.
+        `workflow` names the calling workflow in the recorded decision
+        input (implement by default, or review).
         Retry-safe end to end: consume is idempotent for this run, binding
         revives deterministic identities, provisioning replaces remnants.
         """
@@ -329,19 +327,19 @@ class CrewActivities:
             for m in blueprint.get("ephemeralAgents") or []
             if m.get("crew") == crew_template
         ]
-        if not agents:
+        if len(agents) != 1:
+            # Provisioning handles any number of agents, but every workflow
+            # dispatches exactly one; a crew declaring more has no defined
+            # dispatch, so it is refused before any pod exists.
             raise RuntimeError(
-                f"applied blueprint defines no agents for crew {crew_template!r}"
+                f"crew {crew_template!r} declares {len(agents)} agents; the"
+                " applied blueprint must give a crew exactly one"
             )
 
         # Every agent gets its own pod: identity is per-pod (one
         # ServiceAccount each), so there is no pod to borrow and no token
-        # to hand around. `needs_sandbox` keeps meaning what it says — the
-        # agent works the run's sandbox through the gateway — and the
-        # first such agent is the acting executor the workflow dispatches.
-        bound: dict[str, dict[str, Any]] = {}
-        pods: dict[str, dict[str, Any]] = {}
-        executor: dict[str, Any] | None = None
+        # to hand around.
+        provisioned: dict[str, dict[str, Any]] = {}
         for agent in agents:
             member_spec = {
                 "run_id": run_id,
@@ -351,49 +349,24 @@ class CrewActivities:
                 "role_template": agent["role_template"],
                 "parent_agent_id": conductor,
             }
-            bound[agent["crew_role"]] = await self.bind_participant(member_spec)
-            pods[agent["crew_role"]] = await self.provision_ephemeral_pod(member_spec)
-            if agent.get("needs_sandbox") and executor is None:
-                executor = agent
-        if executor is None:
-            raise RuntimeError(f"crew {crew_template!r} has no sandbox-facing agent")
-        pod = pods[executor["crew_role"]]
-
-        # The planner runs on its own brain host under its own identity:
-        # its gateway calls carry its own projected token, so its compiled
-        # read-only scope binds.
-        brief = spec["task_text"]
-        planner = next((m for m in agents if not m.get("needs_sandbox")), None)
-        if planner is not None:
-            plan_run = await dispatch_and_poll(
-                pods[planner["crew_role"]]["url"],
-                run_id,
-                spec["task_text"],
-                "plan",
-                self._settings.poll_interval_s,
+            await self.bind_participant(member_spec)
+            pod = await self.provision_ephemeral_pod(member_spec)
+            provisioned[agent["crew_role"]] = {
+                "agent_id": pod["agent_id"],
+                "url": pod["url"],
+            }
+            await self._emit(
+                run_id=run_id,
+                agent_id=pod["agent_id"],
+                role=agent["role_template"],
+                company=spec["company"],
+                parent_agent_id=conductor,
+                tool="lifecycle.fulfill",
+                rule="crew_fulfilled",
+                digest=args_digest({"crew_template": crew_template, "request_id": rid}),
+                started=started,
             )
-            if plan_run.get("error"):
-                raise RuntimeError(f"planner failed: {plan_run['error']}")
-            brief = plan_run.get("brief") or spec["task_text"]
-
-        await self._emit(
-            run_id=run_id,
-            agent_id=pod["agent_id"],
-            role=executor["role_template"],
-            company=spec["company"],
-            parent_agent_id=conductor,
-            tool="lifecycle.fulfill",
-            rule="crew_fulfilled",
-            digest=args_digest({"crew_template": crew_template, "request_id": rid}),
-            started=started,
-        )
-        return {
-            "request_id": rid,
-            "brief": brief,
-            "executor_agent_id": pod["agent_id"],
-            "executor_url": pod["url"],
-            "agents": sorted(bound),
-        }
+        return {"request_id": rid, "agents": provisioned}
 
     async def _authorize_recording(
         self,
