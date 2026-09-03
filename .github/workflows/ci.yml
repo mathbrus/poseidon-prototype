@@ -78,7 +78,7 @@ jobs:
           helm template deploy/helm/poseidon --set secrets.gitToken=ci \
             --set secrets.llmApiKey=ci --set secrets.postgresPassword=ci \
             --set secrets.egressProxyKey=ci > /tmp/rendered.yaml
-          uv run --package common python - <<'PY'
+          uv run --package schema python - <<'PY'
           import yaml
           from common import topology as t
           docs = [d for d in yaml.safe_load_all(open("/tmp/rendered.yaml")) if d]
