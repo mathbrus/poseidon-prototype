@@ -113,8 +113,11 @@ def target(stack: None, env: dict, egress_key: str, proxy_url: str, workspace: b
         workspace,
         SandboxPolicy(
             image=sandbox_image(),
+            workspace_dir="/workspace",
             cpu="500m",
             memory="512Mi",
+            disk="1Gi",
+            deadline_s=900,
             env=sandbox_proxy_env(proxy_url, egress_key, run_id),
         ),
     )
@@ -406,7 +409,14 @@ def test_memory_cap_terminates_a_runaway_allocation(
     handle = backend.provision(
         run_id,
         workspace,
-        SandboxPolicy(image=sandbox_image(), cpu="500m", memory="256Mi"),
+        SandboxPolicy(
+            image=sandbox_image(),
+            workspace_dir="/workspace",
+            disk="1Gi",
+            deadline_s=900,
+            cpu="500m",
+            memory="256Mi",
+        ),
     )
     try:
         exit_code, output = backend._exec(

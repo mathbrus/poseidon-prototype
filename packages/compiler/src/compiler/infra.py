@@ -36,7 +36,6 @@ def build_infra(blueprint: dict[str, Any], namespace: str) -> InfraIR:
         memory=MEMORY,
         disk=DISK,
         deadline_s=DEADLINE_S,
-        egress_allow=egress_allow,
         test_command=toolchain.get("test_command") or DEFAULT_TEST_COMMAND,
     )
     network_policy = NetworkPolicyProjection(
@@ -57,7 +56,7 @@ def build_infra(blueprint: dict[str, Any], namespace: str) -> InfraIR:
     return InfraIR(
         sandbox=sandbox,
         network_policy=network_policy,
-        # The proxy enforces exactly what the sandbox is permitted to reach:
-        # one list, two consumers, no drift.
+        # The proxy enforces exactly what the sandbox is permitted to reach;
+        # the NetworkPolicy beneath it lets the sandbox reach the proxy only.
         egress_proxy_allowlist=egress_allow,
     )

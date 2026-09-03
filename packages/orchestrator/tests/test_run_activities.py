@@ -208,7 +208,7 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
     assert review["gates"] == {
         "merge": {"resolved_by": "human", "deadline_minutes": 1440}
     }
-    assert review["max_verify_retries"] == 0
+    assert review["max_verify_retries"] is None
 
 
 def test_intake_binds_no_crew_by_design(activities, companies):

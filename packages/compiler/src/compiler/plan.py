@@ -68,7 +68,9 @@ class WorkflowConfig:
     # A gate nobody declares is absent, and absent means the workflow does
     # not stop there.
     gates: dict[str, Any]
-    max_verify_retries: int
+    # Implement's bound on verify re-dispatches; None for the workflows
+    # that run no verify loop.
+    max_verify_retries: int | None
 
 
 @dataclass(frozen=True)
@@ -105,7 +107,6 @@ class SandboxConstraints:
     memory: str
     disk: str
     deadline_s: int
-    egress_allow: tuple[str, ...]
     # The blueprint's test command — what the platform verify gate runs.
     test_command: str
 

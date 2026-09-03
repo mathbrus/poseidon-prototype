@@ -67,8 +67,6 @@ PLATFORM_SCOPE = sorted(
     }
 )
 
-DEFAULT_VERIFY_RETRIES = 2
-
 
 def compile_blueprint(
     blueprint: dict[str, Any],
@@ -217,9 +215,7 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
                 crew=workflow.get("crew"),
                 # Gate config comes from the blueprint, never hardcoded.
                 gates=dict(sorted((workflow.get("gates") or {}).items())),
-                max_verify_retries=int(
-                    workflow.get("max_verify_retries", DEFAULT_VERIFY_RETRIES)
-                ),
+                max_verify_retries=workflow.get("max_verify_retries"),
             )
         )
     return tuple(configs)

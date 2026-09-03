@@ -17,9 +17,6 @@ from dataclasses import dataclass
 
 from schema.tools import CREW_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 
-CATALOG_VERSION = "v1"
-
-
 # The agent host's units of work. A dispatch names one; a role declares
 # which it may run, and the host refuses the rest before any model call.
 PROCEDURES = ("scope", "decide", "implement", "deliver", "review")

@@ -77,11 +77,6 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
             "repo": {"url": instance.repo.url, "base_ref": instance.repo.base_ref},
             "mission": instance.mission,
             "maySpawn": list(instance.may_spawn),
-            **(
-                {"maxConcurrentSpawns": instance.max_concurrent_spawns}
-                if instance.max_concurrent_spawns
-                else {}
-            ),
         },
     }
 

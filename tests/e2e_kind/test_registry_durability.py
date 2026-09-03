@@ -54,7 +54,14 @@ def test_sandbox_registration_survives_a_gateway_restart(
     handle = backend.provision(
         run_id,
         workspace,
-        SandboxPolicy(image=sandbox_image(), cpu="500m", memory="512Mi"),
+        SandboxPolicy(
+            image=sandbox_image(),
+            workspace_dir="/workspace",
+            disk="1Gi",
+            deadline_s=900,
+            cpu="500m",
+            memory="512Mi",
+        ),
     )
 
     async def register() -> None:

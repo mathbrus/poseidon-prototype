@@ -75,7 +75,7 @@ def workflow_config(
         "conductor": conductor(instances, company, config["conductor"]),
         "crew": config.get("crew"),
         "gates": dict(config.get("gates") or {}),
-        "max_verify_retries": int(config.get("max_verify_retries") or 0),
+        "max_verify_retries": config.get("max_verify_retries"),
         "budget_pause_minutes": int(spec["budgets"]["pause_minutes"]),
         "contract_paths": sorted((spec.get("contractTests") or {}).get("paths") or []),
     }

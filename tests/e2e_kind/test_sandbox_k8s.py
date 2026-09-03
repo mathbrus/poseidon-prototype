@@ -30,7 +30,14 @@ def backend(stack: None) -> K8sJobsBackend:
 
 
 def policy(**overrides) -> SandboxPolicy:
-    values = {"image": sandbox_image(), "cpu": "500m", "memory": "512Mi"}
+    values = {
+        "image": sandbox_image(),
+        "workspace_dir": "/workspace",
+        "cpu": "500m",
+        "memory": "512Mi",
+        "disk": "1Gi",
+        "deadline_s": 900,
+    }
     values.update(overrides)
     return SandboxPolicy(**values)
 

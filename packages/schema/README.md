@@ -67,10 +67,8 @@ ephemeral-agent material only.
 
 Why a fixed catalog at all? Because the compiler turns each role into an
 agent spec and a per-agent Rego bundle, and a role a blueprint could
-invent would be a policy the platform never reviewed. The catalog is
-versioned (`CATALOG_VERSION = "v1"`) so that resolution is against a known
-artifact, and roles carry tool scopes, procedures and spawn authority —
-never counts, never secrets: how many of a role a company hires
+invent would be a policy the platform never reviewed. Roles carry tool
+scopes, procedures and spawn authority — never counts, never secrets: how many of a role a company hires
 is the blueprint's business, and credentials never enter a spec at all.
 
 The lean-standing rule — no standing `implementer`, `reviewer` or

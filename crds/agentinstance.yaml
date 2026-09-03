@@ -64,7 +64,6 @@ spec:
                 maySpawn:
                   type: array
                   items: {type: string}
-                maxConcurrentSpawns: {type: integer}
             status:
               type: object
               properties:

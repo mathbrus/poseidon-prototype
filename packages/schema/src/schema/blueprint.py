@@ -144,18 +144,21 @@ _INTAKE_GATE = _gate(["human"])
 _MERGE_GATE = _gate(["human", "policy"], {"delegate": _MERGE_DELEGATION})
 
 
-def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
-    """One workflow node. Each names only the gates it actually parks on —
-    a merge gate on intake was never a meaningful thing to write, so it is
-    not a writable thing."""
+def _workflow(
+    gates: dict[str, Any] | None, bounds: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """One workflow node. Each names only the gates it actually parks on
+    and the bounds it actually reads — a merge gate on intake, or a verify
+    bound on review, was never a meaningful thing to write, so it is not a
+    writable thing. Bounds are required: a defaulted bound is authority
+    nobody wrote down."""
     properties: dict[str, Any] = {
         "enabled": {"type": "boolean"},
         # The standing name that spawns this workflow — never a standing
         # implementer (enforced by the compiler).
         "conductor": _NAME,
         "crew": _NAME,
-        # Bounded verify re-dispatches.
-        "max_verify_retries": {"type": "integer", "minimum": 0},
+        **(bounds or {}),
     }
     if gates:
         properties["gates"] = {
@@ -166,7 +169,7 @@ def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["enabled", "conductor"],
+        "required": ["enabled", "conductor", *(bounds or {})],
         "properties": properties,
     }
 
@@ -177,7 +180,11 @@ _WORKFLOWS = {
     "minProperties": 1,
     "properties": {
         "intake": _workflow({"intake": _INTAKE_GATE}),
-        "implement": _workflow(None),
+        # How many times a red platform verify re-dispatches the implementer
+        # before the run fails.
+        "implement": _workflow(
+            None, {"max_verify_retries": {"type": "integer", "minimum": 0}}
+        ),
         "review": _workflow({"merge": _MERGE_GATE}),
     },
 }

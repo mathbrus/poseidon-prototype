@@ -94,11 +94,13 @@ def test_test_command_rides_the_sandbox_constraints(blueprint):
     assert compile_blueprint(blueprint).infra.sandbox.test_command == "pytest -q"
 
 
-def test_infra_ir_feeds_both_consumers_from_one_list(blueprint):
+def test_infra_ir_projects_the_toolchain_and_the_proxy_allowlist(blueprint):
     """The sandbox caps and the proxy allowlist are projections of one
     IR — hand-authoring either would be a bug."""
     plan = compile_blueprint(blueprint)
-    assert plan.infra.sandbox.egress_allow == plan.infra.egress_proxy_allowlist
+    assert plan.infra.egress_proxy_allowlist == tuple(
+        sorted(blueprint["stack"]["toolchain"]["egress_allow"])
+    )
     assert plan.infra.sandbox.image == "poseidon-sandbox"
     # The audited proxy is the sandbox's only peer — no cluster DNS, so a
     # resolver cannot be used as an unaudited channel.

@@ -97,12 +97,11 @@ class ImplementActivities:
             image = self._settings.sandbox_image
         return SandboxPolicy(
             image=image,
-            workspace_dir=sandbox_ir.get("workspace_dir", "/workspace"),
+            workspace_dir=sandbox_ir["workspace_dir"],
             cpu=sandbox_ir["cpu"],
             memory=sandbox_ir["memory"],
             disk=sandbox_ir["disk"],
             deadline_s=int(sandbox_ir["deadline_s"]),
-            egress_allow=list(sandbox_ir.get("egress_allow") or []),
             env={
                 "TEST_CMD": sandbox_ir["test_command"],
                 **self._settings.sandbox_proxy_env(run_id),

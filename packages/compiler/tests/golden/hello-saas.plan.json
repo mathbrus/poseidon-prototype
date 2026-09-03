@@ -71,10 +71,6 @@
       "cpu": "1",
       "deadline_s": 3600,
       "disk": "2Gi",
-      "egress_allow": [
-        "files.pythonhosted.org",
-        "pypi.org"
-      ],
       "image": "poseidon-sandbox",
       "memory": "1Gi",
       "test_command": "pytest -q",
@@ -124,7 +120,7 @@
       "crew": null,
       "enabled": true,
       "gates": {},
-      "max_verify_retries": 2,
+      "max_verify_retries": null,
       "name": "intake"
     },
     {
@@ -137,7 +133,7 @@
           "resolved_by": "human"
         }
       },
-      "max_verify_retries": 2,
+      "max_verify_retries": null,
       "name": "review"
     }
   ]

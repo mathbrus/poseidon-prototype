@@ -388,4 +388,11 @@ async def _unregister(gateway_url, token, run_id) -> None:
 def _sandbox_policy(image: str):
     from sandbox.contract import SandboxPolicy
 
-    return SandboxPolicy(image=image, cpu="500m", memory="512Mi")
+    return SandboxPolicy(
+        image=image,
+        workspace_dir="/workspace",
+        disk="1Gi",
+        deadline_s=900,
+        cpu="500m",
+        memory="512Mi",
+    )
