@@ -81,12 +81,24 @@ def heartbeat_implement_only() -> Path:
     return derived_blueprint(heartbeat_variant(), implement_only, "implement-only")
 
 
+def harness_repo() -> str:
+    """The disposable repository this suite works on, from the kind env
+    file — the one value the harness owns rather than the blueprint."""
+    for line in (REPO_ROOT / "deploy" / "kind" / ".env").read_text().splitlines():
+        key, _, value = line.strip().partition("=")
+        if key == "TARGET_REPO" and value:
+            return value.strip()
+    raise AssertionError("deploy/kind/.env names no TARGET_REPO for the suite")
+
+
 def suite_document(path: Path) -> Path:
-    """The document at `path` with the suite's gate waits declared in place
-    of the example's human-scale ones — every gate's `deadline_minutes` and
-    the budget `pause_minutes`. Nothing else changes: the suite applies the
-    example's authority, on the suite's clock."""
+    """The document at `path` as the suite applies it: the disposable
+    repository in place of the example's, and the suite's gate waits in
+    place of the human-scale ones — every gate's `deadline_minutes` and the
+    budget `pause_minutes`. Nothing else changes: the suite applies the
+    example's authority, on the suite's repository and clock."""
     document = yaml.safe_load(path.read_text())
+    document["stack"]["repo"]["url"] = harness_repo()
     for node in (document.get("workflows") or {}).values():
         for gate in (node.get("gates") or {}).values():
             gate["deadline_minutes"] = E2E_GATE_MINUTES

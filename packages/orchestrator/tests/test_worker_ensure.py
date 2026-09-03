@@ -42,7 +42,6 @@ def settings(**overrides: Any) -> WorkerSettings:
     return WorkerSettings(
         temporal_address="temporal.test:7233",
         mcp_gateway_url="http://gateway.test:8080",
-        target_repo="github.com/example/repo",
         agent_image="poseidon-agent:abc123",
         company=COMPANY,
         **overrides,

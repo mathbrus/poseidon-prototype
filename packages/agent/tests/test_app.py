@@ -27,6 +27,7 @@ def settings_for(role: str) -> AgentSettings:
         model="test-model",
         role=role,
         target_repo="example/target",
+        mission="ship a tiny SaaS under governance",
     )
 
 

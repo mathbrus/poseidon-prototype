@@ -23,6 +23,7 @@ from temporalio import activity
 
 from common.telemetry import get_logger
 from compiler.infra import DEFAULT_IMAGE
+from orchestrator.activities.blueprint import company_repo
 from orchestrator.clients import GatewayClient, dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from registry import Companies, Runs
@@ -45,6 +46,12 @@ class ImplementActivities:
         self._companies = companies
         self._log = get_logger("orchestrator.implement")
 
+    async def _repo(self) -> dict[str, str]:
+        """The company's repository, from its applied blueprint."""
+        return await asyncio.to_thread(
+            company_repo, self._companies, self._settings.company
+        )
+
     @activity.defn(name="read_issue")
     async def read_issue(self, run_id: str, issue_number: int) -> dict[str, Any]:
         """Issue metadata under the platform identity: title and body seed
@@ -56,7 +63,7 @@ class ImplementActivities:
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             issue = await gateway.read_issue(
-                run_id, self._settings.target_repo, issue_number
+                run_id, (await self._repo())["url"], issue_number
             )
         if issue.get("state") != "open":
             raise RuntimeError(
@@ -115,14 +122,15 @@ class ImplementActivities:
         `overlay_paths`, those paths are mirrored from the configured base
         ref over the checkout: the composed tree the contract verify runs —
         head code, the contract tree as it stands on the base ref."""
+        repo = await self._repo()
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             workspace_tar = await gateway.fetch_workspace(
                 run_id,
-                self._settings.target_repo,
-                ref or self._settings.base_ref,
-                self._settings.base_ref if overlay_paths else None,
+                repo["url"],
+                ref or repo["base_ref"],
+                repo["base_ref"] if overlay_paths else None,
                 overlay_paths,
             )
         self._log.bind(run_id=run_id).info(

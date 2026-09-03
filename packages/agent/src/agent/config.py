@@ -22,7 +22,11 @@ class AgentSettings(BaseSettings):
     # ephemeral agents alike. Crew revocation is a registry row termination,
     # checked by the gateway per call, not a property of the token.
     gateway_token_file: str = ""
+    # The company's subject and purpose, from its applied blueprint via the
+    # pod spec: the repository every tool call names, and the mission the
+    # conductor's prompts carry.
     target_repo: str
+    mission: str
     # How many advisory verify cycles an implement dispatch gets before it
     # reports the tests still failing. Implement only: every other
     # procedure runs under its own step cap (`procedures.py`).

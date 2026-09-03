@@ -375,8 +375,9 @@ def agent_deployment(
                                 },
                                 {
                                     "name": "TARGET_REPO",
-                                    "value": settings.target_repo,
+                                    "value": spec["repo"]["url"],
                                 },
+                                {"name": "MISSION", "value": spec["mission"]},
                                 {
                                     "name": "VERIFY_CYCLES",
                                     "value": str(settings.verify_cycles),

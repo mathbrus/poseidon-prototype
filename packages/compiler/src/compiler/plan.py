@@ -11,12 +11,22 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class Repo:
+    """The company's subject: the repository every run works on and the
+    branch its changes are diffed and delivered against."""
+
+    url: str
+    base_ref: str
+
+
+@dataclass(frozen=True)
 class CompanyCR:
     """The `Company` custom resource (see crds/)."""
 
     name: str
     namespace: str
     mission: str
+    repo: Repo
 
 
 @dataclass(frozen=True)
@@ -30,6 +40,11 @@ class AgentInstanceCR:
     role: str
     model_tier: str
     tools: tuple[str, ...]
+    # What the pod is told about its company: the repository it works on
+    # and the mission its prompts carry. Riding the instance means an edit
+    # to either rolls the pod.
+    repo: Repo
+    mission: str
     may_spawn: tuple[str, ...] = ()
     max_concurrent_spawns: int | None = None
 

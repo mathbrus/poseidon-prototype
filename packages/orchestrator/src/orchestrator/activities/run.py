@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 from common.audit import args_digest
 from common.telemetry import get_logger
-from orchestrator.activities.blueprint import workflow_config
+from orchestrator.activities.blueprint import company_repo, workflow_config
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
@@ -97,6 +97,12 @@ class RunActivities:
         # runs on every terminal path.
         self._crew = crew
         self._log = get_logger("orchestrator.run")
+
+    async def _repo(self) -> dict[str, str]:
+        """The company's repository, from its applied blueprint."""
+        return await asyncio.to_thread(
+            company_repo, self._companies, self._settings.company
+        )
 
     @activity.defn(name="create_run")
     async def create_run(self, run_id: str, workflow: str, task: str) -> None:
@@ -304,15 +310,14 @@ class RunActivities:
             workflow=workflow_id,
         )
         body = attempts_exhausted_comment(kind, count, max_attempts)
+        repo = (await self._repo())["url"]
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             if kind == "review":
-                await gateway.comment_pr(run_id, self._settings.target_repo, number, body)
+                await gateway.comment_pr(run_id, repo, number, body)
             else:
-                await gateway.comment_issue(
-                    run_id, self._settings.target_repo, number, body
-                )
+                await gateway.comment_issue(run_id, repo, number, body)
         log.info(
             "attempts exhausted",
             extra={"workflow": kind, "number": number, "attempts": count},

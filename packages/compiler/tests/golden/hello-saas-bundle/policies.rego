@@ -6,6 +6,13 @@ import rego.v1
 
 protected_branches := ["main"]
 
+declared_repo := "github.com/example-org/hello-saas"
+
+deny_rules contains "repo_not_declared" if {
+	input.tool in ["git.open_pr", "git.read", "git.comment", "issues.create", "issues.read", "issues.comment"]
+	object.get(input, ["args", "repo"], "") != declared_repo
+}
+
 deny_rules contains "git_open_pr_protected_branch" if {
 	input.tool == "git.open_pr"
 	lower(input.args.branch) in protected_branches

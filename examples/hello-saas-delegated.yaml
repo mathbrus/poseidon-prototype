@@ -14,10 +14,11 @@ company:
   mission: Ship a small SaaS product with an agent company under governance.
 
 stack:
-  repos:
-    - name: app
-      url: github.com/example-org/hello-saas
-      default_branch: main
+  # The one repository this company works on, and the branch its changes
+  # are measured and delivered against.
+  repo:
+    url: github.com/example-org/hello-saas
+    base_ref: main
   toolchain:
     image: poseidon-sandbox
     test_command: pytest -q

@@ -43,6 +43,7 @@ REVIEWER_TOKEN = "reviewer-secret"
 GIT_TOKEN = "git-platform-secret"
 OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
+REPO = "github.test/example/target"
 PR_URL = "https://github.test/example/pull/1"
 FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 
@@ -295,7 +296,6 @@ def settings() -> McpGatewaySettings:
     return McpGatewaySettings(
         opa_url=OPA_URL,
         git_token=GIT_TOKEN,
-        base_ref="main",
     )
 
 
@@ -345,6 +345,7 @@ def companies() -> InMemoryCompanies:
         COMPANY,
         {
             "namespace": COMPANY_NS,
+            "repo": {"url": REPO, "base_ref": "main"},
             "budgets": {"per_run_usd": 5.0},
         },
     )

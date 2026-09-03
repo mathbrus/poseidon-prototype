@@ -40,7 +40,7 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.telemetry import get_logger
-from orchestrator.activities.blueprint import conductor
+from orchestrator.activities.blueprint import company_repo, conductor
 from orchestrator.audit import record_event
 from orchestrator.clients import (
     GatewayClient,
@@ -140,6 +140,12 @@ class HeartbeatActivities:
     def _ledger_run_id(self) -> str:
         return workflow_id(WORKFLOW, self._settings.company)
 
+    async def _repo(self) -> dict[str, str]:
+        """The company's repository, from its applied blueprint."""
+        return await asyncio.to_thread(
+            company_repo, self._companies, self._settings.company
+        )
+
     @activity.defn(name="heartbeat_config")
     async def heartbeat_config(self) -> dict[str, Any] | None:
         """The applied blueprint's heartbeat section plus the deployment's
@@ -206,18 +212,15 @@ class HeartbeatActivities:
             read
         )
         reviewable = []
+        repo = (await self._repo())["url"]
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            open_issues = await gateway.read_open_issues(
-                self._ledger_run_id(), self._settings.target_repo
-            )
+            open_issues = await gateway.read_open_issues(self._ledger_run_id(), repo)
             for candidate in delivered:
                 try:
                     pr = await gateway.read_pr(
-                        self._ledger_run_id(),
-                        self._settings.target_repo,
-                        candidate["number"],
+                        self._ledger_run_id(), repo, candidate["number"]
                     )
                 except GatewayError as exc:
                     # One unreadable candidate must not blind the whole

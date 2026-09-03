@@ -36,6 +36,15 @@ def conductor(
     }
 
 
+def company_repo(companies: Companies, company: str) -> dict[str, str]:
+    """The repository the company works on, `{url, base_ref}`, from its
+    applied blueprint. Fail-closed: no applied blueprint, no repository."""
+    spec = companies.get(company)
+    if not spec:
+        raise RuntimeError(f"no applied blueprint for company {company!r}")
+    return dict(spec["repo"])
+
+
 def workflow_config(
     companies: Companies, instances: AgentInstances, company: str, name: str
 ) -> dict[str, Any]:

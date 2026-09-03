@@ -15,5 +15,4 @@ class OperatorSettings(BaseSettings):
     agent_image: str
     # Cluster-level agent config that rides every standing pod template.
     model: str = "mock-brain"
-    target_repo: str = ""
     verify_cycles: int = 10

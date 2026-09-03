@@ -15,6 +15,9 @@ company:
   mission: Ship a small SaaS product with an agent company under governance.
 
 stack:
+  repo:
+    url: github.com/example-org/hello-saas
+    base_ref: main
   toolchain:
     image: poseidon-sandbox
     test_command: pytest -q
@@ -25,7 +28,15 @@ stack:
 
 `company.name` becomes the Kubernetes namespace, the Rego package name, and
 the OPA bundle root — which is why two companies can never collide, and why
-`platform` is a reserved name.
+`platform` is a reserved name. `company.mission` reaches the conductor's
+prompts: the PM scopes goals and decides the next action knowing what the
+company is for.
+
+`stack.repo` is the company's subject: the one repository every run works
+on, and the branch (`base_ref`) changes are diffed and delivered against.
+It compiles into a `repo_not_declared` deny, so a tool call naming any
+other repository is refused at the gateway before it reaches the git host —
+and into every agent pod, whose tool calls name it.
 
 `egress_allow` is the **entire** list of hosts any sandbox of this company
 may reach. It compiles into both the sandbox constraints and the egress

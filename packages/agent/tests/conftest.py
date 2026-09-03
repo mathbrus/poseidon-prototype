@@ -250,5 +250,6 @@ def settings(tmp_path) -> AgentSettings:
         gateway_token_file=str(token),
         role="implementer",
         target_repo="example/target",
+        mission="ship a tiny SaaS under governance",
         verify_cycles=3,
     )

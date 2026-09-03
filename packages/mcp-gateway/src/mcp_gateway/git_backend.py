@@ -220,15 +220,21 @@ class GitBackend:
 
     # -- git.open_pr ----------------------------------------------------------
 
-    async def prepare_pr(self, repo: str, branch: str, bundle_b64: str) -> PreparedBundle:
+    async def prepare_pr(
+        self, repo: str, branch: str, bundle_b64: str, base_ref: str
+    ) -> PreparedBundle:
         """Verify the bundle and apply it to a fresh platform-side clone.
 
         Runs before the policy decision so the changed paths can be part of
         the policy input; nothing here leaves the gateway host.
         """
-        return await asyncio.to_thread(self._prepare_sync, repo, branch, bundle_b64)
+        return await asyncio.to_thread(
+            self._prepare_sync, repo, branch, bundle_b64, base_ref
+        )
 
-    def _prepare_sync(self, repo: str, branch: str, bundle_b64: str) -> PreparedBundle:
+    def _prepare_sync(
+        self, repo: str, branch: str, bundle_b64: str, base_ref: str
+    ) -> PreparedBundle:
         _require_safe_ref("branch", branch)
         root = Path(tempfile.mkdtemp(prefix="poseidon-pr-"))
         try:
@@ -245,7 +251,7 @@ class GitBackend:
                 clone,
                 "diff",
                 "--name-only",
-                f"origin/{self._settings.base_ref}...{INCOMING_REF}",
+                f"origin/{base_ref}...{INCOMING_REF}",
             )
             paths = [line for line in diff.splitlines() if line]
             self._log.info("bundle prepared", extra={"branch": branch, "paths": paths})
@@ -255,7 +261,7 @@ class GitBackend:
             raise
 
     async def open_pr(
-        self, prepared: PreparedBundle, repo: str, title: str, body: str
+        self, prepared: PreparedBundle, repo: str, title: str, body: str, base_ref: str
     ) -> dict[str, Any]:
         """Push the verified branch with the platform token and open the PR."""
         await asyncio.to_thread(
@@ -272,7 +278,7 @@ class GitBackend:
                 "title": title,
                 "body": body,
                 "head": prepared.branch,
-                "base": self._settings.base_ref,
+                "base": base_ref,
             },
         )
         pr_url = data["html_url"]

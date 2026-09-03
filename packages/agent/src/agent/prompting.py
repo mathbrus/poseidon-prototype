@@ -77,7 +77,9 @@ def render_procedure(procedure: str, settings: AgentSettings) -> str:
     text = (PROMPTS_DIR / f"{procedure}.md").read_text()
     if not text.startswith(f"{PROCEDURE_HEADER}{procedure}\n"):
         raise RuntimeError(f"prompts/{procedure}.md does not open with its header")
-    return text.replace("{target_repo}", settings.target_repo)
+    return text.replace("{target_repo}", settings.target_repo).replace(
+        "{mission}", settings.mission
+    )
 
 
 def compose(procedure: str, sections: tuple[type[PromptSection], ...], model: str) -> str:

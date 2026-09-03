@@ -37,26 +37,20 @@ _COMPANY = {
     },
 }
 
-# Feeds the sandbox image and the egress allowlist through the infra IR;
-# an empty allowlist means zero egress.
+# The company's subject — the one repository every run works on and the
+# branch its changes are measured and delivered against — plus the sandbox
+# image, test command and egress allowlist the infra IR is built from (an
+# empty allowlist means zero egress).
 _STACK = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["repos"],
+    "required": ["repo"],
     "properties": {
-        "repos": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["name", "url"],
-                "properties": {
-                    "name": _NAME,
-                    "url": _TEXT,
-                    "default_branch": {"type": "string", "default": "main"},
-                },
-            },
+        "repo": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["url", "base_ref"],
+            "properties": {"url": _TEXT, "base_ref": _TEXT},
         },
         "toolchain": {
             "type": "object",

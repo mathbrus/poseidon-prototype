@@ -53,7 +53,9 @@ Postgres, and a fake would prove nothing.
 
 ```bash
 cp deploy/kind/.env.example deploy/kind/.env
-# fill in GIT_TOKEN (repo-scoped PAT) and TARGET_REPO (host/path, no scheme)
+# fill in GIT_TOKEN (a repo-scoped PAT); TARGET_REPO is the disposable
+# repository the e2e suite works on. The company's own repository is a
+# blueprint field: set `stack.repo.url` in the example before applying it.
 
 deploy/kind/kind-up.sh
 ```
@@ -158,9 +160,9 @@ the walkthrough below is the full SDLC.
 ### A full run: a small Tetris app
 
 This is intake → implement → review → human-gated merge, against the
-disposable `TARGET_REPO`, with a real model already configured. The
-company is still `hello-saas`; the product under construction is whatever
-that repository holds. The engine is standard-library Python on purpose:
+repository the applied blueprint declares (`stack.repo`), with a real model
+already configured. The company is still `hello-saas`; the product under
+construction is whatever that repository holds. The engine is standard-library Python on purpose:
 the sandbox image has pytest, and the agent prompt forbids `pip install`.
 
 Leave a Temporal port-forward up for every CLI command. Activity bounds

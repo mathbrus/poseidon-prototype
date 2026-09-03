@@ -406,10 +406,24 @@ def _open_pr_path_deny(
     )
 
 
-def _policies_file(company: str, policies: dict[str, Any]) -> str:
-    """Branch protection, deny paths and the contract tree — enforceable on
-    real arguments because bundle-apply already gives policy the changed
-    paths."""
+# The tools whose `repo` argument names the repository a call acts on. The
+# platform's own calls (`repo.archive`, `git.merge_pr`) are decided by the
+# platform bundle and carry no company.
+REPO_TOOLS = (
+    "git.open_pr",
+    "git.read",
+    "git.comment",
+    "issues.create",
+    "issues.read",
+    "issues.comment",
+)
+
+
+def _policies_file(company: str, policies: dict[str, Any], repo_url: str) -> str:
+    """The declared repository, branch protection, deny paths and the
+    contract tree — enforceable on real arguments because the gateway
+    passes the call's `repo` and bundle-apply already gives policy the
+    changed paths."""
     protection = policies.get("branch_protection") or {}
     protected = protection.get("protected") or []
     pattern = protection.get("allowed_pattern")
@@ -424,6 +438,14 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
         # Lowercased at emit time to match the lowercased input below —
         # `protected: [Main]` must still protect `main`.
         f"\nprotected_branches := {json.dumps(sorted({b.lower() for b in protected}))}\n",
+        # An agent works on the company's repository and nothing else: a
+        # call naming another one — or none — is denied before the gateway
+        # reaches the git host. Fail-closed on a missing argument.
+        f"\ndeclared_repo := {json.dumps(repo_url)}\n",
+        '\ndeny_rules contains "repo_not_declared" if {\n'
+        f"\tinput.tool in {json.dumps(list(REPO_TOOLS))}\n"
+        '\tobject.get(input, ["args", "repo"], "") != declared_repo\n'
+        "}\n",
     ]
     if protected:
         lines.append(
@@ -472,6 +494,7 @@ def build_bundle(
     instances: list[AgentInstanceCR],
     ephemeral_agents: list[EphemeralAgentSpec],
     policies: dict[str, Any],
+    repo_url: str,
     heartbeat: HeartbeatConfig | None = None,
     merge_delegation: dict[str, Any] | None = None,
 ) -> dict[str, str]:
@@ -496,7 +519,7 @@ def build_bundle(
     for agent in ephemeral_agents:
         name = f"crew_{rego_slug(agent.crew)}_{rego_slug(agent.role)}.rego"
         files[name] = _crew_file(company, agent.crew, agent.role, list(agent.tools))
-    files["policies.rego"] = _policies_file(company, policies)
+    files["policies.rego"] = _policies_file(company, policies, repo_url)
     if heartbeat is not None:
         files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
     if merge_delegation is not None:

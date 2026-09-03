@@ -22,6 +22,7 @@ from compiler.plan import (
     EphemeralAgentSpec,
     HeartbeatConfig,
     RegoBundle,
+    Repo,
     WorkflowConfig,
 )
 from compiler.rego import build_bundle, build_platform_bundle
@@ -85,12 +86,13 @@ def compile_blueprint(
     company_section = blueprint["company"]
     company = company_section["name"]
     namespace = company
+    repo = Repo(**blueprint["stack"]["repo"])
     company_cr = CompanyCR(
-        name=company, namespace=namespace, mission=company_section["mission"]
+        name=company, namespace=namespace, mission=company_section["mission"], repo=repo
     )
 
     scopes = blueprint.get("tools") or {}
-    instances = _instances(blueprint, roles, scopes, company, snapshot)
+    instances = _instances(blueprint, roles, scopes, company, snapshot, repo)
     ephemeral_agents = _ephemeral_agents(blueprint, roles, crews_catalog, scopes)
     workflows = _workflows(blueprint)
     budgets = _budgets(blueprint)
@@ -102,6 +104,7 @@ def compile_blueprint(
             instances=list(instances),
             ephemeral_agents=list(ephemeral_agents),
             policies=blueprint.get("policies") or {},
+            repo_url=repo.url,
             heartbeat=heartbeat,
             merge_delegation=_merge_delegation(workflows),
         )
@@ -136,9 +139,11 @@ def _instances(
     scopes: dict[str, Any],
     company: str,
     snapshot: RegistrySnapshot,
+    repo: Repo,
 ) -> tuple[AgentInstanceCR, ...]:
     """Standing agents only. A `count: 0` placeholder produces no instance —
     that is the whole point of declaring one."""
+    mission = blueprint["company"]["mission"]
     instances = []
     for standing_name, hire in sorted((blueprint.get("standing") or {}).items()):
         count = hire.get("count", 0)
@@ -171,6 +176,8 @@ def _instances(
                     role=role.name,
                     model_tier=hire.get("model_tier") or role.model_tier,
                     tools=_scope(role, scopes),
+                    repo=repo,
+                    mission=mission,
                     may_spawn=may_spawn,
                     max_concurrent_spawns=(hire.get("may_spawn") or {}).get(
                         "max_concurrent"

@@ -75,6 +75,7 @@ def settings(llm_url: str, model: str = "mock-brain") -> AgentSettings:
         role="implementer",
         gateway_token_file=str(token),
         target_repo="example/target",
+        mission="ship a tiny SaaS under governance",
         verify_cycles=3,
     )
 

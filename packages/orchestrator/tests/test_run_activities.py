@@ -39,6 +39,7 @@ JOB_HANDLE = {
 # workflows, a declared contract tree, and a heartbeat attempt bound.
 APPLIED_SPEC = {
     "namespace": "hello-saas",
+    "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
     "contractTests": {"paths": ["tests/contract", "tests/acceptance"]},
     "heartbeat": {"max_attempts": 2},

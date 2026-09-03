@@ -255,7 +255,9 @@ Three things to keep in mind while reading the signatures:
   it at call time, and the gateway independently verifies the claimed run
   against the caller's registry binding. A mismatch is a denial.
 - **`repo` is likewise injected** (as `target_repo`) by the agent host,
-  never chosen by the model.
+  never chosen by the model — and compiled policy denies any value other
+  than the blueprint's `stack.repo.url` (`repo_not_declared`), so an
+  agent works on its company's repository and nothing else.
 - **Who may call what is compiled policy**, not a property of the tool.
   The "typical caller" notes below describe the shipped `hello-saas`
   blueprint, where the implementer holds the sandbox tools plus `git.open_pr`,

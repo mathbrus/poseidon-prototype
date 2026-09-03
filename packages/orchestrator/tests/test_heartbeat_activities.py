@@ -40,7 +40,6 @@ def settings(tmp_path) -> WorkerSettings:
         temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        target_repo="github.com/example/repo",
         company=COMPANY,
     )
 
@@ -52,7 +51,11 @@ def runs() -> InMemoryRuns:
 
 @pytest.fixture
 def companies() -> InMemoryCompanies:
-    return InMemoryCompanies()
+    store = InMemoryCompanies()
+    store.upsert(
+        COMPANY, {"repo": {"url": "github.com/example/repo", "base_ref": "main"}}
+    )
+    return store
 
 
 @pytest.fixture
@@ -154,7 +157,13 @@ def _opa(monkeypatch, allow: bool, rule: str):
 
 
 def test_config_returns_the_applied_section(activities, companies):
-    companies.upsert(COMPANY, {"heartbeat": HEARTBEAT_SPEC})
+    companies.upsert(
+        COMPANY,
+        {
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "heartbeat": HEARTBEAT_SPEC,
+        },
+    )
     assert asyncio.run(activities.heartbeat_config()) == {
         **HEARTBEAT_SPEC,
         "timeouts": asdict(Timeouts()),

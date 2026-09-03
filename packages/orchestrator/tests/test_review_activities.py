@@ -23,6 +23,7 @@ RUN_ID = "run-review-0001"
 
 REVIEW_SPEC = {
     "namespace": "hello-saas",
+    "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "workflows": [
         {
             "name": "implement",
@@ -66,7 +67,6 @@ def settings(tmp_path) -> WorkerSettings:
         temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        target_repo="github.com/example/repo",
     )
 
 

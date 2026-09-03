@@ -683,7 +683,7 @@ version:
 ```bash
 uv sync
 for p in packages/*/; do uv run pytest "$p" -q; done   # eleven suites, no cluster needed
-cp deploy/kind/.env.example deploy/kind/.env            # fill in GIT_TOKEN and TARGET_REPO
+cp deploy/kind/.env.example deploy/kind/.env            # fill in GIT_TOKEN and the suite's TARGET_REPO
 deploy/kind/kind-up.sh                                  # cluster, images, chart, the company
 scripts/acceptance.sh                                   # the whole suite, zero LLM spend
 ```

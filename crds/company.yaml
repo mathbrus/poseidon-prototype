@@ -43,6 +43,14 @@ spec:
               properties:
                 namespace: {type: string}
                 mission: {type: string}
+                # The company's subject: the repository every run works on
+                # and the branch changes are diffed and delivered against.
+                repo:
+                  type: object
+                  required: [url, base_ref]
+                  properties:
+                    url: {type: string}
+                    base_ref: {type: string}
                 # The compiled Rego bundle, filename -> source. The operator
                 # persists it and serves it over the standard OPA bundle
                 # API; OPA polls. No runtime data pushes.

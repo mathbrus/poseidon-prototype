@@ -15,6 +15,8 @@ SPEC = {
     "role": "pm",
     "modelTier": "standard",
     "tools": ["issues.read", "crew.request"],
+    "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+    "mission": "ship it",
 }
 
 PLATFORM = "poseidon-platform"

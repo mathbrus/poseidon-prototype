@@ -63,10 +63,6 @@ spec:
               value: http://opa:8181
             - name: GATEWAY_TOKEN_FILE
               value: /var/run/poseidon/identity/token
-            - name: TARGET_REPO
-              value: {{ .Values.run.targetRepo | quote }}
-            - name: BASE_REF
-              value: {{ .Values.run.baseRef | quote }}
             - name: COMPANY
               value: {{ .Values.company | quote }}
             # Deploy-time resolution of the infra IR's logical toolchain

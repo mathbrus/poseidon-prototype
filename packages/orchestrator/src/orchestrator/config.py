@@ -32,8 +32,6 @@ class WorkerSettings(TemporalSettings):
     # validity.
     gateway_token_file: str = ""
     mcp_gateway_url: str
-    target_repo: str
-    base_ref: str = "main"
     # The company this worker executes runs for. One worker serves one
     # company, and the company's namespace — where its sandbox Jobs and
     # ephemeral pods land — is the company's name.

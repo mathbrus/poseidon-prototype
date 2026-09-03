@@ -118,8 +118,6 @@ spec:
               value: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
             - name: MODEL
               value: {{ .Values.run.model | quote }}
-            - name: TARGET_REPO
-              value: {{ .Values.run.targetRepo | quote }}
             - name: VERIFY_CYCLES
               value: {{ .Values.run.verifyCycles | quote }}
             {{- include "poseidon.registryDsnEnv" . | nindent 12 }}

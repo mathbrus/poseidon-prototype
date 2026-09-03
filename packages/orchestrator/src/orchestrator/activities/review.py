@@ -43,6 +43,7 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.telemetry import get_logger
+from orchestrator.activities.blueprint import company_repo
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient, pr_settled
 from orchestrator.config import WorkerSettings
@@ -163,6 +164,12 @@ class ReviewActivities:
         self._participants = participants
         self._log = get_logger("orchestrator.review")
 
+    async def _repo(self) -> dict[str, str]:
+        """The company's repository, from its applied blueprint."""
+        return await asyncio.to_thread(
+            company_repo, self._companies, self._settings.company
+        )
+
     @activity.defn(name="read_pr")
     async def read_pr(
         self, run_id: str, pr_number: int, contract_paths: list[str] | None = None
@@ -180,7 +187,7 @@ class ReviewActivities:
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            pr = await gateway.read_pr(run_id, self._settings.target_repo, pr_number)
+            pr = await gateway.read_pr(run_id, (await self._repo())["url"], pr_number)
         settled = pr_settled(pr)
         if settled:
             await self._append_event(
@@ -353,7 +360,7 @@ class ReviewActivities:
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             issue = await gateway.read_issue(
-                run_id, self._settings.target_repo, issue_number
+                run_id, (await self._repo())["url"], issue_number
             )
         match = REWORK_TITLE_RE.match(str(issue.get("title") or ""))
         if match is None:
@@ -388,7 +395,7 @@ class ReviewActivities:
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             issue = await gateway.create_issue(
-                run_id, self._settings.target_repo, title, body
+                run_id, (await self._repo())["url"], title, body
             )
         url = str(issue.get("url") or "")
         if url:
@@ -416,7 +423,7 @@ class ReviewActivities:
         ) as gateway:
             await gateway.comment_pr(
                 run_id,
-                self._settings.target_repo,
+                (await self._repo())["url"],
                 pr_number,
                 contract_edit_comment(deletions),
             )
@@ -502,7 +509,9 @@ class ReviewActivities:
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            result = await gateway.merge_pr(run_id, self._settings.target_repo, pr_number)
+            result = await gateway.merge_pr(
+                run_id, (await self._repo())["url"], pr_number
+            )
         self._log.bind(run_id=run_id).info(
             "pr merged",
             extra={

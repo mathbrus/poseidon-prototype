@@ -47,8 +47,6 @@ spec:
                 secretKeyRef:
                   name: git-credentials
                   key: GIT_TOKEN
-            - name: BASE_REF
-              value: {{ .Values.run.baseRef | quote }}
             - name: OPA_URL
               value: http://opa:8181
             # Workload identity: where the orchestrator's

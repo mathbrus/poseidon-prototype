@@ -29,6 +29,7 @@ from temporalio.exceptions import ApplicationError
 from common.audit import args_digest
 from common.telemetry import get_logger
 from common.topology import TOKEN_FILE, llm_gateway_url, mcp_gateway_url
+from orchestrator.activities.blueprint import company_repo
 from orchestrator.audit import record_event
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
@@ -75,6 +76,12 @@ class CrewActivities:
         # already finalized must never acquire new pods or identities.
         self._runs = runs
         self._log = get_logger("orchestrator.crew")
+
+    async def _repo(self) -> dict[str, str]:
+        """The company's repository, from its applied blueprint."""
+        return await asyncio.to_thread(
+            company_repo, self._companies, self._settings.company
+        )
 
     @activity.defn(name="bind_participant")
     async def bind_participant(self, spec: dict[str, Any]) -> dict[str, Any]:
@@ -168,12 +175,14 @@ class CrewActivities:
         agent_id = ephemeral_agent_id(spec["crew_template"], spec["role"], spec["run_id"])
         await asyncio.to_thread(self._bind_row, agent_id, spec)
         platform = self._settings.platform_namespace
+        company = await asyncio.to_thread(self._companies.get, spec["company"]) or {}
         env = {
             "MCP_GATEWAY_URL": mcp_gateway_url(platform),
             "LLM_PROXY_URL": llm_gateway_url(platform),
             "MODEL": self._settings.model,
             "ROLE": spec["role"],
-            "TARGET_REPO": self._settings.target_repo,
+            "TARGET_REPO": company["repo"]["url"],
+            "MISSION": company["mission"],
             "VERIFY_CYCLES": str(self._settings.verify_cycles),
             "GATEWAY_TOKEN_FILE": TOKEN_FILE,
         }

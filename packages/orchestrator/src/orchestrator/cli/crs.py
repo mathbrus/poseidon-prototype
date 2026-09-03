@@ -39,6 +39,10 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
         "spec": {
             "namespace": plan.company.namespace,
             "mission": plan.company.mission,
+            "repo": {
+                "url": plan.company.repo.url,
+                "base_ref": plan.company.repo.base_ref,
+            },
             "policyBundle": plan.bundle.files,
             # Compiler-owned and identical from every blueprint; riding the
             # CR keeps the operator the only bundle writer. Every
@@ -71,6 +75,8 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
             "role": instance.role,
             "modelTier": instance.model_tier,
             "tools": list(instance.tools),
+            "repo": {"url": instance.repo.url, "base_ref": instance.repo.base_ref},
+            "mission": instance.mission,
             "maySpawn": list(instance.may_spawn),
             **(
                 {"maxConcurrentSpawns": instance.max_concurrent_spawns}

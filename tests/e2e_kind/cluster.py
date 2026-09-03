@@ -592,7 +592,6 @@ def worker_settings(env: dict, tmp_path: Path):
         company=COMPANY_NS,
         gateway_token_file=str(token_file),
         mcp_gateway_url=gateway_url(env),
-        target_repo=env.get("TARGET_REPO", "github.com/example/repo"),
         agent_image=agent_image(),
         model="mock-brain",
     )

@@ -20,6 +20,7 @@ import yaml
 from conftest import HEARTBEAT_SECTION, HELLO_SAAS
 
 from compiler import compile_blueprint
+from compiler.rego import REPO_TOOLS
 
 # Pinned to the tag the chart deploys and CI's `opa` job checks against, so
 # these decisions are the ones the OPA that will actually load the bundle
@@ -116,6 +117,17 @@ def decide_heartbeat(tmp_path_factory):
     return _decider(tmp_path_factory, _company(add_heartbeat))
 
 
+# The example blueprint's repository: a repo-bearing call names it unless a
+# test is about naming another one.
+DECLARED_REPO = "github.com/example-org/hello-saas"
+
+
+def _with_repo(extra: dict) -> dict:
+    if extra.get("tool") in REPO_TOOLS:
+        extra["args"] = {"repo": DECLARED_REPO, **(extra.get("args") or {})}
+    return extra
+
+
 def ephemeral(crew: str, role: str, **extra) -> dict:
     return {
         "company": "hello-saas",
@@ -124,7 +136,7 @@ def ephemeral(crew: str, role: str, **extra) -> dict:
         "role": role,
         "parent_agent_id": "pm-1",
         "run_id": "run-1",
-        **extra,
+        **_with_repo(extra),
     }
 
 
@@ -134,7 +146,7 @@ def standing(role: str, **extra) -> dict:
         "lifecycle": "standing",
         "role": role,
         "run_id": "run-1",
-        **extra,
+        **_with_repo(extra),
     }
 
 
@@ -173,6 +185,26 @@ def test_implementer_delivers_on_feature_branches(decide):
         )
     )
     assert decision["allow"] is True
+
+
+def test_an_agent_works_on_the_declared_repository_only(decide):
+    """A repo-bearing call names the company's repository or is denied by
+    name, before the gateway reaches the git host — whoever the caller is
+    and whatever else its scope allows."""
+    ours = decide(**standing("pm", tool="issues.read", args={"number": 7}))
+    assert ours["allow"] is True
+    theirs = decide(
+        **standing("pm", tool="issues.read", args={"repo": "github.com/other/repo"})
+    )
+    assert theirs == {"allow": False, "rule": "repo_not_declared"}
+    unnamed = ephemeral(
+        "feature-delivery",
+        "implementer",
+        tool="git.open_pr",
+        args={"branch": "feature/x", "paths": ["slugify.py"]},
+    )
+    del unnamed["args"]["repo"]
+    assert decide(**unnamed) == {"allow": False, "rule": "repo_not_declared"}
 
 
 def test_reviewer_cannot_deliver(decide):
@@ -395,6 +427,7 @@ def test_crew_rule_compares_the_raw_role_name():
     from compiler.rego import build_bundle
 
     files = build_bundle(
+        repo_url=DECLARED_REPO,
         company="c",
         instances=[],
         ephemeral_agents=[
