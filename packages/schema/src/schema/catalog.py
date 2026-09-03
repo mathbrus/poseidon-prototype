@@ -17,10 +17,6 @@ from dataclasses import dataclass
 
 from schema.tools import CREW_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 
-CATALOG_VERSION = "v1"
-
-MODEL_TIERS = ("small", "standard", "frontier")
-
 # The agent host's units of work. A dispatch names one; a role declares
 # which it may run, and the host refuses the rest before any model call.
 PROCEDURES = ("scope", "decide", "implement", "deliver", "review")
@@ -33,7 +29,6 @@ class Role:
     # Tools an agent of this role may call, before the blueprint narrows
     # them further. The compiler emits the intersection.
     tools: tuple[str, ...]
-    model_tier: str
     # The procedures a dispatch may ask an agent of this role to run.
     procedures: tuple[str, ...]
     # Crews this role may request, when the blueprint grants them.
@@ -60,7 +55,6 @@ ROLES: dict[str, Role] = {
             "open a pull request or write in a sandbox."
         ),
         tools=tuple(ISSUE_TOOLS + CREW_TOOLS),
-        model_tier="standard",
         procedures=("scope", "decide"),
         may_spawn=("contract-authoring", "feature-delivery", "feature-review"),
     ),
@@ -72,14 +66,12 @@ ROLES: dict[str, Role] = {
             "compile error."
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
-        model_tier="frontier",
         procedures=("implement", "deliver"),
     ),
     "reviewer": Role(
         name="reviewer",
         summary="Reads the diff, runs the tests, posts findings, gives a verdict.",
         tools=tuple(SANDBOX_TOOLS + REVIEW_TOOLS + ["issues.comment"]),
-        model_tier="standard",
         procedures=("review",),
     ),
     # Deliver-capable on purpose, unlike `reviewer`: the contract tree is
@@ -94,7 +86,6 @@ ROLES: dict[str, Role] = {
             "Ephemeral agents only, like the implementer."
         ),
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
-        model_tier="frontier",
         procedures=("implement", "deliver"),
     ),
 }

@@ -3,9 +3,8 @@ blueprint and the converged standing instances."""
 
 from typing import Any
 
+from common.topology import agent_url
 from registry import AgentInstances, Companies
-
-AGENT_PORT = 8000
 
 
 def conductor(
@@ -33,8 +32,17 @@ def conductor(
     return {
         "agent_id": instance["agent_id"],
         "role": instance["role"],
-        "url": f"http://{standing_name}.{instance['namespace']}.svc.cluster.local:{AGENT_PORT}",
+        "url": agent_url(standing_name, instance["namespace"]),
     }
+
+
+def company_repo(companies: Companies, company: str) -> dict[str, str]:
+    """The repository the company works on, `{url, base_ref}`, from its
+    applied blueprint. Fail-closed: no applied blueprint, no repository."""
+    spec = companies.get(company)
+    if not spec:
+        raise RuntimeError(f"no applied blueprint for company {company!r}")
+    return dict(spec["repo"])
 
 
 def workflow_config(
@@ -43,14 +51,16 @@ def workflow_config(
     """The named workflow's shape, from the company's applied blueprint:
 
         {company, conductor: {agent_id, role, url}, crew, gates,
-         max_verify_retries, contract_paths}
+         max_verify_retries, budget_pause_minutes, contract_paths}
 
     `crew` is the ephemeral crew the workflow executes through, or None
     for a workflow that dispatches its conductor directly (intake).
     `gates` is the block as the blueprint wrote it (`{merge: {resolved_by,
-    delegate?}}`, ...), `max_verify_retries` bounds implement's verify
-    loop, and `contract_paths` is the declared contract tree ([] when the
-    company declares none) that review's deletion facts resolve against.
+    deadline_minutes, delegate?}}`, ...), `max_verify_retries` bounds
+    implement's verify loop, `budget_pause_minutes` is how long a run
+    stopped at the budget cap waits for a human, and `contract_paths` is
+    the declared contract tree ([] when the company declares none) that
+    review's deletion facts resolve against.
     Fail-closed: no applied blueprint, no enabled workflow, or no
     converged conductor instance each refuse the run before anything is
     provisioned."""
@@ -65,6 +75,7 @@ def workflow_config(
         "conductor": conductor(instances, company, config["conductor"]),
         "crew": config.get("crew"),
         "gates": dict(config.get("gates") or {}),
-        "max_verify_retries": int(config.get("max_verify_retries") or 0),
+        "max_verify_retries": config.get("max_verify_retries"),
+        "budget_pause_minutes": int(spec["budgets"]["pause_minutes"]),
         "contract_paths": sorted((spec.get("contractTests") or {}).get("paths") or []),
     }

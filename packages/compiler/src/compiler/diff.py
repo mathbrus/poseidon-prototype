@@ -67,8 +67,6 @@ def diff_plan(plan: DeploymentPlan, snapshot: RegistrySnapshot) -> PlanDiff:
         details = []
         if existing.role != instance.role:
             details.append(f"role {existing.role} -> {instance.role}")
-        if existing.model_tier != instance.model_tier:
-            details.append(f"model_tier {existing.model_tier} -> {instance.model_tier}")
         if details:
             result.changes.append(InstanceChange(agent_id, "update", tuple(details)))
 

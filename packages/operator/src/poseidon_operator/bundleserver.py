@@ -13,7 +13,7 @@ interval rather than a tarball.
 
 from fastapi import FastAPI, Header, Response
 
-from poseidon_operator.config import OperatorSettings
+from common.topology import BUNDLE_PORT
 from registry import PolicyBundles, open_registry
 
 
@@ -64,7 +64,7 @@ def main() -> None:
     unimportable without a database."""
     import uvicorn
 
-    uvicorn.run(create_app(), host="0.0.0.0", port=OperatorSettings().bundle_port)
+    uvicorn.run(create_app(), host="0.0.0.0", port=BUNDLE_PORT)
 
 
 if __name__ == "__main__":

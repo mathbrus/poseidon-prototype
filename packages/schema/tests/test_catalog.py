@@ -4,7 +4,7 @@ These are contract tests, not coverage — each one is a rule another package
 assumes it can rely on.
 """
 
-from schema.catalog import CREW_TEMPLATES, MODEL_TIERS, PROCEDURES, ROLES
+from schema.catalog import CREW_TEMPLATES, PROCEDURES, ROLES
 from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
@@ -20,11 +20,6 @@ def test_every_role_scope_is_a_known_tool():
 def test_no_role_carries_a_platform_only_tool():
     for role in ROLES.values():
         assert not set(role.tools) & PLATFORM_ONLY, role.name
-
-
-def test_every_role_names_a_real_model_tier():
-    for role in ROLES.values():
-        assert role.model_tier in MODEL_TIERS, role.name
 
 
 def test_every_role_declares_known_procedures():

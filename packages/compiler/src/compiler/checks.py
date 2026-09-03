@@ -29,7 +29,6 @@ from typing import Any
 from schema.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
 from schema.coherence import (
     contract_role_problems,
-    crew_problems,
     hire_problems,
     tool_scope_problems,
 )
@@ -51,7 +50,6 @@ def check(
     # catalog version gets that version's answer. Unknown tool names are
     # reported: the compiler has no schema pass to name them.
     problems += hire_problems(blueprint, roles, crews)
-    problems += crew_problems(blueprint, crews)
     problems += tool_scope_problems(blueprint, roles, report_unknown_tools=True)
     problems += contract_role_problems(blueprint, roles)
     problems += _lean_standing(blueprint, roles)
@@ -60,6 +58,8 @@ def check(
     problems += _spawnable_crews(blueprint, crews)
     problems += _policy_patterns(blueprint)
     problems += _budget_coverage(blueprint)
+    problems += _gate_deadlines(blueprint)
+    problems += _toolchain(blueprint)
     problems += _heartbeat_authority(blueprint, roles)
     # Document-level like the platform-tool rule, repeated here because the
     # compiler accepts unvalidated dicts and must fail closed on a
@@ -134,6 +134,23 @@ def _enabled_workflows(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
+def referenced_crews(blueprint: dict[str, Any]) -> set[str]:
+    """The crews a blueprint puts to work: every crew a hire may spawn and
+    every crew a workflow executes through. The catalog defines what a crew
+    is; the blueprint only names which ones exist for this company."""
+    named = {
+        crew
+        for hire in (blueprint.get("standing") or {}).values()
+        for crew in (hire.get("may_spawn") or {}).get("crew") or []
+    }
+    named |= {
+        workflow["crew"]
+        for workflow in (blueprint.get("workflows") or {}).values()
+        if workflow.get("crew")
+    }
+    return named
+
+
 def _dead_scopes(blueprint: dict[str, Any]) -> list[str]:
     """A scope no active hire and no crew uses is dead configuration; say
     so rather than compiling it into a bundle no caller can ever match. A
@@ -141,8 +158,9 @@ def _dead_scopes(blueprint: dict[str, Any]) -> list[str]:
     usable_roles = {h.get("role") for h in _active_hires(blueprint).values()}
     usable_roles |= {
         role
-        for crew in (blueprint.get("crews") or {}).values()
-        for role in (crew.get("roles") or [])
+        for crew in referenced_crews(blueprint)
+        if crew in CREW_TEMPLATES
+        for role in CREW_TEMPLATES[crew].roles
     }
     return [
         f"tools.{role_name}: no active hire or crew uses that role, "
@@ -175,24 +193,19 @@ def _spawn_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> list[
 def _spawnable_crews(
     blueprint: dict[str, Any], crews_catalog: dict[str, CrewTemplate]
 ) -> list[str]:
-    """Every `may_spawn.crew` references a crew this blueprint declares,
-    and every enabled workflow's crew is one its conductor may spawn (the
-    catalog half — is it a known template — is `schema.coherence`'s)."""
+    """Every enabled workflow's crew is a catalog crew its conductor may
+    spawn — otherwise the workflow compiles but can never be fulfilled.
+    (Whether a `may_spawn.crew` names a known crew is `schema.coherence`'s.)"""
     problems = []
-    declared = set(blueprint.get("crews") or {})
-    for standing_name, hire in _hires(blueprint).items():
-        for crew in (hire.get("may_spawn") or {}).get("crew") or []:
-            if crew in crews_catalog and crew not in declared:
-                problems.append(
-                    f"standing.{standing_name}.may_spawn.crew: {crew!r} is "
-                    f"not declared in this blueprint's `crews` section"
-                )
     for name, workflow in _enabled_workflows(blueprint).items():
         crew = workflow.get("crew")
         if crew is None:
             continue
-        if crew not in declared:
-            problems.append(f"workflows.{name}.crew: {crew!r} is not declared in `crews`")
+        if crew not in crews_catalog:
+            problems.append(
+                f"workflows.{name}.crew: {crew!r} is not a known crew "
+                f"(known: {', '.join(sorted(crews_catalog))})"
+            )
             continue
         conductor = workflow.get("conductor")
         allowed = ((_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}).get(
@@ -261,13 +274,47 @@ def _heartbeat_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> l
 
 def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
     """Budgets cover enabled workflows: a run cap must exist and be
-    positive, or the first hard-stop check has nothing to compare against."""
+    positive, or the first hard-stop check has nothing to compare against;
+    and the pause a stopped run waits out must be declared, or the workflow
+    would park with no deadline."""
     problems = []
-    budgets = blueprint.get("budgets") or {}
-    per_run = (budgets.get("per_run") or {}).get("usd")
-    if _enabled_workflows(blueprint) and not per_run:
-        problems.append(
-            "budgets.per_run.usd: enabled workflows need a per-run cap "
-            "(the LLM gateway hard-stops against it)"
-        )
+    per_run = (blueprint.get("budgets") or {}).get("per_run") or {}
+    if _enabled_workflows(blueprint):
+        if not per_run.get("usd"):
+            problems.append(
+                "budgets.per_run.usd: enabled workflows need a per-run cap "
+                "(the LLM gateway hard-stops against it)"
+            )
+        if not per_run.get("pause_minutes"):
+            problems.append(
+                "budgets.per_run.pause_minutes: a run stopped at the cap needs a "
+                "declared wait for the human who may raise it"
+            )
+    return problems
+
+
+def _toolchain(blueprint: dict[str, Any]) -> list[str]:
+    """The sandbox image and the test command are declared, never
+    defaulted: what a run executes in, and what the verify gate runs, are
+    the company's to say."""
+    toolchain = (blueprint.get("stack") or {}).get("toolchain") or {}
+    return [
+        f"stack.toolchain.{field}: required — the sandbox runs what the company declares"
+        for field in ("image", "test_command")
+        if not toolchain.get(field)
+    ]
+
+
+def _gate_deadlines(blueprint: dict[str, Any]) -> list[str]:
+    """Every declared gate names how long it waits for a human — the
+    workflow parks on that timer and escalates at half of it, so an
+    undeclared deadline would be a park with no end."""
+    problems = []
+    for name, node in (blueprint.get("workflows") or {}).items():
+        for gate, config in (node.get("gates") or {}).items():
+            if not (config or {}).get("deadline_minutes"):
+                problems.append(
+                    f"workflows.{name}.gates.{gate}.deadline_minutes: a declared "
+                    "gate needs the wait it parks for"
+                )
     return problems

@@ -18,8 +18,9 @@ from collections.abc import Callable
 from typing import Any
 
 from common.audit import AuditEvent
+from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from registry.participants import ParticipantRevoked
-from registry.runs import ISSUE_TASK_RE, REVIEW_TASK_RE, Attempts, RunRecord
+from registry.runs import Attempts, RunRecord
 
 
 class InMemoryAuditStore:
@@ -228,7 +229,6 @@ class InMemoryAgentInstances:
         company: str,
         standing_name: str,
         role: str,
-        model_tier: str,
         namespace: str | None = None,
         status: str = "ready",
     ) -> None:
@@ -237,7 +237,6 @@ class InMemoryAgentInstances:
             "company": company,
             "standing_name": standing_name,
             "role": role,
-            "model_tier": model_tier,
             "namespace": namespace,
             "status": status,
         }

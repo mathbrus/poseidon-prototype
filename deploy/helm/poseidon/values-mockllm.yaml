@@ -12,10 +12,6 @@ images:
 run:
   model: mock-brain
 
-# Every tier resolves to the mock brain — the ledger then records what was
-# actually served instead of a paid model name nothing answered as.
-llmGateway:
-  tierModels:
-    frontier: mock-brain
-    standard: mock-brain
-    small: mock-brain
+orchestrator:
+  timeoutProfile: fast
+

@@ -12,6 +12,7 @@ import pytest
 import yaml
 
 from schema import load_blueprint, validate_blueprint
+from schema.catalog import ROLES
 from schema.validate import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -47,15 +48,20 @@ def test_hello_saas_is_the_lean_profile(blueprint):
 
 def test_pm_holds_no_implementer_tools(blueprint):
     """Spawn authority is not permission to wield the crew's tools —
-    a gateway deny, not prompt hope, and it starts in the blueprint."""
-    pm_tools = set(blueprint["tools"]["pm"]["allow"])
+    a gateway deny, not prompt hope. The example narrows no PM scope, so
+    the PM's tools are its catalog role's."""
+    assert "pm" not in blueprint["tools"]
+    pm_tools = set(ROLES["pm"].tools)
     assert not any(t.startswith("sandbox.") for t in pm_tools)
     assert "git.open_pr" not in pm_tools
     assert {"crew.request", "issues.create"} <= pm_tools
 
 
 def test_review_merge_gate_is_human_resolved(blueprint):
-    assert blueprint["workflows"]["review"]["gates"]["merge"] == {"resolved_by": "human"}
+    assert blueprint["workflows"]["review"]["gates"]["merge"] == {
+        "resolved_by": "human",
+        "deadline_minutes": 1440,
+    }
 
 
 # -- structural errors ----------------------------------------------------
@@ -74,22 +80,23 @@ def test_typo_in_a_key_is_rejected_not_ignored(blueprint):
 
 
 def test_unknown_tool_lists_what_is_allowed(blueprint):
-    blueprint["tools"]["pm"]["allow"].append("issues.delete")
+    blueprint["tools"]["reviewer"]["allow"].append("issues.delete")
     (problem,) = [p for p in problems_of(blueprint) if "issues.delete" in p]
-    assert "tools.pm.allow" in problem
+    assert "tools.reviewer.allow" in problem
     assert "issues.create" in problem  # the allowed values are shown
 
 
-def test_unknown_model_tier_lists_the_tiers(blueprint):
-    blueprint["standing"]["pm"]["model_tier"] = "gigantic"
-    (problem,) = [p for p in problems_of(blueprint) if "gigantic" in p]
-    assert "'small'" in problem and "'frontier'" in problem
+def test_a_hire_is_one_instance(blueprint):
+    """The operator names one Deployment and one Service per standing
+    name, so a hire is an instance or a growth-path placeholder — never a
+    count."""
+    blueprint["standing"]["pm"]["count"] = 2
+    assert any("count" in p for p in problems_of(blueprint))
 
 
-def test_a_crew_must_list_its_roles(blueprint):
-    del blueprint["crews"]["feature-delivery"]["roles"]
-    problems = problems_of(blueprint)
-    assert any("feature-delivery" in p and "roles" in p for p in problems)
+def test_the_toolchain_is_declared_not_defaulted(blueprint):
+    del blueprint["stack"]["toolchain"]["test_command"]
+    assert any("test_command" in p for p in problems_of(blueprint))
 
 
 def test_an_empty_tool_scope_is_rejected(blueprint):
@@ -126,11 +133,6 @@ def test_unknown_crew_in_may_spawn_is_caught(blueprint):
     assert "feature-delivery" in problem
 
 
-def test_a_crew_naming_an_unknown_role_is_caught(blueprint):
-    blueprint["crews"]["feature-review"]["roles"] = ["qa"]
-    assert any("does not match the catalog" in p for p in problems_of(blueprint))
-
-
 def test_a_tool_scope_for_an_unknown_role_is_caught(blueprint):
     blueprint["tools"]["qa"] = {"allow": ["git.read"]}
     (problem,) = [p for p in problems_of(blueprint) if "tools.qa" in p]
@@ -140,7 +142,7 @@ def test_a_tool_scope_for_an_unknown_role_is_caught(blueprint):
 def test_company_role_cannot_hold_the_platform_merge_tool(blueprint):
     """git.merge_pr is the orchestrator's after the gate. A blueprint
     that could grant it would make the human merge gate optional."""
-    blueprint["tools"]["pm"]["allow"].append("git.merge_pr")
+    blueprint["tools"]["reviewer"]["allow"].append("git.merge_pr")
     (problem,) = [p for p in problems_of(blueprint) if "git.merge_pr" in p]
     assert "platform identity" in problem
 
@@ -148,28 +150,6 @@ def test_company_role_cannot_hold_the_platform_merge_tool(blueprint):
 def test_no_role_scope_can_hold_the_platform_merge_tool(blueprint):
     blueprint["tools"]["reviewer"]["allow"].append("git.merge_pr")
     assert any("platform identity" in p for p in problems_of(blueprint))
-
-
-def test_unknown_crew_name_is_caught(blueprint):
-    """A crews: key outside the catalog is a document error, not something
-    left for the compiler to resolve against nothing."""
-    blueprint["crews"]["hotfix-swat"] = copy.deepcopy(
-        blueprint["crews"]["feature-review"]
-    )
-    (problem,) = [p for p in problems_of(blueprint) if p.startswith("crews.hotfix-swat:")]
-    assert "not a known crew" in problem
-    assert "feature-delivery" in problem  # the known values are shown
-
-
-def test_a_crew_must_list_exactly_the_catalog_roles(blueprint):
-    """The catalog defines who is in a crew; a document adding a role, or
-    swapping in a different (but existing) one, is wrong about the crew,
-    not hiring."""
-    blueprint["crews"]["feature-review"]["roles"] = ["reviewer", "implementer"]
-    (problem,) = [p for p in problems_of(blueprint) if "does not match the catalog" in p]
-    assert "'reviewer'" in problem
-    blueprint["crews"]["feature-review"]["roles"] = ["implementer"]
-    assert any("does not match the catalog" in p for p in problems_of(blueprint))
 
 
 def test_a_tool_scope_cannot_widen_the_catalog(blueprint):
@@ -211,6 +191,7 @@ def test_lean_roster_profile_validates(blueprint):
 def delegated_merge() -> dict:
     return {
         "resolved_by": "policy",
+        "deadline_minutes": 1440,
         "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
     }
 
@@ -235,7 +216,10 @@ def test_an_undeclared_merge_gate_is_legal(blueprint):
 
 
 def test_policy_without_a_delegation_is_refused(blueprint):
-    blueprint["workflows"]["review"]["gates"]["merge"] = {"resolved_by": "policy"}
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "deadline_minutes": 1440,
+    }
     (problem,) = [p for p in problems_of(blueprint) if "delegate" in p]
     assert "authority nobody wrote down" in problem
 
@@ -348,20 +332,26 @@ def test_the_contract_tree_declares_paths_and_owners_or_nothing(blueprint):
 
 
 def test_intake_gate_names_its_resolver(blueprint):
-    blueprint["workflows"]["intake"]["gates"] = {"intake": {"resolved_by": "human"}}
+    blueprint["workflows"]["intake"]["gates"] = {
+        "intake": {"resolved_by": "human", "deadline_minutes": 1440}
+    }
     validate_blueprint(blueprint)
 
 
 def test_intake_gate_cannot_be_policy_resolved(blueprint):
     """Policy cannot judge whether a goal is worth doing; the schema names
     the only resolver intake has."""
-    blueprint["workflows"]["intake"]["gates"] = {"intake": {"resolved_by": "policy"}}
+    blueprint["workflows"]["intake"]["gates"] = {
+        "intake": {"resolved_by": "policy", "deadline_minutes": 1440}
+    }
     assert any("resolved_by" in p and "policy" in p for p in problems_of(blueprint))
 
 
 def test_a_merge_gate_on_intake_is_not_writable(blueprint):
     """Each workflow names only the gates it actually parks on."""
-    blueprint["workflows"]["intake"]["gates"] = {"merge": {"resolved_by": "human"}}
+    blueprint["workflows"]["intake"]["gates"] = {
+        "merge": {"resolved_by": "human", "deadline_minutes": 1440}
+    }
     assert any("merge" in p for p in problems_of(blueprint))
 
 

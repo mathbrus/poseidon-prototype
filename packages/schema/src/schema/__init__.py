@@ -7,7 +7,6 @@ catalogs — and nothing about what it compiles to.
 """
 
 from schema.catalog import (
-    CATALOG_VERSION,
     CREW_TEMPLATES,
     ROLES,
     CrewTemplate,
@@ -22,7 +21,6 @@ from schema.validate import (
 
 __all__ = [
     "BLUEPRINT_SCHEMA",
-    "CATALOG_VERSION",
     "CREW_TEMPLATES",
     "CrewTemplate",
     "ROLES",

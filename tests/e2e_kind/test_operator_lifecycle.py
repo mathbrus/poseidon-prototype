@@ -142,29 +142,30 @@ def test_opa_activated_both_bundles(stack: None):
 
 
 def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
-    """Change the PM's model tier, re-apply, observe a rollout with no
-    manual steps."""
+    """Change the company's mission, re-apply, observe a rollout with no
+    manual steps: what the PM is told about its company rides its pod."""
     document = yaml.safe_load(HELLO_SAAS.read_text())
-    assert document["standing"]["pm"]["model_tier"] != "small"
-    document["standing"]["pm"]["model_tier"] = "small"
-    edited = tmp_path / "hello-saas-small-pm.yaml"
+    mission = "Ship it, but differently."
+    assert document["company"]["mission"] != mission
+    document["company"]["mission"] = mission
+    edited = tmp_path / "hello-saas-new-mission.yaml"
     edited.write_text(yaml.safe_dump(document, sort_keys=False))
 
     apply_blueprint(edited)
     deadline = time.monotonic() + 180
     while True:
-        tier = kubectl(
+        told = kubectl(
             "-n",
             COMPANY_NS,
             "get",
             "deployment",
             "pm",
             "-o",
-            r"jsonpath={.spec.template.metadata.labels['poseidon\.dev/model-tier']}",
+            'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="MISSION")].value}',
         )
-        if tier == "small":
+        if told == mission:
             break
-        assert time.monotonic() < deadline, f"pm pod template still at {tier!r}"
+        assert time.monotonic() < deadline, f"pm pod template still tells {told!r}"
         time.sleep(3)
     kubectl(
         "-n",

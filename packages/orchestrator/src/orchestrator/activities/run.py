@@ -24,6 +24,7 @@ Retry safety, per activity:
 """
 
 import asyncio
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from temporalio import activity
@@ -32,15 +33,14 @@ if TYPE_CHECKING:
     from orchestrator.activities.crew import CrewActivities
 
 from common.audit import args_digest
+from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from common.telemetry import get_logger
-from orchestrator.activities.blueprint import workflow_config
+from orchestrator.activities.blueprint import company_repo, workflow_config
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
-from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.base import PROFILES, workflow_id
 from registry import (
-    ISSUE_TASK_RE,
-    REVIEW_TASK_RE,
     AgentInstances,
     AuditStore,
     BudgetLedger,
@@ -97,6 +97,12 @@ class RunActivities:
         self._crew = crew
         self._log = get_logger("orchestrator.run")
 
+    async def _repo(self) -> dict[str, str]:
+        """The company's repository, from its applied blueprint."""
+        return await asyncio.to_thread(
+            company_repo, self._companies, self._settings.company
+        )
+
     @activity.defn(name="create_run")
     async def create_run(self, run_id: str, workflow: str, task: str) -> None:
         """The run's row: which workflow owns it and the text it works
@@ -135,16 +141,18 @@ class RunActivities:
     async def workflow_config(self, workflow: str) -> dict[str, Any]:
         """The named workflow's shape, read from the applied blueprint and
         the converged conductor instance — gates, crew, bounds and the
-        conductor all come from config, never from code. Fail-closed: no
+        conductor all come from config, never from code — plus the
+        deployment's timeout profile (`timeouts`). Fail-closed: no
         applied blueprint, no enabled workflow, or no converged conductor
         each refuse the run before anything is provisioned."""
-        return await asyncio.to_thread(
+        config = await asyncio.to_thread(
             workflow_config,
             self._companies,
             self._instances,
             self._settings.company,
             workflow,
         )
+        return {**config, "timeouts": asdict(PROFILES[self._settings.timeout_profile])}
 
     @activity.defn(name="record_gate_outcome")
     async def record_gate_outcome(
@@ -301,15 +309,14 @@ class RunActivities:
             workflow=workflow_id,
         )
         body = attempts_exhausted_comment(kind, count, max_attempts)
+        repo = (await self._repo())["url"]
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             if kind == "review":
-                await gateway.comment_pr(run_id, self._settings.target_repo, number, body)
+                await gateway.comment_pr(run_id, repo, number, body)
             else:
-                await gateway.comment_issue(
-                    run_id, self._settings.target_repo, number, body
-                )
+                await gateway.comment_issue(run_id, repo, number, body)
         log.info(
             "attempts exhausted",
             extra={"workflow": kind, "number": number, "attempts": count},

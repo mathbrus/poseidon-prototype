@@ -72,7 +72,7 @@ import yaml
 
 from common.ids import new_run_id
 
-from .blueprints import HELLO_SAAS, bundle_revision_from_cr
+from .blueprints import HELLO_SAAS, bundle_revision_from_cr, suite_document
 from .cluster import (
     COMPANY_NS,
     POSTGRES_USER,
@@ -139,15 +139,18 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
 
         # Preview of an edit: exactly the edit, nothing else.
         document = yaml.safe_load(HELLO_SAAS.read_text())
-        assert document["standing"]["pm"]["model_tier"] != "small"
-        document["standing"]["pm"]["model_tier"] = "small"
-        edited = tmp_path / "hello-saas-small-pm.yaml"
+        assert "lead" not in document["standing"]
+        document["standing"]["lead"] = {
+            "role": "pm",
+            "count": 1,
+            "may_spawn": {"crew": ["feature-delivery"], "max_concurrent": 1},
+        }
+        edited = tmp_path / "hello-saas-second-hire.yaml"
         edited.write_text(yaml.safe_dump(document, sort_keys=False))
         preview = _blueprint_cli(["preview", str(edited)], dsn)
         assert preview.returncode == 0, preview.stderr
         assert "hello-saas: 1 change(s)" in preview.stdout, preview.stdout
-        assert "~ pm-1" in preview.stdout
-        assert "model_tier" in preview.stdout and "-> small" in preview.stdout
+        assert "+ lead-1" in preview.stdout
 
     # Compile, scripted (the CLI, not just the library), emitting the
     # bundle to disk like the CI policy job does.
@@ -162,12 +165,13 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
 
     # Compile-is-what's-live: the revision is a content digest (registry
     # `pack`), so equality here means the served policy is exactly what
-    # this working tree's compiler emits from this blueprint.
+    # this working tree's compiler emits from the document the suite
+    # applied — the example on the suite's repository and clock.
     from compiler import compile_blueprint
     from registry import pack
     from schema import load_blueprint
 
-    plan = compile_blueprint(load_blueprint(HELLO_SAAS))
+    plan = compile_blueprint(load_blueprint(suite_document(HELLO_SAAS)))
     _, revision = pack(dict(plan.bundle.files))
     assert revision == bundle_revision_from_cr(), (
         "the cluster serves a bundle this blueprint + compiler do not produce"

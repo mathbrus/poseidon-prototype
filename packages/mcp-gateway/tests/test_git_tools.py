@@ -112,7 +112,14 @@ async def test_archive_overlay_composes_the_baseline_tree(target_repo, tmp_path)
     git("commit", "-m", "tamper", cwd=work)
     git("push", "origin", "feature/tamper", cwd=work)
 
-    backend = GitBackend(McpGatewaySettings(git_token=GIT_TOKEN), http_client=None)
+    backend = GitBackend(
+        McpGatewaySettings(
+            platform_namespace="poseidon-platform",
+            opa_url="http://opa.test:8181",
+            git_token=GIT_TOKEN,
+        ),
+        http_client=None,
+    )
     result = backend._archive_sync(
         str(target_repo),
         "feature/tamper",

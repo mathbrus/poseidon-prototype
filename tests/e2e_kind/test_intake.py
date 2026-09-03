@@ -47,7 +47,6 @@ from .conftest import (
     TASK_QUEUE,
     close_issue,
     crew_requests,
-    deployed_timeouts,
     github_api,
     target_slug,
 )
@@ -87,7 +86,7 @@ def gated_intake(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
+                IntakeInput(run_id=run_id, goal_text=goal),
                 id=workflow_id("intake", run_id),
                 task_queue=TASK_QUEUE,
             )

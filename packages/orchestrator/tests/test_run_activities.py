@@ -6,12 +6,14 @@ it. Sequencing, compensation and durability are workflow concerns, proven
 live by the kind e2e suite (worker-kill included)."""
 
 import asyncio
+from dataclasses import asdict
 
 import pytest
 
+from common.tasks import issue_run_task
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.activities.run import RunActivities
-from orchestrator.workflows.implement import issue_placeholder
+from orchestrator.workflows.base import Timeouts
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
@@ -37,7 +39,8 @@ JOB_HANDLE = {
 # workflows, a declared contract tree, and a heartbeat attempt bound.
 APPLIED_SPEC = {
     "namespace": "hello-saas",
-    "budgets": {"per_run_usd": 5.0},
+    "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+    "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
     "contractTests": {"paths": ["tests/contract", "tests/acceptance"]},
     "heartbeat": {"max_attempts": 2},
     "workflows": [
@@ -54,7 +57,7 @@ APPLIED_SPEC = {
             "enabled": True,
             "conductor": "pm",
             "crew": "feature-review",
-            "gates": {"merge": {"resolved_by": "human"}},
+            "gates": {"merge": {"resolved_by": "human", "deadline_minutes": 1440}},
         },
     ],
 }
@@ -99,7 +102,7 @@ def companies() -> InMemoryCompanies:
 @pytest.fixture
 def instances() -> InMemoryAgentInstances:
     store = InMemoryAgentInstances()
-    store.upsert("pm-1", "hello-saas", "pm", "pm", "standard", namespace="hello-saas")
+    store.upsert("pm-1", "hello-saas", "pm", "pm", namespace="hello-saas")
     return store
 
 
@@ -149,10 +152,10 @@ def test_create_run_refuses_a_second_live_run_for_the_same_issue(activities, run
     """One live implement run per issue — the registry constraint surfaces
     here, so neither a heartbeat tick nor a human `poseidon run <n>` can
     duplicate work already in flight."""
-    asyncio.run(activities.create_run(RUN_ID, "implement", issue_placeholder(42)))
+    asyncio.run(activities.create_run(RUN_ID, "implement", issue_run_task(42)))
     with pytest.raises(RuntimeError, match="one live run per work item"):
         asyncio.run(
-            activities.create_run("run-elsewhere", "implement", issue_placeholder(42))
+            activities.create_run("run-elsewhere", "implement", issue_run_task(42))
         )
     # The losing run never clobbered the live row.
     assert runs.get(RUN_ID).status == "running"
@@ -196,12 +199,16 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
         "crew": "feature-delivery",
         "gates": {},
         "max_verify_retries": 2,
+        "budget_pause_minutes": 60,
         "contract_paths": ["tests/acceptance", "tests/contract"],
+        "timeouts": asdict(Timeouts()),
     }
     review = asyncio.run(activities.workflow_config("review"))
     assert review["crew"] == "feature-review"
-    assert review["gates"] == {"merge": {"resolved_by": "human"}}
-    assert review["max_verify_retries"] == 0
+    assert review["gates"] == {
+        "merge": {"resolved_by": "human", "deadline_minutes": 1440}
+    }
+    assert review["max_verify_retries"] is None
 
 
 def test_intake_binds_no_crew_by_design(activities, companies):
@@ -211,10 +218,12 @@ def test_intake_binds_no_crew_by_design(activities, companies):
     assert config["crew"] is None and config["gates"] == {}
 
     spec = companies.get("hello-saas")
-    spec["workflows"][1]["gates"] = {"intake": {"resolved_by": "human"}}
+    spec["workflows"][1]["gates"] = {
+        "intake": {"resolved_by": "human", "deadline_minutes": 30}
+    }
     companies.upsert("hello-saas", spec)
     assert asyncio.run(activities.workflow_config("intake"))["gates"] == {
-        "intake": {"resolved_by": "human"}
+        "intake": {"resolved_by": "human", "deadline_minutes": 30}
     }
 
 
@@ -225,6 +234,7 @@ def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
     companies.upsert(
         "hello-saas",
         {
+            "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
             "workflows": [
                 {
                     "name": "review",
@@ -232,7 +242,7 @@ def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
                     "conductor": "pm",
                     "crew": "feature-review",
                 }
-            ]
+            ],
         },
     )
     activities = RunActivities(

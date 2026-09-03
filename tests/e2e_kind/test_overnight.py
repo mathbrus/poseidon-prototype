@@ -20,7 +20,7 @@ company does one thing at a time because the blueprint said so.
 
 The conftest orders this module after `test_acceptance`: it is itself a
 capstone, and it adds runs the five-source assertion need not see. The
-heartbeat blueprint (`examples/hello-saas-heartbeat.yaml`) is applied
+heartbeat variant of the example (`blueprints.heartbeat_variant`) is applied
 for the module and the pristine one restored after.
 """
 
@@ -37,16 +37,16 @@ import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
+from common.tasks import issue_run_task, review_run_task
 from orchestrator.workflows.base import workflow_id
 
-from .blueprints import HEARTBEAT, restore_pristine
+from .blueprints import heartbeat_variant, restore_pristine
 from .cluster import COMPANY_NS, audit_story, await_run, temporal_port_forward
 from .conftest import (
     REPO_ROOT,
     apply_profile,
     close_issue,
     close_pr,
-    deployed_timeouts,
     github_api,
     heartbeat_ticks,
     pr_number,
@@ -71,9 +71,8 @@ def _poseidon(args: list[str], address: str, timeout: int) -> subprocess.Complet
 def _run_intake(goal_path: Path, run_id: str, address: str) -> dict:
     """Human act 1: `poseidon run <goal> --workflow intake`. Blocks until
     intake completes and prints the run record; returns it."""
-    fast = ["--fast-timeouts"] if deployed_timeouts() is not None else []
     proc = _poseidon(
-        ["run", str(goal_path), "--workflow", "intake", "--run-id", run_id, *fast],
+        ["run", str(goal_path), "--workflow", "intake", "--run-id", run_id],
         address,
         650,
     )
@@ -93,7 +92,7 @@ def _signal_merge(run_id: str, address: str) -> None:
 def overnight(stack: None, env: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
-    apply_profile(HEARTBEAT, env)
+    apply_profile(heartbeat_variant(), env)
 
     intake_run = new_run_id()
     nonce = intake_run[-6:].lower()
@@ -131,11 +130,11 @@ def overnight(stack: None, env: dict) -> dict:
             # the ticket was visible on the git host.
             await asyncio.to_thread(
                 wake_until_run_started,
-                f"implement issue #{issue_number}",
+                issue_run_task(issue_number),
                 "implement",
             )
             implement = await asyncio.to_thread(
-                await_run, f"implement issue #{issue_number}", True
+                await_run, issue_run_task(issue_number), True
             )
             assert implement["status"] == "done", f"unattended implement: {implement}"
             assert implement["pr_url"], "the unattended implement produced no PR"
@@ -148,11 +147,9 @@ def overnight(stack: None, env: dict) -> dict:
             # the delivered PR; the review it starts parks on the human
             # merge gate.
             await asyncio.to_thread(
-                wake_until_run_started, f"review pull request #{number}", "review"
+                wake_until_run_started, review_run_task(number), "review"
             )
-            review = await asyncio.to_thread(
-                await_run, f"review pull request #{number}", False
-            )
+            review = await asyncio.to_thread(await_run, review_run_task(number), False)
             result["review"] = review
             review_handle = client.get_workflow_handle(
                 workflow_id("review", review["run_id"])

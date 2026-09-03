@@ -15,6 +15,9 @@ company:
   mission: Ship a small SaaS product with an agent company under governance.
 
 stack:
+  repo:
+    url: github.com/example-org/hello-saas
+    base_ref: main
   toolchain:
     image: poseidon-sandbox
     test_command: pytest -q
@@ -25,7 +28,15 @@ stack:
 
 `company.name` becomes the Kubernetes namespace, the Rego package name, and
 the OPA bundle root — which is why two companies can never collide, and why
-`platform` is a reserved name.
+`platform` is a reserved name. `company.mission` reaches the conductor's
+prompts: the PM scopes goals and decides the next action knowing what the
+company is for.
+
+`stack.repo` is the company's subject: the one repository every run works
+on, and the branch (`base_ref`) changes are diffed and delivered against.
+It compiles into a `repo_not_declared` deny, so a tool call naming any
+other repository is refused at the gateway before it reaches the git host —
+and into every agent pod, whose tool calls name it.
 
 `egress_allow` is the **entire** list of hosts any sandbox of this company
 may reach. It compiles into both the sandbox constraints and the egress
@@ -53,40 +64,36 @@ One standing agent: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 
-A hire at `count: 0` is a documented growth path that produces no instance.
+A hire is one instance — the operator names one Deployment and one Service
+per standing name — and `count: 0` is a documented growth path that
+produces none.
 Try hiring an `implementer` at `count: 1` and the compiler refuses:
 standing coders do not exist here.
 
 </details>
 
 <details>
-<summary><b><code>crews</code> and <code>tools</code> — scopes</b></summary>
+<summary><b><code>tools</code> — scopes</b></summary>
 
 <br>
 
 ```yaml
-crews:
-  feature-delivery:
-    roles: [implementer]
-  feature-review:
-    roles: [reviewer]
-
 tools:
-  pm:
-    allow: [issues.create, issues.read, issues.comment, crew.request]
   reviewer:
     allow: [sandbox.read_file, sandbox.list_dir, sandbox.exec, sandbox.run_tests, git.read, git.comment, issues.comment]
 ```
 
-A crew is the list of catalog roles fulfilled together for one run; the
-blueprint names the crew, the catalog defines it. `tools` is the one place
-a role's scope is narrowed, and it applies to every agent of that role,
-standing or ephemeral: the reviewer's list drops the write tools its
-catalog entry would allow, and a role not listed gets its catalog tools.
-
-Look at what the PM's list does *not* contain: no `sandbox.*`, no
-`git.open_pr`. The conductor that spawns the implementer cannot do the
-implementer's job. Spawn authority is not capability.
+A crew is the list of catalog roles fulfilled together for one run. The
+catalog defines the crews (`feature-delivery`, `feature-review`,
+`contract-authoring`); a blueprint names the ones it puts to work in a
+hire's `may_spawn` and a workflow's `crew`, and the compiler emits one
+ephemeral agent spec per role of each. `tools` is the one place a role's
+scope is narrowed, and it applies to every agent of that role, standing or
+ephemeral: the reviewer's list drops the write tools its catalog entry
+would allow, and a role not listed keeps its catalog tools — the PM's
+catalog entry already holds no `sandbox.*` and no `git.open_pr`, so the
+conductor that spawns the implementer cannot do the implementer's job.
+Spawn authority is not capability.
 
 </details>
 
@@ -112,6 +119,7 @@ workflows:
     gates:
       merge:
         resolved_by: human
+        deadline_minutes: 1440
 ```
 
 Three workflows, one per phase of the SDLC in section 5. `intake` is the
@@ -152,12 +160,9 @@ policies:
   contract_tests:
     paths: [tests/contract/]
     roles: [contract-author]
-  escalation:
-    channel: api
-    timeout_minutes: 60
 
 budgets:
-  per_run: {usd: 5}
+  per_run: {usd: 5, pause_minutes: 60}
 ```
 
 These compile into deny rules evaluated against **real arguments**. Because
@@ -182,17 +187,20 @@ The path rules also fail closed: without the changed paths in the input they
 Fail-safe defaults again: the dangerous condition is the absent input, and
 absence denies.
 
-`escalation` configures the human-attention channel that gates use: when a
-gate has waited half its deadline with no verdict, an escalation event
-fires on the declared channel; at the full deadline the gate expires. Both
-transitions are first-class audit events, so "nobody was home" is a
-recorded outcome rather than a silent hang.
+Every gate declares how long it waits for a human: `deadline_minutes` on
+the gate, `pause_minutes` on the budget. When a gate has waited half its
+deadline with no verdict, an escalation event fires; at the full deadline
+the gate expires. Both transitions are first-class audit events, so
+"nobody was home" is a recorded outcome rather than a silent hang — and
+the patience is the charter's, not a setting someone chose when they
+started the run.
 
 `per_run.usd` is a hard stop at the LLM gateway, not a warning. Exhausting
 it produces a distinguishable error, an audit event, an escalation, and an
-API-visible paused state — never silent degradation to a cheaper model.
+API-visible paused state that waits `pause_minutes` for the human who may
+raise the cap — never silent degradation to a cheaper model.
 
-It is also the *only* budget field the schema accepts, and that is
+It is also the *only* budget cap the schema accepts, and that is
 deliberate rather than a gap. In a document whose credibility rests on
 "declared means compiled means enforced," an unenforced field is worse
 than an absent one, so no cap appears here until a ledger enforces it.

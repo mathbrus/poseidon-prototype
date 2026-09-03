@@ -27,11 +27,13 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
+from common.identity import LIFECYCLE_EPHEMERAL, LIFECYCLE_STANDING
 from common.telemetry import get_logger
+from common.topology import TOKEN_FILE, llm_gateway_url, mcp_gateway_url
+from orchestrator.activities.blueprint import company_repo
 from orchestrator.audit import record_event
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
-    TOKEN_MOUNT_DIR,
     EphemeralPodProvisioner,
     service_account_name,
 )
@@ -75,6 +77,12 @@ class CrewActivities:
         # already finalized must never acquire new pods or identities.
         self._runs = runs
         self._log = get_logger("orchestrator.crew")
+
+    async def _repo(self) -> dict[str, str]:
+        """The company's repository, from its applied blueprint."""
+        return await asyncio.to_thread(
+            company_repo, self._companies, self._settings.company
+        )
 
     @activity.defn(name="bind_participant")
     async def bind_participant(self, spec: dict[str, Any]) -> dict[str, Any]:
@@ -123,7 +131,7 @@ class CrewActivities:
             spec["crew_template"],
             spec["role"],
             company=spec["company"],
-            namespace=self._settings.sandbox_namespace,
+            namespace=self._settings.company,
             service_account=service_account_name(agent_id),
         )
 
@@ -168,14 +176,15 @@ class CrewActivities:
         agent_id = ephemeral_agent_id(spec["crew_template"], spec["role"], spec["run_id"])
         await asyncio.to_thread(self._bind_row, agent_id, spec)
         platform = self._settings.platform_namespace
+        company = await asyncio.to_thread(self._companies.get, spec["company"]) or {}
         env = {
-            "MCP_GATEWAY_URL": f"http://mcp-gateway.{platform}.svc.cluster.local:8080",
-            "LLM_PROXY_URL": f"http://llm-gateway.{platform}.svc.cluster.local:4000",
+            "MCP_GATEWAY_URL": mcp_gateway_url(platform),
+            "LLM_PROXY_URL": llm_gateway_url(platform),
             "MODEL": self._settings.model,
             "ROLE": spec["role"],
-            "TARGET_REPO": self._settings.target_repo,
-            "VERIFY_CYCLES": str(self._settings.verify_cycles),
-            "GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token",
+            "TARGET_REPO": company["repo"]["url"],
+            "MISSION": company["mission"],
+            "GATEWAY_TOKEN_FILE": TOKEN_FILE,
         }
         # The teardown race guard: a retry still in flight while the run
         # ends must not leak a pod. `still_wanted` checks two signals —
@@ -399,7 +408,7 @@ class CrewActivities:
         decision_input = {
             "company": company,
             "agent_id": conductor,
-            "lifecycle": "standing",
+            "lifecycle": LIFECYCLE_STANDING,
             "parent_agent_id": "",
             "role": conductor_role,
             "run_id": run_id,
@@ -424,7 +433,7 @@ class CrewActivities:
             digest=args_digest({"crew_template": crew_template}),
             started=started,
             decision="allow" if allowed else "deny",
-            lifecycle="standing",
+            lifecycle=LIFECYCLE_STANDING,
         )
         if not allowed:
             raise RuntimeError(
@@ -453,7 +462,7 @@ class CrewActivities:
         digest: str,
         started: float,
         decision: str = "allow",
-        lifecycle: str = "ephemeral",
+        lifecycle: str = LIFECYCLE_EPHEMERAL,
     ) -> None:
         event = await record_event(
             self._audit,

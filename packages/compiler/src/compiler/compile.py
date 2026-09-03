@@ -11,7 +11,7 @@ scope; credentials arrive at runtime as projected tokens.
 
 from typing import Any
 
-from compiler.checks import check
+from compiler.checks import check, referenced_crews
 from compiler.errors import CompileError
 from compiler.infra import build_infra
 from compiler.plan import (
@@ -22,6 +22,7 @@ from compiler.plan import (
     EphemeralAgentSpec,
     HeartbeatConfig,
     RegoBundle,
+    Repo,
     WorkflowConfig,
 )
 from compiler.rego import build_bundle, build_platform_bundle
@@ -66,8 +67,6 @@ PLATFORM_SCOPE = sorted(
     }
 )
 
-DEFAULT_VERIFY_RETRIES = 2
-
 
 def compile_blueprint(
     blueprint: dict[str, Any],
@@ -85,16 +84,14 @@ def compile_blueprint(
     company_section = blueprint["company"]
     company = company_section["name"]
     namespace = company
+    repo = Repo(**blueprint["stack"]["repo"])
     company_cr = CompanyCR(
-        name=company,
-        namespace=namespace,
-        mission=company_section["mission"],
-        stage=company_section.get("stage"),
+        name=company, namespace=namespace, mission=company_section["mission"], repo=repo
     )
 
     scopes = blueprint.get("tools") or {}
-    instances = _instances(blueprint, roles, scopes, company, snapshot)
-    ephemeral_agents = _ephemeral_agents(blueprint, roles, scopes)
+    instances = _instances(blueprint, roles, scopes, company, snapshot, repo)
+    ephemeral_agents = _ephemeral_agents(blueprint, roles, crews_catalog, scopes)
     workflows = _workflows(blueprint)
     budgets = _budgets(blueprint)
     heartbeat = _heartbeat(blueprint)
@@ -105,6 +102,7 @@ def compile_blueprint(
             instances=list(instances),
             ephemeral_agents=list(ephemeral_agents),
             policies=blueprint.get("policies") or {},
+            repo_url=repo.url,
             heartbeat=heartbeat,
             merge_delegation=_merge_delegation(workflows),
         )
@@ -139,9 +137,11 @@ def _instances(
     scopes: dict[str, Any],
     company: str,
     snapshot: RegistrySnapshot,
+    repo: Repo,
 ) -> tuple[AgentInstanceCR, ...]:
     """Standing agents only. A `count: 0` placeholder produces no instance —
     that is the whole point of declaring one."""
+    mission = blueprint["company"]["mission"]
     instances = []
     for standing_name, hire in sorted((blueprint.get("standing") or {}).items()):
         count = hire.get("count", 0)
@@ -153,18 +153,10 @@ def _instances(
                 set((hire.get("may_spawn") or {}).get("crew") or []) & set(role.may_spawn)
             )
         )
-        # Existing ids are reused in order so an apply is stable; minted ids
-        # skip anything already taken — a count change must never produce
-        # two instances sharing an agent_id (the diff keys on it).
-        agent_ids = [i.agent_id for i in snapshot.instances_for(company, standing_name)][
-            :count
-        ]
-        serial = 0
-        while len(agent_ids) < count:
-            serial += 1
-            candidate = f"{standing_name}-{serial}"
-            if candidate not in agent_ids:
-                agent_ids.append(candidate)
+        # A hire is one instance. A converged instance keeps the id policy
+        # and audit already know it by; a new hire is `<standing_name>-1`.
+        live = snapshot.instances_for(company, standing_name)
+        agent_ids = ([live[0].agent_id] if live else [f"{standing_name}-1"])[:count]
         for agent_id in agent_ids:
             instances.append(
                 AgentInstanceCR(
@@ -172,8 +164,9 @@ def _instances(
                     company=company,
                     standing_name=standing_name,
                     role=role.name,
-                    model_tier=hire.get("model_tier") or role.model_tier,
                     tools=_scope(role, scopes),
+                    repo=repo,
+                    mission=mission,
                     may_spawn=may_spawn,
                     max_concurrent_spawns=(hire.get("may_spawn") or {}).get(
                         "max_concurrent"
@@ -184,9 +177,13 @@ def _instances(
 
 
 def _ephemeral_agents(
-    blueprint: dict[str, Any], roles: dict[str, Role], scopes: dict[str, Any]
+    blueprint: dict[str, Any],
+    roles: dict[str, Role],
+    crews: dict[str, CrewTemplate],
+    scopes: dict[str, Any],
 ) -> tuple[EphemeralAgentSpec, ...]:
-    """One spec per role of every declared crew, scoped by the same
+    """One spec per role of every crew the blueprint puts to work (named
+    in a hire's `may_spawn` or a workflow's `crew`), scoped by the same
     `tools.<role>` narrowing a standing agent of that role gets."""
     return tuple(
         EphemeralAgentSpec(
@@ -194,8 +191,8 @@ def _ephemeral_agents(
             role=role_name,
             tools=_scope(roles[role_name], scopes),
         )
-        for crew_name, crew in sorted((blueprint.get("crews") or {}).items())
-        for role_name in sorted(crew.get("roles") or [])
+        for crew_name in sorted(referenced_crews(blueprint))
+        for role_name in sorted(crews[crew_name].roles)
     )
 
 
@@ -210,9 +207,7 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
                 crew=workflow.get("crew"),
                 # Gate config comes from the blueprint, never hardcoded.
                 gates=dict(sorted((workflow.get("gates") or {}).items())),
-                max_verify_retries=int(
-                    workflow.get("max_verify_retries", DEFAULT_VERIFY_RETRIES)
-                ),
+                max_verify_retries=workflow.get("max_verify_retries"),
             )
         )
     return tuple(configs)
@@ -244,7 +239,8 @@ def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig | None:
 
 
 def _budgets(blueprint: dict[str, Any]) -> BudgetRegistration:
-    budgets = blueprint.get("budgets") or {}
+    per_run = (blueprint.get("budgets") or {}).get("per_run") or {}
     return BudgetRegistration(
-        per_run_usd=float((budgets.get("per_run") or {}).get("usd", 0)),
+        per_run_usd=float(per_run.get("usd", 0)),
+        pause_minutes=int(per_run.get("pause_minutes", 0)),
     )

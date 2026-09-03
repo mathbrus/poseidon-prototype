@@ -9,6 +9,7 @@ RUN_ID = "01JTESTULID0000000000000AB"  # ULIDs are uppercase
 
 POLICY = SandboxPolicy(
     image="poseidon-sandbox:test",
+    workspace_dir="/workspace",
     cpu="750m",
     memory="512Mi",
     disk="1Gi",

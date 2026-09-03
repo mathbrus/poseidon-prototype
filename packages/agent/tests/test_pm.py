@@ -22,6 +22,7 @@ def settings(tmp_path) -> AgentSettings:
         role="pm",
         gateway_token_file=str(token),
         target_repo="github.test/example/target",
+        mission="ship a tiny SaaS under governance",
     )
 
 

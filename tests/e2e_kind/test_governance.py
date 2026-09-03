@@ -83,6 +83,28 @@ def test_the_served_bundle_decides(stack: None) -> None:
         assert unbound == {"allow": False, "rule": "default_deny"}
 
 
+def test_the_served_bundle_denies_another_repository(stack: None, env: dict) -> None:
+    """The company works on its declared repository and nothing else: the
+    same implementer, the same verified binding, a call naming a different
+    repository — denied by name."""
+    with port_forward("svc/opa", 8181) as port:
+        base = f"http://127.0.0.1:{port}"
+        ours = _decide(
+            base,
+            COMPANY_DECISION,
+            implementer("issues.read", args={"repo": env["TARGET_REPO"], "number": 1}),
+        )
+        assert ours["allow"] is False and ours["rule"] != "repo_not_declared"
+        theirs = _decide(
+            base,
+            COMPANY_DECISION,
+            implementer(
+                "issues.read", args={"repo": "github.com/other/repo", "number": 1}
+            ),
+        )
+        assert theirs == {"allow": False, "rule": "repo_not_declared"}
+
+
 # -- the whole pipeline decides (gateway layer) ------------------------------
 
 

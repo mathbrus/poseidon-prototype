@@ -52,6 +52,8 @@ spec:
           env:
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.orchestrator.temporalAddress | quote }}
+            - name: TIMEOUT_PROFILE
+              value: {{ .Values.orchestrator.timeoutProfile | quote }}
             - name: MCP_GATEWAY_URL
               value: http://mcp-gateway:8080
             # The workflow-recorded crew request evaluates
@@ -61,14 +63,8 @@ spec:
               value: http://opa:8181
             - name: GATEWAY_TOKEN_FILE
               value: /var/run/poseidon/identity/token
-            - name: TARGET_REPO
-              value: {{ .Values.run.targetRepo | quote }}
-            - name: BASE_REF
-              value: {{ .Values.run.baseRef | quote }}
             - name: COMPANY
-              value: {{ .Values.companyNamespace | quote }}
-            - name: SANDBOX_NAMESPACE
-              value: {{ .Values.companyNamespace | quote }}
+              value: {{ .Values.company | quote }}
             # Deploy-time resolution of the infra IR's logical toolchain
             # image (content-addressed on kind); every other SandboxPolicy
             # value comes from the applied blueprint.
@@ -82,8 +78,6 @@ spec:
               value: {{ .Release.Namespace | quote }}
             - name: MODEL
               value: {{ .Values.run.model | quote }}
-            - name: VERIFY_CYCLES
-              value: {{ .Values.run.verifyCycles | quote }}
             # Egress attribution: the proxy URL as sandboxes resolve
             # it, and the shared key to mint their per-run credentials.
             - name: EGRESS_PROXY_URL

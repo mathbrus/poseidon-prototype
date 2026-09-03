@@ -16,6 +16,7 @@ import httpx
 import pytest
 
 from common.authn import Authenticator, ServiceAccount
+from common.topology import TOKEN_AUDIENCE
 from mcp_gateway.config import McpGatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
@@ -27,7 +28,7 @@ pytestmark = pytest.mark.anyio
 
 PLATFORM_NS = "poseidon-platform"
 COMPANY_NS = "hello-saas"
-AUD = "poseidon-mcp-gateway"
+AUD = TOKEN_AUDIENCE
 RUN_ID = "run-01AUTHN"
 CREW_ID = "feature-delivery-implementer-run-01AUTHN"
 CREW_SA = f"ephemeral-{CREW_ID}".lower()
@@ -50,8 +51,9 @@ class FakeReviewer:
 @pytest.fixture
 def authn_settings() -> McpGatewaySettings:
     return McpGatewaySettings(
+        opa_url="http://opa.test:8181",
+        git_token="tok-test",
         platform_namespace=PLATFORM_NS,
-        token_audience=AUD,
     )
 
 
@@ -68,7 +70,6 @@ def instances() -> InMemoryAgentInstances:
         COMPANY_NS,
         "implementer",
         "implementer",
-        "standard",
         namespace=COMPANY_NS,
     )
     return store

@@ -40,8 +40,16 @@ class Quiet:
 
 def settings(**overrides: Any) -> WorkerSettings:
     return WorkerSettings(
+        gateway_token_file="/run/unused-token",
+        opa_url="http://opa.test:8181",
+        platform_namespace="poseidon-platform",
+        sandbox_image="poseidon-sandbox:abc123",
+        model="mock-brain",
+        egress_proxy_url="http://127.0.0.1:3128",
+        egress_proxy_key="egress-key",
+        timeout_profile="default",
+        temporal_address="temporal.test:7233",
         mcp_gateway_url="http://gateway.test:8080",
-        target_repo="github.com/example/repo",
         agent_image="poseidon-agent:abc123",
         company=COMPANY,
         **overrides,
@@ -64,7 +72,6 @@ async def test_declared_section_starts_the_heartbeat():
     assert call["id"] == f"heartbeat-{COMPANY}"
     # No override: the blueprint's declared cadence stands.
     assert call["input"].pending_wake is False
-    assert call["input"].timeouts is None
 
 
 async def test_already_beating_is_the_normal_case():

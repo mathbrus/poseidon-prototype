@@ -46,6 +46,10 @@ from common.identity import (
     bearer_token,
 )
 from common.telemetry import get_logger
+from common.topology import (
+    ORCHESTRATOR_SERVICE_ACCOUNT,
+    TOKEN_AUDIENCE,
+)
 
 TOKENREVIEW_PATH = "/apis/authentication.k8s.io/v1/tokenreviews"
 
@@ -54,21 +58,22 @@ class WorkloadAuthnSettings(BaseSettings):
     """The verification knobs both gateways share; each gateway's settings
     class inherits this so one env layout configures them identically."""
 
-    platform_namespace: str = "poseidon-platform"
-    orchestrator_service_account: str = "orchestrator-worker"
-    token_audience: str = "poseidon-mcp-gateway"
+    # The release namespace, set by every gateway template.
+    platform_namespace: str
     # Empty means "derive from the in-cluster environment"; unit tests leave
     # all three alone and inject a reviewer instead.
     kube_api_url: str = ""
     kube_token_file: str = "/var/run/secrets/kubernetes.io/serviceaccount/token"
     kube_ca_file: str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-    # Successful TokenReviews are cached this long, so the API server sees
-    # one review per caller per minute, not one per call. The cache proves
-    # only "this token belongs to that ServiceAccount" — the registry
-    # mapping (agent_instances or run_participants) is re-read on every
-    # call, so revocation is a registry write that bites immediately, for
-    # standing and ephemeral callers alike.
-    authn_cache_ttl_s: float = 60.0
+
+
+# Successful TokenReviews are cached this long, so the API server sees one
+# review per caller per minute, not one per call. The cache proves only
+# "this token belongs to that ServiceAccount" — the registry mapping
+# (agent_instances or run_participants) is re-read on every call, so
+# revocation is a registry write that bites immediately, for standing and
+# ephemeral callers alike.
+AUTHN_CACHE_TTL_S = 60.0
 
 
 @dataclass(frozen=True)
@@ -214,9 +219,7 @@ class Authenticator:
             account = cached[0]
         else:
             try:
-                account = await self._reviewer.review(
-                    token, self._settings.token_audience
-                )
+                account = await self._reviewer.review(token, TOKEN_AUDIENCE)
             except Exception as exc:
                 self._log.info("token review failed", extra={"error": str(exc)})
                 await self._reject(path, "authn_review_unavailable", "unknown")
@@ -229,7 +232,7 @@ class Authenticator:
             }
             self._cache[digest] = (
                 account,
-                time.monotonic() + self._settings.authn_cache_ttl_s,
+                time.monotonic() + AUTHN_CACHE_TTL_S,
             )
 
         # Outside the cache on purpose: the registry rows are the live half
@@ -243,7 +246,7 @@ class Authenticator:
         settings = self._settings
         if (
             account.namespace == settings.platform_namespace
-            and account.name == settings.orchestrator_service_account
+            and account.name == ORCHESTRATOR_SERVICE_ACCOUNT
         ):
             # The orchestrator's privileged identity (platform
             # lifecycle); policy keys on the lifecycle via the platform

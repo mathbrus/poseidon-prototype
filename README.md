@@ -374,7 +374,7 @@ from the `run_id` alone.
 | **operator** | — | Reconciling CRs into namespaces, NetworkPolicies, Deployments, RBAC; persisting bundles. Never runs a process, never creates an ephemeral agent. |
 | **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, ephemeral pods and their per-run ServiceAccounts, identity binding, the human merge gate. No `GIT_TOKEN`, no signing key. |
 | **MCP gateway** | `GIT_TOKEN` | Every tool call: authenticate, decide, audit, act. |
-| **LLM gateway** | — | Every model call: authenticate, attribute to a run, check budget, route by tier, meter. |
+| **LLM gateway** | — | Every model call: authenticate, attribute to a run, check budget, pin the deployment's model, meter. |
 | **llm-proxy** | provider API key | Talking to the actual model provider. Reachable *only* from the LLM gateway. |
 | **egress proxy** | egress HMAC key | The one network route out of a sandbox; allowlist + audit. |
 | **OPA** | — | Answering decision queries from compiled bundles. |
@@ -683,7 +683,7 @@ version:
 ```bash
 uv sync
 for p in packages/*/; do uv run pytest "$p" -q; done   # eleven suites, no cluster needed
-cp deploy/kind/.env.example deploy/kind/.env            # fill in GIT_TOKEN and TARGET_REPO
+cp deploy/kind/.env.example deploy/kind/.env            # fill in GIT_TOKEN and the suite's TARGET_REPO
 deploy/kind/kind-up.sh                                  # cluster, images, chart, the company
 scripts/acceptance.sh                                   # the whole suite, zero LLM spend
 ```

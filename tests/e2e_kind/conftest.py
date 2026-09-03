@@ -87,16 +87,17 @@ from mockllm.brain import (
     SLUGIFY_PY,
     TEST_SLUGIFY_PY,
 )
-from orchestrator.workflows.base import FAST_TIMEOUTS, Timeouts, workflow_id
+from orchestrator.workflows.base import PROFILES, TASK_QUEUE, Timeouts, workflow_id
 from orchestrator.workflows.implement import ImplementInput
 from orchestrator.workflows.review import ReviewInput
 
-from .blueprints import apply_blueprint, wait_for_convergence
+from .blueprints import apply_blueprint, restore_pristine, wait_for_convergence
 from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
     audit_story,
     db_now,
+    deployment_env,
     kill_worker_pod,
     psql_json,
     run_by_task,
@@ -107,7 +108,6 @@ from .cluster import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
-TASK_QUEUE = "poseidon-orchestrator"
 
 E2E_KIND_DIR = Path(__file__).resolve().parent
 
@@ -250,18 +250,14 @@ def paid_brain_guard() -> None:
         pytest.fail(problem)
 
 
-def deployed_timeouts() -> Timeouts | None:
-    """The timeout profile for the brain the cluster is *running* — every
-    workflow input in the suite sizes from this, never from `.env`.
+def deployed_timeouts() -> Timeouts:
+    """The timeout profile the worker is *deployed* with — what every
+    workflow in the cluster runs under, read back so the suite sizes its
+    own waits from it, never from `.env`.
 
-    Sizing depends on the brain: the mock answers in milliseconds, a paid
-    model legitimately takes minutes, and the default profile's gate
-    deadlines are hours (`budget_gate_s` 3600, `merge_gate_s` 86400).
-    Those are not upper bounds a fast run slips under — the park tests
-    *wait them out* — so reading the wrong brain does not merely slow the
-    suite, it wedges it for a day on the first unanswered gate. None means
-    the workflow defaults: the patience a paid brain deserves."""
-    return FAST_TIMEOUTS if "mockllm" in deployed_brain_image() else None
+    Gate waits are not in the profile: they are blueprint fields, and the
+    suite applies its own (`blueprints.E2E_GATE_MINUTES`)."""
+    return PROFILES[deployment_env("orchestrator-worker", "TIMEOUT_PROFILE")]
 
 
 # --- running implement -------------------------------------------------------
@@ -307,9 +303,7 @@ def run_implement(task_file: str, kill_worker: bool, env: dict[str, str]) -> dic
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
     return _run(
-        ImplementInput(
-            run_id=new_run_id(), task_text=task_text, timeouts=deployed_timeouts()
-        ),
+        ImplementInput(run_id=new_run_id(), task_text=task_text),
         kill_worker,
     )
 
@@ -318,11 +312,7 @@ def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
     """One full implement run from a GitHub issue the company filed —
     what `poseidon run <number>` starts. The issue body must carry the
     delivery-branch line itself; the harness appends nothing."""
-    return _run(
-        ImplementInput(
-            run_id=new_run_id(), issue_number=issue_number, timeouts=deployed_timeouts()
-        )
-    )
+    return _run(ImplementInput(run_id=new_run_id(), issue_number=issue_number))
 
 
 def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
@@ -483,6 +473,16 @@ REPO_PRUNED: tuple[str, ...] = (
 
 
 @pytest.fixture(scope="session", autouse=True)
+def suite_blueprint(stack: None) -> None:
+    """The company the suite runs against: the pristine example on the
+    suite's clock (`blueprints.suite_document`). The bootstrap applied the
+    example as written, whose gates wait a working day; the suite applies
+    it again with its own waits before the first test, so a module that
+    parks on a gate watches it escalate within a minute."""
+    restore_pristine()
+
+
+@pytest.fixture(scope="session", autouse=True)
 def repo_baseline(env: dict[str, str]) -> dict[str, str]:
     """Establish the declared shape of TARGET_REPO@main once per session —
     autouse, so a standalone module run gets the same contract the full
@@ -577,9 +577,7 @@ def run_review(pr_number: int, approve: bool | None = None) -> tuple[str, dict]:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "review",
-                ReviewInput(
-                    run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
-                ),
+                ReviewInput(run_id=run_id, pr_number=pr_number),
                 id=workflow_id("review", run_id),
                 task_queue=TASK_QUEUE,
             )

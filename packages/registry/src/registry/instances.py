@@ -17,21 +17,19 @@ class AgentInstances:
         company: str,
         standing_name: str,
         role: str,
-        model_tier: str,
         namespace: str | None = None,
         status: str = "ready",
     ) -> None:
         self._db.execute(
             """
             INSERT INTO registry.agent_instances
-                (agent_id, company, standing_name, role, model_tier, namespace,
+                (agent_id, company, standing_name, role, namespace,
                  status, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, now())
+            VALUES (%s, %s, %s, %s, %s, %s, now())
             ON CONFLICT (agent_id) DO UPDATE SET
                 company = EXCLUDED.company,
                 standing_name = EXCLUDED.standing_name,
                 role = EXCLUDED.role,
-                model_tier = EXCLUDED.model_tier,
                 namespace = EXCLUDED.namespace,
                 status = EXCLUDED.status,
                 updated_at = now()
@@ -41,7 +39,6 @@ class AgentInstances:
                 company,
                 standing_name,
                 role,
-                model_tier,
                 namespace,
                 status,
             ),
@@ -52,7 +49,7 @@ class AgentInstances:
         identity: a projected token's ServiceAccount name resolves
         here, and its namespace must match the recorded one."""
         rows = self._db.query(
-            "SELECT agent_id, company, standing_name, role, model_tier,"
+            "SELECT agent_id, company, standing_name, role,"
             " namespace, status"
             " FROM registry.agent_instances WHERE agent_id = %s",
             (agent_id,),
@@ -73,7 +70,7 @@ class AgentInstances:
 
     def for_company(self, company: str) -> list[dict]:
         return self._db.query(
-            "SELECT agent_id, company, standing_name, role, model_tier,"
+            "SELECT agent_id, company, standing_name, role,"
             " namespace, status"
             " FROM registry.agent_instances WHERE company = %s ORDER BY standing_name",
             (company,),

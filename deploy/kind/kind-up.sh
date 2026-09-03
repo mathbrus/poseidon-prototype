@@ -90,17 +90,20 @@ if [ "$SANDBOX_IMAGE" != "poseidon-sandbox" ]; then
   docker tag "poseidon-sandbox:$BUILD_TAG" "$SANDBOX_IMAGE:$BUILD_TAG"
   IMAGES+=("$SANDBOX_IMAGE:$BUILD_TAG")
 fi
+# Every image the chart lists under `images:` that is ours (a poseidon-*
+# repository) gets this build's tag; third-party images keep their pins.
 IMAGE_VALUES=(
-  --set "images.mcpGateway.tag=$BUILD_TAG"
-  --set "images.agent.tag=$BUILD_TAG"
-  --set "images.orchestrator.tag=$BUILD_TAG"
-  --set "egressProxy.image.tag=$BUILD_TAG"
-  --set "images.operator.tag=$BUILD_TAG"
-  --set "images.llmGateway.tag=$BUILD_TAG"
   # Sandbox Jobs are built by the worker from this value, not by helm, so
   # the tag has to ride the image reference itself.
   --set "orchestrator.sandbox.image=$SANDBOX_IMAGE:$BUILD_TAG"
 )
+for key in $(uv run python -c '
+import yaml
+images = yaml.safe_load(open("deploy/helm/poseidon/values.yaml"))["images"]
+print(" ".join(k for k, v in images.items() if v["repository"].startswith("poseidon-")))
+'); do
+  IMAGE_VALUES+=(--set "images.$key.tag=$BUILD_TAG")
+done
 if [ "$REAL_LLM" != "1" ]; then
   IMAGE_VALUES+=(--set "images.llmProxy.tag=$BUILD_TAG")
 else
@@ -135,16 +138,6 @@ secrets:
   egressProxyKey: "${EGRESS_PROXY_KEY:-poseidon-dev-egress-key}"
 run:
   model: "${MODEL:?MODEL missing from $ENV_FILE}"
-  targetRepo: "${TARGET_REPO:?TARGET_REPO missing from $ENV_FILE}"
-  baseRef: "${BASE_REF:-main}"
-  verifyCycles: ${VERIFY_CYCLES:-10}
-# LiteLLM serves one model; the gateway overwrites the request's model
-# from the caller's tier, so every tier must name that same model.
-llmGateway:
-  tierModels:
-    frontier: "${MODEL}"
-    standard: "${MODEL}"
-    small: "${MODEL}"
 EOF
 MOCK_VALUES=()
 if [ "$REAL_LLM" != "1" ]; then
@@ -204,8 +197,11 @@ done
 REGISTRY_DSN="postgresql://${POSTGRES_USER:-poseidon}:${POSTGRES_PASSWORD:-poseidon-dev-postgres}@127.0.0.1:15432/${POSTGRES_USER:-poseidon}" \
   uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 kill $PGPF 2>/dev/null || true
-# The PM is the only standing agent; execution is ephemeral crews.
-kubectl -n "$COMPANY_NS" rollout status deployment/pm --timeout=300s
+# Every standing agent the applied blueprint hires (execution itself is
+# ephemeral crews, so these are the only long-lived company pods).
+for hire in $(kubectl -n "$COMPANY_NS" get agentinstances -o jsonpath='{.items[*].spec.standingName}'); do
+  kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
+done
 
 echo "==> image check"
 # Assert every poseidon pod actually runs this build. Without it, a template

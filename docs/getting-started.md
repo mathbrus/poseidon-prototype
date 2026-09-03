@@ -53,7 +53,9 @@ Postgres, and a fake would prove nothing.
 
 ```bash
 cp deploy/kind/.env.example deploy/kind/.env
-# fill in GIT_TOKEN (repo-scoped PAT) and TARGET_REPO (host/path, no scheme)
+# fill in GIT_TOKEN (a repo-scoped PAT); TARGET_REPO is the disposable
+# repository the e2e suite works on. The company's own repository is a
+# blueprint field: set `stack.repo.url` in the example before applying it.
 
 deploy/kind/kind-up.sh
 ```
@@ -86,16 +88,15 @@ one more piece of authority than the last:
 | Blueprint | Adds | Division of labour |
 |---|---|---|
 | [`hello-saas.yaml`](../examples/hello-saas.yaml) | — | A human starts every run and answers every merge. |
-| [`hello-saas-heartbeat.yaml`](../examples/hello-saas-heartbeat.yaml) | a `heartbeat` section | The company starts its own runs on a heartbeat; a human feeds goals in and answers merges. |
-| [`hello-saas-delegated.yaml`](../examples/hello-saas-delegated.yaml) | a policy-resolved merge gate and a contract tree | In-class passing work merges itself; a human feeds goals in and keeps the carve-outs and the oracle. |
+| [`hello-saas-delegated.yaml`](../examples/hello-saas-delegated.yaml) | a `heartbeat` section, a policy-resolved merge gate and a contract tree | The company starts its own runs and merges in-class passing work itself; a human feeds goals in and keeps the carve-outs and the oracle. |
 
-All three declare the same company name, so moving between them changes the
+Both declare the same company name, so moving between them changes the
 running company in place — and moving back is the same command with the
 earlier file. Revocation is a diff:
 
 ```bash
-uv run poseidon blueprint preview examples/hello-saas-heartbeat.yaml  # what would change
-uv run poseidon blueprint apply examples/hello-saas-heartbeat.yaml --yes
+uv run poseidon blueprint preview examples/hello-saas-delegated.yaml  # what would change
+uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
 ```
 
 `preview` diffs the compiled plan against the live registry, so hiring,
@@ -127,8 +128,8 @@ MODEL=gpt-5.6-luna
 ```
 
 `gpt-5.6-luna` is the cheap OpenAI default this repo is wired for. Then
-re-run the bootstrap so the proxy, the secret, and the tier map all
-change together:
+re-run the bootstrap so the proxy, the secret, and the gateway's pinned
+model all change together:
 
 ```bash
 deploy/kind/kind-up.sh
@@ -159,13 +160,14 @@ the walkthrough below is the full SDLC.
 ### A full run: a small Tetris app
 
 This is intake → implement → review → human-gated merge, against the
-disposable `TARGET_REPO`, with a real model already configured. The
-company is still `hello-saas`; the product under construction is whatever
-that repository holds. The engine is standard-library Python on purpose:
+repository the applied blueprint declares (`stack.repo`), with a real model
+already configured. The company is still `hello-saas`; the product under
+construction is whatever that repository holds. The engine is standard-library Python on purpose:
 the sandbox image has pytest, and the agent prompt forbids `pip install`.
 
-Leave a Temporal port-forward up for every CLI command. Do not pass
-`--fast-timeouts` — those bounds are sized for the mock brain.
+Leave a Temporal port-forward up for every CLI command. Activity bounds
+come from the deployment's `TIMEOUT_PROFILE`, so a cluster brought up with
+`REAL_LLM=1` already runs the generous profile a paid brain needs.
 
 ```bash
 kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233
@@ -254,10 +256,12 @@ terminal path the crew identities, pods, and sandbox go away.
 ### Hand over the keys: the heartbeat
 
 Everything so far had you pressing start. To let the company run its own
-backlog, apply the heartbeat profile:
+backlog, apply a blueprint with a `heartbeat` section — the delegated
+example carries one (and a delegated merge gate; drop that block to keep
+every merge yours):
 
 ```bash
-uv run poseidon blueprint apply examples/hello-saas-heartbeat.yaml --yes
+uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
 ```
 
 No command starts the heartbeat — that is the point. The orchestrator

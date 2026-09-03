@@ -63,7 +63,7 @@ first.
 
 | Term | Meaning | Not |
 |---|---|---|
-| **role** | a catalog entry: tool ceiling, model tier, spawn authority, the procedures it may run — `pm`, `implementer`, `reviewer`, `contract-author` | role template, executor, engineer, sdet, author |
+| **role** | a catalog entry: tool ceiling, spawn authority, the procedures it may run — `pm`, `implementer`, `reviewer`, `contract-author` | role template, executor, engineer, sdet, author, tier |
 | **crew** | a named list of roles fulfilled together for one run (`feature-delivery`, `feature-review`, `contract-authoring`); `crew_template` names it in policy input and registry rows | — |
 | **agent** | one principal: one pod, one ServiceAccount, one registry row; standing (`<standing_name>-<n>`) or ephemeral (`<crew>-<role>-<run_id>`) | brain host, member, instance, participant (the `run_participants` table and its API keep the name; prose says ephemeral agent) |
 | **agent host** | the process in the agent image: the dispatch HTTP API plus the SDK loop that runs procedures | brain host, runner |
@@ -74,6 +74,7 @@ first.
 | **brain** | the model behind the LLM gateway, nothing else (mock brain, paid brain) | — |
 | **workflow** | a Temporal workflow = a blueprint section: `intake`, `implement`, `review`, `heartbeat` | family |
 | **goal / task / observation** | the text in flight, by origin: intake scopes a goal, implement works a task, the heartbeat decides on an observation | brief |
+| **profile** | the deployment's activity-bound sizing (`TIMEOUT_PROFILE`: `default` for a paid brain, `fast` for the mock), learned by every workflow from its first config activity | fast timeouts, timeouts on the input |
 
 ## Working rules
 
@@ -101,3 +102,9 @@ first.
   them as you touch the file — they are debris, not documentation.
 - **Leftovers**: if code, docs, or names contradict the vision above,
   ask immediately. Do not guess which world they belong to.
+- **Configuration tiers**: a knob lives in exactly one place. Would a
+  human revoke it with a diff? Blueprint. Does it name where something
+  runs, which image, which secret, which model? Chart values, spelled
+  once. Must two components agree on it? One constant in `common`.
+  Nothing is "configurable in principle": a setting no template sets is
+  a constant or gone, and a blueprint field nothing reads is gone.

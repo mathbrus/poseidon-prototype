@@ -10,6 +10,7 @@ egress-proxy attribution env and the logical-image resolution live here.
 """
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings
 
@@ -17,61 +18,49 @@ from sandbox.egressproxy.credentials import sandbox_proxy_env
 
 
 class TemporalSettings(BaseSettings):
+    # The CLI's default is the kind port-forward; the worker (below) has
+    # none and takes the in-cluster address from the chart.
     temporal_address: str = "127.0.0.1:7233"
-    temporal_namespace: str = "default"
-    task_queue: str = "poseidon-orchestrator"
 
 
 class WorkerSettings(TemporalSettings):
-    # Gateway credential: the projected service-account
-    # token the kubelet mounts and rotates. Read per client construction —
-    # clients live one activity, far shorter than the token's remaining
-    # validity.
-    gateway_token_file: str = ""
+    """Every field is set by the chart's orchestrator-worker template; none
+    has a default the deployment could silently rely on."""
+
+    temporal_address: str
+    # Gateway credential: the projected service-account token the kubelet
+    # mounts and rotates. Read per client construction — clients live one
+    # activity, far shorter than the token's remaining validity.
+    gateway_token_file: str
     mcp_gateway_url: str
-    target_repo: str
-    base_ref: str = "main"
-    # The bootstrap company this worker executes runs for, and its
-    # namespace (where sandbox Jobs land). One worker serves one company.
-    company: str = "hello-saas"
-    sandbox_namespace: str = "hello-saas"
-    # Deploy-time resolution of the infra IR's *logical* toolchain image:
-    # a blueprint says `poseidon-sandbox`; only the
-    # deployment knows the content-addressed reference the cluster actually
-    # carries. Any other image the IR names passes through untouched.
-    sandbox_image: str = "poseidon-sandbox"
-    # Egress attribution: the proxy URL as sandboxes reach it and the
-    # shared HMAC key for per-run credentials. Both empty disables the env
-    # injection entirely (proxy-less clusters keep zero egress).
-    egress_proxy_url: str = ""
-    egress_proxy_key: str = ""
-    # Ephemeral-pod provisioning: the agent image each ephemeral agent
-    # runs (content-addressed on kind, like the sandbox image), and the
-    # platform namespace for gateway FQDNs.
+    # The workflow-recorded crew-request path evaluates the same compiled
+    # decision the crew.request tool faces, directly at OPA.
+    opa_url: str
+    # The company this worker executes runs for. One worker serves one
+    # company, and the company's namespace — where its sandbox Jobs and
+    # ephemeral pods land — is the company's name.
+    company: str
+    # The platform namespace, for the gateway addresses ephemeral pods get.
+    platform_namespace: str
+    # The content-addressed image the platform's own sandbox toolchain
+    # resolves to (`common.topology.SANDBOX_TOOLCHAIN`); any other image a
+    # blueprint names passes through untouched.
+    sandbox_image: str
+    # The agent image every ephemeral agent runs, and the model its pod is
+    # told — the same value the LLM gateway pins.
     agent_image: str
-    platform_namespace: str = "poseidon-platform"
-    # The workflow-recorded crew-request path evaluates the
-    # same compiled decision the crew.request tool faces, directly at OPA.
-    opa_url: str = "http://opa:8181"
-    model: str = "mock-brain"
-    # Implement's advisory verify cycles, handed to every agent pod.
-    verify_cycles: int = 10
-    poll_interval_s: float = 2
-    # How often the worker's ensure loop checks that the company's declared
-    # heartbeat workflow is running (reconcile-on-goal: the applied
-    # blueprint's heartbeat section is the goal; the workflow itself stops
-    # when the section is gone).
-    heartbeat_ensure_interval_s: float = 60
+    model: str
+    # Egress attribution: the proxy URL as sandboxes reach it and the
+    # shared HMAC key their per-run credentials are minted from.
+    egress_proxy_url: str
+    egress_proxy_key: str
+    # Which activity-bound profile every workflow on this worker runs with
+    # (`orchestrator.workflows.base.PROFILES`): `fast` for the mock brain,
+    # `default` for a paid one.
+    timeout_profile: Literal["default", "fast"]
 
     def gateway_token(self) -> str:
-        if self.gateway_token_file:
-            return Path(self.gateway_token_file).read_text().strip()
-        raise RuntimeError(
-            "no gateway credential: set GATEWAY_TOKEN_FILE to the projected "
-            "service-account token path"
-        )
+        return Path(self.gateway_token_file).read_text().strip()
 
     def sandbox_proxy_env(self, run_id: str) -> dict[str, str]:
-        if self.egress_proxy_url and self.egress_proxy_key:
-            return sandbox_proxy_env(self.egress_proxy_url, self.egress_proxy_key, run_id)
-        return {}
+        return sandbox_proxy_env(self.egress_proxy_url, self.egress_proxy_key, run_id)

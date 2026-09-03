@@ -61,6 +61,7 @@ from temporalio.exceptions import ActivityError
 from temporalio.workflow import ParentClosePolicy
 
 from orchestrator.workflows.base import (
+    BOOTSTRAP_S,
     DISPATCH_RETRY,
     STEP_RETRY,
     RunWorkflow,
@@ -73,14 +74,11 @@ from orchestrator.workflows.review import ReviewInput
 
 @dataclass
 class HeartbeatInput:
-    """`timeouts` rides into the child runs the tick starts — sizing
-    depends on the brain, which only the client knows. `pending_wake`
-    carries a wake that landed too close to a continue-as-new for the
-    closing run to service; the successor honors it as if it had just
-    arrived."""
+    """`pending_wake` carries a wake that landed too close to a
+    continue-as-new for the closing run to service; the successor honors it
+    as if it had just arrived."""
 
     company: str
-    timeouts: Timeouts | None = None
     pending_wake: bool = False
 
 
@@ -105,18 +103,20 @@ class HeartbeatWorkflow(RunWorkflow):
     @workflow.run
     async def run(self, input: HeartbeatInput) -> dict[str, Any]:
         self._woken = bool(input.pending_wake)
-        timeouts = input.timeouts or Timeouts()
-        step = timedelta(seconds=timeouts.step_s)
-
         # Fail closed on the applied blueprint: no heartbeat section, no
         # heartbeat — the loop completes and the ensure loop will only
-        # restart it once a section is applied again.
+        # restart it once a section is applied again. The section carries
+        # the deployment's timeout profile for everything that follows.
         config = await workflow.execute_activity(
-            "heartbeat_config", start_to_close_timeout=step, retry_policy=STEP_RETRY
+            "heartbeat_config",
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
+            retry_policy=STEP_RETRY,
         )
         if not config:
-            await self._record("stopped", "heartbeat_section_absent", timeouts)
+            await self._record("stopped", "heartbeat_section_absent")
             return {"stopped": "no heartbeat section in the applied blueprint"}
+        self._bounds = Timeouts(**config["timeouts"])
+        step = timedelta(seconds=self._bounds.step_s)
 
         outcome, rule = "idle", "nothing_startable"
         try:
@@ -142,14 +142,11 @@ class HeartbeatWorkflow(RunWorkflow):
                     workflow_id("heartbeat", input.company),
                     "heartbeat_daily_cap",
                     "halted",
-                    timeouts,
                 )
             elif not observed["backlog"] and not observed["reviewable_prs"]:
                 rule = "backlog_empty"
             else:
-                outcome, rule = await self._choose_and_start(
-                    input, config, observed, timeouts
-                )
+                outcome, rule = await self._choose_and_start(input, config, observed)
         except _TickRefused as refused:
             outcome, rule = "refused", refused.rule
         except ActivityError as exc:
@@ -159,7 +156,7 @@ class HeartbeatWorkflow(RunWorkflow):
             outcome = "refused"
             rule = str(exc.cause or exc.message)[:200]
 
-        await self._record(outcome, rule, timeouts)
+        await self._record(outcome, rule)
 
         self._phase = "sleeping"
         # A wake that landed during the tick skips the wait: one more tick
@@ -180,7 +177,6 @@ class HeartbeatWorkflow(RunWorkflow):
         workflow.continue_as_new(
             HeartbeatInput(
                 company=input.company,
-                timeouts=input.timeouts,
                 pending_wake=self._woken,
             )
         )
@@ -190,11 +186,10 @@ class HeartbeatWorkflow(RunWorkflow):
         input: HeartbeatInput,
         config: dict[str, Any],
         observed: dict[str, Any],
-        timeouts: Timeouts,
     ) -> tuple[str, str]:
         """Ask the PM for one action and, if policy allows it, start the
         child run. Returns the tick's (outcome, rule)."""
-        step = timedelta(seconds=timeouts.step_s)
+        step = timedelta(seconds=self._bounds.step_s)
         # The run id is minted before the decision: heartbeat_decide
         # registers it as the decision's own run so the PM's LLM call can
         # bind (the gateway rejects an unattributed run), and a started
@@ -204,12 +199,12 @@ class HeartbeatWorkflow(RunWorkflow):
         decision = await workflow.execute_activity(
             "heartbeat_decide",
             args=[child_run_id, observed, list(config.get("may_start") or [])],
-            start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.dispatch_s),
             schedule_to_close_timeout=timedelta(
-                seconds=timeouts.dispatch_schedule_to_close_s
+                seconds=self._bounds.dispatch_schedule_to_close_s
             ),
             # Temporal's activity liveness heartbeat, not the company's.
-            heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
+            heartbeat_timeout=timedelta(seconds=self._bounds.dispatch_heartbeat_s),
             retry_policy=DISPATCH_RETRY,
         )
         if decision["action"] == "idle":
@@ -237,13 +232,9 @@ class HeartbeatWorkflow(RunWorkflow):
             retry_policy=STEP_RETRY,
         )
         child: ImplementInput | ReviewInput = (
-            ImplementInput(
-                run_id=child_run_id, issue_number=target, timeouts=input.timeouts
-            )
+            ImplementInput(run_id=child_run_id, issue_number=target)
             if action == "implement"
-            else ReviewInput(
-                run_id=child_run_id, pr_number=target, timeouts=input.timeouts
-            )
+            else ReviewInput(run_id=child_run_id, pr_number=target)
         )
         await workflow.start_child_workflow(
             action,
@@ -255,11 +246,11 @@ class HeartbeatWorkflow(RunWorkflow):
         )
         return "started", f"{action}_{target}_as_{child_run_id}"
 
-    async def _record(self, outcome: str, rule: str, timeouts: Timeouts) -> None:
+    async def _record(self, outcome: str, rule: str) -> None:
         await workflow.execute_activity(
             "record_tick",
             args=[outcome, rule, workflow.info().workflow_id],
-            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=STEP_RETRY,
         )
 

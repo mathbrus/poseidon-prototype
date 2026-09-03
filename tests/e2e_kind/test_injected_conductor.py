@@ -51,7 +51,6 @@ from .conftest import (
     close_issue,
     close_pr_url,
     crew_requests,
-    deployed_timeouts,
     run_implement,
 )
 
@@ -71,7 +70,7 @@ def conductor_intake(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
+                IntakeInput(run_id=run_id, goal_text=goal),
                 id=workflow_id("intake", run_id),
                 task_queue=TASK_QUEUE,
             )

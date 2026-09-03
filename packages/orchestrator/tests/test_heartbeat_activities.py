@@ -3,6 +3,7 @@ the audit trail, against fakes. The tick's sequencing, the sleep cadence
 and the child start are workflow concerns, proven live by the kind e2e."""
 
 import asyncio
+from dataclasses import asdict
 from typing import Any
 
 import pytest
@@ -10,12 +11,14 @@ from conftest import heartbeat_spec
 from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
+from common.tasks import issue_run_task
 from orchestrator.activities.heartbeat import (
     HeartbeatActivities,
     consumed,
     decision_prompt,
 )
 from orchestrator.config import WorkerSettings
+from orchestrator.workflows.base import Timeouts
 from registry import Attempts
 from registry.memory import (
     InMemoryAgentInstances,
@@ -35,9 +38,17 @@ def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected-token")
     return WorkerSettings(
+        opa_url="http://opa.test:8181",
+        platform_namespace="poseidon-platform",
+        sandbox_image="poseidon-sandbox:abc123",
+        agent_image="poseidon-agent:abc123",
+        model="mock-brain",
+        egress_proxy_url="http://127.0.0.1:3128",
+        egress_proxy_key="egress-key",
+        timeout_profile="default",
+        temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        target_repo="github.com/example/repo",
         company=COMPANY,
     )
 
@@ -49,7 +60,11 @@ def runs() -> InMemoryRuns:
 
 @pytest.fixture
 def companies() -> InMemoryCompanies:
-    return InMemoryCompanies()
+    store = InMemoryCompanies()
+    store.upsert(
+        COMPANY, {"repo": {"url": "github.com/example/repo", "base_ref": "main"}}
+    )
+    return store
 
 
 @pytest.fixture
@@ -66,7 +81,7 @@ def audit() -> InMemoryAuditStore:
 def instances() -> InMemoryAgentInstances:
     """The converged PM the heartbeat's conductor name resolves to."""
     store = InMemoryAgentInstances()
-    store.upsert("pm-1", COMPANY, "pm", "pm", "standard", namespace=COMPANY)
+    store.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY)
     return store
 
 
@@ -151,8 +166,17 @@ def _opa(monkeypatch, allow: bool, rule: str):
 
 
 def test_config_returns_the_applied_section(activities, companies):
-    companies.upsert(COMPANY, {"heartbeat": HEARTBEAT_SPEC})
-    assert asyncio.run(activities.heartbeat_config()) == HEARTBEAT_SPEC
+    companies.upsert(
+        COMPANY,
+        {
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "heartbeat": HEARTBEAT_SPEC,
+        },
+    )
+    assert asyncio.run(activities.heartbeat_config()) == {
+        **HEARTBEAT_SPEC,
+        "timeouts": asdict(Timeouts()),
+    }
 
 
 def test_config_is_none_without_a_section(activities, companies):
@@ -433,7 +457,7 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
         },
     )
     for run_id, issue, pr in (("run-a", 3, 4), ("run-b", 5, 6), ("run-c", 7, 8)):
-        runs.start(run_id, f"implement issue #{issue}", "implement", company=COMPANY)
+        runs.start(run_id, issue_run_task(issue), "implement", company=COMPANY)
         runs.finish(run_id, "done", pr_url=f"https://github.test/example/repo/pull/{pr}")
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == [

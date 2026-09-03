@@ -162,7 +162,6 @@ def stores() -> Stores:
         COMPANY,
         "implementer",
         "implementer",
-        "frontier",
         namespace=COMPANY,
     )
     participants = InMemoryRunParticipants()
@@ -180,8 +179,9 @@ def stores() -> Stores:
 @pytest.fixture
 def app(stores, upstream):
     settings = LlmGatewaySettings(
-        tier_models='{"frontier": "big-model", "standard": "small-model"}',
-        default_model="fallback-model",
+        platform_namespace="poseidon-platform",
+        upstream_url="http://upstream.test",
+        model="big-model",
     )
     return create_app(
         settings,
@@ -269,13 +269,13 @@ def test_unknown_run_is_rejected(app, stores, path):
     assert resp.json()["error"]["code"] == "llm_unknown_run"
 
 
-def test_tier_routes_the_model_and_meters_the_ledger(app, stores, upstream):
+def test_the_deployment_model_is_pinned_and_metered(app, stores, upstream):
     audit, ledger = stores.audit, stores.ledger
     resp = call(app)
     assert resp.status_code == 200
 
-    # The caller's frontier tier picked the model; the request's own model
-    # field did not survive (routing is the gateway's, not the agent's).
+    # The deployment's model answered; the request's own model field did
+    # not survive (which model spends is the gateway's call, not the agent's).
     assert upstream.requests[0]["model"] == "big-model"
 
     (entry,) = ledger.entries_for_run(RUN_ID)
@@ -405,14 +405,14 @@ def test_zero_cost_is_a_price_and_is_recorded(app, stores, upstream):
 
 
 @pytest.mark.parametrize("path", ["/responses", "/v1/responses"])
-def test_responses_routes_the_tier_forwards_and_meters(app, stores, upstream, path):
+def test_responses_forwards_the_pinned_model_and_meters(app, stores, upstream, path):
     audit, ledger = stores.audit, stores.ledger
     resp = call(app, path=path)
     assert resp.status_code == 200
     assert resp.json()["object"] == "response"
 
-    # Forwarded to the upstream Responses endpoint, with the tier's model —
-    # the agent-chosen name never reaches upstream.
+    # Forwarded to the upstream Responses endpoint with the deployment's
+    # model — the agent-chosen name never reaches upstream.
     assert upstream.paths[-1] == "/v1/responses"
     assert upstream.requests[-1]["model"] == "big-model"
 

@@ -31,8 +31,20 @@ from kubernetes import client as k8s
 from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
 
+from common.agentpod import READINESS_PROBE, RESOURCES
 from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
 from common.telemetry import get_logger
+from common.topology import (
+    AGENT_ID_LABEL,
+    AGENT_PORT,
+    COMPANY_LABEL,
+    EPHEMERAL_KIND,
+    KIND_LABEL,
+    RUN_ID_LABEL,
+    TOKEN_AUDIENCE,
+    TOKEN_MOUNT_DIR,
+    TOKEN_TTL_S,
+)
 
 
 class EphemeralPodAbandoned(Exception):
@@ -41,15 +53,6 @@ class EphemeralPodAbandoned(Exception):
     the run is already over."""
 
 
-AGENT_PORT = 8000
-EPHEMERAL_KIND = "ephemeral-agent"
-KIND_LABEL = "poseidon.dev/kind"
-RUN_ID_LABEL = "poseidon.dev/run-id"
-# Mirrors the operator's standing-agent constants
-# (poseidon_operator.resources): same audience, same mount, one
-# verification path at the gateways.
-TOKEN_AUDIENCE = "poseidon-mcp-gateway"
-TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
 # Wall-clock ceiling on an ephemeral pod, generous enough never to interrupt a
 # real dispatch (the orchestrator destroys pods long before this) and short
 # enough that an orphaned one stops costing anything the same hour.
@@ -95,8 +98,8 @@ def ephemeral_pod_manifest(
     labels = {
         KIND_LABEL: EPHEMERAL_KIND,
         RUN_ID_LABEL: run_id,
-        "poseidon.dev/agent-id": agent_id[:63],
-        "poseidon.dev/company": company,
+        AGENT_ID_LABEL: agent_id[:63],
+        COMPANY_LABEL: company,
     }
     return {
         "apiVersion": "v1",
@@ -123,7 +126,7 @@ def ephemeral_pod_manifest(
                             {
                                 "serviceAccountToken": {
                                     "audience": TOKEN_AUDIENCE,
-                                    "expirationSeconds": 3600,
+                                    "expirationSeconds": TOKEN_TTL_S,
                                     "path": "token",
                                 }
                             }
@@ -149,15 +152,8 @@ def ephemeral_pod_manifest(
                             "readOnly": True,
                         }
                     ],
-                    "resources": {
-                        "requests": {"cpu": "100m", "memory": "256Mi"},
-                        "limits": {"cpu": "1", "memory": "1Gi"},
-                    },
-                    "readinessProbe": {
-                        "httpGet": {"path": "/openapi.json", "port": AGENT_PORT},
-                        "periodSeconds": 3,
-                        "initialDelaySeconds": 2,
-                    },
+                    "resources": dict(RESOURCES),
+                    "readinessProbe": dict(READINESS_PROBE),
                 }
             ],
         },
@@ -280,8 +276,8 @@ class EphemeralPodProvisioner:
                 "labels": {
                     KIND_LABEL: EPHEMERAL_KIND,
                     RUN_ID_LABEL: run_id,
-                    "poseidon.dev/agent-id": agent_id[:63],
-                    "poseidon.dev/company": company,
+                    AGENT_ID_LABEL: agent_id[:63],
+                    COMPANY_LABEL: company,
                 },
             },
         }

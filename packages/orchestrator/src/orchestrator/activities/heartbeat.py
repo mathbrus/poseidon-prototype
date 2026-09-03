@@ -31,6 +31,7 @@ start must still win the compiled heartbeat.start decision.
 import asyncio
 import re
 import time
+from dataclasses import asdict
 from typing import Any
 
 from temporalio import activity
@@ -38,8 +39,9 @@ from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
+from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.telemetry import get_logger
-from orchestrator.activities.blueprint import conductor
+from orchestrator.activities.blueprint import company_repo, conductor
 from orchestrator.audit import record_event
 from orchestrator.clients import (
     GatewayClient,
@@ -49,7 +51,7 @@ from orchestrator.clients import (
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
-from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.base import PROFILES, TEMPORAL_NAMESPACE, workflow_id
 from registry import AgentInstances, Attempts, AuditStore, BudgetLedger, Companies, Runs
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
@@ -139,13 +141,23 @@ class HeartbeatActivities:
     def _ledger_run_id(self) -> str:
         return workflow_id(WORKFLOW, self._settings.company)
 
+    async def _repo(self) -> dict[str, str]:
+        """The company's repository, from its applied blueprint."""
+        return await asyncio.to_thread(
+            company_repo, self._companies, self._settings.company
+        )
+
     @activity.defn(name="heartbeat_config")
     async def heartbeat_config(self) -> dict[str, Any] | None:
-        """The applied blueprint's heartbeat section, or None — the workflow
-        stops on None, which is what makes removal effective at the next
-        tick regardless of what else still believes in the heartbeat."""
+        """The applied blueprint's heartbeat section plus the deployment's
+        timeout profile, or None — the workflow stops on None, which is what
+        makes removal effective at the next tick regardless of what else
+        still believes in the heartbeat."""
         spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}
-        return spec.get("heartbeat") or None
+        section = spec.get("heartbeat")
+        if not section:
+            return None
+        return {**section, "timeouts": asdict(PROFILES[self._settings.timeout_profile])}
 
     @activity.defn(name="heartbeat_observe")
     async def heartbeat_observe(self, max_attempts: int) -> dict[str, Any]:
@@ -201,18 +213,15 @@ class HeartbeatActivities:
             read
         )
         reviewable = []
+        repo = (await self._repo())["url"]
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            open_issues = await gateway.read_open_issues(
-                self._ledger_run_id(), self._settings.target_repo
-            )
+            open_issues = await gateway.read_open_issues(self._ledger_run_id(), repo)
             for candidate in delivered:
                 try:
                     pr = await gateway.read_pr(
-                        self._ledger_run_id(),
-                        self._settings.target_repo,
-                        candidate["number"],
+                        self._ledger_run_id(), repo, candidate["number"]
                     )
                 except GatewayError as exc:
                     # One unreadable candidate must not blind the whole
@@ -312,9 +321,7 @@ class HeartbeatActivities:
         terminal, terminal_error = "done", None
         try:
             prompt = decision_prompt(observed, may_start)
-            status = await dispatch_and_poll(
-                conductor_url, run_id, "decide", prompt, self._settings.poll_interval_s
-            )
+            status = await dispatch_and_poll(conductor_url, run_id, "decide", prompt)
             decision = status.get("decision")
             if status["status"] != "done" or not decision:
                 raise ApplicationError(
@@ -383,10 +390,10 @@ class HeartbeatActivities:
         company = self._settings.company
         decision_input = {
             "company": company,
-            "agent_id": "orchestrator",
-            "lifecycle": "platform",
+            "agent_id": ORCHESTRATOR_ID,
+            "lifecycle": LIFECYCLE_PLATFORM,
             "parent_agent_id": "",
-            "role": "platform",
+            "role": PLATFORM_ROLE,
             "run_id": child_run_id,
             "workflow": WORKFLOW,
             "tool": "heartbeat.start",
@@ -465,8 +472,7 @@ class HeartbeatActivities:
         failure is swallowed; this can never fail the run that sends it."""
         try:
             client = await Client.connect(
-                self._settings.temporal_address,
-                namespace=self._settings.temporal_namespace,
+                self._settings.temporal_address, namespace=TEMPORAL_NAMESPACE
             )
             handle = client.get_workflow_handle(
                 workflow_id(WORKFLOW, self._settings.company)

@@ -35,11 +35,11 @@ from typing import Any
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from common.tasks import issue_run_task
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
     RunWorkflow,
-    Timeouts,
 )
 
 
@@ -52,16 +52,7 @@ class ImplementInput:
     run_id: str
     task_text: str | None = None
     # None keeps the generous real-brain defaults.
-    timeouts: Timeouts | None = None
     issue_number: int | None = None
-
-
-def issue_placeholder(number: int) -> str:
-    """The run row's task for an issue-driven run: the row is created
-    before the ticket is resolved (so it exists ahead of the platform's
-    gateway call), and the reference — not a pasted body — is what the
-    record keeps."""
-    return f"implement issue #{number}"
 
 
 def issue_task(number: int, title: str, body: str, url: str) -> str:
@@ -132,7 +123,6 @@ class ImplementWorkflow(RunWorkflow):
                 "exactly one of task_text or issue_number must be set",
                 non_retryable=True,
             )
-        timeouts = input.timeouts or Timeouts()
         handle: dict[str, Any] | None = None
         result: dict[str, Any] | None = None
         error: str | None = None
@@ -140,8 +130,7 @@ class ImplementWorkflow(RunWorkflow):
         try:
             config = await self.start_run(
                 input.run_id,
-                input.task_text or issue_placeholder(input.issue_number),
-                timeouts,
+                input.task_text or issue_run_task(input.issue_number),
             )
             # The one source of dispatch truth: the file text handed in, or
             # the ticket the company already filed — fetched under the
@@ -150,7 +139,7 @@ class ImplementWorkflow(RunWorkflow):
                 issue = await workflow.execute_activity(
                     "read_issue",
                     args=[input.run_id, input.issue_number],
-                    start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                    start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                     retry_policy=STEP_RETRY,
                 )
                 task_source = issue_task(
@@ -161,13 +150,13 @@ class ImplementWorkflow(RunWorkflow):
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
             handle = await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, workspace_tar],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
             # The crew is the only execution path. The ticket names its
@@ -175,7 +164,7 @@ class ImplementWorkflow(RunWorkflow):
             # Compiled policy bounds either through the same crew.request
             # decision at fulfill time.
             implementer = await self.fulfill(
-                input.run_id, config, timeouts, crew=ticket_crew(task_source)
+                input.run_id, config, crew=ticket_crew(task_source)
             )
 
             # Implement to a completion claim; the platform verify gate is
@@ -185,14 +174,14 @@ class ImplementWorkflow(RunWorkflow):
             verified = False
             while True:
                 result = await self.dispatch(
-                    input.run_id, implementer["url"], "implement", task_text, timeouts
+                    input.run_id, implementer["url"], "implement", task_text
                 )
                 if (result or {}).get("error"):
                     break
                 verify = await workflow.execute_activity(
                     "platform_verify",
                     args=[input.run_id],
-                    start_to_close_timeout=timedelta(seconds=timeouts.verify_s),
+                    start_to_close_timeout=timedelta(seconds=self._bounds.verify_s),
                     retry_policy=STEP_RETRY,
                 )
                 if verify["passed"]:
@@ -213,7 +202,7 @@ class ImplementWorkflow(RunWorkflow):
             # the same task text the implementation worked from.
             if verified and not error and not (result or {}).get("error"):
                 delivery = await self.dispatch(
-                    input.run_id, implementer["url"], "deliver", task_source, timeouts
+                    input.run_id, implementer["url"], "deliver", task_source
                 )
                 if (delivery or {}).get("error"):
                     error = f"delivery failed: {delivery['error']}"
@@ -235,16 +224,16 @@ class ImplementWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._phase = "finalizing"
-        record = await self.teardown(input.run_id, handle, result, error, timeouts)
+        record = await self.teardown(input.run_id, handle, result, error)
         # Delivered is concluded, whatever happened after (a failed
         # teardown still delivered); a run that opened no PR aborted, and
         # the attempt accounting decides whether its issue stays offered.
         if not record.get("pr_url"):
-            await self.record_attempts(input.run_id, timeouts)
+            await self.record_attempts(input.run_id)
         # However this run ended, it changed the world the standing
         # heartbeat watches — nudge it; the reconcile timer covers a
         # nudge that goes missing.
-        await self.wake_heartbeat(timeouts)
+        await self.wake_heartbeat()
         if cancelled:
             raise asyncio.CancelledError()
         return record

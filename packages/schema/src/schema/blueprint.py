@@ -1,4 +1,4 @@
-"""JSON Schema for the nine blueprint sections.
+"""JSON Schema for the eight blueprint sections.
 
 Structural validation only. Cross-checks that need the catalogs or a
 registry snapshot (does this template exist, does this workflow node bind to
@@ -14,7 +14,6 @@ schema's.
 
 from typing import Any
 
-from schema.catalog import MODEL_TIERS
 from schema.tools import KNOWN_TOOLS
 
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"
@@ -34,38 +33,32 @@ _COMPANY = {
     "properties": {
         "name": _NAME,
         "mission": _TEXT,
-        "product": _TEXT,
-        "stage": {"type": "string", "enum": ["idea", "prototype", "growth"]},
     },
 }
 
-# Feeds the sandbox image and the egress allowlist through the infra IR;
-# an empty allowlist means zero egress.
+# The company's subject — the one repository every run works on and the
+# branch its changes are measured and delivered against — plus the sandbox
+# image, test command and egress allowlist the infra IR is built from (an
+# empty allowlist means zero egress).
 _STACK = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["languages", "repos"],
+    "required": ["repo", "toolchain"],
     "properties": {
-        "languages": {"type": "array", "items": _TEXT, "minItems": 1},
-        "frameworks": {"type": "array", "items": _TEXT},
-        "repos": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["name", "url"],
-                "properties": {
-                    "name": _NAME,
-                    "url": _TEXT,
-                    "default_branch": {"type": "string", "default": "main"},
-                },
-            },
+        "repo": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["url", "base_ref"],
+            "properties": {"url": _TEXT, "base_ref": _TEXT},
         },
         "toolchain": {
             "type": "object",
             "additionalProperties": False,
+            "required": ["image", "test_command"],
             "properties": {
+                # `poseidon-sandbox` names the platform's own toolchain, which
+                # the deployment resolves to its content-addressed image;
+                # any other image is used as written.
                 "image": _TEXT,
                 "test_command": _TEXT,
                 "egress_allow": {"type": "array", "items": _TEXT, "uniqueItems": True},
@@ -80,8 +73,9 @@ _HIRE = {
     "required": ["role", "count"],
     "properties": {
         "role": _NAME,
-        "count": {"type": "integer", "minimum": 0},
-        "model_tier": {"type": "string", "enum": list(MODEL_TIERS)},
+        # One instance per hire (the operator names one Deployment and one
+        # Service per standing name); 0 documents a growth path.
+        "count": {"type": "integer", "enum": [0, 1]},
         "may_spawn": {
             "type": "object",
             "additionalProperties": False,
@@ -102,28 +96,6 @@ _STANDING = {
     "propertyNames": _NAME,
 }
 
-# A crew is the list of roles fulfilled together for one run. The list
-# must match the catalog's crew (the blueprint names the crew, the catalog
-# defines it); a role's tools are narrowed in `tools`, the one site for
-# every agent of that role.
-_CREWS = {
-    "type": "object",
-    "additionalProperties": {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["roles"],
-        "properties": {
-            "roles": {
-                "type": "array",
-                "items": _NAME,
-                "minItems": 1,
-                "uniqueItems": True,
-            },
-        },
-    },
-    "propertyNames": _NAME,
-}
-
 # Per-role tool scopes → gateway allow rules, for standing and ephemeral
 # agents of the role alike. A scope narrows the catalog role's tools and
 # never widens them.
@@ -139,17 +111,21 @@ _TOOLS = {
 }
 
 
-# One gate shape: a gate names its resolver, and differs only in which
-# resolvers it allows and what a resolver reads. A gate nobody declares is
-# a stop nobody takes — for merge that means the review ends without
-# merging at all, an unattended auto-merge being no default anyone gets.
+# One gate shape: a gate names its resolver and how long it waits for a
+# human (escalation fires at half of that, expiry at the end), and differs
+# only in which resolvers it allows and what a resolver reads. A gate
+# nobody declares is a stop nobody takes — for merge that means the review
+# ends without merging at all, an unattended auto-merge being no default
+# anyone gets. The deadline is explicit because a defaulted wait is
+# patience nobody wrote down.
 def _gate(resolvers: list[str], extra: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["resolved_by"],
+        "required": ["resolved_by", "deadline_minutes"],
         "properties": {
             "resolved_by": {"type": "string", "enum": resolvers},
+            "deadline_minutes": {"type": "integer", "minimum": 1},
             **(extra or {}),
         },
     }
@@ -174,18 +150,21 @@ _INTAKE_GATE = _gate(["human"])
 _MERGE_GATE = _gate(["human", "policy"], {"delegate": _MERGE_DELEGATION})
 
 
-def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
-    """One workflow node. Each names only the gates it actually parks on —
-    a merge gate on intake was never a meaningful thing to write, so it is
-    not a writable thing."""
+def _workflow(
+    gates: dict[str, Any] | None, bounds: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """One workflow node. Each names only the gates it actually parks on
+    and the bounds it actually reads — a merge gate on intake, or a verify
+    bound on review, was never a meaningful thing to write, so it is not a
+    writable thing. Bounds are required: a defaulted bound is authority
+    nobody wrote down."""
     properties: dict[str, Any] = {
         "enabled": {"type": "boolean"},
         # The standing name that spawns this workflow — never a standing
         # implementer (enforced by the compiler).
         "conductor": _NAME,
         "crew": _NAME,
-        # Bounded verify re-dispatches.
-        "max_verify_retries": {"type": "integer", "minimum": 0},
+        **(bounds or {}),
     }
     if gates:
         properties["gates"] = {
@@ -196,7 +175,7 @@ def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["enabled", "conductor"],
+        "required": ["enabled", "conductor", *(bounds or {})],
         "properties": properties,
     }
 
@@ -207,7 +186,11 @@ _WORKFLOWS = {
     "minProperties": 1,
     "properties": {
         "intake": _workflow({"intake": _INTAKE_GATE}),
-        "implement": _workflow(None),
+        # How many times a red platform verify re-dispatches the implementer
+        # before the run fails.
+        "implement": _workflow(
+            None, {"max_verify_retries": {"type": "integer", "minimum": 0}}
+        ),
         "review": _workflow({"merge": _MERGE_GATE}),
     },
 }
@@ -247,14 +230,6 @@ _POLICIES = {
                     "minItems": 1,
                     "uniqueItems": True,
                 },
-            },
-        },
-        "escalation": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "channel": {"type": "string", "enum": ["api"]},
-                "timeout_minutes": {"type": "integer", "minimum": 1},
             },
         },
     },
@@ -314,12 +289,17 @@ _BUDGETS = {
     "additionalProperties": False,
     "required": ["per_run"],
     "properties": {
-        # Hard-stop at the LLM gateway.
+        # `usd` is the hard stop at the LLM gateway; `pause_minutes` is how
+        # long a run stopped by it waits for a human to raise the cap
+        # (escalation at half, then the run fails).
         "per_run": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["usd"],
-            "properties": {"usd": {"type": "number", "exclusiveMinimum": 0}},
+            "required": ["usd", "pause_minutes"],
+            "properties": {
+                "usd": {"type": "number", "exclusiveMinimum": 0},
+                "pause_minutes": {"type": "integer", "minimum": 1},
+            },
         },
     },
 }
@@ -335,7 +315,6 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "company",
         "stack",
         "standing",
-        "crews",
         "tools",
         "workflows",
         "budgets",
@@ -345,7 +324,6 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "company": _COMPANY,
         "stack": _STACK,
         "standing": _STANDING,
-        "crews": _CREWS,
         "tools": _TOOLS,
         "workflows": _WORKFLOWS,
         "policies": _POLICIES,

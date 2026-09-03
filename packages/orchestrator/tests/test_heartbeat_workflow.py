@@ -12,7 +12,7 @@ test: the full wait between those ticks ended by timer, not by signal."""
 
 import asyncio
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pytest
@@ -73,7 +73,10 @@ class Harness:
 
         @activity.defn(name="heartbeat_config")
         async def heartbeat_config() -> dict[str, Any] | None:
-            return harness.configs.pop(0) if harness.configs else None
+            config = harness.configs.pop(0) if harness.configs else None
+            if config is None:
+                return None
+            return {**config, "timeouts": asdict(FAST_TIMEOUTS)}
 
         @activity.defn(name="heartbeat_observe")
         async def heartbeat_observe(max_attempts: int) -> dict[str, Any]:
@@ -178,7 +181,7 @@ async def run_heartbeat(client: Client, harness: Harness) -> dict[str, Any]:
     ):
         handle = await client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS),
+            HeartbeatInput(company=COMPANY),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
@@ -365,7 +368,7 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
     async with worker():
         handle = await env.client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS),
+            HeartbeatInput(company=COMPANY),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
@@ -399,7 +402,7 @@ async def test_wake_cuts_the_sleep_short(env):
     ):
         handle = await env.client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS),
+            HeartbeatInput(company=COMPANY),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
@@ -441,7 +444,7 @@ async def test_wakes_mid_tick_coalesce_to_one_extra_tick(env):
     ):
         handle = await env.client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS),
+            HeartbeatInput(company=COMPANY),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
@@ -475,7 +478,7 @@ async def test_a_pending_wake_skips_the_first_sleep_then_the_loop_rests(env):
     ):
         handle = await env.client.start_workflow(
             "heartbeat",
-            HeartbeatInput(company=COMPANY, timeouts=FAST_TIMEOUTS, pending_wake=True),
+            HeartbeatInput(company=COMPANY, pending_wake=True),
             id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )

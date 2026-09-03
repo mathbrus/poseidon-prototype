@@ -61,13 +61,18 @@ from agent.hands import (
 )
 from agent.prompting import REPO_INSTRUCTIONS_FILE, repo_instructions, system_prompt
 from common.telemetry import get_logger
+from common.topology import RUN_ID_HEADER
 
 # Step caps per procedure — engineering limits on how long one SDK loop
 # may run; money is bounded by the per-run cap either way.
 # Scope is a handful of tool calls; the cap is a backstop.
 SCOPE_STEP_CAP = 10
-# Steps allowed within one implement cycle before tests are forced to run.
+# Steps allowed within one implement cycle before tests are forced to run,
+# and how many advisory verify cycles an implement dispatch gets before it
+# reports the tests still failing. The platform's own verify gate and the
+# blueprint's `max_verify_retries` bound the run; these bound one dispatch.
 IMPLEMENT_STEP_CAP = 20
+VERIFY_CYCLES = 10
 # One SDK step is one delivery attempt (commit + open_pr); a denied
 # attempt and its recovery must fit.
 DELIVER_STEP_CAP = 4
@@ -168,17 +173,18 @@ class GatewayBridge:
 
 
 def build_llm(settings: AgentSettings, run_id: str, token: str) -> LLM:
-    """The LLM gateway client, SDK-shaped: authenticated
-    with the workload credential, every call attributed to its run via the
-    header. The gateway routes the model by tier — the name here is
-    advisory. litellm needs a provider prefix to route to the custom
-    base_url; the wire model name stays the bare setting."""
+    """The LLM gateway client, SDK-shaped: authenticated with the workload
+    credential, every call attributed to its run via the header. The model
+    name is the deployment's `MODEL`, the same one the gateway pins on every
+    call; here it also selects the SDK's wire shape (Responses vs chat) and
+    its prompt guidance. litellm needs a provider prefix to route to the
+    custom base_url; the wire model name stays the bare setting."""
     model = settings.model if "/" in settings.model else f"openai/{settings.model}"
     return LLM(
         model=model,
         base_url=settings.llm_proxy_url,
         api_key=SecretStr(token),
-        extra_headers={"X-Poseidon-Run-Id": run_id},
+        extra_headers={RUN_ID_HEADER: run_id},
         num_retries=1,  # the workflow owns retries; budget 429s surface now
         usage_id=run_id,
     )
@@ -439,7 +445,7 @@ def run_implement(
                 # is the gate of record, and the workflow directs delivery
                 # in a separate dispatch.
                 return ProcedureResult(iterations=iterations)
-            if iterations >= settings.verify_cycles:
+            if iterations >= VERIFY_CYCLES:
                 return ProcedureResult(
                     iterations=iterations,
                     error=f"tests still failing after {iterations} iterations",

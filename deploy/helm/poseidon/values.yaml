@@ -3,12 +3,11 @@
 # namespaces are the operator's, created from Company CRs.
 # Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
 
-# The bootstrap company's namespace — platform-side wiring only: the worker's
-# SANDBOX_NAMESPACE, the platform NetworkPolicies that select the company
-# namespace, and the OPA bundle config key. The namespace itself is
-# operator-created; conductor addresses are derived from the converged
-# instances, never configured here.
-companyNamespace: hello-saas
+# The company this installation hosts. Its namespace is its name (the
+# operator creates it from the Company CR); here it wires the platform
+# side: the worker's COMPANY, the platform NetworkPolicies that select the
+# company namespace, and the OPA bundle config key.
+company: hello-saas
 
 # Every poseidon-* image is built from the root Dockerfile by
 # deploy/build-images.sh. Tags default to `latest` only so the chart installs
@@ -52,6 +51,10 @@ images:
     repository: poseidon-llm-gateway
     tag: latest
     pullPolicy: IfNotPresent
+  egressProxy:
+    repository: poseidon-egress-proxy
+    tag: latest
+    pullPolicy: IfNotPresent
 
 # Secrets layout: GIT_TOKEN mountable only into the gateway,
 # LLM_API_KEY only into LiteLLM — both live in the platform namespace.
@@ -71,45 +74,24 @@ secrets:
   # the orchestrator worker only; sandboxes see only their derived credential.
   egressProxyKey: ""
 
-# Run configuration (the env subset the in-cluster services need).
+# The one model this deployment serves: the LLM gateway pins it on every
+# call, and the agent pods are told the same name (the operator and the
+# orchestrator hand it to them).
 run:
   model: gpt-5.6-luna
-  targetRepo: github.com/example-org/example-repo
-  baseRef: main
-  # Implement's advisory verify cycles before the implementer reports the
-  # tests still failing; every other procedure has its own step cap.
-  verifyCycles: 10
 
 orchestrator:
   temporalAddress: temporal-frontend:7233
-  # SandboxPolicy values come from the applied blueprint's infra IR;
-  # the deployment supplies only the resolution of the IR's
-  # logical toolchain image (content-addressed on kind).
+  # The activity-bound profile every workflow runs with: `default` gives a
+  # paid brain minutes per step; `fast` (values-mockllm.yaml) makes a wedged
+  # step against the mock fail in seconds.
+  timeoutProfile: default
+  # Sandbox caps come from the applied blueprint's infra IR; the
+  # deployment supplies only the content-addressed image the platform's own
+  # toolchain name resolves to (the orchestrator worker's SANDBOX_IMAGE).
   sandbox:
     image: poseidon-sandbox
 
-# The LLM gateway: tier -> model resolution and the flat
-# price per 1K tokens the ledger accrues at. The blueprint names
-# tiers; only the deployment knows the concrete models. In mock mode every
-# tier resolves to the mock brain via values-mockllm.yaml.
-llmGateway:
-  # LiteLLM is started in single-model mode (--model run.model), so every
-  # tier must name that same model or the proxy 400s the request. Split
-  # tiers need a LiteLLM model_list, which this chart does not mount.
-  tierModels:
-    frontier: gpt-5.6-luna
-    standard: gpt-5.6-luna
-    small: gpt-5.6-luna
-
-# Sandbox egress proxy. The allowlist is the applied
-# blueprint's compiled IR projection, resolved per run via
-# the registry — a run without an applied blueprint has zero egress.
-# Deny/allow audit events carry the per-run credential attribution.
-egressProxy:
-  image:
-    repository: poseidon-egress-proxy
-    tag: latest
-    pullPolicy: IfNotPresent
 
 postgres:
   image:

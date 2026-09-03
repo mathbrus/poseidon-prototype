@@ -15,6 +15,9 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from temporalio import activity
 
+# How often a dispatch polls the agent for its terminal status.
+POLL_INTERVAL_S = 2.0
+
 
 class GatewayError(Exception):
     pass
@@ -292,7 +295,7 @@ class AgentClient:
 
 
 async def dispatch_and_poll(
-    url: str, run_id: str, procedure: str, task_text: str, poll_interval_s: float
+    url: str, run_id: str, procedure: str, task_text: str
 ) -> dict[str, Any]:
     """Dispatch a procedure to the agent at `url` and poll it to a terminal
     status, heartbeating every poll so a dead worker is noticed fast. The
@@ -307,4 +310,4 @@ async def dispatch_and_poll(
             status = await agent.status(run_id)
             if status["status"] != "running":
                 return status
-            await asyncio.sleep(poll_interval_s)
+            await asyncio.sleep(POLL_INTERVAL_S)

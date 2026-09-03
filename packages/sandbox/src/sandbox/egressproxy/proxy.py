@@ -28,10 +28,10 @@ from urllib.parse import urlsplit
 
 from common.audit import AuditEvent, args_digest
 from common.telemetry import get_logger
+from common.topology import EGRESS_PROXY_PORT
 from registry import AuditStore, Companies, SandboxRegistrations
 from sandbox.egressproxy.credentials import verify
 
-DEFAULT_PORT = 3128
 HEAD_TIMEOUT_S = 30
 CONNECT_TIMEOUT_S = 10
 _HOP_HEADERS = ("proxy-authorization:", "proxy-connection:", "connection:")
@@ -82,7 +82,7 @@ class EgressProxy:
         key: str,
         allowlist: Allowlist,
         audit: AuditStore,
-        port: int = DEFAULT_PORT,
+        port: int = EGRESS_PROXY_PORT,
     ) -> None:
         self._key = key
         self._allowlist = allowlist

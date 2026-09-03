@@ -352,7 +352,15 @@ class GatewayService:
             "bundle_b64": bundle_b64,
         }
         try:
-            prepared = await self._git.prepare_pr(repo, branch, bundle_b64)
+            # The branch the change is measured and delivered against is the
+            # caller's company's, from its applied blueprint.
+            spec = await asyncio.to_thread(self._companies.get, identity.company or "")
+            if not spec:
+                raise BackendError(
+                    f"no applied blueprint for company {identity.company!r}"
+                )
+            base_ref = spec["repo"]["base_ref"]
+            prepared = await self._git.prepare_pr(repo, branch, bundle_b64, base_ref)
         except Exception as exc:
             # Bound outside the closure on purpose: Python unbinds the
             # `except ... as` name when the block exits, so a closure that
@@ -370,7 +378,7 @@ class GatewayService:
                 identity,
                 "git.open_pr",
                 {**args, "paths": prepared.paths},
-                lambda: self._git.open_pr(prepared, repo, title, body),
+                lambda: self._git.open_pr(prepared, repo, title, body, base_ref),
             )
         finally:
             prepared.cleanup()

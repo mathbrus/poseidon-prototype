@@ -9,9 +9,9 @@ from typing import Any
 
 import pytest
 
+from common.tasks import issue_run_task
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
-from orchestrator.workflows.implement import issue_placeholder
 from registry.memory import (
     InMemoryCompanies,
     InMemoryRuns,
@@ -24,6 +24,8 @@ RUN_ID = "run-test-0001"
 # section) — the SandboxPolicy source.
 APPLIED_SPEC = {
     "namespace": "hello-saas",
+    "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+    "mission": "ship it",
     "infra": {
         "sandbox": {
             "image": "poseidon-sandbox",
@@ -33,7 +35,6 @@ APPLIED_SPEC = {
             "disk": "2Gi",
             "deadline_s": 3600,
             "test_command": "pytest -q",
-            "egress_allow": ["pypi.org"],
         }
     },
 }
@@ -67,11 +68,18 @@ def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected-token")
     return WorkerSettings(
+        opa_url="http://opa.test:8181",
+        platform_namespace="poseidon-platform",
+        agent_image="poseidon-agent:abc123",
+        model="mock-brain",
+        egress_proxy_url="http://127.0.0.1:3128",
+        egress_proxy_key="egress-key",
+        timeout_profile="default",
+        company="hello-saas",
+        temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        target_repo="github.com/example/repo",
         sandbox_image="poseidon-sandbox:abc123",
-        poll_interval_s=0.01,
     )
 
 
@@ -125,7 +133,7 @@ def test_read_issue_returns_the_view_and_links_the_ticket(
             "url": "https://github.test/i/42",
         },
     )
-    runs.start(RUN_ID, issue_placeholder(42), "implement", company="hello-saas")
+    runs.start(RUN_ID, issue_run_task(42), "implement", company="hello-saas")
     issue = asyncio.run(activities.read_issue(RUN_ID, 42))
     assert issue["title"] == "Add slugify" and issue["body"] == "spec"
     assert runs.get(RUN_ID).ticket_urls == ["https://github.test/i/42"]
@@ -150,9 +158,11 @@ def test_sandbox_policy_comes_from_the_applied_blueprint(activities):
     policy = activities._sandbox_policy(RUN_ID)
     assert policy.image == "poseidon-sandbox:abc123"
     assert policy.deadline_s == 3600
-    assert policy.egress_allow == ["pypi.org"]
     # The declared test command, and nothing else: no proxy is configured.
-    assert policy.env == {"TEST_CMD": "pytest -q"}
+    assert policy.env["TEST_CMD"] == "pytest -q"
+    # The per-run egress credential rides the same env, minted from the
+    # worker's proxy settings.
+    assert policy.env["HTTPS_PROXY"].startswith("http://run-test-0001:")
 
 
 def test_custom_toolchain_image_passes_through(activities, companies):

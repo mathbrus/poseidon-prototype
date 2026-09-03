@@ -261,7 +261,6 @@ def test_agent_instance_lookup_carries_namespace(registry: Registry):
         "hello-saas",
         "implementer",
         "implementer",
-        "standard",
         namespace="hello-saas",
     )
     row = instances.get("implementer-1")

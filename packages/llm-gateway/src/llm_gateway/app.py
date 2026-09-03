@@ -10,8 +10,7 @@ Pipeline per completion call:
        ledger SUM; exhausted -> a distinguishable `budget_exhausted` error,
        audited, never silent degradation (enforcement is local here,
        no Temporal client — the workflow observes the surfaced error)
-    -> model-tier routing: the caller's instance tier resolves to a model
-       from cluster config; the request's own model field is overridden
+    -> the deployment's model is pinned into the request
     -> forward upstream (LiteLLM holding the provider keys, or the mock)
     -> meter: the provider-reported cost (`x-litellm-response-cost`) and
        usage -> budget_ledger row under {company, run_id, agent, parent,
@@ -40,6 +39,7 @@ from common.audit import AuditEvent, args_digest
 from common.authn import Authenticator, Reviewer, default_reviewer
 from common.identity import LIFECYCLE_EPHEMERAL, Identity
 from common.telemetry import get_logger
+from common.topology import RUN_ID_HEADER
 from llm_gateway.config import LlmGatewaySettings
 from registry import (
     AgentInstances,
@@ -53,7 +53,7 @@ from registry import (
 
 TOOL_CHAT = "llm.chat_completions"
 TOOL_RESPONSES = "llm.responses"
-RUN_HEADER = "x-poseidon-run-id"
+RUN_HEADER = RUN_ID_HEADER.lower()
 
 
 def _chat_digest_fields(body: dict[str, Any]) -> dict[str, Any]:
@@ -186,7 +186,6 @@ def create_app(
         reviewer=token_reviewer or default_reviewer(settings),
         source="llm-gateway",
     )
-    tier_models = settings.tier_model_map()
 
     async def emit(
         identity: Identity,
@@ -276,7 +275,7 @@ def create_app(
         # -- run attribution (mandatory; no anonymous passthrough) ---------
         run_id = request.headers.get(RUN_HEADER, "").strip()
         if not run_id:
-            return await deny(400, "missing X-Poseidon-Run-Id", "llm_unattributed")
+            return await deny(400, f"missing {RUN_ID_HEADER}", "llm_unattributed")
         if identity.lifecycle == LIFECYCLE_EPHEMERAL and identity.run_id != run_id:
             return await deny(
                 403, "not a participant of this run", "llm_foreign_run", run_id
@@ -307,10 +306,10 @@ def create_app(
                 "budget_exhausted",
             )
 
-        # -- model-tier routing --------------------------------------------
-        instance = await asyncio.to_thread(instances.get, identity.agent_id)
-        tier = (instance or {}).get("model_tier") or ""
-        model = tier_models.get(tier, settings.default_model)
+        # -- the deployment's model -----------------------------------------
+        # Pinned here, whatever the caller asked for: which model answers is
+        # the deployment's decision, not an agent's.
+        model = settings.model
         body["model"] = model
 
         # -- forward + meter ------------------------------------------------

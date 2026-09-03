@@ -1,7 +1,8 @@
 {{/*
 The platform namespace is the release namespace; platform resources omit an
 explicit metadata.namespace and land there. Company resources set
-metadata.namespace to .Values.companyNamespace explicitly.
+metadata.namespace to .Values.company (the company's namespace is its
+name) explicitly.
 */}}
 
 {{- define "poseidon.labels" -}}

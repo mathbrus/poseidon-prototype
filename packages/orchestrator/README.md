@@ -47,13 +47,15 @@ is safe (upsert, read-only, 409-reattach, idempotent destroy).
 
 Two visible consequences:
 
-- **Timeouts ride the workflow input**, not module constants or env: the
-  right bounds depend on the *brain* behind the run, which only the
-  client knows — a real LLM takes minutes per step, the deterministic
-  mock answers in milliseconds. `Timeouts()` is the generous default;
-  `FAST_TIMEOUTS` (the CLI's `--fast-timeouts`) makes a wedged step fail
-  in seconds. Bounds are per activity, never a workflow-level execution
-  timeout — that would hard-kill the run without compensation.
+- **Timeouts are the deployment's profile**, not the run's: the right
+  bounds depend on the *brain* the deployment runs — a real LLM takes
+  minutes per step, the deterministic mock answers in milliseconds. The
+  worker's `TIMEOUT_PROFILE` (`default` or `fast`, set by the chart) rides
+  into every workflow through its first config activity, since workflow
+  code cannot read the environment; the few registry round trips before
+  that use one bootstrap bound. Bounds are per activity, never a
+  workflow-level execution timeout — that would hard-kill the run without
+  compensation.
 - **Workflows reference activities by name** (`"fulfill_crew"`, not an
   import). The workflow modules import nothing from `activities/`; that
   seam is what an engine swap would use, and it lets activities be shared
@@ -189,9 +191,8 @@ takes a deadline and an escalation point:
 
 ```python
 outcome = await self._merge_gate.wait(
-    timeout=timedelta(seconds=timeouts.merge_gate_s),
-    escalate_after=timedelta(seconds=timeouts.merge_gate_s // 2),
-    on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated", timeouts),
+    **gate_deadline(gate["deadline_minutes"]),  # the blueprint's wait; escalation at half
+    on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated"),
 )
 ```
 

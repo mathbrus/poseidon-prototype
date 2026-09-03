@@ -75,8 +75,15 @@ def settings(llm_url: str, model: str = "mock-brain") -> AgentSettings:
         role="implementer",
         gateway_token_file=str(token),
         target_repo="example/target",
-        verify_cycles=3,
+        mission="ship a tiny SaaS under governance",
     )
+
+
+@pytest.fixture(autouse=True)
+def three_verify_cycles(monkeypatch):
+    from agent import procedures
+
+    monkeypatch.setattr(procedures, "VERIFY_CYCLES", 3)
 
 
 class FakeGateway:

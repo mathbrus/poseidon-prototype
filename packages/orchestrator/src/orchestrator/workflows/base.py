@@ -1,6 +1,7 @@
-"""What the workflows share: the per-activity bounds a run carries, the
-retry policies, deterministic workflow naming, and — for the workflow
-classes — the budget pause and the gate audit trail.
+"""What the workflows share: the activity bounds, the retry policies,
+deterministic workflow naming, and — for the workflow classes — the run's
+birth, crew fulfilment, the budget pause, the gate audit trail and
+teardown.
 """
 
 from dataclasses import dataclass
@@ -31,6 +32,21 @@ TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 # above (`dispatch_heartbeat_s`), which are liveness pings on a dispatch.
 WORKFLOWS = ("implement", "intake", "review", "heartbeat")
 
+# Where every workflow above runs: one Temporal namespace, one task queue,
+# shared by the worker that hosts them and every client that starts or
+# signals them.
+TEMPORAL_NAMESPACE = "default"
+TASK_QUEUE = "poseidon-orchestrator"
+
+
+def gate_deadline(minutes: int) -> dict[str, timedelta]:
+    """A gate's timer from its declared wait: expiry at the deadline,
+    escalation halfway — the shape `Gate.wait` takes."""
+    return {
+        "timeout": timedelta(minutes=minutes),
+        "escalate_after": timedelta(seconds=minutes * 30),
+    }
+
 
 def workflow_id(workflow: str, key: str) -> str:
     """Deterministic workflow naming. The run-shaped workflows run one
@@ -43,21 +59,21 @@ def workflow_id(workflow: str, key: str) -> str:
 
 @dataclass
 class Timeouts:
-    """Per-activity bounds, carried in the workflow input.
+    """Per-activity bounds — the deployment's timeout profile.
 
     Steps are bounded per activity, not per workflow: a workflow-level
     execution timeout would hard-kill without running compensation.
 
-    They ride the input rather than module constants because the sizing
-    depends on the *brain* behind the run, which only the client knows: a
-    real LLM legitimately takes minutes per step, while the deterministic
-    mock answers in milliseconds — and against the mock those generous
-    bounds turn a fail-fast bug into a quarter hour of waiting on retries.
-    Workflow code cannot read the environment (Temporal's sandbox), and
-    input is deterministic on replay, so this is the seam.
+    The sizing depends on the *brain* the deployment runs: a real LLM
+    legitimately takes minutes per step, while the deterministic mock
+    answers in milliseconds — and against the mock the generous bounds turn
+    a fail-fast bug into a quarter hour of waiting on retries. So the
+    profile is a worker setting (`TIMEOUT_PROFILE`), and every workflow
+    learns it from its first config activity: workflow code cannot read the
+    environment under Temporal's sandbox, but an activity result is
+    deterministic on replay.
     """
 
-    create_run_s: int = 30
     step_s: int = 300
     dispatch_s: int = 3600
     dispatch_schedule_to_close_s: int = 7200
@@ -67,33 +83,28 @@ class Timeouts:
     # a model loop.
     provision_s: int = 900
     verify_s: int = 900
-    teardown_s: int = 300
-    # How long a budget pause waits for the `budget` signal before giving
-    # up (escalation fires at half of it).
-    budget_gate_s: int = 3600
-    # How long the review workflow's merge gate waits for a human verdict
-    # (escalation fires at half of it). Humans deserve a working day,
-    # not an activity-sized bound — this is a durable workflow timer.
-    merge_gate_s: int = 86400
 
 
 # Sized for the deterministic mock brain (packages/mockllm): every bound is
 # far above what the mock needs, and far below the patience a paid brain
 # deserves — so a wedged activity surfaces in seconds, not minutes.
 FAST_TIMEOUTS = Timeouts(
-    create_run_s=15,
     step_s=60,
     dispatch_s=300,
     dispatch_schedule_to_close_s=600,
     dispatch_heartbeat_s=30,
     provision_s=300,
     verify_s=120,
-    teardown_s=60,
-    budget_gate_s=90,
-    # Long enough for the e2e to watch the park, see the half-way
-    # escalation land in the audit store, and still approve in time.
-    merge_gate_s=60,
 )
+
+# The two profiles a deployment may declare, by the `TIMEOUT_PROFILE` value.
+PROFILES = {"default": Timeouts(), "fast": FAST_TIMEOUTS}
+
+# The bound for the registry round trips a workflow makes before it has
+# read its profile (the run's birth and config) or after a failed birth
+# (teardown's bookkeeping). A ceiling, never a wait: these activities
+# answer in milliseconds on either profile.
+BOOTSTRAP_S = 30
 
 
 class RunWorkflow:
@@ -111,38 +122,46 @@ class RunWorkflow:
     WORKFLOW: str
     _phase: str
     _budget_gate: Gate
+    # The deployment's profile, learned from `workflow_config`; until then
+    # (and on a birth that failed before it) the default sizing applies.
+    _bounds: Timeouts = Timeouts()
+    # The run's shape, as `workflow_config` returned it.
+    _config: dict[str, Any] = {}
 
-    async def start_run(
-        self, run_id: str, task: str, timeouts: Timeouts
-    ) -> dict[str, Any]:
+    async def start_run(self, run_id: str, task: str) -> dict[str, Any]:
         """The run's birth: its registry row, the budget-headroom check
         (a run is born with headroom or not at all — enforcement itself
         stays local at the LLM gateway), and the workflow's shape read from
-        the applied blueprint, returned as `workflow_config` describes it."""
+        the applied blueprint, returned as `workflow_config` describes it.
+        The shape carries the deployment's timeout profile, which bounds
+        every activity from here on."""
+        bootstrap = timedelta(seconds=BOOTSTRAP_S)
         await workflow.execute_activity(
             "create_run",
             args=[run_id, self.WORKFLOW, task],
-            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            start_to_close_timeout=bootstrap,
             retry_policy=STEP_RETRY,
         )
         await workflow.execute_activity(
             "check_budget",
             args=[run_id],
-            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            start_to_close_timeout=bootstrap,
             retry_policy=STEP_RETRY,
         )
-        return await workflow.execute_activity(
+        config = await workflow.execute_activity(
             "workflow_config",
             args=[self.WORKFLOW],
-            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            start_to_close_timeout=bootstrap,
             retry_policy=STEP_RETRY,
         )
+        self._config = config
+        self._bounds = Timeouts(**config["timeouts"])
+        return config
 
     async def fulfill(
         self,
         run_id: str,
         config: dict[str, Any],
-        timeouts: Timeouts,
         crew: str | None = None,
     ) -> dict[str, Any]:
         """Stand the run's ephemeral crew up under the conductor's
@@ -164,8 +183,8 @@ class RunWorkflow:
                     "record_under_authority": True,
                 }
             ],
-            start_to_close_timeout=timedelta(seconds=timeouts.provision_s),
-            heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.provision_s),
+            heartbeat_timeout=timedelta(seconds=self._bounds.dispatch_heartbeat_s),
             retry_policy=STEP_RETRY,
         )
         (agent,) = fulfilled["agents"].values()
@@ -177,7 +196,6 @@ class RunWorkflow:
         handle: dict[str, Any] | None,
         result: dict[str, Any] | None,
         error: str | None,
-        timeouts: Timeouts,
     ) -> dict[str, Any]:
         """Compensation and finalization on every terminal path: the run's
         ephemeral identities and pods, its sandbox (when one was
@@ -186,24 +204,22 @@ class RunWorkflow:
         return await workflow.execute_activity(
             "teardown",
             args=[run_id, handle, result, error],
-            start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=TEARDOWN_RETRY,
         )
 
-    async def record_gate(
-        self, run_id: str, gate: str, kind: str, timeouts: Timeouts
-    ) -> None:
+    async def record_gate(self, run_id: str, gate: str, kind: str) -> None:
         """A gate transition as a first-class `process-gate` audit event —
         written by an activity, since workflow code cannot touch the
         registry."""
         await workflow.execute_activity(
             "record_gate_outcome",
             args=[run_id, gate, kind, workflow.info().workflow_id],
-            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
 
-    async def record_attempts(self, run_id: str, timeouts: Timeouts) -> None:
+    async def record_attempts(self, run_id: str) -> None:
         """After teardown of a run that concluded nothing — no PR delivered,
         no verdict reached — let the platform record whether that run spent
         the last attempt the blueprint allows on its issue or PR. Runs
@@ -212,11 +228,11 @@ class RunWorkflow:
         await workflow.execute_activity(
             "record_attempts_exhausted",
             args=[run_id, workflow.info().workflow_id],
-            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
 
-    async def wake_heartbeat(self, timeouts: Timeouts) -> None:
+    async def wake_heartbeat(self) -> None:
         """Nudge the company's standing heartbeat that this run changed
         the world it watches. Doubly best-effort: the activity swallows
         its own failures (an absent heartbeat is the normal state), and
@@ -226,44 +242,42 @@ class RunWorkflow:
         try:
             await workflow.execute_activity(
                 "wake_heartbeat",
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+                start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except ActivityError:
             workflow.logger.info("heartbeat wake failed; the reconcile timer covers it")
 
     async def dispatch(
-        self, run_id: str, url: str, procedure: str, task_text: str, timeouts: Timeouts
+        self, run_id: str, url: str, procedure: str, task_text: str
     ) -> dict[str, Any]:
         """One agent dispatch, budget-pause aware: a `budget_exhausted`
         result parks the workflow on the `budget` signal in an API-visible
-        state; approval (the cap was raised) re-dispatches the same text,
-        anything else returns the budget-marked result for teardown to
-        finalize. Escalation and verdict are process-gate audit events,
-        like the merge gate's — one Gate spine, one audit contract."""
+        state for the blueprint's `budgets.per_run.pause_minutes`;
+        approval (the cap was raised) re-dispatches the same text, anything
+        else returns the budget-marked result for teardown to finalize.
+        Escalation and verdict are process-gate audit events, like the
+        merge gate's — one Gate spine, one audit contract."""
         while True:
             result = await workflow.execute_activity(
                 "dispatch_agent",
                 args=[run_id, url, procedure, task_text],
-                start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.dispatch_s),
                 schedule_to_close_timeout=timedelta(
-                    seconds=timeouts.dispatch_schedule_to_close_s
+                    seconds=self._bounds.dispatch_schedule_to_close_s
                 ),
-                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
+                heartbeat_timeout=timedelta(seconds=self._bounds.dispatch_heartbeat_s),
                 retry_policy=DISPATCH_RETRY,
             )
             if BUDGET_MARKER not in ((result or {}).get("error") or ""):
                 return result
             self._phase = f"paused-{BUDGET_MARKER}"
             outcome = await self._budget_gate.wait(
-                timeout=timedelta(seconds=timeouts.budget_gate_s),
-                escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
-                on_escalate=lambda: self.record_gate(
-                    run_id, "budget", "escalated", timeouts
-                ),
+                **gate_deadline(self._config["budget_pause_minutes"]),
+                on_escalate=lambda: self.record_gate(run_id, "budget", "escalated"),
             )
             self._phase = "running"
-            await self.record_gate(run_id, "budget", outcome.kind, timeouts)
+            await self.record_gate(run_id, "budget", outcome.kind)
             if outcome.kind != "approved":
                 return result
             # Approved: a fresh gate for any next stop, then re-dispatch.

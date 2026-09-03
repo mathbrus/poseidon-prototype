@@ -8,7 +8,7 @@ story.
 The chain runs its own three runs (never the shared session fixtures: this
 module *merges* its PR into the disposable repo's main, and nothing else in
 the suite may inherit that side effect). The merge gate leg is timed by the
-fast profile: the gate parks, escalates at merge_gate_s/2 with a real
+fast profile: the gate parks, escalates at half its declared deadline with a real
 `process-gate` audit event, and only then does the test approve — so the
 escalation path is proven on every run, not just when someone forgets to
 answer.
@@ -21,18 +21,18 @@ import time
 import pytest
 
 from common.ids import new_run_id
-from orchestrator.workflows.base import Timeouts, workflow_id
-from orchestrator.workflows.implement import issue_placeholder
+from common.tasks import issue_run_task
+from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.intake import IntakeInput
 from orchestrator.workflows.review import ReviewInput
 
+from .blueprints import E2E_GATE_MINUTES
 from .cluster import audit_story, registry, temporal_port_forward
 from .conftest import (
     TASK_QUEUE,
     close_issue,
     close_pr,
     crew_requests,
-    deployed_timeouts,
     github_api,
     run_implement_from_issue,
     target_slug,
@@ -54,7 +54,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "review",
-        ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()),
+        ReviewInput(run_id=run_id, pr_number=pr_number),
         id=workflow_id("review", run_id),
         task_queue=TASK_QUEUE,
     )
@@ -71,9 +71,9 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
         await asyncio.sleep(2)
     assert parked, "the review workflow never parked on the merge gate"
 
-    # Nobody answers: the timer escalates at merge_gate_s/2 and the
-    # escalation is a real process-gate row — observable, not a log line.
-    deadline = time.monotonic() + (deployed_timeouts() or Timeouts()).merge_gate_s
+    # Nobody answers: the timer escalates at half the declared deadline and
+    # the escalation is a real process-gate row — observable, not a log line.
+    deadline = time.monotonic() + E2E_GATE_MINUTES * 60
     escalated = False
     while time.monotonic() < deadline:
         if any(
@@ -117,9 +117,7 @@ def review_chain(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(
-                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
-                ),
+                IntakeInput(run_id=intake_run, goal_text=goal),
                 id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )
@@ -179,7 +177,7 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     # issue intake filed (linked on its run row), and its task is the
     # issue reference — no second, human-written spec anywhere.
     assert review_chain["implement"]["ticket_urls"] == [review_chain["ticket_url"]]
-    assert review_chain["implement"]["task"] == issue_placeholder(
+    assert review_chain["implement"]["task"] == issue_run_task(
         review_chain["issue_number"]
     )
 

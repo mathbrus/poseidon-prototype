@@ -53,11 +53,13 @@ from typing import Any
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
+from common.tasks import review_run_task
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
+    BOOTSTRAP_S,
     STEP_RETRY,
     RunWorkflow,
-    Timeouts,
+    gate_deadline,
 )
 
 
@@ -65,7 +67,6 @@ from orchestrator.workflows.base import (
 class ReviewInput:
     run_id: str
     pr_number: int
-    timeouts: Timeouts | None = None
 
 
 def review_task(pr_number: int, title: str, url: str) -> str:
@@ -113,7 +114,6 @@ class ReviewWorkflow(RunWorkflow):
         pr: dict[str, Any],
         result: dict[str, Any],
         config: dict[str, Any],
-        timeouts: Timeouts,
     ) -> dict[str, Any]:
         """The policy-resolved path. A diff touching the declared contract
         tree declines up front: the compiled carve-out denies its resolve
@@ -155,7 +155,7 @@ class ReviewWorkflow(RunWorkflow):
             # ones the implementer crew cannot deliver); at bootstrap it
             # also keeps the first contract PR off the composed baseline,
             # which has no tree to run yet. Decline, not failure: park.
-            await self.record_gate(input.run_id, "merge", "policy_declined", timeouts)
+            await self.record_gate(input.run_id, "merge", "policy_declined")
             return {}
         verdict = result["verdict"]
         if verdict != "pass":
@@ -165,7 +165,6 @@ class ReviewWorkflow(RunWorkflow):
                 gate,
                 "review verdict failed",
                 result.get("verdict_summary") or "",
-                timeouts,
             )
         # The platform's own run of the suite in the review sandbox — the
         # same activity that gates implement delivery: one verification
@@ -173,7 +172,7 @@ class ReviewWorkflow(RunWorkflow):
         verify = await workflow.execute_activity(
             "platform_verify",
             args=[input.run_id],
-            start_to_close_timeout=timedelta(seconds=timeouts.verify_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.verify_s),
             retry_policy=STEP_RETRY,
         )
         if not verify.get("passed"):
@@ -183,7 +182,6 @@ class ReviewWorkflow(RunWorkflow):
                 gate,
                 "platform verify red",
                 (verify.get("output") or "")[-1000:],
-                timeouts,
             )
         # The contract layer, when the company declares a contract tree:
         # the platform composes head code with the contract tree as it
@@ -197,19 +195,19 @@ class ReviewWorkflow(RunWorkflow):
             composed = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id, pr["head"], contract_paths],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
             await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, composed],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
             contract = await workflow.execute_activity(
                 "platform_verify",
                 args=[input.run_id, contract_paths],
-                start_to_close_timeout=timedelta(seconds=timeouts.verify_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.verify_s),
                 retry_policy=STEP_RETRY,
             )
             contract_green = bool(contract.get("passed"))
@@ -220,12 +218,11 @@ class ReviewWorkflow(RunWorkflow):
                     gate,
                     "contract verify red",
                     (contract.get("output") or "")[-1000:],
-                    timeouts,
                 )
         independence = await workflow.execute_activity(
             "reviewer_independent",
             args=[input.run_id, input.pr_number],
-            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
         resolve = await workflow.execute_activity(
@@ -239,13 +236,13 @@ class ReviewWorkflow(RunWorkflow):
                 pr.get("paths") or [],
                 workflow.info().workflow_id,
             ],
-            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
         if not resolve.get("allow"):
-            await self.record_gate(input.run_id, "merge", "policy_declined", timeouts)
+            await self.record_gate(input.run_id, "merge", "policy_declined")
             return {}
-        return await self._release(input, timeouts)
+        return await self._release(input)
 
     async def _rework(
         self,
@@ -254,7 +251,6 @@ class ReviewWorkflow(RunWorkflow):
         gate: dict[str, Any],
         reason: str,
         findings: str,
-        timeouts: Timeouts,
     ) -> dict[str, Any]:
         """A failed quality layer feeds the backlog, bounded. The chain
         depth is read from the failing PR's own lineage (never trusted
@@ -266,12 +262,12 @@ class ReviewWorkflow(RunWorkflow):
         depth = await workflow.execute_activity(
             "rework_depth",
             args=[input.run_id, input.pr_number],
-            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=STEP_RETRY,
         )
         limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
         if depth["depth"] >= limit:
-            await self.record_gate(input.run_id, "merge", "rework_exhausted", timeouts)
+            await self.record_gate(input.run_id, "merge", "rework_exhausted")
             return {}
         ticket = await workflow.execute_activity(
             "file_rework",
@@ -286,28 +282,28 @@ class ReviewWorkflow(RunWorkflow):
                 pr.get("url") or "",
                 pr.get("paths") or [],
             ],
-            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=STEP_RETRY,
         )
-        await self.record_gate(input.run_id, "merge", "rework_filed", timeouts)
+        await self.record_gate(input.run_id, "merge", "rework_filed")
         return {
             "error": f"policy merge gate: {reason} — rework ticket filed:"
             f" {ticket.get('url')}"
         }
 
-    async def _merge_pr(self, input: "ReviewInput", timeouts: Timeouts) -> dict[str, Any]:
+    async def _merge_pr(self, input: "ReviewInput") -> dict[str, Any]:
         """The merge itself — one platform tool call, issued only after a
         gate (human or policy) resolved to merge. Both resolvers land here,
         so there is exactly one place the branch reaches `main`."""
         return await workflow.execute_activity(
             "merge_pr",
             args=[input.run_id, input.pr_number],
-            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=STEP_RETRY,
         )
 
     async def _human_merge(
-        self, input: "ReviewInput", timeouts: Timeouts
+        self, input: "ReviewInput", gate: dict[str, Any]
     ) -> dict[str, Any]:
         """The human gate: the declared `resolved_by: human` resolver, and
         the fallback whenever a policy gate declines or its rework chain is
@@ -317,27 +313,23 @@ class ReviewWorkflow(RunWorkflow):
         has one merge-application site."""
         self._phase = "paused-merge_gate"
         outcome = await self._merge_gate.wait(
-            timeout=timedelta(seconds=timeouts.merge_gate_s),
-            escalate_after=timedelta(seconds=timeouts.merge_gate_s // 2),
-            on_escalate=lambda: self.record_gate(
-                input.run_id, "merge", "escalated", timeouts
-            ),
+            **gate_deadline(gate["deadline_minutes"]),
+            on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated"),
         )
         self._phase = "running"
-        await self.record_gate(input.run_id, "merge", outcome.kind, timeouts)
+        await self.record_gate(input.run_id, "merge", outcome.kind)
         if outcome.kind != "approved":
             return {"error": f"merge gate {outcome.kind}"}
-        return {"released": await self._merge_pr(input, timeouts)}
+        return {"released": await self._merge_pr(input)}
 
-    async def _release(self, input: "ReviewInput", timeouts: Timeouts) -> dict[str, Any]:
+    async def _release(self, input: "ReviewInput") -> dict[str, Any]:
         """The policy release: gate outcome first, then the merge — strictly
         after the compiled allow."""
-        await self.record_gate(input.run_id, "merge", "policy_resolved", timeouts)
-        return {"released": await self._merge_pr(input, timeouts)}
+        await self.record_gate(input.run_id, "merge", "policy_resolved")
+        return {"released": await self._merge_pr(input)}
 
     @workflow.run
     async def run(self, input: ReviewInput) -> dict[str, Any]:
-        timeouts = input.timeouts or Timeouts()
         handle: dict[str, Any] | None = None
         result: dict[str, Any] | None = None
         error: str | None = None
@@ -348,13 +340,11 @@ class ReviewWorkflow(RunWorkflow):
         # stays on the backlog.
         concluded = False
         try:
-            config = await self.start_run(
-                input.run_id, f"review pull request #{input.pr_number}", timeouts
-            )
+            config = await self.start_run(input.run_id, review_run_task(input.pr_number))
             pr = await workflow.execute_activity(
                 "read_pr",
                 args=[input.run_id, input.pr_number, config.get("contract_paths") or []],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
             # An oracle edit is surfaced the moment it is seen — a platform
@@ -369,7 +359,7 @@ class ReviewWorkflow(RunWorkflow):
                         pr["contract_deletions"],
                         workflow.info().workflow_id,
                     ],
-                    start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                    start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                     retry_policy=STEP_RETRY,
                 )
             # A full sandbox from the PR ref — the reviewer runs
@@ -378,26 +368,25 @@ class ReviewWorkflow(RunWorkflow):
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id, pr["head"]],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
             handle = await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, workspace_tar],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
             # Process-initiated: the workflow records the review crew
             # request under the conductor's authority — same crew_requests
             # row, same compiled may_spawn decision an agent-issued request
             # faces.
-            reviewer = await self.fulfill(input.run_id, config, timeouts)
+            reviewer = await self.fulfill(input.run_id, config)
             result = await self.dispatch(
                 input.run_id,
                 reviewer["url"],
                 "review",
                 review_task(input.pr_number, pr["title"], pr["url"]),
-                timeouts,
             )
             if (result or {}).get("error"):
                 raise _ReviewOver()
@@ -415,7 +404,7 @@ class ReviewWorkflow(RunWorkflow):
                     result.get("verdict_summary") or "",
                     workflow.info().workflow_id,
                 ],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+                start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
                 retry_policy=STEP_RETRY,
             )
             concluded = True
@@ -442,12 +431,12 @@ class ReviewWorkflow(RunWorkflow):
             # override survives delegation.
             outcome: dict[str, Any] = {}
             if gate.get("resolved_by") == "policy":
-                outcome = await self._policy_merge(input, pr, result, config, timeouts)
+                outcome = await self._policy_merge(input, pr, result, config)
                 if outcome.get("error"):
                     error = outcome["error"]
                     raise _ReviewOver()
             if not outcome.get("released"):
-                outcome = await self._human_merge(input, timeouts)
+                outcome = await self._human_merge(input, gate)
                 if outcome.get("error"):
                     error = outcome["error"]
                     raise _ReviewOver()
@@ -462,13 +451,13 @@ class ReviewWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._phase = "finalizing"
-        record = await self.teardown(input.run_id, handle, result, error, timeouts)
+        record = await self.teardown(input.run_id, handle, result, error)
         if not concluded:
-            await self.record_attempts(input.run_id, timeouts)
+            await self.record_attempts(input.run_id)
         # However this run ended, it changed the world the standing
         # heartbeat watches — nudge it; the reconcile timer covers a
         # nudge that goes missing.
-        await self.wake_heartbeat(timeouts)
+        await self.wake_heartbeat()
         if cancelled:
             raise asyncio.CancelledError()
         return record

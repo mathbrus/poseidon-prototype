@@ -11,13 +11,22 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class Repo:
+    """The company's subject: the repository every run works on and the
+    branch its changes are diffed and delivered against."""
+
+    url: str
+    base_ref: str
+
+
+@dataclass(frozen=True)
 class CompanyCR:
     """The `Company` custom resource (see crds/)."""
 
     name: str
     namespace: str
     mission: str
-    stage: str | None = None
+    repo: Repo
 
 
 @dataclass(frozen=True)
@@ -29,8 +38,12 @@ class AgentInstanceCR:
     company: str
     standing_name: str
     role: str
-    model_tier: str
     tools: tuple[str, ...]
+    # What the pod is told about its company: the repository it works on
+    # and the mission its prompts carry. Riding the instance means an edit
+    # to either rolls the pod.
+    repo: Repo
+    mission: str
     may_spawn: tuple[str, ...] = ()
     max_concurrent_spawns: int | None = None
 
@@ -55,12 +68,16 @@ class WorkflowConfig:
     # A gate nobody declares is absent, and absent means the workflow does
     # not stop there.
     gates: dict[str, Any]
-    max_verify_retries: int
+    # Implement's bound on verify re-dispatches; None for the workflows
+    # that run no verify loop.
+    max_verify_retries: int | None
 
 
 @dataclass(frozen=True)
 class BudgetRegistration:
     per_run_usd: float
+    # How long a run stopped at the cap waits for a human to raise it.
+    pause_minutes: int
 
 
 @dataclass(frozen=True)
@@ -90,7 +107,6 @@ class SandboxConstraints:
     memory: str
     disk: str
     deadline_s: int
-    egress_allow: tuple[str, ...]
     # The blueprint's test command — what the platform verify gate runs.
     test_command: str
 

@@ -40,6 +40,7 @@ import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
+from common.tasks import issue_run_task, review_run_task
 from mockllm.brain import CONTRACT_GOAL_MARKER, CONTRACT_TEST_PATH
 from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.intake import IntakeInput
@@ -65,7 +66,6 @@ from .conftest import (
     close_issue,
     close_pr,
     delete_repo_file,
-    deployed_timeouts,
     gate_merge_rules,
     github_api,
     pr_number,
@@ -106,9 +106,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
             # --- the one human act: one goal in --------------------------
             intake_handle = await client.start_workflow(
                 "intake",
-                IntakeInput(
-                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
-                ),
+                IntakeInput(run_id=intake_run, goal_text=goal),
                 id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )
@@ -127,11 +125,11 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
             # landed before the ticket was visible on the git host.
             await asyncio.to_thread(
                 wake_until_run_started,
-                f"implement issue #{issue_number}",
+                issue_run_task(issue_number),
                 "implement",
             )
             implement = await asyncio.to_thread(
-                await_run, f"implement issue #{issue_number}", True
+                await_run, issue_run_task(issue_number), True
             )
             assert implement["status"] == "done", f"unattended implement: {implement}"
             assert implement["pr_url"], "the unattended implement produced no PR"
@@ -144,11 +142,9 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
             # the delivered PR; it reviews it and — in-class, review
             # passed, checks green — MERGES it. No human signal is sent.
             await asyncio.to_thread(
-                wake_until_run_started, f"review pull request #{number}", "review"
+                wake_until_run_started, review_run_task(number), "review"
             )
-            review = await asyncio.to_thread(
-                await_run, f"review pull request #{number}", True
-            )
+            review = await asyncio.to_thread(await_run, review_run_task(number), True)
             result["review"] = review
 
     asyncio.run(drive())
@@ -286,7 +282,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
+                IntakeInput(run_id=run_id, goal_text=goal),
                 id=workflow_id("intake", run_id),
                 task_queue=TASK_QUEUE,
             )

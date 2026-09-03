@@ -12,25 +12,22 @@ from pydantic import BaseModel
 
 
 class SandboxPolicy(BaseModel):
-    """The sandbox projection of the infra-policy IR.
-
-    image/toolchain, egress allowlist, filesystem scope, CPU/memory/disk
-    caps, wall-clock deadline.
+    """The sandbox projection of the infra-policy IR: image, filesystem
+    scope, CPU/memory/disk caps, wall-clock deadline. Every field is set by
+    the compiled IR; the egress allowlist is the proxy's, not the pod's.
     """
 
     image: str
-    # Host allowlist enforced by the egress proxy; empty means zero egress.
-    egress_allow: list[str] = []
     # Filesystem scope: the toolserver confines every operation to this
     # directory (its WORKSPACE_DIR).
-    workspace_dir: str = "/workspace"
+    workspace_dir: str
     # Kubernetes resource quantities; disk maps to ephemeral-storage.
-    cpu: str = "1"
-    memory: str = "1Gi"
-    disk: str = "2Gi"
+    cpu: str
+    memory: str
+    disk: str
     # Wall-clock deadline — the Job's activeDeadlineSeconds; the runaway
     # backstop beneath any per-call timeout.
-    deadline_s: int = 3600
+    deadline_s: int
     # Per-run values injected into the sandbox environment at provision time
     # — the injection point for the per-run egress-proxy credential.
     env: dict[str, str] = {}

@@ -6,11 +6,10 @@ import asyncio
 
 import pytest
 
+from common.topology import EPHEMERAL_KIND, TOKEN_MOUNT_DIR
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
-    EPHEMERAL_KIND,
-    TOKEN_MOUNT_DIR,
     ephemeral_pod_manifest,
     pod_name,
     service_account_name,
@@ -130,7 +129,7 @@ def _crew(settings, participants, audit, provisioner=None, requests=None, compan
         participants,
         audit,
         requests or InMemoryCrewRequests(),
-        companies or InMemoryCompanies(),
+        companies or _companies(),
         InMemoryBudgetLedger(),
         InMemoryRuns(),
         provisioner,
@@ -141,9 +140,16 @@ def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected")
     return WorkerSettings(
+        opa_url="http://opa.test:8181",
+        platform_namespace="poseidon-platform",
+        sandbox_image="poseidon-sandbox:abc123",
+        egress_proxy_url="http://127.0.0.1:3128",
+        egress_proxy_key="egress-key",
+        timeout_profile="default",
+        company="hello-saas",
+        temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        target_repo="github.com/example/repo",
         agent_image="poseidon-agent:abc123",
         model="mock-brain",
     )
@@ -228,8 +234,22 @@ def test_provision_without_a_provisioner_fails_closed(settings, stores):
 # -- fulfill_crew (the fulfillment composition) ------------------------------
 
 
+def _companies() -> "InMemoryCompanies":
+    """The applied company every provision reads its repository from."""
+    from registry.memory import InMemoryCompanies
+
+    store = InMemoryCompanies()
+    store.upsert("hello-saas", _company([IMPLEMENTER]))
+    return store
+
+
 def _company(agents: list[dict]) -> dict:
-    return {"namespace": "hello-saas", "ephemeralAgents": agents}
+    return {
+        "namespace": "hello-saas",
+        "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+        "mission": "ship it",
+        "ephemeralAgents": agents,
+    }
 
 
 IMPLEMENTER = {"crew": "feature-delivery", "role": "implementer"}
@@ -239,7 +259,6 @@ IMPLEMENTER = {"crew": "feature-delivery", "role": "implementer"}
 def fulfill_world(settings, provisioner):
     from registry.memory import (
         InMemoryAuditStore,
-        InMemoryCompanies,
         InMemoryCrewRequests,
         InMemoryRunParticipants,
     )
@@ -247,7 +266,7 @@ def fulfill_world(settings, provisioner):
     participants = InMemoryRunParticipants()
     audit = InMemoryAuditStore()
     requests = InMemoryCrewRequests()
-    companies = InMemoryCompanies()
+    companies = _companies()
     companies.upsert("hello-saas", _company([IMPLEMENTER]))
     crew = _crew(settings, participants, audit, provisioner, requests, companies)
     return crew, participants, audit, requests, companies

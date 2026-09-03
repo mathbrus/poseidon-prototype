@@ -5,7 +5,14 @@ and a factory for gateway doubles."""
 import pytest
 from temporalio.testing import WorkflowEnvironment
 
+from orchestrator import clients
 from orchestrator.config import WorkerSettings
+
+
+@pytest.fixture(autouse=True)
+def fast_polling(monkeypatch):
+    """Dispatch polling at test speed."""
+    monkeypatch.setattr(clients, "POLL_INTERVAL_S", 0.01)
 
 
 @pytest.fixture
@@ -13,13 +20,18 @@ def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected-token")
     return WorkerSettings(
+        opa_url="http://opa.test:8181",
+        platform_namespace="poseidon-platform",
+        egress_proxy_url="http://127.0.0.1:3128",
+        egress_proxy_key="egress-key",
+        timeout_profile="default",
+        company="hello-saas",
+        temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        target_repo="github.com/example/repo",
         sandbox_image="poseidon-sandbox:abc123",
         agent_image="poseidon-agent:abc123",
         model="mock-brain",
-        poll_interval_s=0.01,
     )
 
 

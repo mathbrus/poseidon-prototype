@@ -7,27 +7,17 @@ is reachable only from this service, so this is the single audited,
 metered, authenticated route to any model.
 """
 
-import json
-
 from common.authn import WorkloadAuthnSettings
 
 
 class LlmGatewaySettings(WorkloadAuthnSettings):
+    """Every field is set by the chart's llm-gateway template."""
+
     # Where completions are forwarded: the LiteLLM container holding the
     # provider keys (REAL_LLM) or the deterministic mock. Sealed by
     # NetworkPolicy so nothing but this gateway reaches it.
-    upstream_url: str = "http://llm-proxy:4000"
-    # tier -> model, from cluster config (the blueprint names tiers; only
-    # the deployment knows which concrete model a tier means here). JSON
-    # object, e.g. '{"frontier": "gpt-5.6-luna", "standard": "gpt-5.6-luna"}'.
-    tier_models: str = ""
-    # For unmapped tiers and callers without an instance row.
-    default_model: str = "mock-brain"
-
-    def tier_model_map(self) -> dict[str, str]:
-        if not self.tier_models:
-            return {}
-        parsed = json.loads(self.tier_models)
-        if not isinstance(parsed, dict):
-            raise ValueError("TIER_MODELS must be a JSON object of tier -> model")
-        return {str(k): str(v) for k, v in parsed.items()}
+    upstream_url: str
+    # The one model this deployment serves, pinned into every request: the
+    # caller's own model field is never trusted for spend. The same value
+    # reaches the agent pods, whose SDK shapes requests by the name.
+    model: str

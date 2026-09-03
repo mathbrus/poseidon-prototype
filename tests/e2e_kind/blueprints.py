@@ -22,8 +22,15 @@ from .cluster import COMPANY_NS, kubectl, port_forward, temporal_port_forward
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "examples"
 HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
-HEARTBEAT = EXAMPLES / "hello-saas-heartbeat.yaml"
 DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
+
+# The examples declare the waits a real company gives its humans (a working
+# day at the merge gate, an hour at a budget stop). The suite waits those
+# gates out to watch them escalate and expire, so every document it applies
+# carries these instead: escalation lands at half a minute, and the budget
+# approve path has time to re-apply a blueprint before its pause ends.
+E2E_GATE_MINUTES = 1
+E2E_PAUSE_MINUTES = 2
 
 
 def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) -> Path:
@@ -36,6 +43,18 @@ def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) ->
     path = Path(tempfile.mkdtemp(prefix="poseidon-bp-")) / f"{base.stem}-{label}.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False))
     return path
+
+
+def heartbeat_variant() -> Path:
+    """`hello-saas.yaml` plus the delegated example's `heartbeat` section:
+    a company that starts its own runs while a human still answers every
+    merge — the middle rung between the two shipped examples, for modules
+    that need the heartbeat without the delegated gate."""
+
+    def add_heartbeat(document: dict) -> None:
+        document["heartbeat"] = yaml.safe_load(DELEGATED.read_text())["heartbeat"]
+
+    return derived_blueprint(HELLO_SAAS, add_heartbeat, "heartbeat")
 
 
 def delegated_without_heartbeat() -> Path:
@@ -59,13 +78,41 @@ def heartbeat_implement_only() -> Path:
     def implement_only(document: dict) -> None:
         document["heartbeat"]["may_start"] = ["implement"]
 
-    return derived_blueprint(HEARTBEAT, implement_only, "implement-only")
+    return derived_blueprint(heartbeat_variant(), implement_only, "implement-only")
+
+
+def harness_repo() -> str:
+    """The disposable repository this suite works on, from the kind env
+    file — the one value the harness owns rather than the blueprint."""
+    for line in (REPO_ROOT / "deploy" / "kind" / ".env").read_text().splitlines():
+        key, _, value = line.strip().partition("=")
+        if key == "TARGET_REPO" and value:
+            return value.strip()
+    raise AssertionError("deploy/kind/.env names no TARGET_REPO for the suite")
+
+
+def suite_document(path: Path) -> Path:
+    """The document at `path` as the suite applies it: the disposable
+    repository in place of the example's, and the suite's gate waits in
+    place of the human-scale ones — every gate's `deadline_minutes` and the
+    budget `pause_minutes`. Nothing else changes: the suite applies the
+    example's authority, on the suite's repository and clock."""
+    document = yaml.safe_load(path.read_text())
+    document["stack"]["repo"]["url"] = harness_repo()
+    for node in (document.get("workflows") or {}).values():
+        for gate in (node.get("gates") or {}).values():
+            gate["deadline_minutes"] = E2E_GATE_MINUTES
+    document["budgets"]["per_run"]["pause_minutes"] = E2E_PAUSE_MINUTES
+    out = Path(tempfile.mkdtemp(prefix="poseidon-bp-")) / f"{path.stem}-e2e.yaml"
+    out.write_text(yaml.safe_dump(document, sort_keys=False))
+    return out
 
 
 def apply_blueprint(path: Path) -> None:
-    """`poseidon blueprint apply`. The registry may be unreachable from the
-    host — apply degrades to diffing against nothing and still submits
-    the CRs."""
+    """`poseidon blueprint apply` of the suite's version of `path` (see
+    `suite_document`). The registry may be unreachable from the host —
+    apply degrades to diffing against nothing and still submits the CRs."""
+    path = suite_document(path)
     proc = subprocess.run(
         ["uv", "run", "poseidon", "blueprint", "apply", str(path), "--yes"],
         capture_output=True,

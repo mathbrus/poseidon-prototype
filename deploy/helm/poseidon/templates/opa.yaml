@@ -16,9 +16,9 @@ bundles:
       max_delay_seconds: 15
   # Keyed and pathed by company *name* (which equals the namespace for
   # the bootstrap company) — the bundle server keys by company.
-  {{ .Values.companyNamespace }}:
+  {{ .Values.company }}:
     service: bundles
-    resource: bundles/{{ .Values.companyNamespace }}/bundle.tar.gz
+    resource: bundles/{{ .Values.company }}/bundle.tar.gz
     polling:
       min_delay_seconds: 5
       max_delay_seconds: 15

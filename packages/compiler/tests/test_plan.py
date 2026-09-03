@@ -7,9 +7,11 @@ Regenerate deliberately (never reflexively — the diff is the review):
 
 import json
 
+import pytest
 from conftest import GOLDEN
 
 from compiler import compile_blueprint
+from compiler.errors import CompileError
 
 
 def test_plan_matches_the_golden_file(blueprint):
@@ -81,24 +83,27 @@ def test_ephemeral_agents_are_specs_not_instances(blueprint):
 def test_gate_config_comes_from_the_blueprint(blueprint):
     plan = compile_blueprint(blueprint)
     review = next(w for w in plan.workflows if w.name == "review")
-    assert review.gates["merge"] == {"resolved_by": "human"}
+    assert review.gates["merge"] == {"resolved_by": "human", "deadline_minutes": 1440}
 
 
 def test_test_command_rides_the_sandbox_constraints(blueprint):
-    """The blueprint names the test command the platform verify gate runs;
-    a blueprint that names none gets the sandbox image's own default."""
+    """The blueprint names the test command the platform verify gate runs,
+    and it names it — a blueprint without one does not compile."""
     assert compile_blueprint(blueprint).infra.sandbox.test_command == "pytest -q"
     blueprint["stack"]["toolchain"]["test_command"] = "make check"
     assert compile_blueprint(blueprint).infra.sandbox.test_command == "make check"
     del blueprint["stack"]["toolchain"]["test_command"]
-    assert compile_blueprint(blueprint).infra.sandbox.test_command == "pytest -q"
+    with pytest.raises(CompileError, match="test_command"):
+        compile_blueprint(blueprint)
 
 
-def test_infra_ir_feeds_both_consumers_from_one_list(blueprint):
+def test_infra_ir_projects_the_toolchain_and_the_proxy_allowlist(blueprint):
     """The sandbox caps and the proxy allowlist are projections of one
     IR — hand-authoring either would be a bug."""
     plan = compile_blueprint(blueprint)
-    assert plan.infra.sandbox.egress_allow == plan.infra.egress_proxy_allowlist
+    assert plan.infra.egress_proxy_allowlist == tuple(
+        sorted(blueprint["stack"]["toolchain"]["egress_allow"])
+    )
     assert plan.infra.sandbox.image == "poseidon-sandbox"
     # The audited proxy is the sandbox's only peer — no cluster DNS, so a
     # resolver cannot be used as an unaudited channel.

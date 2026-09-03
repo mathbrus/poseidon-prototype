@@ -7,7 +7,7 @@ platform, after teardown, whether it spent the issue's last attempt."""
 
 import asyncio
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import pytest
@@ -63,7 +63,9 @@ class Harness:
                 "crew": "feature-delivery",
                 "gates": {},
                 "max_verify_retries": 0,
+                "budget_pause_minutes": 1,
                 "contract_paths": [],
+                "timeouts": asdict(FAST_TIMEOUTS),
             }
 
         @activity.defn(name="read_issue")
@@ -178,7 +180,7 @@ async def run_implement(client: Client, harness: Harness) -> dict[str, Any]:
     async with worker:
         handle = await client.start_workflow(
             "implement",
-            ImplementInput(run_id=RUN_ID, issue_number=ISSUE, timeouts=FAST_TIMEOUTS),
+            ImplementInput(run_id=RUN_ID, issue_number=ISSUE),
             id=f"implement-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )
@@ -224,7 +226,7 @@ async def test_a_cancelled_run_records_its_attempt(env):
     try:
         handle = await env.client.start_workflow(
             "implement",
-            ImplementInput(run_id=RUN_ID, issue_number=ISSUE, timeouts=FAST_TIMEOUTS),
+            ImplementInput(run_id=RUN_ID, issue_number=ISSUE),
             id=f"implement-{uuid.uuid4().hex[:8]}",
             task_queue=task_queue,
         )

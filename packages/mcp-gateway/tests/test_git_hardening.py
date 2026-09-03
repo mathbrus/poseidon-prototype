@@ -15,7 +15,14 @@ from mcp_gateway.git_backend import (
 
 
 def backend() -> GitBackend:
-    return GitBackend(McpGatewaySettings(git_token="tok-123"), http_client=None)
+    return GitBackend(
+        McpGatewaySettings(
+            platform_namespace="poseidon-platform",
+            opa_url="http://opa.test:8181",
+            git_token="tok-123",
+        ),
+        http_client=None,
+    )
 
 
 # --- the clone-URL transport allowlist --------------------------------------

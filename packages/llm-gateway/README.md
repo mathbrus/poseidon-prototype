@@ -60,8 +60,8 @@ workload authn (common.authn — the same credentials as the MCP gateway)
 -> run attribution: X-Poseidon-Run-Id must name a known run of the
    caller's company; ephemeral callers must be bound to exactly that run
 -> budget headroom: the applied blueprint's per-run cap vs. the ledger SUM
--> model-tier routing: the caller's instance tier picks the model;
-   the request's own model field is overridden
+-> the deployment's model is pinned into the request; the caller's own
+   model field is overridden
 -> forward upstream, then meter the usage to the ledger and audit
 ```
 
@@ -149,22 +149,14 @@ checks headroom once at run creation ("born with headroom or not at
 all"), but that is an observation at an activity boundary; the
 enforcement point stays here.
 
-## Tier routing is the gateway's, not the agent's
+## Which model answers is the deployment's, not the agent's
 
-The blueprint never names a model. Roles in the catalog name
-*tiers* — `small`, `standard`, `frontier` — and only the deployment
-knows which concrete model a tier means, via the `TIER_MODELS` JSON
-env (`{"frontier": "gpt-5.6-luna", ...}`). The gateway looks up the caller's
-`agent_instances` row, maps its tier, and **overwrites the request's
-model field**. Whatever model the agent asked for is advisory; an agent
-cannot upgrade itself to a more expensive model by asking.
-
-The honest edge: instance rows are written by the operator for the
-standing agents, so an ephemeral agent has none and resolves to
-`DEFAULT_MODEL`, as does any unmapped tier. In the kind deployment the
-mock overlay maps every tier to `mock-brain` anyway; per-agent tier
-routing for ephemeral agents is future work the config comment admits
-("for unmapped tiers and callers without an instance row").
+The blueprint never names a model. The deployment does, once — the chart's
+`run.model` — and the gateway **overwrites every request's model field**
+with it (`MODEL`). Whatever model the agent asked for is advisory; an agent
+cannot upgrade itself to a more expensive model by asking. The same value
+reaches the agent pods, where the SDK uses the name to choose the wire
+shape (Responses or chat completions) and its prompt guidance.
 
 ## Metering
 
@@ -190,13 +182,13 @@ provider reports, never from guesses.
 | Module | Owns |
 |---|---|
 | `app.py` | The FastAPI app and the whole pipeline above. |
-| `config.py` | Settings: the shared workload-authn shape plus tier→model config. |
+| `config.py` | Settings: the shared workload-authn shape, the upstream, and the one model. |
 | `__main__.py` | The entry point. |
 
 ## Entry points
 
 ```
-python -m llm_gateway      # listens on LLM_GATEWAY_PORT, default 4000
+python -m llm_gateway      # listens on the platform's LLM gateway port (4000)
 ```
 
 Built as `poseidon-llm-gateway` by `deploy/build-images.sh`; deployed by the chart's
@@ -213,7 +205,7 @@ read — a real model legitimately thinks for minutes.
   `run_participants` row.
 - `registry.BudgetLedger` for metering and the headroom SUM (this
   gateway is the ledger's only writer); `registry.Runs` and `Companies`
-  for attribution and the per-run cap; `AgentInstances` for the tier;
+  for attribution and the per-run cap;
   `registry.AuditStore` for `source=llm-gateway` events.
 - `agent` builds its LLM client against this service and injects the
   run header (`agent.procedures.build_llm`).
@@ -232,7 +224,7 @@ uv run pytest packages/llm-gateway
 The suite runs the pipeline against in-memory registry doubles
 (`registry.memory`) and a stubbed OpenAI-shaped upstream: rejected
 without authn, rejected and audited without attribution, unknown and
-foreign runs refused, tier routing overriding the requested model,
+foreign runs refused, the pinned model overriding the requested one,
 every forwarded call metered and audited, the cap a hard stop with a
 distinguishable error and no new spend, spend accruing call by call
 below the cap, and an uncapped company metered without being stopped.

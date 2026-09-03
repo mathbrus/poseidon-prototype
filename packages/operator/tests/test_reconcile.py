@@ -11,6 +11,7 @@ import kopf
 import pytest
 
 from poseidon_operator import reconcile
+from poseidon_operator.config import OperatorSettings
 
 
 class FakeCluster:
@@ -59,7 +60,6 @@ class FakeInstances:
         company,
         standing_name,
         role,
-        model_tier,
         namespace=None,
         status="ready",
     ):
@@ -86,6 +86,20 @@ class FakeCompanies:
 
     def delete(self, name: str) -> None:
         self.rows.pop(name, None)
+
+
+@pytest.fixture(autouse=True)
+def operator_settings(monkeypatch) -> None:
+    """The env the chart would set, without a chart."""
+    monkeypatch.setattr(
+        reconcile,
+        "_the_settings",
+        OperatorSettings(
+            platform_namespace="poseidon-platform",
+            model="mock-brain",
+            agent_image="poseidon-agent:abc123",
+        ),
+    )
 
 
 @pytest.fixture
@@ -126,8 +140,9 @@ INSTANCE_SPEC = {
     "company": "hello-saas",
     "standingName": "pm",
     "role": "pm",
-    "modelTier": "standard",
     "tools": ["issues.read", "crew.request"],
+    "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+    "mission": "ship it",
 }
 
 

@@ -60,7 +60,6 @@ field through everything it becomes. In `examples/hello-saas.yaml`:
 pm:
   role: pm
   count: 1
-  model_tier: standard
   may_spawn:
     crew: [feature-delivery, feature-review]
     max_concurrent: 2
@@ -71,11 +70,12 @@ The `may_spawn` block fans out into:
 1. **Coherence checks.** `_spawn_authority` errors if the blueprint
    names a crew the `pm` catalog template does not grant — an error, not
    a silent drop, because a workflow may depend on the grant.
-   `_spawnable_crews` errors if a named crew is unknown, undeclared in
-   `crews:`, or if an enabled workflow's crew is outside its conductor's
-   `may_spawn` (it would compile but never be fulfillable).
-2. **The `AgentInstanceCR`**, which carries `may_spawn` and
-   `max_concurrent_spawns` into the AgentInstance custom resource.
+   `_spawnable_crews` errors if an enabled workflow's crew is unknown to
+   the catalog or outside its conductor's `may_spawn` (it would compile
+   but never be fulfillable).
+2. **The `AgentInstanceCR`**, which carries `may_spawn` into the
+   AgentInstance custom resource (the concurrency cap is compiled policy,
+   not a resource field).
 3. **An allow rule** in the emitted `role_pm.rego` that narrows the tool's
    *arguments*, not just its name — spawn intent outside the list is denied
    before anything is recorded:
@@ -274,8 +274,9 @@ it decides, which is the part that matters.
 
 - Pure: no cluster, no filesystem, no network — and no mutation of the
   input document.
-- Secrets never enter a plan. Agent specs carry a role, a tier and a tool
-  scope; credentials arrive at runtime as projected tokens
+- Secrets never enter a plan. Agent specs carry a role, a tool scope, the
+  company's repository and mission; credentials arrive at runtime as
+  projected tokens
   (`test_plan.py` greps the whole plan for secret-shaped strings).
 - A blueprint narrows the catalog, never widens it: widened crew tools and
   spawn authority are compile errors, and every emitted scope is

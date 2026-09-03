@@ -32,9 +32,6 @@ spec:
         - name: Role
           type: string
           jsonPath: .spec.role
-        - name: Tier
-          type: string
-          jsonPath: .spec.modelTier
         - name: Phase
           type: string
           jsonPath: .status.phase
@@ -44,7 +41,7 @@ spec:
           properties:
             spec:
               type: object
-              required: [agentId, company, standingName, role]
+              required: [agentId, company, standingName, role, repo, mission]
               properties:
                 agentId: {type: string}
                 company: {type: string}
@@ -52,14 +49,21 @@ spec:
                 standingName: {type: string}
                 # The catalog role.
                 role: {type: string}
-                modelTier: {type: string}
+                # What the pod is told about its company; an edit to either
+                # rolls the pod.
+                repo:
+                  type: object
+                  required: [url, base_ref]
+                  properties:
+                    url: {type: string}
+                    base_ref: {type: string}
+                mission: {type: string}
                 tools:
                   type: array
                   items: {type: string}
                 maySpawn:
                   type: array
                   items: {type: string}
-                maxConcurrentSpawns: {type: integer}
             status:
               type: object
               properties:
