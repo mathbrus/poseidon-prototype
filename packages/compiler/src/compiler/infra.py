@@ -8,11 +8,9 @@ from typing import Any
 
 from compiler.plan import InfraIR, NetworkPolicyProjection, SandboxConstraints
 
-DEFAULT_IMAGE = "poseidon-sandbox"
-DEFAULT_WORKSPACE = "/workspace"
-# Equal to the sandbox tool server's own default, so a blueprint that
-# names no command runs what the image would have run anyway.
-DEFAULT_TEST_COMMAND = "pytest -q"
+# Where the workspace lands in every sandbox: the tool server confines its
+# operations to this directory.
+WORKSPACE_DIR = "/workspace"
 # Resource shape for one coding sandbox. Fixed caps from one place — the
 # blueprint's toolchain section names an image, a test command and an
 # egress allowlist, never per-stack sizing.
@@ -23,20 +21,19 @@ DEADLINE_S = 3600
 
 
 def build_infra(blueprint: dict[str, Any], namespace: str) -> InfraIR:
-    stack = blueprint.get("stack") or {}
-    toolchain = stack.get("toolchain") or {}
+    toolchain = blueprint["stack"]["toolchain"]
     # An empty allowlist means zero egress — the right default for a stack
     # that needs nothing.
     egress_allow = tuple(sorted(toolchain.get("egress_allow") or []))
 
     sandbox = SandboxConstraints(
-        image=toolchain.get("image") or DEFAULT_IMAGE,
-        workspace_dir=DEFAULT_WORKSPACE,
+        image=toolchain["image"],
+        workspace_dir=WORKSPACE_DIR,
         cpu=CPU,
         memory=MEMORY,
         disk=DISK,
         deadline_s=DEADLINE_S,
-        test_command=toolchain.get("test_command") or DEFAULT_TEST_COMMAND,
+        test_command=toolchain["test_command"],
     )
     network_policy = NetworkPolicyProjection(
         namespace=namespace,

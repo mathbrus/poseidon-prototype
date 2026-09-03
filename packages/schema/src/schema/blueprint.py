@@ -43,7 +43,7 @@ _COMPANY = {
 _STACK = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["repo"],
+    "required": ["repo", "toolchain"],
     "properties": {
         "repo": {
             "type": "object",
@@ -54,7 +54,11 @@ _STACK = {
         "toolchain": {
             "type": "object",
             "additionalProperties": False,
+            "required": ["image", "test_command"],
             "properties": {
+                # `poseidon-sandbox` names the platform's own toolchain, which
+                # the deployment resolves to its content-addressed image;
+                # any other image is used as written.
                 "image": _TEXT,
                 "test_command": _TEXT,
                 "egress_allow": {"type": "array", "items": _TEXT, "uniqueItems": True},
@@ -69,7 +73,9 @@ _HIRE = {
     "required": ["role", "count"],
     "properties": {
         "role": _NAME,
-        "count": {"type": "integer", "minimum": 0},
+        # One instance per hire (the operator names one Deployment and one
+        # Service per standing name); 0 documents a growth path.
+        "count": {"type": "integer", "enum": [0, 1]},
         "may_spawn": {
             "type": "object",
             "additionalProperties": False,

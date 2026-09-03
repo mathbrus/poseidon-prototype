@@ -153,18 +153,10 @@ def _instances(
                 set((hire.get("may_spawn") or {}).get("crew") or []) & set(role.may_spawn)
             )
         )
-        # Existing ids are reused in order so an apply is stable; minted ids
-        # skip anything already taken — a count change must never produce
-        # two instances sharing an agent_id (the diff keys on it).
-        agent_ids = [i.agent_id for i in snapshot.instances_for(company, standing_name)][
-            :count
-        ]
-        serial = 0
-        while len(agent_ids) < count:
-            serial += 1
-            candidate = f"{standing_name}-{serial}"
-            if candidate not in agent_ids:
-                agent_ids.append(candidate)
+        # A hire is one instance. A converged instance keeps the id policy
+        # and audit already know it by; a new hire is `<standing_name>-1`.
+        live = snapshot.instances_for(company, standing_name)
+        agent_ids = ([live[0].agent_id] if live else [f"{standing_name}-1"])[:count]
         for agent_id in agent_ids:
             instances.append(
                 AgentInstanceCR(

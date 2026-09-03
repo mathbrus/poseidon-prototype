@@ -59,20 +59,6 @@ def test_the_firing_diff_is_a_deletion(blueprint):
     assert [(c.agent_id, c.action) for c in diff.changes] == [("implementer-1", "delete")]
 
 
-def test_count_growth_is_distinct_creates(blueprint):
-    """count > 1 mints one agent_id per instance and previews the growth;
-    a diff keyed on the standing_name alone would collapse it into 'no changes'."""
-    snapshot = live(("pm", "pm"))
-    blueprint["standing"]["pm"]["count"] = 3
-    plan = compile_blueprint(blueprint, snapshot=snapshot)
-    pm_ids = [i.agent_id for i in plan.instances if i.standing_name == "pm"]
-    assert len(pm_ids) == len(set(pm_ids)) == 3
-    assert pm_ids[0] == "pm-1"  # the live instance keeps its id
-    diff = diff_plan(plan, snapshot)
-    creates = {c.agent_id for c in diff.changes if c.action == "create"}
-    assert creates == set(pm_ids[1:])
-
-
 def test_existing_agent_ids_are_preserved(blueprint):
     """Identity continuity across applies: a converged instance keeps the
     id policy and audit already know it by."""

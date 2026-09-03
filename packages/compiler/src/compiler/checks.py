@@ -59,6 +59,7 @@ def check(
     problems += _policy_patterns(blueprint)
     problems += _budget_coverage(blueprint)
     problems += _gate_deadlines(blueprint)
+    problems += _toolchain(blueprint)
     problems += _heartbeat_authority(blueprint, roles)
     # Document-level like the platform-tool rule, repeated here because the
     # compiler accepts unvalidated dicts and must fail closed on a
@@ -290,6 +291,18 @@ def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
                 "declared wait for the human who may raise it"
             )
     return problems
+
+
+def _toolchain(blueprint: dict[str, Any]) -> list[str]:
+    """The sandbox image and the test command are declared, never
+    defaulted: what a run executes in, and what the verify gate runs, are
+    the company's to say."""
+    toolchain = (blueprint.get("stack") or {}).get("toolchain") or {}
+    return [
+        f"stack.toolchain.{field}: required — the sandbox runs what the company declares"
+        for field in ("image", "test_command")
+        if not toolchain.get(field)
+    ]
 
 
 def _gate_deadlines(blueprint: dict[str, Any]) -> list[str]:

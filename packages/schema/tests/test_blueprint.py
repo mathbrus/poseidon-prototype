@@ -86,6 +86,19 @@ def test_unknown_tool_lists_what_is_allowed(blueprint):
     assert "issues.create" in problem  # the allowed values are shown
 
 
+def test_a_hire_is_one_instance(blueprint):
+    """The operator names one Deployment and one Service per standing
+    name, so a hire is an instance or a growth-path placeholder — never a
+    count."""
+    blueprint["standing"]["pm"]["count"] = 2
+    assert any("count" in p for p in problems_of(blueprint))
+
+
+def test_the_toolchain_is_declared_not_defaulted(blueprint):
+    del blueprint["stack"]["toolchain"]["test_command"]
+    assert any("test_command" in p for p in problems_of(blueprint))
+
+
 def test_an_empty_tool_scope_is_rejected(blueprint):
     blueprint["tools"]["reviewer"]["allow"] = []
     assert any(

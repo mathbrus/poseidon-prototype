@@ -170,7 +170,7 @@ def _role_file(
     role: str,
     tools: list[str],
     may_spawn: tuple[str, ...] = (),
-    agent_ids: tuple[str, ...] = (),
+    agent_id: str = "",
     max_concurrent_spawns: int | None = None,
 ) -> str:
     body = "".join(
@@ -186,10 +186,7 @@ def _role_file(
         for tool in sorted(tools)
     )
     if max_concurrent_spawns and "crew.request" in tools:
-        for agent_id in agent_ids:
-            body += _OVER_CAP_RULE.format(
-                agent_id=agent_id, cap=int(max_concurrent_spawns)
-            )
+        body += _OVER_CAP_RULE.format(agent_id=agent_id, cap=int(max_concurrent_spawns))
     return _rego_file(company, body)
 
 
@@ -502,19 +499,15 @@ def build_bundle(
     company's decision entrypoint and the blueprint's policy rules — all
     under the company's own package."""
     files = {"authz.rego": _decision_file(company_package(company), _NO_BUDGET_RULE)}
-    by_hire: dict[str, list[Any]] = {}
     for instance in instances:
-        by_hire.setdefault(instance.standing_name, []).append(instance)
-    for standing_name, hire_instances in by_hire.items():
-        first = hire_instances[0]
-        files[f"role_{rego_slug(standing_name)}.rego"] = _role_file(
+        files[f"role_{rego_slug(instance.standing_name)}.rego"] = _role_file(
             company,
-            standing_name,
-            first.role,
-            list(first.tools),
-            tuple(first.may_spawn),
-            tuple(i.agent_id for i in hire_instances),
-            first.max_concurrent_spawns,
+            instance.standing_name,
+            instance.role,
+            list(instance.tools),
+            tuple(instance.may_spawn),
+            instance.agent_id,
+            instance.max_concurrent_spawns,
         )
     for agent in ephemeral_agents:
         name = f"crew_{rego_slug(agent.crew)}_{rego_slug(agent.role)}.rego"

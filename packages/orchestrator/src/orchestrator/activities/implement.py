@@ -22,7 +22,7 @@ from typing import Any
 from temporalio import activity
 
 from common.telemetry import get_logger
-from compiler.infra import DEFAULT_IMAGE
+from common.topology import SANDBOX_TOOLCHAIN
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.clients import GatewayClient, dispatch_and_poll
 from orchestrator.config import WorkerSettings
@@ -92,8 +92,11 @@ class ImplementActivities:
                 f"no applied blueprint for company {self._settings.company!r}"
                 " — provision_sandbox has no compiled SandboxPolicy source"
             )
-        image = sandbox_ir.get("image") or DEFAULT_IMAGE
-        if image == DEFAULT_IMAGE:
+        # The platform's own toolchain is named logically in the blueprint;
+        # only the deployment knows the content-addressed image the cluster
+        # carries. Any other image is used as the blueprint wrote it.
+        image = sandbox_ir["image"]
+        if image == SANDBOX_TOOLCHAIN:
             image = self._settings.sandbox_image
         return SandboxPolicy(
             image=image,

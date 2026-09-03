@@ -7,9 +7,11 @@ Regenerate deliberately (never reflexively — the diff is the review):
 
 import json
 
+import pytest
 from conftest import GOLDEN
 
 from compiler import compile_blueprint
+from compiler.errors import CompileError
 
 
 def test_plan_matches_the_golden_file(blueprint):
@@ -85,13 +87,14 @@ def test_gate_config_comes_from_the_blueprint(blueprint):
 
 
 def test_test_command_rides_the_sandbox_constraints(blueprint):
-    """The blueprint names the test command the platform verify gate runs;
-    a blueprint that names none gets the sandbox image's own default."""
+    """The blueprint names the test command the platform verify gate runs,
+    and it names it — a blueprint without one does not compile."""
     assert compile_blueprint(blueprint).infra.sandbox.test_command == "pytest -q"
     blueprint["stack"]["toolchain"]["test_command"] = "make check"
     assert compile_blueprint(blueprint).infra.sandbox.test_command == "make check"
     del blueprint["stack"]["toolchain"]["test_command"]
-    assert compile_blueprint(blueprint).infra.sandbox.test_command == "pytest -q"
+    with pytest.raises(CompileError, match="test_command"):
+        compile_blueprint(blueprint)
 
 
 def test_infra_ir_projects_the_toolchain_and_the_proxy_allowlist(blueprint):
