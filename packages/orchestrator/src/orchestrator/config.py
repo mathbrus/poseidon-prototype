@@ -55,8 +55,6 @@ class WorkerSettings(TemporalSettings):
     # same compiled decision the crew.request tool faces, directly at OPA.
     opa_url: str = "http://opa:8181"
     model: str = "mock-brain"
-    # Implement's advisory verify cycles, handed to every agent pod.
-    verify_cycles: int = 10
     # Which activity-bound profile every workflow on this worker runs with
     # (`orchestrator.workflows.base.PROFILES`): `fast` for the mock brain,
     # `default` for a paid one. The chart sets it.

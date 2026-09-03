@@ -124,7 +124,8 @@ implement surface has no `open_pr` at all. `run_implement` seeds the
 conversation with the task plus the workspace survey (below), then runs
 an *advisory* verify — its own `sandbox.run_tests`
 call between conversation turns — feeding failures back until green or
-`VERIFY_CYCLES`. Advisory green ends the dispatch with nothing but a
+`VERIFY_CYCLES` (a cap of the host, beside the per-procedure step caps).
+Advisory green ends the dispatch with nothing but a
 claim; the gate of record is the platform's own verify in the workflow.
 Only after that is green does the workflow issue a separate `deliver`
 dispatch whose conversation contains `open_pr`. The
@@ -140,8 +141,7 @@ so the in-process surface is a convenience, not the boundary. Its step
 budget is `REVIEW_STEP_CAP`, one of the per-procedure caps beside
 `SCOPE_STEP_CAP`, `IMPLEMENT_STEP_CAP` and `DELIVER_STEP_CAP`:
 `VERIFY_CYCLES` bounds only how many advisory verify cycles an implement
-dispatch gets, and a deployment that tunes it low never starves another
-procedure.
+dispatch gets, so it can never starve another procedure.
 
 Every procedure fails on missing evidence rather than on the model's word: a
 deliver dispatch with no PR opened, a review with no findings posted, a
@@ -266,9 +266,9 @@ uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 agents run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
 `MODEL`, `TARGET_REPO` and `MISSION` (the company's repository and
 mission, from its applied blueprint), `ROLE` (the catalog role, which
-bounds the procedures the host accepts), `VERIFY_CYCLES` (implement's
-verify-cycle bound; every other procedure runs under its own step cap),
-and `GATEWAY_TOKEN_FILE`.
+bounds the procedures the host accepts) and `GATEWAY_TOKEN_FILE`. Every
+loop bound — the per-procedure step caps and implement's verify cycles —
+is a constant of the host, not a knob of the deployment.
 
 ## Cross-package interactions
 

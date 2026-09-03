@@ -239,6 +239,12 @@ def gateway() -> FakeGateway:
     return FakeGateway()
 
 
+@pytest.fixture(autouse=True)
+def three_verify_cycles(monkeypatch):
+    """Short implement loops: the tests script three verify cycles."""
+    monkeypatch.setattr(procedures, "VERIFY_CYCLES", 3)
+
+
 @pytest.fixture
 def settings(tmp_path) -> AgentSettings:
     token = tmp_path / "token"
@@ -251,5 +257,4 @@ def settings(tmp_path) -> AgentSettings:
         role="implementer",
         target_repo="example/target",
         mission="ship a tiny SaaS under governance",
-        verify_cycles=3,
     )

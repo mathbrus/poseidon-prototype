@@ -78,8 +78,6 @@ spec:
               value: {{ .Release.Namespace | quote }}
             - name: MODEL
               value: {{ .Values.run.model | quote }}
-            - name: VERIFY_CYCLES
-              value: {{ .Values.run.verifyCycles | quote }}
             # Egress attribution: the proxy URL as sandboxes resolve
             # it, and the shared key to mint their per-run credentials.
             - name: EGRESS_PROXY_URL

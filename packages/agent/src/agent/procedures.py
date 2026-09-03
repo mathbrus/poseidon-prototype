@@ -66,8 +66,12 @@ from common.telemetry import get_logger
 # may run; money is bounded by the per-run cap either way.
 # Scope is a handful of tool calls; the cap is a backstop.
 SCOPE_STEP_CAP = 10
-# Steps allowed within one implement cycle before tests are forced to run.
+# Steps allowed within one implement cycle before tests are forced to run,
+# and how many advisory verify cycles an implement dispatch gets before it
+# reports the tests still failing. The platform's own verify gate and the
+# blueprint's `max_verify_retries` bound the run; these bound one dispatch.
 IMPLEMENT_STEP_CAP = 20
+VERIFY_CYCLES = 10
 # One SDK step is one delivery attempt (commit + open_pr); a denied
 # attempt and its recovery must fit.
 DELIVER_STEP_CAP = 4
@@ -440,7 +444,7 @@ def run_implement(
                 # is the gate of record, and the workflow directs delivery
                 # in a separate dispatch.
                 return ProcedureResult(iterations=iterations)
-            if iterations >= settings.verify_cycles:
+            if iterations >= VERIFY_CYCLES:
                 return ProcedureResult(
                     iterations=iterations,
                     error=f"tests still failing after {iterations} iterations",

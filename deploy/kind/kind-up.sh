@@ -135,7 +135,6 @@ secrets:
   egressProxyKey: "${EGRESS_PROXY_KEY:-poseidon-dev-egress-key}"
 run:
   model: "${MODEL:?MODEL missing from $ENV_FILE}"
-  verifyCycles: ${VERIFY_CYCLES:-10}
 EOF
 MOCK_VALUES=()
 if [ "$REAL_LLM" != "1" ]; then

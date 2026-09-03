@@ -183,7 +183,6 @@ class CrewActivities:
             "ROLE": spec["role"],
             "TARGET_REPO": company["repo"]["url"],
             "MISSION": company["mission"],
-            "VERIFY_CYCLES": str(self._settings.verify_cycles),
             "GATEWAY_TOKEN_FILE": TOKEN_FILE,
         }
         # The teardown race guard: a retry still in flight while the run

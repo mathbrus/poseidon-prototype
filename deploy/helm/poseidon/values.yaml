@@ -75,7 +75,6 @@ run:
   model: gpt-5.6-luna
   # Implement's advisory verify cycles before the implementer reports the
   # tests still failing; every other procedure has its own step cap.
-  verifyCycles: 10
 
 orchestrator:
   temporalAddress: temporal-frontend:7233

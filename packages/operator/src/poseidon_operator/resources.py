@@ -376,10 +376,6 @@ def agent_deployment(
                                 },
                                 {"name": "MISSION", "value": spec["mission"]},
                                 {
-                                    "name": "VERIFY_CYCLES",
-                                    "value": str(settings.verify_cycles),
-                                },
-                                {
                                     "name": "GATEWAY_TOKEN_FILE",
                                     "value": TOKEN_FILE,
                                 },

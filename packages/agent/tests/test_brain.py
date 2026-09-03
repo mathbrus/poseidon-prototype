@@ -265,14 +265,14 @@ def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):
 def test_failing_tests_loop_back_with_report_until_iteration_cap(settings, gateway):
     gateway.default_test_result = TESTS_FAIL
     # One act turn per verify cycle; tests never pass, so the run fails
-    # after verify_cycles (3) verify cycles.
+    # after the three verify cycles the conftest allows.
     llm = ScriptedLLM([says("try 1"), says("try 2"), says("try 3")])
 
     with scripted(gateway, llm):
         result = run_implement(settings, RUN_ID, TASK)
 
     assert result.pr_url is None
-    assert result.iterations == settings.verify_cycles
+    assert result.iterations == 3
     assert result.error == "tests still failing after 3 iterations"
     assert gateway.tools_called().count("sandbox.run_tests") == 3
     assert "git.open_pr" not in gateway.tools_called()
@@ -371,12 +371,12 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
 
 def test_reviewer_step_budget_is_its_own_cap_not_verify_cycles(settings, gateway):
     """The reviewer's budget is `REVIEW_STEP_CAP`, decoupled from
-    `verify_cycles` — that knob bounds implement's verify cycles, and a
-    deployment that tunes it low must not starve the reviewer of the
-    steps a diff-read, a test run, findings and a verdict take."""
-    from agent.procedures import REVIEW_STEP_CAP
+    `VERIFY_CYCLES` — that cap bounds implement's verify cycles and must
+    not starve the reviewer of the steps a diff-read, a test run, findings
+    and a verdict take."""
+    from agent.procedures import REVIEW_STEP_CAP, VERIFY_CYCLES
 
-    assert REVIEW_STEP_CAP > settings.verify_cycles * 2
+    assert REVIEW_STEP_CAP > VERIFY_CYCLES * 2
     llm = ScriptedLLM(
         [calls(tc("read_file", path=f"src/m{i}.py")) for i in range(REVIEW_STEP_CAP)]
     )

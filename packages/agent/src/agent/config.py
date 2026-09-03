@@ -27,10 +27,6 @@ class AgentSettings(BaseSettings):
     # conductor's prompts carry.
     target_repo: str
     mission: str
-    # How many advisory verify cycles an implement dispatch gets before it
-    # reports the tests still failing. Implement only: every other
-    # procedure runs under its own step cap (`procedures.py`).
-    verify_cycles: int = 10
 
     def resolve_gateway_token(self) -> str:
         # Read per call: the kubelet keeps the file fresh; a task never
