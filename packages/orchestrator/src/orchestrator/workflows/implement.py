@@ -38,10 +38,8 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
-    TEARDOWN_RETRY,
     RunWorkflow,
     Timeouts,
-    crew_agent,
 )
 
 
@@ -108,6 +106,8 @@ def verify_feedback(task: str, output: str) -> str:
 
 @workflow.defn(name="implement")
 class ImplementWorkflow(RunWorkflow):
+    WORKFLOW = "implement"
+
     def __init__(self) -> None:
         self._phase = "running"
         self._budget_gate = Gate("budget")
@@ -138,29 +138,10 @@ class ImplementWorkflow(RunWorkflow):
         error: str | None = None
         cancelled = False
         try:
-            await workflow.execute_activity(
-                "create_run",
-                args=[
-                    input.run_id,
-                    input.task_text or issue_placeholder(input.issue_number),
-                ],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-                retry_policy=STEP_RETRY,
-            )
-            # The run is born with headroom or not at all — the
-            # same activity-boundary ledger observation intake makes
-            # (enforcement itself stays local at the LLM gateway).
-            await workflow.execute_activity(
-                "check_budget",
-                args=[input.run_id],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-                retry_policy=STEP_RETRY,
-            )
-            config = await workflow.execute_activity(
-                "implement_config",
-                args=[],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
-                retry_policy=STEP_RETRY,
+            config = await self.start_run(
+                input.run_id,
+                input.task_text or issue_placeholder(input.issue_number),
+                timeouts,
             )
             # The one source of dispatch truth: the file text handed in, or
             # the ticket the company already filed — fetched under the
@@ -189,33 +170,13 @@ class ImplementWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
-            # The crew is the only execution path: fulfill stands the
-            # ephemeral crew up — recording the crew request under the
-            # conductor's authority via the same compiled decision the
-            # crew.request tool faces — and hands back the executor's
-            # identity and dispatch address.
-            crew = await workflow.execute_activity(
-                "fulfill_crew",
-                args=[
-                    {
-                        "run_id": input.run_id,
-                        "company": config["company"],
-                        # The ticket names its crew; the workflow's
-                        # configured crew fulfills unnamed work. Compiled
-                        # policy bounds either through the same
-                        # crew.request decision at fulfill time.
-                        "crew_template": ticket_crew(task_source)
-                        or config["crew_template"],
-                        "conductor": config["conductor"],
-                        "conductor_role": config["conductor_role"],
-                        "record_under_authority": True,
-                    }
-                ],
-                start_to_close_timeout=timedelta(seconds=timeouts.provision_s),
-                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
-                retry_policy=STEP_RETRY,
+            # The crew is the only execution path. The ticket names its
+            # crew; the workflow's configured crew fulfills unnamed work.
+            # Compiled policy bounds either through the same crew.request
+            # decision at fulfill time.
+            implementer = await self.fulfill(
+                input.run_id, config, timeouts, crew=ticket_crew(task_source)
             )
-            executor_url = crew_agent(crew)["url"]
 
             # Implement to a completion claim; the platform verify gate is
             # the gate of record. Red feeds back, bounded by the blueprint.
@@ -224,7 +185,7 @@ class ImplementWorkflow(RunWorkflow):
             verified = False
             while True:
                 result = await self.dispatch(
-                    input.run_id, executor_url, "implement", task_text, timeouts
+                    input.run_id, implementer["url"], "implement", task_text, timeouts
                 )
                 if (result or {}).get("error"):
                     break
@@ -252,7 +213,7 @@ class ImplementWorkflow(RunWorkflow):
             # the same task text the implementation worked from.
             if verified and not error and not (result or {}).get("error"):
                 delivery = await self.dispatch(
-                    input.run_id, executor_url, "deliver", task_source, timeouts
+                    input.run_id, implementer["url"], "deliver", task_source, timeouts
                 )
                 if (delivery or {}).get("error"):
                     error = f"delivery failed: {delivery['error']}"
@@ -274,12 +235,7 @@ class ImplementWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._phase = "finalizing"
-        record = await workflow.execute_activity(
-            "teardown",
-            args=[input.run_id, handle, result, error],
-            start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
-            retry_policy=TEARDOWN_RETRY,
-        )
+        record = await self.teardown(input.run_id, handle, result, error, timeouts)
         # Delivered is concluded, whatever happened after (a failed
         # teardown still delivered); a run that opened no PR aborted, and
         # the attempt accounting decides whether its issue stays offered.

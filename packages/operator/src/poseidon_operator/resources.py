@@ -355,20 +355,13 @@ def agent_deployment(
                                     "name": "LLM_PROXY_URL",
                                     "value": f"http://llm-gateway.{platform_ns}.svc.cluster.local:4000",
                                 },
-                                # The spec's tier and tool scope ride the pod
-                                # template so an AgentInstance edit converges
-                                # as a rollout. MODEL itself stays cluster
-                                # config: the LLM gateway resolves
+                                # The role is the only spec field the agent
+                                # reads; tools are policed at the gateway and
+                                # the tier rides the pod labels (so an edit
+                                # converges as a rollout). MODEL itself stays
+                                # cluster config: the LLM gateway resolves
                                 # tier -> model.
-                                {
-                                    "name": "MODEL_TIER",
-                                    "value": spec.get("modelTier", ""),
-                                },
                                 {"name": "ROLE", "value": spec["role"]},
-                                {
-                                    "name": "TOOLS",
-                                    "value": ",".join(sorted(spec.get("tools") or [])),
-                                },
                                 {
                                     "name": "MODEL",
                                     "value": settings.model,

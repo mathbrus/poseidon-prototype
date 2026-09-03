@@ -47,8 +47,6 @@ def test_pm_spawns_but_does_not_execute():
     }
     assert not any(t.startswith("sandbox.") for t in pm.tools)
     assert "git.open_pr" not in pm.tools
-    # No private memory store: cross-run state is tickets + registry runs.
-    assert pm.runtime_hints["memory"] == "none"
 
 
 def test_crew_templates_are_the_catalog_crews():

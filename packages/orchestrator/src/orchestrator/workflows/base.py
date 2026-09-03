@@ -25,19 +25,11 @@ STEP_RETRY = RetryPolicy(maximum_attempts=3, backoff_coefficient=2.0)
 DISPATCH_RETRY = RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=0)
 TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 
-# The `heartbeat` family is the company's standing loop — one durable
+# The workflows a run id (or, for the heartbeat, a company) addresses.
+# The `heartbeat` workflow is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats
 # above (`dispatch_heartbeat_s`), which are liveness pings on a dispatch.
-FAMILIES = ("implement", "intake", "review", "heartbeat")
-
-
-def crew_agent(crew: dict[str, Any]) -> dict[str, Any]:
-    """The agent a fulfilled crew dispatches. Fulfilment returns the crew's
-    agents by role (`{role: {agent_id, url}}`), and every workflow
-    dispatches exactly one — fulfilment refuses a crew that declares more,
-    so the unpacking cannot fail here."""
-    (agent,) = crew["agents"].values()
-    return agent
+WORKFLOWS = ("implement", "intake", "review", "heartbeat")
 
 
 def workflow_id(family: str, key: str) -> str:
@@ -105,17 +97,98 @@ FAST_TIMEOUTS = Timeouts(
 
 
 class RunWorkflow:
-    """The base of the workflow classes: the API-visible phase, gate
-    transitions recorded as `process-gate` audit events, and the
-    budget-pause loop around an agent dispatch.
+    """The base of the run-shaped workflow classes: the run's birth
+    (row, budget headroom, shape from the applied blueprint), crew
+    fulfilment, the API-visible phase, gate transitions recorded as
+    `process-gate` audit events, the budget-pause loop around an agent
+    dispatch, and teardown.
 
-    Subclasses set `_phase` and `_budget_gate` and declare their own
-    signals and the `state` query — Temporal reads those off the concrete
-    class.
+    Subclasses name their `WORKFLOW`, set `_phase` and `_budget_gate`, and
+    declare their own signals and the `state` query — Temporal reads those
+    off the concrete class.
     """
 
+    WORKFLOW: str
     _phase: str
     _budget_gate: Gate
+
+    async def start_run(
+        self, run_id: str, task: str, timeouts: Timeouts
+    ) -> dict[str, Any]:
+        """The run's birth: its registry row, the budget-headroom check
+        (a run is born with headroom or not at all — enforcement itself
+        stays local at the LLM gateway), and the workflow's shape read from
+        the applied blueprint, returned as `workflow_config` describes it."""
+        await workflow.execute_activity(
+            "create_run",
+            args=[run_id, self.WORKFLOW, task],
+            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            retry_policy=STEP_RETRY,
+        )
+        await workflow.execute_activity(
+            "check_budget",
+            args=[run_id],
+            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            retry_policy=STEP_RETRY,
+        )
+        return await workflow.execute_activity(
+            "workflow_config",
+            args=[self.WORKFLOW],
+            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            retry_policy=STEP_RETRY,
+        )
+
+    async def fulfill(
+        self,
+        run_id: str,
+        config: dict[str, Any],
+        timeouts: Timeouts,
+        crew: str | None = None,
+    ) -> dict[str, Any]:
+        """Stand the run's ephemeral crew up under the conductor's
+        authority — the request is recorded through the same compiled
+        `crew.request` decision an agent-issued request faces — and return
+        the one agent it dispatches, as `{agent_id, url}`. `crew` overrides
+        the workflow's configured crew (a ticket naming its own). Fulfilment
+        returns the crew's agents by role and refuses a crew that declares
+        more than one, so the unpacking cannot fail here."""
+        fulfilled = await workflow.execute_activity(
+            "fulfill_crew",
+            args=[
+                {
+                    "run_id": run_id,
+                    "company": config["company"],
+                    "crew_template": crew or config["crew"],
+                    "conductor": config["conductor"],
+                    "workflow": self.WORKFLOW,
+                    "record_under_authority": True,
+                }
+            ],
+            start_to_close_timeout=timedelta(seconds=timeouts.provision_s),
+            heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
+            retry_policy=STEP_RETRY,
+        )
+        (agent,) = fulfilled["agents"].values()
+        return agent
+
+    async def teardown(
+        self,
+        run_id: str,
+        handle: dict[str, Any] | None,
+        result: dict[str, Any] | None,
+        error: str | None,
+        timeouts: Timeouts,
+    ) -> dict[str, Any]:
+        """Compensation and finalization on every terminal path: the run's
+        ephemeral identities and pods, its sandbox (when one was
+        provisioned), and the honest terminal run record, which is also the
+        workflow's result."""
+        return await workflow.execute_activity(
+            "teardown",
+            args=[run_id, handle, result, error],
+            start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
+            retry_policy=TEARDOWN_RETRY,
+        )
 
     async def record_gate(
         self, run_id: str, gate: str, kind: str, timeouts: Timeouts

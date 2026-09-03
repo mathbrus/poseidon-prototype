@@ -1,6 +1,6 @@
 """The review workflow: PR in, human-gated merge out.
 
-    create_review_run -> check_budget -> review_config -> read_pr (the
+    create_run -> check_budget -> workflow_config -> read_pr (the
     PR's live state under the platform identity; a merged or closed PR
     is refused here as `pr_not_open`, before any sandbox is spent) ->
     fetch_workspace (PR head ref) -> provision_sandbox ->
@@ -56,10 +56,8 @@ from temporalio.exceptions import ActivityError
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
-    TEARDOWN_RETRY,
     RunWorkflow,
     Timeouts,
-    crew_agent,
 )
 
 
@@ -84,6 +82,8 @@ def review_task(pr_number: int, title: str, url: str) -> str:
 
 @workflow.defn(name="review")
 class ReviewWorkflow(RunWorkflow):
+    WORKFLOW = "review"
+
     def __init__(self) -> None:
         self._phase = "running"
         self._budget_gate = Gate("budget")
@@ -139,7 +139,7 @@ class ReviewWorkflow(RunWorkflow):
         then). A head that moves after review re-opens the gap between
         reviewed and merged — recorded, not yet closed: merge_pr does not
         assert the head sha."""
-        gate = config.get("merge_gate") or {}
+        gate = config["gates"].get("merge") or {}
         contract_paths = config.get("contract_paths") or []
         if any(
             path.startswith(prefix)
@@ -348,23 +348,8 @@ class ReviewWorkflow(RunWorkflow):
         # stays on the backlog.
         concluded = False
         try:
-            await workflow.execute_activity(
-                "create_review_run",
-                args=[input.run_id, input.pr_number],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-                retry_policy=STEP_RETRY,
-            )
-            await workflow.execute_activity(
-                "check_budget",
-                args=[input.run_id],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-                retry_policy=STEP_RETRY,
-            )
-            config = await workflow.execute_activity(
-                "review_config",
-                args=[],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
-                retry_policy=STEP_RETRY,
+            config = await self.start_run(
+                input.run_id, f"review pull request #{input.pr_number}", timeouts
             )
             pr = await workflow.execute_activity(
                 "read_pr",
@@ -402,30 +387,14 @@ class ReviewWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
-            # Process-initiated: the workflow records the
-            # feature-review crew request under the PM's conductor
-            # authority — same crew_requests row, same compiled may_spawn
-            # decision an agent-issued request faces.
-            crew = await workflow.execute_activity(
-                "fulfill_crew",
-                args=[
-                    {
-                        "run_id": input.run_id,
-                        "company": config["company"],
-                        "crew_template": config["crew_template"],
-                        "conductor": config["conductor"],
-                        "conductor_role": config["conductor_role"],
-                        "record_under_authority": True,
-                        "workflow": "review",
-                    }
-                ],
-                start_to_close_timeout=timedelta(seconds=timeouts.provision_s),
-                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
-                retry_policy=STEP_RETRY,
-            )
+            # Process-initiated: the workflow records the review crew
+            # request under the conductor's authority — same crew_requests
+            # row, same compiled may_spawn decision an agent-issued request
+            # faces.
+            reviewer = await self.fulfill(input.run_id, config, timeouts)
             result = await self.dispatch(
                 input.run_id,
-                crew_agent(crew)["url"],
+                reviewer["url"],
                 "review",
                 review_task(input.pr_number, pr["title"], pr["url"]),
                 timeouts,
@@ -455,7 +424,7 @@ class ReviewWorkflow(RunWorkflow):
             result = dict(result or {})
             result["pr_url"] = pr["url"]
 
-            gate = config.get("merge_gate") or {}
+            gate = config["gates"].get("merge") or {}
             if not gate:
                 # The blueprint declared no merge gate: the findings are
                 # the deliverable and the workflow ends without merging —
@@ -493,12 +462,7 @@ class ReviewWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._phase = "finalizing"
-        record = await workflow.execute_activity(
-            "teardown",
-            args=[input.run_id, handle, result, error],
-            start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
-            retry_policy=TEARDOWN_RETRY,
-        )
+        record = await self.teardown(input.run_id, handle, result, error, timeouts)
         if not concluded:
             await self.record_attempts(input.run_id, timeouts)
         # However this run ended, it changed the world the standing

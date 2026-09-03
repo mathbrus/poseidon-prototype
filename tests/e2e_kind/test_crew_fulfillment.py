@@ -160,7 +160,12 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                             "run_id": run_id,
                             "company": "hello-saas",
                             "crew_template": "feature-delivery",
-                            "conductor": "pm-1",
+                            "conductor": {
+                                "agent_id": "pm-1",
+                                "role": "pm",
+                                "url": "http://pm.hello-saas.svc.cluster.local:8000",
+                            },
+                            "workflow": "implement",
                         }
                     )
                 )

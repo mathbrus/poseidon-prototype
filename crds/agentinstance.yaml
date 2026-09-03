@@ -60,9 +60,6 @@ spec:
                   type: array
                   items: {type: string}
                 maxConcurrentSpawns: {type: integer}
-                runtimeHints:
-                  type: object
-                  additionalProperties: {type: string}
             status:
               type: object
               properties:

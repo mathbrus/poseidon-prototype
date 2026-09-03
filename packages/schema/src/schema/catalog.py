@@ -13,7 +13,7 @@ schema does not forbid standing counts structurally — the compiler error
 does.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from schema.tools import CREW_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 
@@ -38,8 +38,6 @@ class Role:
     procedures: tuple[str, ...]
     # Crews this role may request, when the blueprint grants them.
     may_spawn: tuple[str, ...] = ()
-    # Prompt/runtime hints the brain host reads; not policy.
-    runtime_hints: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -65,10 +63,6 @@ ROLES: dict[str, Role] = {
         model_tier="standard",
         procedures=("scope", "decide"),
         may_spawn=("contract-authoring", "feature-delivery", "feature-review"),
-        runtime_hints={
-            "memory": "none",  # cross-run state is tickets + registry runs
-            "dispatch": "http",
-        },
     ),
     "implementer": Role(
         name="implementer",
@@ -80,7 +74,6 @@ ROLES: dict[str, Role] = {
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         model_tier="frontier",
         procedures=("implement", "deliver"),
-        runtime_hints={"dispatch": "http", "brain": "coding"},
     ),
     "reviewer": Role(
         name="reviewer",
@@ -88,7 +81,6 @@ ROLES: dict[str, Role] = {
         tools=tuple(SANDBOX_TOOLS + REVIEW_TOOLS + ["issues.comment"]),
         model_tier="standard",
         procedures=("review",),
-        runtime_hints={"dispatch": "http", "brain": "review"},
     ),
     # Deliver-capable on purpose, unlike `reviewer`: the contract tree is
     # delivered through the same governed `git.open_pr` as any change, and
@@ -104,7 +96,6 @@ ROLES: dict[str, Role] = {
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         model_tier="frontier",
         procedures=("implement", "deliver"),
-        runtime_hints={"dispatch": "http", "brain": "coding"},
     ),
 }
 

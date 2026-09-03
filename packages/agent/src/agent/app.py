@@ -79,14 +79,14 @@ def create_app(
         **(runners or {}),
     }
 
-    log = get_logger("agent", agent_id="backend-engineer-1")
+    log = get_logger("agent")
     app = FastAPI(title="poseidon-agent")
     tasks: dict[str, TaskStatus] = {}
     background: set[asyncio.Task] = set()
 
     async def execute(request: TaskRequest) -> None:
         run_id = request.run_id
-        run_log = log.bind(run_id=run_id)
+        run_log = log.bind(run_id=run_id, role=_settings().role)
         try:
             result = await runner_by_procedure[request.procedure](
                 run_id, request.task_text

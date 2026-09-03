@@ -157,8 +157,8 @@ def test_service_targets_the_hire():
 
 
 def test_spec_edits_change_the_pod_template():
-    """The reconciliation contract: a blueprint edit (model tier, tool scope) must
-    converge as a rollout, so the spec's tier and tools ride the template."""
+    """The reconciliation contract: a blueprint edit (model tier) must
+    converge as a rollout, so the spec's tier rides the template."""
     small = resources.agent_deployment(
         {**SPEC, "modelTier": "small"}, "hello-saas", SETTINGS
     )
@@ -171,9 +171,9 @@ def test_spec_edits_change_the_pod_template():
         e["name"]: e.get("value")
         for e in small["spec"]["template"]["spec"]["containers"][0]["env"]
     }
-    assert env["MODEL_TIER"] == "small"
     assert env["ROLE"] == SPEC["role"] == "pm"
-    assert env["TOOLS"] == ",".join(sorted(SPEC["tools"]))
+    # Tools are policed at the gateway, never handed to the pod.
+    assert "TOOLS" not in env and "MODEL_TIER" not in env
     labels = small["spec"]["template"]["metadata"]["labels"]
     assert labels["poseidon.dev/model-tier"] == "small"
 

@@ -1,7 +1,8 @@
-"""Unit tests for the review activities: config resolution
-fail-closed, gate outcomes as first-class process-gate audit events, and
-the post-gate merge as a gateway call. Sequencing — the merge strictly
-after the gate — is a workflow concern, proven live by the kind suite."""
+"""Unit tests for the review activities: the PR read and its refusals,
+journaled verdicts, reviewer independence, the merge decision, the
+rework loop, and the post-gate merge as a gateway call. Sequencing — the
+merge strictly after the gate — is a workflow concern, proven live by
+the kind suite."""
 
 import asyncio
 from typing import Any
@@ -80,91 +81,9 @@ def _activities(settings, spec, instances, audit=None, runs=None, participants=N
         settings,
         runs or InMemoryRuns(),
         companies,
-        instances,
         audit or InMemoryAuditStore(),
         participants or InMemoryRunParticipants(),
     )
-
-
-def test_review_config_resolves_crew_conductor_and_gate(settings):
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
-    config = asyncio.run(activities.review_config())
-    assert config == {
-        "company": "hello-saas",
-        "crew_template": "feature-review",
-        "conductor": "pm-1",
-        "conductor_role": "pm",
-        "conductor_url": "http://pm.hello-saas.svc.cluster.local:8000",
-        "merge_gate": {"resolved_by": "human"},
-        "contract_paths": [],
-    }
-
-
-def test_review_config_carries_no_gate_when_none_is_declared(settings):
-    spec = {
-        "workflows": [
-            {
-                "name": "review",
-                "enabled": True,
-                "conductor": "pm",
-                "crew": "feature-review",
-            },
-        ],
-    }
-    activities = _activities(settings, spec, FakeInstances([PM_ROW]))
-    assert asyncio.run(activities.review_config())["merge_gate"] is None
-
-
-def test_review_config_fails_closed_without_a_blueprint(settings):
-    activities = _activities(settings, None, FakeInstances([PM_ROW]))
-    with pytest.raises(RuntimeError, match="no enabled"):
-        asyncio.run(activities.review_config())
-
-
-def test_review_config_fails_closed_without_a_crew(settings):
-    spec = {
-        "workflows": [
-            {"name": "review", "enabled": True, "conductor": "pm", "crew": None}
-        ]
-    }
-    activities = _activities(settings, spec, FakeInstances([PM_ROW]))
-    with pytest.raises(RuntimeError, match="binds no crew"):
-        asyncio.run(activities.review_config())
-
-
-def test_review_config_fails_closed_without_a_conductor_instance(settings):
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([]))
-    with pytest.raises(RuntimeError, match="no standing instance"):
-        asyncio.run(activities.review_config())
-
-
-def test_create_review_run_opens_a_review_row(settings):
-    runs = InMemoryRuns()
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
-    asyncio.run(activities.create_review_run(RUN_ID, 41))
-    record = runs.get(RUN_ID)
-    assert record.status == "running"
-    assert record.workflow == "review"
-    assert record.workflow_id == f"review-{RUN_ID}"
-    assert "#41" in record.task
-
-
-def test_gate_outcomes_are_process_gate_audit_events(settings, audit):
-    """Escalation and the verdict are first-class rows carrying the
-    workflow id that maps back to run_id — approved is the only allow."""
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit=audit)
-    for kind in ("escalated", "approved"):
-        asyncio.run(
-            activities.record_gate_outcome(RUN_ID, "merge", kind, f"review-{RUN_ID}")
-        )
-    events = [e for e in audit.events if e.run_id == RUN_ID]
-    assert [(e.rule, e.decision) for e in events] == [
-        ("gate_escalated", "deny"),
-        ("gate_approved", "allow"),
-    ]
-    assert all(e.source == "process-gate" for e in events)
-    assert all(e.tool == "gate.merge" for e in events)
-    assert all(e.workflow == f"review-{RUN_ID}" for e in events)
 
 
 def test_verdicts_are_journaled_audit_events(settings, audit):
@@ -504,22 +423,6 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
         ("deny", "merge_resolve_undelegated_path"),
     ]
     assert all(e.source == "process-lifecycle" for e in events)
-
-
-def test_policy_gate_outcomes_map_to_decisions(settings, audit):
-    """policy_resolved released a merge (allow); policy_declined fell back
-    to the human signal (deny) — distinguishable from human approvals
-    forever."""
-    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
-    for kind in ("policy_resolved", "policy_declined"):
-        asyncio.run(
-            activities.record_gate_outcome(RUN_ID, "merge", kind, f"review-{RUN_ID}")
-        )
-    events = [e for e in audit.events if e.run_id == RUN_ID]
-    assert [(e.rule, e.decision) for e in events] == [
-        ("gate_policy_resolved", "allow"),
-        ("gate_policy_declined", "deny"),
-    ]
 
 
 # -- the rework loop --------------------------------------------------------

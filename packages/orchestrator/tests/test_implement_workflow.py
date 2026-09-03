@@ -49,20 +49,21 @@ class Harness:
         harness = self
 
         @activity.defn(name="create_run")
-        async def create_run(run_id: str, task_text: str) -> None: ...
+        async def create_run(run_id: str, workflow: str, task: str) -> None: ...
 
         @activity.defn(name="check_budget")
         async def check_budget(run_id: str) -> dict[str, Any]:
             return {"cap_usd": 5.0, "spent_usd": 0.0}
 
-        @activity.defn(name="implement_config")
-        async def implement_config() -> dict[str, Any]:
+        @activity.defn(name="workflow_config")
+        async def workflow_config(workflow: str) -> dict[str, Any]:
             return {
                 "company": "hello-saas",
-                "crew_template": "feature-delivery",
-                "conductor": "pm-1",
-                "conductor_role": "pm",
+                "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
+                "crew": "feature-delivery",
+                "gates": {},
                 "max_verify_retries": 0,
+                "contract_paths": [],
             }
 
         @activity.defn(name="read_issue")
@@ -134,7 +135,7 @@ class Harness:
         return [
             create_run,
             check_budget,
-            implement_config,
+            workflow_config,
             read_issue,
             fetch_workspace,
             provision_sandbox,

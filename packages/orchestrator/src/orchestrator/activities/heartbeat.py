@@ -59,15 +59,15 @@ BACKLOG_LIMIT = 20
 RECENT_RUNS_LIMIT = 10
 RATIONALE_CLIP = 300
 
-# The workflow family, as the registry, the audit ledger and the policy
+# The workflow's name, as the registry, the audit ledger and the policy
 # input all see it.
-FAMILY = "heartbeat"
+WORKFLOW = "heartbeat"
 # The decision's own run row. The decide dispatch is an LLM call, and the
 # LLM gateway binds every call to a registry run — so the row must exist
 # before the PM speaks, or every tick dies `llm_unknown_run`. It carries
-# the heartbeat family so the observation ignores it (active_count and
+# the heartbeat workflow name so the observation ignores it (active_count and
 # the attempt aggregates scope to implement/review; recent() filters it —
-# `registry.runs.recent` spells the same family name), and a started child
+# `registry.runs.recent` spells the same name), and a started child
 # reclaims the id through its own idempotent create_run. The task text is
 # a label for humans reading the runs table; nothing parses it.
 DECIDE_TASK = "heartbeat decision"
@@ -137,7 +137,7 @@ class HeartbeatActivities:
         self._log = get_logger("orchestrator.heartbeat")
 
     def _ledger_run_id(self) -> str:
-        return workflow_id(FAMILY, self._settings.company)
+        return workflow_id(WORKFLOW, self._settings.company)
 
     @activity.defn(name="heartbeat_config")
     async def heartbeat_config(self) -> dict[str, Any] | None:
@@ -305,7 +305,7 @@ class HeartbeatActivities:
             self._runs.start,
             run_id,
             DECIDE_TASK,
-            FAMILY,
+            WORKFLOW,
             self._ledger_run_id(),
             self._settings.company,
         )
@@ -388,7 +388,7 @@ class HeartbeatActivities:
             "parent_agent_id": "",
             "role": "platform",
             "run_id": child_run_id,
-            "workflow": FAMILY,
+            "workflow": WORKFLOW,
             "tool": "heartbeat.start",
             "args": {
                 "workflow": workflow_name,
@@ -442,7 +442,7 @@ class HeartbeatActivities:
         decision: str,
         rule: str,
         latency_ms: int = 0,
-        workflow: str = FAMILY,
+        workflow: str = WORKFLOW,
     ) -> None:
         await record_event(
             self._audit,
@@ -469,7 +469,7 @@ class HeartbeatActivities:
                 namespace=self._settings.temporal_namespace,
             )
             handle = client.get_workflow_handle(
-                workflow_id(FAMILY, self._settings.company)
+                workflow_id(WORKFLOW, self._settings.company)
             )
             await handle.signal("wake")
         except Exception as exc:

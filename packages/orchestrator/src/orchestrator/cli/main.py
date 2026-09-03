@@ -18,7 +18,7 @@ from common.ids import new_run_id
 from orchestrator.cli.blueprint import app as blueprint_app
 from orchestrator.config import TemporalSettings
 from orchestrator.workflows import ImplementInput, IntakeInput, ReviewInput
-from orchestrator.workflows.base import FAMILIES, FAST_TIMEOUTS, workflow_id
+from orchestrator.workflows.base import FAST_TIMEOUTS, WORKFLOWS, workflow_id
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 app.add_typer(blueprint_app, name="blueprint")
@@ -104,7 +104,7 @@ def review(
     _start("review", run_id, started_input, detach)
 
 
-def _start(family: str, run_id: str, started_input: object, detach: bool) -> None:
+def _start(workflow: str, run_id: str, started_input: object, detach: bool) -> None:
     """Start the workflow; unless detached, wait for the run record, print
     it, and exit non-zero when the run did not finish `done`."""
     settings = TemporalSettings()
@@ -112,9 +112,9 @@ def _start(family: str, run_id: str, started_input: object, detach: bool) -> Non
     async def _run() -> dict | None:
         client = await _client(settings)
         handle = await client.start_workflow(
-            family,
+            workflow,
             started_input,
-            id=workflow_id(family, run_id),
+            id=workflow_id(workflow, run_id),
             task_queue=settings.task_queue,
         )
         typer.echo(f"started {handle.id} (run_id {run_id})", err=True)
@@ -130,9 +130,9 @@ def _start(family: str, run_id: str, started_input: object, detach: bool) -> Non
 
 
 def _workflow_id(workflow: str, run_id: str) -> str:
-    """The workflow a `--workflow` family and a run id address; for the
+    """The workflow id a `--workflow` name and a run id address; for the
     heartbeat the run id argument is the company name."""
-    if workflow not in FAMILIES:
+    if workflow not in WORKFLOWS:
         typer.echo(f"unknown workflow {workflow!r}", err=True)
         raise typer.Exit(2)
     return workflow_id(workflow, run_id)
@@ -146,7 +146,7 @@ def signal(
     payload: str = typer.Option(None, help="Optional payload"),
     workflow: str = typer.Option(
         "implement",
-        help=f"Which workflow family the run belongs to: {', '.join(FAMILIES)}",
+        help=f"Which workflow the run belongs to: {', '.join(WORKFLOWS)}",
     ),
 ) -> None:
     """Send a gate signal to a run's workflow — the HITL verdict path
@@ -168,7 +168,7 @@ def status(
     run_id: str,
     workflow: str = typer.Option(
         "implement",
-        help=f"Which workflow family the run belongs to: {', '.join(FAMILIES)}"
+        help=f"Which workflow the run belongs to: {', '.join(WORKFLOWS)}"
         " (for heartbeat, RUN_ID is the company name)",
     ),
 ) -> None:

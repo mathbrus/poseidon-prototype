@@ -6,7 +6,7 @@ Every type is a plain dataclass with a deterministic `as_dict()` so plans
 are diffable and golden-testable.
 """
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -33,7 +33,6 @@ class AgentInstanceCR:
     tools: tuple[str, ...]
     may_spawn: tuple[str, ...] = ()
     max_concurrent_spawns: int | None = None
-    runtime_hints: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

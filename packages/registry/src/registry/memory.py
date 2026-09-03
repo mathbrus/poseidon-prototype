@@ -489,6 +489,6 @@ class InMemoryRuns:
     def recent(self, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first; heartbeat
         # decision rows are not work the company did and never enter the
-        # observation's run history (same family literal as `runs.py`).
+        # observation's run history (same workflow literal as `runs.py`).
         work = [r for r in self.rows.values() if r.workflow != "heartbeat"]
         return work[-limit:][::-1]

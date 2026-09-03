@@ -141,3 +141,29 @@ def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):
     audit.events.clear()
     assert asyncio.run(crew.revoke_participants(RUN_ID)) == []
     assert audit.events == []
+
+
+def test_a_workflow_without_a_crew_is_refused_before_provisioning(crew):
+    """Execution is ephemeral crews: a workflow whose blueprint binds none
+    cannot be fulfilled, and the refusal is final (non-retryable) — the
+    compiler should have refused such a blueprint in the first place."""
+    from temporalio.exceptions import ApplicationError
+
+    with pytest.raises(ApplicationError, match="binds no crew") as raised:
+        asyncio.run(
+            crew.fulfill_crew(
+                {
+                    "run_id": RUN_ID,
+                    "company": "hello-saas",
+                    "crew_template": None,
+                    "conductor": {
+                        "agent_id": "pm-1",
+                        "role": "pm",
+                        "url": "http://pm:8000",
+                    },
+                    "workflow": "review",
+                    "record_under_authority": True,
+                }
+            )
+        )
+    assert raised.value.non_retryable

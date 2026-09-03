@@ -263,7 +263,8 @@ def test_fulfill_binds_and_provisions_the_crew(fulfill_world, provisioner):
                 "run_id": RUN_ID,
                 "company": "hello-saas",
                 "crew_template": "feature-delivery",
-                "conductor": "pm-1",
+                "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
+                "workflow": "implement",
             }
         )
     )
@@ -288,7 +289,8 @@ def test_fulfill_binds_and_provisions_the_crew(fulfill_world, provisioner):
                 "run_id": RUN_ID,
                 "company": "hello-saas",
                 "crew_template": "feature-delivery",
-                "conductor": "pm-1",
+                "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
+                "workflow": "implement",
             }
         )
     )
@@ -315,7 +317,12 @@ def test_fulfill_refuses_a_crew_with_more_than_one_agent(fulfill_world):
                     "run_id": RUN_ID,
                     "company": "hello-saas",
                     "crew_template": "feature-delivery",
-                    "conductor": "pm-1",
+                    "conductor": {
+                        "agent_id": "pm-1",
+                        "role": "pm",
+                        "url": "http://pm:8000",
+                    },
+                    "workflow": "implement",
                 }
             )
         )
@@ -331,7 +338,12 @@ def test_fulfill_without_recorded_intent_refuses(fulfill_world):
                     "run_id": RUN_ID,
                     "company": "hello-saas",
                     "crew_template": "feature-delivery",
-                    "conductor": "pm-1",
+                    "conductor": {
+                        "agent_id": "pm-1",
+                        "role": "pm",
+                        "url": "http://pm:8000",
+                    },
+                    "workflow": "implement",
                 }
             )
         )
@@ -374,8 +386,8 @@ def _fulfill_spec():
         "run_id": RUN_ID,
         "company": "hello-saas",
         "crew_template": "feature-delivery",
-        "conductor": "pm-1",
-        "conductor_role": "pm",
+        "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
+        "workflow": "implement",
         "record_under_authority": True,
     }
 

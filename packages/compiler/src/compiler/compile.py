@@ -178,7 +178,6 @@ def _instances(
                     max_concurrent_spawns=(hire.get("may_spawn") or {}).get(
                         "max_concurrent"
                     ),
-                    runtime_hints=dict(role.runtime_hints),
                 )
             )
     return tuple(instances)

@@ -57,16 +57,19 @@ Two visible consequences:
 - **Workflows reference activities by name** (`"fulfill_crew"`, not an
   import). The workflow modules import nothing from `activities/`; that
   seam is what an engine swap would use, and it lets activities be shared
-  across workflows — `check_budget` is defined once (in the intake
-  module) and called by every run-shaped workflow.
+  across workflows — the run lifecycle (`create_run`, `check_budget`,
+  `workflow_config`, `record_gate_outcome`, `teardown`,
+  `record_attempts_exhausted`) is defined once, in `activities/run.py`,
+  and every run-shaped workflow rides it through the `RunWorkflow` base
+  (`start_run`, `fulfill`, `dispatch`, `teardown`).
 
 ## The four workflows
 
 **intake** — goal text in, tickets and recorded crew intent out:
-`create_intake_run → check_budget → intake_config → [gate slot] →
-dispatch the conductor's `scope` procedure → finalize_intake`. The
+`create_run → check_budget → workflow_config → [gate slot] →
+dispatch the conductor's `scope` procedure → teardown`. The
 conductor's address is derived from its converged instance (the operator
-names its Service after the standing role), never configured. The PM does the scoping itself through governed tools
+names its Service after the standing name), never configured. The PM does the scoping itself through governed tools
 (`issues.*`, `crew.request`) — files the tickets, records the crew request,
 and comments its summary on each ticket; the workflow never touches GitHub
 or the crew tables directly. This is the injection surface for the standing
@@ -77,10 +80,10 @@ slot reads the blueprint's `workflows.intake.gates`: declare
 signal before dispatching (the shipped example declares no intake gate).
 
 **implement** — the crew is the only execution path: `create_run →
-check_budget → implement_config → fetch_workspace → provision_sandbox →
+check_budget → workflow_config → fetch_workspace → provision_sandbox →
 fulfill_crew`, then the dispatch/verify loop below, then the deliver
 dispatch, then teardown. `fulfill_crew` stands the ephemeral crew up
-and hands back each agent's identity and dispatch address, by crew role.
+and hands back each agent's identity and dispatch address, by role.
 
 **review** — PR in, gated merge out: read the PR under the platform
 identity, provision a *full* sandbox from its head ref (the reviewer runs

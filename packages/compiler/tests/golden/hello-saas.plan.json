@@ -88,10 +88,6 @@
       ],
       "model_tier": "standard",
       "role": "pm",
-      "runtime_hints": {
-        "dispatch": "http",
-        "memory": "none"
-      },
       "standing_name": "pm",
       "tools": [
         "crew.request",

@@ -24,6 +24,7 @@ import time
 from typing import Any
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.telemetry import get_logger
@@ -274,15 +275,25 @@ class CrewActivities:
         role, each with its identity and dispatch address; the workflow
         dispatches, this activity never does.
 
-        spec: {run_id, company, crew_template, conductor, workflow?}.
+        spec: {run_id, company, crew_template, conductor: {agent_id,
+        role, url}, workflow, record_under_authority?, reason?}.
         `workflow` names the calling workflow in the recorded decision
-        input (implement by default, or review).
+        input. A workflow whose blueprint binds no crew is refused here,
+        before anything is provisioned — execution is ephemeral crews, and
+        the compiler should already have refused such a blueprint.
         Retry-safe end to end: consume is idempotent for this run, binding
         revives deterministic identities, provisioning replaces remnants.
         """
         run_id = spec["run_id"]
         crew_template = spec["crew_template"]
-        conductor = spec["conductor"]
+        if not crew_template:
+            raise ApplicationError(
+                f"{spec['workflow']} workflow binds no crew — execution is"
+                " ephemeral crews; the compiler should have refused this blueprint",
+                non_retryable=True,
+            )
+        conductor = spec["conductor"]["agent_id"]
+        conductor_role = spec["conductor"]["role"]
         started = time.monotonic()
 
         rid = request_id(conductor, crew_template, run_id)
@@ -297,9 +308,9 @@ class CrewActivities:
                 run_id,
                 spec["company"],
                 conductor,
-                spec.get("conductor_role", "pm"),
+                conductor_role,
                 crew_template,
-                spec.get("workflow", "implement"),
+                spec["workflow"],
             )
             await asyncio.to_thread(
                 self._crew_requests.record,
@@ -367,7 +378,7 @@ class CrewActivities:
         conductor: str,
         conductor_role: str,
         crew_template: str,
-        workflow: str = "implement",
+        workflow: str,
     ) -> None:
         """Evaluate the conductor-shaped crew.request decision against the
         live compiled bundle — the "same policy" clause, literally:

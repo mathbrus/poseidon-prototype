@@ -1,8 +1,8 @@
 """The intake workflow: goal text in, tickets and
 recorded crew intent out.
 
-    create_intake_run -> check_budget -> intake_config -> [gate slot] ->
-    dispatch the conductor's scope procedure -> finalize_intake
+    create_run -> check_budget -> workflow_config -> [gate slot] ->
+    dispatch the conductor's scope procedure -> teardown
 
 The PM does the scoping itself, through governed tools: it files tickets
 via `issues.*` and records the `crew.request` for feature-delivery under
@@ -31,12 +31,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from orchestrator.gates import Gate
-from orchestrator.workflows.base import (
-    STEP_RETRY,
-    TEARDOWN_RETRY,
-    RunWorkflow,
-    Timeouts,
-)
+from orchestrator.workflows.base import RunWorkflow, Timeouts
 
 
 @dataclass
@@ -48,6 +43,8 @@ class IntakeInput:
 
 @workflow.defn(name="intake")
 class IntakeWorkflow(RunWorkflow):
+    WORKFLOW = "intake"
+
     def __init__(self) -> None:
         self._phase = "running"
         self._budget_gate = Gate("budget")
@@ -75,24 +72,7 @@ class IntakeWorkflow(RunWorkflow):
         result: dict[str, Any] | None = None
         error: str | None = None
         try:
-            await workflow.execute_activity(
-                "create_intake_run",
-                args=[input.run_id, input.goal_text],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-                retry_policy=STEP_RETRY,
-            )
-            await workflow.execute_activity(
-                "check_budget",
-                args=[input.run_id],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-                retry_policy=STEP_RETRY,
-            )
-            config = await workflow.execute_activity(
-                "intake_config",
-                args=[],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
-                retry_policy=STEP_RETRY,
-            )
+            config = await self.start_run(input.run_id, input.goal_text, timeouts)
             if (config["gates"].get("intake") or {}).get("resolved_by") == "human":
                 # The configured gate: park until a human answers or the
                 # escalation deadline lapses. Transitions are
@@ -111,7 +91,11 @@ class IntakeWorkflow(RunWorkflow):
                     error = f"intake gate {outcome.kind}"
                     raise _GateClosed()
             result = await self.dispatch(
-                input.run_id, config["conductor_url"], "scope", input.goal_text, timeouts
+                input.run_id,
+                config["conductor"]["url"],
+                "scope",
+                input.goal_text,
+                timeouts,
             )
         except _GateClosed:
             pass
@@ -121,12 +105,7 @@ class IntakeWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._phase = "finalizing"
-        record = await workflow.execute_activity(
-            "finalize_intake",
-            args=[input.run_id, result, error],
-            start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
-            retry_policy=TEARDOWN_RETRY,
-        )
+        record = await self.teardown(input.run_id, None, result, error, timeouts)
         # The tickets this run filed are the standing heartbeat's next
         # backlog — nudge it; the reconcile timer covers a nudge that
         # goes missing.

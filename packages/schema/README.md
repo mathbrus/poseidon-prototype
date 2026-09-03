@@ -25,7 +25,7 @@ itself is introduced line by line in [docs/blueprint.md](../../docs/blueprint.md
 | `blueprint.py` | The JSON Schema (draft 2020-12) for the nine sections. Structure only; the tool enum is the one place it borrows from a catalog. |
 | `validate.py` | `validate_blueprint` / `load_blueprint`. Errors are rendered as a path and the allowed values, and reported all together. |
 | `coherence.py` | The catalog cross-checks (templates exist, crews narrow the catalog, no platform-only tool for a role), as functions both `validate` and the compiler run. |
-| `catalog.py` | `ROLE_TEMPLATES` and `CREW_TEMPLATES`: what a blueprint may hire and spawn, with each template's tool scope, model tier and runtime hints. |
+| `catalog.py` | `ROLES` and `CREW_TEMPLATES`: what a blueprint may hire and spawn, with each role's tool scope, model tier, procedures and spawn authority. |
 | `tools.py` | The 16-name gateway tool surface, plus the two sets policy keys on: `PLATFORM_ONLY` and `RUN_SCOPED`. |
 
 ## Two passes, one report
@@ -59,9 +59,9 @@ defines them. A role is what an agent *is*: its tool ceiling, its model
 tier, the crews it may spawn, and the procedures a dispatch may ask of
 it. `pm` is the standing conductor — it holds the `issues.*` tools plus
 `crew.request`, runs `scope` and `decide`, may spawn crews, and holds no
-coding tools at all: no `sandbox.*`, no `git.open_pr`. Its
-`runtime_hints` include `memory: "none"`, because cross-run state is
-tickets and registry runs, not a private store. `implementer` (sandbox
+coding tools at all: no `sandbox.*`, no `git.open_pr`. It holds no
+private memory store either: cross-run state is tickets and registry
+runs. `implementer` (sandbox
 tools plus `git.open_pr`, frontier tier; `implement` and `deliver`),
 `reviewer` (sandbox plus review tools plus `issues.comment`, standard tier;
 `review`) and `contract-author` (sandbox tools plus `git.open_pr`, frontier
@@ -72,8 +72,8 @@ Why a fixed catalog at all? Because the compiler turns each role into an
 agent spec and a per-agent Rego bundle, and a role a blueprint could
 invent would be a policy the platform never reviewed. The catalog is
 versioned (`CATALOG_VERSION = "v1"`) so that resolution is against a known
-artifact, and roles carry tool scopes, model tier, procedures and runtime
-hints — never counts, never secrets: how many of a role a company hires
+artifact, and roles carry tool scopes, model tier, procedures and spawn
+authority — never counts, never secrets: how many of a role a company hires
 is the blueprint's business, and credentials never enter a spec at all.
 
 The lean-standing rule — no standing `implementer`, `reviewer` or

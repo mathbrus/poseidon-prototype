@@ -78,7 +78,6 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
                 if instance.max_concurrent_spawns
                 else {}
             ),
-            "runtimeHints": dict(instance.runtime_hints),
         },
     }
 
