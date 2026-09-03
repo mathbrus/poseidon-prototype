@@ -9,22 +9,29 @@ Deployments — and never creates ephemeral agents or runs processes.
 from typing import Any
 
 from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
+from common.topology import (
+    AGENT_ID_LABEL,
+    AGENT_PORT,
+    COMPANY_LABEL,
+    EPHEMERAL_KIND,
+    KIND_LABEL,
+    ORCHESTRATOR_SERVICE_ACCOUNT,
+    PEER_PORTS,
+    SANDBOX_APP_LABEL,
+    STANDING_KIND,
+    TOKEN_AUDIENCE,
+    TOKEN_FILE,
+    TOKEN_MOUNT_DIR,
+    TOKEN_TTL_S,
+    llm_gateway_url,
+    mcp_gateway_url,
+)
 from poseidon_operator.config import OperatorSettings
 
-AGENT_PORT = 8000
 LABELS = {
     "app.kubernetes.io/part-of": "poseidon",
     "app.kubernetes.io/managed-by": "poseidon-operator",
 }
-# Workload identity: every standing agent runs as its own
-# ServiceAccount, named by its agent_id, and authenticates to the MCP
-# gateway with a kubelet-rotated projected token scoped to this audience.
-# Must match the gateway's `token_audience` setting.
-TOKEN_AUDIENCE = "poseidon-mcp-gateway"
-TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
-# The port an agent's peers listen on, by the infra IR's peer vocabulary:
-# platform services by app label, cluster DNS by its kube-system label.
-_PEER_PORTS = {"mcp-gateway": 8080, "llm-gateway": 4000, "egress-proxy": 3128}
 
 
 def namespace(name: str) -> dict[str, Any]:
@@ -33,7 +40,7 @@ def namespace(name: str) -> dict[str, Any]:
         "kind": "Namespace",
         "metadata": {
             "name": name,
-            "labels": {**LABELS, "poseidon.dev/company": name},
+            "labels": {**LABELS, COMPANY_LABEL: name},
         },
     }
 
@@ -55,9 +62,9 @@ def _agent_kinds_selector() -> dict[str, Any]:
     return {
         "matchExpressions": [
             {
-                "key": "poseidon.dev/kind",
+                "key": KIND_LABEL,
                 "operator": "In",
-                "values": ["standing-agent", "ephemeral-agent"],
+                "values": [STANDING_KIND, EPHEMERAL_KIND],
             }
         ]
     }
@@ -103,7 +110,7 @@ def agent_ingress(company_ns: str, platform_ns: str) -> dict[str, Any]:
                                 }
                             },
                             "podSelector": {
-                                "matchLabels": {"app": "orchestrator-worker"}
+                                "matchLabels": {"app": ORCHESTRATOR_SERVICE_ACCOUNT}
                             },
                         }
                     ],
@@ -124,7 +131,7 @@ def _peer_selector(name: str, platform_ns: str) -> dict[str, Any]:
             },
             "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
         }
-    if name not in _PEER_PORTS:
+    if name not in PEER_PORTS:
         raise ValueError(f"unknown network peer {name!r}")
     return {
         "namespaceSelector": {
@@ -140,7 +147,7 @@ def _egress_peer(name: str, platform_ns: str) -> dict[str, Any]:
     ports = (
         [{"port": 53, "protocol": "UDP"}, {"port": 53, "protocol": "TCP"}]
         if name == "kube-dns"
-        else [{"port": _PEER_PORTS[name]}]
+        else [{"port": PEER_PORTS[name]}]
     )
     return {"to": [_peer_selector(name, platform_ns)], "ports": ports}
 
@@ -177,7 +184,7 @@ def sandbox_isolation(
             "labels": LABELS,
         },
         "spec": {
-            "podSelector": {"matchLabels": {"app": "poseidon-sandbox"}},
+            "podSelector": {"matchLabels": {"app": SANDBOX_APP_LABEL}},
             "policyTypes": ["Ingress", "Egress"],
             "ingress": ingress,
             "egress": [_egress_peer(name, platform_ns) for name in egress_to],
@@ -276,7 +283,7 @@ def agent_service_account(spec: dict[str, Any], company_ns: str) -> dict[str, An
         "metadata": {
             "name": spec["agentId"],
             "namespace": company_ns,
-            "labels": {**LABELS, "poseidon.dev/company": spec["company"]},
+            "labels": {**LABELS, COMPANY_LABEL: spec["company"]},
         },
     }
 
@@ -296,9 +303,9 @@ def agent_deployment(
     labels = {
         **LABELS,
         "app": standing_name,
-        "poseidon.dev/kind": "standing-agent",
-        "poseidon.dev/company": spec["company"],
-        "poseidon.dev/agent-id": spec["agentId"],
+        KIND_LABEL: STANDING_KIND,
+        COMPANY_LABEL: spec["company"],
+        AGENT_ID_LABEL: spec["agentId"],
         # In the pod-template labels so a blueprint edit to the tier rolls
         # the pod — the reconciliation contract — and so it is observable.
         "poseidon.dev/model-tier": spec.get("modelTier", ""),
@@ -331,7 +338,7 @@ def agent_deployment(
                                     {
                                         "serviceAccountToken": {
                                             "audience": TOKEN_AUDIENCE,
-                                            "expirationSeconds": 3600,
+                                            "expirationSeconds": TOKEN_TTL_S,
                                             "path": "token",
                                         }
                                     }
@@ -349,11 +356,11 @@ def agent_deployment(
                             "env": [
                                 {
                                     "name": "MCP_GATEWAY_URL",
-                                    "value": f"http://mcp-gateway.{platform_ns}.svc.cluster.local:8080",
+                                    "value": mcp_gateway_url(platform_ns),
                                 },
                                 {
                                     "name": "LLM_PROXY_URL",
-                                    "value": f"http://llm-gateway.{platform_ns}.svc.cluster.local:4000",
+                                    "value": llm_gateway_url(platform_ns),
                                 },
                                 # The role is the only spec field the agent
                                 # reads; tools are policed at the gateway and
@@ -376,7 +383,7 @@ def agent_deployment(
                                 },
                                 {
                                     "name": "GATEWAY_TOKEN_FILE",
-                                    "value": f"{TOKEN_MOUNT_DIR}/token",
+                                    "value": TOKEN_FILE,
                                 },
                                 # The python base image bakes this in; blank
                                 # it so no token-shaped value exists in a

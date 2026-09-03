@@ -161,9 +161,7 @@ class ImplementActivities:
         this call or the workflow history. Which procedures reach which
         agent is the workflow's sequencing (`deliver` only after a green
         platform verify) and the role's declared set at the host."""
-        status = await dispatch_and_poll(
-            url, run_id, procedure, task_text, self._settings.poll_interval_s
-        )
+        status = await dispatch_and_poll(url, run_id, procedure, task_text)
         self._log.bind(run_id=run_id).info(
             "agent finished", extra={"agent_status": status, "procedure": procedure}
         )

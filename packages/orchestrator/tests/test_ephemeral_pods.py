@@ -6,11 +6,10 @@ import asyncio
 
 import pytest
 
+from common.topology import EPHEMERAL_KIND, TOKEN_MOUNT_DIR
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
-    EPHEMERAL_KIND,
-    TOKEN_MOUNT_DIR,
     ephemeral_pod_manifest,
     pod_name,
     service_account_name,
@@ -141,6 +140,8 @@ def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected")
     return WorkerSettings(
+        company="hello-saas",
+        temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
         target_repo="github.com/example/repo",

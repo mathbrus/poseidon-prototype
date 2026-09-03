@@ -9,4 +9,3 @@ class McpGatewaySettings(WorkloadAuthnSettings):
     # Git backend: GIT_TOKEN/BASE_REF live in the gateway only.
     git_token: str | None = None
     base_ref: str = "main"
-    github_api_url: str = "https://api.github.com"

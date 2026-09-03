@@ -49,7 +49,7 @@ from orchestrator.clients import (
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
-from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.base import TEMPORAL_NAMESPACE, workflow_id
 from registry import AgentInstances, Attempts, AuditStore, BudgetLedger, Companies, Runs
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
@@ -312,9 +312,7 @@ class HeartbeatActivities:
         terminal, terminal_error = "done", None
         try:
             prompt = decision_prompt(observed, may_start)
-            status = await dispatch_and_poll(
-                conductor_url, run_id, "decide", prompt, self._settings.poll_interval_s
-            )
+            status = await dispatch_and_poll(conductor_url, run_id, "decide", prompt)
             decision = status.get("decision")
             if status["status"] != "done" or not decision:
                 raise ApplicationError(
@@ -465,8 +463,7 @@ class HeartbeatActivities:
         failure is swallowed; this can never fail the run that sends it."""
         try:
             client = await Client.connect(
-                self._settings.temporal_address,
-                namespace=self._settings.temporal_namespace,
+                self._settings.temporal_address, namespace=TEMPORAL_NAMESPACE
             )
             handle = client.get_workflow_handle(
                 workflow_id(WORKFLOW, self._settings.company)

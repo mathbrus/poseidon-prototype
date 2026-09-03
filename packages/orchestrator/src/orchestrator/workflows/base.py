@@ -31,6 +31,12 @@ TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 # above (`dispatch_heartbeat_s`), which are liveness pings on a dispatch.
 WORKFLOWS = ("implement", "intake", "review", "heartbeat")
 
+# Where every workflow above runs: one Temporal namespace, one task queue,
+# shared by the worker that hosts them and every client that starts or
+# signals them.
+TEMPORAL_NAMESPACE = "default"
+TASK_QUEUE = "poseidon-orchestrator"
+
 
 def workflow_id(workflow: str, key: str) -> str:
     """Deterministic workflow naming. The run-shaped workflows run one

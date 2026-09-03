@@ -11,6 +11,7 @@ import kopf
 import pytest
 
 from poseidon_operator import reconcile
+from poseidon_operator.config import OperatorSettings
 
 
 class FakeCluster:
@@ -86,6 +87,16 @@ class FakeCompanies:
 
     def delete(self, name: str) -> None:
         self.rows.pop(name, None)
+
+
+@pytest.fixture(autouse=True)
+def operator_settings(monkeypatch) -> None:
+    """The env the chart would set, without a chart."""
+    monkeypatch.setattr(
+        reconcile,
+        "_the_settings",
+        OperatorSettings(agent_image="poseidon-agent:abc123"),
+    )
 
 
 @pytest.fixture

@@ -3,9 +3,8 @@ blueprint and the converged standing instances."""
 
 from typing import Any
 
+from common.topology import agent_url
 from registry import AgentInstances, Companies
-
-AGENT_PORT = 8000
 
 
 def conductor(
@@ -33,7 +32,7 @@ def conductor(
     return {
         "agent_id": instance["agent_id"],
         "role": instance["role"],
-        "url": f"http://{standing_name}.{instance['namespace']}.svc.cluster.local:{AGENT_PORT}",
+        "url": agent_url(standing_name, instance["namespace"]),
     }
 
 

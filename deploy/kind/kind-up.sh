@@ -204,8 +204,11 @@ done
 REGISTRY_DSN="postgresql://${POSTGRES_USER:-poseidon}:${POSTGRES_PASSWORD:-poseidon-dev-postgres}@127.0.0.1:15432/${POSTGRES_USER:-poseidon}" \
   uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 kill $PGPF 2>/dev/null || true
-# The PM is the only standing agent; execution is ephemeral crews.
-kubectl -n "$COMPANY_NS" rollout status deployment/pm --timeout=300s
+# Every standing agent the applied blueprint hires (execution itself is
+# ephemeral crews, so these are the only long-lived company pods).
+for hire in $(kubectl -n "$COMPANY_NS" get agentinstances -o jsonpath='{.items[*].spec.standingName}'); do
+  kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
+done
 
 echo "==> image check"
 # Assert every poseidon pod actually runs this build. Without it, a template

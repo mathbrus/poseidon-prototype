@@ -87,7 +87,7 @@ from mockllm.brain import (
     SLUGIFY_PY,
     TEST_SLUGIFY_PY,
 )
-from orchestrator.workflows.base import FAST_TIMEOUTS, Timeouts, workflow_id
+from orchestrator.workflows.base import FAST_TIMEOUTS, TASK_QUEUE, Timeouts, workflow_id
 from orchestrator.workflows.implement import ImplementInput
 from orchestrator.workflows.review import ReviewInput
 
@@ -107,7 +107,6 @@ from .cluster import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
-TASK_QUEUE = "poseidon-orchestrator"
 
 E2E_KIND_DIR = Path(__file__).resolve().parent
 

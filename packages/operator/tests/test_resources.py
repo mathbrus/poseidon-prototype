@@ -18,7 +18,9 @@ SPEC = {
 }
 
 PLATFORM = "poseidon-platform"
-SETTINGS = OperatorSettings(platform_namespace=PLATFORM)
+SETTINGS = OperatorSettings(
+    platform_namespace=PLATFORM, agent_image="poseidon-agent:abc123"
+)
 
 
 def test_company_namespace_is_labelled_for_its_company():

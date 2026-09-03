@@ -35,6 +35,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected-token")
     return WorkerSettings(
+        temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
         target_repo="github.com/example/repo",

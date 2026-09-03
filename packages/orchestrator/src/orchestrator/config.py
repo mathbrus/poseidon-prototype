@@ -13,16 +13,18 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
+from common.topology import PLATFORM_NAMESPACE_DEFAULT
 from sandbox.egressproxy.credentials import sandbox_proxy_env
 
 
 class TemporalSettings(BaseSettings):
+    # The CLI's default is the kind port-forward; the worker (below) has
+    # none and takes the in-cluster address from the chart.
     temporal_address: str = "127.0.0.1:7233"
-    temporal_namespace: str = "default"
-    task_queue: str = "poseidon-orchestrator"
 
 
 class WorkerSettings(TemporalSettings):
+    temporal_address: str
     # Gateway credential: the projected service-account
     # token the kubelet mounts and rotates. Read per client construction —
     # clients live one activity, far shorter than the token's remaining
@@ -31,10 +33,10 @@ class WorkerSettings(TemporalSettings):
     mcp_gateway_url: str
     target_repo: str
     base_ref: str = "main"
-    # The bootstrap company this worker executes runs for, and its
-    # namespace (where sandbox Jobs land). One worker serves one company.
-    company: str = "hello-saas"
-    sandbox_namespace: str = "hello-saas"
+    # The company this worker executes runs for. One worker serves one
+    # company, and the company's namespace — where its sandbox Jobs and
+    # ephemeral pods land — is the company's name.
+    company: str
     # Deploy-time resolution of the infra IR's *logical* toolchain image:
     # a blueprint says `poseidon-sandbox`; only the
     # deployment knows the content-addressed reference the cluster actually
@@ -49,19 +51,13 @@ class WorkerSettings(TemporalSettings):
     # runs (content-addressed on kind, like the sandbox image), and the
     # platform namespace for gateway FQDNs.
     agent_image: str
-    platform_namespace: str = "poseidon-platform"
+    platform_namespace: str = PLATFORM_NAMESPACE_DEFAULT
     # The workflow-recorded crew-request path evaluates the
     # same compiled decision the crew.request tool faces, directly at OPA.
     opa_url: str = "http://opa:8181"
     model: str = "mock-brain"
     # Implement's advisory verify cycles, handed to every agent pod.
     verify_cycles: int = 10
-    poll_interval_s: float = 2
-    # How often the worker's ensure loop checks that the company's declared
-    # heartbeat workflow is running (reconcile-on-goal: the applied
-    # blueprint's heartbeat section is the goal; the workflow itself stops
-    # when the section is gone).
-    heartbeat_ensure_interval_s: float = 60
 
     def gateway_token(self) -> str:
         if self.gateway_token_file:

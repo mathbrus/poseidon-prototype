@@ -23,13 +23,12 @@ from typing import Any
 
 import pytest
 
+from common.topology import PLATFORM_NAMESPACE_DEFAULT, RUN_ID_LABEL, TOKEN_AUDIENCE
 from registry import Registry, open_registry
 
-PLATFORM_NS = "poseidon-platform"
+PLATFORM_NS = PLATFORM_NAMESPACE_DEFAULT
 COMPANY_NS = "hello-saas"
 POSTGRES_USER = "poseidon"
-RUN_ID_LABEL = "poseidon.dev/run-id"
-TOKEN_AUDIENCE = "poseidon-mcp-gateway"
 
 # --- kubectl -----------------------------------------------------------------
 
@@ -589,6 +588,8 @@ def worker_settings(env: dict, tmp_path: Path):
     token_file = tmp_path / "unused-token"
     token_file.write_text("unused")
     return WorkerSettings(
+        temporal_address="127.0.0.1:7233",
+        company=COMPANY_NS,
         gateway_token_file=str(token_file),
         mcp_gateway_url=gateway_url(env),
         target_repo=env.get("TARGET_REPO", "github.com/example/repo"),

@@ -18,16 +18,20 @@ from common.ids import new_run_id
 from orchestrator.cli.blueprint import app as blueprint_app
 from orchestrator.config import TemporalSettings
 from orchestrator.workflows import ImplementInput, IntakeInput, ReviewInput
-from orchestrator.workflows.base import FAST_TIMEOUTS, WORKFLOWS, workflow_id
+from orchestrator.workflows.base import (
+    FAST_TIMEOUTS,
+    TASK_QUEUE,
+    TEMPORAL_NAMESPACE,
+    WORKFLOWS,
+    workflow_id,
+)
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 app.add_typer(blueprint_app, name="blueprint")
 
 
 async def _client(settings: TemporalSettings) -> Client:
-    return await Client.connect(
-        settings.temporal_address, namespace=settings.temporal_namespace
-    )
+    return await Client.connect(settings.temporal_address, namespace=TEMPORAL_NAMESPACE)
 
 
 @app.command()
@@ -115,7 +119,7 @@ def _start(workflow: str, run_id: str, started_input: object, detach: bool) -> N
             workflow,
             started_input,
             id=workflow_id(workflow, run_id),
-            task_queue=settings.task_queue,
+            task_queue=TASK_QUEUE,
         )
         typer.echo(f"started {handle.id} (run_id {run_id})", err=True)
         if detach:

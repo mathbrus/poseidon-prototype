@@ -196,7 +196,7 @@ provider reports, never from guesses.
 ## Entry points
 
 ```
-python -m llm_gateway      # listens on LLM_GATEWAY_PORT, default 4000
+python -m llm_gateway      # listens on the platform's LLM gateway port (4000)
 ```
 
 Built as `poseidon-llm-gateway` by `deploy/build-images.sh`; deployed by the chart's

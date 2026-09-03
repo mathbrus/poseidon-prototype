@@ -92,6 +92,9 @@ class PreparedBundle:
         shutil.rmtree(self.root, ignore_errors=True)
 
 
+GITHUB_API_URL = "https://api.github.com"
+
+
 class GitBackend:
     def __init__(
         self, settings: McpGatewaySettings, http_client: httpx.AsyncClient
@@ -286,7 +289,7 @@ class GitBackend:
             headers["Authorization"] = f"Bearer {self._settings.git_token}"
         resp = await self._http.request(
             method,
-            f"{self._settings.github_api_url.rstrip('/')}{path}",
+            f"{GITHUB_API_URL}{path}",
             json=json,
             headers=headers,
         )

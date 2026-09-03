@@ -35,7 +35,7 @@ from orchestrator.workflows import (
     IntakeWorkflow,
     ReviewWorkflow,
 )
-from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.base import TASK_QUEUE, TEMPORAL_NAMESPACE, workflow_id
 from registry import (
     AgentInstances,
     AuditStore,
@@ -48,6 +48,11 @@ from registry import (
 )
 from sandbox.k8s_jobs import K8sJobsBackend
 
+# How often the worker checks that the company's declared heartbeat
+# workflow is running (reconcile-on-goal: the applied blueprint's heartbeat
+# section is the goal; the workflow itself stops when the section is gone).
+HEARTBEAT_ENSURE_INTERVAL_S = 60
+
 
 async def ensure_heartbeat_loop(
     client: Client, settings: WorkerSettings, companies: Companies, log
@@ -59,7 +64,7 @@ async def ensure_heartbeat_loop(
     only ever starts, never kills."""
     while True:
         await ensure_heartbeat_once(client, settings, companies, log)
-        await asyncio.sleep(settings.heartbeat_ensure_interval_s)
+        await asyncio.sleep(HEARTBEAT_ENSURE_INTERVAL_S)
 
 
 async def ensure_heartbeat_once(
@@ -73,7 +78,7 @@ async def ensure_heartbeat_once(
                 "heartbeat",
                 HeartbeatInput(company=settings.company),
                 id=workflow_id("heartbeat", settings.company),
-                task_queue=settings.task_queue,
+                task_queue=TASK_QUEUE,
             )
             log.info("heartbeat started", extra={"company": settings.company})
     except WorkflowAlreadyStartedError:
@@ -85,7 +90,7 @@ async def ensure_heartbeat_once(
 async def main() -> None:
     settings = WorkerSettings()
     log = get_logger("orchestrator.worker")
-    backend = K8sJobsBackend(namespace=settings.sandbox_namespace)
+    backend = K8sJobsBackend(namespace=settings.company)
     # Every service migrates at startup under an advisory lock, so the
     # worker needs no ordering guarantee against the other writers.
     registry = open_registry()
@@ -97,7 +102,7 @@ async def main() -> None:
         Companies(registry),
         BudgetLedger(registry),
         Runs(registry),
-        provisioner=EphemeralPodProvisioner(settings.sandbox_namespace),
+        provisioner=EphemeralPodProvisioner(settings.company),
     )
     run_activities = RunActivities(
         settings,
@@ -134,10 +139,10 @@ async def main() -> None:
     while True:
         try:
             client = await Client.connect(
-                settings.temporal_address, namespace=settings.temporal_namespace
+                settings.temporal_address, namespace=TEMPORAL_NAMESPACE
             )
             await client.workflow_service.describe_namespace(
-                DescribeNamespaceRequest(namespace=settings.temporal_namespace)
+                DescribeNamespaceRequest(namespace=TEMPORAL_NAMESPACE)
             )
             break
         except Exception as exc:  # RPCError, DNS failures — anything transient
@@ -152,7 +157,7 @@ async def main() -> None:
         loop.add_signal_handler(sig, stop.set)
     worker = Worker(
         client,
-        task_queue=settings.task_queue,
+        task_queue=TASK_QUEUE,
         workflows=[HeartbeatWorkflow, ImplementWorkflow, IntakeWorkflow, ReviewWorkflow],
         activities=[
             *run_activities.all(),
@@ -164,7 +169,7 @@ async def main() -> None:
     )
     log.info(
         "worker started",
-        extra={"address": settings.temporal_address, "task_queue": settings.task_queue},
+        extra={"address": settings.temporal_address, "task_queue": TASK_QUEUE},
     )
     ensure = asyncio.create_task(
         ensure_heartbeat_loop(client, settings, Companies(registry), log)

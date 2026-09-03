@@ -14,6 +14,7 @@ import re
 import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -23,6 +24,7 @@ from mcp.client.streamable_http import streamable_http_client
 from common.authn import ServiceAccount
 from mcp_gateway.app import create_app
 from mcp_gateway.config import McpGatewaySettings
+from mcp_gateway.git_backend import GITHUB_API_URL
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
@@ -41,7 +43,6 @@ REVIEWER_TOKEN = "reviewer-secret"
 GIT_TOKEN = "git-platform-secret"
 OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
-GITHUB_API_URL = "http://github.test"
 PR_URL = "https://github.test/example/pull/1"
 FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 
@@ -190,7 +191,7 @@ class Backends:
             path = request.url.path
             self.sandbox_calls.append((path, json.loads(request.content)))
             return httpx.Response(200, json=SANDBOX_RESPONSES[path])
-        if request.url.host == "github.test":
+        if request.url.host == urlsplit(GITHUB_API_URL).hostname:
             if self.github_error is not None:
                 return httpx.Response(self.github_error, json={"message": "github boom"})
             payload = json.loads(request.content) if request.content else {}
@@ -295,7 +296,6 @@ def settings() -> McpGatewaySettings:
         opa_url=OPA_URL,
         git_token=GIT_TOKEN,
         base_ref="main",
-        github_api_url=GITHUB_API_URL,
     )
 
 
