@@ -39,6 +39,7 @@ from common.audit import AuditEvent, args_digest
 from common.authn import Authenticator, Reviewer, default_reviewer
 from common.identity import LIFECYCLE_EPHEMERAL, Identity
 from common.telemetry import get_logger
+from common.topology import RUN_ID_HEADER
 from llm_gateway.config import LlmGatewaySettings
 from registry import (
     AgentInstances,
@@ -52,7 +53,7 @@ from registry import (
 
 TOOL_CHAT = "llm.chat_completions"
 TOOL_RESPONSES = "llm.responses"
-RUN_HEADER = "x-poseidon-run-id"
+RUN_HEADER = RUN_ID_HEADER.lower()
 
 
 def _chat_digest_fields(body: dict[str, Any]) -> dict[str, Any]:
@@ -274,7 +275,7 @@ def create_app(
         # -- run attribution (mandatory; no anonymous passthrough) ---------
         run_id = request.headers.get(RUN_HEADER, "").strip()
         if not run_id:
-            return await deny(400, "missing X-Poseidon-Run-Id", "llm_unattributed")
+            return await deny(400, f"missing {RUN_ID_HEADER}", "llm_unattributed")
         if identity.lifecycle == LIFECYCLE_EPHEMERAL and identity.run_id != run_id:
             return await deny(
                 403, "not a participant of this run", "llm_foreign_run", run_id

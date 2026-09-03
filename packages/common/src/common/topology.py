@@ -62,6 +62,11 @@ SANDBOX_APP_LABEL = "poseidon-sandbox"
 SANDBOX_TOOLCHAIN = "poseidon-sandbox"
 
 
+# The header every model call carries: the run the LLM gateway attributes
+# the spend to. Compared case-insensitively on the wire.
+RUN_ID_HEADER = "X-Poseidon-Run-Id"
+
+
 def service_url(service: str, namespace: str, port: int) -> str:
     return f"http://{service}.{namespace}.svc.cluster.local:{port}"
 

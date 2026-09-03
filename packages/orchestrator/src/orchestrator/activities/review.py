@@ -42,6 +42,8 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
+from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
+from common.tasks import ISSUE_TASK_RE
 from common.telemetry import get_logger
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.audit import record_event
@@ -58,7 +60,6 @@ from registry import AuditStore, Companies, RunParticipants, Runs
 # depth into a hand-filed ticket only escalates to the human sooner — the
 # parse can shrink autonomy, never extend it.
 REWORK_TITLE_RE = re.compile(r"^Rework (\d+) for PR #(\d+)")
-IMPLEMENT_ISSUE_TASK_RE = re.compile(r"^implement issue #(\d+)$")
 
 # The named rule a review run fails with when its PR is already merged or
 # closed — the run record's error starts with it, and the audit row
@@ -350,7 +351,7 @@ class ReviewActivities:
             implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)
             if implement is None:
                 return None
-            match = IMPLEMENT_ISSUE_TASK_RE.match(implement.task or "")
+            match = ISSUE_TASK_RE.match(implement.task or "")
             return int(match.group(1)) if match else None
 
         issue_number = await asyncio.to_thread(lineage_issue)
@@ -461,10 +462,10 @@ class ReviewActivities:
         company = self._settings.company
         decision_input = {
             "company": company,
-            "agent_id": "orchestrator",
-            "lifecycle": "platform",
+            "agent_id": ORCHESTRATOR_ID,
+            "lifecycle": LIFECYCLE_PLATFORM,
             "parent_agent_id": "",
-            "role": "platform",
+            "role": PLATFORM_ROLE,
             "run_id": run_id,
             "workflow": "review",
             "tool": "merge.resolve",

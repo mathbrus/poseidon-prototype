@@ -27,6 +27,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
+from common.identity import LIFECYCLE_EPHEMERAL, LIFECYCLE_STANDING
 from common.telemetry import get_logger
 from common.topology import TOKEN_FILE, llm_gateway_url, mcp_gateway_url
 from orchestrator.activities.blueprint import company_repo
@@ -407,7 +408,7 @@ class CrewActivities:
         decision_input = {
             "company": company,
             "agent_id": conductor,
-            "lifecycle": "standing",
+            "lifecycle": LIFECYCLE_STANDING,
             "parent_agent_id": "",
             "role": conductor_role,
             "run_id": run_id,
@@ -432,7 +433,7 @@ class CrewActivities:
             digest=args_digest({"crew_template": crew_template}),
             started=started,
             decision="allow" if allowed else "deny",
-            lifecycle="standing",
+            lifecycle=LIFECYCLE_STANDING,
         )
         if not allowed:
             raise RuntimeError(
@@ -461,7 +462,7 @@ class CrewActivities:
         digest: str,
         started: float,
         decision: str = "allow",
-        lifecycle: str = "ephemeral",
+        lifecycle: str = LIFECYCLE_EPHEMERAL,
     ) -> None:
         event = await record_event(
             self._audit,

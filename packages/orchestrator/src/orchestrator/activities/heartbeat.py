@@ -39,6 +39,7 @@ from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
+from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.telemetry import get_logger
 from orchestrator.activities.blueprint import company_repo, conductor
 from orchestrator.audit import record_event
@@ -389,10 +390,10 @@ class HeartbeatActivities:
         company = self._settings.company
         decision_input = {
             "company": company,
-            "agent_id": "orchestrator",
-            "lifecycle": "platform",
+            "agent_id": ORCHESTRATOR_ID,
+            "lifecycle": LIFECYCLE_PLATFORM,
             "parent_agent_id": "",
-            "role": "platform",
+            "role": PLATFORM_ROLE,
             "run_id": child_run_id,
             "workflow": WORKFLOW,
             "tool": "heartbeat.start",

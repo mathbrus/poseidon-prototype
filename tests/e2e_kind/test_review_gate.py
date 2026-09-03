@@ -21,8 +21,8 @@ import time
 import pytest
 
 from common.ids import new_run_id
+from common.tasks import issue_run_task
 from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.implement import issue_placeholder
 from orchestrator.workflows.intake import IntakeInput
 from orchestrator.workflows.review import ReviewInput
 
@@ -177,7 +177,7 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     # issue intake filed (linked on its run row), and its task is the
     # issue reference — no second, human-written spec anywhere.
     assert review_chain["implement"]["ticket_urls"] == [review_chain["ticket_url"]]
-    assert review_chain["implement"]["task"] == issue_placeholder(
+    assert review_chain["implement"]["task"] == issue_run_task(
         review_chain["issue_number"]
     )
 

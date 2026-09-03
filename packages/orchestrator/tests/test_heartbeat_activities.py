@@ -11,6 +11,7 @@ from conftest import heartbeat_spec
 from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
+from common.tasks import issue_run_task
 from orchestrator.activities.heartbeat import (
     HeartbeatActivities,
     consumed,
@@ -448,7 +449,7 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
         },
     )
     for run_id, issue, pr in (("run-a", 3, 4), ("run-b", 5, 6), ("run-c", 7, 8)):
-        runs.start(run_id, f"implement issue #{issue}", "implement", company=COMPANY)
+        runs.start(run_id, issue_run_task(issue), "implement", company=COMPANY)
         runs.finish(run_id, "done", pr_url=f"https://github.test/example/repo/pull/{pr}")
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == [

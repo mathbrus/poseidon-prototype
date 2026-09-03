@@ -49,6 +49,7 @@ import time
 
 import pytest
 
+from common.tasks import issue_run_task, review_run_task
 from mockllm.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
@@ -126,11 +127,11 @@ def unattended_run(heartbeat_profile, env: dict) -> dict:
     # An issue filed straight on GitHub is a change only the outside world
     # saw: wake the standing heartbeat onto it, then let it run the
     # implement to a terminal state with no human command.
-    wake_until_run_started(f"implement issue #{issue_number}", "implement")
+    wake_until_run_started(issue_run_task(issue_number), "implement")
     deadline = time.monotonic() + 1800
     child = None
     while time.monotonic() < deadline:
-        child = run_by_task(f"implement issue #{issue_number}", workflow="implement")
+        child = run_by_task(issue_run_task(issue_number), workflow="implement")
         if child and child["status"] in ("done", "failed"):
             break
         time.sleep(5)
@@ -253,7 +254,7 @@ def merged_by_hand(unattended_run: dict, env: dict) -> dict:
     number = pr_number(child.get("pr_url"))
     if child["status"] != "done" or number is None:
         pytest.skip("the unattended run delivered no PR to merge by hand")
-    if run_by_task(f"review pull request #{number}", workflow="review"):
+    if run_by_task(review_run_task(number), workflow="review"):
         pytest.skip(
             "a review run already consumed the PR — the arc needs the world,"
             " not the ledger, to settle it"
@@ -300,7 +301,7 @@ def test_a_pr_merged_by_a_human_is_not_reviewed(merged_by_hand: dict):
     assert {t["rule"] for t in ticks} == {"tick_idle:backlog_empty"}, ticks
     assert all(t["decision"] == "deny" for t in ticks)
     number = merged_by_hand["pr_number"]
-    assert run_by_task(f"review pull request #{number}", workflow="review") is None, (
+    assert run_by_task(review_run_task(number), workflow="review") is None, (
         "the heartbeat started a review of a PR the world had already merged"
     )
 
@@ -344,14 +345,14 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     apply_blueprint(heartbeat_variant())
     wait_for_convergence()
 
-    wake_until_run_started(f"implement issue #{issue_number}", "implement")
-    implement = await_run(f"implement issue #{issue_number}", True)
+    wake_until_run_started(issue_run_task(issue_number), "implement")
+    implement = await_run(issue_run_task(issue_number), True)
     assert implement["status"] == "done", f"unattended implement: {implement}"
     number = pr_number(implement["pr_url"])
     assert number is not None, f"not a PR url: {implement['pr_url']!r}"
     result["implement"] = implement
     result["pr_number"] = number
-    task = f"review pull request #{number}"
+    task = review_run_task(number)
     # Two review attempts, each to a terminal state — chained by the
     # platform's own nudges: every finished run wakes the next tick. The
     # periodic re-wake only covers a nudge whose backlog read landed too

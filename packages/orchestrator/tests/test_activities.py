@@ -9,9 +9,9 @@ from typing import Any
 
 import pytest
 
+from common.tasks import issue_run_task
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
-from orchestrator.workflows.implement import issue_placeholder
 from registry.memory import (
     InMemoryCompanies,
     InMemoryRuns,
@@ -127,7 +127,7 @@ def test_read_issue_returns_the_view_and_links_the_ticket(
             "url": "https://github.test/i/42",
         },
     )
-    runs.start(RUN_ID, issue_placeholder(42), "implement", company="hello-saas")
+    runs.start(RUN_ID, issue_run_task(42), "implement", company="hello-saas")
     issue = asyncio.run(activities.read_issue(RUN_ID, 42))
     assert issue["title"] == "Add slugify" and issue["body"] == "spec"
     assert runs.get(RUN_ID).ticket_urls == ["https://github.test/i/42"]

@@ -10,10 +10,10 @@ from dataclasses import asdict
 
 import pytest
 
+from common.tasks import issue_run_task
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.activities.run import RunActivities
 from orchestrator.workflows.base import Timeouts
-from orchestrator.workflows.implement import issue_placeholder
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
@@ -152,10 +152,10 @@ def test_create_run_refuses_a_second_live_run_for_the_same_issue(activities, run
     """One live implement run per issue — the registry constraint surfaces
     here, so neither a heartbeat tick nor a human `poseidon run <n>` can
     duplicate work already in flight."""
-    asyncio.run(activities.create_run(RUN_ID, "implement", issue_placeholder(42)))
+    asyncio.run(activities.create_run(RUN_ID, "implement", issue_run_task(42)))
     with pytest.raises(RuntimeError, match="one live run per work item"):
         asyncio.run(
-            activities.create_run("run-elsewhere", "implement", issue_placeholder(42))
+            activities.create_run("run-elsewhere", "implement", issue_run_task(42))
         )
     # The losing run never clobbered the live row.
     assert runs.get(RUN_ID).status == "running"

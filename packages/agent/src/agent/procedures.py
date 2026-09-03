@@ -61,6 +61,7 @@ from agent.hands import (
 )
 from agent.prompting import REPO_INSTRUCTIONS_FILE, repo_instructions, system_prompt
 from common.telemetry import get_logger
+from common.topology import RUN_ID_HEADER
 
 # Step caps per procedure — engineering limits on how long one SDK loop
 # may run; money is bounded by the per-run cap either way.
@@ -183,7 +184,7 @@ def build_llm(settings: AgentSettings, run_id: str, token: str) -> LLM:
         model=model,
         base_url=settings.llm_proxy_url,
         api_key=SecretStr(token),
-        extra_headers={"X-Poseidon-Run-Id": run_id},
+        extra_headers={RUN_ID_HEADER: run_id},
         num_retries=1,  # the workflow owns retries; budget 429s surface now
         usage_id=run_id,
     )

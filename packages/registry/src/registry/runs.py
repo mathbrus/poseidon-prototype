@@ -13,20 +13,13 @@ that difference off the attempt aggregates below.
 """
 
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
 from psycopg.errors import UniqueViolation
 
+from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from registry.db import Registry
-
-# The canonical task texts of heartbeat-startable work. The number is the
-# work item's key: every run on one issue or one PR carries the same
-# text, which is what the live-run indexes and the attempt aggregates
-# group by.
-ISSUE_TASK_RE = re.compile(r"^implement issue #(\d+)$")
-REVIEW_TASK_RE = re.compile(r"^review pull request #(\d+)$")
 
 
 @dataclass(frozen=True)

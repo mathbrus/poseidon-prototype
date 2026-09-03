@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from orchestrator.activities.crew import CrewActivities
 
 from common.audit import args_digest
+from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from common.telemetry import get_logger
 from orchestrator.activities.blueprint import company_repo, workflow_config
 from orchestrator.audit import record_event
@@ -40,8 +41,6 @@ from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import PROFILES, workflow_id
 from registry import (
-    ISSUE_TASK_RE,
-    REVIEW_TASK_RE,
     AgentInstances,
     AuditStore,
     BudgetLedger,

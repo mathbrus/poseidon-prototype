@@ -35,6 +35,7 @@ from typing import Any
 from temporalio import workflow
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from common.tasks import issue_run_task
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
@@ -52,14 +53,6 @@ class ImplementInput:
     task_text: str | None = None
     # None keeps the generous real-brain defaults.
     issue_number: int | None = None
-
-
-def issue_placeholder(number: int) -> str:
-    """The run row's task for an issue-driven run: the row is created
-    before the ticket is resolved (so it exists ahead of the platform's
-    gateway call), and the reference — not a pasted body — is what the
-    record keeps."""
-    return f"implement issue #{number}"
 
 
 def issue_task(number: int, title: str, body: str, url: str) -> str:
@@ -137,7 +130,7 @@ class ImplementWorkflow(RunWorkflow):
         try:
             config = await self.start_run(
                 input.run_id,
-                input.task_text or issue_placeholder(input.issue_number),
+                input.task_text or issue_run_task(input.issue_number),
             )
             # The one source of dispatch truth: the file text handed in, or
             # the ticket the company already filed — fetched under the

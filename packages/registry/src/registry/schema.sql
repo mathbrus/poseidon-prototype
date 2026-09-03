@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS registry.runs (
 CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_issue_run
     ON registry.runs (company, task)
     WHERE status = 'running' AND workflow = 'implement'
-      AND task LIKE 'implement issue #%';
+      AND task LIKE 'implement issue #%';  -- common.tasks.issue_run_task
 -- One live review run per pull request, by the same construction: the
 -- canonical review-run task is the key, so a heartbeat re-offering an
 -- aborted review and a human `poseidon run` cannot review one PR twice
@@ -87,7 +87,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_issue_run
 CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_review_run
     ON registry.runs (company, task)
     WHERE status = 'running' AND workflow = 'review'
-      AND task LIKE 'review pull request #%';
+      AND task LIKE 'review pull request #%';  -- common.tasks.review_run_task
 
 -- Ephemeral agents, kept out of agent_instances so hire/fire diffs
 -- stay clean. Revocation is a row termination, checked live on every

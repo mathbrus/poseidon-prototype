@@ -18,8 +18,9 @@ from collections.abc import Callable
 from typing import Any
 
 from common.audit import AuditEvent
+from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from registry.participants import ParticipantRevoked
-from registry.runs import ISSUE_TASK_RE, REVIEW_TASK_RE, Attempts, RunRecord
+from registry.runs import Attempts, RunRecord
 
 
 class InMemoryAuditStore:

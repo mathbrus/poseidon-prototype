@@ -37,6 +37,7 @@ import pytest
 from temporalio.client import Client
 
 from common.ids import new_run_id
+from common.tasks import issue_run_task, review_run_task
 from orchestrator.workflows.base import workflow_id
 
 from .blueprints import heartbeat_variant, restore_pristine
@@ -129,11 +130,11 @@ def overnight(stack: None, env: dict) -> dict:
             # the ticket was visible on the git host.
             await asyncio.to_thread(
                 wake_until_run_started,
-                f"implement issue #{issue_number}",
+                issue_run_task(issue_number),
                 "implement",
             )
             implement = await asyncio.to_thread(
-                await_run, f"implement issue #{issue_number}", True
+                await_run, issue_run_task(issue_number), True
             )
             assert implement["status"] == "done", f"unattended implement: {implement}"
             assert implement["pr_url"], "the unattended implement produced no PR"
@@ -146,11 +147,9 @@ def overnight(stack: None, env: dict) -> dict:
             # the delivered PR; the review it starts parks on the human
             # merge gate.
             await asyncio.to_thread(
-                wake_until_run_started, f"review pull request #{number}", "review"
+                wake_until_run_started, review_run_task(number), "review"
             )
-            review = await asyncio.to_thread(
-                await_run, f"review pull request #{number}", False
-            )
+            review = await asyncio.to_thread(await_run, review_run_task(number), False)
             result["review"] = review
             review_handle = client.get_workflow_handle(
                 workflow_id("review", review["run_id"])

@@ -53,6 +53,7 @@ from typing import Any
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
+from common.tasks import review_run_task
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
@@ -338,9 +339,7 @@ class ReviewWorkflow(RunWorkflow):
         # stays on the backlog.
         concluded = False
         try:
-            config = await self.start_run(
-                input.run_id, f"review pull request #{input.pr_number}"
-            )
+            config = await self.start_run(input.run_id, review_run_task(input.pr_number))
             pr = await workflow.execute_activity(
                 "read_pr",
                 args=[input.run_id, input.pr_number, config.get("contract_paths") or []],
