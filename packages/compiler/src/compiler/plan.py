@@ -17,7 +17,6 @@ class CompanyCR:
     name: str
     namespace: str
     mission: str
-    stage: str | None = None
 
 
 @dataclass(frozen=True)

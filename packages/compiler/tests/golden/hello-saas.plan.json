@@ -15,8 +15,7 @@
   "company": {
     "mission": "Ship a small SaaS product with an agent company under governance.",
     "name": "hello-saas",
-    "namespace": "hello-saas",
-    "stage": "prototype"
+    "namespace": "hello-saas"
   },
   "contract_tests": null,
   "ephemeral_agents": [

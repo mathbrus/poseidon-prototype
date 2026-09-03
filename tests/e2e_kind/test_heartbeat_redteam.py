@@ -52,9 +52,9 @@ import pytest
 from mockllm.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
-    HEARTBEAT,
     apply_blueprint,
     heartbeat_implement_only,
+    heartbeat_variant,
     restore_pristine,
     wait_for_convergence,
 )
@@ -341,7 +341,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     heartbeat_id = bare_heartbeat_id()
     result: dict = {"issue_number": issue_number, "heartbeat_id": heartbeat_id}
 
-    apply_blueprint(HEARTBEAT)
+    apply_blueprint(heartbeat_variant())
     wait_for_convergence()
 
     wake_until_run_started(f"implement issue #{issue_number}", "implement")

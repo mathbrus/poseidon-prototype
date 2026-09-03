@@ -1,26 +1,19 @@
-# hello-saas-delegated — the flagship autonomous company: a standing
-# heartbeat AND a POLICY-RESOLVED merge gate. Like hello-saas-heartbeat,
-# the company starts its own runs; unlike it, in-class passing work
-# merges under compiled policy with no human command at all. The merge gate
-# is delegated for a narrow class of changes: a passing independent review
-# plus the platform's own green checks merges a PR touching only
-# `slugify.py` or the unit-test tree. Everything else still stops — a carve-out
-# surface, an out-of-class path, or a decline falls back to the human
-# `merge` signal; a failed quality layer feeds the bounded rework loop.
-# Removing the `delegate` block reverts to human-only merge: revocation is
-# a diff.
+# hello-saas-delegated — the company that runs itself: a heartbeat starts
+# its runs from the backlog, and in-class passing work (`slugify.py`, the
+# unit-test tree) merges under compiled policy with no human command. A
+# person still feeds goals in and answers everything the delegation does
+# not cover — carve-outs, out-of-class paths, a declined policy merge, and
+# the acceptance-contract tree the delegation is graded by, which only the
+# contract author may write. Removing the `delegate` block reverts to
+# human-only merge; removing `heartbeat` reverts to human-started runs.
 
 apiVersion: poseidon.dev/v1
 
 company:
   name: hello-saas
   mission: Ship a small SaaS product with an agent company under governance.
-  product: A URL-shortening service with a REST API.
-  stage: prototype
 
 stack:
-  languages: [python]
-  frameworks: [fastapi]
   repos:
     - name: app
       url: github.com/example-org/hello-saas
@@ -28,8 +21,6 @@ stack:
   toolchain:
     image: poseidon-sandbox
     test_command: pytest -q
-    # Reaches the audited egress proxy only; an empty list
-    # would mean zero egress.
     egress_allow:
       - pypi.org
       - files.pythonhosted.org
@@ -43,33 +34,11 @@ standing:
       crew: [contract-authoring, feature-delivery, feature-review]
       max_concurrent: 2
 
-crews:
-  # The oracle's authors: one deliver-capable agent working from the
-  # contract ticket the PM files. A crew of its own is what makes the
-  # split positional: `contract-author` is not a role the delivery
-  # crew contains, so the implementer cannot be the hand that writes
-  # the spec it is graded by.
-  contract-authoring:
-    roles: [contract-author]
-  feature-delivery:
-    roles: [implementer]
-  feature-review:
-    roles: [reviewer]
-
-# Per-role gateway scopes, for standing and ephemeral agents of the role
-# alike; a role not listed here gets its catalog tools. The PM's list is
-# deliberately narrow: spawn authority is not permission to wield the
-# crew's tools, so no sandbox writes and no git.open_pr appear here.
-# issues.comment is how the PM leaves its intake summary on the tickets
-# it files. The reviewer's list drops the write tools its catalog role
-# would allow: it judges, it does not fix.
+# The one place a role's scope is narrowed, for standing and ephemeral
+# agents of the role alike; a role not listed keeps its catalog tools.
+# The reviewer drops the write tools its catalog role would allow: it
+# judges, it does not fix.
 tools:
-  pm:
-    allow:
-      - issues.create
-      - issues.read
-      - issues.comment
-      - crew.request
   reviewer:
     allow:
       - sandbox.read_file
@@ -83,8 +52,6 @@ tools:
 workflows:
   intake:
     enabled: true
-    # No intake gate declared: goals a human submits dispatch the PM
-    # without a second stop.
     conductor: pm
   implement:
     enabled: true
@@ -96,18 +63,13 @@ workflows:
     conductor: pm
     crew: feature-review
     gates:
-      # The delegated merge gate: compiled policy merges a passing,
-      # independently-reviewed, in-class change with no human command; a
-      # decline or a carve-out falls back to the human `merge` signal.
       merge:
         resolved_by: policy
         # The wait when policy declines and the merge parks on a human.
         deadline_minutes: 1440
         delegate:
-          # The unit-test tree only — never the whole of tests/: the
-          # contract/acceptance tree is the oracle delegated merges are
-          # graded by, and the oracle never rides the delegation it
-          # certifies.
+          # The unit-test tree, never the whole of tests/: the contract
+          # tree below is the oracle these merges are graded by.
           paths: [slugify.py, tests/unit/]
           max_reworks: 1
 
@@ -117,18 +79,9 @@ policies:
     allowed_pattern: ^feature/[a-z0-9-]+$
   deny_paths:
     - .github/workflows/
-  # The split oracle. This tree is the acceptance spec delegated merges are
-  # graded by, so it comes from different hands and merges under different
-  # authority than the code it certifies:
-  #   - only `contract-author` may `git.open_pr` into it — the implementer's
-  #     attempt dies at the gateway, named, and the PR never exists;
-  #   - it can never be delegated (a `delegate.paths` overlap is a
-  #     validate-time error), so an oracle edit always parks on the human
-  #     `merge` signal with the platform's deletion facts on the PR;
-  #   - and the gating fact is this tree as it stands on `main`, run against
-  #     the PR head — a head suite weakened to green launders nothing.
-  # Deleting this block reverts to one implementer-owned tree: the split is
-  # authority, so revoking it is a diff.
+  # The split oracle: the acceptance spec delegated merges are graded by
+  # comes from different hands than the code it certifies, so the
+  # implementer cannot rewrite the test that grades its own work.
   contract_tests:
     paths: [tests/contract/]
     roles: [contract-author]
@@ -139,16 +92,12 @@ budgets:
     # How long a run stopped at the cap waits for someone to raise it.
     pause_minutes: 60
 
-# The flagship delegated company runs its own backlog. In-class passing
-# work merges under compiled policy with no human command; carve-out PRs
-# still park on the human `merge` signal.
+# The company's own initiative: what it may start on its own, how many at
+# once, how many tries an item gets, and the day's hard stop.
 heartbeat:
   conductor: pm
   reconcile_minutes: 30
   max_concurrent_runs: 1
-  # A run that aborts before concluding (a timed-out model call, a step
-  # cap) leaves its issue or PR on the backlog for one more try; a run
-  # that delivered or reached a verdict consumes it at once.
   max_attempts: 2
   may_start: [implement, review]
   daily_cap:

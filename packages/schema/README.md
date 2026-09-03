@@ -10,8 +10,8 @@ plan — which is exactly what lets an author validate a blueprint on a
 laptop, and lets every other package trust that a document it receives has
 already survived this gate.
 
-A blueprint is a YAML mapping with `apiVersion: poseidon.dev/v1` and nine
-sections: `company`, `stack`, `standing`, `crews`, `tools`, `workflows`,
+A blueprint is a YAML mapping with `apiVersion: poseidon.dev/v1` and eight
+sections: `company`, `stack`, `standing`, `tools`, `workflows`,
 `policies`, `budgets`, `heartbeat`. All are required except `policies` and
 `heartbeat` — a company without guardrails is a choice you make visibly, not
 a default you fall into by omission, and a company that declares no
@@ -24,7 +24,7 @@ itself is introduced line by line in [docs/blueprint.md](../../docs/blueprint.md
 |---|---|
 | `blueprint.py` | The JSON Schema (draft 2020-12) for the nine sections. Structure only; the tool enum is the one place it borrows from a catalog. |
 | `validate.py` | `validate_blueprint` / `load_blueprint`. Errors are rendered as a path and the allowed values, and reported all together. |
-| `coherence.py` | The catalog cross-checks (templates exist, crews narrow the catalog, no platform-only tool for a role), as functions both `validate` and the compiler run. |
+| `coherence.py` | The catalog cross-checks (roles and crews exist, no platform-only tool for a role, scopes narrow the catalog), as functions both `validate` and the compiler run. |
 | `catalog.py` | `ROLES` and `CREW_TEMPLATES`: what a blueprint may hire and spawn, with each role's tool scope, model tier, procedures and spawn authority. |
 | `tools.py` | The 16-name gateway tool surface, plus the two sets policy keys on: `PLATFORM_ONLY` and `RUN_SCOPED`. |
 
@@ -45,10 +45,9 @@ since every object in the schema sets `additionalProperties: false` —
 says "check the spelling, or the section it belongs to".
 
 The catalog pass is kept deliberately narrow: only what a *document* can
-be wrong about regardless of cluster state. It catches a `role` or
-`crews:` key outside the catalogs, a crew whose role list is not the
-catalog's, a platform-only tool in any allow-list, and a tool scope wider
-than its role's catalog tools. Each check tolerates malformed values rather than crashing
+be wrong about regardless of cluster state. It catches a `role` or a
+`may_spawn` crew outside the catalogs, a platform-only tool in any
+allow-list, and a tool scope wider than its role's catalog tools. Each check tolerates malformed values rather than crashing
 on them — the schema pass already reports those — and simply skips what it
 cannot read.
 
@@ -87,10 +86,11 @@ standing-coder document still validates structurally.
 Three crews: `feature-delivery` (one implementer), `feature-review` (one
 reviewer, run against a sandbox provisioned from the PR ref) and
 `contract-authoring` (one contract author, working from the contract
-ticket). A crew is a list of roles; the blueprint names the crew and lists
-exactly the catalog's roles for it — a `crews:` key outside the catalog,
-or a role list that differs from it, is a document error rather than
-something left for the compiler to resolve against nothing.
+ticket). A crew is a list of roles, and the catalog is the only place that
+list is written: a blueprint names the crews it puts to work (in a hire's
+`may_spawn` and a workflow's `crew`), never their members — a name outside
+the catalog is a document error rather than something left for the
+compiler to resolve against nothing.
 
 A blueprint may **narrow** a role's allow-list in `tools.<role>`, never
 widen it — and the scope applies to every agent of the role, standing or
@@ -169,7 +169,7 @@ the schema and the catalogs.
 
 - Every object in the schema is `additionalProperties: false`: a typo'd
   key is an error, never a silently ignored line.
-- Names (`company.name`, standing names, crews, agents) match
+- Names (`company.name`, standing names, agents) match
   `^[a-z0-9][a-z0-9-]*$`; roles are keyed by name so a blueprint
   diff — a hire, a fire — reads as one.
 - An ephemeral agent's `tools` list is required, explicit, and at most the

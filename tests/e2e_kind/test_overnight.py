@@ -20,7 +20,7 @@ company does one thing at a time because the blueprint said so.
 
 The conftest orders this module after `test_acceptance`: it is itself a
 capstone, and it adds runs the five-source assertion need not see. The
-heartbeat blueprint (`examples/hello-saas-heartbeat.yaml`) is applied
+heartbeat variant of the example (`blueprints.heartbeat_variant`) is applied
 for the module and the pristine one restored after.
 """
 
@@ -39,7 +39,7 @@ from temporalio.client import Client
 from common.ids import new_run_id
 from orchestrator.workflows.base import workflow_id
 
-from .blueprints import HEARTBEAT, restore_pristine
+from .blueprints import heartbeat_variant, restore_pristine
 from .cluster import COMPANY_NS, audit_story, await_run, temporal_port_forward
 from .conftest import (
     REPO_ROOT,
@@ -91,7 +91,7 @@ def _signal_merge(run_id: str, address: str) -> None:
 def overnight(stack: None, env: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
-    apply_profile(HEARTBEAT, env)
+    apply_profile(heartbeat_variant(), env)
 
     intake_run = new_run_id()
     nonce = intake_run[-6:].lower()

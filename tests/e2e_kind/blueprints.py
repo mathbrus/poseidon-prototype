@@ -22,7 +22,6 @@ from .cluster import COMPANY_NS, kubectl, port_forward, temporal_port_forward
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "examples"
 HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
-HEARTBEAT = EXAMPLES / "hello-saas-heartbeat.yaml"
 DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
 
 # The examples declare the waits a real company gives its humans (a working
@@ -46,6 +45,18 @@ def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) ->
     return path
 
 
+def heartbeat_variant() -> Path:
+    """`hello-saas.yaml` plus the delegated example's `heartbeat` section:
+    a company that starts its own runs while a human still answers every
+    merge — the middle rung between the two shipped examples, for modules
+    that need the heartbeat without the delegated gate."""
+
+    def add_heartbeat(document: dict) -> None:
+        document["heartbeat"] = yaml.safe_load(DELEGATED.read_text())["heartbeat"]
+
+    return derived_blueprint(HELLO_SAAS, add_heartbeat, "heartbeat")
+
+
 def delegated_without_heartbeat() -> Path:
     """The delegated example minus its `heartbeat` section, for modules
     that drive implement and review runs themselves: with no section
@@ -67,7 +78,7 @@ def heartbeat_implement_only() -> Path:
     def implement_only(document: dict) -> None:
         document["heartbeat"]["may_start"] = ["implement"]
 
-    return derived_blueprint(HEARTBEAT, implement_only, "implement-only")
+    return derived_blueprint(heartbeat_variant(), implement_only, "implement-only")
 
 
 def suite_document(path: Path) -> Path:

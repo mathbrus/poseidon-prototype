@@ -4,6 +4,7 @@ here rather than at the first tool call in production."""
 import pytest
 
 from compiler import CompileError, compile_blueprint
+from schema.catalog import ROLES
 
 
 def problems_of(blueprint: dict) -> list[str]:
@@ -30,12 +31,12 @@ def test_workflow_cannot_bind_to_an_unknown_role(blueprint):
 
 
 def test_unknown_tool_scope_fails_at_compile(blueprint):
-    blueprint["tools"]["pm"]["allow"].append("issues.purge")
+    blueprint["tools"]["reviewer"]["allow"].append("issues.purge")
     assert any("issues.purge" in p for p in problems_of(blueprint))
 
 
 def test_platform_tool_cannot_be_granted_to_a_role(blueprint):
-    blueprint["tools"]["pm"]["allow"].append("git.merge_pr")
+    blueprint["tools"]["reviewer"]["allow"].append("git.merge_pr")
     (problem,) = [p for p in problems_of(blueprint) if "git.merge_pr" in p]
     assert "platform identity" in problem
 
@@ -50,11 +51,6 @@ def test_unknown_role_is_a_compile_error(blueprint):
     a CompileError problem, not a KeyError halfway through emission."""
     blueprint["standing"]["pm"]["role"] = "boss"
     assert any("role catalog" in p for p in problems_of(blueprint))
-
-
-def test_unknown_crew_name_is_a_compile_error(blueprint):
-    blueprint["crews"]["hotfix-swat"] = blueprint["crews"].pop("feature-review")
-    assert any("crews.hotfix-swat" in p for p in problems_of(blueprint))
 
 
 def test_spawn_authority_cannot_be_widened(blueprint):
@@ -76,7 +72,7 @@ def test_a_tool_scope_cannot_widen_the_catalog(blueprint):
     blueprint["tools"]["reviewer"]["allow"].append("git.open_pr")
     assert any("never widens" in p for p in problems_of(blueprint))
     blueprint["tools"]["reviewer"]["allow"].pop()
-    blueprint["tools"]["pm"]["allow"].append("sandbox.exec")
+    blueprint["tools"]["pm"] = {"allow": [*ROLES["pm"].tools, "sandbox.exec"]}
     assert any("never widens" in p for p in problems_of(blueprint))
 
 
@@ -87,10 +83,14 @@ def test_invalid_branch_pattern_fails_at_compile(blueprint):
     assert any("allowed_pattern" in p for p in problems_of(blueprint))
 
 
-def test_may_spawn_must_name_a_declared_crew(blueprint):
-    blueprint["standing"]["pm"]["may_spawn"]["crew"].append("feature-review")
-    del blueprint["crews"]["feature-review"]
-    assert any("feature-review" in p for p in problems_of(blueprint))
+def test_a_workflow_crew_must_be_a_catalog_crew(blueprint):
+    """The catalog defines crews; a workflow naming one it does not know is
+    a compile error, not a bundle no fulfilment can ever match."""
+    blueprint["workflows"]["implement"]["crew"] = "hotfix-swat"
+    blueprint["standing"]["pm"]["may_spawn"]["crew"].append("hotfix-swat")
+    assert any(
+        "hotfix-swat" in p and "not a known crew" in p for p in problems_of(blueprint)
+    )
 
 
 def test_workflow_crew_must_be_spawnable_by_its_conductor(blueprint):
@@ -114,10 +114,10 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
     """The PM cannot call git.open_pr, yet the crew it spawns may.
     Dropping ⊆-parent is deliberate — spawn authority is not a
     capability ceiling — so this must compile."""
-    pm_tools = set(blueprint["tools"]["pm"]["allow"])
     plan = compile_blueprint(blueprint)
+    pm = next(i for i in plan.instances if i.role == "pm")
     implementer = next(a for a in plan.ephemeral_agents if a.role == "implementer")
-    assert "git.open_pr" in implementer.tools and "git.open_pr" not in pm_tools
+    assert "git.open_pr" in implementer.tools and "git.open_pr" not in pm.tools
 
 
 def test_standing_implementer_is_a_compile_error(standing_implementer):

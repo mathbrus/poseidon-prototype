@@ -1,4 +1,4 @@
-"""JSON Schema for the nine blueprint sections.
+"""JSON Schema for the eight blueprint sections.
 
 Structural validation only. Cross-checks that need the catalogs or a
 registry snapshot (does this template exist, does this workflow node bind to
@@ -34,8 +34,6 @@ _COMPANY = {
     "properties": {
         "name": _NAME,
         "mission": _TEXT,
-        "product": _TEXT,
-        "stage": {"type": "string", "enum": ["idea", "prototype", "growth"]},
     },
 }
 
@@ -44,10 +42,8 @@ _COMPANY = {
 _STACK = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["languages", "repos"],
+    "required": ["repos"],
     "properties": {
-        "languages": {"type": "array", "items": _TEXT, "minItems": 1},
-        "frameworks": {"type": "array", "items": _TEXT},
         "repos": {
             "type": "array",
             "minItems": 1,
@@ -99,28 +95,6 @@ _STANDING = {
     "type": "object",
     "minProperties": 1,
     "additionalProperties": _HIRE,
-    "propertyNames": _NAME,
-}
-
-# A crew is the list of roles fulfilled together for one run. The list
-# must match the catalog's crew (the blueprint names the crew, the catalog
-# defines it); a role's tools are narrowed in `tools`, the one site for
-# every agent of that role.
-_CREWS = {
-    "type": "object",
-    "additionalProperties": {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["roles"],
-        "properties": {
-            "roles": {
-                "type": "array",
-                "items": _NAME,
-                "minItems": 1,
-                "uniqueItems": True,
-            },
-        },
-    },
     "propertyNames": _NAME,
 }
 
@@ -336,7 +310,6 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "company",
         "stack",
         "standing",
-        "crews",
         "tools",
         "workflows",
         "budgets",
@@ -346,7 +319,6 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "company": _COMPANY,
         "stack": _STACK,
         "standing": _STANDING,
-        "crews": _CREWS,
         "tools": _TOOLS,
         "workflows": _WORKFLOWS,
         "policies": _POLICIES,

@@ -39,7 +39,6 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
         "spec": {
             "namespace": plan.company.namespace,
             "mission": plan.company.mission,
-            "stage": plan.company.stage or "",
             "policyBundle": plan.bundle.files,
             # Compiler-owned and identical from every blueprint; riding the
             # CR keeps the operator the only bundle writer. Every

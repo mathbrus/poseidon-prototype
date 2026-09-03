@@ -1,19 +1,13 @@
-# hello-saas — the design-partner company, in its lean-standing profile.
-#
-# The standing agents is the PM alone: delivery and review run as ephemeral
-# crews under the PM's conductor authority. The strict lean-standing compile
-# error refuses any standing implementer count.
+# hello-saas — a small company a human runs: one standing PM that scopes
+# goals into tickets, ephemeral crews that implement and review under its
+# authority, and a person who starts each run and answers the merge gate.
 apiVersion: poseidon.dev/v1
 
 company:
   name: hello-saas
   mission: Ship a small SaaS product with an agent company under governance.
-  product: A URL-shortening service with a REST API.
-  stage: prototype
 
 stack:
-  languages: [python]
-  frameworks: [fastapi]
   repos:
     - name: app
       url: github.com/example-org/hello-saas
@@ -21,8 +15,6 @@ stack:
   toolchain:
     image: poseidon-sandbox
     test_command: pytest -q
-    # Reaches the audited egress proxy only; an empty list
-    # would mean zero egress.
     egress_allow:
       - pypi.org
       - files.pythonhosted.org
@@ -36,26 +28,11 @@ standing:
       crew: [feature-delivery, feature-review]
       max_concurrent: 2
 
-crews:
-  feature-delivery:
-    roles: [implementer]
-  feature-review:
-    roles: [reviewer]
-
-# Per-role gateway scopes, for standing and ephemeral agents of the role
-# alike; a role not listed here gets its catalog tools. The PM's list is
-# deliberately narrow: spawn authority is not permission to wield the
-# crew's tools, so no sandbox writes and no git.open_pr appear here.
-# issues.comment is how the PM leaves its intake summary on the tickets
-# it files. The reviewer's list drops the write tools its catalog role
-# would allow: it judges, it does not fix.
+# The one place a role's scope is narrowed, for standing and ephemeral
+# agents of the role alike; a role not listed keeps its catalog tools.
+# The reviewer drops the write tools its catalog role would allow: it
+# judges, it does not fix.
 tools:
-  pm:
-    allow:
-      - issues.create
-      - issues.read
-      - issues.comment
-      - crew.request
   reviewer:
     allow:
       - sandbox.read_file
@@ -69,8 +46,6 @@ tools:
 workflows:
   intake:
     enabled: true
-    # No intake gate declared: goals a human submits dispatch the PM
-    # without a second stop.
     conductor: pm
   implement:
     enabled: true
@@ -82,8 +57,6 @@ workflows:
     conductor: pm
     crew: feature-review
     gates:
-      # The one human gate: the orchestrator merges under
-      # its platform identity only after this signal arrives.
       merge:
         resolved_by: human
         # A working day for the person who answers; escalation at half.

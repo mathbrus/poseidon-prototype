@@ -60,33 +60,27 @@ standing coders do not exist here.
 </details>
 
 <details>
-<summary><b><code>crews</code> and <code>tools</code> — scopes</b></summary>
+<summary><b><code>tools</code> — scopes</b></summary>
 
 <br>
 
 ```yaml
-crews:
-  feature-delivery:
-    roles: [implementer]
-  feature-review:
-    roles: [reviewer]
-
 tools:
-  pm:
-    allow: [issues.create, issues.read, issues.comment, crew.request]
   reviewer:
     allow: [sandbox.read_file, sandbox.list_dir, sandbox.exec, sandbox.run_tests, git.read, git.comment, issues.comment]
 ```
 
-A crew is the list of catalog roles fulfilled together for one run; the
-blueprint names the crew, the catalog defines it. `tools` is the one place
-a role's scope is narrowed, and it applies to every agent of that role,
-standing or ephemeral: the reviewer's list drops the write tools its
-catalog entry would allow, and a role not listed gets its catalog tools.
-
-Look at what the PM's list does *not* contain: no `sandbox.*`, no
-`git.open_pr`. The conductor that spawns the implementer cannot do the
-implementer's job. Spawn authority is not capability.
+A crew is the list of catalog roles fulfilled together for one run. The
+catalog defines the crews (`feature-delivery`, `feature-review`,
+`contract-authoring`); a blueprint names the ones it puts to work in a
+hire's `may_spawn` and a workflow's `crew`, and the compiler emits one
+ephemeral agent spec per role of each. `tools` is the one place a role's
+scope is narrowed, and it applies to every agent of that role, standing or
+ephemeral: the reviewer's list drops the write tools its catalog entry
+would allow, and a role not listed keeps its catalog tools — the PM's
+catalog entry already holds no `sandbox.*` and no `git.open_pr`, so the
+conductor that spawns the implementer cannot do the implementer's job.
+Spawn authority is not capability.
 
 </details>
 

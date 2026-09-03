@@ -71,9 +71,9 @@ The `may_spawn` block fans out into:
 1. **Coherence checks.** `_spawn_authority` errors if the blueprint
    names a crew the `pm` catalog template does not grant — an error, not
    a silent drop, because a workflow may depend on the grant.
-   `_spawnable_crews` errors if a named crew is unknown, undeclared in
-   `crews:`, or if an enabled workflow's crew is outside its conductor's
-   `may_spawn` (it would compile but never be fulfillable).
+   `_spawnable_crews` errors if an enabled workflow's crew is unknown to
+   the catalog or outside its conductor's `may_spawn` (it would compile
+   but never be fulfillable).
 2. **The `AgentInstanceCR`**, which carries `may_spawn` and
    `max_concurrent_spawns` into the AgentInstance custom resource.
 3. **An allow rule** in the emitted `role_pm.rego` that narrows the tool's

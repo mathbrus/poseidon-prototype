@@ -22,7 +22,6 @@ from schema.blueprint import BLUEPRINT_SCHEMA
 from schema.catalog import CREW_TEMPLATES, ROLES
 from schema.coherence import (
     contract_role_problems,
-    crew_problems,
     hire_problems,
     tool_scope_problems,
 )
@@ -75,7 +74,6 @@ def _catalog_problems(document: Any) -> list[str]:
     the lean-standing stance are compiler checks.
     """
     problems = hire_problems(document, ROLES, CREW_TEMPLATES)
-    problems += crew_problems(document, CREW_TEMPLATES)
     # Unknown tool names are the schema enum's to report, so the shared
     # check does not repeat them here.
     problems += tool_scope_problems(document, ROLES, report_unknown_tools=False)

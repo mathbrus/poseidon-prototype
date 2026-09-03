@@ -29,7 +29,6 @@ from typing import Any
 from schema.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
 from schema.coherence import (
     contract_role_problems,
-    crew_problems,
     hire_problems,
     tool_scope_problems,
 )
@@ -51,7 +50,6 @@ def check(
     # catalog version gets that version's answer. Unknown tool names are
     # reported: the compiler has no schema pass to name them.
     problems += hire_problems(blueprint, roles, crews)
-    problems += crew_problems(blueprint, crews)
     problems += tool_scope_problems(blueprint, roles, report_unknown_tools=True)
     problems += contract_role_problems(blueprint, roles)
     problems += _lean_standing(blueprint, roles)
@@ -135,6 +133,23 @@ def _enabled_workflows(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
+def referenced_crews(blueprint: dict[str, Any]) -> set[str]:
+    """The crews a blueprint puts to work: every crew a hire may spawn and
+    every crew a workflow executes through. The catalog defines what a crew
+    is; the blueprint only names which ones exist for this company."""
+    named = {
+        crew
+        for hire in (blueprint.get("standing") or {}).values()
+        for crew in (hire.get("may_spawn") or {}).get("crew") or []
+    }
+    named |= {
+        workflow["crew"]
+        for workflow in (blueprint.get("workflows") or {}).values()
+        if workflow.get("crew")
+    }
+    return named
+
+
 def _dead_scopes(blueprint: dict[str, Any]) -> list[str]:
     """A scope no active hire and no crew uses is dead configuration; say
     so rather than compiling it into a bundle no caller can ever match. A
@@ -142,8 +157,9 @@ def _dead_scopes(blueprint: dict[str, Any]) -> list[str]:
     usable_roles = {h.get("role") for h in _active_hires(blueprint).values()}
     usable_roles |= {
         role
-        for crew in (blueprint.get("crews") or {}).values()
-        for role in (crew.get("roles") or [])
+        for crew in referenced_crews(blueprint)
+        if crew in CREW_TEMPLATES
+        for role in CREW_TEMPLATES[crew].roles
     }
     return [
         f"tools.{role_name}: no active hire or crew uses that role, "
@@ -176,24 +192,19 @@ def _spawn_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> list[
 def _spawnable_crews(
     blueprint: dict[str, Any], crews_catalog: dict[str, CrewTemplate]
 ) -> list[str]:
-    """Every `may_spawn.crew` references a crew this blueprint declares,
-    and every enabled workflow's crew is one its conductor may spawn (the
-    catalog half — is it a known template — is `schema.coherence`'s)."""
+    """Every enabled workflow's crew is a catalog crew its conductor may
+    spawn — otherwise the workflow compiles but can never be fulfilled.
+    (Whether a `may_spawn.crew` names a known crew is `schema.coherence`'s.)"""
     problems = []
-    declared = set(blueprint.get("crews") or {})
-    for standing_name, hire in _hires(blueprint).items():
-        for crew in (hire.get("may_spawn") or {}).get("crew") or []:
-            if crew in crews_catalog and crew not in declared:
-                problems.append(
-                    f"standing.{standing_name}.may_spawn.crew: {crew!r} is "
-                    f"not declared in this blueprint's `crews` section"
-                )
     for name, workflow in _enabled_workflows(blueprint).items():
         crew = workflow.get("crew")
         if crew is None:
             continue
-        if crew not in declared:
-            problems.append(f"workflows.{name}.crew: {crew!r} is not declared in `crews`")
+        if crew not in crews_catalog:
+            problems.append(
+                f"workflows.{name}.crew: {crew!r} is not a known crew "
+                f"(known: {', '.join(sorted(crews_catalog))})"
+            )
             continue
         conductor = workflow.get("conductor")
         allowed = ((_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}).get(

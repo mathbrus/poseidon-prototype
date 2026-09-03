@@ -86,16 +86,15 @@ one more piece of authority than the last:
 | Blueprint | Adds | Division of labour |
 |---|---|---|
 | [`hello-saas.yaml`](../examples/hello-saas.yaml) | — | A human starts every run and answers every merge. |
-| [`hello-saas-heartbeat.yaml`](../examples/hello-saas-heartbeat.yaml) | a `heartbeat` section | The company starts its own runs on a heartbeat; a human feeds goals in and answers merges. |
-| [`hello-saas-delegated.yaml`](../examples/hello-saas-delegated.yaml) | a policy-resolved merge gate and a contract tree | In-class passing work merges itself; a human feeds goals in and keeps the carve-outs and the oracle. |
+| [`hello-saas-delegated.yaml`](../examples/hello-saas-delegated.yaml) | a `heartbeat` section, a policy-resolved merge gate and a contract tree | The company starts its own runs and merges in-class passing work itself; a human feeds goals in and keeps the carve-outs and the oracle. |
 
-All three declare the same company name, so moving between them changes the
+Both declare the same company name, so moving between them changes the
 running company in place — and moving back is the same command with the
 earlier file. Revocation is a diff:
 
 ```bash
-uv run poseidon blueprint preview examples/hello-saas-heartbeat.yaml  # what would change
-uv run poseidon blueprint apply examples/hello-saas-heartbeat.yaml --yes
+uv run poseidon blueprint preview examples/hello-saas-delegated.yaml  # what would change
+uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
 ```
 
 `preview` diffs the compiled plan against the live registry, so hiring,
@@ -255,10 +254,12 @@ terminal path the crew identities, pods, and sandbox go away.
 ### Hand over the keys: the heartbeat
 
 Everything so far had you pressing start. To let the company run its own
-backlog, apply the heartbeat profile:
+backlog, apply a blueprint with a `heartbeat` section — the delegated
+example carries one (and a delegated merge gate; drop that block to keep
+every merge yours):
 
 ```bash
-uv run poseidon blueprint apply examples/hello-saas-heartbeat.yaml --yes
+uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
 ```
 
 No command starts the heartbeat — that is the point. The orchestrator

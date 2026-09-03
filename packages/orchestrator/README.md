@@ -191,7 +191,7 @@ takes a deadline and an escalation point:
 
 ```python
 outcome = await self._merge_gate.wait(
-    **gate_deadline(gate["deadline_minutes"]),   # the blueprint's wait; escalation at half
+    **gate_deadline(gate["deadline_minutes"]),  # the blueprint's wait; escalation at half
     on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated"),
 )
 ```

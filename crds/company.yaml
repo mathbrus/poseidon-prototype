@@ -43,7 +43,6 @@ spec:
               properties:
                 namespace: {type: string}
                 mission: {type: string}
-                stage: {type: string}
                 # The compiled Rego bundle, filename -> source. The operator
                 # persists it and serves it over the standard OPA bundle
                 # API; OPA polls. No runtime data pushes.

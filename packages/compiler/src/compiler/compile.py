@@ -11,7 +11,7 @@ scope; credentials arrive at runtime as projected tokens.
 
 from typing import Any
 
-from compiler.checks import check
+from compiler.checks import check, referenced_crews
 from compiler.errors import CompileError
 from compiler.infra import build_infra
 from compiler.plan import (
@@ -86,15 +86,12 @@ def compile_blueprint(
     company = company_section["name"]
     namespace = company
     company_cr = CompanyCR(
-        name=company,
-        namespace=namespace,
-        mission=company_section["mission"],
-        stage=company_section.get("stage"),
+        name=company, namespace=namespace, mission=company_section["mission"]
     )
 
     scopes = blueprint.get("tools") or {}
     instances = _instances(blueprint, roles, scopes, company, snapshot)
-    ephemeral_agents = _ephemeral_agents(blueprint, roles, scopes)
+    ephemeral_agents = _ephemeral_agents(blueprint, roles, crews_catalog, scopes)
     workflows = _workflows(blueprint)
     budgets = _budgets(blueprint)
     heartbeat = _heartbeat(blueprint)
@@ -184,9 +181,13 @@ def _instances(
 
 
 def _ephemeral_agents(
-    blueprint: dict[str, Any], roles: dict[str, Role], scopes: dict[str, Any]
+    blueprint: dict[str, Any],
+    roles: dict[str, Role],
+    crews: dict[str, CrewTemplate],
+    scopes: dict[str, Any],
 ) -> tuple[EphemeralAgentSpec, ...]:
-    """One spec per role of every declared crew, scoped by the same
+    """One spec per role of every crew the blueprint puts to work (named
+    in a hire's `may_spawn` or a workflow's `crew`), scoped by the same
     `tools.<role>` narrowing a standing agent of that role gets."""
     return tuple(
         EphemeralAgentSpec(
@@ -194,8 +195,8 @@ def _ephemeral_agents(
             role=role_name,
             tools=_scope(roles[role_name], scopes),
         )
-        for crew_name, crew in sorted((blueprint.get("crews") or {}).items())
-        for role_name in sorted(crew.get("roles") or [])
+        for crew_name in sorted(referenced_crews(blueprint))
+        for role_name in sorted(crews[crew_name].roles)
     )
 
 

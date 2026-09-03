@@ -754,8 +754,6 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
 
 CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
 
-CONTRACT_CREW = {"roles": ["contract-author"]}
-
 
 @pytest.fixture(scope="module")
 def decide_split(tmp_path_factory):
@@ -773,7 +771,6 @@ def _split(blueprint: dict) -> None:
 
 
 def _contract_crew(blueprint: dict) -> None:
-    blueprint["crews"]["contract-authoring"] = copy.deepcopy(CONTRACT_CREW)
     blueprint["standing"]["pm"]["may_spawn"]["crew"].append("contract-authoring")
     blueprint["workflows"]["review"]["gates"]["merge"] = {
         "resolved_by": "policy",

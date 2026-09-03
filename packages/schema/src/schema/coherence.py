@@ -45,32 +45,6 @@ def hire_problems(
     return problems
 
 
-def crew_problems(document: Any, crews: dict[str, CrewTemplate]) -> list[str]:
-    """Every `crews:` entry names a catalog crew and lists exactly that
-    crew's roles — the blueprint names the crew, the catalog defines it."""
-    problems = []
-    declared = document.get("crews") or {}
-    for crew_name, crew in declared.items() if isinstance(declared, dict) else []:
-        if not isinstance(crew, dict):
-            continue
-        catalog_crew = crews.get(crew_name)
-        if catalog_crew is None:
-            problems.append(
-                f"crews.{crew_name}: not a known crew (known: {_known(crews)})"
-            )
-            continue
-        listed = crew.get("roles")
-        if not isinstance(listed, list) or not all(isinstance(r, str) for r in listed):
-            continue
-        if set(listed) != set(catalog_crew.roles):
-            problems.append(
-                f"crews.{crew_name}.roles: {sorted(listed)} does not match the "
-                f"catalog's {sorted(catalog_crew.roles)} — the blueprint names "
-                f"the crew, the catalog defines it"
-            )
-    return problems
-
-
 def tool_scope_problems(
     document: Any, roles: dict[str, Role], *, report_unknown_tools: bool
 ) -> list[str]:
