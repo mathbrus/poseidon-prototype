@@ -91,7 +91,6 @@
         "feature-review"
       ],
       "mission": "Ship a small SaaS product with an agent company under governance.",
-      "model_tier": "standard",
       "repo": {
         "base_ref": "main",
         "url": "github.com/example-org/hello-saas"

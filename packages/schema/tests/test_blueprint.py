@@ -86,12 +86,6 @@ def test_unknown_tool_lists_what_is_allowed(blueprint):
     assert "issues.create" in problem  # the allowed values are shown
 
 
-def test_unknown_model_tier_lists_the_tiers(blueprint):
-    blueprint["standing"]["pm"]["model_tier"] = "gigantic"
-    (problem,) = [p for p in problems_of(blueprint) if "gigantic" in p]
-    assert "'small'" in problem and "'frontier'" in problem
-
-
 def test_an_empty_tool_scope_is_rejected(blueprint):
     blueprint["tools"]["reviewer"]["allow"] = []
     assert any(

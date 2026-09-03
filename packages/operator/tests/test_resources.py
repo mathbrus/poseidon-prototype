@@ -13,7 +13,6 @@ SPEC = {
     "company": "hello-saas",
     "standingName": "pm",
     "role": "pm",
-    "modelTier": "standard",
     "tools": ["issues.read", "crew.request"],
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "mission": "ship it",
@@ -161,25 +160,24 @@ def test_service_targets_the_hire():
 
 
 def test_spec_edits_change_the_pod_template():
-    """The reconciliation contract: a blueprint edit (model tier) must
-    converge as a rollout, so the spec's tier rides the template."""
-    small = resources.agent_deployment(
-        {**SPEC, "modelTier": "small"}, "hello-saas", SETTINGS
+    """The reconciliation contract: a blueprint edit the pod can notice (its
+    mission, its repository) must converge as a rollout, so everything the
+    agent reads about its company rides the template."""
+    before = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)
+    after = resources.agent_deployment(
+        {**SPEC, "mission": "ship something else"}, "hello-saas", SETTINGS
     )
-    frontier = resources.agent_deployment(
-        {**SPEC, "modelTier": "frontier"}, "hello-saas", SETTINGS
-    )
-    assert small["spec"]["template"] != frontier["spec"]["template"]
+    assert before["spec"]["template"] != after["spec"]["template"]
 
     env = {
         e["name"]: e.get("value")
-        for e in small["spec"]["template"]["spec"]["containers"][0]["env"]
+        for e in after["spec"]["template"]["spec"]["containers"][0]["env"]
     }
     assert env["ROLE"] == SPEC["role"] == "pm"
+    assert env["MISSION"] == "ship something else"
+    assert env["TARGET_REPO"] == SPEC["repo"]["url"]
     # Tools are policed at the gateway, never handed to the pod.
-    assert "TOOLS" not in env and "MODEL_TIER" not in env
-    labels = small["spec"]["template"]["metadata"]["labels"]
-    assert labels["poseidon.dev/model-tier"] == "small"
+    assert "TOOLS" not in env
 
 
 def test_sandbox_provisioner_rbac_is_bounded():

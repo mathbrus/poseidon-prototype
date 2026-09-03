@@ -124,9 +124,10 @@ The pod's only identity is a kubelet-rotated projected token scoped to
 the audience `poseidon-mcp-gateway`; no API-server token is mounted, no
 `secretKeyRef` appears anywhere in the env, and `GPG_KEY` (baked into the
 python base image) is blanked so no token-shaped value exists in a
-company pod at all. The spec's model tier and tool scope ride the pod
-*template* (env and labels), which is what makes a blueprint edit
-converge as a rollout rather than requiring a manual restart.
+company pod at all. Everything the agent reads about itself and its
+company (role, repository, mission) rides the pod *template*, which is
+what makes a blueprint edit converge as a rollout rather than requiring a
+manual restart.
 
 **Firing is the delete handler.** Deleting an `AgentInstance` deletes its
 Deployment, Service and ServiceAccount — and the ServiceAccount deletion

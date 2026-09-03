@@ -306,9 +306,6 @@ def agent_deployment(
         KIND_LABEL: STANDING_KIND,
         COMPANY_LABEL: spec["company"],
         AGENT_ID_LABEL: spec["agentId"],
-        # In the pod-template labels so a blueprint edit to the tier rolls
-        # the pod — the reconciliation contract — and so it is observable.
-        "poseidon.dev/model-tier": spec.get("modelTier", ""),
     }
     return {
         "apiVersion": "apps/v1",
@@ -362,12 +359,12 @@ def agent_deployment(
                                     "name": "LLM_PROXY_URL",
                                     "value": llm_gateway_url(platform_ns),
                                 },
-                                # The role is the only spec field the agent
-                                # reads; tools are policed at the gateway and
-                                # the tier rides the pod labels (so an edit
-                                # converges as a rollout). MODEL itself stays
-                                # cluster config: the LLM gateway resolves
-                                # tier -> model.
+                                # Everything the agent reads about itself and
+                                # its company rides the template, so an edit
+                                # to any of it converges as a rollout; tools
+                                # are policed at the gateway, never handed to
+                                # the pod. MODEL is cluster config: the LLM
+                                # gateway pins the same model on every call.
                                 {"name": "ROLE", "value": spec["role"]},
                                 {
                                     "name": "MODEL",

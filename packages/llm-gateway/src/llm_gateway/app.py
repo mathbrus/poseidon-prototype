@@ -10,8 +10,7 @@ Pipeline per completion call:
        ledger SUM; exhausted -> a distinguishable `budget_exhausted` error,
        audited, never silent degradation (enforcement is local here,
        no Temporal client — the workflow observes the surfaced error)
-    -> model-tier routing: the caller's instance tier resolves to a model
-       from cluster config; the request's own model field is overridden
+    -> the deployment's model is pinned into the request
     -> forward upstream (LiteLLM holding the provider keys, or the mock)
     -> meter: the provider-reported cost (`x-litellm-response-cost`) and
        usage -> budget_ledger row under {company, run_id, agent, parent,
@@ -186,7 +185,6 @@ def create_app(
         reviewer=token_reviewer or default_reviewer(settings),
         source="llm-gateway",
     )
-    tier_models = settings.tier_model_map()
 
     async def emit(
         identity: Identity,
@@ -307,10 +305,10 @@ def create_app(
                 "budget_exhausted",
             )
 
-        # -- model-tier routing --------------------------------------------
-        instance = await asyncio.to_thread(instances.get, identity.agent_id)
-        tier = (instance or {}).get("model_tier") or ""
-        model = tier_models.get(tier, settings.default_model)
+        # -- the deployment's model -----------------------------------------
+        # Pinned here, whatever the caller asked for: which model answers is
+        # the deployment's decision, not an agent's.
+        model = settings.model
         body["model"] = model
 
         # -- forward + meter ------------------------------------------------

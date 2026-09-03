@@ -38,7 +38,6 @@ class AgentInstanceCR:
     company: str
     standing_name: str
     role: str
-    model_tier: str
     tools: tuple[str, ...]
     # What the pod is told about its company: the repository it works on
     # and the mission its prompts carry. Riding the instance means an edit

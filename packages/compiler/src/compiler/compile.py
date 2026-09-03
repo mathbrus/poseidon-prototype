@@ -174,7 +174,6 @@ def _instances(
                     company=company,
                     standing_name=standing_name,
                     role=role.name,
-                    model_tier=hire.get("model_tier") or role.model_tier,
                     tools=_scope(role, scopes),
                     repo=repo,
                     mission=mission,

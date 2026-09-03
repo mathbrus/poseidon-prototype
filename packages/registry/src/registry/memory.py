@@ -228,7 +228,6 @@ class InMemoryAgentInstances:
         company: str,
         standing_name: str,
         role: str,
-        model_tier: str,
         namespace: str | None = None,
         status: str = "ready",
     ) -> None:
@@ -237,7 +236,6 @@ class InMemoryAgentInstances:
             "company": company,
             "standing_name": standing_name,
             "role": role,
-            "model_tier": model_tier,
             "namespace": namespace,
             "status": status,
         }

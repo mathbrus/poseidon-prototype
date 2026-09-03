@@ -66,7 +66,6 @@ def instances() -> InMemoryAgentInstances:
         COMPANY_NS,
         "implementer",
         "implementer",
-        "standard",
         namespace=COMPANY_NS,
     )
     return store

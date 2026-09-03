@@ -89,18 +89,6 @@ orchestrator:
   sandbox:
     image: poseidon-sandbox
 
-# The LLM gateway: tier -> model resolution and the flat
-# price per 1K tokens the ledger accrues at. The blueprint names
-# tiers; only the deployment knows the concrete models. In mock mode every
-# tier resolves to the mock brain via values-mockllm.yaml.
-llmGateway:
-  # LiteLLM is started in single-model mode (--model run.model), so every
-  # tier must name that same model or the proxy 400s the request. Split
-  # tiers need a LiteLLM model_list, which this chart does not mount.
-  tierModels:
-    frontier: gpt-5.6-luna
-    standard: gpt-5.6-luna
-    small: gpt-5.6-luna
 
 # Sandbox egress proxy. The allowlist is the applied
 # blueprint's compiled IR projection, resolved per run via

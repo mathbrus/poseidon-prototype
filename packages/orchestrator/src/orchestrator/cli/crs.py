@@ -73,7 +73,6 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
             "company": instance.company,
             "standingName": instance.standing_name,
             "role": instance.role,
-            "modelTier": instance.model_tier,
             "tools": list(instance.tools),
             "repo": {"url": instance.repo.url, "base_ref": instance.repo.base_ref},
             "mission": instance.mission,

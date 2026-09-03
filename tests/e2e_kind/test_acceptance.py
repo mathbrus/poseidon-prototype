@@ -139,15 +139,18 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
 
         # Preview of an edit: exactly the edit, nothing else.
         document = yaml.safe_load(HELLO_SAAS.read_text())
-        assert document["standing"]["pm"]["model_tier"] != "small"
-        document["standing"]["pm"]["model_tier"] = "small"
-        edited = tmp_path / "hello-saas-small-pm.yaml"
+        assert "lead" not in document["standing"]
+        document["standing"]["lead"] = {
+            "role": "pm",
+            "count": 1,
+            "may_spawn": {"crew": ["feature-delivery"], "max_concurrent": 1},
+        }
+        edited = tmp_path / "hello-saas-second-hire.yaml"
         edited.write_text(yaml.safe_dump(document, sort_keys=False))
         preview = _blueprint_cli(["preview", str(edited)], dsn)
         assert preview.returncode == 0, preview.stderr
         assert "hello-saas: 1 change(s)" in preview.stdout, preview.stdout
-        assert "~ pm-1" in preview.stdout
-        assert "model_tier" in preview.stdout and "-> small" in preview.stdout
+        assert "+ lead-1" in preview.stdout
 
     # Compile, scripted (the CLI, not just the library), emitting the
     # bundle to disk like the CI policy job does.

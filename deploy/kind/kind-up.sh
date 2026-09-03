@@ -136,13 +136,6 @@ secrets:
 run:
   model: "${MODEL:?MODEL missing from $ENV_FILE}"
   verifyCycles: ${VERIFY_CYCLES:-10}
-# LiteLLM serves one model; the gateway overwrites the request's model
-# from the caller's tier, so every tier must name that same model.
-llmGateway:
-  tierModels:
-    frontier: "${MODEL}"
-    standard: "${MODEL}"
-    small: "${MODEL}"
 EOF
 MOCK_VALUES=()
 if [ "$REAL_LLM" != "1" ]; then

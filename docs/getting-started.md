@@ -128,8 +128,8 @@ MODEL=gpt-5.6-luna
 ```
 
 `gpt-5.6-luna` is the cheap OpenAI default this repo is wired for. Then
-re-run the bootstrap so the proxy, the secret, and the tier map all
-change together:
+re-run the bootstrap so the proxy, the secret, and the gateway's pinned
+model all change together:
 
 ```bash
 deploy/kind/kind-up.sh

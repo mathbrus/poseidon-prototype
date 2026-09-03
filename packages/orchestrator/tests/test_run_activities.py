@@ -102,7 +102,7 @@ def companies() -> InMemoryCompanies:
 @pytest.fixture
 def instances() -> InMemoryAgentInstances:
     store = InMemoryAgentInstances()
-    store.upsert("pm-1", "hello-saas", "pm", "pm", "standard", namespace="hello-saas")
+    store.upsert("pm-1", "hello-saas", "pm", "pm", namespace="hello-saas")
     return store
 
 

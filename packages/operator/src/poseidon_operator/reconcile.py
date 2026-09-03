@@ -160,7 +160,6 @@ def reconcile_instance(
         company=spec["company"],
         standing_name=spec["standingName"],
         role=spec["role"],
-        model_tier=spec.get("modelTier", ""),
         namespace=namespace,
     )
     _log.info("instance converged", extra={"agent_id": spec["agentId"]})

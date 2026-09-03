@@ -309,7 +309,6 @@ def instances() -> InMemoryAgentInstances:
         COMPANY,
         "implementer",
         "implementer",
-        "frontier",
         namespace=COMPANY_NS,
     )
     store.upsert(
@@ -317,7 +316,6 @@ def instances() -> InMemoryAgentInstances:
         COMPANY,
         "pm",
         "pm",
-        "standard",
         namespace=COMPANY_NS,
     )
     return store

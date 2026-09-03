@@ -60,7 +60,6 @@ class FakeInstances:
         company,
         standing_name,
         role,
-        model_tier,
         namespace=None,
         status="ready",
     ):
@@ -137,7 +136,6 @@ INSTANCE_SPEC = {
     "company": "hello-saas",
     "standingName": "pm",
     "role": "pm",
-    "modelTier": "standard",
     "tools": ["issues.read", "crew.request"],
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "mission": "ship it",

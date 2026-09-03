@@ -168,11 +168,12 @@ class GatewayBridge:
 
 
 def build_llm(settings: AgentSettings, run_id: str, token: str) -> LLM:
-    """The LLM gateway client, SDK-shaped: authenticated
-    with the workload credential, every call attributed to its run via the
-    header. The gateway routes the model by tier — the name here is
-    advisory. litellm needs a provider prefix to route to the custom
-    base_url; the wire model name stays the bare setting."""
+    """The LLM gateway client, SDK-shaped: authenticated with the workload
+    credential, every call attributed to its run via the header. The model
+    name is the deployment's `MODEL`, the same one the gateway pins on every
+    call; here it also selects the SDK's wire shape (Responses vs chat) and
+    its prompt guidance. litellm needs a provider prefix to route to the
+    custom base_url; the wire model name stays the bare setting."""
     model = settings.model if "/" in settings.model else f"openai/{settings.model}"
     return LLM(
         model=model,

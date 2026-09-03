@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS registry.agent_instances (
     standing_name text NOT NULL,
     -- The catalog role: what the agent is, and what policy keys on.
     role          text NOT NULL,
-    model_tier    text,
     -- The company namespace the agent's pod (and ServiceAccount) live
     -- in. Workload identity verifies a caller's projected token against
     -- this: same SA name in any other namespace is rejected.

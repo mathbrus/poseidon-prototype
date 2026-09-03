@@ -43,6 +43,5 @@ def standing_implementer(blueprint: dict) -> dict:
     document["standing"]["implementer"] = {
         "role": "implementer",
         "count": 1,
-        "model_tier": "frontier",
     }
     return document

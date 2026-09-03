@@ -60,7 +60,6 @@ field through everything it becomes. In `examples/hello-saas.yaml`:
 pm:
   role: pm
   count: 1
-  model_tier: standard
   may_spawn:
     crew: [feature-delivery, feature-review]
     max_concurrent: 2
@@ -274,8 +273,9 @@ it decides, which is the part that matters.
 
 - Pure: no cluster, no filesystem, no network — and no mutation of the
   input document.
-- Secrets never enter a plan. Agent specs carry a role, a tier and a tool
-  scope; credentials arrive at runtime as projected tokens
+- Secrets never enter a plan. Agent specs carry a role, a tool scope, the
+  company's repository and mission; credentials arrive at runtime as
+  projected tokens
   (`test_plan.py` greps the whole plan for secret-shaped strings).
 - A blueprint narrows the catalog, never widens it: widened crew tools and
   spawn authority are compile errors, and every emitted scope is

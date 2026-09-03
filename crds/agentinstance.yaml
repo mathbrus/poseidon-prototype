@@ -32,9 +32,6 @@ spec:
         - name: Role
           type: string
           jsonPath: .spec.role
-        - name: Tier
-          type: string
-          jsonPath: .spec.modelTier
         - name: Phase
           type: string
           jsonPath: .status.phase
@@ -52,7 +49,6 @@ spec:
                 standingName: {type: string}
                 # The catalog role.
                 role: {type: string}
-                modelTier: {type: string}
                 # What the pod is told about its company; an edit to either
                 # rolls the pod.
                 repo:

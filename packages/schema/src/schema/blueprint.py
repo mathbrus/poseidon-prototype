@@ -14,7 +14,6 @@ schema's.
 
 from typing import Any
 
-from schema.catalog import MODEL_TIERS
 from schema.tools import KNOWN_TOOLS
 
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"
@@ -71,7 +70,6 @@ _HIRE = {
     "properties": {
         "role": _NAME,
         "count": {"type": "integer", "minimum": 0},
-        "model_tier": {"type": "string", "enum": list(MODEL_TIERS)},
         "may_spawn": {
             "type": "object",
             "additionalProperties": False,

@@ -30,7 +30,6 @@ standing:
   pm:
     role: pm
     count: 1
-    model_tier: standard
     may_spawn:
       crew: [contract-authoring, feature-delivery, feature-review]
       max_concurrent: 2

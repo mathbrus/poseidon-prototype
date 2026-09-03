@@ -44,11 +44,8 @@ spec:
             {{- include "poseidon.registryDsnEnv" . | nindent 12 }}
             - name: UPSTREAM_URL
               value: http://llm-proxy:4000
-            # tier -> model resolution: the blueprint names tiers,
-            # only the deployment knows which concrete model a tier means.
-            - name: TIER_MODELS
-              value: {{ .Values.llmGateway.tierModels | toJson | quote }}
-            - name: DEFAULT_MODEL
+            # The one model this deployment serves, pinned on every call.
+            - name: MODEL
               value: {{ .Values.run.model | quote }}
           readinessProbe:
             httpGet: {path: /healthz, port: 4000}

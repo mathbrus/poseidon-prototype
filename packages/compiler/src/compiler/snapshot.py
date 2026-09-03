@@ -14,7 +14,6 @@ class InstanceSnapshot:
     company: str
     standing_name: str
     role: str
-    model_tier: str
     status: str = "ready"
 
 

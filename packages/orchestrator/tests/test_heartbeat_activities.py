@@ -72,7 +72,7 @@ def audit() -> InMemoryAuditStore:
 def instances() -> InMemoryAgentInstances:
     """The converged PM the heartbeat's conductor name resolves to."""
     store = InMemoryAgentInstances()
-    store.upsert("pm-1", COMPANY, "pm", "pm", "standard", namespace=COMPANY)
+    store.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY)
     return store
 
 
