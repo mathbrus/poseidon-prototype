@@ -64,7 +64,9 @@ One standing agent: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 
-A hire at `count: 0` is a documented growth path that produces no instance.
+A hire is one instance — the operator names one Deployment and one Service
+per standing name — and `count: 0` is a documented growth path that
+produces none.
 Try hiring an `implementer` at `count: 1` and the compiler refuses:
 standing coders do not exist here.
 

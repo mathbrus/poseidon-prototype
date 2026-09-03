@@ -22,6 +22,7 @@ def client(app) -> httpx.AsyncClient:
 
 def settings_for(role: str) -> AgentSettings:
     return AgentSettings(
+        gateway_token_file="/run/unused-token",
         mcp_gateway_url="http://gateway.test:8080",
         llm_proxy_url="http://llm.test:4000",
         model="test-model",

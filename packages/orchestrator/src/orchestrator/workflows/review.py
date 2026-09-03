@@ -56,6 +56,7 @@ from temporalio.exceptions import ActivityError
 from common.tasks import review_run_task
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
+    BOOTSTRAP_S,
     STEP_RETRY,
     RunWorkflow,
     gate_deadline,
@@ -221,7 +222,7 @@ class ReviewWorkflow(RunWorkflow):
         independence = await workflow.execute_activity(
             "reviewer_independent",
             args=[input.run_id, input.pr_number],
-            start_to_close_timeout=timedelta(seconds=self._bounds.create_run_s),
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
         resolve = await workflow.execute_activity(
@@ -235,7 +236,7 @@ class ReviewWorkflow(RunWorkflow):
                 pr.get("paths") or [],
                 workflow.info().workflow_id,
             ],
-            start_to_close_timeout=timedelta(seconds=self._bounds.create_run_s),
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
         if not resolve.get("allow"):
@@ -403,7 +404,7 @@ class ReviewWorkflow(RunWorkflow):
                     result.get("verdict_summary") or "",
                     workflow.info().workflow_id,
                 ],
-                start_to_close_timeout=timedelta(seconds=self._bounds.create_run_s),
+                start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
                 retry_policy=STEP_RETRY,
             )
             concluded = True

@@ -11,10 +11,12 @@ from common.authn import WorkloadAuthnSettings
 
 
 class LlmGatewaySettings(WorkloadAuthnSettings):
+    """Every field is set by the chart's llm-gateway template."""
+
     # Where completions are forwarded: the LiteLLM container holding the
     # provider keys (REAL_LLM) or the deterministic mock. Sealed by
     # NetworkPolicy so nothing but this gateway reaches it.
-    upstream_url: str = "http://llm-proxy:4000"
+    upstream_url: str
     # The one model this deployment serves, pinned into every request: the
     # caller's own model field is never trusted for spend. The same value
     # reaches the agent pods, whose SDK shapes requests by the name.

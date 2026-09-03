@@ -8,6 +8,7 @@ Deployments — and never creates ephemeral agents or runs processes.
 
 from typing import Any
 
+from common.agentpod import READINESS_PROBE, RESOURCES
 from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
 from common.topology import (
     AGENT_ID_LABEL,
@@ -391,11 +392,8 @@ def agent_deployment(
                                     "readOnly": True,
                                 }
                             ],
-                            "readinessProbe": {
-                                "httpGet": {"path": "/openapi.json", "port": AGENT_PORT},
-                                "periodSeconds": 5,
-                                "initialDelaySeconds": 3,
-                            },
+                            "resources": dict(RESOURCES),
+                            "readinessProbe": dict(READINESS_PROBE),
                         }
                     ],
                 },

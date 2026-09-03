@@ -94,7 +94,11 @@ def operator_settings(monkeypatch) -> None:
     monkeypatch.setattr(
         reconcile,
         "_the_settings",
-        OperatorSettings(agent_image="poseidon-agent:abc123"),
+        OperatorSettings(
+            platform_namespace="poseidon-platform",
+            model="mock-brain",
+            agent_image="poseidon-agent:abc123",
+        ),
     )
 
 

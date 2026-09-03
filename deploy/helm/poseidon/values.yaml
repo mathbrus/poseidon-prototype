@@ -51,6 +51,10 @@ images:
     repository: poseidon-llm-gateway
     tag: latest
     pullPolicy: IfNotPresent
+  egressProxy:
+    repository: poseidon-egress-proxy
+    tag: latest
+    pullPolicy: IfNotPresent
 
 # Secrets layout: GIT_TOKEN mountable only into the gateway,
 # LLM_API_KEY only into LiteLLM — both live in the platform namespace.
@@ -70,11 +74,11 @@ secrets:
   # the orchestrator worker only; sandboxes see only their derived credential.
   egressProxyKey: ""
 
-# Run configuration (the env subset the in-cluster services need).
+# The one model this deployment serves: the LLM gateway pins it on every
+# call, and the agent pods are told the same name (the operator and the
+# orchestrator hand it to them).
 run:
   model: gpt-5.6-luna
-  # Implement's advisory verify cycles before the implementer reports the
-  # tests still failing; every other procedure has its own step cap.
 
 orchestrator:
   temporalAddress: temporal-frontend:7233
@@ -82,22 +86,12 @@ orchestrator:
   # paid brain minutes per step; `fast` (values-mockllm.yaml) makes a wedged
   # step against the mock fail in seconds.
   timeoutProfile: default
-  # SandboxPolicy values come from the applied blueprint's infra IR;
-  # the deployment supplies only the resolution of the IR's
-  # logical toolchain image (content-addressed on kind).
+  # Sandbox caps come from the applied blueprint's infra IR; the
+  # deployment supplies only the content-addressed image the platform's own
+  # toolchain name resolves to (the orchestrator worker's SANDBOX_IMAGE).
   sandbox:
     image: poseidon-sandbox
 
-
-# Sandbox egress proxy. The allowlist is the applied
-# blueprint's compiled IR projection, resolved per run via
-# the registry — a run without an applied blueprint has zero egress.
-# Deny/allow audit events carry the per-run credential attribution.
-egressProxy:
-  image:
-    repository: poseidon-egress-proxy
-    tag: latest
-    pullPolicy: IfNotPresent
 
 postgres:
   image:

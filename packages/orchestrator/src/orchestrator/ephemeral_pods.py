@@ -31,6 +31,7 @@ from kubernetes import client as k8s
 from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
 
+from common.agentpod import READINESS_PROBE, RESOURCES
 from common.podsecurity import CONTAINER_SECURITY_CONTEXT, POD_SECURITY_CONTEXT
 from common.telemetry import get_logger
 from common.topology import (
@@ -151,15 +152,8 @@ def ephemeral_pod_manifest(
                             "readOnly": True,
                         }
                     ],
-                    "resources": {
-                        "requests": {"cpu": "100m", "memory": "256Mi"},
-                        "limits": {"cpu": "1", "memory": "1Gi"},
-                    },
-                    "readinessProbe": {
-                        "httpGet": {"path": "/openapi.json", "port": AGENT_PORT},
-                        "periodSeconds": 3,
-                        "initialDelaySeconds": 2,
-                    },
+                    "resources": dict(RESOURCES),
+                    "readinessProbe": dict(READINESS_PROBE),
                 }
             ],
         },

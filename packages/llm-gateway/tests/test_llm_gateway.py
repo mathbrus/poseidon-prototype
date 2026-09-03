@@ -178,7 +178,11 @@ def stores() -> Stores:
 
 @pytest.fixture
 def app(stores, upstream):
-    settings = LlmGatewaySettings(model="big-model")
+    settings = LlmGatewaySettings(
+        platform_namespace="poseidon-platform",
+        upstream_url="http://upstream.test",
+        model="big-model",
+    )
     return create_app(
         settings,
         httpx.AsyncClient(

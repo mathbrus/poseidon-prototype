@@ -31,11 +31,9 @@ PEER_PORTS = {
     EGRESS_PROXY: EGRESS_PROXY_PORT,
 }
 
-# The namespace the platform services live in, unless the chart says
-# otherwise (it sets PLATFORM_NAMESPACE from the release namespace), and
-# the ServiceAccount the orchestrator worker acts as — the one caller the
-# gateways treat as the platform identity.
-PLATFORM_NAMESPACE_DEFAULT = "poseidon-platform"
+# The ServiceAccount the orchestrator worker acts as — the one caller the
+# gateways treat as the platform identity. (The platform namespace itself
+# is the release namespace, which every template hands its pod.)
 ORCHESTRATOR_SERVICE_ACCOUNT = "orchestrator-worker"
 
 # Workload identity: every agent pod and the worker present a kubelet-

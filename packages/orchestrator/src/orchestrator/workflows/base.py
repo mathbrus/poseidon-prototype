@@ -74,7 +74,6 @@ class Timeouts:
     deterministic on replay.
     """
 
-    create_run_s: int = 30
     step_s: int = 300
     dispatch_s: int = 3600
     dispatch_schedule_to_close_s: int = 7200
@@ -84,21 +83,18 @@ class Timeouts:
     # a model loop.
     provision_s: int = 900
     verify_s: int = 900
-    teardown_s: int = 300
 
 
 # Sized for the deterministic mock brain (packages/mockllm): every bound is
 # far above what the mock needs, and far below the patience a paid brain
 # deserves — so a wedged activity surfaces in seconds, not minutes.
 FAST_TIMEOUTS = Timeouts(
-    create_run_s=15,
     step_s=60,
     dispatch_s=300,
     dispatch_schedule_to_close_s=600,
     dispatch_heartbeat_s=30,
     provision_s=300,
     verify_s=120,
-    teardown_s=60,
 )
 
 # The two profiles a deployment may declare, by the `TIMEOUT_PROFILE` value.
@@ -208,7 +204,7 @@ class RunWorkflow:
         return await workflow.execute_activity(
             "teardown",
             args=[run_id, handle, result, error],
-            start_to_close_timeout=timedelta(seconds=self._bounds.teardown_s),
+            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=TEARDOWN_RETRY,
         )
 

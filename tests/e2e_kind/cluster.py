@@ -23,10 +23,10 @@ from typing import Any
 
 import pytest
 
-from common.topology import PLATFORM_NAMESPACE_DEFAULT, RUN_ID_LABEL, TOKEN_AUDIENCE
+from common.topology import RUN_ID_LABEL, TOKEN_AUDIENCE
 from registry import Registry, open_registry
 
-PLATFORM_NS = PLATFORM_NAMESPACE_DEFAULT
+PLATFORM_NS = "poseidon-platform"  # the chart release namespace kind-up installs into
 COMPANY_NS = "hello-saas"
 POSTGRES_USER = "poseidon"
 
@@ -588,6 +588,12 @@ def worker_settings(env: dict, tmp_path: Path):
     token_file = tmp_path / "unused-token"
     token_file.write_text("unused")
     return WorkerSettings(
+        opa_url="http://opa.test:8181",
+        platform_namespace="poseidon-platform",
+        sandbox_image="poseidon-sandbox:abc123",
+        egress_proxy_url="http://127.0.0.1:3128",
+        egress_proxy_key="egress-key",
+        timeout_profile="default",
         temporal_address="127.0.0.1:7233",
         company=COMPANY_NS,
         gateway_token_file=str(token_file),

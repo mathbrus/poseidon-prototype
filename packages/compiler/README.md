@@ -73,8 +73,9 @@ The `may_spawn` block fans out into:
    `_spawnable_crews` errors if an enabled workflow's crew is unknown to
    the catalog or outside its conductor's `may_spawn` (it would compile
    but never be fulfillable).
-2. **The `AgentInstanceCR`**, which carries `may_spawn` and
-   `max_concurrent_spawns` into the AgentInstance custom resource.
+2. **The `AgentInstanceCR`**, which carries `may_spawn` into the
+   AgentInstance custom resource (the concurrency cap is compiled policy,
+   not a resource field).
 3. **An allow rule** in the emitted `role_pm.rego` that narrows the tool's
    *arguments*, not just its name — spawn intent outside the list is denied
    before anything is recorded:

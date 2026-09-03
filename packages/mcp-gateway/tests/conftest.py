@@ -294,6 +294,7 @@ def audit() -> InMemoryAuditStore:
 @pytest.fixture
 def settings() -> McpGatewaySettings:
     return McpGatewaySettings(
+        platform_namespace="poseidon-platform",
         opa_url=OPA_URL,
         git_token=GIT_TOKEN,
     )

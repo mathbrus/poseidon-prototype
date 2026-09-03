@@ -48,7 +48,6 @@ from common.identity import (
 from common.telemetry import get_logger
 from common.topology import (
     ORCHESTRATOR_SERVICE_ACCOUNT,
-    PLATFORM_NAMESPACE_DEFAULT,
     TOKEN_AUDIENCE,
 )
 
@@ -59,8 +58,8 @@ class WorkloadAuthnSettings(BaseSettings):
     """The verification knobs both gateways share; each gateway's settings
     class inherits this so one env layout configures them identically."""
 
-    # The chart sets it from the release namespace.
-    platform_namespace: str = PLATFORM_NAMESPACE_DEFAULT
+    # The release namespace, set by every gateway template.
+    platform_namespace: str
     # Empty means "derive from the in-cluster environment"; unit tests leave
     # all three alone and inject a reviewer instead.
     kube_api_url: str = ""

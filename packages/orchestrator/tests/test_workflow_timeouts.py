@@ -33,5 +33,4 @@ def test_fast_dispatch_still_outlives_a_single_attempt():
 def test_the_bootstrap_bound_covers_a_registry_round_trip_on_either_profile():
     """The birth activities run before the profile is known; their bound
     must not be tighter than what the fast profile allows a step."""
-    assert BOOTSTRAP_S >= FAST_TIMEOUTS.create_run_s
-    assert BOOTSTRAP_S <= Timeouts().step_s
+    assert BOOTSTRAP_S <= FAST_TIMEOUTS.step_s

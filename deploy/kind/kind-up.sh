@@ -90,17 +90,20 @@ if [ "$SANDBOX_IMAGE" != "poseidon-sandbox" ]; then
   docker tag "poseidon-sandbox:$BUILD_TAG" "$SANDBOX_IMAGE:$BUILD_TAG"
   IMAGES+=("$SANDBOX_IMAGE:$BUILD_TAG")
 fi
+# Every image the chart lists under `images:` that is ours (a poseidon-*
+# repository) gets this build's tag; third-party images keep their pins.
 IMAGE_VALUES=(
-  --set "images.mcpGateway.tag=$BUILD_TAG"
-  --set "images.agent.tag=$BUILD_TAG"
-  --set "images.orchestrator.tag=$BUILD_TAG"
-  --set "egressProxy.image.tag=$BUILD_TAG"
-  --set "images.operator.tag=$BUILD_TAG"
-  --set "images.llmGateway.tag=$BUILD_TAG"
   # Sandbox Jobs are built by the worker from this value, not by helm, so
   # the tag has to ride the image reference itself.
   --set "orchestrator.sandbox.image=$SANDBOX_IMAGE:$BUILD_TAG"
 )
+for key in $(uv run python -c '
+import yaml
+images = yaml.safe_load(open("deploy/helm/poseidon/values.yaml"))["images"]
+print(" ".join(k for k, v in images.items() if v["repository"].startswith("poseidon-")))
+'); do
+  IMAGE_VALUES+=(--set "images.$key.tag=$BUILD_TAG")
+done
 if [ "$REAL_LLM" != "1" ]; then
   IMAGE_VALUES+=(--set "images.llmProxy.tag=$BUILD_TAG")
 else

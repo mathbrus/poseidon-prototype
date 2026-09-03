@@ -20,7 +20,7 @@ SPEC = {
 
 PLATFORM = "poseidon-platform"
 SETTINGS = OperatorSettings(
-    platform_namespace=PLATFORM, agent_image="poseidon-agent:abc123"
+    model="mock-brain", platform_namespace=PLATFORM, agent_image="poseidon-agent:abc123"
 )
 
 

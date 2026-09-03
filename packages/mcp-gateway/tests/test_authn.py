@@ -50,7 +50,11 @@ class FakeReviewer:
 
 @pytest.fixture
 def authn_settings() -> McpGatewaySettings:
-    return McpGatewaySettings(platform_namespace=PLATFORM_NS)
+    return McpGatewaySettings(
+        opa_url="http://opa.test:8181",
+        git_token="tok-test",
+        platform_namespace=PLATFORM_NS,
+    )
 
 
 @pytest.fixture

@@ -30,8 +30,8 @@ spec:
         {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
         - name: proxy
-          image: "{{ .Values.egressProxy.image.repository }}:{{ .Values.egressProxy.image.tag }}"
-          imagePullPolicy: {{ .Values.egressProxy.image.pullPolicy }}
+          image: "{{ .Values.images.egressProxy.repository }}:{{ .Values.images.egressProxy.tag }}"
+          imagePullPolicy: {{ .Values.images.egressProxy.pullPolicy }}
           securityContext:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:

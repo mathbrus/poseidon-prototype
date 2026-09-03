@@ -68,6 +68,13 @@ def settings(tmp_path) -> WorkerSettings:
     token_file = tmp_path / "token"
     token_file.write_text("projected-token")
     return WorkerSettings(
+        opa_url="http://opa.test:8181",
+        platform_namespace="poseidon-platform",
+        agent_image="poseidon-agent:abc123",
+        model="mock-brain",
+        egress_proxy_url="http://127.0.0.1:3128",
+        egress_proxy_key="egress-key",
+        timeout_profile="default",
         company="hello-saas",
         temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
@@ -152,7 +159,10 @@ def test_sandbox_policy_comes_from_the_applied_blueprint(activities):
     assert policy.image == "poseidon-sandbox:abc123"
     assert policy.deadline_s == 3600
     # The declared test command, and nothing else: no proxy is configured.
-    assert policy.env == {"TEST_CMD": "pytest -q"}
+    assert policy.env["TEST_CMD"] == "pytest -q"
+    # The per-run egress credential rides the same env, minted from the
+    # worker's proxy settings.
+    assert policy.env["HTTPS_PROXY"].startswith("http://run-test-0001:")
 
 
 def test_custom_toolchain_image_passes_through(activities, companies):
