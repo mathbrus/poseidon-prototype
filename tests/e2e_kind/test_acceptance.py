@@ -72,7 +72,7 @@ import yaml
 
 from common.ids import new_run_id
 
-from .blueprints import HELLO_SAAS, bundle_revision_from_cr
+from .blueprints import HELLO_SAAS, bundle_revision_from_cr, suite_document
 from .cluster import (
     COMPANY_NS,
     POSTGRES_USER,
@@ -165,12 +165,13 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
 
     # Compile-is-what's-live: the revision is a content digest (registry
     # `pack`), so equality here means the served policy is exactly what
-    # this working tree's compiler emits from this blueprint.
+    # this working tree's compiler emits from the document the suite
+    # applied — the example on the suite's repository and clock.
     from compiler import compile_blueprint
     from registry import pack
     from schema import load_blueprint
 
-    plan = compile_blueprint(load_blueprint(HELLO_SAAS))
+    plan = compile_blueprint(load_blueprint(suite_document(HELLO_SAAS)))
     _, revision = pack(dict(plan.bundle.files))
     assert revision == bundle_revision_from_cr(), (
         "the cluster serves a bundle this blueprint + compiler do not produce"
