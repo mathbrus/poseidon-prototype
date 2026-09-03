@@ -65,7 +65,6 @@ from .conftest import (
     close_issue,
     close_pr,
     delete_repo_file,
-    deployed_timeouts,
     gate_merge_rules,
     github_api,
     pr_number,
@@ -106,9 +105,7 @@ def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
             # --- the one human act: one goal in --------------------------
             intake_handle = await client.start_workflow(
                 "intake",
-                IntakeInput(
-                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
-                ),
+                IntakeInput(run_id=intake_run, goal_text=goal),
                 id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )
@@ -286,7 +283,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(run_id=run_id, goal_text=goal, timeouts=deployed_timeouts()),
+                IntakeInput(run_id=run_id, goal_text=goal),
                 id=workflow_id("intake", run_id),
                 task_queue=TASK_QUEUE,
             )

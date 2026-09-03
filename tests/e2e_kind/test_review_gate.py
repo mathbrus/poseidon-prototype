@@ -54,7 +54,7 @@ async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "review",
-        ReviewInput(run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()),
+        ReviewInput(run_id=run_id, pr_number=pr_number),
         id=workflow_id("review", run_id),
         task_queue=TASK_QUEUE,
     )
@@ -117,9 +117,7 @@ def review_chain(stack: None, env: dict) -> dict:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "intake",
-                IntakeInput(
-                    run_id=intake_run, goal_text=goal, timeouts=deployed_timeouts()
-                ),
+                IntakeInput(run_id=intake_run, goal_text=goal),
                 id=workflow_id("intake", intake_run),
                 task_queue=TASK_QUEUE,
             )

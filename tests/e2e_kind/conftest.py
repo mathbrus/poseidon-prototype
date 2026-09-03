@@ -87,7 +87,7 @@ from mockllm.brain import (
     SLUGIFY_PY,
     TEST_SLUGIFY_PY,
 )
-from orchestrator.workflows.base import FAST_TIMEOUTS, TASK_QUEUE, Timeouts, workflow_id
+from orchestrator.workflows.base import PROFILES, TASK_QUEUE, Timeouts, workflow_id
 from orchestrator.workflows.implement import ImplementInput
 from orchestrator.workflows.review import ReviewInput
 
@@ -97,6 +97,7 @@ from .cluster import (
     PLATFORM_NS,
     audit_story,
     db_now,
+    deployment_env,
     kill_worker_pod,
     psql_json,
     run_by_task,
@@ -249,18 +250,16 @@ def paid_brain_guard() -> None:
         pytest.fail(problem)
 
 
-def deployed_timeouts() -> Timeouts | None:
-    """The timeout profile for the brain the cluster is *running* — every
-    workflow input in the suite sizes from this, never from `.env`.
+def deployed_timeouts() -> Timeouts:
+    """The timeout profile the worker is *deployed* with — what every
+    workflow in the cluster runs under, read back so the suite sizes its
+    own waits from it, never from `.env`.
 
-    Sizing depends on the brain: the mock answers in milliseconds, a paid
-    model legitimately takes minutes, and the default profile's gate
-    deadlines are hours (`budget_gate_s` 3600, `merge_gate_s` 86400).
-    Those are not upper bounds a fast run slips under — the park tests
-    *wait them out* — so reading the wrong brain does not merely slow the
-    suite, it wedges it for a day on the first unanswered gate. None means
-    the workflow defaults: the patience a paid brain deserves."""
-    return FAST_TIMEOUTS if "mockllm" in deployed_brain_image() else None
+    The default profile's gate deadlines are hours (`budget_gate_s` 3600,
+    `merge_gate_s` 86400), and the park tests *wait them out* — so a suite
+    that assumed the wrong profile would not merely run slow, it would
+    wedge for a day on the first unanswered gate."""
+    return PROFILES[deployment_env("orchestrator-worker", "TIMEOUT_PROFILE")]
 
 
 # --- running implement -------------------------------------------------------
@@ -306,9 +305,7 @@ def run_implement(task_file: str, kill_worker: bool, env: dict[str, str]) -> dic
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
     return _run(
-        ImplementInput(
-            run_id=new_run_id(), task_text=task_text, timeouts=deployed_timeouts()
-        ),
+        ImplementInput(run_id=new_run_id(), task_text=task_text),
         kill_worker,
     )
 
@@ -317,11 +314,7 @@ def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
     """One full implement run from a GitHub issue the company filed —
     what `poseidon run <number>` starts. The issue body must carry the
     delivery-branch line itself; the harness appends nothing."""
-    return _run(
-        ImplementInput(
-            run_id=new_run_id(), issue_number=issue_number, timeouts=deployed_timeouts()
-        )
-    )
+    return _run(ImplementInput(run_id=new_run_id(), issue_number=issue_number))
 
 
 def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
@@ -576,9 +569,7 @@ def run_review(pr_number: int, approve: bool | None = None) -> tuple[str, dict]:
             client = await Client.connect(address)
             handle = await client.start_workflow(
                 "review",
-                ReviewInput(
-                    run_id=run_id, pr_number=pr_number, timeouts=deployed_timeouts()
-                ),
+                ReviewInput(run_id=run_id, pr_number=pr_number),
                 id=workflow_id("review", run_id),
                 task_queue=TASK_QUEUE,
             )

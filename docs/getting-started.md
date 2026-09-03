@@ -164,8 +164,9 @@ company is still `hello-saas`; the product under construction is whatever
 that repository holds. The engine is standard-library Python on purpose:
 the sandbox image has pytest, and the agent prompt forbids `pip install`.
 
-Leave a Temporal port-forward up for every CLI command. Do not pass
-`--fast-timeouts` — those bounds are sized for the mock brain.
+Leave a Temporal port-forward up for every CLI command. Activity bounds
+come from the deployment's `TIMEOUT_PROFILE`, so a cluster brought up with
+`REAL_LLM=1` already runs the generous profile a paid brain needs.
 
 ```bash
 kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233

@@ -46,7 +46,7 @@ decision, nothing more.
 
 ```
 poseidon run TARGET [--run-id ID] [--workflow implement|intake]
-             [--detach] [--fast-timeouts]
+             [--detach]
 ```
 
 Starts a run for the task or goal in `TARGET` — a file path, or a GitHub
@@ -69,14 +69,11 @@ issue number to implement the ticket the company already filed.
 - `--detach` starts the workflow and exits immediately. Without it, the
   CLI blocks until the run completes, prints the run record as JSON, and
   exits non-zero if the final status is not `done`.
-- `--fast-timeouts` swaps in short per-activity bounds sized for the mock
-  brain, so a wedged step fails in seconds instead of minutes. Used by the
-  e2e suite; not meant for real-model runs.
 
 ### `poseidon review`
 
 ```
-poseidon review PR_NUMBER [--run-id ID] [--detach] [--fast-timeouts]
+poseidon review PR_NUMBER [--run-id ID] [--detach]
 ```
 
 Starts a review run for an open pull request: a fresh sandbox is
@@ -171,14 +168,14 @@ heartbeat per company, `heartbeat-{company}`.
 
 | Name | Workflow id | Input | What it runs |
 |---|---|---|---|
-| `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text=None, timeouts=None, issue_number=None)` — exactly one of `task_text` or `issue_number` | The delivery pipeline: crew fulfilment, implementation, verify gate, PR. With `issue_number`, the platform resolves the open issue first and composes the task from it. |
-| `intake` | `intake-{run_id}` | `IntakeInput(run_id, goal_text, timeouts=None)` | The PM scoping a goal into tickets and a recorded crew request. |
-| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number, timeouts=None)` | Ephemeral review of a PR, then the merge gate — resolved by a human signal or by compiled policy, as the blueprint declares. |
-| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, timeouts=None, pending_wake=False)` | The company's standing loop: each tick observes the backlog, asks the conductor to choose one action, and starts it under the compiled `heartbeat.start` decision. Event-triggered — the platform's `wake` signal ends the wait between ticks, and the blueprint's `reconcile_minutes` is the backstop. Started by the worker's ensure loop, never by a human; stops itself when the blueprint's `heartbeat` section is gone. |
+| `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text=None, issue_number=None)` — exactly one of `task_text` or `issue_number` | The delivery pipeline: crew fulfilment, implementation, verify gate, PR. With `issue_number`, the platform resolves the open issue first and composes the task from it. |
+| `intake` | `intake-{run_id}` | `IntakeInput(run_id, goal_text)` | The PM scoping a goal into tickets and a recorded crew request. |
+| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number)` | Ephemeral review of a PR, then the merge gate — resolved by a human signal or by compiled policy, as the blueprint declares. |
+| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, pending_wake=False)` | The company's standing loop: each tick observes the backlog, asks the conductor to choose one action, and starts it under the compiled `heartbeat.start` decision. Event-triggered — the platform's `wake` signal ends the wait between ticks, and the blueprint's `reconcile_minutes` is the backstop. Started by the worker's ensure loop, never by a human; stops itself when the blueprint's `heartbeat` section is gone. |
 
-`timeouts=None` keeps the generous real-brain activity bounds (and lets
-old histories replay); the CLI's `--fast-timeouts` passes the mock-brain
-preset instead.
+Activity bounds are not part of any input: the worker's `TIMEOUT_PROFILE`
+(`default` for a paid brain, `fast` for the mock) sizes every workflow it
+hosts, and each workflow learns it from its first config activity.
 
 ### Signals
 

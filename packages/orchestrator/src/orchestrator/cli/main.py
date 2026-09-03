@@ -19,7 +19,6 @@ from orchestrator.cli.blueprint import app as blueprint_app
 from orchestrator.config import TemporalSettings
 from orchestrator.workflows import ImplementInput, IntakeInput, ReviewInput
 from orchestrator.workflows.base import (
-    FAST_TIMEOUTS,
     TASK_QUEUE,
     TEMPORAL_NAMESPACE,
     WORKFLOWS,
@@ -49,24 +48,17 @@ def run(
         " or intake (a goal for the PM to scope)",
     ),
     detach: bool = typer.Option(False, help="Start the workflow and exit"),
-    fast_timeouts: bool = typer.Option(
-        False,
-        "--fast-timeouts",
-        help="Short per-activity bounds, sized for the mock brain "
-        "(a wedged step then fails in seconds instead of minutes)",
-    ),
 ) -> None:
     """Start a run for the task or goal in TARGET — a file path, or an
     issue number to implement the ticket the company already filed."""
     run_id = run_id or new_run_id()
-    timeouts = FAST_TIMEOUTS if fast_timeouts else None
     if workflow == "implement":
         source = (
             {"issue_number": int(target)}
             if target.isdigit()
             else {"task_text": Path(target).read_text()}
         )
-        started_input: object = ImplementInput(run_id=run_id, timeouts=timeouts, **source)
+        started_input: object = ImplementInput(run_id=run_id, **source)
     elif workflow == "intake":
         if target.isdigit():
             typer.echo(
@@ -74,9 +66,7 @@ def run(
                 err=True,
             )
             raise typer.Exit(2)
-        started_input = IntakeInput(
-            run_id=run_id, goal_text=Path(target).read_text(), timeouts=timeouts
-        )
+        started_input = IntakeInput(run_id=run_id, goal_text=Path(target).read_text())
     else:
         typer.echo(f"unknown workflow {workflow!r}", err=True)
         raise typer.Exit(2)
@@ -92,19 +82,10 @@ def review(
         help="Start the workflow and exit — the merge gate parks it until"
         " `poseidon signal <run_id> merge --workflow review` answers",
     ),
-    fast_timeouts: bool = typer.Option(
-        False,
-        "--fast-timeouts",
-        help="Short per-activity bounds, sized for the mock brain",
-    ),
 ) -> None:
     """Start a review run for the pull request."""
     run_id = run_id or new_run_id()
-    started_input = ReviewInput(
-        run_id=run_id,
-        pr_number=pr_number,
-        timeouts=FAST_TIMEOUTS if fast_timeouts else None,
-    )
+    started_input = ReviewInput(run_id=run_id, pr_number=pr_number)
     _start("review", run_id, started_input, detach)
 
 

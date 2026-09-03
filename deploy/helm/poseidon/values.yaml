@@ -81,6 +81,10 @@ run:
 
 orchestrator:
   temporalAddress: temporal-frontend:7233
+  # The activity-bound profile every workflow runs with: `default` gives a
+  # paid brain minutes per step; `fast` (values-mockllm.yaml) makes a wedged
+  # step against the mock fail in seconds.
+  timeoutProfile: default
   # SandboxPolicy values come from the applied blueprint's infra IR;
   # the deployment supplies only the resolution of the IR's
   # logical toolchain image (content-addressed on kind).

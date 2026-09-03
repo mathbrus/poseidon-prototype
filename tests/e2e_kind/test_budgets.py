@@ -82,7 +82,7 @@ async def _run_until_paused_then_reject(
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "implement",
-        ImplementInput(run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()),
+        ImplementInput(run_id=run_id, task_text=task_text),
         id=workflow_id("implement", run_id),
         task_queue=TASK_QUEUE,
     )
@@ -222,7 +222,7 @@ async def _run_until_paused_then_approve(
     client = await Client.connect(address)
     handle = await client.start_workflow(
         "implement",
-        ImplementInput(run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()),
+        ImplementInput(run_id=run_id, task_text=task_text),
         id=workflow_id("implement", run_id),
         task_queue=TASK_QUEUE,
     )

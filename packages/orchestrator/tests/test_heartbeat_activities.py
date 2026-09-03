@@ -3,6 +3,7 @@ the audit trail, against fakes. The tick's sequencing, the sleep cadence
 and the child start are workflow concerns, proven live by the kind e2e."""
 
 import asyncio
+from dataclasses import asdict
 from typing import Any
 
 import pytest
@@ -16,6 +17,7 @@ from orchestrator.activities.heartbeat import (
     decision_prompt,
 )
 from orchestrator.config import WorkerSettings
+from orchestrator.workflows.base import Timeouts
 from registry import Attempts
 from registry.memory import (
     InMemoryAgentInstances,
@@ -153,7 +155,10 @@ def _opa(monkeypatch, allow: bool, rule: str):
 
 def test_config_returns_the_applied_section(activities, companies):
     companies.upsert(COMPANY, {"heartbeat": HEARTBEAT_SPEC})
-    assert asyncio.run(activities.heartbeat_config()) == HEARTBEAT_SPEC
+    assert asyncio.run(activities.heartbeat_config()) == {
+        **HEARTBEAT_SPEC,
+        "timeouts": asdict(Timeouts()),
+    }
 
 
 def test_config_is_none_without_a_section(activities, companies):

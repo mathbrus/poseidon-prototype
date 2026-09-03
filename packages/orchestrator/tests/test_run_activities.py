@@ -6,11 +6,13 @@ it. Sequencing, compensation and durability are workflow concerns, proven
 live by the kind e2e suite (worker-kill included)."""
 
 import asyncio
+from dataclasses import asdict
 
 import pytest
 
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.activities.run import RunActivities
+from orchestrator.workflows.base import Timeouts
 from orchestrator.workflows.implement import issue_placeholder
 from registry.memory import (
     InMemoryAgentInstances,
@@ -197,6 +199,7 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
         "gates": {},
         "max_verify_retries": 2,
         "contract_paths": ["tests/acceptance", "tests/contract"],
+        "timeouts": asdict(Timeouts()),
     }
     review = asyncio.run(activities.workflow_config("review"))
     assert review["crew"] == "feature-review"

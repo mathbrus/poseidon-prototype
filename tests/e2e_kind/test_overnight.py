@@ -46,7 +46,6 @@ from .conftest import (
     apply_profile,
     close_issue,
     close_pr,
-    deployed_timeouts,
     github_api,
     heartbeat_ticks,
     pr_number,
@@ -71,9 +70,8 @@ def _poseidon(args: list[str], address: str, timeout: int) -> subprocess.Complet
 def _run_intake(goal_path: Path, run_id: str, address: str) -> dict:
     """Human act 1: `poseidon run <goal> --workflow intake`. Blocks until
     intake completes and prints the run record; returns it."""
-    fast = ["--fast-timeouts"] if deployed_timeouts() is not None else []
     proc = _poseidon(
-        ["run", str(goal_path), "--workflow", "intake", "--run-id", run_id, *fast],
+        ["run", str(goal_path), "--workflow", "intake", "--run-id", run_id],
         address,
         650,
     )

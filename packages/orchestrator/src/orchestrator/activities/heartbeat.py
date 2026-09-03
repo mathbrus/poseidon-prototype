@@ -31,6 +31,7 @@ start must still win the compiled heartbeat.start decision.
 import asyncio
 import re
 import time
+from dataclasses import asdict
 from typing import Any
 
 from temporalio import activity
@@ -49,7 +50,7 @@ from orchestrator.clients import (
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
-from orchestrator.workflows.base import TEMPORAL_NAMESPACE, workflow_id
+from orchestrator.workflows.base import PROFILES, TEMPORAL_NAMESPACE, workflow_id
 from registry import AgentInstances, Attempts, AuditStore, BudgetLedger, Companies, Runs
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
@@ -141,11 +142,15 @@ class HeartbeatActivities:
 
     @activity.defn(name="heartbeat_config")
     async def heartbeat_config(self) -> dict[str, Any] | None:
-        """The applied blueprint's heartbeat section, or None — the workflow
-        stops on None, which is what makes removal effective at the next
-        tick regardless of what else still believes in the heartbeat."""
+        """The applied blueprint's heartbeat section plus the deployment's
+        timeout profile, or None — the workflow stops on None, which is what
+        makes removal effective at the next tick regardless of what else
+        still believes in the heartbeat."""
         spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}
-        return spec.get("heartbeat") or None
+        section = spec.get("heartbeat")
+        if not section:
+            return None
+        return {**section, "timeouts": asdict(PROFILES[self._settings.timeout_profile])}
 
     @activity.defn(name="heartbeat_observe")
     async def heartbeat_observe(self, max_attempts: int) -> dict[str, Any]:

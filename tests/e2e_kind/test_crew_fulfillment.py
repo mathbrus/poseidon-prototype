@@ -40,7 +40,7 @@ from .cluster import (
     temporal_port_forward,
     worker_settings,
 )
-from .conftest import REPO_ROOT, TASK_QUEUE, deployed_timeouts
+from .conftest import REPO_ROOT, TASK_QUEUE
 
 
 @contextlib.contextmanager
@@ -287,9 +287,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
             client = await Client.connect(address)
             wf = await client.start_workflow(
                 "implement",
-                ImplementInput(
-                    run_id=run_id, task_text=task_text, timeouts=deployed_timeouts()
-                ),
+                ImplementInput(run_id=run_id, task_text=task_text),
                 id=workflow_id("implement", run_id),
                 task_queue=TASK_QUEUE,
             )

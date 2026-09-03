@@ -1,19 +1,18 @@
-"""The timeout profiles carried in the workflow input.
+"""The deployment's timeout profiles.
 
-Sizing belongs to the client because it depends on the brain behind the run
-(a paid LLM takes minutes per step; the mock answers instantly), and
-workflow code cannot read the environment under Temporal's sandbox.
+Sizing depends on the brain the deployment runs (a paid LLM takes minutes
+per step; the mock answers instantly). Workflow code cannot read the
+environment under Temporal's sandbox, so the worker hands the profile to
+every workflow through its first config activity.
 """
 
 from dataclasses import fields
 
-from orchestrator.workflows.base import FAST_TIMEOUTS, Timeouts
-from orchestrator.workflows.implement import ImplementInput
+from orchestrator.workflows.base import BOOTSTRAP_S, FAST_TIMEOUTS, PROFILES, Timeouts
 
 
-def test_default_input_keeps_the_generous_real_brain_bounds():
-    input = ImplementInput(run_id="run-1", task_text="task")
-    assert input.timeouts is None  # the workflow falls back to Timeouts()
+def test_the_two_profiles_are_the_generous_default_and_the_fast_one():
+    assert PROFILES == {"default": Timeouts(), "fast": FAST_TIMEOUTS}
     assert Timeouts().dispatch_s == 3600
 
 
@@ -29,3 +28,10 @@ def test_fast_dispatch_still_outlives_a_single_attempt():
     # schedule_to_close must leave room for a retry after a worker kill.
     assert FAST_TIMEOUTS.dispatch_schedule_to_close_s > FAST_TIMEOUTS.dispatch_s
     assert FAST_TIMEOUTS.dispatch_heartbeat_s < FAST_TIMEOUTS.dispatch_s
+
+
+def test_the_bootstrap_bound_covers_a_registry_round_trip_on_either_profile():
+    """The birth activities run before the profile is known; their bound
+    must not be tighter than what the fast profile allows a step."""
+    assert BOOTSTRAP_S >= FAST_TIMEOUTS.create_run_s
+    assert BOOTSTRAP_S <= Timeouts().step_s

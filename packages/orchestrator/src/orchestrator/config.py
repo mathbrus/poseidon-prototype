@@ -10,6 +10,7 @@ egress-proxy attribution env and the logical-image resolution live here.
 """
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings
 
@@ -58,6 +59,10 @@ class WorkerSettings(TemporalSettings):
     model: str = "mock-brain"
     # Implement's advisory verify cycles, handed to every agent pod.
     verify_cycles: int = 10
+    # Which activity-bound profile every workflow on this worker runs with
+    # (`orchestrator.workflows.base.PROFILES`): `fast` for the mock brain,
+    # `default` for a paid one. The chart sets it.
+    timeout_profile: Literal["default", "fast"] = "default"
 
     def gateway_token(self) -> str:
         if self.gateway_token_file:

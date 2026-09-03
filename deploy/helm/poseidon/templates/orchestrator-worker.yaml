@@ -52,6 +52,8 @@ spec:
           env:
             - name: TEMPORAL_ADDRESS
               value: {{ .Values.orchestrator.temporalAddress | quote }}
+            - name: TIMEOUT_PROFILE
+              value: {{ .Values.orchestrator.timeoutProfile | quote }}
             - name: MCP_GATEWAY_URL
               value: http://mcp-gateway:8080
             # The workflow-recorded crew request evaluates

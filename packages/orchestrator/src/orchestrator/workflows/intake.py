@@ -31,14 +31,13 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from orchestrator.gates import Gate
-from orchestrator.workflows.base import RunWorkflow, Timeouts
+from orchestrator.workflows.base import RunWorkflow
 
 
 @dataclass
 class IntakeInput:
     run_id: str
     goal_text: str
-    timeouts: Timeouts | None = None
 
 
 @workflow.defn(name="intake")
@@ -68,25 +67,24 @@ class IntakeWorkflow(RunWorkflow):
 
     @workflow.run
     async def run(self, input: IntakeInput) -> dict[str, Any]:
-        timeouts = input.timeouts or Timeouts()
         result: dict[str, Any] | None = None
         error: str | None = None
         try:
-            config = await self.start_run(input.run_id, input.goal_text, timeouts)
+            config = await self.start_run(input.run_id, input.goal_text)
             if (config["gates"].get("intake") or {}).get("resolved_by") == "human":
                 # The configured gate: park until a human answers or the
                 # escalation deadline lapses. Transitions are
                 # process-gate audit events like every other gate's.
                 self._phase = "paused-intake_gate"
                 outcome = await self._intake_gate.wait(
-                    timeout=timedelta(seconds=timeouts.budget_gate_s),
-                    escalate_after=timedelta(seconds=timeouts.budget_gate_s // 2),
+                    timeout=timedelta(seconds=self._bounds.budget_gate_s),
+                    escalate_after=timedelta(seconds=self._bounds.budget_gate_s // 2),
                     on_escalate=lambda: self.record_gate(
-                        input.run_id, "intake", "escalated", timeouts
+                        input.run_id, "intake", "escalated"
                     ),
                 )
                 self._phase = "running"
-                await self.record_gate(input.run_id, "intake", outcome.kind, timeouts)
+                await self.record_gate(input.run_id, "intake", outcome.kind)
                 if outcome.kind != "approved":
                     error = f"intake gate {outcome.kind}"
                     raise _GateClosed()
@@ -95,7 +93,6 @@ class IntakeWorkflow(RunWorkflow):
                 config["conductor"]["url"],
                 "scope",
                 input.goal_text,
-                timeouts,
             )
         except _GateClosed:
             pass
@@ -105,11 +102,11 @@ class IntakeWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._phase = "finalizing"
-        record = await self.teardown(input.run_id, None, result, error, timeouts)
+        record = await self.teardown(input.run_id, None, result, error)
         # The tickets this run filed are the standing heartbeat's next
         # backlog — nudge it; the reconcile timer covers a nudge that
         # goes missing.
-        await self.wake_heartbeat(timeouts)
+        await self.wake_heartbeat()
         return record
 
 

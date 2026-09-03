@@ -24,6 +24,7 @@ Retry safety, per activity:
 """
 
 import asyncio
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from temporalio import activity
@@ -37,7 +38,7 @@ from orchestrator.activities.blueprint import workflow_config
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
-from orchestrator.workflows.base import workflow_id
+from orchestrator.workflows.base import PROFILES, workflow_id
 from registry import (
     ISSUE_TASK_RE,
     REVIEW_TASK_RE,
@@ -135,16 +136,18 @@ class RunActivities:
     async def workflow_config(self, workflow: str) -> dict[str, Any]:
         """The named workflow's shape, read from the applied blueprint and
         the converged conductor instance — gates, crew, bounds and the
-        conductor all come from config, never from code. Fail-closed: no
+        conductor all come from config, never from code — plus the
+        deployment's timeout profile (`timeouts`). Fail-closed: no
         applied blueprint, no enabled workflow, or no converged conductor
         each refuse the run before anything is provisioned."""
-        return await asyncio.to_thread(
+        config = await asyncio.to_thread(
             workflow_config,
             self._companies,
             self._instances,
             self._settings.company,
             workflow,
         )
+        return {**config, "timeouts": asdict(PROFILES[self._settings.timeout_profile])}
 
     @activity.defn(name="record_gate_outcome")
     async def record_gate_outcome(
