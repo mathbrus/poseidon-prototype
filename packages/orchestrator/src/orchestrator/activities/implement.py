@@ -175,7 +175,7 @@ class ImplementActivities:
     ) -> dict[str, Any]:
         """The gate of record: the platform
         runs the sandbox's test suite under the orchestrator's own
-        identity. The executor's claim is advisory; this result is what
+        identity. The implementer's claim is advisory; this result is what
         delivery hangs on. One verification concept, parameterized by
         scope: no `paths` runs the whole suite (implement's verify loop,
         review's hygiene run); with `paths` the run is pinned to those

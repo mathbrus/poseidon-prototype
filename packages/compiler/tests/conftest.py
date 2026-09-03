@@ -36,8 +36,8 @@ def heartbeat_blueprint(blueprint: dict) -> dict:
 
 
 @pytest.fixture
-def standing_executor(blueprint: dict) -> dict:
-    """The blueprint with an executor hired as a standing role — the shape
+def standing_implementer(blueprint: dict) -> dict:
+    """The blueprint with an implementer hired as a standing agent — the shape
     the strict lean-standing rule refuses."""
     document = copy.deepcopy(blueprint)
     document["standing"]["implementer"] = {

@@ -157,7 +157,7 @@ of the same ledger.
 
 ## Why delivery cannot jump the gate
 
-The executor's completion claim is *advisory* — nothing depends on it.
+The implementer's completion claim is *advisory* — nothing depends on it.
 The gate of record is `platform_verify`: the orchestrator's own
 `sandbox.run_tests` call under its own identity. Red verify composes the
 task plus the failing output into a re-dispatch (`verify_feedback`),
@@ -167,7 +167,7 @@ code, does delivery become reachable:
 ```python
 if verified and not error and not (result or {}).get("error"):
     delivery = await self._dispatch(
-        input.run_id, executor_url, "deliver", task_source, timeouts
+        input.run_id, implementer["url"], "deliver", task_source, timeouts
     )
 ```
 
@@ -253,7 +253,7 @@ audit event: a run's story shows who existed, when, under whose authority.
 
 ## Ephemeral pods
 
-An ephemeral pod is one ephemeral agent's brain host: the same agent image a
+An ephemeral pod hosts exactly one ephemeral agent: the same agent image a
 standing agent runs, labeled to its run. Its only credential is the
 audience-scoped projected token of its own per-run ServiceAccount,
 mounted by the kubelet — no token-shaped env var exists, and no
@@ -331,7 +331,7 @@ key** (there is nothing to sign: crew identities are ServiceAccounts,
 bound by registry row). Its gateway
 identity is an audience-scoped projected service-account token, distinct
 from the automounted API-server token the k8s_jobs backend and the
-crew-pod provisioner use: each is useless where the other is needed.
+ephemeral-pod provisioner use: each is useless where the other is needed.
 
 ## Cross-package interactions
 
@@ -353,7 +353,7 @@ uv run pytest packages/orchestrator
 ```
 
 The unit suite covers activity behaviour and retry safety against fakes:
-deterministic binding converging on one row, the crew-pod manifest's
+deterministic binding converging on one row, the ephemeral pod manifest's
 containment posture, gate outcomes as audit events, budget-boundary
 refusals, fail-closed config reads, the timeout profiles. Sequencing,
 compensation and durability are workflow concerns, proven live by the

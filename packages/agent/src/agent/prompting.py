@@ -9,7 +9,7 @@ the OpenHands SDK ships as prompt sections. The SDK's default prompt body
 is deliberately not used: it addresses a user who is in the loop, gives
 the model an OpenHands identity, assumes a networked machine that
 installs its own dependencies, and tells the model to keep notes in a
-writable AGENTS.md — none of which exist on a brain host. What is reused
+writable AGENTS.md — none of which exist on an agent host. What is reused
 is the handful of sections that say nothing about who the model is or
 which tools it holds — efficiency, file hygiene, code quality, the
 per-model-family guidance — assembled by the SDK's own registry, so a

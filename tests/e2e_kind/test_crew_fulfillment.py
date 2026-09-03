@@ -2,9 +2,9 @@
 
 The full fulfillment path runs with the real machinery: the PM records
 intent through the gateway (policy-faced), fulfill consumes it, binds the
-crew and provisions each agent its own brain-host pod (and per-run
-ServiceAccount); the executor dispatch then implements the task through
-the gateway and opens a real PR as the *ephemeral* executor, parentage on
+crew and provisions each agent its own pod (and per-run
+ServiceAccount); the implementer dispatch then implements the task through
+the gateway and opens a real PR as the *ephemeral* implementer, parentage on
 every decision. Then the sweep: identities revoked and rows terminal
 after teardown, including worker kill.
 
@@ -113,7 +113,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
     )
     mcp = gateway_url(env)
     orchestrator_token = projected_token(PLATFORM_NS, "orchestrator-worker")
-    executor_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
+    implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     handle = None
 
@@ -169,15 +169,15 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                         }
                     )
                 )
-                executor = fulfilled["agents"]["implementer"]
-                assert executor["agent_id"] == executor_id
+                implementer = fulfilled["agents"]["implementer"]
+                assert implementer["agent_id"] == implementer_id
 
-                # 4. The executor dispatch carries the task verbatim. It ends
+                # 4. The implementer dispatch carries the task verbatim. It ends
                 #    at a completion claim; the separate deliver dispatch
                 #    (issued here in the platform verify gate's stead) opens
                 #    the PR.
                 async def dispatch(procedure: str, text: str) -> dict:
-                    async with AgentClient(executor["url"]) as agent:
+                    async with AgentClient(implementer["url"]) as agent:
                         await agent.dispatch(run_id, procedure, text)
                         while True:
                             status = await agent.status(run_id)
@@ -186,7 +186,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                             await asyncio.sleep(2)
 
                 claim = asyncio.run(dispatch("implement", task_text))
-                assert claim["status"] == "done", f"executor failed: {claim}"
+                assert claim["status"] == "done", f"implementer failed: {claim}"
                 assert claim["pr_url"] is None, (
                     "the implement dispatch must end at a claim, not a PR"
                 )
@@ -201,7 +201,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 
                 status = asyncio.run(dispatch("deliver", task_text))
             assert status["status"] == "done", f"delivery failed: {status}"
-            assert status["pr_url"], "no PR from the ephemeral executor"
+            assert status["pr_url"], "no PR from the ephemeral implementer"
 
             # The PR is real and on the constrained branch.
             pr = pr_info(status["pr_url"])
@@ -217,22 +217,22 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             assert crew_events, "no ephemeral gateway decisions in the story"
             assert all(e["parent_agent_id"] == "pm-1" for e in crew_events)
             assert any(
-                e["agent_id"] == executor_id
+                e["agent_id"] == implementer_id
                 and e["tool"] == "git.open_pr"
                 and e["decision"] == "allow"
                 for e in crew_events
-            ), "the PR was not opened by the ephemeral executor"
+            ), "the PR was not opened by the ephemeral implementer"
 
             # An agent outside its compiled allow-list is denied at the
-            # gateway: the executor holds no issue tools. Its SA exists
+            # gateway: the implementer holds no issue tools. Its SA exists
             # (fulfilment provisioned its pod), so a fresh projected token
             # is the same credential the pod holds.
-            executor_token = projected_token(
-                COMPANY_NS, service_account_name(executor_id)
+            implementer_token = projected_token(
+                COMPANY_NS, service_account_name(implementer_id)
             )
             denied = mcp_call(
                 env,
-                executor_token,
+                implementer_token,
                 "issues.create",
                 {
                     "run_id": run_id,
@@ -243,12 +243,12 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             )
             assert denied.isError and "default_deny" in denied.content[0].text
 
-            # 5. Teardown semantics: revoke + destroy; the executor's token
+            # 5. Teardown semantics: revoke + destroy; the implementer's token
             #    dies with its row, the pod with its labels.
             swept = asyncio.run(crew.revoke_participants(run_id))
-            assert executor_id in swept
+            assert implementer_id in swept
             gone = asyncio.run(crew.destroy_ephemeral_pods(run_id))
-            assert pod_name(executor_id) in gone
+            assert pod_name(implementer_id) in gone
         finally:
             if handle is not None:
                 with contextlib.suppress(Exception):
@@ -280,7 +280,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    executor_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
+    implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
 
     async def run() -> dict:
         with temporal_port_forward() as address:
@@ -324,7 +324,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     with registry() as client:
         rows = client.query(
             "SELECT status FROM registry.run_participants WHERE agent_id = %s",
-            (executor_id,),
+            (implementer_id,),
         )
         assert rows and rows[0]["status"] == "terminated", rows
         client.execute(
@@ -344,7 +344,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
             COMPANY_NS,
             "get",
             "pod",
-            pod_name(executor_id),
+            pod_name(implementer_id),
             "-o",
             "name",
             timeout=30,

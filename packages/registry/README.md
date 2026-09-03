@@ -136,7 +136,7 @@ coordinates). That makes revocation a database write: flip `status` to
 its projected tokens remain valid. Token expiry alone
 would leave a compromised identity usable for the remainder of its TTL;
 a row check leaves it usable for zero further calls. Teardown uses the
-sweep form, `terminate_for_run`, which revokes every live participant of a
+sweep form, `terminate_for_run`, which revokes every live ephemeral agent of a
 run at once and returns who it swept (each becomes an audit event).
 
 Revocation is also **final**, and the mechanism is worth reading:

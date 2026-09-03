@@ -37,7 +37,7 @@ def test_hello_saas_validates():
 
 
 def test_hello_saas_is_the_lean_profile(blueprint):
-    """The PM is the only standing agent; no standing executor exists in the
+    """The PM is the only standing agent; no standing implementer exists in the
     document at all."""
     roles = blueprint["standing"]
     assert roles["pm"]["count"] == 1
@@ -45,7 +45,7 @@ def test_hello_saas_is_the_lean_profile(blueprint):
     assert "implementer" not in roles  # no standing coder
 
 
-def test_pm_holds_no_executor_tools(blueprint):
+def test_pm_holds_no_implementer_tools(blueprint):
     """Spawn authority is not permission to wield the crew's tools —
     a gateway deny, not prompt hope, and it starts in the blueprint."""
     pm_tools = set(blueprint["tools"]["pm"]["allow"])
@@ -194,15 +194,15 @@ def test_a_tool_scope_may_narrow_the_catalog(blueprint):
 
 def test_lean_roster_profile_validates(blueprint):
     """The checked-in document IS the lean profile; the rule that rejects
-    standing executors is a compile error, not a schema one — so a
-    standing-executor document still *validates* structurally."""
+    standing implementers is a compile error, not a schema one — so a
+    standing-implementer document still *validates* structurally."""
     assert validate_blueprint(blueprint) is blueprint
-    standing_executor = copy.deepcopy(blueprint)
-    standing_executor["standing"]["implementer"] = {
+    standing_implementer = copy.deepcopy(blueprint)
+    standing_implementer["standing"]["implementer"] = {
         "role": "implementer",
         "count": 1,
     }
-    assert validate_blueprint(standing_executor) is standing_executor
+    assert validate_blueprint(standing_implementer) is standing_implementer
 
 
 # -- the merge gate --------------------------------------------------------

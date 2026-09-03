@@ -9,8 +9,8 @@ Activities are referenced by name — the one seam the engine adapter needs:
 this module imports nothing from the activity implementations.
 
 The crew is the only execution path: fulfill_crew stands
-the ephemeral executor up (recording the crew request under the standing
-conductor's authority when none exists), the executor is dispatched at its
+the ephemeral implementer up (recording the crew request under the standing
+conductor's authority when none exists), the implementer is dispatched at its
 ephemeral pod with the task text, and its completion claim is advisory — the
 platform verify gate (`platform_verify`, the orchestrator's own run of the
 sandbox tests) is the gate of record. Red verify feeds the failure back for
@@ -92,7 +92,7 @@ def ticket_crew(task_source: str) -> str | None:
 
 
 def verify_feedback(task: str, output: str) -> str:
-    """The red-path re-dispatch text: the task the executor already worked
+    """The red-path re-dispatch text: the task the implementer already worked
     from, plus what the platform's own test run said. Deterministic —
     workflow code composes it on replay."""
     return (

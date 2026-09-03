@@ -32,13 +32,13 @@ TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 WORKFLOWS = ("implement", "intake", "review", "heartbeat")
 
 
-def workflow_id(family: str, key: str) -> str:
-    """Deterministic workflow naming. The run-shaped families run one
+def workflow_id(workflow: str, key: str) -> str:
+    """Deterministic workflow naming. The run-shaped workflows run one
     workflow per run (`implement-{run_id}`); the heartbeat is one
     standing workflow per company (`heartbeat-{company}`), keyed by company
     because the loop is standing structure and its audit story correlates
     on that id."""
-    return f"{family}-{key}"
+    return f"{workflow}-{key}"
 
 
 @dataclass

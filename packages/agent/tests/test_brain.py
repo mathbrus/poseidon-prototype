@@ -1,4 +1,4 @@
-"""Brain-host tests: the production OpenHands SDK loops
+"""Agent-host tests: the production OpenHands SDK loops
 driven by a scripted LLM and a fake gateway (see conftest)."""
 
 import asyncio
@@ -226,7 +226,7 @@ def test_deliver_prompt_names_the_delivery_tool(settings, gateway):
 
 def test_review_prompt_is_the_reviewers(settings, gateway):
     """The reviewer is told it is a reviewer — comment_pr procedure, not an
-    engineer identity."""
+    implementer identity."""
     llm = ScriptedLLM([says("nothing to say")])
 
     with scripted(gateway, llm):
@@ -239,7 +239,7 @@ def test_review_prompt_is_the_reviewers(settings, gateway):
 
 
 def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):
-    """A model call to a tool outside the phase surface (open_pr while
+    """A model call to a tool outside the procedure's surface (open_pr while
     implementing) comes back as an error tool result — never a crash, and
     never a gateway call."""
     llm = ScriptedLLM(
@@ -369,7 +369,7 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
     assert len(attempts) == 1  # num_retries=1: one attempt, no grind
 
 
-def test_reviewer_step_budget_is_its_own_cap_not_max_iterations(settings, gateway):
+def test_reviewer_step_budget_is_its_own_cap_not_verify_cycles(settings, gateway):
     """The reviewer's budget is `REVIEW_STEP_CAP`, decoupled from
     `verify_cycles` — that knob bounds implement's verify cycles, and a
     deployment that tunes it low must not starve the reviewer of the
@@ -418,7 +418,7 @@ def test_prompt_rendering_survives_stray_braces(tmp_path, settings, monkeypatch)
 
 
 def test_every_prompt_opens_with_its_own_header(settings):
-    """The header is the mock brain's whole phase key and the host's own
+    """The header is the mock brain's whole procedure key and the host's own
     packaging check: each procedure's file names exactly that procedure."""
     from agent.prompting import PROCEDURE_HEADER, PROMPTS_DIR, SECTIONS, render_procedure
 
@@ -608,7 +608,7 @@ def test_agents_md_the_role_may_not_read_is_skipped(settings, gateway):
 def test_repeating_itself_ends_the_dispatch_as_stuck(settings, gateway):
     """The SDK's detector is on for every model: four identical action
     and observation pairs inside one turn stop the loop with STUCK, which
-    the runner reports as a failure rather than a completion claim."""
+    the procedure reports as a failure rather than a completion claim."""
     same = calls(tc("read_file", path="README.md"))
     llm = ScriptedLLM([same, same, same, same])
 
@@ -637,7 +637,7 @@ def test_a_stuck_pm_fails_with_what_it_filed(settings, gateway):
 def test_a_batch_of_reads_runs_concurrently(settings, gateway):
     """Three reads in one reply fan out: each one blocks on a barrier
     that opens only when all three have arrived, so a one-at-a-time
-    executor would time out and hand the model three errors."""
+    tool executor would time out and hand the model three errors."""
     barrier = threading.Barrier(3, timeout=5)
 
     async def gated(tool, args):

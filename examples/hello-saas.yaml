@@ -2,7 +2,7 @@
 #
 # The standing agents is the PM alone: delivery and review run as ephemeral
 # crews under the PM's conductor authority. The strict lean-standing compile
-# error refuses any standing executor count.
+# error refuses any standing implementer count.
 apiVersion: poseidon.dev/v1
 
 company:

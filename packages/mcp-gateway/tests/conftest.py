@@ -35,7 +35,7 @@ from registry.memory import (
 )
 
 AGENT_TOKEN = "agent-secret"
-RUNNER_TOKEN = "runner-secret"
+WORKER_TOKEN = "worker-secret"
 PM_TOKEN = "pm-secret"
 REVIEWER_TOKEN = "reviewer-secret"
 GIT_TOKEN = "git-platform-secret"
@@ -59,7 +59,7 @@ class FakeReviewer:
 
     accounts = {
         AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
-        RUNNER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
+        WORKER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
         PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
         REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "ephemeral-reviewer-01x"),
     }
@@ -83,7 +83,7 @@ class Backends:
     """Scriptable stand-ins for OPA, the sandbox tool server and GitHub.
 
     The OPA stub mirrors the compiled-bundle shape (compiler/rego.py):
-    company callers query their company package (standing role rules with
+    company callers query their company package (per-role rules with
     `run_binding_verified` for run-scoped tools, the blueprint's branch and
     path denies), the platform lifecycle queries its own package. `decide`
     reads the *enriched* input, exactly like the real bundles. `force_allow`
@@ -401,7 +401,7 @@ async def mcp_session(app, token: str):
                 yield session
 
 
-async def register_sandbox(app, run_id: str, token: str = RUNNER_TOKEN) -> httpx.Response:
+async def register_sandbox(app, run_id: str, token: str = WORKER_TOKEN) -> httpx.Response:
     """Register a run's sandbox exactly as the orchestrator does — namespace
     included, because the registration's namespace is what a standing
     caller's run binding is verified against."""

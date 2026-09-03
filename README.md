@@ -331,7 +331,7 @@ held in memory.
 flowchart TB
     subgraph company["company namespace"]
         PM["<b>PM</b><br/>standing agent"]
-        EX["<b>executor</b><br/>ephemeral ephemeral pod"]
+        EX["<b>implementer</b><br/>ephemeral agent"]
         SBX["<b>sandbox</b><br/>K8s Job · untrusted code"]
     end
     subgraph platform["platform namespace"]
@@ -379,7 +379,7 @@ from the `run_id` alone.
 | **egress proxy** | egress HMAC key | The one network route out of a sandbox; allowlist + audit. |
 | **OPA** | — | Answering decision queries from compiled bundles. |
 | **registry** (Postgres) | — | Nine tables, one writer each; the audit and run store. |
-| **agent** | *nothing* | Running the model loop. Its credential is its own ServiceAccount's projected token file — for standing agents and ephemeral agents alike. |
+| **agent** | *nothing* | Running the procedure a dispatch names, against the model behind the LLM gateway. Its credential is its own ServiceAccount's projected token file — for standing agents and ephemeral agents alike. |
 | **sandbox** | *nothing* | Running untrusted workspace code. |
 
 </details>
@@ -454,21 +454,21 @@ A human starts an implement run from a ticket (or the heartbeat does — see
 
 ### Implementation: work under audit
 
-The executor is dispatched with the task text — a file's contents or the
-ticket the company filed, verbatim. It surveys the sandbox (the tree and
+The implementer is dispatched with the task text — a file's contents or the
+ticket the company filed, verbatim — to run its `implement` procedure. It surveys the sandbox (the tree and
 the repository's own `AGENTS.md`), then reads, writes and runs commands in
 it — all through the gateway, all policy-checked, all audited. Then it says
 it is done.
 
 > [!IMPORTANT]
-> The executor's claim of success is **advisory**. Nothing that ships
+> The implementer's claim of success is **advisory**. Nothing that ships
 > depends on it.
 
 ### The verify gate
 
 The orchestrator runs the sandbox's test suite *itself*, under its own
 platform identity. This is the gate of record. If it is red, the failure is
-fed back and the executor is re-dispatched, a bounded number of times
+fed back and the implementer is re-dispatched, a bounded number of times
 (`max_verify_retries`).
 
 ### Delivery: a bundle, not a push
@@ -486,7 +486,7 @@ Only after a green verify does the workflow issue a *separate*
 
 The agent never touches the remote, either. Delivery works like this:
 
-1. The executor produces a **git bundle** — an offline, verifiable
+1. The implementer produces a **git bundle** — an offline, verifiable
    container of commits — via `sandbox.git_bundle`.
 2. The gateway verifies the bundle and applies it to a fresh platform-side
    clone.
@@ -582,7 +582,7 @@ every transition, human or policy, is a first-class audit event.
 ### Teardown
 
 Every terminal path — success, failure, cancellation, timeout, worker
-death — runs the same teardown: participants revoked, pods destroyed, the
+death — runs the same teardown: ephemeral identities revoked, pods destroyed, the
 sandbox torn down, the registration retired, the run record written.
 
 ### Who starts the next run: the heartbeat
@@ -646,7 +646,7 @@ python -c "import io, tarfile, urllib.request; ...
                data=buf.getvalue(), method='POST'))"
 ```
 
-1. `sandbox.exec` **is** in the executor's compiled scope, so the gateway
+1. `sandbox.exec` **is** in the implementer's compiled scope, so the gateway
    allows it. The tool allow-list is not what stops this.
 2. The sandbox has no DNS and no direct route out. The request goes to the
    egress proxy because the proxy env is the only thing configured.
@@ -724,7 +724,7 @@ Read it as the answer to "what do I actually get?"
   diffs you read before they happen; firing revokes an agent's identity the
   moment its row is deleted.
 - **A full SDLC.** Goal → tickets (intake) → implementation by an ephemeral
-  executor crew → platform-run verification → pull request → ephemeral
+  implementer crew → platform-run verification → pull request → ephemeral
   review with a posted findings comment and a structured verdict → merge.
 - **Quality as a gate policy owns, not the agent.** The merge gate resolves
   the way the blueprint declares. Delegate it, and a change in the declared
@@ -755,7 +755,7 @@ Read it as the answer to "what do I actually get?"
   poisoned ticket cannot start work outside the observation, and removing
   the section stops the loop at the next tick.
 - **Durability.** Kill the orchestrator worker mid-run; Temporal replays it
-  and the run completes, with no leaked sandbox, identity, participant row
+  and the run completes, with no leaked sandbox, identity row
   or registration.
 - **Governance that holds under attack.** Compiled-policy denies for
   out-of-scope tools; an injected conductor refused when it tries to spawn
@@ -763,7 +763,7 @@ Read it as the answer to "what do I actually get?"
   distinct audit sources correlated by one `run_id`.
 - **Budget enforcement.** A per-run hard stop that pauses the run visibly,
   escalates as a real gate event, and attributes every dollar to
-  `{run, parent, participant, role}`.
+  `{run, parent, agent, role}`.
 - **Sandbox containment.** No mounted service-account token, no reachable
   cluster API or node metadata, no runtime socket or host mount, no foreign
   processes, unforgeable per-run egress identity, resource caps that
@@ -1026,7 +1026,7 @@ and how to test it.
 | [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates, the `poseidon` CLI |
 | [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
 | [`llm-gateway`](packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |
-| [`agent`](packages/agent/README.md) | The OpenHands SDK brain host |
+| [`agent`](packages/agent/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
 | [`sandbox`](packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
 | [`mockllm`](packages/mockllm/README.md) | The deterministic brain that makes e2e runs free |
 

@@ -1,17 +1,18 @@
 # agent
 
-The brain host: the OpenHands Agent SDK running as a library behind
-Poseidon contracts. This is the only package where an LLM is in the loop,
-and it is built on the assumption that the model will sometimes try things
-it should not — so the pod holds no credential, owns no side effect, and
-cannot reach anything except through the gateways.
+The agent host: the dispatch HTTP API and the OpenHands Agent SDK
+running as a library behind Poseidon contracts. This is the only package
+where an LLM is in the loop, and it is built on the assumption that the
+model will sometimes try things it should not — so the pod holds no
+credential, owns no side effect, and cannot reach anything except through
+the gateways.
 
 If the [root README](../../README.md) is the argument that a compromised
 agent must be survivable, this package is the thing being survived: the
 process that turns untrusted text into tool calls. Nothing it decides is
 trusted anywhere else.
 
-## Why "brain host", not "agent framework"
+## Why "agent host", not "agent framework"
 
 The OpenHands SDK is adopted strictly as a library: the reasoning loop,
 the context machinery (a summarizing condenser), the stuck detector, the
@@ -61,7 +62,7 @@ plus every field of the `ProcedureResult` (`pr_url`, `iterations`,
 `error`, `ticket_urls`, `crew_request_id`, `comment_urls`,
 `verdict`, `verdict_summary`, `decision`) — the HTTP shape is derived
 from the result type, so a new field cannot be dropped at the
-boundary. The workflow polls — the brain owns no
+boundary. The workflow polls — the host owns no
 process-level retries, timeouts or cancellation, because Temporal already
 owns all three.
 
@@ -80,7 +81,7 @@ Two status-code rules carry real semantics:
 - **409 for a run already in flight.** Crash-resume re-attach: a
   workflow retry after a worker death finds its run still going and
   waits, instead of starting a duplicate. It is also the contract that
-  one brain host runs one dispatch at a time.
+  one agent host runs one dispatch at a time.
 - **A terminal run re-dispatched is a restart.** After a budget pause
   is lifted, the workflow re-dispatches the same `run_id`; if that
   answered 409 too, it would poll a stale failure forever.
@@ -153,7 +154,7 @@ does not know which brain is behind the proxy, and should not.
 
 ## The workspace survey
 
-Every sandboxed dispatch — implement, deliver, review, plan — opens with
+Every sandboxed dispatch — implement, deliver, review — opens with
 a survey the host runs itself, under the pod's own token: one
 `sandbox.list_dir` of the root, and a `sandbox.read_file` of the
 repository's `AGENTS.md` when there is one (a role policy will not let
@@ -200,12 +201,12 @@ Three more mechanisms worth knowing:
   the PR URL — base64 bundles never enter the model context (a test
   asserts no message the model saw contains the bundle bytes).
 - **A denial is a tool result, not a crash.** A gateway deny raises
-  `ToolCallError` carrying the OPA rule name; the executor turns it into
+  `ToolCallError` carrying the OPA rule name; the tool executor turns it into
   an `ERROR: ...` observation. The model reads the rule name and can
   recover — the tests script an agent that tries `open_pr` on `main`,
   sees `git_open_pr_protected_branch`, and retries on `feature/*`.
 - **Results are recorded as they happen.** `ToolRecords` captures the PR
-  URL, ticket URLs, crew-request id and comment URLs at the executor, so
+  URL, ticket URLs, crew-request id and comment URLs at the tool executor, so
   the dispatch reports facts it saw, never a parse of the transcript.
 
 One implementation note: the SDK resolves tools lazily, on a worker
@@ -232,7 +233,7 @@ blank `GPG_KEY`, which the python base image bakes in, so no token-shaped
 env value exists in a company-namespace pod at all; the images CI job
 asserts no secret-shaped env is baked in.
 
-## GatewayBridge: sync brain, async client
+## GatewayBridge: sync loop, async client
 
 The SDK conversation loop is synchronous and blocking, so each dispatch
 runs in a worker thread under the async app (`asyncio.to_thread`), and
@@ -241,7 +242,7 @@ client. The subtlety it exists for: the MCP client's anyio cancel scopes
 are task-bound, so the session must be entered and exited inside one
 long-lived task on a dedicated event-loop thread — entering and exiting
 it from separately scheduled coroutines corrupts the scopes on teardown.
-This is where the first cluster run of the brain host died, which is why
+This is where the first cluster run of the agent host died, which is why
 `test_bridge.py` runs against a real MCP streamable-HTTP server rather
 than a double. The per-call read timeout is 660 s at the MCP client, with
 a 700 s backstop at the bridge.
@@ -261,8 +262,8 @@ land before its checkout.
 uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 ```
 
-`poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and crew
-pods run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
+`poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and ephemeral
+agents run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
 `MODEL`, `TARGET_REPO`, `ROLE` (the catalog role, which bounds the
 procedures the host accepts), `VERIFY_CYCLES` (implement's verify-cycle
 bound; every other procedure runs under its own step cap), and
@@ -298,7 +299,7 @@ lifecycle bugs fail here, not on kind.
 
 ## Invariants
 
-- The brain starts and stops no sandboxes and owns no process-level
+- The host starts and stops no sandboxes and owns no process-level
   retries, timeouts or cancellation — the workflow dispatches and waits.
 - The implement surface never contains `open_pr`; delivery is a separate
   workflow-directed dispatch after the platform verify gate.
@@ -308,7 +309,7 @@ lifecycle bugs fail here, not on kind.
   model-facing schema.
 - Prompt files are rendered with literal placeholder substitution, not
   `str.format`: they are prose, and a stray brace must stay a brace.
-- One dispatch at a time per brain host (409 on re-dispatch); a terminal
+- One dispatch at a time per agent host (409 on re-dispatch); a terminal
   run re-dispatched restarts.
 - A loop that stops short — step cap or stuck — is a named failure,
   never a completion claim.

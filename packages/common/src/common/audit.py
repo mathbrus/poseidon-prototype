@@ -8,7 +8,7 @@ must never become a leak channel.
 
 Sources: the MCP gateway's decision pipeline; the egress proxy's
 allows/denies (`sandbox-infra`); the LLM gateway; `process-lifecycle`, the
-orchestrator's fulfill machinery (identity mint/revoke, crew-pod
+orchestrator's fulfill machinery (identity mint/revoke, ephemeral-pod
 provisioning); and the process gates.
 """
 

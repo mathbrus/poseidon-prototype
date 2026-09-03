@@ -43,7 +43,7 @@ class FakeReviewer:
         if token == AGENT_TOKEN:
             return ServiceAccount(COMPANY, "implementer-1")
         if token == CREW_TOKEN:
-            return ServiceAccount(COMPANY, "ephemeral-executor-01x")
+            return ServiceAccount(COMPANY, "ephemeral-feature-delivery-implementer-01x")
         return None
 
 
@@ -275,7 +275,7 @@ def test_tier_routes_the_model_and_meters_the_ledger(app, stores, upstream):
     assert resp.status_code == 200
 
     # The caller's frontier tier picked the model; the request's own model
-    # field did not survive (routing is the gateway's, not the brain's).
+    # field did not survive (routing is the gateway's, not the agent's).
     assert upstream.requests[0]["model"] == "big-model"
 
     (entry,) = ledger.entries_for_run(RUN_ID)
@@ -338,14 +338,14 @@ def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores):
     audit, runs, participants = stores.audit, stores.runs, stores.participants
     runs.start("run-OTHER", "task", "implement", None, COMPANY)
     participants.add(
-        "executor-01X",
+        "feature-delivery-implementer-01X",
         "run-OTHER",
         "pm-1",
         "feature-delivery",
         "implementer",
         company=COMPANY,
         namespace=COMPANY,
-        service_account="ephemeral-executor-01x",
+        service_account="ephemeral-feature-delivery-implementer-01x",
     )
     resp = call(app, token=CREW_TOKEN, run_id=RUN_ID)  # not its run
     assert resp.status_code == 403

@@ -17,7 +17,7 @@ defaults are control flow only (finish/think).
 Tool resolution is lazy — the SDK resolves specs on a worker thread at
 first use — so the per-dispatch context (gateway bridge, run identity,
 result records) is a module-level current-context, not a contextvar:
-`HandsContext.activate()` binds it. One dispatch at a time per brain host
+`HandsContext.activate()` binds it. One dispatch at a time per agent host
 is the dispatch API's contract (409 on re-dispatch), so there is never a
 second context to race with.
 """
@@ -67,7 +67,7 @@ class GatewayCaller(Protocol):
 @dataclass
 class ToolRecords:
     """What the dispatch reports back over the dispatch API, captured as the
-    executors see results — no parsing of the conversation afterwards."""
+    tool executors see results — no parsing of the conversation afterwards."""
 
     pr_url: str | None = None
     ticket_urls: list[str] = field(default_factory=list)
@@ -561,5 +561,5 @@ register_tool("PoseidonHands", PoseidonHands)
 
 
 def hands(names: list[str]) -> list[Tool]:
-    """The Agent `tools` entry for one dispatch phase."""
+    """The Agent `tools` entry for one procedure."""
     return [Tool(name="PoseidonHands", params={"names": names})]

@@ -1,6 +1,6 @@
 """The Responses surface of the mock: a wire-shape adapter over the same
 brain. Requests arrive as `instructions` + `input` items with flattened tool
-schemas; the brain must see the chat shape it keys phases on, and its
+schemas; the brain must see the chat shape it keys procedures on, and its
 completion must come back as Responses output items the OpenHands SDK can
 parse (`Message.from_llm_responses_output`)."""
 
@@ -113,7 +113,7 @@ def test_both_path_aliases_serve_the_same_surface():
         assert post({"model": "m", "input": "hello"}, path=path)["object"] == "response"
 
 
-def test_flattened_tools_key_the_pm_phase_and_calls_come_back_as_items():
+def test_flattened_tools_key_the_scope_procedure_and_calls_come_back_as_items():
     """The PM script fires on the system prompt with Responses-shaped tools:
     the first completion is a create_issue function_call item the SDK's
     parser understands (call_id + JSON-string arguments)."""

@@ -1,4 +1,4 @@
-"""Agent settings: the env subset the brain host needs.
+"""Agent settings: the env subset the agent host needs.
 
 No secret ever reaches this container: the gateway credential is the
 kubelet-rotated projected token file, the LLM provider key

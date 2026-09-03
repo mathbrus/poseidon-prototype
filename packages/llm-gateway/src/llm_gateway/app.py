@@ -141,7 +141,7 @@ class AuthMiddleware:
 def _error(status: int, message: str, code: str) -> JSONResponse:
     """OpenAI-style error body: standard clients raise it with the code and
     message intact, which is what makes `budget_exhausted` distinguishable
-    at the brain and therefore observable by the workflow."""
+    at the agent host and therefore observable by the workflow."""
     return JSONResponse(
         {"error": {"message": message, "type": "poseidon_policy", "code": code}},
         status_code=status,

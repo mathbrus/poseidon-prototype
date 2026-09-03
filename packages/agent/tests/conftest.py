@@ -1,4 +1,4 @@
-"""Brain-host unit-test doubles: a scripted litellm patch
+"""Agent-host unit-test doubles: a scripted litellm patch
 driving the real OpenHands SDK loop, and a fake gateway (behind a sync fake
 bridge) that mimics the real policy behaviour — feature-branch rule
 included — closely enough to exercise allow, deny and recovery paths."""

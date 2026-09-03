@@ -120,12 +120,12 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
     assert "git.open_pr" in implementer.tools and "git.open_pr" not in pm_tools
 
 
-def test_standing_executor_is_a_compile_error(standing_executor):
-    """The strict lean-standing stance — no standing executor counts;
-    workflow nodes bind to spawners only. A standing-executor shape is a
+def test_standing_implementer_is_a_compile_error(standing_implementer):
+    """The strict lean-standing stance — no standing implementer counts;
+    workflow nodes bind to spawners only. A standing-implementer shape is a
     compile error."""
     with pytest.raises(CompileError) as err:
-        compile_blueprint(standing_executor)
+        compile_blueprint(standing_implementer)
     assert "non-spawner role 'implementer'" in str(err.value)
 
 

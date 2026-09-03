@@ -10,7 +10,7 @@ from conftest import (
     AGENT_TOKEN,
     PM_TOKEN,
     REVIEWER_TOKEN,
-    RUNNER_TOKEN,
+    WORKER_TOKEN,
     audit_events,
     mcp_session,
 )
@@ -106,7 +106,7 @@ async def test_single_issue_read_refuses_a_pull_request(app, backends):
     assert result.isError and "pull request" in result.content[0].text
 
 
-async def test_engineer_is_denied_the_pm_surface(app, audit, backends):
+async def test_implementer_is_denied_the_pm_surface(app, audit, backends):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(
             "issues.create",
@@ -171,7 +171,7 @@ async def test_reviewer_cannot_merge_or_open_issues(app, participants):
 
 
 async def test_merge_is_platform_only(app, backends, audit):
-    async with mcp_session(app, RUNNER_TOKEN) as session:
+    async with mcp_session(app, WORKER_TOKEN) as session:
         merged = payload(
             await session.call_tool(
                 "git.merge_pr", {"run_id": RUN_ID, "repo": REPO, "number": 5}
@@ -243,7 +243,7 @@ async def test_crew_request_outside_may_spawn_is_denied(app, crew_requests, audi
     assert audit_events(audit)[-1]["decision"] == "deny"
 
 
-async def test_engineer_cannot_request_crews(app, crew_requests):
+async def test_implementer_cannot_request_crews(app, crew_requests):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(
             "crew.request",
@@ -258,7 +258,9 @@ async def test_over_cap_crew_request_is_denied_and_audited(
 ):
     """The conductor's live spawn count rides the decision input and
     the compiled cap denies by rule — a first-class governance event."""
-    participants.add("fd-executor-a", "run-a", "pm-1", "feature-delivery", "implementer")
+    participants.add(
+        "fd-implementer-a", "run-a", "pm-1", "feature-delivery", "implementer"
+    )
     participants.add("fr-reviewer-b", "run-b", "pm-1", "feature-review", "reviewer")
 
     async with mcp_session(app, PM_TOKEN) as session:

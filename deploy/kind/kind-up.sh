@@ -239,6 +239,6 @@ if [ "$code" != "401" ]; then
   exit 1
 fi
 # Standing agents have no NodePort: they are reached in-cluster
-# by the orchestrator, and the operator gives each standing role its own Service.
+# by the orchestrator, and the operator gives each standing agent its own Service.
 
 echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}"

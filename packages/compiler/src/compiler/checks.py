@@ -103,7 +103,7 @@ def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str
             problems.append(
                 f"workflows.{name}.conductor: {conductor!r} is not an active standing "
                 f"spawner — enabled workflows bind to a standing conductor "
-                f"spawner — a standing role with count > 0 whose template may spawn (active: {available})"
+                f"spawner — a hire with count > 0 whose role may spawn (active: {available})"
             )
     return problems
 

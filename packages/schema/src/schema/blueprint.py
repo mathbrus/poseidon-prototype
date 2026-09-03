@@ -180,8 +180,8 @@ def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
     not a writable thing."""
     properties: dict[str, Any] = {
         "enabled": {"type": "boolean"},
-        # The standing role that spawns this workflow — never a standing
-        # executor (enforced by the compiler).
+        # The standing name that spawns this workflow — never a standing
+        # implementer (enforced by the compiler).
         "conductor": _NAME,
         "crew": _NAME,
         # Bounded verify re-dispatches.
@@ -279,7 +279,7 @@ _HEARTBEAT = {
         "daily_cap",
     ],
     "properties": {
-        # The standing role dispatched to decide the next action.
+        # The standing name dispatched to decide the next action.
         "conductor": _NAME,
         # The reconcile backstop: the platform's own completions wake the
         # tick immediately; this bounds how long a change only the outside

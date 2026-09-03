@@ -188,7 +188,7 @@ async def test_running_run_still_answers_409():
 
 async def test_a_role_runs_only_its_own_procedures():
     """The pod's role bounds the dispatch: a PM host refuses implement, an
-    engineer host refuses scope — 422 before any runner is touched. The
+    implementer host refuses scope — 422 before any runner is touched. The
     gateway's tool policy is the boundary; this is the host declining to
     start a loop it could never finish."""
 

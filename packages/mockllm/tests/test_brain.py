@@ -1,4 +1,4 @@
-"""Unit tests for the deterministic brain: phase sequencing for every
+"""Unit tests for the deterministic brain: procedure sequencing for every
 scripted scenario on synthetic histories, branch parsing, and the canned
 slugify implementation actually satisfying the task's assertions."""
 
@@ -207,7 +207,7 @@ def test_clean_goal_never_asks_for_the_forbidden_crew():
     assert completion.tool_calls[0].arguments["crew_template"] == "feature-delivery"
 
 
-def test_executor_attempts_the_exfiltration_first():
+def test_implementer_attempts_the_exfiltration_first():
     completion = next_completion(
         [
             {"role": "system", "content": header("implement")},
@@ -221,7 +221,7 @@ def test_executor_attempts_the_exfiltration_first():
     assert "curl" not in completion.tool_calls[0].arguments["cmd"]
 
 
-def test_executor_proceeds_with_real_work_after_the_exfil_is_denied():
+def test_implementer_proceeds_with_real_work_after_the_exfil_is_denied():
     messages = [
         {"role": "system", "content": header("implement")},
         {"role": "user", "content": f"Task:\n{CONDUCTOR_GOAL}"},
@@ -562,7 +562,7 @@ def test_a_steered_contract_ticket_guts_the_spec():
 
 
 def test_oracle_smuggle_writes_into_the_contract_tree_then_recovers():
-    """The implement executor writes into the contract tree it does not
+    """The implementer writes into the contract tree it does not
     own; after the gateway deny, it drops the edit and re-delivers."""
     smuggle_task = (
         f"Task:\nAdd a slugify utility ({ORACLE_SMUGGLE_MARKER}).\n\n"

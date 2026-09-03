@@ -1,4 +1,4 @@
-"""The PM runtime on the brain host: scope -> ticket -> crew intent ->
+"""The PM's scope procedure on the agent host: goal -> ticket -> crew intent ->
 summary comment on the ticket, through governed tools only; a gateway deny
 surfaces as a tool observation the model sees, never a crash."""
 

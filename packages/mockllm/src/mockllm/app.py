@@ -98,7 +98,7 @@ class ResponsesRequest(BaseModel):
 def _chat_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
     """Responses tool schemas arrive flattened
     (`{"type": "function", "name": ..., "parameters": ...}`); normalise to
-    the chat shape whose `function.name` the brain's phase keying reads."""
+    the chat shape whose `function.name` the brain's procedure keying reads."""
     normalised = []
     for tool in tools or []:
         if "function" in tool:

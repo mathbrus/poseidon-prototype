@@ -111,7 +111,7 @@ class FakeProvisioner:
                 "env": dict(env),
             }
         )
-        # Per-pod URLs, so tests can see which agent's brain host a
+        # Per-pod URLs, so tests can see which agent's pod a
         # dispatch actually reached.
         return EphemeralPodHandle(
             agent_id=agent_id,
@@ -176,7 +176,7 @@ def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisio
     # of its own ServiceAccount, mounted by the kubelet.
     assert env["GATEWAY_TOKEN_FILE"] == f"{TOKEN_MOUNT_DIR}/token"
     assert "GATEWAY_TOKEN" not in env
-    # The brain host's wiring, FQDN'd for the company namespace.
+    # The agent host's wiring, FQDN'd for the company namespace.
     assert env["MCP_GATEWAY_URL"].startswith("http://mcp-gateway.poseidon-platform")
     assert env["LLM_PROXY_URL"].startswith("http://llm-gateway.poseidon-platform")
 

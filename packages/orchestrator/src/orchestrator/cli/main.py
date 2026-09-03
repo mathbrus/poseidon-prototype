@@ -41,7 +41,7 @@ def run(
     run_id: str = typer.Option(None, help="Run id (generated when omitted)"),
     workflow: str = typer.Option(
         "implement",
-        help="Which workflow to start: implement (a task for the engineer)"
+        help="Which workflow to start: implement (a task for an implementer crew)"
         " or intake (a goal for the PM to scope)",
     ),
     detach: bool = typer.Option(False, help="Start the workflow and exit"),

@@ -66,8 +66,8 @@ def mcp_server_url():
 
 
 def test_bridge_session_lifecycle_and_calls(mcp_server_url):
-    """Enter, call repeatedly (each call a separate coroutine, as the SDK
-    executors do), and exit cleanly — the teardown is the part that breaks
+    """Enter, call repeatedly (each call a separate coroutine, as the SDK's
+    tool executors do), and exit cleanly — the teardown is the part that breaks
     if session enter/exit ever split across tasks again."""
     with GatewayBridge(mcp_server_url, "test-token") as bridge:
         first = bridge.call("sandbox.echo", {"run_id": "r-1", "value": "one"})

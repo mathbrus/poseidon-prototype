@@ -116,7 +116,7 @@ def test_agent_pod_runs_non_root_with_no_escalation_path():
 
 
 def test_agent_pod_identity_is_the_audience_scoped_projected_token():
-    """The pod runs as its instance's ServiceAccount and mounts one
+    """The pod runs as its agent's ServiceAccount and mounts one
     projected token, audience-scoped to the gateway; the API-server token
     stays unmounted, so the pod holds no cluster identity."""
     pod = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)["spec"]["template"][

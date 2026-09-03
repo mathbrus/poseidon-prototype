@@ -19,7 +19,7 @@ What this suite claims, and what it deliberately does not:
   that is defence in depth on top of the containment, not the claim.
 
 One residual risk this suite measures rather than prevents:
-`sandbox.exec` is inside the executor's compiled scope by design, so
+`sandbox.exec` is inside the implementer's compiled scope by design, so
 payload *attempts* are stopped by the egress layer rather than by the tool
 allow-list (asserted in test_injected_conductor).
 

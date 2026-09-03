@@ -55,6 +55,26 @@ When you find something incoherent with this vision, stop and ask.
 Do not paper over it, do not reinterpret it into the new world, do
 not silently delete it. We will sort it out together.
 
+## Glossary
+
+One name per concept, everywhere: code, comments, docs, tests, CRs.
+Check new names against this table; if a concept is missing, add it here
+first.
+
+| Term | Meaning | Not |
+|---|---|---|
+| **role** | a catalog entry: tool ceiling, model tier, spawn authority, the procedures it may run — `pm`, `implementer`, `reviewer`, `contract-author` | role template, executor, engineer, sdet, author |
+| **crew** | a named list of roles fulfilled together for one run (`feature-delivery`, `feature-review`, `contract-authoring`); `crew_template` names it in policy input and registry rows | — |
+| **agent** | one principal: one pod, one ServiceAccount, one registry row; standing (`<standing_name>-<n>`) or ephemeral (`<crew>-<role>-<run_id>`) | brain host, member, instance, participant (the `run_participants` table and its API keep the name; prose says ephemeral agent) |
+| **agent host** | the process in the agent image: the dispatch HTTP API plus the SDK loop that runs procedures | brain host, runner |
+| **standing name** | the hire's name: the key under `standing:`, the Deployment/Service name | standing role |
+| **conductor** | the standing agent a crew is requested under; at runtime `{agent_id, role, url}` | — |
+| **procedure** | the agent host's unit of work: `scope`, `decide`, `implement`, `deliver`, `review` | mode, runner, phase, loop, runtime |
+| **dispatch** | the orchestrator asking an agent to run a procedure on a text | — |
+| **brain** | the model behind the LLM gateway, nothing else (mock brain, paid brain) | — |
+| **workflow** | a Temporal workflow = a blueprint section: `intake`, `implement`, `review`, `heartbeat` | family |
+| **goal / task / observation** | the text in flight, by origin: intake scopes a goal, implement works a task, the heartbeat decides on an observation | brief |
+
 ## Working rules
 
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.

@@ -8,7 +8,7 @@ nothing else. Enforced boundaries:
   (`agent.hands`); the host holds the only credential and the SDK's default
   tools are control flow only (finish/think). The OpenHands built-ins and
   its sub-agent machinery (`TaskToolSet`) are never installed or registered.
-- The brain starts and stops no sandboxes and owns no process-level
+- The host starts and stops no sandboxes and owns no process-level
   retries/timeouts/cancellation — the workflow dispatches into this host
   and waits; `num_retries=1` keeps the SDK from grinding on errors the
   workflow owns (a `budget_exhausted` 429 surfaces immediately).
@@ -21,7 +21,7 @@ nothing else. Enforced boundaries:
 Every procedure is one synchronous function — the SDK conversation loop
 is blocking — run in a worker thread under the async dispatch app
 (`asyncio.to_thread`).
-The `GatewayBridge` gives the executors a sync facade over the async MCP
+The `GatewayBridge` gives the tool executors a sync facade over the async MCP
 client by parking the session on a dedicated event-loop thread.
 """
 
@@ -293,7 +293,7 @@ def _loop_failure(convo: Conversation) -> str | None:
     """Why the SDK loop stopped short, or None if it finished. The SDK
     sets ERROR at the step cap and STUCK when its detector sees the same
     action and observation repeat (a nudge comes first for a repeating
-    error); neither raises, so every runner asks."""
+    error); neither raises, so every procedure asks."""
     status = convo.state.execution_status
     if status == ConversationExecutionStatus.STUCK:
         return "agent loop stuck repeating itself"
@@ -512,7 +512,7 @@ def run_scope(settings: AgentSettings, run_id: str, task_text: str) -> Procedure
     backlog is the PM's cross-run state, and the summary comment is what a
     later reader of that backlog finds. A dispatch that filed tickets but
     posted no summary is a failed dispatch — the tickets are still reported,
-    so they stay linked to the run. Executor-tool refusal is the gateway's
+    so they stay linked to the run. Refusing a tool call is the gateway's
     job; a deny surfaces as a tool observation the model sees."""
     with _session(settings, run_id, "scope", SCOPE_TOOLS, SCOPE_STEP_CAP) as s:
         convo, records = s.convo, s.records

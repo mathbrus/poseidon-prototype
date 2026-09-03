@@ -152,8 +152,8 @@ def test_pm_may_request_a_crew(decide):
     assert decision["allow"] is True
 
 
-def test_pm_cannot_call_executor_tools(decide):
-    """'The PM cannot call executor-only tools' — a gateway deny,
+def test_pm_cannot_call_implementer_tools(decide):
+    """'The PM cannot call implementer-only tools' — a gateway deny,
     not prompt hope."""
     for tool in ("git.open_pr", "sandbox.write_file", "sandbox.exec"):
         decision = decide(**standing("pm", tool=tool, args={"branch": "feature/x"}))
@@ -163,7 +163,7 @@ def test_pm_cannot_call_executor_tools(decide):
 # -- ephemeral agents are distinct principals ---------------------------------
 
 
-def test_executor_delivers_on_feature_branches(decide):
+def test_implementer_delivers_on_feature_branches(decide):
     decision = decide(
         **ephemeral(
             "feature-delivery",

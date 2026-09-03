@@ -45,9 +45,9 @@ class WorkerSettings(TemporalSettings):
     # injection entirely (proxy-less clusters keep zero egress).
     egress_proxy_url: str = ""
     egress_proxy_key: str = ""
-    # Crew-pod provisioning: the agent image the ephemeral
-    # executor's brain host runs (content-addressed on kind, like the
-    # sandbox image), and the platform namespace for gateway FQDNs.
+    # Ephemeral-pod provisioning: the agent image each ephemeral agent
+    # runs (content-addressed on kind, like the sandbox image), and the
+    # platform namespace for gateway FQDNs.
     agent_image: str
     platform_namespace: str = "poseidon-platform"
     # The workflow-recorded crew-request path evaluates the

@@ -35,12 +35,12 @@ CREATE TABLE IF NOT EXISTS registry.agent_instances (
     agent_id      text PRIMARY KEY,
     company       text NOT NULL,
     -- The hire's name in the blueprint's `standing:` section — also the
-    -- instance's Deployment and Service name in the company namespace.
+    -- agent's Deployment and Service name in the company namespace.
     standing_name text NOT NULL,
-    -- The catalog role: what the instance is, and what policy keys on.
+    -- The catalog role: what the agent is, and what policy keys on.
     role          text NOT NULL,
     model_tier    text,
-    -- The company namespace the instance's pod (and ServiceAccount) live
+    -- The company namespace the agent's pod (and ServiceAccount) live
     -- in. Workload identity verifies a caller's projected token against
     -- this: same SA name in any other namespace is rejected.
     namespace     text,
@@ -105,11 +105,11 @@ CREATE TABLE IF NOT EXISTS registry.run_participants (
     -- compiled crew rules key on.
     role            text NOT NULL,
     company         text NOT NULL DEFAULT '',
-    -- The company namespace the member's pod and ServiceAccount live in.
+    -- The company namespace the agent's pod and ServiceAccount live in.
     -- Workload identity verifies a caller's projected token against this:
     -- the same SA name in any other namespace is rejected.
     namespace       text NOT NULL DEFAULT '',
-    -- RFC-1123 name of the member's per-run ServiceAccount. The gateway
+    -- RFC-1123 name of the agent's per-run ServiceAccount. The gateway
     -- looks the row up by this name; lowercasing makes the SA name
     -- non-invertible, so the mapping lives here rather than in arithmetic.
     service_account text,

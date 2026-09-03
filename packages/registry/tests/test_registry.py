@@ -280,18 +280,18 @@ def test_participant_active_goes_dark_on_termination(registry: Registry):
             (agent_id, run_id, parent_agent_id, crew_template, role)
         VALUES (%s, %s, %s, %s, %s)
         """,
-        ("executor-01X", RUN_ID, "pm-1", "feature-delivery", "implementer"),
+        ("fd-implementer-01X", RUN_ID, "pm-1", "feature-delivery", "implementer"),
     )
     participants = RunParticipants(registry)
-    assert participants.active("executor-01X")["run_id"] == RUN_ID
+    assert participants.active("fd-implementer-01X")["run_id"] == RUN_ID
 
     registry.execute(
         "UPDATE registry.run_participants"
         " SET status = 'terminated', terminated_at = now()"
         " WHERE agent_id = %s",
-        ("executor-01X",),
+        ("fd-implementer-01X",),
     )
-    assert participants.active("executor-01X") is None
+    assert participants.active("fd-implementer-01X") is None
 
 
 def test_sandbox_registration_active_row(registry: Registry):
@@ -340,7 +340,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     ledger.record(
         company="hello-saas",
         run_id=RUN_ID,
-        agent_id="executor-01X",
+        agent_id="fd-implementer-01X",
         parent_agent_id="pm-1",
         role="implementer",
         model="mock-brain",
@@ -352,7 +352,7 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     )
     assert abs(ledger.spent_for_run(RUN_ID) - 0.0004) < 1e-9
     entries = ledger.entries_for_run(RUN_ID)
-    assert [e["agent_id"] for e in entries] == ["implementer-1", "executor-01X"]
+    assert [e["agent_id"] for e in entries] == ["implementer-1", "fd-implementer-01X"]
     assert entries[1]["parent_agent_id"] == "pm-1"
     assert (entries[0]["cached_tokens"], entries[0]["reasoning_tokens"]) == (50, 25)
     assert (entries[1]["cached_tokens"], entries[1]["reasoning_tokens"]) == (5, 2)
@@ -466,7 +466,7 @@ def test_crew_request_consume_and_spawn_count(registry: Registry):
     assert requests.consume(recorded["id"], "run-other") is None
     assert requests.consume("crq-missing", RUN_ID) is None
 
-    participants.add("fd-executor-1", RUN_ID, "pm-1", "feature-delivery", "implementer")
+    participants.add("fd-impl-1", RUN_ID, "pm-1", "feature-delivery", "implementer")
     participants.add("fd-second-1", RUN_ID, "pm-1", "feature-delivery", "second")
     assert participants.active_spawn_count("pm-1") == 1  # one crew, two agents
     participants.add("fr-reviewer-1", RUN_ID, "pm-1", "feature-review", "reviewer")
@@ -546,7 +546,7 @@ def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
 def test_spent_today_sums_the_company_since_utc_midnight(registry: Registry):
     ledger = BudgetLedger(registry)
     entry = dict(
-        agent_id="fd-implementer-1",
+        agent_id="fd-impl-1",
         parent_agent_id="pm-1",
         role="implementer",
         model="mock",
@@ -657,13 +657,13 @@ def test_implement_run_for_pr_finds_the_lineage(registry: Registry):
 
 def test_participants_for_run_includes_terminated_rows(registry: Registry):
     """The lineage outlives the identities: an implement run's
-    participants are revoked long before its PR is reviewed, and the
+    ephemeral agents are revoked long before its PR is reviewed, and the
     independence check must still see them."""
     runs = Runs(registry)
     runs.start("run-lin-a", "implement issue #5", "implement", None, "hello-saas")
     participants = RunParticipants(registry)
-    participants.add("lin-exec-1", "run-lin-a", "pm-1", "feature-delivery", "implementer")
+    participants.add("lin-impl-1", "run-lin-a", "pm-1", "feature-delivery", "implementer")
     participants.terminate_for_run("run-lin-a")
     rows = participants.for_run("run-lin-a")
-    assert [(r["agent_id"], r["status"]) for r in rows] == [("lin-exec-1", "terminated")]
+    assert [(r["agent_id"], r["status"]) for r in rows] == [("lin-impl-1", "terminated")]
     assert participants.for_run("run-nowhere") == []

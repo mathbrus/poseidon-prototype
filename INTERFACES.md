@@ -31,10 +31,10 @@ under the platform's identity, regardless of who invoked the CLI or from
 where. The `blueprint` commands are the exception — `apply` submits custom
 resources with your kubeconfig, and `--live` compiles read the registry.
 
-Workflow ids are `{workflow}-{run_id}` across the three run-shaped workflow
-families, which is why several commands take a `--workflow` option: the CLI
-needs to know which family a run belongs to in order to address it. The
-fourth family is not run-shaped: the heartbeat is one standing workflow
+Workflow ids are `{workflow}-{run_id}` across the three run-shaped
+workflows, which is why several commands take a `--workflow` option: the
+CLI needs to know which workflow a run belongs to in order to address it.
+The fourth workflow is not run-shaped: the heartbeat is one standing workflow
 per company, `heartbeat-{company}`, started by the worker's ensure loop
 whenever the applied blueprint declares a `heartbeat` section and
 self-stopping when the section is gone (`poseidon status <company>
@@ -62,8 +62,7 @@ issue number to implement the ticket the company already filed.
   literally named `42` can be forced with `./42`.
 - `--workflow implement` (the default) treats a file `TARGET` as a
   **task** and starts the full delivery pipeline: crew fulfilment,
-  planning, implementation, the platform-run verify gate, and PR
-  delivery.
+  implementation, the platform-run verify gate, and PR delivery.
 - `--workflow intake` treats the file as a **goal** and dispatches the PM
   to scope it into tickets and a recorded crew request.
 - `--run-id` fixes the run id (one is generated when omitted).
@@ -165,14 +164,14 @@ a chat-ops approval bot, or the e2e suite would integrate here, not by
 shelling out to the CLI. This section writes that contract down.
 
 All workflows run on task queue **`poseidon-orchestrator`** and are named
-deterministically: one workflow per run, `{family}-{run_id}`, and one
+deterministically: one workflow per run, `{workflow}-{run_id}`, and one
 heartbeat per company, `heartbeat-{company}`.
 
 ### Workflows
 
 | Name | Workflow id | Input | What it runs |
 |---|---|---|---|
-| `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text=None, timeouts=None, issue_number=None)` — exactly one of `task_text` or `issue_number` | The delivery pipeline: crew fulfilment, planning, implementation, verify gate, PR. With `issue_number`, the platform resolves the open issue first and composes the task from it. |
+| `implement` | `implement-{run_id}` | `ImplementInput(run_id, task_text=None, timeouts=None, issue_number=None)` — exactly one of `task_text` or `issue_number` | The delivery pipeline: crew fulfilment, implementation, verify gate, PR. With `issue_number`, the platform resolves the open issue first and composes the task from it. |
 | `intake` | `intake-{run_id}` | `IntakeInput(run_id, goal_text, timeouts=None)` | The PM scoping a goal into tickets and a recorded crew request. |
 | `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number, timeouts=None)` | Ephemeral review of a PR, then the merge gate — resolved by a human signal or by compiled policy, as the blueprint declares. |
 | `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, timeouts=None, pending_wake=False)` | The company's standing loop: each tick observes the backlog, asks the conductor to choose one action, and starts it under the compiled `heartbeat.start` decision. Event-triggered — the platform's `wake` signal ends the wait between ticks, and the blueprint's `reconcile_minutes` is the backstop. Started by the worker's ensure loop, never by a human; stops itself when the blueprint's `heartbeat` section is gone. |
@@ -255,14 +254,14 @@ then writes its audit event carrying the backend's outcome
 Three things to keep in mind while reading the signatures:
 
 - **`run_id` appears in every signature but no model ever writes it.** The
-  action schemas the model sees are `run_id`-free; the brain host injects
+  action schemas the model sees are `run_id`-free; the agent host injects
   it at call time, and the gateway independently verifies the claimed run
   against the caller's registry binding. A mismatch is a denial.
-- **`repo` is likewise injected** (as `target_repo`) by the brain host,
+- **`repo` is likewise injected** (as `target_repo`) by the agent host,
   never chosen by the model.
 - **Who may call what is compiled policy**, not a property of the tool.
   The "typical caller" notes below describe the shipped `hello-saas`
-  blueprint, where the executor holds the sandbox tools plus `git.open_pr`,
+  blueprint, where the implementer holds the sandbox tools plus `git.open_pr`,
   the reviewer reads and comments, the PM handles
   issues and crew requests, and `git.merge_pr` and `repo.archive` belong
   to the platform lifecycle alone.
@@ -270,8 +269,8 @@ Three things to keep in mind while reading the signatures:
 ### Sandbox tools
 
 All seven address the run's single sandbox, resolved from `run_id`. They are
-*run-scoped* in policy (`bound_to_run`): the caller must be a verified
-participant of the very run it names.
+*run-scoped* in policy (`bound_to_run`): the caller must be an ephemeral
+agent verifiably bound to the very run it names.
 
 | Tool | Arguments | What it does |
 |---|---|---|
@@ -283,7 +282,7 @@ participant of the very run it names.
 | `sandbox.run_tests` | `run_id, paths?` | Runs the blueprint's `test_command` (the sandbox's `TEST_CMD`) and returns the result. Agents may call it to check their work; the verify gate of record is the orchestrator's own separate invocation. With `paths`, the run is scoped to those test paths — the platform's contract-verify call, where collecting nothing from a named path is a red exit, not a silent pass, so a config that ignores the tree cannot green it. |
 | `sandbox.git_bundle` | `run_id, branch` | Produces a git bundle of the named branch's commits since the recorded base ref, base64-encoded. This is how work leaves the sandbox: as verifiable content, not as a push. |
 
-Typical callers: the executor (all seven), the reviewer (reads plus
+Typical callers: the implementer (all seven), the reviewer (reads plus
 `exec`/`run_tests`).
 
 ### Repository and pull-request tools
@@ -296,7 +295,7 @@ Typical callers: the executor (all seven), the reviewer (reads plus
 | `git.comment` | `run_id, repo, number, body` | Posts a comment on the pull request's conversation; how the reviewer publishes findings. |
 | `git.merge_pr` | `run_id, repo, number, method="merge"` | Merges the pull request. Compiled policy grants this to the platform identity alone, and the orchestrator calls it only after the merge gate resolved to merge — a human approval, or a policy resolution that won the compiled `merge.resolve` decision. No blueprint can hand it to an agent role. |
 
-Typical callers: the executor (`git.open_pr`), the reviewer (`git.read`,
+Typical callers: the implementer (`git.open_pr`), the reviewer (`git.read`,
 `git.comment`), the orchestrator (`repo.archive`, `git.merge_pr`).
 
 ### Issue tools

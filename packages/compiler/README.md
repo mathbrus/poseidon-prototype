@@ -145,7 +145,7 @@ path prefixes, path ownership keyed on role *templates*, and — when
 authored by a crew other than the implementer, so the tests that grade a
 change and the change itself never share an author. The contract tree emits
 two class-named rules: `git_open_pr_contract_tree` denies a
-`git.open_pr` touching the tree for any role template outside its
+`git.open_pr` touching the tree for any role outside its
 declared owners (the same `startswith`-over-prefix emission as path
 ownership, reused), and `merge_resolve_contract_path` denies a policy
 merge whose diff touches the tree whatever the facts say, so the oracle
@@ -199,8 +199,8 @@ same functions `schema.validate` runs, imported from `schema.coherence`,
 because the compiler must fail closed on an unvalidated input, not
 `KeyError` halfway through emission. Second, narrowing semantics differ by field:
 widening a *ephemeral agent's* tools or a role's *spawn authority* past the
-catalog is a compile error, while a standing role's tool scope is
-silently intersected with its template (`declared & set(template.tools)`
+catalog is a compile error, while a standing hire's tool scope is
+silently intersected with its role (`declared & set(role.tools)`
 in `compile.py`) — and crew tools are intersected too, belt under the
 brace, so nothing wider than the catalog can reach a bundle even if a
 check regresses.

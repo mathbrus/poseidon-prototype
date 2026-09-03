@@ -1,4 +1,4 @@
-"""The free e2e rehearsal: the real brain host
+"""The free e2e rehearsal: the real agent host
 (`agent.procedures`) driven over real HTTP against the mock server — proving the
 whole wire contract (routes, response shape, tool-call JSON, the SDK's
 litellm transport) without a cluster or a paid token.
@@ -154,7 +154,7 @@ def bridged(gateway: FakeGateway):
 
 
 def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
-    """The two-phase shape: the implement dispatch ends at
+    """The two-dispatch shape: the implement dispatch ends at
     the completion claim with the files in place; the separate deliver
     dispatch opens the PR on the constrained branch."""
     task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (

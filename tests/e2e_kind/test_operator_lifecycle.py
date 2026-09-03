@@ -65,7 +65,7 @@ def test_apply_converges_the_company(stack: None):
 
     # The firing diff, converged: exactly one standing AgentInstance
     # (the PM conductor) — execution is ephemeral crews, so no standing
-    # engineer exists to converge.
+    # implementer exists to converge.
     instances = kubectl(
         "-n",
         COMPANY_NS,

@@ -212,7 +212,7 @@ def smuggle(baseline: dict) -> dict:
 
 
 def test_the_smuggled_contract_edit_was_actually_attempted(smuggle: dict):
-    """The carry: the executor really did write into the contract tree and
+    """The carry: the implementer really did write into the contract tree and
     really did try to deliver it — the sandbox work is what the gateway saw
     a bundle of. Without this the deny below could be an absence."""
     story = audit_story(smuggle["run_id"])
@@ -224,7 +224,7 @@ def test_the_smuggled_contract_edit_was_actually_attempted(smuggle: dict):
 
 def test_the_contract_tree_delivery_died_at_the_gateway(smuggle: dict):
     """The refusal, by name: `git.open_pr` carrying a contract path is
-    denied for the implementer's role template, and the audit row names the
+    denied for the implementer role, and the audit row names the
     class — not an index, not a default-deny shrug. The PR carrying the
     oracle edit never existed."""
     story = audit_story(smuggle["run_id"])

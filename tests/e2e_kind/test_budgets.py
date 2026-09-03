@@ -41,7 +41,7 @@ from .conftest import REPO_ROOT, TASK_QUEUE, close_pr_url, deployed_timeouts
 
 # Below one mock completion's reported cost: the mock prices every
 # completion in `x-litellm-response-cost` at $0.002/1K over its
-# deterministic token counts, and the executor's first completion alone
+# deterministic token counts, and the implementer's first completion alone
 # crosses 50 tokens, so the very first metered call exhausts this cap.
 TINY_CAP = 0.0001
 
@@ -127,18 +127,18 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     assert "budget_exhausted" in (record["error"] or "")
 
     # The ledger fully attributes what was spent before the stop — to the
-    # run's ephemeral executor, the only identity that spoke to a model.
+    # run's ephemeral implementer, the only identity that spoke to a model.
     from orchestrator.identity import ephemeral_agent_id
 
-    executor_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
+    implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     entries = ledger_entries(run_id)
     assert entries, "no ledger rows for the run"
     for entry in entries:
         # The full attribution tuple, row by row: {run, parent,
-        # participant, role} plus company and model.
+        # agent, role} plus company and model.
         assert entry["run_id"] == run_id
         assert entry["company"] == "hello-saas"
-        assert entry["agent_id"] == executor_id
+        assert entry["agent_id"] == implementer_id
         assert entry["parent_agent_id"] == "pm-1"
         assert entry["role"] == "implementer"
         assert entry["model"] == "mock-brain"

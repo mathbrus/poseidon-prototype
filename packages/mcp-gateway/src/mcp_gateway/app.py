@@ -99,7 +99,7 @@ def create_app(
     )
     opa = OpaClient(settings.opa_url, http_client)
     # Registry accessors (sandbox registrations and audit events;
-    # instance/participant reads for workload identity; run
+    # standing-agent and ephemeral-identity reads for workload identity; run
     # reads for decision-input enrichment). Injectable so
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.

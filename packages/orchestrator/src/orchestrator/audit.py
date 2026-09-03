@@ -27,8 +27,8 @@ async def record_event(
     lifecycle: str = LIFECYCLE_PLATFORM,
     parent_agent_id: str = "",
 ) -> AuditEvent:
-    """Append one event under the platform identity by default — a crew
-    member's own identity when the platform acts *for* it (its binding,
+    """Append one event under the platform identity by default — an
+    ephemeral agent's own identity when the platform acts *for* it (its binding,
     its pod). The store is synchronous psycopg; it runs off the event
     loop."""
     event = AuditEvent(

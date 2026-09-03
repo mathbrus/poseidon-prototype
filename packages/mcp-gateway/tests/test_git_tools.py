@@ -14,7 +14,7 @@ from conftest import (
     AGENT_TOKEN,
     GIT_TOKEN,
     PR_URL,
-    RUNNER_TOKEN,
+    WORKER_TOKEN,
     audit_events,
     git,
     make_bundle,
@@ -58,7 +58,7 @@ async def open_pr(app, token, *, branch, bundle_b64, repo):
 async def test_platform_archives_repo_stripped_of_remotes(
     app, target_repo, tmp_path, audit
 ):
-    async with mcp_session(app, RUNNER_TOKEN) as session:
+    async with mcp_session(app, WORKER_TOKEN) as session:
         result = await session.call_tool(
             "repo.archive",
             {"run_id": RUN_ID, "repo": str(target_repo), "ref": "main"},

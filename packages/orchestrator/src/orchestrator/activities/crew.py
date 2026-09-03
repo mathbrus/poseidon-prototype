@@ -7,7 +7,7 @@ catalog role. Revoke terminates rows — the write that
 kills the identity on its next gateway call, however long its projected
 tokens live.
 
-Provision creates each ephemeral agent's brain-host pod (and its
+Provision creates each ephemeral agent's pod (and its
 ServiceAccount) through the bounded `EphemeralPodProvisioner`; the pod's only
 credential is the projected token the kubelet mounts, so no credential
 ever rides workflow history or a pod env. Destroy deletes by the
@@ -154,7 +154,7 @@ class CrewActivities:
 
     @activity.defn(name="provision_ephemeral_pod")
     async def provision_ephemeral_pod(self, spec: dict[str, Any]) -> dict[str, Any]:
-        """Create the ephemeral agent's brain-host pod and its ServiceAccount.
+        """Create the ephemeral agent's pod and its ServiceAccount.
         The pod's only credential is the projected token the kubelet
         mounts — nothing token-shaped enters the env or workflow history.
 
@@ -435,7 +435,7 @@ class CrewActivities:
     def _require_provisioner(self) -> EphemeralPodProvisioner:
         if self._provisioner is None:
             raise RuntimeError(
-                "no crew-pod provisioner configured — the worker constructs"
+                "no ephemeral-pod provisioner configured — the worker constructs"
                 " one for the company namespace"
             )
         return self._provisioner

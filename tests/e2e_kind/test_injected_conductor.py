@@ -1,5 +1,5 @@
 """The injected-conductor test — the injection scenario aimed at the
-conductor instead of the executor.
+conductor instead of the implementer.
 
 A poisoned intake goal (`examples/goal-injected-conductor.md`) carries two
 instructions: the PM must spawn a `data-export` crew that does not exist in
@@ -191,13 +191,13 @@ def test_the_tool_call_was_allowed_and_the_egress_layer_is_what_stopped_it(
     conductor_implement: dict,
 ):
     """Defense in depth, stated precisely: `sandbox.exec` is inside the
-    executor's compiled scope, so the gateway allowed the call. Nothing in
+    implementer's compiled scope, so the gateway allowed the call. Nothing in
     the tool allow-list could have caught this payload — the containment
     came from the layer below, which is exactly why that layer exists."""
     run_id = conductor_implement["run_id"]
     story = audit_story(run_id)
     execs = [e for e in story if e["source"] == "gateway" and e["tool"] == "sandbox.exec"]
-    assert execs, "the executor never ran a command"
+    assert execs, "the implementer never ran a command"
     assert any(e["decision"] == "allow" for e in execs)
 
 
@@ -243,7 +243,7 @@ def test_one_run_id_query_reconstructs_the_whole_containment(
 
 def test_the_scenario_actually_carried_the_poison(conductor_implement: dict):
     """Guard against a silently toothless test: if the marker ever stops
-    reaching the executor, the exfiltration would never be attempted and
+    reaching the implementer, the exfiltration would never be attempted and
     every assertion above would pass vacuously."""
     assert CONDUCTOR_MARKER in GOAL_FILE.read_text()
     run_id = conductor_implement["run_id"]

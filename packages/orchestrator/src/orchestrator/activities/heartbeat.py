@@ -94,7 +94,7 @@ def _section(header: str, lines: list[str]) -> str:
 def decision_prompt(observed: dict[str, Any], may_start: list[str]) -> str:
     """The decide dispatch's user message: the whole observation, composed
     the same way every tick. The mock brain parses these section headers
-    and the brain-host tests mirror the header line, so changing either is
+    and the agent host's tests mirror the header line, so changing either is
     changing a contract — `test_heartbeat_activities` pins the shape."""
     startable = ", ".join([*may_start, "idle"])
     tickets = [f"#{i['number']} — {i['title']}" for i in observed.get("backlog") or []]

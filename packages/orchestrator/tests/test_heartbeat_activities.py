@@ -659,7 +659,7 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
 
 def test_decision_prompt_shape_is_the_contract_the_brains_parse():
     """The header line and the section headers are what the mock brain
-    parses and the brain-host tests mirror; a change here must change
+    parses and the agent host's tests mirror; a change here must change
     them too."""
     prompt = decision_prompt(
         {

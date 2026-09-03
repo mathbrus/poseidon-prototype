@@ -1,7 +1,7 @@
 # schema
 
 The blueprint contract: what a company document may say, and the versioned
-catalogs of role templates, crew templates and tool names it may say it
+catalogs of roles, crews and tool names it may say it
 with. This package answers "is this document well-formed?" — never "is this
 company coherent?", which is the [compiler](../compiler/README.md)'s
 question. The split is not cosmetic. Everything here can be checked against
@@ -31,7 +31,7 @@ itself is introduced line by line in [docs/blueprint.md](../../docs/blueprint.md
 ## Two passes, one report
 
 Validation runs a schema pass and a catalog pass, and always runs both —
-a typo in `company` should not hide a bad role template three sections
+a typo in `company` should not hide a bad role three sections
 away (`validate_blueprint` says so in a comment, and
 `test_every_problem_is_reported_together` pins it). Fixing a blueprint one
 message per run is a bad trade for the author.
@@ -153,8 +153,8 @@ the schema and the catalogs.
 
 ## Cross-package interactions
 
-- [`compiler`](../compiler/README.md) resolves every template a blueprint
-  names against `ROLE_TEMPLATES` / `CREW_TEMPLATES`, re-checks scopes
+- [`compiler`](../compiler/README.md) resolves every role and crew a blueprint
+  names against `ROLES` / `CREW_TEMPLATES`, re-checks scopes
   against `KNOWN_TOOLS` and `PLATFORM_ONLY` in its own passes, and reads
   `RUN_SCOPED` when emitting Rego. It also owns everything this package
   refuses to check: workflow-conductor binding, budget coverage, the
@@ -169,7 +169,7 @@ the schema and the catalogs.
 
 - Every object in the schema is `additionalProperties: false`: a typo'd
   key is an error, never a silently ignored line.
-- Names (`company.name`, standing roles, crews, agents) match
+- Names (`company.name`, standing names, crews, agents) match
   `^[a-z0-9][a-z0-9-]*$`; roles are keyed by name so a blueprint
   diff — a hire, a fire — reads as one.
 - An ephemeral agent's `tools` list is required, explicit, and at most the

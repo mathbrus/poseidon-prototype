@@ -7,7 +7,7 @@ proxy both write the registry `audit_events` table.
 from .cluster import audit_story
 
 
-def _executor_id(run_id: str) -> str:
+def _implementer_id(run_id: str) -> str:
     from orchestrator.identity import ephemeral_agent_id
 
     return ephemeral_agent_id("feature-delivery", "implementer", run_id)
@@ -43,7 +43,7 @@ def test_delivery_never_precedes_the_platform_verify(implement_run: dict) -> Non
     """The verify gate of record, in the story's own ordering: the
     platform's green sandbox.run_tests (the orchestrator's platform
     lifecycle) comes before the PR ever opens — delivery is released by
-    the gate, not by the executor's claim."""
+    the gate, not by the implementer's claim."""
     story = audit_story(implement_run["run_id"])
     platform_verifies = [
         i
@@ -100,9 +100,9 @@ def test_gateway_events_carry_full_attribution(implement_run: dict) -> None:
     assert story
     for event in story:
         assert event["lifecycle"] in ("standing", "ephemeral", "platform")
-    executor_events = [e for e in story if e["agent_id"] == _executor_id(run_id)]
-    assert executor_events
-    for event in executor_events:
+    implementer_events = [e for e in story if e["agent_id"] == _implementer_id(run_id)]
+    assert implementer_events
+    for event in implementer_events:
         assert event["company"] == "hello-saas"
         assert event["lifecycle"] == "ephemeral"
         assert event["parent_agent_id"] == "pm-1"

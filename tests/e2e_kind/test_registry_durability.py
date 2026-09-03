@@ -46,9 +46,9 @@ def test_sandbox_registration_survives_a_gateway_restart(
     from registry import Runs
 
     # Registration is the orchestrator's platform admin action; `sandbox.*`
-    # belongs to the run's ephemeral executor (the lean-standing profile's only
+    # belongs to the run's ephemeral implementer (the lean-standing profile's only
     # execution identity) — two identities, exactly as in a real run.
-    runner_token = projected_token(PLATFORM_NS, "orchestrator-worker")
+    worker_token = projected_token(PLATFORM_NS, "orchestrator-worker")
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     run_id = new_run_id()
     handle = backend.provision(
@@ -58,7 +58,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
     )
 
     async def register() -> None:
-        async with GatewayClient(gateway_url(env), runner_token) as gateway:
+        async with GatewayClient(gateway_url(env), worker_token) as gateway:
             await gateway.register_sandbox(
                 run_id, handle.url, handle.namespace, handle.job_name
             )
@@ -95,7 +95,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
             restart_gateway()
 
             # A brand-new gateway process serves the run's sandbox calls
-            # from the registry (and the participants row — the executor's
+            # from the registry (and the identity row — the implementer's
             # binding — survived with it).
             result = asyncio.run(read_through_gateway(agent_token))
             assert not result.isError, result.content

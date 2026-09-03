@@ -76,7 +76,7 @@ run:
   model: gpt-5.6-luna
   targetRepo: github.com/example-org/example-repo
   baseRef: main
-  # Implement's advisory verify cycles before the executor reports the
+  # Implement's advisory verify cycles before the implementer reports the
   # tests still failing; every other procedure has its own step cap.
   verifyCycles: 10
 

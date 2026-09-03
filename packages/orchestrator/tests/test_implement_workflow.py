@@ -194,7 +194,7 @@ async def test_a_delivered_run_concluded_its_issue(env):
     assert harness.wakes == 1  # the delivered PR is the heartbeat's to offer
 
 
-async def test_an_executor_that_died_leaves_the_issue_for_another_try(env):
+async def test_an_implementer_that_died_leaves_the_issue_for_another_try(env):
     """A dispatch that came back with an error opened no PR: no conclusion.
     Teardown finalizes the run failed, then the attempt accounting runs —
     the issue is the heartbeat's to offer again, bounded by the cap."""
@@ -215,7 +215,7 @@ async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):
 
 
 async def test_a_cancelled_run_records_its_attempt(env):
-    """A run cancelled while its executor is dispatched opened no PR: the
+    """A run cancelled while its implementer is dispatched opened no PR: the
     cancellation surfaces as the dispatch's, the run finalizes failed on
     it, and the attempt accounting still runs after teardown."""
     harness = Harness(dispatch_hangs=True)
@@ -232,7 +232,7 @@ async def test_a_cancelled_run_records_its_attempt(env):
             if harness.dispatches:
                 break
             await asyncio.sleep(0.05)
-        assert harness.dispatches, "the executor was never dispatched"
+        assert harness.dispatches, "the implementer was never dispatched"
         await handle.cancel()
         record = await handle.result()
     finally:

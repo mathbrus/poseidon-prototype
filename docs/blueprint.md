@@ -120,7 +120,7 @@ gate is an object naming its resolver, and a gate nobody declares is a stop
 nobody takes, so goals a human submits dispatch the PM without a second
 stop.
 `max_verify_retries` bounds how many times a red verify
-re-dispatches the executor before the run fails.
+re-dispatches the implementer before the run fails.
 
 `gates.merge.resolved_by: human` is what makes the review workflow park and
 wait for a person; leaving `gates.merge` out entirely means the review ends
@@ -166,7 +166,7 @@ the gateway computes the changed paths before querying policy, a rule about
 modify the CI that checks it.
 
 `contract_tests` declares the split oracle: the acceptance tree a delegated
-merge is graded by, and the role templates that may deliver into it. Its
+merge is graded by, and the roles that may deliver into it. Its
 consequences are deliberately positional and are described in full in
 section 5 — only `contract-author` may `git.open_pr` into the tree (the
 implementer's attempt dies at the gateway, named), the tree can never be

@@ -129,7 +129,7 @@ class RunParticipants:
 
     def active_spawn_count(self, parent_agent_id: str) -> int:
         """How many crews the conductor is running right now — distinct
-        {run, crew} pairs with live members. What the gateway injects as
+        {run, crew} pairs with live ephemeral agents. What the gateway injects as
         `active_spawns` for the compiled concurrency cap."""
         rows = self._db.query(
             "SELECT COUNT(DISTINCT (run_id, crew_template)) AS spawns"

@@ -189,15 +189,15 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     """The orchestrator worker's Kubernetes surface — deliberately bounded,
     and a review artifact: it is part of the trusted computing base. Two
     consumers: the k8s_jobs sandbox backend (Jobs + pod reads + exec for
-    workspace delivery) and the crew-pod provisioner (pod + ServiceAccount
-    create/delete for each ephemeral agent's brain host — the SA is the
-    member's per-run identity, so its lifetime must equal the pod's, which
+    workspace delivery) and the ephemeral-pod provisioner (pod + ServiceAccount
+    create/delete for each ephemeral agent — the SA is the
+    agent's per-run identity, so its lifetime must equal the pod's, which
     is why it is provisioned here and not operator-reconciled). Company
     namespaces only — the Role is namespaced and operator-reconciled, so
     the worker can create no pod or SA in the platform namespace; the
     run_id+kind label-selector discipline on deletes lives in
     `orchestrator.ephemeral_pods` (RBAC cannot express selectors), proven by the
-    crew-pods e2e. Never Deployments, Services or CRs: standing structure stays
+    ephemeral-pods e2e. Never Deployments, Services or CRs: standing structure stays
     operator-owned."""
     return {
         "apiVersion": "rbac.authorization.k8s.io/v1",
@@ -222,7 +222,7 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
             {
                 "apiGroups": [""],
                 "resources": ["serviceaccounts"],
-                # Per-run crew identities: one SA per member per run,
+                # Per-run crew identities: one SA per ephemeral agent per run,
                 # created at provision, deleted by the teardown sweep.
                 # Deliberately no RoleBindings here — an SA the worker can
                 # create binds to nothing, so this grants identity, never
@@ -265,7 +265,7 @@ def sandbox_provisioner_binding(company_ns: str, platform_ns: str) -> dict[str, 
 
 
 def agent_service_account(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
-    """The instance's own identity. The name is the
+    """The standing agent's own identity. The name is the
     agent_id: the gateway resolves `system:serviceaccount:<ns>:<agent_id>`
     against the registry's `agent_instances` row and requires the namespace
     to match — a same-named ServiceAccount anywhere else verifies fine at
@@ -321,7 +321,7 @@ def agent_deployment(
                     "enableServiceLinks": False,
                     # Non-root, no privilege-escalation path, no
                     # capabilities, default seccomp filter. Root filesystem
-                    # stays writable — the brain SDK writes under $HOME.
+                    # stays writable — the OpenHands SDK writes under $HOME.
                     "securityContext": dict(POD_SECURITY_CONTEXT),
                     "volumes": [
                         {

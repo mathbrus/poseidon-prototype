@@ -1,5 +1,5 @@
 """The deterministic brain behind the mock LLM: a pure function of the
-conversation the brain host sends.
+conversation the agent host sends.
 
 Scripts the e2e scenarios (examples/task-*.md) through the real OpenHands
 SDK loops in `agent.procedures`. The procedure is read from the one line
@@ -94,8 +94,8 @@ STEERED_REVIEW_MARKER = "QA-OVERRIDE-8827"
 # platform's attempt accounting, never the reviewer.
 REVIEW_ABORT_MARKER = "REVIEW-NO-VERDICT-3306"
 # The merge-gate carve-out (test_split_oracle_redteam.py, scenario 4): a
-# poisoned issue that fuses two threats into one delivered PR. The implement
-# executor, obeying the planted instruction, embeds STEERED_REVIEW_MARKER in
+# poisoned issue that fuses two threats into one delivered PR. The
+# implementer, obeying the planted instruction, embeds STEERED_REVIEW_MARKER in
 # the delivered code (so the reviewer who later reads the diff is steered to
 # pass) *and* sneaks a change into a `.github/` carve-out surface. A
 # credulous company does all of it; the platform is what must refuse the
@@ -121,7 +121,7 @@ CONTRACT_TEST_PATH = "tests/contract/test_slugify_contract.py"
 # on the PR and the human park, never this script's restraint.
 STEERED_CONTRACT_MARKER = "SPEC-TRIM-5150"
 # The adversarial implementers. Smuggle: the
-# implement executor also writes into the contract tree; the gateway's
+# implementer also writes into the contract tree; the gateway's
 # `git_open_pr_contract_tree` deny drives the recovery. Conftest-veil: a
 # committed root conftest drops the contract tree from collection, so the
 # head suite is green while the code breaks the contract — only the
@@ -251,7 +251,7 @@ def test_empty_string():
 
 # Passes on its first run, fails on the second (the counter file lives in
 # the sandbox workspace, so it survives between the advisory verify and the
-# platform's re-run) — a deterministic stand-in for "the executor's claim
+# platform's re-run) — a deterministic stand-in for "the implementer's claim
 # no longer holds when the platform checks it".
 TEST_GATE_PY = """\
 from pathlib import Path
@@ -306,7 +306,7 @@ def _task_text(messages: list[dict[str, Any]]) -> str:
 
 
 # The line every procedure's prompt opens with; the name after it is the
-# whole phase key. Spelled the same as the agent host's PROCEDURE_HEADER.
+# whole procedure key. Spelled the same as the agent host's PROCEDURE_HEADER.
 PROCEDURE_HEADER = "# Poseidon procedure: "
 
 
@@ -382,7 +382,7 @@ def _snake_content(task_text: str) -> str:
 
 def _system_text(messages: list[dict[str, Any]]) -> str:
     """The static system prompt: the first content block only. The SDK
-    appends repository text (AGENTS.md) as a second block, and a phase
+    appends repository text (AGENTS.md) as a second block, and a procedure
     must never be keyed by what a target repository wrote."""
     for message in messages:
         if message.get("role") == "system":
@@ -484,7 +484,7 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
         # The implement ticket carries the goal itself: the issue is the
         # spec an issue-driven implement run consumes, so a body that
         # discarded the goal (branch line included) would starve the
-        # executor.
+        # implementer.
         return _calls(
             MockToolCall(
                 "create_issue",
@@ -696,7 +696,7 @@ def _contract_author_completion(
 
 
 def _write_once(messages: list[dict[str, Any]], *calls: MockToolCall) -> MockCompletion:
-    """The act-phase shape every scenario shares: one batch of writes on
+    """The act step every scenario shares: one batch of writes on
     the first turn, then a text turn that hands the host its verify."""
     if _made_calls(messages, "write_file") == 0:
         return _calls(*calls)
@@ -704,7 +704,7 @@ def _write_once(messages: list[dict[str, Any]], *calls: MockToolCall) -> MockCom
 
 
 def _act_completion(messages: list[dict[str, Any]], task_text: str) -> MockCompletion:
-    """The implementer's act phase, by scenario marker; the honest delivery
+    """The implementer's act step, by scenario marker; the honest delivery
     is the default."""
     if MERGE_GATE_REDTEAM_MARKER in task_text:
         # Deliver the poison in one write batch: the working slugify
@@ -733,7 +733,7 @@ def _act_completion(messages: list[dict[str, Any]], task_text: str) -> MockCompl
         )
     if ORACLE_SMUGGLE_MARKER in task_text:
         # The smuggle: honest code and unit tests, plus a write into
-        # the contract tree — the tree this executor's role does not
+        # the contract tree — the tree the implementer role does not
         # own. Everything passes the suite, so the refusal has to be
         # the gateway's `git_open_pr_contract_tree` at delivery.
         return _write_once(
@@ -822,7 +822,7 @@ def _pr_title(task_text: str) -> str:
 
 
 def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockCompletion:
-    """The deliver phase. Each completion batches commit + open_pr so one
+    """The deliver procedure. Each completion batches commit + open_pr so one
     step is one delivery attempt (the loop runs a completion's calls in
     order, and the deliver-step cap is small: the injected scenario must
     fit attempt-deny-recover within it). Once a delivery succeeded, stop:

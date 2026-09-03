@@ -11,7 +11,7 @@ proves the served revision is this compiler's output for this blueprint.
 The gateway half drives real calls with projected workload tokens through
 the whole pipeline: authn -> registry enrichment -> compiled decision ->
 audit. Injection deny + recovery runs in test_injection.py through the
-crew executor's deliver dispatch.
+crew implementer's deliver dispatch.
 """
 
 import json
@@ -41,7 +41,7 @@ def _decide(base: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def executor(
+def implementer(
     tool: str,
     *,
     verified: bool = True,
@@ -70,15 +70,15 @@ def executor(
 
 def test_the_served_bundle_decides(stack: None) -> None:
     """The smoke pair: the served bundle answers with compiled decisions —
-    one allow (the crew executor inside a verified run binding) and one
+    one allow (the crew implementer inside a verified run binding) and one
     deny (the same call unbound, failing closed on the run-binding fact)."""
     with port_forward("svc/opa", 8181) as port:
         base = f"http://127.0.0.1:{port}"
-        allowed = _decide(base, COMPANY_DECISION, executor("sandbox.exec"))
+        allowed = _decide(base, COMPANY_DECISION, implementer("sandbox.exec"))
         assert allowed["allow"] is True
 
         unbound = _decide(
-            base, COMPANY_DECISION, executor("sandbox.exec", verified=False)
+            base, COMPANY_DECISION, implementer("sandbox.exec", verified=False)
         )
         assert unbound == {"allow": False, "rule": "default_deny"}
 
@@ -86,8 +86,8 @@ def test_the_served_bundle_decides(stack: None) -> None:
 # -- the whole pipeline decides (gateway layer) ------------------------------
 
 
-def test_pm_is_denied_executor_tools_at_the_gateway(stack: None, env: dict) -> None:
-    """The PM instance's own workload identity, through the live pipeline:
+def test_pm_is_denied_implementer_tools_at_the_gateway(stack: None, env: dict) -> None:
+    """The PM agent's own workload identity, through the live pipeline:
     the compiled bundle leaves `pm` no sandbox surface at all."""
     token = projected_token(COMPANY_NS, "pm-1")
     result = mcp_call(
@@ -177,7 +177,7 @@ def test_merge_is_platform_only_at_the_gateway(stack: None, env: dict) -> None:
     assert "404" in text or "GitHub" in text
 
     # The one standing company identity left (the OPA layer already covers
-    # the ephemeral executor's merge deny).
+    # the ephemeral implementer's merge deny).
     token = projected_token(COMPANY_NS, "pm-1")
     denied = mcp_call(
         env,
