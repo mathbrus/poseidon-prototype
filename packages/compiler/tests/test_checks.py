@@ -175,6 +175,7 @@ def test_heartbeat_daily_cap_must_fund_a_run(heartbeat_blueprint):
 def test_delegated_merge_compiles_the_gate_into_the_bundle(blueprint):
     blueprint["workflows"]["review"]["gates"]["merge"] = {
         "resolved_by": "policy",
+        "deadline_minutes": 1440,
         "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
     }
     plan = compile_blueprint(blueprint)
@@ -192,13 +193,17 @@ def test_compiler_fails_closed_on_a_carved_out_delegation(blueprint):
     carve-out must refuse here too, not only in validate_blueprint."""
     blueprint["workflows"]["review"]["gates"]["merge"] = {
         "resolved_by": "policy",
+        "deadline_minutes": 1440,
         "delegate": {"paths": [".github/"], "max_reworks": 2},
     }
     assert any("can never be delegated" in p for p in problems_of(blueprint))
 
 
 def test_compiler_fails_closed_on_policy_without_a_delegation(blueprint):
-    blueprint["workflows"]["review"]["gates"]["merge"] = {"resolved_by": "policy"}
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "deadline_minutes": 1440,
+    }
     assert any("delegate" in p for p in problems_of(blueprint))
 
 
@@ -214,6 +219,7 @@ def test_compiler_fails_closed_on_a_delegated_contract_tree(blueprint):
     }
     blueprint["workflows"]["review"]["gates"]["merge"] = {
         "resolved_by": "policy",
+        "deadline_minutes": 1440,
         "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
     }
     assert any("contract_tests" in p and "oracle" in p for p in problems_of(blueprint))

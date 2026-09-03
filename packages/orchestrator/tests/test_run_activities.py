@@ -39,7 +39,7 @@ JOB_HANDLE = {
 # workflows, a declared contract tree, and a heartbeat attempt bound.
 APPLIED_SPEC = {
     "namespace": "hello-saas",
-    "budgets": {"per_run_usd": 5.0},
+    "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
     "contractTests": {"paths": ["tests/contract", "tests/acceptance"]},
     "heartbeat": {"max_attempts": 2},
     "workflows": [
@@ -56,7 +56,7 @@ APPLIED_SPEC = {
             "enabled": True,
             "conductor": "pm",
             "crew": "feature-review",
-            "gates": {"merge": {"resolved_by": "human"}},
+            "gates": {"merge": {"resolved_by": "human", "deadline_minutes": 1440}},
         },
     ],
 }
@@ -198,12 +198,15 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
         "crew": "feature-delivery",
         "gates": {},
         "max_verify_retries": 2,
+        "budget_pause_minutes": 60,
         "contract_paths": ["tests/acceptance", "tests/contract"],
         "timeouts": asdict(Timeouts()),
     }
     review = asyncio.run(activities.workflow_config("review"))
     assert review["crew"] == "feature-review"
-    assert review["gates"] == {"merge": {"resolved_by": "human"}}
+    assert review["gates"] == {
+        "merge": {"resolved_by": "human", "deadline_minutes": 1440}
+    }
     assert review["max_verify_retries"] == 0
 
 
@@ -214,10 +217,12 @@ def test_intake_binds_no_crew_by_design(activities, companies):
     assert config["crew"] is None and config["gates"] == {}
 
     spec = companies.get("hello-saas")
-    spec["workflows"][1]["gates"] = {"intake": {"resolved_by": "human"}}
+    spec["workflows"][1]["gates"] = {
+        "intake": {"resolved_by": "human", "deadline_minutes": 30}
+    }
     companies.upsert("hello-saas", spec)
     assert asyncio.run(activities.workflow_config("intake"))["gates"] == {
-        "intake": {"resolved_by": "human"}
+        "intake": {"resolved_by": "human", "deadline_minutes": 30}
     }
 
 
@@ -228,6 +233,7 @@ def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
     companies.upsert(
         "hello-saas",
         {
+            "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
             "workflows": [
                 {
                     "name": "review",
@@ -235,7 +241,7 @@ def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
                     "conductor": "pm",
                     "crew": "feature-review",
                 }
-            ]
+            ],
         },
     )
     activities = RunActivities(

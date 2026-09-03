@@ -86,6 +86,8 @@ workflows:
       # its platform identity only after this signal arrives.
       merge:
         resolved_by: human
+        # A working day for the person who answers; escalation at half.
+        deadline_minutes: 1440
 
 policies:
   branch_protection:
@@ -93,10 +95,9 @@ policies:
     allowed_pattern: ^feature/[a-z0-9-]+$
   deny_paths:
     - .github/workflows/
-  escalation:
-    channel: api
-    timeout_minutes: 60
 
 budgets:
   per_run:
     usd: 5
+    # How long a run stopped at the cap waits for someone to raise it.
+    pause_minutes: 60

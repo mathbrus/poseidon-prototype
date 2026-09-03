@@ -139,17 +139,21 @@ _TOOLS = {
 }
 
 
-# One gate shape: a gate names its resolver, and differs only in which
-# resolvers it allows and what a resolver reads. A gate nobody declares is
-# a stop nobody takes — for merge that means the review ends without
-# merging at all, an unattended auto-merge being no default anyone gets.
+# One gate shape: a gate names its resolver and how long it waits for a
+# human (escalation fires at half of that, expiry at the end), and differs
+# only in which resolvers it allows and what a resolver reads. A gate
+# nobody declares is a stop nobody takes — for merge that means the review
+# ends without merging at all, an unattended auto-merge being no default
+# anyone gets. The deadline is explicit because a defaulted wait is
+# patience nobody wrote down.
 def _gate(resolvers: list[str], extra: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["resolved_by"],
+        "required": ["resolved_by", "deadline_minutes"],
         "properties": {
             "resolved_by": {"type": "string", "enum": resolvers},
+            "deadline_minutes": {"type": "integer", "minimum": 1},
             **(extra or {}),
         },
     }
@@ -249,14 +253,6 @@ _POLICIES = {
                 },
             },
         },
-        "escalation": {
-            "type": "object",
-            "additionalProperties": False,
-            "properties": {
-                "channel": {"type": "string", "enum": ["api"]},
-                "timeout_minutes": {"type": "integer", "minimum": 1},
-            },
-        },
     },
 }
 
@@ -314,12 +310,17 @@ _BUDGETS = {
     "additionalProperties": False,
     "required": ["per_run"],
     "properties": {
-        # Hard-stop at the LLM gateway.
+        # `usd` is the hard stop at the LLM gateway; `pause_minutes` is how
+        # long a run stopped by it waits for a human to raise the cap
+        # (escalation at half, then the run fails).
         "per_run": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["usd"],
-            "properties": {"usd": {"type": "number", "exclusiveMinimum": 0}},
+            "required": ["usd", "pause_minutes"],
+            "properties": {
+                "usd": {"type": "number", "exclusiveMinimum": 0},
+                "pause_minutes": {"type": "integer", "minimum": 1},
+            },
         },
     },
 }

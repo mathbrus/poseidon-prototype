@@ -60,6 +60,7 @@ def check(
     problems += _spawnable_crews(blueprint, crews)
     problems += _policy_patterns(blueprint)
     problems += _budget_coverage(blueprint)
+    problems += _gate_deadlines(blueprint)
     problems += _heartbeat_authority(blueprint, roles)
     # Document-level like the platform-tool rule, repeated here because the
     # compiler accepts unvalidated dicts and must fail closed on a
@@ -261,13 +262,35 @@ def _heartbeat_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> l
 
 def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
     """Budgets cover enabled workflows: a run cap must exist and be
-    positive, or the first hard-stop check has nothing to compare against."""
+    positive, or the first hard-stop check has nothing to compare against;
+    and the pause a stopped run waits out must be declared, or the workflow
+    would park with no deadline."""
     problems = []
-    budgets = blueprint.get("budgets") or {}
-    per_run = (budgets.get("per_run") or {}).get("usd")
-    if _enabled_workflows(blueprint) and not per_run:
-        problems.append(
-            "budgets.per_run.usd: enabled workflows need a per-run cap "
-            "(the LLM gateway hard-stops against it)"
-        )
+    per_run = (blueprint.get("budgets") or {}).get("per_run") or {}
+    if _enabled_workflows(blueprint):
+        if not per_run.get("usd"):
+            problems.append(
+                "budgets.per_run.usd: enabled workflows need a per-run cap "
+                "(the LLM gateway hard-stops against it)"
+            )
+        if not per_run.get("pause_minutes"):
+            problems.append(
+                "budgets.per_run.pause_minutes: a run stopped at the cap needs a "
+                "declared wait for the human who may raise it"
+            )
+    return problems
+
+
+def _gate_deadlines(blueprint: dict[str, Any]) -> list[str]:
+    """Every declared gate names how long it waits for a human — the
+    workflow parks on that timer and escalates at half of it, so an
+    undeclared deadline would be a park with no end."""
+    problems = []
+    for name, node in (blueprint.get("workflows") or {}).items():
+        for gate, config in (node.get("gates") or {}).items():
+            if not (config or {}).get("deadline_minutes"):
+                problems.append(
+                    f"workflows.{name}.gates.{gate}.deadline_minutes: a declared "
+                    "gate needs the wait it parks for"
+                )
     return problems

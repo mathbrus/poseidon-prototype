@@ -57,6 +57,7 @@ from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
     RunWorkflow,
+    gate_deadline,
 )
 
 
@@ -299,7 +300,9 @@ class ReviewWorkflow(RunWorkflow):
             retry_policy=STEP_RETRY,
         )
 
-    async def _human_merge(self, input: "ReviewInput") -> dict[str, Any]:
+    async def _human_merge(
+        self, input: "ReviewInput", gate: dict[str, Any]
+    ) -> dict[str, Any]:
         """The human gate: the declared `resolved_by: human` resolver, and
         the fallback whenever a policy gate declines or its rework chain is
         spent. Park on the signal, escalate at half the deadline, expire at
@@ -308,8 +311,7 @@ class ReviewWorkflow(RunWorkflow):
         has one merge-application site."""
         self._phase = "paused-merge_gate"
         outcome = await self._merge_gate.wait(
-            timeout=timedelta(seconds=self._bounds.merge_gate_s),
-            escalate_after=timedelta(seconds=self._bounds.merge_gate_s // 2),
+            **gate_deadline(gate["deadline_minutes"]),
             on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated"),
         )
         self._phase = "running"
@@ -434,7 +436,7 @@ class ReviewWorkflow(RunWorkflow):
                     error = outcome["error"]
                     raise _ReviewOver()
             if not outcome.get("released"):
-                outcome = await self._human_merge(input)
+                outcome = await self._human_merge(input, gate)
                 if outcome.get("error"):
                     error = outcome["error"]
                     raise _ReviewOver()

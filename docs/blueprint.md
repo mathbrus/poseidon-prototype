@@ -112,6 +112,7 @@ workflows:
     gates:
       merge:
         resolved_by: human
+        deadline_minutes: 1440
 ```
 
 Three workflows, one per phase of the SDLC in section 5. `intake` is the
@@ -152,12 +153,9 @@ policies:
   contract_tests:
     paths: [tests/contract/]
     roles: [contract-author]
-  escalation:
-    channel: api
-    timeout_minutes: 60
 
 budgets:
-  per_run: {usd: 5}
+  per_run: {usd: 5, pause_minutes: 60}
 ```
 
 These compile into deny rules evaluated against **real arguments**. Because
@@ -182,17 +180,20 @@ The path rules also fail closed: without the changed paths in the input they
 Fail-safe defaults again: the dangerous condition is the absent input, and
 absence denies.
 
-`escalation` configures the human-attention channel that gates use: when a
-gate has waited half its deadline with no verdict, an escalation event
-fires on the declared channel; at the full deadline the gate expires. Both
-transitions are first-class audit events, so "nobody was home" is a
-recorded outcome rather than a silent hang.
+Every gate declares how long it waits for a human: `deadline_minutes` on
+the gate, `pause_minutes` on the budget. When a gate has waited half its
+deadline with no verdict, an escalation event fires; at the full deadline
+the gate expires. Both transitions are first-class audit events, so
+"nobody was home" is a recorded outcome rather than a silent hang — and
+the patience is the charter's, not a setting someone chose when they
+started the run.
 
 `per_run.usd` is a hard stop at the LLM gateway, not a warning. Exhausting
 it produces a distinguishable error, an audit event, an escalation, and an
-API-visible paused state — never silent degradation to a cheaper model.
+API-visible paused state that waits `pause_minutes` for the human who may
+raise the cap — never silent degradation to a cheaper model.
 
-It is also the *only* budget field the schema accepts, and that is
+It is also the *only* budget cap the schema accepts, and that is
 deliberate rather than a gap. In a document whose credibility rests on
 "declared means compiled means enforced," an unenforced field is worse
 than an absent one, so no cap appears here until a ledger enforces it.

@@ -55,7 +55,10 @@ def test_pm_holds_no_implementer_tools(blueprint):
 
 
 def test_review_merge_gate_is_human_resolved(blueprint):
-    assert blueprint["workflows"]["review"]["gates"]["merge"] == {"resolved_by": "human"}
+    assert blueprint["workflows"]["review"]["gates"]["merge"] == {
+        "resolved_by": "human",
+        "deadline_minutes": 1440,
+    }
 
 
 # -- structural errors ----------------------------------------------------
@@ -211,6 +214,7 @@ def test_lean_roster_profile_validates(blueprint):
 def delegated_merge() -> dict:
     return {
         "resolved_by": "policy",
+        "deadline_minutes": 1440,
         "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
     }
 
@@ -235,7 +239,10 @@ def test_an_undeclared_merge_gate_is_legal(blueprint):
 
 
 def test_policy_without_a_delegation_is_refused(blueprint):
-    blueprint["workflows"]["review"]["gates"]["merge"] = {"resolved_by": "policy"}
+    blueprint["workflows"]["review"]["gates"]["merge"] = {
+        "resolved_by": "policy",
+        "deadline_minutes": 1440,
+    }
     (problem,) = [p for p in problems_of(blueprint) if "delegate" in p]
     assert "authority nobody wrote down" in problem
 
@@ -348,20 +355,26 @@ def test_the_contract_tree_declares_paths_and_owners_or_nothing(blueprint):
 
 
 def test_intake_gate_names_its_resolver(blueprint):
-    blueprint["workflows"]["intake"]["gates"] = {"intake": {"resolved_by": "human"}}
+    blueprint["workflows"]["intake"]["gates"] = {
+        "intake": {"resolved_by": "human", "deadline_minutes": 1440}
+    }
     validate_blueprint(blueprint)
 
 
 def test_intake_gate_cannot_be_policy_resolved(blueprint):
     """Policy cannot judge whether a goal is worth doing; the schema names
     the only resolver intake has."""
-    blueprint["workflows"]["intake"]["gates"] = {"intake": {"resolved_by": "policy"}}
+    blueprint["workflows"]["intake"]["gates"] = {
+        "intake": {"resolved_by": "policy", "deadline_minutes": 1440}
+    }
     assert any("resolved_by" in p and "policy" in p for p in problems_of(blueprint))
 
 
 def test_a_merge_gate_on_intake_is_not_writable(blueprint):
     """Each workflow names only the gates it actually parks on."""
-    blueprint["workflows"]["intake"]["gates"] = {"merge": {"resolved_by": "human"}}
+    blueprint["workflows"]["intake"]["gates"] = {
+        "merge": {"resolved_by": "human", "deadline_minutes": 1440}
+    }
     assert any("merge" in p for p in problems_of(blueprint))
 
 

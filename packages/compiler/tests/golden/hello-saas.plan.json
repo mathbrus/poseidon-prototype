@@ -1,5 +1,6 @@
 {
   "budgets": {
+    "pause_minutes": 60,
     "per_run_usd": 5.0
   },
   "bundle": {
@@ -125,6 +126,7 @@
       "enabled": true,
       "gates": {
         "merge": {
+          "deadline_minutes": 1440,
           "resolved_by": "human"
         }
       },

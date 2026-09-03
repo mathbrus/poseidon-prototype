@@ -50,9 +50,10 @@ PR = 41
 
 POLICY_GATE = {
     "resolved_by": "policy",
+    "deadline_minutes": 1,
     "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
 }
-HUMAN_GATE = {"resolved_by": "human"}
+HUMAN_GATE = {"resolved_by": "human", "deadline_minutes": 1}
 
 
 def dispatch_result(**overrides: Any) -> dict[str, Any]:
@@ -132,6 +133,7 @@ class Harness:
                 "crew": "feature-review",
                 "gates": {"merge": harness.merge_gate} if harness.merge_gate else {},
                 "max_verify_retries": 0,
+                "budget_pause_minutes": 1,
                 "contract_paths": list(harness.contract_paths),
                 "timeouts": asdict(FAST_TIMEOUTS),
             }

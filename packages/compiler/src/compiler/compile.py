@@ -244,7 +244,8 @@ def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig | None:
 
 
 def _budgets(blueprint: dict[str, Any]) -> BudgetRegistration:
-    budgets = blueprint.get("budgets") or {}
+    per_run = (blueprint.get("budgets") or {}).get("per_run") or {}
     return BudgetRegistration(
-        per_run_usd=float((budgets.get("per_run") or {}).get("usd", 0)),
+        per_run_usd=float(per_run.get("usd", 0)),
+        pause_minutes=int(per_run.get("pause_minutes", 0)),
     )

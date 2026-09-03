@@ -25,10 +25,10 @@ import yaml
 from temporalio.client import Client
 
 from common.ids import new_run_id
-from orchestrator.workflows.base import Timeouts, workflow_id
+from orchestrator.workflows.base import workflow_id
 from orchestrator.workflows.implement import ImplementInput
 
-from .blueprints import HELLO_SAAS, apply_blueprint, restore_pristine
+from .blueprints import E2E_PAUSE_MINUTES, HELLO_SAAS, apply_blueprint, restore_pristine
 from .cluster import (
     COMPANY_NS,
     audit_story,
@@ -37,7 +37,7 @@ from .cluster import (
     psql_json,
     temporal_port_forward,
 )
-from .conftest import REPO_ROOT, TASK_QUEUE, close_pr_url, deployed_timeouts
+from .conftest import REPO_ROOT, TASK_QUEUE, close_pr_url
 
 # Below one mock completion's reported cost: the mock prices every
 # completion in `x-litellm-response-cost` at $0.002/1K over its
@@ -94,11 +94,11 @@ async def _run_until_paused_then_reject(
             break
         assert time.monotonic() < deadline, f"never paused (state={state!r})"
         await asyncio.sleep(2)
-    # The pause *escalates* — a real process-gate audit
-    # event fires at half the gate deadline (45s on the fast profile). Wait
-    # for it before answering, exactly like the merge-gate e2e does: the
-    # escalation path proves itself on every run.
-    deadline = time.monotonic() + (deployed_timeouts() or Timeouts()).budget_gate_s - 5
+    # The pause *escalates* — a real process-gate audit event fires at
+    # half the declared pause. Wait for it before answering, exactly like
+    # the merge-gate e2e does: the escalation path proves itself on every
+    # run.
+    deadline = time.monotonic() + E2E_PAUSE_MINUTES * 60 - 5
     while True:
         escalated = [
             e

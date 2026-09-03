@@ -39,6 +39,15 @@ TEMPORAL_NAMESPACE = "default"
 TASK_QUEUE = "poseidon-orchestrator"
 
 
+def gate_deadline(minutes: int) -> dict[str, timedelta]:
+    """A gate's timer from its declared wait: expiry at the deadline,
+    escalation halfway — the shape `Gate.wait` takes."""
+    return {
+        "timeout": timedelta(minutes=minutes),
+        "escalate_after": timedelta(seconds=minutes * 30),
+    }
+
+
 def workflow_id(workflow: str, key: str) -> str:
     """Deterministic workflow naming. The run-shaped workflows run one
     workflow per run (`implement-{run_id}`); the heartbeat is one
@@ -76,13 +85,6 @@ class Timeouts:
     provision_s: int = 900
     verify_s: int = 900
     teardown_s: int = 300
-    # How long a budget pause waits for the `budget` signal before giving
-    # up (escalation fires at half of it).
-    budget_gate_s: int = 3600
-    # How long the review workflow's merge gate waits for a human verdict
-    # (escalation fires at half of it). Humans deserve a working day,
-    # not an activity-sized bound — this is a durable workflow timer.
-    merge_gate_s: int = 86400
 
 
 # Sized for the deterministic mock brain (packages/mockllm): every bound is
@@ -97,10 +99,6 @@ FAST_TIMEOUTS = Timeouts(
     provision_s=300,
     verify_s=120,
     teardown_s=60,
-    budget_gate_s=90,
-    # Long enough for the e2e to watch the park, see the half-way
-    # escalation land in the audit store, and still approve in time.
-    merge_gate_s=60,
 )
 
 # The two profiles a deployment may declare, by the `TIMEOUT_PROFILE` value.
@@ -131,6 +129,8 @@ class RunWorkflow:
     # The deployment's profile, learned from `workflow_config`; until then
     # (and on a birth that failed before it) the default sizing applies.
     _bounds: Timeouts = Timeouts()
+    # The run's shape, as `workflow_config` returned it.
+    _config: dict[str, Any] = {}
 
     async def start_run(self, run_id: str, task: str) -> dict[str, Any]:
         """The run's birth: its registry row, the budget-headroom check
@@ -158,6 +158,7 @@ class RunWorkflow:
             start_to_close_timeout=bootstrap,
             retry_policy=STEP_RETRY,
         )
+        self._config = config
         self._bounds = Timeouts(**config["timeouts"])
         return config
 
@@ -256,10 +257,11 @@ class RunWorkflow:
     ) -> dict[str, Any]:
         """One agent dispatch, budget-pause aware: a `budget_exhausted`
         result parks the workflow on the `budget` signal in an API-visible
-        state; approval (the cap was raised) re-dispatches the same text,
-        anything else returns the budget-marked result for teardown to
-        finalize. Escalation and verdict are process-gate audit events,
-        like the merge gate's — one Gate spine, one audit contract."""
+        state for the blueprint's `budgets.per_run.pause_minutes`;
+        approval (the cap was raised) re-dispatches the same text, anything
+        else returns the budget-marked result for teardown to finalize.
+        Escalation and verdict are process-gate audit events, like the
+        merge gate's — one Gate spine, one audit contract."""
         while True:
             result = await workflow.execute_activity(
                 "dispatch_agent",
@@ -275,8 +277,7 @@ class RunWorkflow:
                 return result
             self._phase = f"paused-{BUDGET_MARKER}"
             outcome = await self._budget_gate.wait(
-                timeout=timedelta(seconds=self._bounds.budget_gate_s),
-                escalate_after=timedelta(seconds=self._bounds.budget_gate_s // 2),
+                **gate_deadline(self._config["budget_pause_minutes"]),
                 on_escalate=lambda: self.record_gate(run_id, "budget", "escalated"),
             )
             self._phase = "running"

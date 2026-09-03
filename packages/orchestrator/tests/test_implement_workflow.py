@@ -63,6 +63,7 @@ class Harness:
                 "crew": "feature-delivery",
                 "gates": {},
                 "max_verify_retries": 0,
+                "budget_pause_minutes": 1,
                 "contract_paths": [],
                 "timeouts": asdict(FAST_TIMEOUTS),
             }

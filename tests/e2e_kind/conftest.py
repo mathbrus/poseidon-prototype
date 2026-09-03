@@ -91,7 +91,7 @@ from orchestrator.workflows.base import PROFILES, TASK_QUEUE, Timeouts, workflow
 from orchestrator.workflows.implement import ImplementInput
 from orchestrator.workflows.review import ReviewInput
 
-from .blueprints import apply_blueprint, wait_for_convergence
+from .blueprints import apply_blueprint, restore_pristine, wait_for_convergence
 from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
@@ -255,10 +255,8 @@ def deployed_timeouts() -> Timeouts:
     workflow in the cluster runs under, read back so the suite sizes its
     own waits from it, never from `.env`.
 
-    The default profile's gate deadlines are hours (`budget_gate_s` 3600,
-    `merge_gate_s` 86400), and the park tests *wait them out* — so a suite
-    that assumed the wrong profile would not merely run slow, it would
-    wedge for a day on the first unanswered gate."""
+    Gate waits are not in the profile: they are blueprint fields, and the
+    suite applies its own (`blueprints.E2E_GATE_MINUTES`)."""
     return PROFILES[deployment_env("orchestrator-worker", "TIMEOUT_PROFILE")]
 
 
@@ -472,6 +470,16 @@ REPO_PRUNED: tuple[str, ...] = (
     "conftest.py",
     "gate-counter.txt",
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def suite_blueprint(stack: None) -> None:
+    """The company the suite runs against: the pristine example on the
+    suite's clock (`blueprints.suite_document`). The bootstrap applied the
+    example as written, whose gates wait a working day; the suite applies
+    it again with its own waits before the first test, so a module that
+    parks on a gate watches it escalate within a minute."""
+    restore_pristine()
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -24,14 +24,13 @@ so a budget stop parks on the `budget` signal exactly as in implement.
 
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from orchestrator.gates import Gate
-from orchestrator.workflows.base import RunWorkflow
+from orchestrator.workflows.base import RunWorkflow, gate_deadline
 
 
 @dataclass
@@ -71,14 +70,14 @@ class IntakeWorkflow(RunWorkflow):
         error: str | None = None
         try:
             config = await self.start_run(input.run_id, input.goal_text)
-            if (config["gates"].get("intake") or {}).get("resolved_by") == "human":
+            gate = config["gates"].get("intake") or {}
+            if gate.get("resolved_by") == "human":
                 # The configured gate: park until a human answers or the
-                # escalation deadline lapses. Transitions are
-                # process-gate audit events like every other gate's.
+                # declared deadline lapses. Transitions are process-gate
+                # audit events like every other gate's.
                 self._phase = "paused-intake_gate"
                 outcome = await self._intake_gate.wait(
-                    timeout=timedelta(seconds=self._bounds.budget_gate_s),
-                    escalate_after=timedelta(seconds=self._bounds.budget_gate_s // 2),
+                    **gate_deadline(gate["deadline_minutes"]),
                     on_escalate=lambda: self.record_gate(
                         input.run_id, "intake", "escalated"
                     ),

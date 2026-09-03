@@ -101,6 +101,8 @@ workflows:
       # decline or a carve-out falls back to the human `merge` signal.
       merge:
         resolved_by: policy
+        # The wait when policy declines and the merge parks on a human.
+        deadline_minutes: 1440
         delegate:
           # The unit-test tree only — never the whole of tests/: the
           # contract/acceptance tree is the oracle delegated merges are
@@ -130,13 +132,12 @@ policies:
   contract_tests:
     paths: [tests/contract/]
     roles: [contract-author]
-  escalation:
-    channel: api
-    timeout_minutes: 60
 
 budgets:
   per_run:
     usd: 5
+    # How long a run stopped at the cap waits for someone to raise it.
+    pause_minutes: 60
 
 # The flagship delegated company runs its own backlog. In-class passing
 # work merges under compiled policy with no human command; carve-out PRs

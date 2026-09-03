@@ -25,6 +25,14 @@ HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
 HEARTBEAT = EXAMPLES / "hello-saas-heartbeat.yaml"
 DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
 
+# The examples declare the waits a real company gives its humans (a working
+# day at the merge gate, an hour at a budget stop). The suite waits those
+# gates out to watch them escalate and expire, so every document it applies
+# carries these instead: escalation lands at half a minute, and the budget
+# approve path has time to re-apply a blueprint before its pause ends.
+E2E_GATE_MINUTES = 1
+E2E_PAUSE_MINUTES = 2
+
 
 def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) -> Path:
     """A harness-local variant of an example blueprint: the example's
@@ -62,10 +70,26 @@ def heartbeat_implement_only() -> Path:
     return derived_blueprint(HEARTBEAT, implement_only, "implement-only")
 
 
+def suite_document(path: Path) -> Path:
+    """The document at `path` with the suite's gate waits declared in place
+    of the example's human-scale ones — every gate's `deadline_minutes` and
+    the budget `pause_minutes`. Nothing else changes: the suite applies the
+    example's authority, on the suite's clock."""
+    document = yaml.safe_load(path.read_text())
+    for node in (document.get("workflows") or {}).values():
+        for gate in (node.get("gates") or {}).values():
+            gate["deadline_minutes"] = E2E_GATE_MINUTES
+    document["budgets"]["per_run"]["pause_minutes"] = E2E_PAUSE_MINUTES
+    out = Path(tempfile.mkdtemp(prefix="poseidon-bp-")) / f"{path.stem}-e2e.yaml"
+    out.write_text(yaml.safe_dump(document, sort_keys=False))
+    return out
+
+
 def apply_blueprint(path: Path) -> None:
-    """`poseidon blueprint apply`. The registry may be unreachable from the
-    host — apply degrades to diffing against nothing and still submits
-    the CRs."""
+    """`poseidon blueprint apply` of the suite's version of `path` (see
+    `suite_document`). The registry may be unreachable from the host —
+    apply degrades to diffing against nothing and still submits the CRs."""
+    path = suite_document(path)
     proc = subprocess.run(
         ["uv", "run", "poseidon", "blueprint", "apply", str(path), "--yes"],
         capture_output=True,
