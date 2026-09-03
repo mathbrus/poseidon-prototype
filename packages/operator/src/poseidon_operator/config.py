@@ -8,11 +8,11 @@ class OperatorSettings(BaseSettings):
     # namespaces' NetworkPolicies select, and the gateway FQDNs standing
     # agents are pointed at.
     platform_namespace: str = "poseidon-platform"
-    # The standing agent brain host: content-addressed on kind, like the
+    # The agent image standing agents run: content-addressed on kind, like the
     # sandbox image.
     agent_image: str = "poseidon-agent:latest"
     # Cluster-level agent config that rides every standing pod template.
     model: str = "mock-brain"
     target_repo: str = ""
-    max_iterations: int = 10
+    verify_cycles: int = 10
     bundle_port: int = 8081

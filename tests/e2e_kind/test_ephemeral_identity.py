@@ -51,8 +51,7 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "crew_role": "executor",
-                        "role_template": "backend-engineer",
+                        "role": "implementer",
                         "parent_agent_id": "pm-1",
                     }
                 )
@@ -71,7 +70,7 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
             )
             assert accepted.status_code != 401, "minted identity rejected"
 
-            # ... and its compiled crew rules answer: the executor's bound
+            # ... and its compiled crew rules answer: the implementer's bound
             # sandbox call passes policy (no sandbox is registered, so the
             # backend errors — but it is not a deny).
             result = mcp_call(
@@ -82,7 +81,7 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
             assert "denied by policy" not in text, text
             assert "no sandbox registered" in text
 
-            # A foreign run_id claim from a *live* participant: authn
+            # A foreign run_id claim from a *live* ephemeral agent: authn
             # passes — the row is alive — but the enrichment binds the
             # identity to exactly one run, so policy fails it closed.
             foreign = mcp_call(
@@ -151,7 +150,7 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
     """Against the running OPA: there is no pushed run data anywhere — the
     policy reads the enriched request *input* rather than a pushed
     data.runs.assignments document — and the same live bundle flips the
-    executor's decision on the input flag alone."""
+    implementer's decision on the input flag alone."""
     with port_forward("svc/opa", 8181) as port:
         base = f"http://127.0.0.1:{port}"
         # Nothing was ever pushed: no run-assignment document exists, and
@@ -161,14 +160,13 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
             f"OPA carries pushed run data: {pushed}"
         )
 
-        executor = {
+        implementer = {
             "company": "hello-saas",
-            "agent_id": "feature-delivery-executor-x",
+            "agent_id": "feature-delivery-implementer-x",
             "lifecycle": "ephemeral",
             "parent_agent_id": "pm-1",
-            "role": "backend-engineer",
+            "role": "implementer",
             "crew_template": "feature-delivery",
-            "crew_role": "executor",
             "run_id": "run-binding-check",
             "workflow": "implement",
             "tool": "sandbox.exec",
@@ -176,12 +174,12 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
         }
         bound = httpx.post(
             f"{base}/v1/data/poseidon/authz/hello_saas/decision",
-            json={"input": {**executor, "run_binding_verified": True}},
+            json={"input": {**implementer, "run_binding_verified": True}},
             timeout=10,
         ).json()["result"]
         unbound = httpx.post(
             f"{base}/v1/data/poseidon/authz/hello_saas/decision",
-            json={"input": {**executor, "run_binding_verified": False}},
+            json={"input": {**implementer, "run_binding_verified": False}},
             timeout=10,
         ).json()["result"]
         assert bound["allow"] is True

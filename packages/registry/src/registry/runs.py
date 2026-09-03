@@ -270,9 +270,9 @@ class Runs:
     def recent(self, limit: int = 20) -> list[RunRecord]:
         # Heartbeat decision rows exist only so the heartbeat's LLM call can
         # bind; they are not work the company did, so they never enter the
-        # observation's run history. The family name is the orchestrator's
-        # (`orchestrator.activities.heartbeat.FAMILY`), spelled here because
-        # this package cannot import it.
+        # observation's run history. The workflow name is the
+        # orchestrator's (`orchestrator.activities.heartbeat.WORKFLOW`),
+        # spelled here because this package cannot import it.
         rows = self._db.query(
             "SELECT * FROM registry.runs WHERE workflow <> 'heartbeat'"
             " ORDER BY created_at DESC LIMIT %s",

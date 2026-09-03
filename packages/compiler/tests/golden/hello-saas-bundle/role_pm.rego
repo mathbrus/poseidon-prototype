@@ -5,7 +5,7 @@ package poseidon.authz.hello_saas
 
 import rego.v1
 
-# pm: standing agent of the pm template.
+# pm: standing pm.
 allow_rules contains "role_pm_crew_request" if {
 	input.lifecycle == "standing"
 	input.company == "hello-saas"
@@ -14,7 +14,7 @@ allow_rules contains "role_pm_crew_request" if {
 	input.args.crew_template in ["feature-delivery", "feature-review"]
 }
 
-# pm: standing agent of the pm template.
+# pm: standing pm.
 allow_rules contains "role_pm_issues_comment" if {
 	input.lifecycle == "standing"
 	input.company == "hello-saas"
@@ -22,7 +22,7 @@ allow_rules contains "role_pm_issues_comment" if {
 	input.tool == "issues.comment"
 }
 
-# pm: standing agent of the pm template.
+# pm: standing pm.
 allow_rules contains "role_pm_issues_create" if {
 	input.lifecycle == "standing"
 	input.company == "hello-saas"
@@ -30,7 +30,7 @@ allow_rules contains "role_pm_issues_create" if {
 	input.tool == "issues.create"
 }
 
-# pm: standing agent of the pm template.
+# pm: standing pm.
 allow_rules contains "role_pm_issues_read" if {
 	input.lifecycle == "standing"
 	input.company == "hello-saas"

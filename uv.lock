@@ -36,6 +36,7 @@ dependencies = [
     { name = "httpx" },
     { name = "mcp" },
     { name = "openhands-sdk" },
+    { name = "schema" },
     { name = "uvicorn" },
 ]
 
@@ -46,6 +47,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
     { name = "openhands-sdk", specifier = "==1.43.1" },
+    { name = "schema", editable = "packages/schema" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 

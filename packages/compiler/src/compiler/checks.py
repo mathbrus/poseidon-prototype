@@ -16,8 +16,8 @@ the union of every ephemeral agent's scope. Spawn authority is `may_spawn` plus 
 template plus budget and concurrency caps; tool authority is the agent's
 own compiled allow-list.
 
-The strict lean-standing rule: a standing agent with `count > 0` must be a *spawner*
-(its catalog template carries `may_spawn`) — standing executors do not
+The strict lean-standing rule: a standing agent with `count > 0` must be a
+*spawner* (its catalog role carries `may_spawn`) — standing coders do not
 exist; execution is ephemeral crews, spawned under conductor authority.
 Workflow nodes bind to spawners only. `count: 0` placeholders remain legal
 documentation.
@@ -26,24 +26,23 @@ documentation.
 import re
 from typing import Any
 
-from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES, CrewTemplate, RoleTemplate
+from schema.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
 from schema.coherence import (
     contract_role_problems,
     crew_problems,
-    platform_tool_problems,
-    role_template_problems,
+    hire_problems,
+    tool_scope_problems,
 )
 from schema.gates import contract_tests_problems, merge_gate_problems
-from schema.tools import KNOWN_TOOLS
 
 
 def check(
     blueprint: dict[str, Any],
-    role_catalog: dict[str, RoleTemplate] | None = None,
+    role_catalog: dict[str, Role] | None = None,
     crew_catalog: dict[str, CrewTemplate] | None = None,
 ) -> list[str]:
     """Every problem in the blueprint, as actionable text."""
-    roles = role_catalog or ROLE_TEMPLATES
+    roles = role_catalog or ROLES
     crews = crew_catalog or CREW_TEMPLATES
     problems: list[str] = []
     problems += _company_name(blueprint)
@@ -51,11 +50,12 @@ def check(
     # *injected* catalog here, so a caller compiling against a different
     # catalog version gets that version's answer. Unknown tool names are
     # reported: the compiler has no schema pass to name them.
-    problems += role_template_problems(blueprint, roles, crews)
-    problems += crew_problems(blueprint, roles, crews, report_unknown_tools=True)
+    problems += hire_problems(blueprint, roles, crews)
+    problems += crew_problems(blueprint, crews)
+    problems += tool_scope_problems(blueprint, roles, report_unknown_tools=True)
     problems += contract_role_problems(blueprint, roles)
     problems += _lean_standing(blueprint, roles)
-    problems += _tool_scopes(blueprint)
+    problems += _dead_scopes(blueprint)
     problems += _spawn_authority(blueprint, roles)
     problems += _spawnable_crews(blueprint, crews)
     problems += _policy_patterns(blueprint)
@@ -80,20 +80,19 @@ def _company_name(blueprint: dict[str, Any]) -> list[str]:
 
 
 def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
-    """No standing executor counts — every active (count > 0) standing role must be
-    a spawner, and every enabled workflow's conductor must be one.
-    Executors exist only as ephemeral ephemeral agents under a conductor's
-    authority."""
+    """No standing coder counts — every active (count > 0) hire must be a
+    spawner, and every enabled workflow's conductor must be one. Coding
+    roles exist only as ephemeral agents under a conductor's authority."""
     problems = []
-    for standing_role, role in _standing_roles(blueprint).items():
-        if role.get("count", 0) <= 0:
+    for standing_name, hire in _hires(blueprint).items():
+        if hire.get("count", 0) <= 0:
             continue  # a placeholder documents intent and executes nothing
-        template = roles.get(role.get("template"))
-        if template is not None and not template.may_spawn:
+        role = roles.get(hire.get("role"))
+        if role is not None and not role.may_spawn:
             problems.append(
-                f"standing.{standing_role}: standing count "
-                f"{role.get('count')} on non-spawner template "
-                f"{role.get('template')!r} — execution is ephemeral crews; "
+                f"standing.{standing_name}: standing count "
+                f"{hire.get('count')} on non-spawner role "
+                f"{hire.get('role')!r} — execution is ephemeral crews; "
                 "declare a conductor with may_spawn, or set count: 0"
             )
     active_spawners = _active_spawners(blueprint, roles)
@@ -104,7 +103,7 @@ def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str
             problems.append(
                 f"workflows.{name}.conductor: {conductor!r} is not an active standing "
                 f"spawner — enabled workflows bind to a standing conductor "
-                f"spawner — a standing role with count > 0 whose template may spawn (active: {available})"
+                f"spawner — a hire with count > 0 whose role may spawn (active: {available})"
             )
     return problems
 
@@ -112,19 +111,19 @@ def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str
 def _active_spawners(blueprint: dict[str, Any], roles: dict[str, Any]) -> set[str]:
     return {
         name
-        for name, role in _active_standing_roles(blueprint).items()
-        if (t := roles.get(role.get("template"))) is not None and t.may_spawn
+        for name, hire in _active_hires(blueprint).items()
+        if (r := roles.get(hire.get("role"))) is not None and r.may_spawn
     }
 
 
-def _standing_roles(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _hires(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return blueprint.get("standing") or {}
 
 
-def _active_standing_roles(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _active_hires(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Hired means count > 0. A `count: 0` placeholder documents intent and
     produces no instance, so nothing may bind to it."""
-    return {n: r for n, r in _standing_roles(blueprint).items() if r.get("count", 0) > 0}
+    return {n: r for n, r in _hires(blueprint).items() if r.get("count", 0) > 0}
 
 
 def _enabled_workflows(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -135,54 +134,39 @@ def _enabled_workflows(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
-def _tool_scopes(blueprint: dict[str, Any]) -> list[str]:
-    """Every tool scope names a registered gateway backend, and no company
-    role holds a platform-only tool."""
-    problems = []
-    for role_name, scope in (blueprint.get("tools") or {}).items():
-        for tool in (scope or {}).get("allow") or []:
-            if tool not in KNOWN_TOOLS:
-                problems.append(
-                    f"tools.{role_name}.allow: {tool!r} is not a tool the gateway serves"
-                )
-        problems += platform_tool_problems(
-            f"tools.{role_name}.allow", (scope or {}).get("allow") or []
-        )
-    # A scope no active standing role and no crew uses is dead configuration; say so
-    # rather than compiling it into a bundle no caller can ever match. A
-    # `count: 0` placeholder is inactive — that is what count 0 means.
-    usable_roles = {r.get("template") for r in _active_standing_roles(blueprint).values()}
+def _dead_scopes(blueprint: dict[str, Any]) -> list[str]:
+    """A scope no active hire and no crew uses is dead configuration; say
+    so rather than compiling it into a bundle no caller can ever match. A
+    `count: 0` placeholder is inactive — that is what count 0 means."""
+    usable_roles = {h.get("role") for h in _active_hires(blueprint).values()}
     usable_roles |= {
-        agent.get("role_template")
+        role
         for crew in (blueprint.get("crews") or {}).values()
-        for agent in (crew.get("agents") or {}).values()
+        for role in (crew.get("roles") or [])
     }
-    for role_name in blueprint.get("tools") or {}:
-        if role_name not in usable_roles:
-            problems.append(
-                f"tools.{role_name}: no active standing role or crew uses that template, "
-                f"so this scope can never apply"
-            )
-    return problems
+    return [
+        f"tools.{role_name}: no active hire or crew uses that role, "
+        f"so this scope can never apply"
+        for role_name in blueprint.get("tools") or {}
+        if role_name not in usable_roles
+    ]
 
 
-def _spawn_authority(
-    blueprint: dict[str, Any], roles: dict[str, RoleTemplate]
-) -> list[str]:
-    """Spawn authority narrows the template, never widens it — like tools,
-    but as an error rather than a silent intersection: a dropped grant that
-    a workflow depends on must fail at compile, not at first fulfill."""
+def _spawn_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> list[str]:
+    """Spawn authority narrows the role, never widens it — like tools, but
+    as an error rather than a silent intersection: a dropped grant that a
+    workflow depends on must fail at compile, not at first fulfill."""
     problems = []
-    for standing_role, role in _standing_roles(blueprint).items():
-        template = roles.get(role.get("template"))
-        if template is None:  # role_template_problems reports it
+    for standing_name, hire in _hires(blueprint).items():
+        role = roles.get(hire.get("role"))
+        if role is None:  # hire_problems reports it
             continue
-        for crew in (role.get("may_spawn") or {}).get("crew") or []:
-            if crew not in template.may_spawn:
-                allowed = ", ".join(sorted(template.may_spawn)) or "(none)"
+        for crew in (hire.get("may_spawn") or {}).get("crew") or []:
+            if crew not in role.may_spawn:
+                allowed = ", ".join(sorted(role.may_spawn)) or "(none)"
                 problems.append(
-                    f"standing.{standing_role}.may_spawn.crew: {crew!r} is "
-                    f"not in the {template.name!r} template's spawn "
+                    f"standing.{standing_name}.may_spawn.crew: {crew!r} is "
+                    f"not in the {role.name!r} role's spawn "
                     f"authority (granted: {allowed})"
                 )
     return problems
@@ -196,11 +180,11 @@ def _spawnable_crews(
     catalog half — is it a known template — is `schema.coherence`'s)."""
     problems = []
     declared = set(blueprint.get("crews") or {})
-    for standing_role, role in _standing_roles(blueprint).items():
-        for crew in (role.get("may_spawn") or {}).get("crew") or []:
+    for standing_name, hire in _hires(blueprint).items():
+        for crew in (hire.get("may_spawn") or {}).get("crew") or []:
             if crew in crews_catalog and crew not in declared:
                 problems.append(
-                    f"standing.{standing_role}.may_spawn.crew: {crew!r} is "
+                    f"standing.{standing_name}.may_spawn.crew: {crew!r} is "
                     f"not declared in this blueprint's `crews` section"
                 )
     for name, workflow in _enabled_workflows(blueprint).items():
@@ -211,9 +195,9 @@ def _spawnable_crews(
             problems.append(f"workflows.{name}.crew: {crew!r} is not declared in `crews`")
             continue
         conductor = workflow.get("conductor")
-        allowed = (
-            (_standing_roles(blueprint).get(conductor) or {}).get("may_spawn") or {}
-        ).get("crew") or []
+        allowed = ((_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}).get(
+            "crew"
+        ) or []
         if crew not in allowed:
             problems.append(
                 f"workflows.{name}: conductor {conductor!r} may not spawn "
@@ -242,9 +226,7 @@ def _policy_patterns(blueprint: dict[str, Any]) -> list[str]:
     return []
 
 
-def _heartbeat_authority(
-    blueprint: dict[str, Any], roles: dict[str, RoleTemplate]
-) -> list[str]:
+def _heartbeat_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> list[str]:
     """The heartbeat's declared authority must be coherent: an active standing spawner
     to decide, enabled workflows to start, and a daily cap that can fund at
     least one run — a cap below the per-run budget makes the section dead

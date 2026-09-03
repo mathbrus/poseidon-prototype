@@ -5,69 +5,69 @@ package poseidon.authz.hello_saas
 
 import rego.v1
 
-# feature-review/reviewer: ephemeral agent on the sdet template.
+# feature-review/reviewer: ephemeral reviewer of the feature-review crew.
 allow_rules contains "crew_feature_review_reviewer_git_comment" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-review"
-	input.crew_role == "reviewer"
+	input.role == "reviewer"
 	input.tool == "git.comment"
 }
 
-# feature-review/reviewer: ephemeral agent on the sdet template.
+# feature-review/reviewer: ephemeral reviewer of the feature-review crew.
 allow_rules contains "crew_feature_review_reviewer_git_read" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-review"
-	input.crew_role == "reviewer"
+	input.role == "reviewer"
 	input.tool == "git.read"
 }
 
-# feature-review/reviewer: ephemeral agent on the sdet template.
+# feature-review/reviewer: ephemeral reviewer of the feature-review crew.
 allow_rules contains "crew_feature_review_reviewer_issues_comment" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-review"
-	input.crew_role == "reviewer"
+	input.role == "reviewer"
 	input.tool == "issues.comment"
 }
 
-# feature-review/reviewer: ephemeral agent on the sdet template.
+# feature-review/reviewer: ephemeral reviewer of the feature-review crew.
 allow_rules contains "crew_feature_review_reviewer_sandbox_exec" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-review"
-	input.crew_role == "reviewer"
+	input.role == "reviewer"
 	input.tool == "sandbox.exec"
 	bound_to_run
 }
 
-# feature-review/reviewer: ephemeral agent on the sdet template.
+# feature-review/reviewer: ephemeral reviewer of the feature-review crew.
 allow_rules contains "crew_feature_review_reviewer_sandbox_list_dir" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-review"
-	input.crew_role == "reviewer"
+	input.role == "reviewer"
 	input.tool == "sandbox.list_dir"
 	bound_to_run
 }
 
-# feature-review/reviewer: ephemeral agent on the sdet template.
+# feature-review/reviewer: ephemeral reviewer of the feature-review crew.
 allow_rules contains "crew_feature_review_reviewer_sandbox_read_file" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-review"
-	input.crew_role == "reviewer"
+	input.role == "reviewer"
 	input.tool == "sandbox.read_file"
 	bound_to_run
 }
 
-# feature-review/reviewer: ephemeral agent on the sdet template.
+# feature-review/reviewer: ephemeral reviewer of the feature-review crew.
 allow_rules contains "crew_feature_review_reviewer_sandbox_run_tests" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-review"
-	input.crew_role == "reviewer"
+	input.role == "reviewer"
 	input.tool == "sandbox.run_tests"
 	bound_to_run
 }

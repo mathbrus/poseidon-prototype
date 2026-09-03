@@ -34,10 +34,13 @@ CREATE TABLE IF NOT EXISTS registry.companies (
 CREATE TABLE IF NOT EXISTS registry.agent_instances (
     agent_id      text PRIMARY KEY,
     company       text NOT NULL,
-    standing_role          text NOT NULL,
-    role_template text NOT NULL,
+    -- The hire's name in the blueprint's `standing:` section — also the
+    -- agent's Deployment and Service name in the company namespace.
+    standing_name text NOT NULL,
+    -- The catalog role: what the agent is, and what policy keys on.
+    role          text NOT NULL,
     model_tier    text,
-    -- The company namespace the instance's pod (and ServiceAccount) live
+    -- The company namespace the agent's pod (and ServiceAccount) live
     -- in. Workload identity verifies a caller's projected token against
     -- this: same SA name in any other namespace is rejected.
     namespace     text,
@@ -89,23 +92,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_review_run
 
 -- Ephemeral agents, kept out of agent_instances so hire/fire diffs
 -- stay clean. Revocation is a row termination, checked live on every
--- gateway call. The row is the whole identity: the gateway resolves a
+-- gateway call. The row is the whole identity: the gateway resolves an
 -- ephemeral agent's projected ServiceAccount token to this row (by
--- service_account), and company/role_template/namespace are read from
--- here — there is no token claim to fall back on.
+-- service_account), and company/role/namespace are read from here —
+-- there is no token claim to fall back on.
 CREATE TABLE IF NOT EXISTS registry.run_participants (
     agent_id        text PRIMARY KEY,
     run_id          text NOT NULL REFERENCES registry.runs(run_id) ON DELETE CASCADE,
     parent_agent_id text NOT NULL,
     crew_template   text NOT NULL,
+    -- The catalog role this agent is; with crew_template, what the
+    -- compiled crew rules key on.
     role            text NOT NULL,
     company         text NOT NULL DEFAULT '',
-    role_template   text NOT NULL DEFAULT '',
-    -- The company namespace the member's pod and ServiceAccount live in.
+    -- The company namespace the agent's pod and ServiceAccount live in.
     -- Workload identity verifies a caller's projected token against this:
     -- the same SA name in any other namespace is rejected.
     namespace       text NOT NULL DEFAULT '',
-    -- RFC-1123 name of the member's per-run ServiceAccount. The gateway
+    -- RFC-1123 name of the agent's per-run ServiceAccount. The gateway
     -- looks the row up by this name; lowercasing makes the SA name
     -- non-invertible, so the mapping lives here rather than in arithmetic.
     service_account text,

@@ -226,8 +226,8 @@ class InMemoryAgentInstances:
         self,
         agent_id: str,
         company: str,
-        standing_role: str,
-        role_template: str,
+        standing_name: str,
+        role: str,
         model_tier: str,
         namespace: str | None = None,
         status: str = "ready",
@@ -235,12 +235,18 @@ class InMemoryAgentInstances:
         self.rows[agent_id] = {
             "agent_id": agent_id,
             "company": company,
-            "standing_role": standing_role,
-            "role_template": role_template,
+            "standing_name": standing_name,
+            "role": role,
             "model_tier": model_tier,
             "namespace": namespace,
             "status": status,
         }
+
+    def for_company(self, company: str) -> list[dict[str, Any]]:
+        return sorted(
+            (dict(r) for r in self.rows.values() if r["company"] == company),
+            key=lambda r: r["standing_name"],
+        )
 
     def get(self, agent_id: str) -> dict[str, Any] | None:
         return self.rows.get(agent_id)
@@ -261,7 +267,6 @@ class InMemoryRunParticipants:
         crew_template: str,
         role: str,
         company: str = "",
-        role_template: str = "",
         namespace: str = "",
         service_account: str | None = None,
     ) -> None:
@@ -280,7 +285,6 @@ class InMemoryRunParticipants:
             "crew_template": crew_template,
             "role": role,
             "company": company,
-            "role_template": role_template,
             "namespace": namespace,
             "service_account": service_account,
             "status": "active",
@@ -312,7 +316,6 @@ class InMemoryRunParticipants:
                     "run_id",
                     "crew_template",
                     "role",
-                    "role_template",
                     "status",
                 )
             }
@@ -486,6 +489,6 @@ class InMemoryRuns:
     def recent(self, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first; heartbeat
         # decision rows are not work the company did and never enter the
-        # observation's run history (same family literal as `runs.py`).
+        # observation's run history (same workflow literal as `runs.py`).
         work = [r for r in self.rows.values() if r.workflow != "heartbeat"]
         return work[-limit:][::-1]

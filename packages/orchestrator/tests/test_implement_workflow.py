@@ -49,20 +49,21 @@ class Harness:
         harness = self
 
         @activity.defn(name="create_run")
-        async def create_run(run_id: str, task_text: str) -> None: ...
+        async def create_run(run_id: str, workflow: str, task: str) -> None: ...
 
         @activity.defn(name="check_budget")
         async def check_budget(run_id: str) -> dict[str, Any]:
             return {"cap_usd": 5.0, "spent_usd": 0.0}
 
-        @activity.defn(name="implement_config")
-        async def implement_config() -> dict[str, Any]:
+        @activity.defn(name="workflow_config")
+        async def workflow_config(workflow: str) -> dict[str, Any]:
             return {
                 "company": "hello-saas",
-                "crew_template": "feature-delivery",
-                "conductor": "pm-1",
-                "conductor_role": "pm",
+                "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
+                "crew": "feature-delivery",
+                "gates": {},
                 "max_verify_retries": 0,
+                "contract_paths": [],
             }
 
         @activity.defn(name="read_issue")
@@ -84,18 +85,23 @@ class Harness:
 
         @activity.defn(name="fulfill_crew")
         async def fulfill_crew(request: dict[str, Any]) -> dict[str, Any]:
-            return {"brief": "do it", "executor_url": "http://crew:8000"}
+            return {
+                "request_id": "crq-1",
+                "agents": {
+                    "implementer": {"agent_id": "fd-impl", "url": "http://crew:8000"}
+                },
+            }
 
-        @activity.defn(name="dispatch_executor")
-        async def dispatch_executor(
-            run_id: str, task_text: str, url: str, mode: str
+        @activity.defn(name="dispatch_agent")
+        async def dispatch_agent(
+            run_id: str, url: str, procedure: str, task_text: str
         ) -> dict[str, Any]:
-            harness.dispatches.append(mode)
+            harness.dispatches.append(procedure)
             while harness.dispatch_hangs:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
                 await asyncio.sleep(0.05)
-            return dict(harness.deliver if mode == "deliver" else harness.implement)
+            return dict(harness.deliver if procedure == "deliver" else harness.implement)
 
         @activity.defn(name="platform_verify")
         async def platform_verify(run_id: str) -> dict[str, Any]:
@@ -129,12 +135,12 @@ class Harness:
         return [
             create_run,
             check_budget,
-            implement_config,
+            workflow_config,
             read_issue,
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
-            dispatch_executor,
+            dispatch_agent,
             platform_verify,
             record_attempts_exhausted,
             teardown,
@@ -188,7 +194,7 @@ async def test_a_delivered_run_concluded_its_issue(env):
     assert harness.wakes == 1  # the delivered PR is the heartbeat's to offer
 
 
-async def test_an_executor_that_died_leaves_the_issue_for_another_try(env):
+async def test_an_implementer_that_died_leaves_the_issue_for_another_try(env):
     """A dispatch that came back with an error opened no PR: no conclusion.
     Teardown finalizes the run failed, then the attempt accounting runs —
     the issue is the heartbeat's to offer again, bounded by the cap."""
@@ -209,7 +215,7 @@ async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):
 
 
 async def test_a_cancelled_run_records_its_attempt(env):
-    """A run cancelled while its executor is dispatched opened no PR: the
+    """A run cancelled while its implementer is dispatched opened no PR: the
     cancellation surfaces as the dispatch's, the run finalizes failed on
     it, and the attempt accounting still runs after teardown."""
     harness = Harness(dispatch_hangs=True)
@@ -226,7 +232,7 @@ async def test_a_cancelled_run_records_its_attempt(env):
             if harness.dispatches:
                 break
             await asyncio.sleep(0.05)
-        assert harness.dispatches, "the executor was never dispatched"
+        assert harness.dispatches, "the implementer was never dispatched"
         await handle.cancel()
         record = await handle.result()
     finally:

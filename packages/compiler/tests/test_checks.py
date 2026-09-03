@@ -45,10 +45,10 @@ def test_scope_for_a_role_nobody_uses_is_dead_config(blueprint):
     assert any("auditor" in p and "never apply" in p for p in problems_of(blueprint))
 
 
-def test_unknown_role_template_is_a_compile_error(blueprint):
-    """compile_blueprint accepts unvalidated dicts; an unknown template must
-    be a CompileError problem, not a KeyError halfway through emission."""
-    blueprint["standing"]["pm"]["template"] = "boss"
+def test_unknown_role_is_a_compile_error(blueprint):
+    """compile_blueprint accepts unvalidated dicts; an unknown role must be
+    a CompileError problem, not a KeyError halfway through emission."""
+    blueprint["standing"]["pm"]["role"] = "boss"
     assert any("role catalog" in p for p in problems_of(blueprint))
 
 
@@ -59,10 +59,10 @@ def test_unknown_crew_name_is_a_compile_error(blueprint):
 
 def test_spawn_authority_cannot_be_widened(blueprint):
     """Granting a role a crew its template does not permit is an error, not
-    a silent drop — a workflow might depend on the grant. The sdet template
+    a silent drop — a workflow might depend on the grant. The reviewer role
     grants no spawn authority."""
     blueprint["standing"]["future-lead"] = {
-        "template": "sdet",
+        "role": "reviewer",
         "count": 0,
         "may_spawn": {"crew": ["feature-delivery"]},
     }
@@ -70,9 +70,13 @@ def test_spawn_authority_cannot_be_widened(blueprint):
     assert "future-lead" in problem
 
 
-def test_crew_member_tools_cannot_widen_the_catalog(blueprint):
-    planner = blueprint["crews"]["feature-delivery"]["agents"]["planner"]
-    planner["tools"].append("sandbox.write_file")
+def test_a_tool_scope_cannot_widen_the_catalog(blueprint):
+    """Standing and ephemeral alike: a scope naming a tool the role's
+    catalog entry does not grant is an error, never a silent intersection."""
+    blueprint["tools"]["reviewer"]["allow"].append("git.open_pr")
+    assert any("never widens" in p for p in problems_of(blueprint))
+    blueprint["tools"]["reviewer"]["allow"].pop()
+    blueprint["tools"]["pm"]["allow"].append("sandbox.exec")
     assert any("never widens" in p for p in problems_of(blueprint))
 
 
@@ -96,8 +100,8 @@ def test_workflow_crew_must_be_spawnable_by_its_conductor(blueprint):
     assert "feature-delivery" in problem
 
 
-def test_crew_member_needs_a_real_allow_list(blueprint):
-    blueprint["crews"]["feature-delivery"]["agents"]["executor"]["tools"] = []
+def test_a_tool_scope_needs_a_real_allow_list(blueprint):
+    blueprint["tools"]["reviewer"]["allow"] = []
     assert any("must not be empty" in p for p in problems_of(blueprint))
 
 
@@ -111,24 +115,24 @@ def test_child_scope_need_not_be_a_subset_of_the_conductor(blueprint):
     Dropping ⊆-parent is deliberate — spawn authority is not a
     capability ceiling — so this must compile."""
     pm_tools = set(blueprint["tools"]["pm"]["allow"])
-    executor = set(blueprint["crews"]["feature-delivery"]["agents"]["executor"]["tools"])
-    assert "git.open_pr" in executor and "git.open_pr" not in pm_tools
-    assert compile_blueprint(blueprint) is not None
+    plan = compile_blueprint(blueprint)
+    implementer = next(a for a in plan.ephemeral_agents if a.role == "implementer")
+    assert "git.open_pr" in implementer.tools and "git.open_pr" not in pm_tools
 
 
-def test_standing_executor_is_a_compile_error(standing_executor):
-    """The strict lean-standing stance — no standing executor counts;
-    workflow nodes bind to spawners only. A standing-executor shape is a
+def test_standing_implementer_is_a_compile_error(standing_implementer):
+    """The strict lean-standing stance — no standing implementer counts;
+    workflow nodes bind to spawners only. A standing-implementer shape is a
     compile error."""
     with pytest.raises(CompileError) as err:
-        compile_blueprint(standing_executor)
-    assert "non-spawner template 'backend-engineer'" in str(err.value)
+        compile_blueprint(standing_implementer)
+    assert "non-spawner role 'implementer'" in str(err.value)
 
 
 def test_lean_roster_compiles_to_exactly_one_instance(blueprint):
     """The standing agents is the PM alone; execution is ephemeral crews."""
     plan = compile_blueprint(blueprint)
-    assert [i.standing_role for i in plan.instances] == ["pm"]
+    assert [i.standing_name for i in plan.instances] == ["pm"]
 
 
 # -- the heartbeat -------------------------------------------------
@@ -139,8 +143,8 @@ def test_heartbeat_section_compiles(heartbeat_blueprint):
 
 
 def test_heartbeat_conductor_must_be_an_active_standing_spawner(heartbeat_blueprint):
-    # sdet is a real template but crew-only — never an active standing role.
-    heartbeat_blueprint["heartbeat"]["conductor"] = "sdet"
+    # reviewer is a real role but crew-only — never an active standing agent.
+    heartbeat_blueprint["heartbeat"]["conductor"] = "reviewer"
     (problem,) = [
         p for p in problems_of(heartbeat_blueprint) if "heartbeat.conductor" in p
     ]
@@ -206,7 +210,7 @@ def test_compiler_fails_closed_on_a_delegated_contract_tree(blueprint):
     posture: the oracle never merges under the delegation it certifies."""
     blueprint["policies"]["contract_tests"] = {
         "paths": ["tests/contract/"],
-        "roles": ["sdet"],
+        "roles": ["reviewer"],
     }
     blueprint["workflows"]["review"]["gates"]["merge"] = {
         "resolved_by": "policy",
@@ -232,6 +236,6 @@ def test_compiler_fails_closed_on_a_denied_contract_tree(blueprint):
     blueprint["policies"]["deny_paths"] = [".github/workflows/", "specs/"]
     blueprint["policies"]["contract_tests"] = {
         "paths": ["specs/contract/"],
-        "roles": ["sdet"],
+        "roles": ["reviewer"],
     }
     assert any("no role could ever deliver" in p for p in problems_of(blueprint))

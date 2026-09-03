@@ -103,7 +103,7 @@ firing and every authority change are visible before they happen. To make
 the company yours, edit the document — the mission, the sandbox image and
 test command, the `egress_allow` list, the budgets, the gate resolvers —
 and re-apply. Mistakes fail at compile time with a readable error: a
-standing executor, an undeclared tool, or a delegated path overlapping a
+standing implementer, an undeclared tool, or a delegated path overlapping a
 protected surface is refused before anything reaches the cluster.
 
 ### Use a real LLM
@@ -114,7 +114,7 @@ must be brought up with `REAL_LLM=1`. Nothing does that for you.
 
 The provider key never enters an agent pod. It lands only in the
 `llm-proxy`, behind the LLM gateway; LiteLLM is started in single-model
-mode, so every role — PM, planner, executor, reviewer — is served the
+mode, so every role — PM, implementer, reviewer — is served the
 same `MODEL`.
 
 Edit `deploy/kind/.env` (create it from `.env.example` if you have not
@@ -214,7 +214,7 @@ default workflow is implement:
 uv run poseidon run examples/task-tetris.md
 ```
 
-The crew planner writes a brief, the executor implements it, the
+The crew's implementer implements the task, the
 *platform* runs `pytest -q` as the verify gate of record, and only a
 green verify releases the deliver dispatch that opens the pull request.
 Success JSON has `"status": "done"` and a `pr_url` whose head ref matches
@@ -271,7 +271,7 @@ waits for a look. Each tick:
 1. **Observes** the open backlog, the delivered-but-unreviewed PRs (still
    open on the git host — one you merged by hand simply drops out), the
    in-flight runs and today's spend.
-2. **Dispatches the PM in a toolless *decide* mode** for exactly one
+2. **Dispatches the PM's toolless *decide* procedure** for exactly one
    action — implement a ticket, review a PR, or idle — with a required
    one-line rationale, journaled as a `heartbeat.decide` audit event.
 3. **Starts the chosen run** only if it wins the compiled `heartbeat.start`

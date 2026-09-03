@@ -26,7 +26,7 @@ from compiler.plan import (
 )
 from compiler.rego import build_bundle, build_platform_bundle
 from compiler.snapshot import EMPTY, RegistrySnapshot
-from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES, CrewTemplate, RoleTemplate
+from schema.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
 from schema.tools import PLATFORM_TOOLS, REPO_TOOLS
 
 # What the orchestrator's own identity may call. Not blueprint-configurable:
@@ -71,11 +71,11 @@ DEFAULT_VERIFY_RETRIES = 2
 
 def compile_blueprint(
     blueprint: dict[str, Any],
-    role_catalog: dict[str, RoleTemplate] | None = None,
+    role_catalog: dict[str, Role] | None = None,
     crew_catalog: dict[str, CrewTemplate] | None = None,
     snapshot: RegistrySnapshot = EMPTY,
 ) -> DeploymentPlan:
-    roles = role_catalog or ROLE_TEMPLATES
+    roles = role_catalog or ROLES
     crews_catalog = crew_catalog or CREW_TEMPLATES
 
     problems = check(blueprint, roles, crews_catalog)
@@ -94,7 +94,7 @@ def compile_blueprint(
 
     scopes = blueprint.get("tools") or {}
     instances = _instances(blueprint, roles, scopes, company, snapshot)
-    ephemeral_agents = _ephemeral_agents(blueprint, crews_catalog)
+    ephemeral_agents = _ephemeral_agents(blueprint, roles, scopes)
     workflows = _workflows(blueprint)
     budgets = _budgets(blueprint)
     heartbeat = _heartbeat(blueprint)
@@ -123,9 +123,19 @@ def compile_blueprint(
     )
 
 
+def _scope(role: Role, scopes: dict[str, Any]) -> tuple[str, ...]:
+    """The role's compiled tools: the blueprint's `tools.<role>.allow`
+    narrowed against the catalog, or the catalog's list when the blueprint
+    declares none. The blueprint narrows the catalog, never widens it — a
+    widening scope is a checks.py error, and even past that, nothing wider
+    than the catalog's list may reach a compiled bundle."""
+    declared = set((scopes.get(role.name) or {}).get("allow") or role.tools)
+    return tuple(sorted(declared & set(role.tools)))
+
+
 def _instances(
     blueprint: dict[str, Any],
-    roles: dict[str, RoleTemplate],
+    roles: dict[str, Role],
     scopes: dict[str, Any],
     company: str,
     snapshot: RegistrySnapshot,
@@ -133,33 +143,26 @@ def _instances(
     """Standing agents only. A `count: 0` placeholder produces no instance —
     that is the whole point of declaring one."""
     instances = []
-    for standing_role, role in sorted((blueprint.get("standing") or {}).items()):
-        count = role.get("count", 0)
-        template = roles[role["template"]]
-        # The blueprint narrows the template, never widens it: a scope the
-        # catalog does not grant cannot be granted by naming it here. The
-        # same holds for spawn authority — checks.py errors on a widening
-        # attempt; the intersection is the belt under that brace.
-        declared = set(
-            (scopes.get(role["template"]) or {}).get("allow") or template.tools
-        )
-        tools = tuple(sorted(declared & set(template.tools)))
+    for standing_name, hire in sorted((blueprint.get("standing") or {}).items()):
+        count = hire.get("count", 0)
+        role = roles[hire["role"]]
+        # Spawn authority narrows like tools do — checks.py errors on a
+        # widening attempt; the intersection is the belt under that brace.
         may_spawn = tuple(
             sorted(
-                set((role.get("may_spawn") or {}).get("crew") or [])
-                & set(template.may_spawn)
+                set((hire.get("may_spawn") or {}).get("crew") or []) & set(role.may_spawn)
             )
         )
         # Existing ids are reused in order so an apply is stable; minted ids
         # skip anything already taken — a count change must never produce
         # two instances sharing an agent_id (the diff keys on it).
-        agent_ids = [i.agent_id for i in snapshot.instances_for(company, standing_role)][
+        agent_ids = [i.agent_id for i in snapshot.instances_for(company, standing_name)][
             :count
         ]
         serial = 0
         while len(agent_ids) < count:
             serial += 1
-            candidate = f"{standing_role}-{serial}"
+            candidate = f"{standing_name}-{serial}"
             if candidate not in agent_ids:
                 agent_ids.append(candidate)
         for agent_id in agent_ids:
@@ -167,49 +170,33 @@ def _instances(
                 AgentInstanceCR(
                     agent_id=agent_id,
                     company=company,
-                    standing_role=standing_role,
-                    role_template=role["template"],
-                    model_tier=role.get("model_tier") or template.model_tier,
-                    tools=tools,
+                    standing_name=standing_name,
+                    role=role.name,
+                    model_tier=hire.get("model_tier") or role.model_tier,
+                    tools=_scope(role, scopes),
                     may_spawn=may_spawn,
-                    max_concurrent_spawns=(role.get("may_spawn") or {}).get(
+                    max_concurrent_spawns=(hire.get("may_spawn") or {}).get(
                         "max_concurrent"
                     ),
-                    runtime_hints=dict(template.runtime_hints),
                 )
             )
     return tuple(instances)
 
 
 def _ephemeral_agents(
-    blueprint: dict[str, Any], crews_catalog: dict[str, CrewTemplate]
+    blueprint: dict[str, Any], roles: dict[str, Role], scopes: dict[str, Any]
 ) -> tuple[EphemeralAgentSpec, ...]:
-    agents = []
-    for crew_name, crew in sorted((blueprint.get("crews") or {}).items()):
-        catalog_crew = crews_catalog.get(crew_name)
-        for agent_name, agent in sorted((crew.get("agents") or {}).items()):
-            catalog_agent = catalog_crew.agents.get(agent_name) if catalog_crew else None
-            needs_sandbox = agent.get("needs_sandbox")
-            if needs_sandbox is None:
-                needs_sandbox = catalog_agent.needs_sandbox if catalog_agent else True
-            # Narrowed against the catalog agent like standing tools are
-            # narrowed against the role template: a widening blueprint is a
-            # checks.py error, and even past that, nothing wider than the
-            # catalog's allow-list may reach a compiled bundle.
-            declared = set(agent.get("tools") or [])
-            if catalog_agent is not None:
-                declared &= set(catalog_agent.tools)
-            agents.append(
-                EphemeralAgentSpec(
-                    crew=crew_name,
-                    crew_role=agent_name,
-                    role_template=agent["role_template"],
-                    tools=tuple(sorted(declared)),
-                    needs_sandbox=bool(needs_sandbox),
-                    budget_inheritance=crew.get("budget_inheritance", "run"),
-                )
-            )
-    return tuple(agents)
+    """One spec per role of every declared crew, scoped by the same
+    `tools.<role>` narrowing a standing agent of that role gets."""
+    return tuple(
+        EphemeralAgentSpec(
+            crew=crew_name,
+            role=role_name,
+            tools=_scope(roles[role_name], scopes),
+        )
+        for crew_name, crew in sorted((blueprint.get("crews") or {}).items())
+        for role_name in sorted(crew.get("roles") or [])
+    )
 
 
 def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:

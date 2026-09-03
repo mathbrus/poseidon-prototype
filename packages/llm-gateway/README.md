@@ -45,9 +45,9 @@ on port 4000 — the port agents already expect for model access — on
 whose metadata lists it (gpt-5\*, with OpenHands' default
 `api_mode="auto"`), so the second surface is what keeps "pointing an
 off-the-shelf SDK at governed model access is a URL change and nothing
-else" true for current OpenAI models. The brain host builds an ordinary
+else" true for current OpenAI models. The agent host builds an ordinary
 LiteLLM-style client whose `base_url` points here
-(`agent.brain.build_llm`).
+(`agent.procedures.build_llm`).
 
 ## The pipeline
 
@@ -70,12 +70,12 @@ valid workload identity but no run context is refused.
 
 ## How a completion is attributed
 
-The brain host injects `X-Poseidon-Run-Id` into every request. The
+The agent host injects `X-Poseidon-Run-Id` into every request. The
 gateway does not take it on faith:
 
 - No header at all → `400`, code `llm_unattributed`, audited.
 - An ephemeral caller naming a run other than the one its live
-  `run_participants` row binds it to → `403`, `llm_foreign_run`. A crew
+  `run_participants` row binds it to → `403`, `llm_foreign_run`. An ephemeral
   agent cannot bill a foreign run.
 - A run the registry has never seen, or one belonging to a different
   company than the caller's → `403`, `llm_unknown_run`.
@@ -83,7 +83,7 @@ gateway does not take it on faith:
 Only then does the call proceed, and when it succeeds the ledger row
 carries the full genealogy: `{company, run_id, agent_id,
 parent_agent_id, role, model, prompt_tokens, completion_tokens, usd}`.
-The participant is the verified caller; the parent is the standing
+`agent_id` is the verified caller; the parent is the standing
 conductor recorded in its `run_participants` row. That is what keeps
 crew fan-out reconcilable — one ledger with dimensions, never parallel
 accounts, so any slice (per run, per role, per parent) is a `SUM`.
@@ -126,13 +126,13 @@ return JSONResponse(
 ```
 
 The OpenAI-shaped body is the load-bearing detail: standard clients
-raise it with the code and message intact, which is what lets the brain
+raise it with the code and message intact, which is what lets the agent host
 surface `budget_exhausted` verbatim and the workflow recognise it.
 
 Enforcement lives here rather than in the workflow because this is the
 point every model call passes through; there is no Temporal client in
 this service. The orchestrator observes the stop through the error the
-brain surfaces: the implement workflow matches the `budget_exhausted`
+agent host surfaces: the implement workflow matches the `budget_exhausted`
 marker in the dispatch result, parks on a `budget` signal in an
 API-visible `paused-budget_exhausted` state, fires an escalation at half
 the gate deadline, and records every transition as a `process-gate`
@@ -149,9 +149,9 @@ checks headroom once at run creation ("born with headroom or not at
 all"), but that is an observation at an activity boundary; the
 enforcement point stays here.
 
-## Tier routing is the gateway's, not the brain's
+## Tier routing is the gateway's, not the agent's
 
-The blueprint never names a model. Role templates in the catalog name
+The blueprint never names a model. Roles in the catalog name
 *tiers* — `small`, `standard`, `frontier` — and only the deployment
 knows which concrete model a tier means, via the `TIER_MODELS` JSON
 env (`{"frontier": "gpt-5.6-luna", ...}`). The gateway looks up the caller's
@@ -216,7 +216,7 @@ read — a real model legitimately thinks for minutes.
   for attribution and the per-run cap; `AgentInstances` for the tier;
   `registry.AuditStore` for `source=llm-gateway` events.
 - `agent` builds its LLM client against this service and injects the
-  run header (`agent.brain.build_llm`).
+  run header (`agent.procedures.build_llm`).
 - `orchestrator` turns the surfaced `budget_exhausted` error into the
   paused state, escalation, and `process-gate` audit events.
 - [`mockllm`](../mockllm/README.md) is the upstream in development;
@@ -243,7 +243,7 @@ never carry prompt text.
 ## Invariants
 
 - One ledger with dimensions, never parallel accounts, so crew fan-out
-  stays reconcilable: every entry carries `{run, parent, participant,
+  stays reconcilable: every entry carries `{run, parent, agent,
   role}` plus company and model.
 - Audit digests, never prompt content: the audit store must not become
   a leak channel.

@@ -41,9 +41,9 @@ CREW_TOKEN = "crew-secret"
 class FakeReviewer:
     async def review(self, token: str, audience: str) -> ServiceAccount | None:
         if token == AGENT_TOKEN:
-            return ServiceAccount(COMPANY, "backend-engineer-1")
+            return ServiceAccount(COMPANY, "implementer-1")
         if token == CREW_TOKEN:
-            return ServiceAccount(COMPANY, "ephemeral-executor-01x")
+            return ServiceAccount(COMPANY, "ephemeral-feature-delivery-implementer-01x")
         return None
 
 
@@ -158,10 +158,10 @@ def stores() -> Stores:
     runs.start(RUN_ID, "task", "implement", f"implement-{RUN_ID}", COMPANY)
     instances = InMemoryAgentInstances()
     instances.upsert(
-        "backend-engineer-1",
+        "implementer-1",
         COMPANY,
-        "backend-engineer",
-        "backend-engineer",
+        "implementer",
+        "implementer",
         "frontier",
         namespace=COMPANY,
     )
@@ -275,13 +275,13 @@ def test_tier_routes_the_model_and_meters_the_ledger(app, stores, upstream):
     assert resp.status_code == 200
 
     # The caller's frontier tier picked the model; the request's own model
-    # field did not survive (routing is the gateway's, not the brain's).
+    # field did not survive (routing is the gateway's, not the agent's).
     assert upstream.requests[0]["model"] == "big-model"
 
     (entry,) = ledger.entries_for_run(RUN_ID)
     assert entry["company"] == COMPANY
-    assert entry["agent_id"] == "backend-engineer-1"
-    assert entry["role"] == "backend-engineer"
+    assert entry["agent_id"] == "implementer-1"
+    assert entry["role"] == "implementer"
     assert entry["model"] == "big-model"
     assert entry["prompt_tokens"] == 100 and entry["completion_tokens"] == 50
     assert entry["cached_tokens"] == 50 and entry["reasoning_tokens"] == 25
@@ -299,9 +299,9 @@ def test_exhausted_cap_hard_stops_with_a_distinguishable_error(app, stores, path
     ledger.record(
         company=COMPANY,
         run_id=RUN_ID,
-        agent_id="backend-engineer-1",
+        agent_id="implementer-1",
         parent_agent_id="",
-        role="backend-engineer",
+        role="implementer",
         model="big-model",
         prompt_tokens=1,
         completion_tokens=1,
@@ -338,15 +338,14 @@ def test_ephemeral_caller_cannot_bill_a_foreign_run(app, stores):
     audit, runs, participants = stores.audit, stores.runs, stores.participants
     runs.start("run-OTHER", "task", "implement", None, COMPANY)
     participants.add(
-        "executor-01X",
+        "feature-delivery-implementer-01X",
         "run-OTHER",
         "pm-1",
         "feature-delivery",
-        "executor",
+        "implementer",
         company=COMPANY,
-        role_template="backend-engineer",
         namespace=COMPANY,
-        service_account="ephemeral-executor-01x",
+        service_account="ephemeral-feature-delivery-implementer-01x",
     )
     resp = call(app, token=CREW_TOKEN, run_id=RUN_ID)  # not its run
     assert resp.status_code == 403

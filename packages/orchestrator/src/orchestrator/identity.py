@@ -9,13 +9,13 @@ its run, crew coordinates and catalog template. The gateways resolve a
 TokenReview-verified crew token against that row on every call, so
 revocation is a row termination, effective immediately.
 
-Agent ids are deterministic from {crew, crew_role, run}: a bind retried after
-a worker death lands on the same participants row instead of leaking a
+Agent ids are deterministic from {crew, role, run}: a bind retried after a
+worker death lands on the same participants row instead of leaking a
 second identity.
 """
 
 
-def ephemeral_agent_id(crew_template: str, agent: str, run_id: str) -> str:
+def ephemeral_agent_id(crew_template: str, role: str, run_id: str) -> str:
     """One identity per ephemeral agent per run, deterministically named — the
     `agent_id` of an ephemeral caller, and the participants row's key."""
-    return f"{crew_template}-{agent}-{run_id}"
+    return f"{crew_template}-{role}-{run_id}"

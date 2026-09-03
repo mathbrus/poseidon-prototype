@@ -189,15 +189,15 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     """The orchestrator worker's Kubernetes surface — deliberately bounded,
     and a review artifact: it is part of the trusted computing base. Two
     consumers: the k8s_jobs sandbox backend (Jobs + pod reads + exec for
-    workspace delivery) and the crew-pod provisioner (pod + ServiceAccount
-    create/delete for each ephemeral agent's brain host — the SA is the
-    member's per-run identity, so its lifetime must equal the pod's, which
+    workspace delivery) and the ephemeral-pod provisioner (pod + ServiceAccount
+    create/delete for each ephemeral agent — the SA is the
+    agent's per-run identity, so its lifetime must equal the pod's, which
     is why it is provisioned here and not operator-reconciled). Company
     namespaces only — the Role is namespaced and operator-reconciled, so
     the worker can create no pod or SA in the platform namespace; the
     run_id+kind label-selector discipline on deletes lives in
     `orchestrator.ephemeral_pods` (RBAC cannot express selectors), proven by the
-    crew-pods e2e. Never Deployments, Services or CRs: standing structure stays
+    ephemeral-pods e2e. Never Deployments, Services or CRs: standing structure stays
     operator-owned."""
     return {
         "apiVersion": "rbac.authorization.k8s.io/v1",
@@ -222,7 +222,7 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
             {
                 "apiGroups": [""],
                 "resources": ["serviceaccounts"],
-                # Per-run crew identities: one SA per member per run,
+                # Per-run crew identities: one SA per ephemeral agent per run,
                 # created at provision, deleted by the teardown sweep.
                 # Deliberately no RoleBindings here — an SA the worker can
                 # create binds to nothing, so this grants identity, never
@@ -265,7 +265,7 @@ def sandbox_provisioner_binding(company_ns: str, platform_ns: str) -> dict[str, 
 
 
 def agent_service_account(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
-    """The instance's own identity. The name is the
+    """The standing agent's own identity. The name is the
     agent_id: the gateway resolves `system:serviceaccount:<ns>:<agent_id>`
     against the registry's `agent_instances` row and requires the namespace
     to match — a same-named ServiceAccount anywhere else verifies fine at
@@ -291,11 +291,11 @@ def agent_deployment(
     No API-server token is mounted (automount stays off), and no
     token-shaped env var exists in the pod at all.
     """
-    standing_role = spec["standingRole"]
+    standing_name = spec["standingName"]
     platform_ns = settings.platform_namespace
     labels = {
         **LABELS,
-        "app": standing_role,
+        "app": standing_name,
         "poseidon.dev/kind": "standing-agent",
         "poseidon.dev/company": spec["company"],
         "poseidon.dev/agent-id": spec["agentId"],
@@ -306,10 +306,10 @@ def agent_deployment(
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
-        "metadata": {"name": standing_role, "namespace": company_ns, "labels": labels},
+        "metadata": {"name": standing_name, "namespace": company_ns, "labels": labels},
         "spec": {
             "replicas": 1,
-            "selector": {"matchLabels": {"app": standing_role}},
+            "selector": {"matchLabels": {"app": standing_name}},
             "template": {
                 "metadata": {"labels": labels},
                 "spec": {
@@ -321,7 +321,7 @@ def agent_deployment(
                     "enableServiceLinks": False,
                     # Non-root, no privilege-escalation path, no
                     # capabilities, default seccomp filter. Root filesystem
-                    # stays writable — the brain SDK writes under $HOME.
+                    # stays writable — the OpenHands SDK writes under $HOME.
                     "securityContext": dict(POD_SECURITY_CONTEXT),
                     "volumes": [
                         {
@@ -355,20 +355,13 @@ def agent_deployment(
                                     "name": "LLM_PROXY_URL",
                                     "value": f"http://llm-gateway.{platform_ns}.svc.cluster.local:4000",
                                 },
-                                # The spec's tier and tool scope ride the pod
-                                # template so an AgentInstance edit converges
-                                # as a rollout. MODEL itself stays cluster
-                                # config: the LLM gateway resolves
+                                # The role is the only spec field the agent
+                                # reads; tools are policed at the gateway and
+                                # the tier rides the pod labels (so an edit
+                                # converges as a rollout). MODEL itself stays
+                                # cluster config: the LLM gateway resolves
                                 # tier -> model.
-                                {
-                                    "name": "MODEL_TIER",
-                                    "value": spec.get("modelTier", ""),
-                                },
-                                {"name": "ROLE_TEMPLATE", "value": spec["roleTemplate"]},
-                                {
-                                    "name": "TOOLS",
-                                    "value": ",".join(sorted(spec.get("tools") or [])),
-                                },
+                                {"name": "ROLE", "value": spec["role"]},
                                 {
                                     "name": "MODEL",
                                     "value": settings.model,
@@ -378,8 +371,8 @@ def agent_deployment(
                                     "value": settings.target_repo,
                                 },
                                 {
-                                    "name": "MAX_ITERATIONS",
-                                    "value": str(settings.max_iterations),
+                                    "name": "VERIFY_CYCLES",
+                                    "value": str(settings.verify_cycles),
                                 },
                                 {
                                     "name": "GATEWAY_TOKEN_FILE",
@@ -411,13 +404,13 @@ def agent_deployment(
 
 
 def agent_service(spec: dict[str, Any], company_ns: str) -> dict[str, Any]:
-    standing_role = spec["standingRole"]
+    standing_name = spec["standingName"]
     return {
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": {"name": standing_role, "namespace": company_ns, "labels": LABELS},
+        "metadata": {"name": standing_name, "namespace": company_ns, "labels": LABELS},
         "spec": {
-            "selector": {"app": standing_role},
+            "selector": {"app": standing_name},
             "ports": [{"port": AGENT_PORT, "targetPort": AGENT_PORT}],
         },
     }

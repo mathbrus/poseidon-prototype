@@ -95,7 +95,7 @@ re-executed after crashes and worker deaths ([root README, section
   partial indexes instead, so a re-offered item can never be worked twice
   at once.
 - `RunParticipants.add` upserts on the deterministic `agent_id` the mint
-  activity derives from `{crew, crew_role, run}` — a retried mint converges
+  activity derives from `{crew, role, run}` — a retried mint converges
   on one identity instead of leaking two.
 - `CrewRequests` derives its id from `{conductor, crew_template, run_id}`
   so a retried request refreshes rather than duplicates; `consume` is an
@@ -119,7 +119,6 @@ CREATE TABLE IF NOT EXISTS registry.run_participants (
     crew_template   text NOT NULL,
     role            text NOT NULL,
     company         text NOT NULL DEFAULT '',
-    role_template   text NOT NULL DEFAULT '',
     namespace       text NOT NULL DEFAULT '',
     service_account text,
     status          text NOT NULL DEFAULT 'active',
@@ -137,7 +136,7 @@ coordinates). That makes revocation a database write: flip `status` to
 its projected tokens remain valid. Token expiry alone
 would leave a compromised identity usable for the remainder of its TTL;
 a row check leaves it usable for zero further calls. Teardown uses the
-sweep form, `terminate_for_run`, which revokes every live participant of a
+sweep form, `terminate_for_run`, which revokes every live ephemeral agent of a
 run at once and returns who it swept (each becomes an audit event).
 
 Revocation is also **final**, and the mechanism is worth reading:

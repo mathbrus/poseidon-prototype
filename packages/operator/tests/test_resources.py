@@ -11,8 +11,8 @@ from poseidon_operator.config import OperatorSettings
 SPEC = {
     "agentId": "pm-1",
     "company": "hello-saas",
-    "standingRole": "pm",
-    "roleTemplate": "pm",
+    "standingName": "pm",
+    "role": "pm",
     "modelTier": "standard",
     "tools": ["issues.read", "crew.request"],
 }
@@ -116,7 +116,7 @@ def test_agent_pod_runs_non_root_with_no_escalation_path():
 
 
 def test_agent_pod_identity_is_the_audience_scoped_projected_token():
-    """The pod runs as its instance's ServiceAccount and mounts one
+    """The pod runs as its agent's ServiceAccount and mounts one
     projected token, audience-scoped to the gateway; the API-server token
     stays unmounted, so the pod holds no cluster identity."""
     pod = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)["spec"]["template"][
@@ -157,8 +157,8 @@ def test_service_targets_the_hire():
 
 
 def test_spec_edits_change_the_pod_template():
-    """The reconciliation contract: a blueprint edit (model tier, tool scope) must
-    converge as a rollout, so the spec's tier and tools ride the template."""
+    """The reconciliation contract: a blueprint edit (model tier) must
+    converge as a rollout, so the spec's tier rides the template."""
     small = resources.agent_deployment(
         {**SPEC, "modelTier": "small"}, "hello-saas", SETTINGS
     )
@@ -171,9 +171,9 @@ def test_spec_edits_change_the_pod_template():
         e["name"]: e.get("value")
         for e in small["spec"]["template"]["spec"]["containers"][0]["env"]
     }
-    assert env["MODEL_TIER"] == "small"
-    assert env["ROLE_TEMPLATE"] == SPEC["roleTemplate"]
-    assert env["TOOLS"] == ",".join(sorted(SPEC["tools"]))
+    assert env["ROLE"] == SPEC["role"] == "pm"
+    # Tools are policed at the gateway, never handed to the pod.
+    assert "TOOLS" not in env and "MODEL_TIER" not in env
     labels = small["spec"]["template"]["metadata"]["labels"]
     assert labels["poseidon.dev/model-tier"] == "small"
 

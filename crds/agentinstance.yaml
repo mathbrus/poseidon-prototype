@@ -5,8 +5,8 @@
 # they live in the registry's `run_participants` for the length of one run,
 # which is what keeps hire/fire diffs clean.
 #
-# Carries no secret. The spec is a role, a tier and a tool scope; credentials
-# reach the pod at runtime as projected tokens.
+# Carries no secret. The spec is a name, a role, a tier and a tool scope;
+# credentials reach the pod at runtime as projected tokens.
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -29,9 +29,9 @@ spec:
         - name: Company
           type: string
           jsonPath: .spec.company
-        - name: Template
+        - name: Role
           type: string
-          jsonPath: .spec.roleTemplate
+          jsonPath: .spec.role
         - name: Tier
           type: string
           jsonPath: .spec.modelTier
@@ -44,12 +44,14 @@ spec:
           properties:
             spec:
               type: object
-              required: [agentId, company, standingRole, roleTemplate]
+              required: [agentId, company, standingName, role]
               properties:
                 agentId: {type: string}
                 company: {type: string}
-                standingRole: {type: string}
-                roleTemplate: {type: string}
+                # The hire's name in the blueprint's `standing:` section.
+                standingName: {type: string}
+                # The catalog role.
+                role: {type: string}
                 modelTier: {type: string}
                 tools:
                   type: array
@@ -58,9 +60,6 @@ spec:
                   type: array
                   items: {type: string}
                 maxConcurrentSpawns: {type: integer}
-                runtimeHints:
-                  type: object
-                  additionalProperties: {type: string}
             status:
               type: object
               properties:

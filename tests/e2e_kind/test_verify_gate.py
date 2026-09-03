@@ -1,9 +1,9 @@
-"""The platform verify gate on the live cluster: the executor's
+"""The platform verify gate on the live cluster: the implementer's
 completion claim is advisory, the platform's own `sandbox.run_tests` is the
 gate of record.
 
 The scripted scenario (examples/task-verify-red.md) plants a
-state-dependent test that greens the executor's advisory verify and reds
+state-dependent test that greens the implementer's advisory verify and reds
 the platform's re-run — a deterministic stand-in for "the claim no longer
 holds when the platform checks it". The workflow must go red at the gate,
 feed the failure back in a bounded re-dispatch, and only release the

@@ -2,7 +2,7 @@
 #
 # The standing agents is the PM alone: delivery and review run as ephemeral
 # crews under the PM's conductor authority. The strict lean-standing compile
-# error refuses any standing executor count.
+# error refuses any standing implementer count.
 apiVersion: poseidon.dev/v1
 
 company:
@@ -29,7 +29,7 @@ stack:
 
 standing:
   pm:
-    template: pm
+    role: pm
     count: 1
     model_tier: standard
     may_spawn:
@@ -38,46 +38,17 @@ standing:
 
 crews:
   feature-delivery:
-    agents:
-      # LLM-only: reads the run's sandbox, writes nothing, produces the task
-      # brief the executor's dispatch carries verbatim.
-      planner:
-        role_template: backend-engineer
-        needs_sandbox: false
-        tools:
-          - sandbox.read_file
-          - sandbox.list_dir
-          - issues.read
-      executor:
-        role_template: backend-engineer
-        tools:
-          - sandbox.read_file
-          - sandbox.write_file
-          - sandbox.edit_file
-          - sandbox.list_dir
-          - sandbox.exec
-          - sandbox.run_tests
-          - sandbox.git_bundle
-          - git.open_pr
-    budget_inheritance: run
+    roles: [implementer]
   feature-review:
-    agents:
-      reviewer:
-        role_template: sdet
-        tools:
-          - sandbox.read_file
-          - sandbox.list_dir
-          - sandbox.exec
-          - sandbox.run_tests
-          - git.read
-          - git.comment
-          - issues.comment
-    budget_inheritance: run
+    roles: [reviewer]
 
-# Per-role gateway scopes. The PM's list is deliberately narrow: spawn
-# authority is not permission to wield the crew's tools, so
-# no sandbox writes and no git.open_pr appear here. issues.comment is how
-# the PM leaves its intake summary on the tickets it files.
+# Per-role gateway scopes, for standing and ephemeral agents of the role
+# alike; a role not listed here gets its catalog tools. The PM's list is
+# deliberately narrow: spawn authority is not permission to wield the
+# crew's tools, so no sandbox writes and no git.open_pr appear here.
+# issues.comment is how the PM leaves its intake summary on the tickets
+# it files. The reviewer's list drops the write tools its catalog role
+# would allow: it judges, it does not fix.
 tools:
   pm:
     allow:
@@ -85,7 +56,7 @@ tools:
       - issues.read
       - issues.comment
       - crew.request
-  sdet:
+  reviewer:
     allow:
       - sandbox.read_file
       - sandbox.list_dir

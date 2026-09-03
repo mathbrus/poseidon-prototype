@@ -25,19 +25,20 @@ STEP_RETRY = RetryPolicy(maximum_attempts=3, backoff_coefficient=2.0)
 DISPATCH_RETRY = RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=0)
 TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 
-# The `heartbeat` family is the company's standing loop — one durable
+# The workflows a run id (or, for the heartbeat, a company) addresses.
+# The `heartbeat` workflow is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats
 # above (`dispatch_heartbeat_s`), which are liveness pings on a dispatch.
-FAMILIES = ("implement", "intake", "review", "heartbeat")
+WORKFLOWS = ("implement", "intake", "review", "heartbeat")
 
 
-def workflow_id(family: str, key: str) -> str:
-    """Deterministic workflow naming. The run-shaped families run one
+def workflow_id(workflow: str, key: str) -> str:
+    """Deterministic workflow naming. The run-shaped workflows run one
     workflow per run (`implement-{run_id}`); the heartbeat is one
     standing workflow per company (`heartbeat-{company}`), keyed by company
     because the loop is standing structure and its audit story correlates
     on that id."""
-    return f"{family}-{key}"
+    return f"{workflow}-{key}"
 
 
 @dataclass
@@ -61,9 +62,10 @@ class Timeouts:
     dispatch_s: int = 3600
     dispatch_schedule_to_close_s: int = 7200
     dispatch_heartbeat_s: int = 60
-    # fulfill_crew hosts the planner's whole LLM loop, so it is
-    # dispatch-shaped, not step-shaped.
-    fulfill_s: int = 3600
+    # Crew fulfilment: identity binding plus one pod per agent, each
+    # waited to readiness — slower than a registry step, far shorter than
+    # a model loop.
+    provision_s: int = 900
     verify_s: int = 900
     teardown_s: int = 300
     # How long a budget pause waits for the `budget` signal before giving
@@ -84,7 +86,7 @@ FAST_TIMEOUTS = Timeouts(
     dispatch_s=300,
     dispatch_schedule_to_close_s=600,
     dispatch_heartbeat_s=30,
-    fulfill_s=300,
+    provision_s=300,
     verify_s=120,
     teardown_s=60,
     budget_gate_s=90,
@@ -95,17 +97,98 @@ FAST_TIMEOUTS = Timeouts(
 
 
 class RunWorkflow:
-    """The base of the workflow classes: the API-visible phase, gate
-    transitions recorded as `process-gate` audit events, and the
-    budget-pause loop around an agent dispatch.
+    """The base of the run-shaped workflow classes: the run's birth
+    (row, budget headroom, shape from the applied blueprint), crew
+    fulfilment, the API-visible phase, gate transitions recorded as
+    `process-gate` audit events, the budget-pause loop around an agent
+    dispatch, and teardown.
 
-    Subclasses set `_phase` and `_budget_gate` and declare their own
-    signals and the `state` query — Temporal reads those off the concrete
-    class.
+    Subclasses name their `WORKFLOW`, set `_phase` and `_budget_gate`, and
+    declare their own signals and the `state` query — Temporal reads those
+    off the concrete class.
     """
 
+    WORKFLOW: str
     _phase: str
     _budget_gate: Gate
+
+    async def start_run(
+        self, run_id: str, task: str, timeouts: Timeouts
+    ) -> dict[str, Any]:
+        """The run's birth: its registry row, the budget-headroom check
+        (a run is born with headroom or not at all — enforcement itself
+        stays local at the LLM gateway), and the workflow's shape read from
+        the applied blueprint, returned as `workflow_config` describes it."""
+        await workflow.execute_activity(
+            "create_run",
+            args=[run_id, self.WORKFLOW, task],
+            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            retry_policy=STEP_RETRY,
+        )
+        await workflow.execute_activity(
+            "check_budget",
+            args=[run_id],
+            start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
+            retry_policy=STEP_RETRY,
+        )
+        return await workflow.execute_activity(
+            "workflow_config",
+            args=[self.WORKFLOW],
+            start_to_close_timeout=timedelta(seconds=timeouts.step_s),
+            retry_policy=STEP_RETRY,
+        )
+
+    async def fulfill(
+        self,
+        run_id: str,
+        config: dict[str, Any],
+        timeouts: Timeouts,
+        crew: str | None = None,
+    ) -> dict[str, Any]:
+        """Stand the run's ephemeral crew up under the conductor's
+        authority — the request is recorded through the same compiled
+        `crew.request` decision an agent-issued request faces — and return
+        the one agent it dispatches, as `{agent_id, url}`. `crew` overrides
+        the workflow's configured crew (a ticket naming its own). Fulfilment
+        returns the crew's agents by role and refuses a crew that declares
+        more than one, so the unpacking cannot fail here."""
+        fulfilled = await workflow.execute_activity(
+            "fulfill_crew",
+            args=[
+                {
+                    "run_id": run_id,
+                    "company": config["company"],
+                    "crew_template": crew or config["crew"],
+                    "conductor": config["conductor"],
+                    "workflow": self.WORKFLOW,
+                    "record_under_authority": True,
+                }
+            ],
+            start_to_close_timeout=timedelta(seconds=timeouts.provision_s),
+            heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
+            retry_policy=STEP_RETRY,
+        )
+        (agent,) = fulfilled["agents"].values()
+        return agent
+
+    async def teardown(
+        self,
+        run_id: str,
+        handle: dict[str, Any] | None,
+        result: dict[str, Any] | None,
+        error: str | None,
+        timeouts: Timeouts,
+    ) -> dict[str, Any]:
+        """Compensation and finalization on every terminal path: the run's
+        ephemeral identities and pods, its sandbox (when one was
+        provisioned), and the honest terminal run record, which is also the
+        workflow's result."""
+        return await workflow.execute_activity(
+            "teardown",
+            args=[run_id, handle, result, error],
+            start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
+            retry_policy=TEARDOWN_RETRY,
+        )
 
     async def record_gate(
         self, run_id: str, gate: str, kind: str, timeouts: Timeouts
@@ -150,7 +233,7 @@ class RunWorkflow:
             workflow.logger.info("heartbeat wake failed; the reconcile timer covers it")
 
     async def dispatch(
-        self, run_id: str, task_text: str, url: str, mode: str, timeouts: Timeouts
+        self, run_id: str, url: str, procedure: str, task_text: str, timeouts: Timeouts
     ) -> dict[str, Any]:
         """One agent dispatch, budget-pause aware: a `budget_exhausted`
         result parks the workflow on the `budget` signal in an API-visible
@@ -160,8 +243,8 @@ class RunWorkflow:
         like the merge gate's — one Gate spine, one audit contract."""
         while True:
             result = await workflow.execute_activity(
-                "dispatch_executor",
-                args=[run_id, task_text, url, mode],
+                "dispatch_agent",
+                args=[run_id, url, procedure, task_text],
                 start_to_close_timeout=timedelta(seconds=timeouts.dispatch_s),
                 schedule_to_close_timeout=timedelta(
                     seconds=timeouts.dispatch_schedule_to_close_s

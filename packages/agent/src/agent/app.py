@@ -1,12 +1,15 @@
 """The agent's dispatch HTTP API.
 
-POST /task {run_id, task_text, mode?} -> 202, runs the
-dispatch in a background task (one concurrent run per host);
-GET /task/{run_id} -> {status, pr_url, iterations, error, brief}.
+POST /task {run_id, procedure, task_text} -> 202, runs the procedure in a
+background task (one concurrent run per host);
+GET /task/{run_id} -> {status, pr_url, iterations, error, ...} — every
+field of the `ProcedureResult`.
 
-Mode `plan` runs the read-only planner and finishes with
-`brief`; like every mode it acts under the pod's own projected token —
-each ephemeral agent runs on its own brain host.
+A dispatch names a procedure; the host runs it only if the pod's role
+declares it (the catalog's `procedures`), refusing the rest with 422 before
+any model call — defence in depth under the gateway's tool policy, not a
+substitute for it. Every procedure acts under the pod's own projected
+token.
 
 Run with: uvicorn --factory agent.app:create_app
 """
@@ -18,23 +21,24 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from agent import brain
-from agent.brain import RunResult
+from agent import procedures
 from agent.config import AgentSettings
+from agent.procedures import ProcedureResult
 from common.telemetry import get_logger
+from schema.catalog import ROLES
 
-Mode = Literal["implement", "plan", "deliver", "review", "decide"]
-Runner = Callable[[str, str], Awaitable[RunResult]]
+Procedure = Literal["scope", "decide", "implement", "deliver", "review"]
+Runner = Callable[[str, str], Awaitable[ProcedureResult]]
 
 
 class TaskRequest(BaseModel):
     run_id: str
+    procedure: Procedure
     task_text: str
-    mode: Mode = "implement"
 
 
-class TaskStatus(RunResult):
-    """The dispatch's HTTP shape: exactly the brain's `RunResult` plus a
+class TaskStatus(ProcedureResult):
+    """The dispatch's HTTP shape: exactly the `ProcedureResult` plus a
     lifecycle `status`. Derived, not mirrored — every result field crosses
     the boundary automatically, so a new one can never be silently dropped."""
 
@@ -45,54 +49,48 @@ def create_app(
     settings: AgentSettings | None = None,
     runners: dict[str, Runner] | None = None,
 ) -> FastAPI:
-    """`runners` overrides the brain's runner for any mode — how tests drive
+    """`runners` overrides the runner for any procedure — how tests drive
     the API without an SDK loop behind it."""
 
     def _settings() -> AgentSettings:
-        # Lazy: tests inject runners and configure no environment; the
-        # deployed app resolves env exactly once, on first dispatch.
+        # Lazy: the deployed app resolves env exactly once, on first
+        # dispatch.
         nonlocal settings
         if settings is None:
             settings = AgentSettings()
         return settings
 
-    # The brain's mode runners are synchronous (the SDK conversation loop
-    # is blocking); each dispatch runs on a worker thread.
-    def in_thread(dispatch: Callable[[AgentSettings, str, str], RunResult]) -> Runner:
-        async def run(run_id: str, task_text: str) -> RunResult:
-            return await asyncio.to_thread(dispatch, _settings(), run_id, task_text)
+    # The procedures are synchronous (the SDK conversation loop is
+    # blocking); each dispatch runs on a worker thread.
+    def in_thread(
+        run: Callable[[AgentSettings, str, str], ProcedureResult],
+    ) -> Runner:
+        async def runner(run_id: str, task_text: str) -> ProcedureResult:
+            return await asyncio.to_thread(run, _settings(), run_id, task_text)
 
-        return run
+        return runner
 
-    async def implement(run_id: str, task_text: str) -> RunResult:
-        # Role-template-driven: the PM instance scopes and delegates; every
-        # other template implements.
-        dispatch = (
-            brain.pm_dispatch
-            if _settings().role_template == "pm"
-            else brain.implement_dispatch
-        )
-        return await asyncio.to_thread(dispatch, _settings(), run_id, task_text)
-
-    modes: dict[str, Runner] = {
-        "implement": implement,
-        "plan": in_thread(brain.plan_dispatch),
-        "deliver": in_thread(brain.deliver_dispatch),
-        "review": in_thread(brain.review_dispatch),
-        "decide": in_thread(brain.decide_dispatch),
+    runner_by_procedure: dict[str, Runner] = {
+        "scope": in_thread(procedures.run_scope),
+        "decide": in_thread(procedures.run_decide),
+        "implement": in_thread(procedures.run_implement),
+        "deliver": in_thread(procedures.run_deliver),
+        "review": in_thread(procedures.run_review),
         **(runners or {}),
     }
 
-    log = get_logger("agent", agent_id="backend-engineer-1")
+    log = get_logger("agent")
     app = FastAPI(title="poseidon-agent")
     tasks: dict[str, TaskStatus] = {}
     background: set[asyncio.Task] = set()
 
     async def execute(request: TaskRequest) -> None:
         run_id = request.run_id
-        run_log = log.bind(run_id=run_id)
+        run_log = log.bind(run_id=run_id, role=_settings().role)
         try:
-            result = await modes[request.mode](run_id, request.task_text)
+            result = await runner_by_procedure[request.procedure](
+                run_id, request.task_text
+            )
         except Exception as exc:
             run_log.exception("task crashed")
             tasks[run_id] = TaskStatus(status="failed", error=str(exc))
@@ -105,6 +103,13 @@ def create_app(
 
     @app.post("/task", status_code=202)
     async def submit_task(request: TaskRequest) -> TaskStatus:
+        role = _settings().role
+        allowed = ROLES[role].procedures if role in ROLES else ()
+        if request.procedure not in allowed:
+            raise HTTPException(
+                status_code=422,
+                detail=f"role {role!r} does not run the {request.procedure} procedure",
+            )
         existing = tasks.get(request.run_id)
         if existing is not None and existing.status == "running":
             # Crash-resume semantics: the workflow's retry re-attaches to
@@ -116,7 +121,7 @@ def create_app(
         # resume: the workflow re-dispatches after the cap
         # was raised, and polling the stale failure would loop forever.
         log.bind(run_id=request.run_id).info(
-            "task accepted", extra={"mode": request.mode}
+            "task accepted", extra={"procedure": request.procedure}
         )
         tasks[request.run_id] = TaskStatus(status="running")
         task = asyncio.create_task(execute(request))

@@ -6,7 +6,7 @@ Every type is a plain dataclass with a deterministic `as_dict()` so plans
 are diffable and golden-testable.
 """
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -27,26 +27,22 @@ class AgentInstanceCR:
 
     agent_id: str
     company: str
-    standing_role: str
-    role_template: str
+    standing_name: str
+    role: str
     model_tier: str
     tools: tuple[str, ...]
     may_spawn: tuple[str, ...] = ()
     max_concurrent_spawns: int | None = None
-    runtime_hints: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class EphemeralAgentSpec:
-    """Crew-template artifact: what an ephemeral agent is allowed to be.
-    Not an instance — agents exist only inside a run."""
+    """Crew artifact: what an ephemeral agent is allowed to be. Not an
+    instance — agents exist only inside a run."""
 
     crew: str
-    crew_role: str
-    role_template: str
+    role: str
     tools: tuple[str, ...]
-    needs_sandbox: bool
-    budget_inheritance: str
 
 
 @dataclass(frozen=True)

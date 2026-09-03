@@ -219,7 +219,7 @@ jobs:
           GIT_TOKEN=${GIT_TOKEN}
           TARGET_REPO=${TARGET_REPO}
           BASE_REF=main
-          MAX_ITERATIONS=10
+          VERIFY_CYCLES=10
           MCP_GATEWAY_URL=http://127.0.0.1:8080
           EOF
           deploy/kind/kind-up.sh

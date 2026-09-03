@@ -40,10 +40,10 @@ def test_compilation_is_deterministic(blueprint):
 
 def test_standing_roster_is_only_the_count_positive_hires(blueprint):
     """A `count: 0` role documents a growth path and produces no instance —
-    the standing agents is the standing_roles with count > 0, the PM alone here."""
-    blueprint["standing"]["future-sdet"] = {"template": "sdet", "count": 0}
+    the standing agents are the hires with count > 0, the PM alone here."""
+    blueprint["standing"]["future-reviewer"] = {"role": "reviewer", "count": 0}
     plan = compile_blueprint(blueprint)
-    assert {i.standing_role for i in plan.instances} == {"pm"}
+    assert {i.standing_name for i in plan.instances} == {"pm"}
 
 
 def test_agent_specs_carry_no_secrets(blueprint):
@@ -54,27 +54,28 @@ def test_agent_specs_carry_no_secrets(blueprint):
         assert smell not in blob, f"{smell!r} appears in the plan"
 
 
-def test_pm_scope_is_narrowed_not_widened(blueprint):
-    """A blueprint may narrow a catalog template; naming a tool the catalog
-    does not grant must not widen it."""
-    blueprint["tools"]["pm"]["allow"].append("sandbox.exec")
+def test_a_tool_scope_narrows_standing_and_ephemeral_agents_alike(blueprint):
+    """One narrowing site: `tools.<role>.allow` applies to every agent of
+    the role. The reviewer's scope drops the write tools its catalog entry
+    would allow, and the compiled crew spec carries the narrowed list."""
     plan = compile_blueprint(blueprint)
-    pm = next(i for i in plan.instances if i.standing_role == "pm")
-    assert "sandbox.exec" not in pm.tools
+    reviewer = next(a for a in plan.ephemeral_agents if a.role == "reviewer")
+    assert "sandbox.write_file" not in reviewer.tools
+    assert set(reviewer.tools) == set(blueprint["tools"]["reviewer"]["allow"])
+    # A role with no scope declared gets its catalog tools.
+    implementer = next(a for a in plan.ephemeral_agents if a.role == "implementer")
+    assert "git.open_pr" in implementer.tools
 
 
 def test_ephemeral_agents_are_specs_not_instances(blueprint):
     """Ephemeral agents exist only inside a run: the plan describes
     them, the operator never creates them."""
     plan = compile_blueprint(blueprint)
-    agents = {(m.crew, m.crew_role) for m in plan.ephemeral_agents}
+    agents = {(m.crew, m.role) for m in plan.ephemeral_agents}
     assert agents == {
-        ("feature-delivery", "planner"),
-        ("feature-delivery", "executor"),
+        ("feature-delivery", "implementer"),
         ("feature-review", "reviewer"),
     }
-    planner = next(m for m in plan.ephemeral_agents if m.crew_role == "planner")
-    assert planner.needs_sandbox is False  # LLM-only, per the planner contract
 
 
 def test_gate_config_comes_from_the_blueprint(blueprint):

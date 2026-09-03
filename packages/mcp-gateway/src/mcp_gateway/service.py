@@ -243,12 +243,9 @@ class GatewayService:
             "run_binding_verified": verified,
         }
         if identity.lifecycle == LIFECYCLE_EPHEMERAL:
-            if not (
-                identity.parent_agent_id and identity.crew_template and identity.crew_role
-            ):
+            if not (identity.parent_agent_id and identity.crew_template):
                 return None
             policy_input["crew_template"] = identity.crew_template
-            policy_input["crew_role"] = identity.crew_role
         if tool == "crew.request":
 
             def spawn_state() -> tuple[int, bool]:

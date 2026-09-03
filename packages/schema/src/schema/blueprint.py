@@ -74,12 +74,12 @@ _STACK = {
     },
 }
 
-_ROLE = {
+_HIRE = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["template", "count"],
+    "required": ["role", "count"],
     "properties": {
-        "template": _NAME,
+        "role": _NAME,
         "count": {"type": "integer", "minimum": 0},
         "model_tier": {"type": "string", "enum": list(MODEL_TIERS)},
         "may_spawn": {
@@ -93,48 +93,40 @@ _ROLE = {
     },
 }
 
-# The standing agents, keyed by role name so a blueprint diff (hire/fire) is
-# readable; one entry can carry several instances (`count`).
+# The standing agents, keyed by the hire's name so a blueprint diff
+# (hire/fire) is readable; one entry can carry several instances (`count`).
 _STANDING = {
     "type": "object",
     "minProperties": 1,
-    "additionalProperties": _ROLE,
+    "additionalProperties": _HIRE,
     "propertyNames": _NAME,
 }
 
-_CREW_MEMBER = {
-    "type": "object",
-    "additionalProperties": False,
-    # The allow-list is explicit per agent, always: an implicit scope is
-    # what the compiler coherence check refuses to guess.
-    "required": ["role_template", "tools"],
-    "properties": {
-        "role_template": _NAME,
-        "tools": _TOOL_LIST,
-        "needs_sandbox": {"type": "boolean"},
-    },
-}
-
+# A crew is the list of roles fulfilled together for one run. The list
+# must match the catalog's crew (the blueprint names the crew, the catalog
+# defines it); a role's tools are narrowed in `tools`, the one site for
+# every agent of that role.
 _CREWS = {
     "type": "object",
     "additionalProperties": {
         "type": "object",
         "additionalProperties": False,
-        "required": ["agents"],
+        "required": ["roles"],
         "properties": {
-            "agents": {
-                "type": "object",
-                "minProperties": 1,
-                "additionalProperties": _CREW_MEMBER,
-                "propertyNames": _NAME,
+            "roles": {
+                "type": "array",
+                "items": _NAME,
+                "minItems": 1,
+                "uniqueItems": True,
             },
-            "budget_inheritance": {"type": "string", "enum": ["run"]},
         },
     },
     "propertyNames": _NAME,
 }
 
-# Per-role method-level scopes → gateway allow rules.
+# Per-role tool scopes → gateway allow rules, for standing and ephemeral
+# agents of the role alike. A scope narrows the catalog role's tools and
+# never widens them.
 _TOOLS = {
     "type": "object",
     "additionalProperties": {
@@ -188,8 +180,8 @@ def _workflow(gates: dict[str, Any] | None) -> dict[str, Any]:
     not a writable thing."""
     properties: dict[str, Any] = {
         "enabled": {"type": "boolean"},
-        # The standing role that spawns this workflow — never a standing
-        # executor (enforced by the compiler).
+        # The standing name that spawns this workflow — never a standing
+        # implementer (enforced by the compiler).
         "conductor": _NAME,
         "crew": _NAME,
         # Bounded verify re-dispatches.
@@ -287,7 +279,7 @@ _HEARTBEAT = {
         "daily_cap",
     ],
     "properties": {
-        # The standing role dispatched to decide the next action.
+        # The standing name dispatched to decide the next action.
         "conductor": _NAME,
         # The reconcile backstop: the platform's own completions wake the
         # tick immediately; this bounds how long a change only the outside

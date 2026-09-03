@@ -137,7 +137,7 @@ run:
   model: "${MODEL:?MODEL missing from $ENV_FILE}"
   targetRepo: "${TARGET_REPO:?TARGET_REPO missing from $ENV_FILE}"
   baseRef: "${BASE_REF:-main}"
-  maxIterations: ${MAX_ITERATIONS:-10}
+  verifyCycles: ${VERIFY_CYCLES:-10}
 # LiteLLM serves one model; the gateway overwrites the request's model
 # from the caller's tier, so every tier must name that same model.
 llmGateway:
@@ -239,6 +239,6 @@ if [ "$code" != "401" ]; then
   exit 1
 fi
 # Standing agents have no NodePort: they are reached in-cluster
-# by the orchestrator, and the operator gives each standing role its own Service.
+# by the orchestrator, and the operator gives each standing agent its own Service.
 
 echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}"

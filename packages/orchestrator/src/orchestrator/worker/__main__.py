@@ -23,8 +23,8 @@ from orchestrator.activities import (
     CrewActivities,
     HeartbeatActivities,
     ImplementActivities,
-    IntakeActivities,
     ReviewActivities,
+    RunActivities,
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import EphemeralPodProvisioner
@@ -99,23 +99,23 @@ async def main() -> None:
         Runs(registry),
         provisioner=EphemeralPodProvisioner(settings.sandbox_namespace),
     )
-    activities = ImplementActivities(
+    run_activities = RunActivities(
         settings,
         backend,
         Runs(registry),
         Companies(registry),
         AgentInstances(registry),
+        BudgetLedger(registry),
         AuditStore(registry),
         crew_activities,
     )
-    intake_activities = IntakeActivities(
-        settings, Runs(registry), Companies(registry), BudgetLedger(registry)
+    implement_activities = ImplementActivities(
+        settings, backend, Runs(registry), Companies(registry)
     )
     review_activities = ReviewActivities(
         settings,
         Runs(registry),
         Companies(registry),
-        AgentInstances(registry),
         AuditStore(registry),
         RunParticipants(registry),
     )
@@ -123,6 +123,7 @@ async def main() -> None:
         settings,
         Runs(registry),
         Companies(registry),
+        AgentInstances(registry),
         BudgetLedger(registry),
         AuditStore(registry),
     )
@@ -154,9 +155,9 @@ async def main() -> None:
         task_queue=settings.task_queue,
         workflows=[HeartbeatWorkflow, ImplementWorkflow, IntakeWorkflow, ReviewWorkflow],
         activities=[
-            *activities.all(),
+            *run_activities.all(),
+            *implement_activities.all(),
             *crew_activities.all(),
-            *intake_activities.all(),
             *review_activities.all(),
             *heartbeat_activities.all(),
         ],

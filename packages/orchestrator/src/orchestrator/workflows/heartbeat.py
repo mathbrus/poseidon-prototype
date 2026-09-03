@@ -215,11 +215,11 @@ class HeartbeatWorkflow(RunWorkflow):
         if decision["action"] == "idle":
             return "idle", "pm_chose_idle"
         target = int(decision["target"])
-        family = decision["action"]
+        action = decision["action"]
         # The chosen item's prior attempts ride the policy input like the
         # other counts; the decide activity already confined the target
         # to the observation, so the candidate is there.
-        candidates = observed["backlog" if family == "implement" else "reviewable_prs"]
+        candidates = observed["backlog" if action == "implement" else "reviewable_prs"]
         attempts = next(int(c["attempts"]) for c in candidates if c["number"] == target)
         # Policy first: the compiled heartbeat.start decision is the
         # authority on caps and startable workflows; a deny is audited by
@@ -228,7 +228,7 @@ class HeartbeatWorkflow(RunWorkflow):
             "heartbeat_authorize",
             args=[
                 child_run_id,
-                family,
+                action,
                 observed["active_runs"],
                 observed["daily_spent_usd"],
                 attempts,
@@ -240,20 +240,20 @@ class HeartbeatWorkflow(RunWorkflow):
             ImplementInput(
                 run_id=child_run_id, issue_number=target, timeouts=input.timeouts
             )
-            if family == "implement"
+            if action == "implement"
             else ReviewInput(
                 run_id=child_run_id, pr_number=target, timeouts=input.timeouts
             )
         )
         await workflow.start_child_workflow(
-            family,
+            action,
             child,
-            id=workflow_id(family, child_run_id),
+            id=workflow_id(action, child_run_id),
             # The run outlives the tick: the tick starts work, it does not
             # supervise it — progress and gates belong to the run.
             parent_close_policy=ParentClosePolicy.ABANDON,
         )
-        return "started", f"{family}_{target}_as_{child_run_id}"
+        return "started", f"{action}_{target}_as_{child_run_id}"
 
     async def _record(self, outcome: str, rule: str, timeouts: Timeouts) -> None:
         await workflow.execute_activity(

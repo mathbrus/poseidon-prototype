@@ -6,14 +6,10 @@ sends:
     {company, agent_id, lifecycle, parent_agent_id, role, run_id,
      workflow, tool, args}
 
-plus, for ephemeral callers, `crew_template` and `crew_role`. That pair is a
-necessary refinement, not an embellishment: `role` carries the
-*catalog template*, and `feature-delivery`'s planner and executor both run
-the `backend-engineer` template. Without the crew_role, the planner's
-read-only scope and the executor's delivery scope are the same principal to
-policy, which would hand every planner `git.open_pr`. The registry already
-records both columns on `run_participants`, so the gateway can inject them
-with the rest of the verified binding.
+plus, for ephemeral callers, `crew_template`. `role` is the catalog role
+for every lifecycle; an ephemeral rule is scoped to one role of one crew,
+and the registry's `run_participants` row carries both so the gateway can
+inject them with the rest of the verified binding.
 
 Structure: a default-deny `decision`, `allow_rules` and `deny_rules` as
 sets, and the lowest-sorting deny wins. Bundles are installed by the
@@ -82,22 +78,22 @@ deny_rules contains "declared_nowhere" if {{ false }}
 """
 
 _ROLE_RULE = """
-# {standing_role}: standing agent of the {template} template.
-allow_rules contains "role_{standing_role}_{tool_slug}" if {{
+# {standing_name}: standing {role}.
+allow_rules contains "role_{standing_slug}_{tool_slug}" if {{
 	input.lifecycle == "standing"
 	input.company == "{company}"
-	input.role == "{template}"
+	input.role == "{role}"
 	input.tool == "{tool}"
 {extra}}}
 """
 
 _CREW_RULE = """
-# {crew}/{agent}: ephemeral agent on the {template} template.
-allow_rules contains "crew_{crew_slug}_{agent_slug}_{tool_slug}" if {{
+# {crew}/{role}: ephemeral {role} of the {crew} crew.
+allow_rules contains "crew_{crew_slug}_{role_slug}_{tool_slug}" if {{
 	input.lifecycle == "ephemeral"
 	input.company == "{company}"
 	input.crew_template == "{crew}"
-	input.crew_role == "{agent}"
+	input.role == "{role}"
 	input.tool == "{tool}"
 {extra}}}
 """
@@ -170,8 +166,8 @@ def _rego_file(company: str, body: str) -> str:
 
 def _role_file(
     company: str,
-    standing_role: str,
-    template: str,
+    standing_name: str,
+    role: str,
     tools: list[str],
     may_spawn: tuple[str, ...] = (),
     agent_ids: tuple[str, ...] = (),
@@ -179,8 +175,9 @@ def _role_file(
 ) -> str:
     body = "".join(
         _ROLE_RULE.format(
-            standing_role=rego_slug(standing_role),
-            template=template,
+            standing_name=standing_name,
+            standing_slug=rego_slug(standing_name),
+            role=role,
             company=company,
             tool=tool,
             tool_slug=rego_slug(tool),
@@ -196,19 +193,15 @@ def _role_file(
     return _rego_file(company, body)
 
 
-def _crew_file(
-    company: str, crew: str, agent: str, template: str, tools: list[str]
-) -> str:
+def _crew_file(company: str, crew: str, role: str, tools: list[str]) -> str:
     body = "".join(
         _CREW_RULE.format(
             crew=crew,
             crew_slug=rego_slug(crew),
-            # Raw in the value comparison — `run_participants.crew_role`
-            # stores the crew_role as written; slugged only in the rule
-            # name, like `crew` and `template`.
-            agent=agent,
-            agent_slug=rego_slug(agent),
-            template=template,
+            # Raw in the value comparison — the registry stores the role
+            # as written; slugged only in the rule name, like `crew`.
+            role=role,
+            role_slug=rego_slug(role),
             company=company,
             tool=tool,
             tool_slug=rego_slug(tool),
@@ -399,9 +392,8 @@ def _open_pr_path_deny(
     Every path rule the blueprint can write is this shape — any changed
     path under `paths` is refused — so there is one emitter, and the audit
     row reads the same however the refusal was declared. With `roles` the
-    declared owner templates are exempt (the contract tree — a caller keyed
-    on what it *is*); without, the path is denied outright
-    (`deny_paths`)."""
+    declared owner roles are exempt (the contract tree — a caller keyed on
+    what it *is*); without, the path is denied outright (`deny_paths`)."""
     owner_clause = f"\tnot input.role in {json.dumps(sorted(roles))}\n" if roles else ""
     return (
         f'\ndeny_rules contains "{rule}" if {{\n'
@@ -464,9 +456,9 @@ def _policies_file(company: str, policies: dict[str, Any]) -> str:
     if deny_paths:
         lines.append(_open_pr_path_deny("git_open_pr_denied_paths", deny_paths))
     if contract_paths:
-        # The contract tree is the oracle: only its declared owner
-        # templates may deliver into it, so the implementer cannot rewrite
-        # the spec its own work is graded by.
+        # The contract tree is the oracle: only its declared owner roles
+        # may deliver into it, so the implementer cannot rewrite the spec
+        # its own work is graded by.
         lines.append(
             _open_pr_path_deny(
                 "git_open_pr_contract_tree", contract_paths, contract.get("roles") or []
@@ -487,25 +479,23 @@ def build_bundle(
     company's decision entrypoint and the blueprint's policy rules — all
     under the company's own package."""
     files = {"authz.rego": _decision_file(company_package(company), _NO_BUDGET_RULE)}
-    by_standing_role: dict[str, list[Any]] = {}
+    by_hire: dict[str, list[Any]] = {}
     for instance in instances:
-        by_standing_role.setdefault(instance.standing_role, []).append(instance)
-    for standing_role, role_instances in by_standing_role.items():
-        first = role_instances[0]
-        files[f"role_{rego_slug(standing_role)}.rego"] = _role_file(
+        by_hire.setdefault(instance.standing_name, []).append(instance)
+    for standing_name, hire_instances in by_hire.items():
+        first = hire_instances[0]
+        files[f"role_{rego_slug(standing_name)}.rego"] = _role_file(
             company,
-            standing_role,
-            first.role_template,
+            standing_name,
+            first.role,
             list(first.tools),
             tuple(first.may_spawn),
-            tuple(i.agent_id for i in role_instances),
+            tuple(i.agent_id for i in hire_instances),
             first.max_concurrent_spawns,
         )
     for agent in ephemeral_agents:
-        name = f"crew_{rego_slug(agent.crew)}_{rego_slug(agent.crew_role)}.rego"
-        files[name] = _crew_file(
-            company, agent.crew, agent.crew_role, agent.role_template, list(agent.tools)
-        )
+        name = f"crew_{rego_slug(agent.crew)}_{rego_slug(agent.role)}.rego"
+        files[name] = _crew_file(company, agent.crew, agent.role, list(agent.tools))
     files["policies.rego"] = _policies_file(company, policies)
     if heartbeat is not None:
         files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)

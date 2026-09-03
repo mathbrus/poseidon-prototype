@@ -9,15 +9,15 @@ Activities are referenced by name — the one seam the engine adapter needs:
 this module imports nothing from the activity implementations.
 
 The crew is the only execution path: fulfill_crew stands
-the ephemeral executor up (recording the crew request under the standing
-conductor's authority when none exists), the executor is dispatched at its
-ephemeral pod, and its completion claim is advisory — the platform verify gate
-(`platform_verify`, the orchestrator's own run of the sandbox tests) is the
-gate of record. Red verify feeds the failure back for a bounded number of
-re-dispatches (the blueprint's `max_verify_retries`); only a green verify
-releases the separate mode="deliver" dispatch that
-opens the PR. Delivery before verify is structurally impossible: the
-implement-mode toolset has no `git.open_pr`, and the deliver dispatch is
+the ephemeral implementer up (recording the crew request under the standing
+conductor's authority when none exists), the implementer is dispatched at its
+ephemeral pod with the task text, and its completion claim is advisory — the
+platform verify gate (`platform_verify`, the orchestrator's own run of the
+sandbox tests) is the gate of record. Red verify feeds the failure back for
+a bounded number of re-dispatches (the blueprint's `max_verify_retries`);
+only a green verify releases the separate `deliver` dispatch that opens
+the PR. Delivery before verify is structurally impossible: the implement
+procedure's toolset has no `git.open_pr`, and the deliver dispatch is
 sequenced strictly after the gate.
 
 The budget pause (`RunWorkflow.dispatch`) rides the same Gate skeleton as
@@ -38,7 +38,6 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
-    TEARDOWN_RETRY,
     RunWorkflow,
     Timeouts,
 )
@@ -92,12 +91,12 @@ def ticket_crew(task_source: str) -> str | None:
     return matches[-1] if matches else None
 
 
-def verify_feedback(brief: str, output: str) -> str:
-    """The red-path re-dispatch text: the brief the executor already worked
+def verify_feedback(task: str, output: str) -> str:
+    """The red-path re-dispatch text: the task the implementer already worked
     from, plus what the platform's own test run said. Deterministic —
     workflow code composes it on replay."""
     return (
-        f"{brief}\n\n"
+        f"{task}\n\n"
         "The platform ran the test suite after your completion claim and it"
         " FAILED. Fix the failures; do not claim completion until the tests"
         " pass. Test output (tail):\n"
@@ -107,6 +106,8 @@ def verify_feedback(brief: str, output: str) -> str:
 
 @workflow.defn(name="implement")
 class ImplementWorkflow(RunWorkflow):
+    WORKFLOW = "implement"
+
     def __init__(self) -> None:
         self._phase = "running"
         self._budget_gate = Gate("budget")
@@ -137,29 +138,10 @@ class ImplementWorkflow(RunWorkflow):
         error: str | None = None
         cancelled = False
         try:
-            await workflow.execute_activity(
-                "create_run",
-                args=[
-                    input.run_id,
-                    input.task_text or issue_placeholder(input.issue_number),
-                ],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-                retry_policy=STEP_RETRY,
-            )
-            # The run is born with headroom or not at all — the
-            # same activity-boundary ledger observation intake makes
-            # (enforcement itself stays local at the LLM gateway).
-            await workflow.execute_activity(
-                "check_budget",
-                args=[input.run_id],
-                start_to_close_timeout=timedelta(seconds=timeouts.create_run_s),
-                retry_policy=STEP_RETRY,
-            )
-            config = await workflow.execute_activity(
-                "implement_config",
-                args=[],
-                start_to_close_timeout=timedelta(seconds=timeouts.step_s),
-                retry_policy=STEP_RETRY,
+            config = await self.start_run(
+                input.run_id,
+                input.task_text or issue_placeholder(input.issue_number),
+                timeouts,
             )
             # The one source of dispatch truth: the file text handed in, or
             # the ticket the company already filed — fetched under the
@@ -188,44 +170,22 @@ class ImplementWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=timeouts.step_s),
                 retry_policy=STEP_RETRY,
             )
-            # The crew is the only execution path: fulfill stands the
-            # ephemeral crew up — recording the crew request under the
-            # conductor's authority via the same compiled decision the
-            # crew.request tool faces — and hands back the planner's brief
-            # plus the executor's crew-pod address.
-            crew = await workflow.execute_activity(
-                "fulfill_crew",
-                args=[
-                    {
-                        "run_id": input.run_id,
-                        "company": config["company"],
-                        # The ticket names its crew; the workflow's
-                        # configured crew fulfills unnamed work. Compiled
-                        # policy bounds either through the same
-                        # crew.request decision at fulfill time.
-                        "crew_template": ticket_crew(task_source)
-                        or config["crew_template"],
-                        "conductor": config["conductor"],
-                        "conductor_role": config["conductor_role"],
-                        "task_text": task_source,
-                        "record_under_authority": True,
-                    }
-                ],
-                start_to_close_timeout=timedelta(seconds=timeouts.fulfill_s),
-                heartbeat_timeout=timedelta(seconds=timeouts.dispatch_heartbeat_s),
-                retry_policy=STEP_RETRY,
+            # The crew is the only execution path. The ticket names its
+            # crew; the workflow's configured crew fulfills unnamed work.
+            # Compiled policy bounds either through the same crew.request
+            # decision at fulfill time.
+            implementer = await self.fulfill(
+                input.run_id, config, timeouts, crew=ticket_crew(task_source)
             )
-            brief = crew["brief"]
-            executor_url = crew["executor_url"]
 
             # Implement to a completion claim; the platform verify gate is
             # the gate of record. Red feeds back, bounded by the blueprint.
             verify_failures = 0
-            task_text = brief
+            task_text = task_source
             verified = False
             while True:
                 result = await self.dispatch(
-                    input.run_id, task_text, executor_url, "implement", timeouts
+                    input.run_id, implementer["url"], "implement", task_text, timeouts
                 )
                 if (result or {}).get("error"):
                     break
@@ -246,15 +206,14 @@ class ImplementWorkflow(RunWorkflow):
                         f" max_verify_retries={config['max_verify_retries']}"
                     )
                     break
-                task_text = verify_feedback(brief, verify["output"])
+                task_text = verify_feedback(task_source, verify["output"])
 
-            # Delivery is workflow-directed and gated: only a
-            # green platform verify releases the deliver dispatch. The
-            # source text rides it — not the planner's brief — so the
-            # delivery constraints (branch, markers) survive verbatim.
+            # Delivery is workflow-directed and gated: only a green
+            # platform verify releases the deliver dispatch, which carries
+            # the same task text the implementation worked from.
             if verified and not error and not (result or {}).get("error"):
                 delivery = await self.dispatch(
-                    input.run_id, task_source, executor_url, "deliver", timeouts
+                    input.run_id, implementer["url"], "deliver", task_source, timeouts
                 )
                 if (delivery or {}).get("error"):
                     error = f"delivery failed: {delivery['error']}"
@@ -276,12 +235,7 @@ class ImplementWorkflow(RunWorkflow):
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
         self._phase = "finalizing"
-        record = await workflow.execute_activity(
-            "teardown",
-            args=[input.run_id, handle, result, error],
-            start_to_close_timeout=timedelta(seconds=timeouts.teardown_s),
-            retry_policy=TEARDOWN_RETRY,
-        )
+        record = await self.teardown(input.run_id, handle, result, error, timeouts)
         # Delivered is concluded, whatever happened after (a failed
         # teardown still delivered); a run that opened no PR aborted, and
         # the attempt accounting decides whether its issue stays offered.

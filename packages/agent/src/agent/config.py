@@ -1,4 +1,4 @@
-"""Agent settings: the env subset the brain host needs.
+"""Agent settings: the env subset the agent host needs.
 
 No secret ever reaches this container: the gateway credential is the
 kubelet-rotated projected token file, the LLM provider key
@@ -14,10 +14,9 @@ class AgentSettings(BaseSettings):
     mcp_gateway_url: str
     llm_proxy_url: str
     model: str
-    # Which role this brain host serves (the operator sets it from the
-    # instance spec). `pm` dispatches run the PM loop;
-    # everything else runs the engineer loop.
-    role_template: str = "backend-engineer"
+    # The catalog role this agent is: the pod spec sets it, and the host
+    # refuses any procedure the role does not declare.
+    role: str
     # The pod's identity: the kubelet-rotated projected token file its own
     # ServiceAccount mounts — one shape for standing agents and ephemeral
     # ephemeral agents alike. Crew revocation is a registry row termination,
@@ -25,9 +24,9 @@ class AgentSettings(BaseSettings):
     gateway_token_file: str = ""
     target_repo: str
     # How many advisory verify cycles an implement dispatch gets before it
-    # reports the tests still failing. Implement only: the other modes
-    # run under their own step caps (`brain.py`), not this knob.
-    max_iterations: int = 10
+    # reports the tests still failing. Implement only: every other
+    # procedure runs under its own step cap (`procedures.py`).
+    verify_cycles: int = 10
 
     def resolve_gateway_token(self) -> str:
         # Read per call: the kubelet keeps the file fresh; a task never

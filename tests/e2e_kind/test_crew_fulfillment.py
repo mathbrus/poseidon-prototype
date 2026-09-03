@@ -2,13 +2,11 @@
 
 The full fulfillment path runs with the real machinery: the PM records
 intent through the gateway (policy-faced), fulfill consumes it, binds the
-crew, provisions each agent its own brain-host pod (and per-run
-ServiceAccount), dispatches the planner on its own pod under its own
-identity, and hands the brief to the executor dispatch — which implements
-the task through the gateway and opens a real PR as the *ephemeral*
-executor, parentage on every decision. Then the
-sweep: identities revoked and rows terminal after teardown, including
-worker kill.
+crew and provisions each agent its own pod (and per-run
+ServiceAccount); the implementer dispatch then implements the task through
+the gateway and opens a real PR as the *ephemeral* implementer, parentage on
+every decision. Then the sweep: identities revoked and rows terminal
+after teardown, including worker kill.
 
 Pod IPs are not host-routable on kind, so AgentClient is routed through
 `kubectl port-forward` (which bypasses NetworkPolicy by design — it rides
@@ -50,9 +48,8 @@ def _pod_forwarded_agent_client():
     """Route AgentClient's pod-IP URLs through kubectl port-forwards to the
     ephemeral pods those IPs belong to — one forward per pod, since every crew
     agent runs on its own pod and a dispatch must reach the agent it
-    names (the planner's calls must carry the planner's identity). Only a
-    URL naming a company-namespace pod IP is rewritten; anything else
-    reaches AgentClient untouched."""
+    names. Only a URL naming a company-namespace pod IP is rewritten;
+    anything else reaches AgentClient untouched."""
     from orchestrator import clients
 
     stack = contextlib.ExitStack()
@@ -116,7 +113,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
     )
     mcp = gateway_url(env)
     orchestrator_token = projected_token(PLATFORM_NS, "orchestrator-worker")
-    executor_id = ephemeral_agent_id("feature-delivery", "executor", run_id)
+    implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     handle = None
 
@@ -143,7 +140,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             assert not recorded.isError, recorded.content
 
             # 2. The run's single sandbox, exactly as implement provisions
-            #    it (both agents share it through the gateway).
+            #    it (the crew works it through the gateway).
             workspace = asyncio.run(
                 _fetch_workspace(mcp, orchestrator_token, run_id, env["TARGET_REPO"])
             )
@@ -154,8 +151,8 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             )
             asyncio.run(_register(mcp, orchestrator_token, run_id, handle))
 
-            # 3. Fulfill: consume -> bind -> a pod per agent -> planner
-            #    (on its own pod) -> brief.
+            # 3. Fulfill: consume -> bind -> a pod per agent, returned by
+            #    crew role with its identity and address.
             with _pod_forwarded_agent_client():
                 fulfilled = asyncio.run(
                     crew.fulfill_crew(
@@ -163,30 +160,33 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                             "run_id": run_id,
                             "company": "hello-saas",
                             "crew_template": "feature-delivery",
-                            "conductor": "pm-1",
-                            "task_text": task_text,
+                            "conductor": {
+                                "agent_id": "pm-1",
+                                "role": "pm",
+                                "url": "http://pm.hello-saas.svc.cluster.local:8000",
+                            },
+                            "workflow": "implement",
                         }
                     )
                 )
-                assert f"feature/slugify-{nonce}" in fulfilled["brief"], (
-                    "the brief lost the delivery constraint"
-                )
+                implementer = fulfilled["agents"]["implementer"]
+                assert implementer["agent_id"] == implementer_id
 
-                # 4. The executor dispatch carries the brief verbatim — the
-                #    orchestrator-fixed graph IS the handoff. It ends at a
-                #    completion claim; the separate deliver dispatch (issued
-                #    here in the platform verify gate's stead) opens the PR.
-                async def dispatch(mode: str, text: str) -> dict:
-                    async with AgentClient(fulfilled["executor_url"]) as agent:
-                        await agent.dispatch(run_id, text, mode=mode)
+                # 4. The implementer dispatch carries the task verbatim. It ends
+                #    at a completion claim; the separate deliver dispatch
+                #    (issued here in the platform verify gate's stead) opens
+                #    the PR.
+                async def dispatch(procedure: str, text: str) -> dict:
+                    async with AgentClient(implementer["url"]) as agent:
+                        await agent.dispatch(run_id, procedure, text)
                         while True:
                             status = await agent.status(run_id)
                             if status["status"] != "running":
                                 return status
                             await asyncio.sleep(2)
 
-                claim = asyncio.run(dispatch("implement", fulfilled["brief"]))
-                assert claim["status"] == "done", f"executor failed: {claim}"
+                claim = asyncio.run(dispatch("implement", task_text))
+                assert claim["status"] == "done", f"implementer failed: {claim}"
                 assert claim["pr_url"] is None, (
                     "the implement dispatch must end at a claim, not a PR"
                 )
@@ -201,7 +201,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 
                 status = asyncio.run(dispatch("deliver", task_text))
             assert status["status"] == "done", f"delivery failed: {status}"
-            assert status["pr_url"], "no PR from the ephemeral executor"
+            assert status["pr_url"], "no PR from the ephemeral implementer"
 
             # The PR is real and on the constrained branch.
             pr = pr_info(status["pr_url"])
@@ -217,34 +217,38 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             assert crew_events, "no ephemeral gateway decisions in the story"
             assert all(e["parent_agent_id"] == "pm-1" for e in crew_events)
             assert any(
-                e["agent_id"] == executor_id
+                e["agent_id"] == implementer_id
                 and e["tool"] == "git.open_pr"
                 and e["decision"] == "allow"
                 for e in crew_events
-            ), "the PR was not opened by the ephemeral executor"
-            # The planner acted too, as itself.
-            planner_id = ephemeral_agent_id("feature-delivery", "planner", run_id)
-            assert any(e["agent_id"] == planner_id for e in crew_events)
+            ), "the PR was not opened by the ephemeral implementer"
 
-            # A agent outside its compiled allow-list is denied at the
-            # gateway: the read-only planner cannot write. Its SA exists
-            # (fulfilment provisioned the planner's own pod), so a fresh
-            # projected token is the same credential the pod holds.
-            planner_token = projected_token(COMPANY_NS, service_account_name(planner_id))
+            # An agent outside its compiled allow-list is denied at the
+            # gateway: the implementer holds no issue tools. Its SA exists
+            # (fulfilment provisioned its pod), so a fresh projected token
+            # is the same credential the pod holds.
+            implementer_token = projected_token(
+                COMPANY_NS, service_account_name(implementer_id)
+            )
             denied = mcp_call(
                 env,
-                planner_token,
-                "sandbox.write_file",
-                {"run_id": run_id, "path": "x.py", "content": "x"},
+                implementer_token,
+                "issues.create",
+                {
+                    "run_id": run_id,
+                    "repo": env["TARGET_REPO"],
+                    "title": "x",
+                    "body": "x",
+                },
             )
             assert denied.isError and "default_deny" in denied.content[0].text
 
-            # 5. Teardown semantics: revoke + destroy; the executor's token
+            # 5. Teardown semantics: revoke + destroy; the implementer's token
             #    dies with its row, the pod with its labels.
             swept = asyncio.run(crew.revoke_participants(run_id))
-            assert executor_id in swept
+            assert implementer_id in swept
             gone = asyncio.run(crew.destroy_ephemeral_pods(run_id))
-            assert pod_name(executor_id) in gone
+            assert pod_name(implementer_id) in gone
         finally:
             if handle is not None:
                 with contextlib.suppress(Exception):
@@ -276,7 +280,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    executor_id = ephemeral_agent_id("feature-delivery", "executor", run_id)
+    implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
 
     async def run() -> dict:
         with temporal_port_forward() as address:
@@ -320,7 +324,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
     with registry() as client:
         rows = client.query(
             "SELECT status FROM registry.run_participants WHERE agent_id = %s",
-            (executor_id,),
+            (implementer_id,),
         )
         assert rows and rows[0]["status"] == "terminated", rows
         client.execute(
@@ -340,7 +344,7 @@ def test_worker_kill_leaks_no_crew(stack: None) -> None:
             COMPANY_NS,
             "get",
             "pod",
-            pod_name(executor_id),
+            pod_name(implementer_id),
             "-o",
             "name",
             timeout=30,

@@ -1,7 +1,7 @@
 # schema
 
 The blueprint contract: what a company document may say, and the versioned
-catalogs of role templates, crew templates and tool names it may say it
+catalogs of roles, crews and tool names it may say it
 with. This package answers "is this document well-formed?" — never "is this
 company coherent?", which is the [compiler](../compiler/README.md)'s
 question. The split is not cosmetic. Everything here can be checked against
@@ -25,13 +25,13 @@ itself is introduced line by line in [docs/blueprint.md](../../docs/blueprint.md
 | `blueprint.py` | The JSON Schema (draft 2020-12) for the nine sections. Structure only; the tool enum is the one place it borrows from a catalog. |
 | `validate.py` | `validate_blueprint` / `load_blueprint`. Errors are rendered as a path and the allowed values, and reported all together. |
 | `coherence.py` | The catalog cross-checks (templates exist, crews narrow the catalog, no platform-only tool for a role), as functions both `validate` and the compiler run. |
-| `catalog.py` | `ROLE_TEMPLATES` and `CREW_TEMPLATES`: what a blueprint may hire and spawn, with each template's tool scope, model tier and runtime hints. |
+| `catalog.py` | `ROLES` and `CREW_TEMPLATES`: what a blueprint may hire and spawn, with each role's tool scope, model tier, procedures and spawn authority. |
 | `tools.py` | The 16-name gateway tool surface, plus the two sets policy keys on: `PLATFORM_ONLY` and `RUN_SCOPED`. |
 
 ## Two passes, one report
 
 Validation runs a schema pass and a catalog pass, and always runs both —
-a typo in `company` should not hide a bad role template three sections
+a typo in `company` should not hide a bad role three sections
 away (`validate_blueprint` says so in a comment, and
 `test_every_problem_is_reported_together` pins it). Fixing a blueprint one
 message per run is a bad trade for the author.
@@ -45,83 +45,68 @@ since every object in the schema sets `additionalProperties: false` —
 says "check the spelling, or the section it belongs to".
 
 The catalog pass is kept deliberately narrow: only what a *document* can
-be wrong about regardless of cluster state. It catches a `template` or
-`crews:` key outside the catalogs, an ephemeral agent the template does not
-define, an agent whose `role_template` contradicts the catalog's, a
-platform-only tool in any allow-list, and an agent allow-list wider than
-the catalog's. Each check tolerates malformed values rather than crashing
+be wrong about regardless of cluster state. It catches a `role` or
+`crews:` key outside the catalogs, a crew whose role list is not the
+catalog's, a platform-only tool in any allow-list, and a tool scope wider
+than its role's catalog tools. Each check tolerates malformed values rather than crashing
 on them — the schema pass already reports those — and simply skips what it
 cannot read.
 
 ## The role catalog
 
-Four templates, and the set is closed: a blueprint names templates, it
-never defines them. `pm` is the standing conductor — it holds the four
-`issues.*` tools plus `crew.request`, may spawn crews, and holds no
-executor tools at all: no `sandbox.*`, no `git.open_pr`. Its
-`runtime_hints` include `memory: "none"`, because cross-run state is
-tickets and registry runs, not a private store. `backend-engineer`
-(sandbox tools plus `git.open_pr`, frontier tier), `sdet` (sandbox plus
-review tools plus `issues.comment`, standard tier) and `contract-author`
-(sandbox tools plus `git.open_pr`, frontier tier — the one template that
-may deliver into a declared contract tree) are ephemeral-agent material
-only.
+Four roles, and the set is closed: a blueprint names roles, it never
+defines them. A role is what an agent *is*: its tool ceiling, its model
+tier, the crews it may spawn, and the procedures a dispatch may ask of
+it. `pm` is the standing conductor — it holds the `issues.*` tools plus
+`crew.request`, runs `scope` and `decide`, may spawn crews, and holds no
+coding tools at all: no `sandbox.*`, no `git.open_pr`. It holds no
+private memory store either: cross-run state is tickets and registry
+runs. `implementer` (sandbox
+tools plus `git.open_pr`, frontier tier; `implement` and `deliver`),
+`reviewer` (sandbox plus review tools plus `issues.comment`, standard tier;
+`review`) and `contract-author` (sandbox tools plus `git.open_pr`, frontier
+tier — the one role that may deliver into a declared contract tree) are
+ephemeral-agent material only.
 
-Why a fixed catalog at all? Because the compiler turns each template into
-an agent spec and a per-agent Rego bundle, and a template a blueprint
-could invent would be a policy the platform never reviewed. The catalog
-is versioned (`CATALOG_VERSION = "v1"`) so that resolution is against a
-known artifact, and templates carry tool scopes, model tier and runtime
-hints — never counts, never secrets: how many of a role a company hires
+Why a fixed catalog at all? Because the compiler turns each role into an
+agent spec and a per-agent Rego bundle, and a role a blueprint could
+invent would be a policy the platform never reviewed. The catalog is
+versioned (`CATALOG_VERSION = "v1"`) so that resolution is against a known
+artifact, and roles carry tool scopes, model tier, procedures and spawn
+authority — never counts, never secrets: how many of a role a company hires
 is the blueprint's business, and credentials never enter a spec at all.
 
-The lean-standing rule — no standing `backend-engineer` or `sdet` — is
-deliberately **not** checked here. Whether a standing role is an executor is
-a question about the company the plan would deploy, so it is a compiler
-error, and `test_lean_roster_profile_validates` proves the
-standing-executor document still validates structurally.
+The lean-standing rule — no standing `implementer`, `reviewer` or
+`contract-author` — is deliberately **not** checked here. Whether a hire
+is a coder is a question about the company the plan would deploy, so it
+is a compiler error, and `test_lean_roster_profile_validates` proves the
+standing-coder document still validates structurally.
 
 ## The crew catalog
 
-Three crew templates: `feature-delivery` (a planner plus one coding
-executor), `feature-review` (one reviewer, run against a sandbox
-provisioned from the PR ref) and `contract-authoring` (one contract
-author, no planner — the contract ticket is the brief). Crew names,
-agent names and each agent's `role_template` in a blueprint must all
-match the catalog: a `crews:` key outside it would validate structurally
-and then resolve against nothing in the compiler, which is the failure
-mode these cross-checks exist to kill.
+Three crews: `feature-delivery` (one implementer), `feature-review` (one
+reviewer, run against a sandbox provisioned from the PR ref) and
+`contract-authoring` (one contract author, working from the contract
+ticket). A crew is a list of roles; the blueprint names the crew and lists
+exactly the catalog's roles for it — a `crews:` key outside the catalog,
+or a role list that differs from it, is a document error rather than
+something left for the compiler to resolve against nothing.
 
-The planner is the catalog's most deliberate agent:
-
-```python
-# The planner is LLM-only: read-only against the run's one sandbox, no
-# sandbox of its own, no write tools. It produces
-# exactly one artifact — the task brief the executor's dispatch carries.
-_PLANNER_TOOLS = ("sandbox.read_file", "sandbox.list_dir", "issues.read")
-```
-
-`needs_sandbox: False` on that agent is the other half of the same
-contract: LLM-only agents get no sandbox of their own.
-
-A blueprint may **narrow** a catalog agent's allow-list, never widen it.
-A document granting the planner `sandbox.write_file` fails validation
-with a message quoting the catalog's list — because the
-planner-is-read-only contract is a catalog property, and a wider document
-must fail here rather than compile into a wider bundle. Narrowing,
-though, is fine: an executor declared with only `sandbox.read_file` and
-`sandbox.run_tests` validates.
+A blueprint may **narrow** a role's allow-list in `tools.<role>`, never
+widen it — and the scope applies to every agent of the role, standing or
+ephemeral. A document granting the reviewer `git.open_pr` fails
+validation with a message quoting the catalog's list, because the
+reviewer-cannot-deliver contract is a catalog property and a wider
+document must fail here rather than compile into a wider bundle.
+Narrowing, though, is fine: an implementer scoped to only
+`sandbox.read_file` and `sandbox.run_tests` validates.
 
 One asymmetry surprises people: an ephemeral agent's allow-list is
 deliberately **not** required to be a subset of its conductor's. The PM
 cannot open a pull request, yet the crew it spawns can. Spawn authority
-is authority to create a principal from a compiler-vetted template, not a
+is authority to create a principal from a compiler-vetted role, not a
 capability ceiling — requiring ⊆ would force the PM's scope to become the
 union of everything it might ever spawn, the opposite of least privilege.
-
-Crews also carry `budget_inheritance: "run"`, the only value the schema
-admits: agents inherit the run's budget, and the ledger keeps them as
-separate dimensions so crew fan-out stays attributable.
 
 ## The tool catalog
 
@@ -168,8 +153,8 @@ the schema and the catalogs.
 
 ## Cross-package interactions
 
-- [`compiler`](../compiler/README.md) resolves every template a blueprint
-  names against `ROLE_TEMPLATES` / `CREW_TEMPLATES`, re-checks scopes
+- [`compiler`](../compiler/README.md) resolves every role and crew a blueprint
+  names against `ROLES` / `CREW_TEMPLATES`, re-checks scopes
   against `KNOWN_TOOLS` and `PLATFORM_ONLY` in its own passes, and reads
   `RUN_SCOPED` when emitting Rego. It also owns everything this package
   refuses to check: workflow-conductor binding, budget coverage, the
@@ -184,7 +169,7 @@ the schema and the catalogs.
 
 - Every object in the schema is `additionalProperties: false`: a typo'd
   key is an error, never a silently ignored line.
-- Names (`company.name`, standing roles, crews, agents) match
+- Names (`company.name`, standing names, crews, agents) match
   `^[a-z0-9][a-z0-9-]*$`; roles are keyed by name so a blueprint
   diff — a hire, a fire — reads as one.
 - An ephemeral agent's `tools` list is required, explicit, and at most the

@@ -31,13 +31,13 @@ def test_single_line_json_with_standard_fields():
 
 def test_bound_context_appears_on_every_line():
     stream = capture("t2")
-    log = get_logger("t2").bind(run_id="run-x", agent_id="backend-engineer-1")
+    log = get_logger("t2").bind(run_id="run-x", agent_id="implementer-1")
     log.info("first")
     log.warning("second")
 
     records = [json.loads(line) for line in stream.getvalue().splitlines()]
     assert all(r["run_id"] == "run-x" for r in records)
-    assert all(r["agent_id"] == "backend-engineer-1" for r in records)
+    assert all(r["agent_id"] == "implementer-1" for r in records)
     assert records[1]["level"] == "warning"
 
 

@@ -116,13 +116,12 @@ def decide_heartbeat(tmp_path_factory):
     return _decider(tmp_path_factory, _company(add_heartbeat))
 
 
-def ephemeral(crew: str, agent: str, template: str, **extra) -> dict:
+def ephemeral(crew: str, role: str, **extra) -> dict:
     return {
         "company": "hello-saas",
         "lifecycle": "ephemeral",
         "crew_template": crew,
-        "crew_role": agent,
-        "role": template,
+        "role": role,
         "parent_agent_id": "pm-1",
         "run_id": "run-1",
         **extra,
@@ -153,8 +152,8 @@ def test_pm_may_request_a_crew(decide):
     assert decision["allow"] is True
 
 
-def test_pm_cannot_call_executor_tools(decide):
-    """'The PM cannot call executor-only tools' — a gateway deny,
+def test_pm_cannot_call_implementer_tools(decide):
+    """'The PM cannot call implementer-only tools' — a gateway deny,
     not prompt hope."""
     for tool in ("git.open_pr", "sandbox.write_file", "sandbox.exec"):
         decision = decide(**standing("pm", tool=tool, args={"branch": "feature/x"}))
@@ -164,49 +163,11 @@ def test_pm_cannot_call_executor_tools(decide):
 # -- ephemeral agents are distinct principals ---------------------------------
 
 
-def test_planner_is_read_only(decide):
-    """Both agents run the `backend-engineer` template, so without the
-    crew-slot discriminator the planner would inherit delivery rights."""
-    read = decide(
-        **ephemeral(
-            "feature-delivery",
-            "planner",
-            "backend-engineer",
-            tool="sandbox.read_file",
-            run_binding_verified=True,
-            args={},
-        )
-    )
-    write = decide(
-        **ephemeral(
-            "feature-delivery",
-            "planner",
-            "backend-engineer",
-            tool="sandbox.write_file",
-            run_binding_verified=True,
-            args={},
-        )
-    )
-    deliver = decide(
-        **ephemeral(
-            "feature-delivery",
-            "planner",
-            "backend-engineer",
-            tool="git.open_pr",
-            args={"branch": "feature/x", "paths": []},
-        )
-    )
-    assert read["allow"] is True
-    assert write["allow"] is False
-    assert deliver["allow"] is False
-
-
-def test_executor_delivers_on_feature_branches(decide):
+def test_implementer_delivers_on_feature_branches(decide):
     decision = decide(
         **ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={"branch": "feature/slugify", "paths": ["slugify.py"]},
         )
@@ -219,7 +180,6 @@ def test_reviewer_cannot_deliver(decide):
         **ephemeral(
             "feature-review",
             "reviewer",
-            "sdet",
             tool="git.open_pr",
             args={"branch": "feature/x", "paths": []},
         )
@@ -234,8 +194,7 @@ def test_protected_branch_is_denied(decide):
     decision = decide(
         **ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={"branch": "main", "paths": ["a.py"]},
         )
@@ -248,8 +207,7 @@ def test_denied_paths_beat_an_allowed_branch(decide):
     decision = decide(
         **ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={"branch": "feature/x", "paths": [".github/workflows/ci.yml"]},
         )
@@ -266,8 +224,7 @@ def test_sandbox_tools_require_a_verified_run_binding(decide):
     decision = decide(
         **ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="sandbox.exec",
             args={},
         )
@@ -308,8 +265,7 @@ def test_only_the_platform_may_merge(decide):
         decide(
             **ephemeral(
                 "feature-delivery",
-                "executor",
-                "backend-engineer",
+                "implementer",
                 tool="git.merge_pr",
                 args={},
             )
@@ -353,7 +309,7 @@ def test_company_lifecycles_find_nothing_in_the_platform_package(decide):
     assert decide(
         PLATFORM_QUERY,
         **standing(
-            "backend-engineer", tool="sandbox.exec", run_binding_verified=True, args={}
+            "implementer", tool="sandbox.exec", run_binding_verified=True, args={}
         ),
     ) == {"allow": False, "rule": "default_deny"}
 
@@ -365,8 +321,7 @@ def test_open_pr_without_paths_is_denied(decide):
     decision = decide(
         **ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={"branch": "feature/x"},
         )
@@ -406,8 +361,7 @@ def test_pattern_with_a_backtick_cannot_inject_policy(tmp_path_factory, blueprin
         "backtick-pattern",
         ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={"branch": "feature/nope", "paths": ["a.py"]},
         ),
@@ -425,8 +379,7 @@ def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
         "uppercase-protected",
         ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={"branch": "main", "paths": ["a.py"]},
         ),
@@ -434,10 +387,10 @@ def test_uppercase_protected_branch_still_protects(tmp_path_factory, blueprint):
     assert decision == {"allow": False, "rule": "git_open_pr_protected_branch"}
 
 
-def test_crew_rule_compares_the_raw_member_name():
-    """`run_participants.crew_role` stores the agent name as written; only
-    rule *names* are slugged. A slugged comparison would silently disable
-    every rule of a hyphenated agent."""
+def test_crew_rule_compares_the_raw_role_name():
+    """The registry stores the role as written; only rule *names* are
+    slugged. A slugged comparison would silently disable every rule of a
+    hyphenated role — `contract-author` is the shipped one."""
     from compiler.plan import EphemeralAgentSpec
     from compiler.rego import build_bundle
 
@@ -446,19 +399,16 @@ def test_crew_rule_compares_the_raw_member_name():
         instances=[],
         ephemeral_agents=[
             EphemeralAgentSpec(
-                crew="feature-review",
-                crew_role="code-reviewer",
-                role_template="sdet",
-                tools=("git.read",),
-                needs_sandbox=True,
-                budget_inheritance="run",
+                crew="contract-authoring",
+                role="contract-author",
+                tools=("git.open_pr",),
             )
         ],
         policies={},
     )
-    body = files["crew_feature_review_code_reviewer.rego"]
-    assert 'input.crew_role == "code-reviewer"' in body
-    assert "crew_feature_review_code_reviewer_git_read" in body
+    body = files["crew_contract_authoring_contract_author.rego"]
+    assert 'input.role == "contract-author"' in body
+    assert "crew_contract_authoring_contract_author_git_open_pr" in body
 
 
 def test_crew_request_is_narrowed_to_may_spawn(decide):
@@ -791,7 +741,6 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
         **ephemeral(
             "feature-review",
             "reviewer",
-            "sdet",
             tool="issues.create",
             args={"title": "Rework 1 for PR #41: x", "body": "…"},
         )
@@ -804,30 +753,13 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
 
 CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
 
-CONTRACT_CREW = {
-    "agents": {
-        "author": {
-            "role_template": "contract-author",
-            "tools": [
-                "sandbox.read_file",
-                "sandbox.write_file",
-                "sandbox.edit_file",
-                "sandbox.list_dir",
-                "sandbox.exec",
-                "sandbox.run_tests",
-                "sandbox.git_bundle",
-                "git.open_pr",
-            ],
-        }
-    },
-    "budget_inheritance": "run",
-}
+CONTRACT_CREW = {"roles": ["contract-author"]}
 
 
 @pytest.fixture(scope="module")
 def decide_split(tmp_path_factory):
     """The company with the oracle split declared: a protected contract
-    tree owned by the contract-authoring crew's template, beside a
+    tree owned by the contract-authoring crew's role, beside a
     delegated class that cannot contain it."""
     return _decider(tmp_path_factory, _company(_split))
 
@@ -855,8 +787,7 @@ def test_the_implementer_cannot_pr_the_contract_tree(decide_split):
     decision = decide_split(
         **ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={
                 "branch": "feature/x",
@@ -873,8 +804,7 @@ def test_unit_tests_stay_the_implementers(decide_split):
     decision = decide_split(
         **ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={
                 "branch": "feature/x",
@@ -892,7 +822,6 @@ def test_the_contract_author_delivers_into_the_contract_tree(decide_split):
     decision = decide_split(
         **ephemeral(
             "contract-authoring",
-            "author",
             "contract-author",
             tool="git.open_pr",
             args={
@@ -919,12 +848,12 @@ def test_the_pm_may_request_the_contract_crew(decide_split):
 
 
 def test_a_declared_owner_passes_the_contract_rule(tmp_path_factory, blueprint):
-    """The rule keys on the role template — a caller keyed on what it *is*:
-    a caller the declaration names is not denied by it (whether that template
+    """The rule keys on the role — a caller keyed on what it *is*: a
+    caller the declaration names is not denied by it (whether that role
     holds `git.open_pr` at all stays the allow-list's business, as ever)."""
     blueprint["policies"]["contract_tests"] = {
         "paths": ["tests/contract/"],
-        "roles": ["backend-engineer"],
+        "roles": ["implementer"],
     }
     decision = _eval_bundle(
         tmp_path_factory,
@@ -932,8 +861,7 @@ def test_a_declared_owner_passes_the_contract_rule(tmp_path_factory, blueprint):
         "contract-owner",
         ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={"branch": "feature/x", "paths": ["tests/contract/test_api.py"]},
         ),
@@ -1012,7 +940,6 @@ def test_the_contract_author_cannot_merge(decide_split):
     as_author = decide_split(
         **ephemeral(
             "contract-authoring",
-            "author",
             "contract-author",
             tool="git.merge_pr",
             args={"number": 4},
@@ -1031,7 +958,6 @@ def test_deny_paths_still_bind_the_contract_author(decide_split):
     decision = decide_split(
         **ephemeral(
             "contract-authoring",
-            "author",
             "contract-author",
             tool="git.open_pr",
             args={
@@ -1089,8 +1015,7 @@ def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
     reopened = decide_revoked(
         **ephemeral(
             "feature-delivery",
-            "executor",
-            "backend-engineer",
+            "implementer",
             tool="git.open_pr",
             args={"branch": "feature/x", "paths": ["tests/contract/test_api.py"]},
         )

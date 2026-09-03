@@ -64,12 +64,12 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
     return {
         "apiVersion": f"{GROUP}/{VERSION}",
         "kind": "AgentInstance",
-        "metadata": {"name": instance.standing_role, "namespace": plan.company.namespace},
+        "metadata": {"name": instance.standing_name, "namespace": plan.company.namespace},
         "spec": {
             "agentId": instance.agent_id,
             "company": instance.company,
-            "standingRole": instance.standing_role,
-            "roleTemplate": instance.role_template,
+            "standingName": instance.standing_name,
+            "role": instance.role,
             "modelTier": instance.model_tier,
             "tools": list(instance.tools),
             "maySpawn": list(instance.may_spawn),
@@ -78,7 +78,6 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
                 if instance.max_concurrent_spawns
                 else {}
             ),
-            "runtimeHints": dict(instance.runtime_hints),
         },
     }
 
@@ -101,21 +100,21 @@ def submit(
     _wait_for_namespace(namespace)
     planned = set()
     for instance in plan.instances:
-        planned.add(instance.standing_role)
+        planned.add(instance.standing_name)
         if _replace_namespaced(
             api,
             namespace,
             "agentinstances",
-            instance.standing_role,
+            instance.standing_name,
             instance_cr(plan, instance),
         ):
             updated += 1
         else:
             created += 1
 
-    for standing_role in _existing_instances(api, namespace) - planned:
+    for standing_name in _existing_instances(api, namespace) - planned:
         api.delete_namespaced_custom_object(
-            GROUP, VERSION, namespace, "agentinstances", standing_role
+            GROUP, VERSION, namespace, "agentinstances", standing_name
         )
 
     return created, updated

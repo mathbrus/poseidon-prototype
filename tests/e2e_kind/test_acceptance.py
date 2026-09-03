@@ -14,11 +14,11 @@ What the suite proves, and where:
   2 durable       test_happy_path (kill-worker resume),
                   test_registry_durability, test_crew_fulfillment
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
-                  leaked no participant row, no ephemeral pod, no registration
+                  leaked no identity row, no ephemeral pod, no registration
   3 SDLC          test_intake + test_review_gate (intake → implement →
                   review with parked gate, escalation, API approval,
                   platform merge); test_verify_gate (the platform's own
-                  test run, not the executor's claim, is the gate of record);
+                  test run, not the implementer's claim, is the gate of record);
                   test_audit_story (one run_id reconstructs a run's whole story)
   4 governance    test_injection (injection vs compiled policy), test_governance,
                   test_injected_conductor, test_redteam (sandbox containment +
@@ -26,11 +26,11 @@ What the suite proves, and where:
                   kills a runaway); HERE: all five audit sources are real in
                   this suite execution — nothing seeded
   5 budgets       test_budgets (hard-stop, API-visible pause, process-gate
-                  escalation, full {run, parent, participant, role} tuple)
+                  escalation, full {run, parent, agent, role} tuple)
   6 lean standing test_operator_lifecycle (exactly one AgentInstance),
                   test_intake, test_ephemeral_identity, test_ephemeral_pods,
                   test_workload_identity; HERE: the registry's standing agents
-                  agrees, and a live minted executor is denied outside its
+                  agrees, and a live minted implementer is denied outside its
                   compiled allow-list at the gateway
   7 cluster-      the suite reaches the cluster through the kubectl
     neutral       context and .env alone; the kind-specific piece is
@@ -222,10 +222,10 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     suite, after every module's teardown/re-apply cycles."""
     rows = psql_json(
         "SELECT COALESCE(json_agg(i ORDER BY i.agent_id), '[]'::json) FROM ("
-        "SELECT agent_id, standing_role, role_template, namespace"
+        "SELECT agent_id, standing_name, role, namespace"
         " FROM registry.agent_instances WHERE company = 'hello-saas') i"
     )
-    assert [(r["agent_id"], r["role_template"], r["namespace"]) for r in rows] == [
+    assert [(r["agent_id"], r["role"], r["namespace"]) for r in rows] == [
         ("pm-1", "pm", COMPANY_NS)
     ], f"the registry's standing agents are not the lean blueprint's: {rows}"
 
@@ -242,15 +242,15 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     assert instances == ["pm"], instances
 
 
-def test_live_executor_cannot_exceed_its_compiled_allowlist(
+def test_live_implementer_cannot_exceed_its_compiled_allowlist(
     stack, env: dict, tmp_path
 ) -> None:
-    """Criterion 6's last clause, live: a *real bound* executor — its own
-    per-run ServiceAccount, a projected token, a participants row, full
+    """Criterion 6's last clause, live: a *real bound* implementer — its own
+    per-run ServiceAccount, a projected token, an identity row, full
     pipeline — is denied the tools outside its compiled allow-list at the
     gateway (deny by rule, audited), while its in-scope surface still
-    answers. The planner half of this claim is proven mid-run in
-    test_crew_fulfillment; this is the executor's."""
+    answers. test_crew_fulfillment proves the same mid-run on a live
+    implementer; this is the bound-identity proof in isolation."""
     from registry import Runs
 
     run_id = new_run_id()
@@ -258,7 +258,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
 
     with registry() as db:
         crew = crew_activities(db, worker_settings(env, tmp_path))
-        Runs(db).start(run_id, "executor scope check", "implement", None, "hello-saas")
+        Runs(db).start(run_id, "implementer scope check", "implement", None, "hello-saas")
         sa_name = None
         try:
             bound = asyncio.run(
@@ -267,8 +267,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "crew_role": "executor",
-                        "role_template": "backend-engineer",
+                        "role": "implementer",
                         "parent_agent_id": "pm-1",
                     }
                 )
@@ -277,7 +276,7 @@ def test_live_executor_cannot_exceed_its_compiled_allowlist(
             kubectl("-n", COMPANY_NS, "create", "serviceaccount", sa_name)
             token = projected_token(COMPANY_NS, sa_name)
 
-            # Positive control: the executor's in-scope surface answers
+            # Positive control: the implementer's in-scope surface answers
             # (policy allow; the backend errors because no sandbox exists —
             # a denied *identity* would never reach the backend).
             control = mcp_call(

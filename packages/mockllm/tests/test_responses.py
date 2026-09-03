@@ -1,6 +1,6 @@
 """The Responses surface of the mock: a wire-shape adapter over the same
 brain. Requests arrive as `instructions` + `input` items with flattened tool
-schemas; the brain must see the chat shape it keys phases on, and its
+schemas; the brain must see the chat shape it keys procedures on, and its
 completion must come back as Responses output items the OpenHands SDK can
 parse (`Message.from_llm_responses_output`)."""
 
@@ -13,7 +13,7 @@ from mockllm.app import COST_PER_1K_TOKENS, create_app
 
 client = TestClient(create_app())
 
-PM_SYSTEM = "You are the product manager of an agent software company."
+PM_SYSTEM = "# Poseidon procedure: scope\nYou are the product manager."
 GOAL_ITEM = {
     "type": "message",
     "role": "user",
@@ -42,21 +42,38 @@ def post(body: dict, path: str = "/v1/responses") -> dict:
     return resp.json()
 
 
-def test_planner_brief_is_a_completed_message_not_a_404():
-    """No tools offered -> the planner phase; the brief comes back as one
-    completed output message with usage in Responses vocabulary."""
+DECIDE_ITEM = {
+    "type": "message",
+    "role": "user",
+    "content": [
+        {
+            "type": "input_text",
+            "text": (
+                "Heartbeat tick. Runs in flight: 0. Spent today: $0.00.\n"
+                "Startable actions: implement, review, idle\n\n"
+                "Open tickets:\n(none)\n\nDelivered pull requests awaiting review:\n"
+                "(none)\n\nRecent runs:\n(none)"
+            ),
+        }
+    ],
+}
+
+
+def test_a_toolless_completion_is_a_completed_message_not_a_404():
+    """No tools offered and a decide prompt -> the decision comes back as
+    one completed output message with usage in Responses vocabulary."""
     body = post(
         {
             "model": "gpt-5.6-luna",
-            "instructions": "You are the planner.",
-            "input": [GOAL_ITEM],
+            "instructions": "# Poseidon procedure: decide\nChoose the next action.",
+            "input": [DECIDE_ITEM],
         }
     )
     assert body["object"] == "response"
     assert body["status"] == "completed"
     (item,) = body["output"]
     assert item["type"] == "message" and item["role"] == "assistant"
-    assert "slugify.py" in item["content"][0]["text"]
+    assert "DECISION: idle" in item["content"][0]["text"]
     usage = body["usage"]
     assert usage["input_tokens"] > 0 and usage["output_tokens"] > 0
     assert usage["total_tokens"] == usage["input_tokens"] + usage["output_tokens"]
@@ -96,7 +113,7 @@ def test_both_path_aliases_serve_the_same_surface():
         assert post({"model": "m", "input": "hello"}, path=path)["object"] == "response"
 
 
-def test_flattened_tools_key_the_pm_phase_and_calls_come_back_as_items():
+def test_flattened_tools_key_the_scope_procedure_and_calls_come_back_as_items():
     """The PM script fires on the system prompt with Responses-shaped tools:
     the first completion is a create_issue function_call item the SDK's
     parser understands (call_id + JSON-string arguments)."""
@@ -157,8 +174,8 @@ def test_chat_completions_surface_is_unchanged():
         json={
             "model": "mock-brain",
             "messages": [
-                {"role": "system", "content": "You are the planner."},
-                {"role": "user", "content": "Goal: anything"},
+                {"role": "system", "content": "# Poseidon procedure: implement\n…"},
+                {"role": "user", "content": "Task: anything"},
             ],
         },
     )

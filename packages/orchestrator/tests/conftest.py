@@ -16,7 +16,6 @@ def settings(tmp_path) -> WorkerSettings:
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
         target_repo="github.com/example/repo",
-        pm_url="http://pm.test:8000",
         sandbox_image="poseidon-sandbox:abc123",
         agent_image="poseidon-agent:abc123",
         model="mock-brain",

@@ -35,7 +35,7 @@ from registry.memory import (
 )
 
 AGENT_TOKEN = "agent-secret"
-RUNNER_TOKEN = "runner-secret"
+WORKER_TOKEN = "worker-secret"
 PM_TOKEN = "pm-secret"
 REVIEWER_TOKEN = "reviewer-secret"
 GIT_TOKEN = "git-platform-secret"
@@ -48,7 +48,7 @@ FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 COMPANY = "hello-saas"
 COMPANY_NS = "hello-saas"
 PLATFORM_NS = "poseidon-platform"
-AGENT_ID = "backend-engineer-1"
+AGENT_ID = "implementer-1"
 COMPANY_DECISION = "/v1/data/poseidon/authz/hello_saas/decision"
 PLATFORM_DECISION = "/v1/data/poseidon/platform/decision"
 
@@ -59,7 +59,7 @@ class FakeReviewer:
 
     accounts = {
         AGENT_TOKEN: ServiceAccount(COMPANY_NS, AGENT_ID),
-        RUNNER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
+        WORKER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
         PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
         REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "ephemeral-reviewer-01x"),
     }
@@ -83,7 +83,7 @@ class Backends:
     """Scriptable stand-ins for OPA, the sandbox tool server and GitHub.
 
     The OPA stub mirrors the compiled-bundle shape (compiler/rego.py):
-    company callers query their company package (standing role rules with
+    company callers query their company package (per-role rules with
     `run_binding_verified` for run-scoped tools, the blueprint's branch and
     path denies), the platform lifecycle queries its own package. `decide`
     reads the *enriched* input, exactly like the real bundles. `force_allow`
@@ -147,7 +147,7 @@ class Backends:
             policy_input.get("lifecycle") == "ephemeral"
             and policy_input.get("company") == COMPANY
             and policy_input.get("crew_template") == "feature-review"
-            and policy_input.get("crew_role") == "reviewer"
+            and policy_input.get("role") == "reviewer"
         ):
             if tool in ("git.read", "git.comment", "issues.comment"):
                 return {"allow": True, "rule": f"crew_feature_review_reviewer_{tool}"}
@@ -155,10 +155,10 @@ class Backends:
         if (
             policy_input.get("lifecycle") == "standing"
             and policy_input.get("company") == COMPANY
-            and policy_input.get("role") == "backend-engineer"
+            and policy_input.get("role") == "implementer"
         ):
             if tool.startswith("sandbox.") and policy_input.get("run_binding_verified"):
-                return {"allow": True, "rule": f"role_backend_engineer_{tool}"}
+                return {"allow": True, "rule": f"role_implementer_{tool}"}
             if tool == "git.open_pr":
                 branch = args.get("branch", "")
                 if branch.lower() in {"main", "master"}:
@@ -169,7 +169,7 @@ class Backends:
                     return {"allow": False, "rule": "git_open_pr_paths_missing"}
                 if any(p.startswith(".github/workflows/") for p in args["paths"]):
                     return {"allow": False, "rule": "git_open_pr_denied_paths"}
-                return {"allow": True, "rule": "role_backend_engineer_git_open_pr"}
+                return {"allow": True, "rule": "role_implementer_git_open_pr"}
         return {"allow": False, "rule": "default_deny"}
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -307,8 +307,8 @@ def instances() -> InMemoryAgentInstances:
     store.upsert(
         AGENT_ID,
         COMPANY,
-        "backend-engineer",
-        "backend-engineer",
+        "implementer",
+        "implementer",
         "frontier",
         namespace=COMPANY_NS,
     )
@@ -401,7 +401,7 @@ async def mcp_session(app, token: str):
                 yield session
 
 
-async def register_sandbox(app, run_id: str, token: str = RUNNER_TOKEN) -> httpx.Response:
+async def register_sandbox(app, run_id: str, token: str = WORKER_TOKEN) -> httpx.Response:
     """Register a run's sandbox exactly as the orchestrator does — namespace
     included, because the registration's namespace is what a standing
     caller's run binding is verified against."""

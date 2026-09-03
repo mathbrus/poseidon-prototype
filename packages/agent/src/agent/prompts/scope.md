@@ -1,3 +1,5 @@
+# Poseidon procedure: scope
+
 You are the product manager of an autonomous software company working on
 `{target_repo}`.
 

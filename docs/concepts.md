@@ -29,7 +29,7 @@ how a workspace enters a sandbox, and it reappears in
 [section 5](../README.md#5-anatomy-of-a-run).)
 
 A detail worth noticing: the action schemas the model sees contain no
-`run_id` and no `target_repo`. The brain host injects both at call time
+`run_id` and no `target_repo`. The agent host injects both at call time
 (`packages/agent/src/agent/hands.py`), so the model cannot forge what it
 cannot name. And because that injection happens inside the agent's own pod,
 it is not trusted either: the gateway independently checks the claimed
@@ -57,17 +57,17 @@ answer.
 A compiled Poseidon rule looks like this:
 
 ```rego
-allow_rules contains "crew_feature_delivery_executor_sandbox_exec" if {
+allow_rules contains "crew_feature_delivery_implementer_sandbox_exec" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"
 	input.crew_template == "feature-delivery"
-	input.crew_role == "executor"
+	input.role == "implementer"
 	input.tool == "sandbox.exec"
 	bound_to_run
 }
 ```
 
-Read it as: *an ephemeral caller of hello-saas, acting as the executor of a
+Read it as: *an ephemeral caller of hello-saas, acting as the implementer of a
 feature-delivery crew, may call `sandbox.exec` — provided its run binding
 was verified.* Everything is default-deny; the lowest-sorting deny wins over
 any allow.
@@ -76,7 +76,7 @@ That final clause, `bound_to_run`, deserves a second look. Sandbox tools
 are *run-scoped*: the rule demands not just the right role but a verified
 binding between this caller and the specific run whose sandbox the call
 addresses. Without it, a role allow-list would quietly permit cross-run
-access — any executor could read any run's workspace. Which tools carry
+access — any implementer could read any run's workspace. Which tools carry
 the requirement is a property of the tool, not of its name prefix
 (`packages/schema/src/schema/tools.py` maintains the list); `git.open_pr`,
 for instance, does not, because a pull request targets the repository
@@ -115,8 +115,7 @@ gateway resolves the ServiceAccount against:
   is refused and audited.
 - **Ephemeral agents** get a per-run ServiceAccount created at
   provision time, mapping through a live `run_participants` row — the
-  row *is* the identity: run binding, crew coordinates, company, catalog
-  template, namespace. A verified token alone is never enough; deleting
+  row *is* the identity: run binding, crew and role, company, namespace. A verified token alone is never enough; deleting
   the row revokes the identity **immediately**, however long the token
   itself remains valid.
 
@@ -189,18 +188,18 @@ with nothing leaked.
 Poseidon distinguishes two kinds of agent, and the distinction is
 structural rather than cosmetic.
 
-A **standing agent** is one of the company's standing agents. It is declared in the
-blueprint with a count, reconciled into a Deployment by the operator, and
-has a stable identity that outlives any run. In the shipped example there is
-exactly one: the PM.
+A **standing agent** is a hire: declared under `standing:` in the
+blueprint with a role and a count, reconciled into a Deployment by the
+operator, and holding a stable identity that outlives any run. In the
+shipped example there is exactly one: the PM.
 
 An **ephemeral agent** exists only inside a run. It is bound when a
 crew is fulfilled, gets a run-scoped identity, and is revoked at teardown.
-It never appears in the standing agents and leaves no standing structure behind.
+It never appears under `standing:` and leaves no standing structure behind.
 
 The rule the compiler enforces is that **execution is always ephemeral**. A
 standing agent must be a *spawner* — a conductor with `may_spawn` authority.
-A blueprint that tries to hire a standing `backend-engineer` is a compile
+A blueprint that tries to hire a standing `implementer` is a compile
 error, because a standing agent holding write tools is exactly the thing
 whose blast radius you cannot bound.
 
@@ -208,7 +207,7 @@ One consequence that surprises people: an ephemeral agent's tool scope is **not*
 required to be a subset of its conductor's. The PM cannot open a pull
 request, yet the crew it spawns can. Spawn authority is not a capability
 ceiling — it is authority to *create a principal*, whose own scope comes
-from the crew template. Keeping ⊆ would have forced the PM's scope to become
+from its role in the crew. Keeping ⊆ would have forced the PM's scope to become
 the union of everything it might ever spawn, which is the opposite of least
 privilege.
 
@@ -218,5 +217,21 @@ principal from a fixed, compiler-vetted template — rather than the right to
 delegate its own authority. The blueprint bounds what the factory can
 produce (`may_spawn` names crews, not tools), and compiled policy enforces
 the bound at spawn time against a live concurrency count.
+
+</details>
+
+<details>
+<summary><b>Future: other kinds of agents</b></summary>
+
+<br>
+
+An observer that reads the internet, or a support or accounting agent,
+would enter the same way as today's four roles: a catalog role with its
+own tool ceiling and procedures, dispatched by a workflow, contained by
+compiled policy rather than by its prompt. What would have to give way is
+the gateway's fixed tool catalog (new tools, with their own run-scoping
+rules) and the assumption that every run has a sandbox and a repository.
+None of that exists in the tree today; it is a consideration for later,
+recorded so the shape above is not mistaken for a limit.
 
 </details>

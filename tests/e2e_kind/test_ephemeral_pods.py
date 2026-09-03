@@ -89,15 +89,14 @@ def test_ephemeral_pod_round_trips_and_destroy_is_label_bounded(
                         "run_id": run_id,
                         "company": "hello-saas",
                         "crew_template": "feature-delivery",
-                        "crew_role": "executor",
-                        "role_template": "backend-engineer",
+                        "role": "implementer",
                         "parent_agent_id": "pm-1",
                     }
                 )
             )
             pod = provisioned["pod_name"]
 
-            # The pod is Ready (the kubelet's probe hit the brain host) and
+            # The pod is Ready (the kubelet's probe hit the agent host) and
             # contained the moment it exists: the operator's agent envelope
             # selects the ephemeral-agent kind.
             for url, want in [

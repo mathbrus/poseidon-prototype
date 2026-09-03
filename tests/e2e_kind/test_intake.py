@@ -14,7 +14,7 @@ one gated intake proves both.
 
 The denial half ("a PM attempt at sandbox.exec or git.open_pr is denied at
 the gateway and audited") is proven by
-test_governance.py::test_pm_is_denied_executor_tools_at_the_gateway.
+test_governance.py::test_pm_is_denied_implementer_tools_at_the_gateway.
 """
 
 import asyncio
@@ -73,7 +73,7 @@ def gated_intake(stack: None, env: dict) -> dict:
     ready = kubectl(
         "-n", COMPANY_NS, "get", "deployment/pm", "-o", "jsonpath={.status.readyReplicas}"
     )
-    assert ready == "1", "the PM instance is not deployed/ready"
+    assert ready == "1", "the PM agent is not deployed/ready"
 
     run_id = new_run_id()
     goal = (

@@ -1,4 +1,4 @@
-"""The dispatch HTTP surface with an injected task runner."""
+"""The dispatch HTTP surface with an injected procedure runner."""
 
 import asyncio
 
@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from agent.app import create_app
-from agent.brain import RunResult
+from agent.config import AgentSettings
+from agent.procedures import ProcedureResult
 
 pytestmark = pytest.mark.anyio
 
@@ -16,6 +17,26 @@ RUN_ID = "run-01TESTULID"
 def client(app) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://agent.test"
+    )
+
+
+def settings_for(role: str) -> AgentSettings:
+    return AgentSettings(
+        mcp_gateway_url="http://gateway.test:8080",
+        llm_proxy_url="http://llm.test:4000",
+        model="test-model",
+        role=role,
+        target_repo="example/target",
+    )
+
+
+def app_for(role: str, **runners):
+    return create_app(settings=settings_for(role), runners=runners)
+
+
+async def post(http: httpx.AsyncClient, procedure: str, task_text: str) -> httpx.Response:
+    return await http.post(
+        "/task", json={"run_id": RUN_ID, "procedure": procedure, "task_text": task_text}
     )
 
 
@@ -33,13 +54,13 @@ async def test_task_lifecycle_running_then_done():
     release = asyncio.Event()
     seen: list[tuple[str, str]] = []
 
-    async def runner(run_id: str, task_text: str) -> RunResult:
+    async def runner(run_id: str, task_text: str) -> ProcedureResult:
         seen.append((run_id, task_text))
         await release.wait()
-        return RunResult(pr_url="https://github.test/pull/1", iterations=2)
+        return ProcedureResult(pr_url="https://github.test/pull/1", iterations=2)
 
-    async with client(create_app(runners={"implement": runner})) as http:
-        resp = await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
+    async with client(app_for("implementer", implement=runner)) as http:
+        resp = await post(http, "implement", "do it")
         assert resp.status_code == 202
 
         resp = await http.get(f"/task/{RUN_ID}")
@@ -48,7 +69,6 @@ async def test_task_lifecycle_running_then_done():
             "pr_url": None,
             "iterations": 0,
             "error": None,
-            "brief": None,
             "ticket_urls": [],
             "crew_request_id": None,
             "comment_urls": [],
@@ -65,7 +85,6 @@ async def test_task_lifecycle_running_then_done():
         "pr_url": "https://github.test/pull/1",
         "iterations": 2,
         "error": None,
-        "brief": None,
         "ticket_urls": [],
         "crew_request_id": None,
         "comment_urls": [],
@@ -76,12 +95,14 @@ async def test_task_lifecycle_running_then_done():
     assert seen == [(RUN_ID, "do it")]
 
 
-async def test_run_result_error_maps_to_failed():
-    async def runner(run_id: str, task_text: str) -> RunResult:
-        return RunResult(iterations=3, error="tests still failing after 3 iterations")
+async def test_procedure_result_error_maps_to_failed():
+    async def runner(run_id: str, task_text: str) -> ProcedureResult:
+        return ProcedureResult(
+            iterations=3, error="tests still failing after 3 iterations"
+        )
 
-    async with client(create_app(runners={"implement": runner})) as http:
-        await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
+    async with client(app_for("implementer", implement=runner)) as http:
+        await post(http, "implement", "do it")
         status = await poll_until_terminal(http, RUN_ID)
 
     assert status["status"] == "failed"
@@ -90,11 +111,11 @@ async def test_run_result_error_maps_to_failed():
 
 
 async def test_runner_crash_maps_to_failed():
-    async def runner(run_id: str, task_text: str) -> RunResult:
+    async def runner(run_id: str, task_text: str) -> ProcedureResult:
         raise RuntimeError("gateway unreachable")
 
-    async with client(create_app(runners={"implement": runner})) as http:
-        await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
+    async with client(app_for("implementer", implement=runner)) as http:
+        await post(http, "implement", "do it")
         status = await poll_until_terminal(http, RUN_ID)
 
     assert status["status"] == "failed"
@@ -102,10 +123,7 @@ async def test_runner_crash_maps_to_failed():
 
 
 async def test_unknown_run_is_404():
-    async def runner(run_id: str, task_text: str) -> RunResult:
-        return RunResult()
-
-    async with client(create_app(runners={"implement": runner})) as http:
+    async with client(app_for("implementer")) as http:
         resp = await http.get("/task/run-GHOST")
     assert resp.status_code == 404
 
@@ -113,13 +131,13 @@ async def test_unknown_run_is_404():
 async def test_duplicate_run_id_is_409():
     started = asyncio.Event()
 
-    async def runner(run_id: str, task_text: str) -> RunResult:
+    async def runner(run_id: str, task_text: str) -> ProcedureResult:
         await started.wait()
-        return RunResult(pr_url="https://pr", iterations=1)
+        return ProcedureResult(pr_url="https://pr", iterations=1)
 
-    async with client(create_app(runners={"implement": runner})) as http:
-        first = await http.post("/task", json={"run_id": RUN_ID, "task_text": "a"})
-        second = await http.post("/task", json={"run_id": RUN_ID, "task_text": "b"})
+    async with client(app_for("implementer", implement=runner)) as http:
+        first = await post(http, "implement", "a")
+        second = await post(http, "implement", "b")
         started.set()
         await poll_until_terminal(http, RUN_ID)
 
@@ -133,19 +151,19 @@ async def test_terminal_run_restarts_on_redispatch():
     would otherwise poll the stale failure forever."""
     attempts: list[str] = []
 
-    async def runner(run_id: str, task_text: str) -> RunResult:
+    async def runner(run_id: str, task_text: str) -> ProcedureResult:
         attempts.append(task_text)
         if len(attempts) == 1:
-            return RunResult(error="budget_exhausted: cap reached")
-        return RunResult(pr_url="https://github.test/pull/2", iterations=1)
+            return ProcedureResult(error="budget_exhausted: cap reached")
+        return ProcedureResult(pr_url="https://github.test/pull/2", iterations=1)
 
-    async with client(create_app(runners={"implement": runner})) as http:
-        first = await http.post("/task", json={"run_id": RUN_ID, "task_text": "one"})
+    async with client(app_for("implementer", implement=runner)) as http:
+        first = await post(http, "implement", "one")
         assert first.status_code == 202
         status = await poll_until_terminal(http, RUN_ID)
         assert "budget_exhausted" in status["error"]
 
-        again = await http.post("/task", json={"run_id": RUN_ID, "task_text": "two"})
+        again = await post(http, "implement", "two")
         assert again.status_code == 202
         status = await poll_until_terminal(http, RUN_ID)
 
@@ -156,45 +174,44 @@ async def test_terminal_run_restarts_on_redispatch():
 async def test_running_run_still_answers_409():
     release = asyncio.Event()
 
-    async def runner(run_id: str, task_text: str) -> RunResult:
+    async def runner(run_id: str, task_text: str) -> ProcedureResult:
         await release.wait()
-        return RunResult()
+        return ProcedureResult()
 
-    async with client(create_app(runners={"implement": runner})) as http:
-        await http.post("/task", json={"run_id": RUN_ID, "task_text": "one"})
-        conflict = await http.post("/task", json={"run_id": RUN_ID, "task_text": "again"})
+    async with client(app_for("implementer", implement=runner)) as http:
+        await post(http, "implement", "one")
+        conflict = await post(http, "implement", "again")
         assert conflict.status_code == 409
         release.set()
         await poll_until_terminal(http, RUN_ID)
 
 
-async def test_plan_mode_routes_to_the_planner_and_returns_the_brief():
-    seen: list[tuple[str, str]] = []
+async def test_a_role_runs_only_its_own_procedures():
+    """The pod's role bounds the dispatch: a PM host refuses implement, an
+    implementer host refuses scope — 422 before any runner is touched. The
+    gateway's tool policy is the boundary; this is the host declining to
+    start a loop it could never finish."""
 
-    async def planner(run_id: str, task_text: str) -> RunResult:
-        seen.append((run_id, task_text))
-        return RunResult(brief="1. read\n2. brief")
+    async def never(run_id: str, task_text: str) -> ProcedureResult:
+        raise AssertionError("a refused procedure must never run")
 
-    async def never(run_id: str, task_text: str) -> RunResult:
-        raise AssertionError("implement runner must not run in plan mode")
+    async with client(app_for("pm", implement=never, decide=never)) as http:
+        refused = await post(http, "implement", "write code")
+        assert refused.status_code == 422
+        assert "does not run the implement procedure" in refused.json()["detail"]
+        assert (await http.get(f"/task/{RUN_ID}")).status_code == 404
 
-    async with client(create_app(runners={"implement": never, "plan": planner})) as http:
-        resp = await http.post(
-            "/task",
-            json={
-                "run_id": RUN_ID,
-                "task_text": "scope it",
-                "mode": "plan",
-            },
-        )
-        assert resp.status_code == 202
-        status = await poll_until_terminal(http, RUN_ID)
+    async with client(app_for("implementer", scope=never)) as http:
+        assert (await post(http, "scope", "a goal")).status_code == 422
 
-    assert status["status"] == "done"
-    assert status["brief"] == "1. read\n2. brief"
-    # No credential rides the dispatch: the planner's pod holds its own
-    # projected token and acts as itself.
-    assert seen == [(RUN_ID, "scope it")]
+    async with client(app_for("no-such-role", implement=never)) as http:
+        assert (await post(http, "implement", "x")).status_code == 422
+
+
+async def test_a_dispatch_must_name_its_procedure():
+    async with client(app_for("implementer")) as http:
+        resp = await http.post("/task", json={"run_id": RUN_ID, "task_text": "do it"})
+    assert resp.status_code == 422
 
 
 async def test_review_verdict_flows_through_the_status_api():
@@ -204,16 +221,14 @@ async def test_review_verdict_flows_through_the_status_api():
     'reviewer finished without a verdict'."""
 
     async def fake_review(run_id, task_text):
-        return RunResult(
+        return ProcedureResult(
             comment_urls=["https://pr/1#c-1"],
             verdict="pass",
             verdict_summary="Suite green; in scope.",
         )
 
-    async with client(create_app(runners={"review": fake_review})) as http:
-        await http.post(
-            "/task", json={"run_id": RUN_ID, "task_text": "review", "mode": "review"}
-        )
+    async with client(app_for("reviewer", review=fake_review)) as http:
+        await post(http, "review", "review")
         status = await poll_until_terminal(http, RUN_ID)
 
     assert status["status"] == "done"

@@ -2,17 +2,12 @@
 sequencing, the merge gate and its timers live in the workflow.
 
 Retry safety, per activity:
-    create_review_run   — upserts the run row; safe.
-    review_config       — read-only; safe.
     read_pr             — read-only against GitHub via the gateway; safe.
                           A merged or closed PR is refused here with the
                           named rule `pr_not_open` (non-retryable, audited)
                           — nothing downstream can succeed on it, and the
                           ledger should not pay for a run that can only
                           fail at the head ref.
-    record_gate_outcome — appends an audit event; a retried append
-                          duplicates a row, never loses one (the audit
-                          store is append-only by design).
     record_verdict      — appends the reviewer's journaled verdict (same
                           append-only posture) and sets it on the run row,
                           an idempotent update.
@@ -48,13 +43,12 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.telemetry import get_logger
-from orchestrator.activities.blueprint import workflow_config
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient, pr_settled
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
 from orchestrator.workflows.base import workflow_id
-from registry import AgentInstances, AuditStore, Companies, RunParticipants, Runs
+from registry import AuditStore, Companies, RunParticipants, Runs
 
 # The canonical rework-ticket title. The chain depth and the root PR ride
 # the title so the platform can read the bound back without trusting any
@@ -159,59 +153,15 @@ class ReviewActivities:
         settings: WorkerSettings,
         runs: Runs,
         companies: Companies,
-        instances: AgentInstances,
         audit: AuditStore,
         participants: RunParticipants,
     ) -> None:
         self._settings = settings
         self._runs = runs
         self._companies = companies
-        self._instances = instances
         self._audit = audit
         self._participants = participants
         self._log = get_logger("orchestrator.review")
-
-    @activity.defn(name="create_review_run")
-    async def create_review_run(self, run_id: str, pr_number: int) -> None:
-        await asyncio.to_thread(
-            self._runs.start,
-            run_id,
-            f"review pull request #{pr_number}",
-            "review",
-            workflow_id("review", run_id),
-            self._settings.company,
-        )
-        self._log.bind(run_id=run_id).info(
-            "review run created", extra={"pr_number": pr_number}
-        )
-
-    @activity.defn(name="review_config")
-    async def review_config(self) -> dict[str, Any]:
-        """The review workflow's shape, from the applied blueprint:
-        which crew reviews, which standing conductor's authority the crew
-        request is recorded under, and which signal the merge gate parks
-        on — gate config comes from the compiled plan, never hardcoded.
-        Fail-closed, like implement_config."""
-
-        def read() -> dict[str, Any]:
-            config, conductor = workflow_config(
-                self._companies, self._instances, self._settings.company, "review"
-            )
-            spec = self._companies.get(self._settings.company) or {}
-            return {
-                **conductor,
-                # The gate object as the blueprint wrote it (`{resolved_by,
-                # delegate?}`), or None when no merge gate is declared.
-                "merge_gate": (config.get("gates") or {}).get("merge"),
-                # The declared contract tree's paths ([] when the company
-                # declares none): what the deletion facts and the composed
-                # contract verify resolve against.
-                "contract_paths": sorted(
-                    (spec.get("contractTests") or {}).get("paths") or []
-                ),
-            }
-
-        return await asyncio.to_thread(read)
 
     @activity.defn(name="read_pr")
     async def read_pr(
@@ -291,29 +241,6 @@ class ReviewActivities:
             company=self._settings.company,
             workflow=workflow_id,
             latency_ms=latency_ms,
-        )
-
-    @activity.defn(name="record_gate_outcome")
-    async def record_gate_outcome(
-        self, run_id: str, gate: str, kind: str, workflow_id: str
-    ) -> None:
-        """One `source=process-gate` audit event: parked gates,
-        escalations and verdicts become first-class rows in the run's
-        story, carrying the workflow id that maps back to run_id. The
-        policy kinds keep human and policy resolutions distinguishable
-        forever: `policy_resolved` released a merge, `policy_declined`
-        fell back to the human signal."""
-        await self._append_event(
-            run_id=run_id,
-            tool=f"gate.{gate}",
-            payload={"gate": gate, "outcome": kind},
-            decision="allow" if kind in ("approved", "policy_resolved") else "deny",
-            rule=f"gate_{kind}",
-            source="process-gate",
-            workflow_id=workflow_id,
-        )
-        self._log.bind(run_id=run_id).info(
-            "gate outcome recorded", extra={"gate": gate, "outcome": kind}
         )
 
     @activity.defn(name="record_verdict")
@@ -590,10 +517,7 @@ class ReviewActivities:
 
     def all(self) -> list[Any]:
         return [
-            self.create_review_run,
-            self.review_config,
             self.read_pr,
-            self.record_gate_outcome,
             self.record_verdict,
             self.reviewer_independent,
             self.warn_contract_edit,

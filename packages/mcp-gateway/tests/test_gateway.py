@@ -11,7 +11,7 @@ import re
 import pytest
 from conftest import (
     AGENT_TOKEN,
-    RUNNER_TOKEN,
+    WORKER_TOKEN,
     audit_events,
     http_client,
     mcp_session,
@@ -74,7 +74,7 @@ async def test_agent_token_cannot_register_sandbox(app, backends, audit):
 
 
 async def test_register_rejects_malformed_body(app):
-    async with http_client(app, RUNNER_TOKEN) as client:
+    async with http_client(app, WORKER_TOKEN) as client:
         resp = await client.post("/admin/sandboxes", json={"run_id": RUN_ID})
     assert resp.status_code == 422
 
@@ -96,12 +96,10 @@ async def test_bound_agent_call_is_proxied_to_sandbox(app, backends, audit):
 
     event = audit_events(audit)[-1]
     assert event["tool"] == "sandbox.read_file"
-    assert (
-        event["agent_id"] == "backend-engineer-1" and event["role"] == "backend-engineer"
-    )
+    assert event["agent_id"] == "implementer-1" and event["role"] == "implementer"
     assert event["run_id"] == RUN_ID
     assert event["decision"] == "allow"
-    assert event["rule"] == "role_backend_engineer_sandbox.read_file"
+    assert event["rule"] == "role_implementer_sandbox.read_file"
     assert event["backend_status"] == "ok"
     assert SHA256_HEX.match(event["args_digest"])
 
@@ -185,7 +183,7 @@ async def test_terminated_registration_is_a_stale_binding(app, backends, audit):
         )
         assert not live.isError
 
-        async with http_client(app, RUNNER_TOKEN) as client:
+        async with http_client(app, WORKER_TOKEN) as client:
             resp = await client.request(
                 "DELETE", "/admin/sandboxes", json={"run_id": RUN_ID}
             )

@@ -57,14 +57,19 @@ Two visible consequences:
 - **Workflows reference activities by name** (`"fulfill_crew"`, not an
   import). The workflow modules import nothing from `activities/`; that
   seam is what an engine swap would use, and it lets activities be shared
-  across workflows — `check_budget` is defined once (in the intake
-  module) and called by every run-shaped workflow.
+  across workflows — the run lifecycle (`create_run`, `check_budget`,
+  `workflow_config`, `record_gate_outcome`, `teardown`,
+  `record_attempts_exhausted`) is defined once, in `activities/run.py`,
+  and every run-shaped workflow rides it through the `RunWorkflow` base
+  (`start_run`, `fulfill`, `dispatch`, `teardown`).
 
 ## The four workflows
 
 **intake** — goal text in, tickets and recorded crew intent out:
-`create_intake_run → check_budget → [gate slot] → dispatch_pm →
-finalize_intake`. The PM does the scoping itself through governed tools
+`create_run → check_budget → workflow_config → [gate slot] →
+dispatch the conductor's `scope` procedure → teardown`. The
+conductor's address is derived from its converged instance (the operator
+names its Service after the standing name), never configured. The PM does the scoping itself through governed tools
 (`issues.*`, `crew.request`) — files the tickets, records the crew request,
 and comments its summary on each ticket; the workflow never touches GitHub
 or the crew tables directly. This is the injection surface for the standing
@@ -75,15 +80,15 @@ slot reads the blueprint's `workflows.intake.gates`: declare
 signal before dispatching (the shipped example declares no intake gate).
 
 **implement** — the crew is the only execution path: `create_run →
-check_budget → implement_config → fetch_workspace → provision_sandbox →
+check_budget → workflow_config → fetch_workspace → provision_sandbox →
 fulfill_crew`, then the dispatch/verify loop below, then the deliver
 dispatch, then teardown. `fulfill_crew` stands the ephemeral crew up
-and hands back the planner's brief plus the executor's crew-pod address.
+and hands back each agent's identity and dispatch address, by role.
 
 **review** — PR in, gated merge out: read the PR under the platform
 identity, provision a *full* sandbox from its head ref (the reviewer runs
 tests, it does not just read diffs), fulfill a review crew, dispatch the
-ephemeral reviewer (`mode="review"`), journal its structured verdict,
+ephemeral reviewer (the `review` procedure), journal its structured verdict,
 then resolve the merge gate as the blueprint declares. `resolved_by:
 human` parks on the `merge` signal; approve merges under the platform
 identity, reject or timeout is an honest failure. `resolved_by: policy`
@@ -129,7 +134,7 @@ which at the cap writes `gate.heartbeat_attempts` / `gate_exhausted`
 under that run's id and comments on the PR or issue under the platform
 identity. An applied section without `max_attempts` refuses every tick
 as `tick_refused:max_attempts_undeclared`.
-`heartbeat_decide` dispatches the standing conductor in `mode="decide"`
+`heartbeat_decide` dispatches the standing conductor's `decide` procedure
 with that observation and gets back one action with a required
 rationale, journaled as a `heartbeat.decide` audit event. The PM proposes
 and the platform disposes: the action set is closed, the target must
@@ -152,29 +157,28 @@ of the same ledger.
 
 ## Why delivery cannot jump the gate
 
-The executor's completion claim is *advisory* — nothing depends on it.
+The implementer's completion claim is *advisory* — nothing depends on it.
 The gate of record is `platform_verify`: the orchestrator's own
 `sandbox.run_tests` call under its own identity. Red verify composes the
-brief plus the failing output into a re-dispatch (`verify_feedback`),
+task plus the failing output into a re-dispatch (`verify_feedback`),
 bounded by the blueprint's `max_verify_retries`. Only then, in workflow
 code, does delivery become reachable:
 
 ```python
 if verified and not error and not (result or {}).get("error"):
     delivery = await self._dispatch(
-        input.run_id, input.task_text, executor_url, "deliver", timeouts
+        input.run_id, implementer["url"], "deliver", task_source, timeouts
     )
 ```
 
-`mode="deliver"` is a *separate dispatch* whose tool surface is the
-implement surface **plus `open_pr`** (mode table in the
+`deliver` is a *separate dispatch* whose tool surface is the implement
+surface **plus `open_pr`** (procedure table in the
 [agent README](../agent/README.md)). During implementation the delivery
 tool does not exist in the model's conversation, so two independent
-mechanisms must both fail for unverified code to ship: the implement-mode
-toolset has no `open_pr`, and the deliver dispatch is sequenced strictly
-after a green verify. The deliver dispatch carries the *original* task
-text, not the brief, so the delivery constraints (branch, markers)
-survive verbatim.
+mechanisms must both fail for unverified code to ship: the implement
+procedure's toolset has no `open_pr`, and the deliver dispatch is sequenced strictly
+after a green verify. The deliver dispatch carries the same task text
+the implementation worked from.
 
 ## Gates: park, escalate, expire
 
@@ -216,7 +220,7 @@ finalizes the run with the budget error.
 
 ## Identity: bound deterministically, revoked by a row
 
-Agent ids are deterministic from `{crew, crew_role, run}` —
+Agent ids are deterministic from `{crew, role, run}` —
 `ephemeral_agent_id()` is string concatenation, nothing more — so a bind
 retried after a worker death lands on the *same* participants row,
 instead of leaking a second identity. Nothing is signed: the agent's
@@ -229,8 +233,8 @@ caller abandons the identity — revocation is final, and a retry that lost
 the race with teardown must not build on it.
 
 `fulfill_crew` composes the whole fulfilment: consume the recorded crew
-request, bind every agent and give each its own pod, run the
-planner, hand back the brief. Two details carry the design:
+request, bind every agent and give each its own pod, hand back the agents
+by crew role. Two details carry the design:
 
 - **Fulfilment never improvises authority.** Without a recorded,
   unexpired crew request it refuses. When a workflow records one itself
@@ -238,20 +242,18 @@ planner, hand back the brief. Two details carry the design:
   compiled decision the `crew.request` *tool* would face allows it: the
   activity evaluates the same bundle at OPA with the same enriched input
   (`may_spawn` narrowing, live spawn count, budget headroom).
-- **The planner reads and writes nothing.** It needs no sandbox of its
-  own — it reads the run's — but it runs on its own pod under its own
-  ServiceAccount, so its gateway calls carry its own projected token and
-  its compiled read-only scope is what policy enforces. Its brief
-  replaces the raw task text for the executor dispatch — the
-  orchestrator-fixed graph *is* the planner→executor handoff; there is
-  no free-form chat.
+- **Fulfilment provisions; it never dispatches.** Provisioning handles
+  any number of agents, but every workflow dispatches exactly one, so a
+  crew declaring more is refused before any pod exists. The workflow
+  dispatches the agent with the task text itself — the orchestrator-fixed
+  graph is the only handoff; there is no free-form crew chat.
 
 Every bind, revoke, provision and destroy lands a `process-lifecycle`
 audit event: a run's story shows who existed, when, under whose authority.
 
 ## Ephemeral pods
 
-An ephemeral pod is one ephemeral agent's brain host: the same agent image a
+An ephemeral pod hosts exactly one ephemeral agent: the same agent image a
 standing agent runs, labeled to its run. Its only credential is the
 audience-scoped projected token of its own per-run ServiceAccount,
 mounted by the kubelet — no token-shaped env var exists, and no
@@ -329,7 +331,7 @@ key** (there is nothing to sign: crew identities are ServiceAccounts,
 bound by registry row). Its gateway
 identity is an audience-scoped projected service-account token, distinct
 from the automounted API-server token the k8s_jobs backend and the
-crew-pod provisioner use: each is useless where the other is needed.
+ephemeral-pod provisioner use: each is useless where the other is needed.
 
 ## Cross-package interactions
 
@@ -351,7 +353,7 @@ uv run pytest packages/orchestrator
 ```
 
 The unit suite covers activity behaviour and retry safety against fakes:
-deterministic binding converging on one row, the crew-pod manifest's
+deterministic binding converging on one row, the ephemeral pod manifest's
 containment posture, gate outcomes as audit events, budget-boundary
 refusals, fail-closed config reads, the timeout profiles. Sequencing,
 compensation and durability are workflow concerns, proven live by the

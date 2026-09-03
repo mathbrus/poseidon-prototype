@@ -1,6 +1,6 @@
 """Preview: what applying this plan would change, and what it would cost.
 
-`poseidon blueprint preview` exists so a standing_role, a fire or a scope change is
+`poseidon blueprint preview` exists so a hire, a fire or a scope change is
 readable *before* it converges — the declarative loop is only trustworthy if
 you can see the diff first.
 """
@@ -13,8 +13,8 @@ from compiler.snapshot import RegistrySnapshot
 
 @dataclass
 class InstanceChange:
-    # Keyed by agent_id, not standing role: with count > 1 one standing role is several
-    # instances, and a count change must show up as creates/deletes.
+    # Keyed by agent_id, not the hire's name: with count > 1 one hire is
+    # several instances, and a count change must show up as creates/deletes.
     agent_id: str
     action: str  # create | update | delete
     details: tuple[str, ...] = ()
@@ -61,16 +61,12 @@ def diff_plan(plan: DeploymentPlan, snapshot: RegistrySnapshot) -> PlanDiff:
         existing = live.get(agent_id)
         if existing is None:
             result.changes.append(
-                InstanceChange(
-                    agent_id, "create", (f"template {instance.role_template}",)
-                )
+                InstanceChange(agent_id, "create", (f"role {instance.role}",))
             )
             continue
         details = []
-        if existing.role_template != instance.role_template:
-            details.append(
-                f"template {existing.role_template} -> {instance.role_template}"
-            )
+        if existing.role != instance.role:
+            details.append(f"role {existing.role} -> {instance.role}")
         if existing.model_tier != instance.model_tier:
             details.append(f"model_tier {existing.model_tier} -> {instance.model_tier}")
         if details:

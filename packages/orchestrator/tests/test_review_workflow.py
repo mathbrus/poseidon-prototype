@@ -117,21 +117,21 @@ class Harness:
     def activities(self) -> list[Any]:
         harness = self
 
-        @activity.defn(name="create_review_run")
-        async def create_review_run(run_id: str, pr_number: int) -> None: ...
+        @activity.defn(name="create_run")
+        async def create_run(run_id: str, workflow: str, task: str) -> None: ...
 
         @activity.defn(name="check_budget")
         async def check_budget(run_id: str) -> dict[str, Any]:
             return {"cap_usd": 5.0, "spent_usd": 0.0}
 
-        @activity.defn(name="review_config")
-        async def review_config() -> dict[str, Any]:
+        @activity.defn(name="workflow_config")
+        async def workflow_config(workflow: str) -> dict[str, Any]:
             return {
                 "company": "hello-saas",
-                "crew_template": "feature-review",
-                "conductor": "pm-1",
-                "conductor_role": "pm",
-                "merge_gate": harness.merge_gate,
+                "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
+                "crew": "feature-review",
+                "gates": {"merge": harness.merge_gate} if harness.merge_gate else {},
+                "max_verify_retries": 0,
                 "contract_paths": list(harness.contract_paths),
             }
 
@@ -174,11 +174,16 @@ class Harness:
 
         @activity.defn(name="fulfill_crew")
         async def fulfill_crew(request: dict[str, Any]) -> dict[str, Any]:
-            return {"brief": "review it", "executor_url": "http://crew:8000"}
+            return {
+                "request_id": "crq-1",
+                "agents": {
+                    "reviewer": {"agent_id": "fr-reviewer", "url": "http://crew:8000"}
+                },
+            }
 
-        @activity.defn(name="dispatch_executor")
-        async def dispatch_executor(
-            run_id: str, task_text: str, url: str, mode: str
+        @activity.defn(name="dispatch_agent")
+        async def dispatch_agent(
+            run_id: str, url: str, procedure: str, task_text: str
         ) -> dict[str, Any]:
             harness.dispatches += 1
             while harness.dispatch_hangs:
@@ -291,15 +296,15 @@ class Harness:
             harness.wakes += 1
 
         return [
-            create_review_run,
+            create_run,
             check_budget,
-            review_config,
+            workflow_config,
             read_pr,
             warn_contract_edit,
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
-            dispatch_executor,
+            dispatch_agent,
             record_verdict,
             platform_verify,
             reviewer_independent,

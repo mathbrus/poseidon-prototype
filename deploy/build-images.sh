@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 MATRIX='
 poseidon-mcp-gateway|mcp-gateway|common registry mcp-gateway||git||uvicorn --factory mcp_gateway.app:create_app --host 0.0.0.0 --port 8080
 poseidon-llm-gateway|llm-gateway|common registry llm-gateway||||python -m llm_gateway
-poseidon-agent|agent|common agent||||uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
+poseidon-agent|agent|common schema agent||||uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 poseidon-orchestrator|orchestrator|common schema compiler registry sandbox orchestrator||||python -m orchestrator.worker
 poseidon-operator|poseidon-operator|common registry operator||||kopf run -m poseidon_operator.reconcile --all-namespaces
 poseidon-sandbox|sandbox|common sandbox|toolchain|git|/workspace|uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000

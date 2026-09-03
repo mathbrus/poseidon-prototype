@@ -42,7 +42,7 @@ means zero egress, which is a perfectly reasonable choice.
 ```yaml
 standing:
     pm:
-      template: pm
+      role: pm
       count: 1
       may_spawn:
         crew: [feature-delivery, feature-review]
@@ -53,9 +53,9 @@ One standing agent: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 
-A role at `count: 0` is a documented growth path that produces no instance.
-Try setting a `backend-engineer` to `count: 1` and the compiler refuses:
-standing executors do not exist here.
+A hire at `count: 0` is a documented growth path that produces no instance.
+Try hiring an `implementer` at `count: 1` and the compiler refuses:
+standing coders do not exist here.
 
 </details>
 
@@ -67,25 +67,26 @@ standing executors do not exist here.
 ```yaml
 crews:
   feature-delivery:
-    agents:
-      planner:
-        needs_sandbox: false
-        tools: [sandbox.read_file, sandbox.list_dir, issues.read]
-      executor:
-        tools: [..., sandbox.exec, git.open_pr]
+    roles: [implementer]
+  feature-review:
+    roles: [reviewer]
 
 tools:
   pm:
     allow: [issues.create, issues.read, issues.comment, crew.request]
+  reviewer:
+    allow: [sandbox.read_file, sandbox.list_dir, sandbox.exec, sandbox.run_tests, git.read, git.comment, issues.comment]
 ```
 
-Look at what the PM's list does *not* contain: no `sandbox.*`, no
-`git.open_pr`. The conductor that spawns the executor cannot do the
-executor's job. Spawn authority is not capability.
+A crew is the list of catalog roles fulfilled together for one run; the
+blueprint names the crew, the catalog defines it. `tools` is the one place
+a role's scope is narrowed, and it applies to every agent of that role,
+standing or ephemeral: the reviewer's list drops the write tools its
+catalog entry would allow, and a role not listed gets its catalog tools.
 
-The planner has no sandbox of its own and no write tools. It reads the run's
-shared sandbox and produces one artifact: the brief the executor's dispatch
-carries verbatim.
+Look at what the PM's list does *not* contain: no `sandbox.*`, no
+`git.open_pr`. The conductor that spawns the implementer cannot do the
+implementer's job. Spawn authority is not capability.
 
 </details>
 
@@ -119,7 +120,7 @@ gate is an object naming its resolver, and a gate nobody declares is a stop
 nobody takes, so goals a human submits dispatch the PM without a second
 stop.
 `max_verify_retries` bounds how many times a red verify
-re-dispatches the executor before the run fails.
+re-dispatches the implementer before the run fails.
 
 `gates.merge.resolved_by: human` is what makes the review workflow park and
 wait for a person; leaving `gates.merge` out entirely means the review ends
@@ -165,7 +166,7 @@ the gateway computes the changed paths before querying policy, a rule about
 modify the CI that checks it.
 
 `contract_tests` declares the split oracle: the acceptance tree a delegated
-merge is graded by, and the role templates that may deliver into it. Its
+merge is graded by, and the roles that may deliver into it. Its
 consequences are deliberately positional and are described in full in
 section 5 — only `contract-author` may `git.open_pr` into the tree (the
 implementer's attempt dies at the gateway, named), the tree can never be
@@ -262,7 +263,7 @@ Each tick observes the open backlog, the delivered
 PRs awaiting review (the registry names them, the git host confirms each
 is still open — a PR merged or closed by anyone else is not a candidate),
 the in-flight runs and today's ledger spend, then
-dispatches the standing PM in a toolless *decide* mode: one action —
+dispatches the standing PM's toolless *decide* procedure: one action —
 `implement #n`, `review #n`, or `idle` — with a required one-line
 rationale, journaled as a `heartbeat.decide` audit event (the append-only
 record of *why* the company did what it did; the PM's cross-run state is

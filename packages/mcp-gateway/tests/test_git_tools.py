@@ -14,7 +14,7 @@ from conftest import (
     AGENT_TOKEN,
     GIT_TOKEN,
     PR_URL,
-    RUNNER_TOKEN,
+    WORKER_TOKEN,
     audit_events,
     git,
     make_bundle,
@@ -58,7 +58,7 @@ async def open_pr(app, token, *, branch, bundle_b64, repo):
 async def test_platform_archives_repo_stripped_of_remotes(
     app, target_repo, tmp_path, audit
 ):
-    async with mcp_session(app, RUNNER_TOKEN) as session:
+    async with mcp_session(app, WORKER_TOKEN) as session:
         result = await session.call_tool(
             "repo.archive",
             {"run_id": RUN_ID, "repo": str(target_repo), "ref": "main"},
@@ -181,7 +181,7 @@ async def test_feature_branch_pr_is_pushed_and_opened(
     event = audit_events(audit)[-1]
     assert event["tool"] == "git.open_pr" and event["run_id"] == RUN_ID
     assert event["decision"] == "allow"
-    assert event["rule"] == "role_backend_engineer_git_open_pr"
+    assert event["rule"] == "role_implementer_git_open_pr"
     assert event["backend_status"] == "ok"
 
 

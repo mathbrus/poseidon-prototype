@@ -263,7 +263,7 @@ class Authenticator:
                 return None
             return Identity(
                 agent_id=row["agent_id"],
-                role=row["role_template"],
+                role=row["role"],
                 company=row["company"],
                 lifecycle=LIFECYCLE_STANDING,
                 namespace=row.get("namespace"),
@@ -277,20 +277,17 @@ class Authenticator:
         if participant.get("namespace") != account.namespace:
             await self._reject(path, "authn_namespace_mismatch", account.username)
             return None
-        # The row is the whole ephemeral identity: `role_template` is the
-        # catalog template policy roles resolve to, `role` the crew_role
-        # name — the crew_template + crew_role pair the compiled crew
-        # rules key on.
+        # The row is the whole ephemeral identity: the catalog role and
+        # the crew are what the compiled crew rules key on.
         return Identity(
             agent_id=participant["agent_id"],
-            role=participant["role_template"],
+            role=participant["role"],
             company=participant["company"],
             lifecycle=LIFECYCLE_EPHEMERAL,
             namespace=participant.get("namespace"),
             run_id=participant["run_id"],
             parent_agent_id=participant["parent_agent_id"],
             crew_template=participant["crew_template"],
-            crew_role=participant["role"],
         )
 
     # -- audited rejection --------------------------------------------------

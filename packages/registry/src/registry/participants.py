@@ -3,14 +3,10 @@
 Both halves of the ephemeral-identity contract meet here. The verify half:
 the gateway resolves an ephemeral agent's projected ServiceAccount token to a
 live row (by `service_account`) and builds the caller's identity entirely
-from it — company, catalog template, namespace, crew coordinates. The
-fulfill half: the orchestrator's bind activity creates the row, and
-revocation is a row termination — checked on every call, terminated on
-every terminal path (the workflow's compensation sweeps the run).
-
-The `role` column stores the crew_role — the `crew_role` the
-compiled crew rules key on; `role_template` carries the catalog template
-the caller's policy role resolves to.
+from it — company, catalog role, namespace, crew. The fulfill half: the
+orchestrator's bind activity creates the row, and revocation is a row
+termination — checked on every call, terminated on every terminal path
+(the workflow's compensation sweeps the run).
 """
 
 from typing import Any
@@ -19,7 +15,7 @@ from registry.db import Registry
 
 _ROW_FIELDS = (
     "agent_id, run_id, parent_agent_id, crew_template, role,"
-    " company, role_template, namespace, service_account, status"
+    " company, namespace, service_account, status"
 )
 
 
@@ -42,13 +38,12 @@ class RunParticipants:
         crew_template: str,
         role: str,
         company: str = "",
-        role_template: str = "",
         namespace: str = "",
         service_account: str | None = None,
     ) -> None:
         """Create the binding row, or re-assert one that is still active.
         Upsert on purpose: the bind activity derives a deterministic
-        agent_id from {crew, member, run}, so a retry after a worker death
+        agent_id from {crew, role, run}, so a retry after a worker death
         lands on the same row instead of leaking a second identity.
 
         **Revocation is final**: a terminated row is never
@@ -62,16 +57,14 @@ class RunParticipants:
             """
             INSERT INTO registry.run_participants
                 (agent_id, run_id, parent_agent_id, crew_template, role,
-                 company, role_template, namespace, service_account,
-                 status, terminated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', NULL)
+                 company, namespace, service_account, status, terminated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'active', NULL)
             ON CONFLICT (agent_id) DO UPDATE SET
                 run_id = EXCLUDED.run_id,
                 parent_agent_id = EXCLUDED.parent_agent_id,
                 crew_template = EXCLUDED.crew_template,
                 role = EXCLUDED.role,
                 company = EXCLUDED.company,
-                role_template = EXCLUDED.role_template,
                 namespace = EXCLUDED.namespace,
                 service_account = EXCLUDED.service_account
             WHERE run_participants.status = 'active'
@@ -84,7 +77,6 @@ class RunParticipants:
                 crew_template,
                 role,
                 company,
-                role_template,
                 namespace,
                 service_account,
             ),
@@ -129,7 +121,7 @@ class RunParticipants:
         revoked by the time its PR is reviewed, so an active-only read
         would vacuously pass the check it exists to make."""
         return self._db.query(
-            "SELECT agent_id, run_id, crew_template, role, role_template,"
+            "SELECT agent_id, run_id, crew_template, role,"
             " status FROM registry.run_participants WHERE run_id = %s"
             " ORDER BY agent_id",
             (run_id,),
@@ -137,7 +129,7 @@ class RunParticipants:
 
     def active_spawn_count(self, parent_agent_id: str) -> int:
         """How many crews the conductor is running right now — distinct
-        {run, crew} pairs with live members. What the gateway injects as
+        {run, crew} pairs with live ephemeral agents. What the gateway injects as
         `active_spawns` for the compiled concurrency cap."""
         rows = self._db.query(
             "SELECT COUNT(DISTINCT (run_id, crew_template)) AS spawns"

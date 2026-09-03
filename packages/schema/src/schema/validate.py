@@ -6,8 +6,8 @@ write instead*. So every error is rendered as a YAML-ish path plus the
 concrete allowed values, and errors are reported together — fixing a
 blueprint one message per run is a bad trade for the author.
 
-Structural checks only. The catalog cross-checks (does this template exist,
-does an ephemeral agent's role match the catalog's) live here too, because they
+Structural checks only. The catalog cross-checks (does this role exist,
+does a crew list the catalog's roles) live here too, because they
 are properties of the *document* against a versioned catalog; anything
 needing a registry snapshot or a deployment plan is the compiler's.
 """
@@ -19,12 +19,12 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from schema.blueprint import BLUEPRINT_SCHEMA
-from schema.catalog import CREW_TEMPLATES, ROLE_TEMPLATES
+from schema.catalog import CREW_TEMPLATES, ROLES
 from schema.coherence import (
     contract_role_problems,
     crew_problems,
-    platform_tool_problems,
-    role_template_problems,
+    hire_problems,
+    tool_scope_problems,
 )
 from schema.gates import contract_tests_problems, merge_gate_problems
 from schema.tools import KNOWN_TOOLS
@@ -74,19 +74,12 @@ def _catalog_problems(document: Any) -> list[str]:
     regardless of cluster state. Workflow-node binding, budget coverage and
     the lean-standing stance are compiler checks.
     """
-    problems = role_template_problems(document, ROLE_TEMPLATES, CREW_TEMPLATES)
+    problems = hire_problems(document, ROLES, CREW_TEMPLATES)
+    problems += crew_problems(document, CREW_TEMPLATES)
     # Unknown tool names are the schema enum's to report, so the shared
     # check does not repeat them here.
-    problems += crew_problems(
-        document, ROLE_TEMPLATES, CREW_TEMPLATES, report_unknown_tools=False
-    )
-    tools = document.get("tools") or {}
-    for role_name, scope in tools.items() if isinstance(tools, dict) else []:
-        if isinstance(scope, dict):
-            problems += platform_tool_problems(
-                f"tools.{role_name}.allow", scope.get("allow") or []
-            )
-    return problems + contract_role_problems(document, ROLE_TEMPLATES)
+    problems += tool_scope_problems(document, ROLES, report_unknown_tools=False)
+    return problems + contract_role_problems(document, ROLES)
 
 
 def validate_blueprint(document: Any) -> dict[str, Any]:

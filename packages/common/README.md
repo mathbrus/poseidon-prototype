@@ -24,7 +24,7 @@ when `OTEL_EXPORTER_OTLP_ENDPOINT` is set).
 | `telemetry.py` | `get_logger(name)`: single-line JSON to stdout, `.bind(...)` for run/agent context. Optional OTLP export behind the `otel` extra. |
 | `podsecurity.py` | The pod/container security context the three Python pod-spec builders share (uid 10001, no privilege escalation, no capabilities, RuntimeDefault seccomp). |
 | `ids.py` | `new_run_id()` — ULID-based, sortable, `run-`-prefixed. |
-| `text.py` | `numbered_lines()` — the `cat -n` rendering the sandbox's edit snippets and the brain host's file reads share, so an edit anchors on the picture it gets back. |
+| `text.py` | `numbered_lines()` — the `cat -n` rendering the sandbox's edit snippets and the agent host's file reads share, so an edit anchors on the picture it gets back. |
 
 ## Identity is a verdict, not a claim
 
@@ -56,15 +56,14 @@ trusts.
 A clean answer maps to an identity in one of three ways. The platform
 namespace's orchestrator SA becomes the `platform` lifecycle. Any other
 name resolves through the registry — `agent_instances` for standing
-agents, then `run_participants` by ServiceAccount name for ephemeral crew
+agents, then `run_participants` by ServiceAccount name for ephemeral
 agents (their SA names carry an `ephemeral-` prefix standing ids never use, so
 the lookups cannot shadow each other). Either way the row's recorded
 namespace **must** match the token's: the same SA name in another
 namespace is an impersonation attempt and is refused.
 
 For an ephemeral caller the row *is* the identity — run binding, crew
-coordinates (`crew_template`, `crew_role`), parentage, company, catalog
-template. A verified token alone is never enough. Why not? Because a
+(`crew_template`), parentage, company, catalog role. A verified token alone is never enough. Why not? Because a
 token can only prove who it was issued to — it cannot say anything about
 what happened since. If a run is torn down or an agent is revoked
 mid-run, every token that identity holds must die *now*, not at expiry.
@@ -76,7 +75,7 @@ The cache is shaped around exactly that property. Successful TokenReviews
 are cached for `authn_cache_ttl_s` (60s default) so the API server sees
 one review per caller per minute rather than one per call — but the cache
 stores only the *ServiceAccount*, never the identity. The registry
-mapping runs on every request, so terminating a participants row (or
+mapping runs on every request, so terminating an ephemeral agent's identity row (or
 firing a standing agent) bites on the very next call, cache notwithstanding.
 
 Every rejection of a *presented* token is written to the audit store under
@@ -157,7 +156,7 @@ Export stays env-gated at runtime either way.
   [`llm-gateway`](../llm-gateway/README.md) both construct an
   `Authenticator`; their settings classes inherit `WorkloadAuthnSettings`.
 - [`orchestrator`](../orchestrator/README.md) binds ephemeral
-  identities (`orchestrator/activities/crew.py` writes the participants
+  identities (`orchestrator/activities/crew.py` writes the identity
   row); both gateways resolve them. [`registry`](../registry/README.md)'s
   `RunParticipants.by_service_account` is the live-row half of
   verification.

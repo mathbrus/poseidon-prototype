@@ -9,7 +9,7 @@ structure stays operator-owned: no Deployments, no Services, no CRs. The
 matching Role rules live in
 `poseidon_operator.resources.sandbox_provisioner_role`.
 
-An ephemeral pod is one ephemeral agent's brain host: the same agent image a
+An ephemeral pod hosts exactly one ephemeral agent: the same agent image a
 standing agent runs, labeled to its run. Every agent gets its own pod —
 one principal, one pod, one ServiceAccount — and its credential is the
 audience-scoped projected token the kubelet mounts and rotates, exactly
@@ -193,7 +193,7 @@ class EphemeralPodProvisioner:
         env: dict[str, str],
         still_wanted: Callable[[], bool] | None = None,
     ) -> EphemeralPodHandle:
-        """Create the ephemeral pod and wait until its brain host answers.
+        """Create the ephemeral pod and wait until its agent host answers.
 
         Retry-safe: a remnant pod of the same deterministic agent_id (a
         crashed earlier attempt) is removed first — one agent, one pod.

@@ -302,7 +302,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
     contract_issue = next(n for n, t in titled.items() if t.startswith("Contract:"))
     implement_issue = next(n for n, t in titled.items() if t.startswith("Implement:"))
 
-    # --- the contract phase: author the spec, one human merges it ----------
+    # --- the contract run: author the spec, one human merges it ------------
     contract_impl = run_implement_from_issue(contract_issue, env)
     result["contract_implement"] = contract_impl
     contract_pr = pr_number(contract_impl["pr_url"])
@@ -342,7 +342,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
 def test_the_pm_filed_contract_then_implement(contract_first: dict):
     """The unattended sequencing: one intake dispatch filed exactly two
     tickets — the contract first, the implementation second — each naming its
-    own crew. No human command sat between the phases."""
+    own crew. No human command sat between the two runs."""
     titles = contract_first["ticket_titles"]
     assert len(titles) == 2, titles
     assert sum(t.startswith("Contract:") for t in titles.values()) == 1
@@ -393,7 +393,7 @@ def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict
 
 
 def test_contract_arc_had_exactly_one_human_act(contract_first: dict):
-    """The claim as an invariant: across both phases, the only
+    """The claim as an invariant: across both runs, the only
     human command was the contract merge. The implementation's merge was
     policy's, and nothing else asked for a person."""
     impl_story = audit_story(contract_first["implement_review_run_id"])
