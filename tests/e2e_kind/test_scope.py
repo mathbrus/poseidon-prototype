@@ -136,9 +136,11 @@ def test_the_backlog_cap_refuses_a_second_scope_by_name(scoped: dict):
     open ticket and one open — a ticket that is not the slice's, so the PM
     has every reason to scope — the PM's next `scope` is refused by the
     platform: a `heartbeat.decide` deny naming the cap, a refused tick,
-    and no second scope run. The profile swap sweeps the backlog, so the
-    unrelated ticket is filed after it."""
+    and no second scope run. The slice's own ticket is closed by number
+    first — the profile swap's sweep reads a listing the host may not have
+    caught up — and the unrelated ticket is filed after the swap."""
     env = scoped["env"]
+    close_issue(env, scoped["issue_number"])
     apply_profile(_scope_only(1), env)
     scoped["unrelated"] = file_ticket(
         env, f"housekeeping ({scoped['nonce']})", "Tidy the README wording."
