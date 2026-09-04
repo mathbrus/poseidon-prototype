@@ -142,6 +142,23 @@ deny_rules contains "crew_request_no_budget" if {{
 }}
 """
 
+# A crew member may ask for one architecture revision per run; the count
+# of requests this run already made rides the input, read by the gateway
+# off its own audit trail. Fail-safe: an absent count denies.
+ARCHITECTURE_REQUESTS_PER_RUN = 1
+_ARCHITECTURE_CAP_RULE = f"""
+# At most {ARCHITECTURE_REQUESTS_PER_RUN} architecture request per run.
+deny_rules contains "architecture_request_over_cap" if {{
+	input.tool == "architecture.request"
+	input.architecture_requests >= {ARCHITECTURE_REQUESTS_PER_RUN}
+}}
+
+deny_rules contains "architecture_request_count_missing" if {{
+	input.tool == "architecture.request"
+	not is_number(object.get(input, ["architecture_requests"], null))
+}}
+"""
+
 _PLATFORM = """
 # The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
@@ -567,7 +584,11 @@ def build_bundle(
     """The company bundle: per-role and per-ephemeral-agent files, plus the
     company's decision entrypoint and the blueprint's policy rules — all
     under the company's own package."""
-    files = {"authz.rego": _decision_file(company_package(company), _NO_BUDGET_RULE)}
+    files = {
+        "authz.rego": _decision_file(
+            company_package(company), _NO_BUDGET_RULE, _ARCHITECTURE_CAP_RULE
+        )
+    }
     for instance in instances:
         files[f"role_{rego_slug(instance.standing_name)}.rego"] = _role_file(
             company,

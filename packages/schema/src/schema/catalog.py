@@ -15,15 +15,17 @@ compiler error does.
 
 from dataclasses import dataclass
 
-from schema.tools import ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
+from schema.tools import ARCHITECTURE_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 
 # The agent host's units of work. A dispatch names one; a role declares
 # which it may run, and the host refuses the rest before any model call.
 PROCEDURES = ("scope", "decide", "implement", "deliver", "review")
 
-# The one role that writes the company's documents: the compiler exempts
-# it, and it alone, from the deny on the document paths.
+# The one role that writes the company's documents — the compiler exempts
+# it, and it alone, from the deny on the document paths — and the crew a
+# bootstrap ticket or an architecture request routes to.
 DOCUMENT_ROLE = "steward"
+DOCUMENT_CREW = "stewardship"
 
 
 @dataclass(frozen=True)
@@ -77,13 +79,15 @@ ROLES: dict[str, Role] = {
             "a pull request. Ephemeral agents only; standing counts are a "
             "compile error."
         ),
-        tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
+        tools=tuple(SANDBOX_TOOLS + ARCHITECTURE_TOOLS + ["git.open_pr"]),
         procedures=("implement", "deliver"),
     ),
     "reviewer": Role(
         name="reviewer",
         summary="Reads the diff, runs the tests, posts findings, gives a verdict.",
-        tools=tuple(SANDBOX_TOOLS + REVIEW_TOOLS + ["issues.comment"]),
+        tools=tuple(
+            SANDBOX_TOOLS + REVIEW_TOOLS + ARCHITECTURE_TOOLS + ["issues.comment"]
+        ),
         procedures=("review",),
     ),
     # Deliver-capable on purpose, unlike `reviewer`: the contract tree is
@@ -97,7 +101,7 @@ ROLES: dict[str, Role] = {
             "Writes the contract/acceptance tests a slice is graded by. "
             "Ephemeral agents only, like the implementer."
         ),
-        tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
+        tools=tuple(SANDBOX_TOOLS + ARCHITECTURE_TOOLS + ["git.open_pr"]),
         procedures=("implement", "deliver"),
     ),
     # The company's documents have one writer. The steward writes the
@@ -141,9 +145,8 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
         summary="One contract author delivering the acceptance tests for a slice.",
         roles=("contract-author",),
     ),
-    # The crew a bootstrap ticket or an architecture request routes to.
-    "stewardship": CrewTemplate(
-        name="stewardship",
+    DOCUMENT_CREW: CrewTemplate(
+        name=DOCUMENT_CREW,
         summary="One steward delivering a company document.",
         roles=(DOCUMENT_ROLE,),
     ),

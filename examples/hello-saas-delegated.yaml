@@ -55,6 +55,7 @@ tools:
       - git.read
       - git.comment
       - issues.comment
+      - architecture.request
 
 workflows:
   implement:

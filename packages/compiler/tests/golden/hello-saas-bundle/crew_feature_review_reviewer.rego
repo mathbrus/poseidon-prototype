@@ -6,6 +6,16 @@ package poseidon.authz.hello_saas
 import rego.v1
 
 # feature-review/reviewer: ephemeral reviewer of the feature-review crew.
+allow_rules contains "crew_feature_review_reviewer_architecture_request" if {
+	input.lifecycle == "ephemeral"
+	input.company == "hello-saas"
+	input.crew_template == "feature-review"
+	input.role == "reviewer"
+	input.tool == "architecture.request"
+	bound_to_run
+}
+
+# feature-review/reviewer: ephemeral reviewer of the feature-review crew.
 allow_rules contains "crew_feature_review_reviewer_git_comment" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"

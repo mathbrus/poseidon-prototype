@@ -6,6 +6,7 @@ import threading
 
 import pytest
 from conftest import (
+    ARCHITECTURE_TICKET_URL,
     COMMENT_URL,
     PR_URL,
     RUN_ID,
@@ -202,7 +203,14 @@ def test_prompt_and_toolsets_per_phase(settings, gateway):
     assert "carry it out" not in task_message  # no delivery talk while acting
 
     offered = set(llm.offered(0)) - {"finish", "think"}
-    assert offered == {"list_dir", "read_file", "write_file", "edit_file", "exec"}
+    assert offered == {
+        "list_dir",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "exec",
+        "request_architecture",
+    }
     assert "open_pr" not in llm.offered(0)  # no delivery tool, ever, here
     # The read tools declare themselves read-only, which also keeps the
     # SDK's security_risk parameter out of their schemas.
@@ -536,6 +544,36 @@ def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
     system = text_of(llm.requests[0][0][0])
     assert system.startswith("# Poseidon procedure: scope")
     assert "<EFFICIENCY>" not in system
+
+
+def test_an_architecture_request_is_a_gateway_call_and_a_ticket_of_the_run(
+    settings, gateway
+):
+    """The hand resolves to `architecture.request` under the run's identity
+    — no crew, no repository chosen by the model — and the ticket the
+    platform filed rides the run record like a PM's."""
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc(
+                    "request_architecture",
+                    rationale="one module is not enough",
+                    proposal="allow two",
+                )
+            ),
+            says("Requested a change to the plan; stopping."),
+        ]
+    )
+    with scripted(gateway, llm):
+        result = run_implement(settings, RUN_ID, TASK)
+    (tool, args) = next(c for c in gateway.calls if c[0] == "architecture.request")
+    assert args == {
+        "run_id": RUN_ID,
+        "rationale": "one module is not enough",
+        "proposal": "allow two",
+    }
+    assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
+    assert result.pr_url is None
 
 
 def test_the_documents_are_untrusted_context_for_implement_and_review(settings, gateway):

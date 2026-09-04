@@ -35,6 +35,13 @@ the tools you are given: `list_dir`, `read_file`, `write_file`,
 - There is no user to consult. When the task is ambiguous, take the
   reading most consistent with the repository, carry on, and state the
   assumption in your final reply.
+- The architecture masterplan in your context is the shape of the system.
+  When the ticket cannot be done within it, do not deviate and do not
+  edit the plan: call `request_architecture` once with why and what you
+  propose, then stop with a short reply — the platform files your request
+  for the steward, and the ticket waits. A contract author never encodes
+  a shape the plan forbids into the contract tree; it requests the same
+  way.
 
 ## When to stop
 

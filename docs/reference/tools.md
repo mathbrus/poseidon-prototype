@@ -50,6 +50,16 @@ tickets under its own identity.
 
 <!-- gen: tools:issues -->
 
+## Architecture requests
+
+A crew member's one way to change the architecture masterplan: the
+proposal is filed by the platform as a stewardship ticket on the company's
+repository — the caller chooses neither the crew nor the repository — and
+the steward revises the plan on a later tick. One request per run, bound
+to the run like a sandbox call. Asking is not writing.
+
+<!-- gen: tools:architecture -->
+
 ## Not tools: the admin routes
 
 The gateway also serves two plain HTTP routes, `POST` and

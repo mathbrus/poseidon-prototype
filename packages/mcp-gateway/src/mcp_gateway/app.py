@@ -306,6 +306,19 @@ def create_app(
 
     # -- issues, review, merge, crew intent ---------------------------------
 
+    @mcp.tool(name="architecture.request")
+    async def architecture_request(
+        run_id: str, rationale: str, proposal: str, ctx: Context
+    ) -> dict[str, Any]:
+        """Ask for a change to the architecture masterplan. The platform files
+        the proposal as a stewardship ticket on the company's repository — the
+        caller chooses neither the crew nor the repository — and the steward
+        revises the plan on a later tick. One request per run; asking is not
+        writing."""
+        return await service.architecture_request(
+            identity_of(ctx), run_id, rationale, proposal
+        )
+
     @mcp.tool(name="issues.create")
     async def issues_create(
         run_id: str, repo: str, title: str, body: str, ctx: Context

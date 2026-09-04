@@ -41,8 +41,15 @@ from common.text import numbered_lines
 # Per-procedure tool surfaces — the structural guarantee: implement has
 # no `open_pr` (delivery before the platform verify gate is impossible by
 # construction); review writes nothing but its findings comment.
-IMPLEMENT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
-DELIVER_TOOLS = IMPLEMENT_TOOLS + ["open_pr"]
+IMPLEMENT_TOOLS = [
+    "list_dir",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "exec",
+    "request_architecture",
+]
+DELIVER_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec", "open_pr"]
 SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
 REVIEW_TOOLS = [
     "list_dir",
@@ -51,6 +58,7 @@ REVIEW_TOOLS = [
     "run_tests",
     "read_pr",
     "comment_pr",
+    "request_architecture",
     "verdict",
 ]
 # The tools that address the run's sandbox: a procedure holding any of
@@ -169,6 +177,14 @@ class ReadIssuesAction(Action):
     number: int | None = Field(
         default=None, description="Optional issue number; omit for the open backlog."
     )
+
+
+class RequestArchitectureAction(Action):
+    rationale: str = Field(
+        description="Why the architecture masterplan is wrong or incomplete for "
+        "this work, grounded in what you found."
+    )
+    proposal: str = Field(description="The change to the masterplan you propose.")
 
 
 class ReadPrAction(Action):
@@ -306,6 +322,20 @@ def _read_issues(ctx: HandsContext, a: ReadIssuesAction) -> dict[str, Any]:
     )
 
 
+def _request_architecture(
+    ctx: HandsContext, a: RequestArchitectureAction
+) -> dict[str, Any]:
+    result = ctx.bridge.call(
+        "architecture.request",
+        {"run_id": ctx.run_id, "rationale": a.rationale, "proposal": a.proposal},
+    )
+    # The stewardship ticket the platform filed is a ticket this run
+    # produced: it rides the run record like the PM's.
+    if result.get("url"):
+        ctx.records.ticket_urls.append(result["url"])
+    return result
+
+
 def _read_pr(ctx: HandsContext, a: ReadPrAction) -> dict[str, Any]:
     return ctx.bridge.call(
         "git.read",
@@ -424,6 +454,14 @@ _TOOLS: dict[str, ToolSpec] = {
         ReadIssuesAction,
         _read_issues,
         read_only=True,
+    ),
+    "request_architecture": ToolSpec(
+        "Ask for a change to the architecture masterplan. The platform files "
+        "your proposal as a ticket for the steward; the plan does not change "
+        "in this run, and you may ask once. Use it when the work you were "
+        "given contradicts the plan — then stop rather than deviate.",
+        RequestArchitectureAction,
+        _request_architecture,
     ),
     "read_pr": ToolSpec(
         "Read a pull request: metadata plus the changed files with their patches.",

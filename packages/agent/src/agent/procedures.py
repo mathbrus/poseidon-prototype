@@ -431,7 +431,7 @@ def run_implement(
     with _session(
         settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP, documents
     ) as s:
-        convo = s.convo
+        convo, records = s.convo, s.records
         convo.send_message(_act_prompt(task_text, s.workspace.entries))
         iterations = 0
         while True:
@@ -440,6 +440,7 @@ def run_implement(
                 return ProcedureResult(
                     iterations=iterations,
                     error=f"{failure} (after {iterations} verify cycles)",
+                    ticket_urls=records.ticket_urls,
                 )
             iterations += 1
             try:
@@ -452,11 +453,14 @@ def run_implement(
                 # Advisory green = the completion claim: the platform verify
                 # is the gate of record, and the workflow directs delivery
                 # in a separate dispatch.
-                return ProcedureResult(iterations=iterations)
+                return ProcedureResult(
+                    iterations=iterations, ticket_urls=records.ticket_urls
+                )
             if iterations >= VERIFY_CYCLES:
                 return ProcedureResult(
                     iterations=iterations,
                     error=f"tests still failing after {iterations} iterations",
+                    ticket_urls=records.ticket_urls,
                 )
             convo.send_message(_test_report(result) + "\n\nFix the failures.")
 

@@ -39,3 +39,14 @@ deny_rules contains "crew_request_no_budget" if {
 	input.tool == "crew.request"
 	input.budget_headroom == false
 }
+
+# At most 1 architecture request per run.
+deny_rules contains "architecture_request_over_cap" if {
+	input.tool == "architecture.request"
+	input.architecture_requests >= 1
+}
+
+deny_rules contains "architecture_request_count_missing" if {
+	input.tool == "architecture.request"
+	not is_number(object.get(input, ["architecture_requests"], null))
+}

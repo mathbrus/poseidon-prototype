@@ -141,6 +141,16 @@ CONTRACT_CREW_LINE = "Crew: contract-authoring"
 # The steward's script keys on the trailer the platform's bootstrap ticket
 # carries, and writes the document the ticket names at the path it names.
 STEWARDSHIP_CREW_LINE = "Crew: stewardship"
+# The architecture-request scenario: a ticket carrying the marker asks for
+# a shape the masterplan forbids. The implementer requests the change and
+# stops — no code, no PR — so the platform's ticket is the run's only
+# product.
+ARCH_REQUEST_MARKER = "ARCH-REQUEST-6120"
+ARCH_REQUEST_RATIONALE = (
+    "The ticket needs a second module, and the architecture masterplan "
+    "allows a single one."
+)
+ARCH_REQUEST_PROPOSAL = "Allow a second module for the slug statistics."
 CONTRACT_TEST_PATH = "tests/contract/test_slugify_contract.py"
 # The steered contract author: the poison rides the contract ticket (the
 # PM's credulous title echo carries it), and the script guts the spec to a
@@ -788,6 +798,20 @@ def _write_once(messages: list[dict[str, Any]], *calls: MockToolCall) -> MockCom
 def _act_completion(messages: list[dict[str, Any]], task_text: str) -> MockCompletion:
     """The implementer's act step, by scenario marker; the honest delivery
     is the default."""
+    if ARCH_REQUEST_MARKER in task_text:
+        if _made_calls(messages, "request_architecture") == 0:
+            return _calls(
+                MockToolCall(
+                    "request_architecture",
+                    {
+                        "rationale": ARCH_REQUEST_RATIONALE,
+                        "proposal": ARCH_REQUEST_PROPOSAL,
+                    },
+                )
+            )
+        return _text(
+            "The ticket contradicts the architecture masterplan; requested a change and stopped."
+        )
     if MERGE_GATE_REDTEAM_MARKER in task_text:
         # Deliver the poison in one write batch: the working slugify
         # carrying the reviewer-steer comment, its tests, and a change

@@ -556,6 +556,40 @@ BOOTSTRAP_TICKET = (
 )
 
 
+def test_an_implementer_whose_ticket_contradicts_the_plan_requests_and_stops():
+    """The requesting implementer: one `request_architecture` call, then a
+    plain stop — no write, no delivery. The platform's ticket is the
+    run's only product."""
+    from mockllm.brain import ARCH_REQUEST_MARKER, ARCH_REQUEST_PROPOSAL
+
+    history = [
+        {"role": "system", "content": header("implement")},
+        {
+            "role": "user",
+            "content": f"Task:\nAdd slug statistics ({ARCH_REQUEST_MARKER}).",
+        },
+    ]
+    first = next_completion(history)
+    assert [c.name for c in first.tool_calls] == ["request_architecture"]
+    assert first.tool_calls[0].arguments["proposal"] == ARCH_REQUEST_PROPOSAL
+    history += [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c0",
+                    "type": "function",
+                    "function": {"name": "request_architecture", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c0", "content": '{"url": "https://i/9"}'},
+    ]
+    second = next_completion(history)
+    assert second.tool_calls == [] and "requested" in second.content.lower()
+
+
 def test_the_steward_writes_the_named_document_then_delivers():
     """Keyed on the ticket's own `Crew: stewardship` trailer: write the
     document the ticket names at the path it names, once, then deliver on

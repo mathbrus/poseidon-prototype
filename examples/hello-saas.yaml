@@ -57,6 +57,7 @@ tools:
       - git.read
       - git.comment
       - issues.comment
+      - architecture.request
       # --8<-- [end:tools]
 
 # The two crewed workflows: which crew fulfils each, the bounds it reads

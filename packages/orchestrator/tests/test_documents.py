@@ -7,7 +7,6 @@ from common.text import UNTRUSTED_CLIP
 from orchestrator.activities.documents import (
     ABSENT,
     BOOTSTRAP_TITLES,
-    STEWARDSHIP_CREW,
     bootstrap_body,
     present_texts,
     read_documents,
@@ -64,7 +63,6 @@ def test_sections_state_absence_and_dispatches_carry_only_present_texts():
 def test_the_bootstrap_ticket_is_the_stewards_whole_brief():
     """The platform-filed ticket names the file, the branch and the crew:
     the steward reads tickets, not this module."""
-    assert STEWARDSHIP_CREW == "stewardship"
     assert BOOTSTRAP_TITLES == {
         "strategy": "Bootstrap: strategy",
         "architecture": "Bootstrap: architecture masterplan",

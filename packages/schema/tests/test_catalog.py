@@ -84,6 +84,16 @@ def test_contract_author_is_a_distinct_deliver_capable_role():
     assert "contract-author" not in CREW_TEMPLATES["feature-delivery"].roles
 
 
+def test_every_crew_member_may_ask_for_an_architecture_change():
+    """Asking is not writing: the implementer, reviewer and contract
+    author hold `architecture.request`; the steward writes the plan and
+    the PM files tickets with its own tools."""
+    for name in ("implementer", "reviewer", "contract-author"):
+        assert "architecture.request" in ROLES[name].tools, name
+    for name in ("pm", DOCUMENT_ROLE):
+        assert "architecture.request" not in ROLES[name].tools, name
+
+
 def test_the_steward_is_a_distinct_deliver_capable_role():
     """The company's documents have one writer: a role the compiled
     document fences can name without naming the implementer, delivering

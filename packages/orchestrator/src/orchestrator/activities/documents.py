@@ -14,7 +14,7 @@ from typing import Any
 from common.text import clip
 from orchestrator.clients import GatewayClient
 from registry import Companies
-from schema.catalog import CREW_TEMPLATES, DOCUMENT_ROLE
+from schema.catalog import DOCUMENT_CREW
 
 # The two documents, in the order the observation renders them; the
 # headers are the contract the mock brain parses.
@@ -22,11 +22,6 @@ DOCUMENTS = ("strategy", "architecture")
 HEADERS = {"strategy": "Strategy:", "architecture": "Architecture masterplan:"}
 ABSENT = "(absent)"
 
-# The crew that writes a document — the one whose single role is the
-# steward — and the trailer a bootstrap ticket routes by.
-STEWARDSHIP_CREW = next(
-    name for name, crew in CREW_TEMPLATES.items() if crew.roles == (DOCUMENT_ROLE,)
-)
 # The fixed titles of the tickets the platform files for an absent
 # document: what the observation matches an open ticket against, so a
 # document is never bootstrapped twice.
@@ -58,7 +53,7 @@ def bootstrap_body(name: str, path: str, branch: str) -> str:
         f"{what}\n\nCreate the file `{path}` with that document and nothing "
         f"else.\n\nDeliver your work on the branch `{branch}`.\n\n"
         f"Filed by the platform: the document is absent on the base ref.\n\n"
-        f"Crew: {STEWARDSHIP_CREW}"
+        f"Crew: {DOCUMENT_CREW}"
     )
 
 

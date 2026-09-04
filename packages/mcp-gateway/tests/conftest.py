@@ -150,6 +150,17 @@ class Backends:
         ):
             if tool.startswith("sandbox.") and policy_input.get("run_binding_verified"):
                 return {"allow": True, "rule": f"role_implementer_{tool}"}
+            if tool == "architecture.request" and policy_input.get(
+                "run_binding_verified"
+            ):
+                # The compiled per-run cap, reading the enriched count
+                # exactly like the real bundle.
+                if policy_input.get("architecture_requests", 1) >= 1:
+                    return {"allow": False, "rule": "architecture_request_over_cap"}
+                return {
+                    "allow": True,
+                    "rule": f"crew_feature_delivery_implementer_{tool}",
+                }
             if tool == "git.open_pr":
                 branch = args.get("branch", "")
                 if branch.lower() in {"main", "master"}:

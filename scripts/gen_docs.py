@@ -144,6 +144,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
     + tools.REVIEW_TOOLS
     + tools.PLATFORM_TOOLS,
     "issues": tools.ISSUE_TOOLS,
+    "architecture": tools.ARCHITECTURE_TOOLS,
 }
 
 

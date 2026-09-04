@@ -36,6 +36,8 @@ from registry import (
     Runs,
     SandboxRegistrations,
 )
+from schema.catalog import DOCUMENT_CREW
+from schema.tools import ARCHITECTURE_TOOLS
 
 # tool name -> sandbox tool-server route
 SANDBOX_ROUTES = {
@@ -53,6 +55,9 @@ class PolicyDenied(Exception):
     def __init__(self, rule: str | None) -> None:
         self.rule = rule or "unknown"
         super().__init__(f"denied by policy rule: {self.rule}")
+
+
+(ARCHITECTURE_REQUEST,) = ARCHITECTURE_TOOLS
 
 
 class BackendError(Exception):
@@ -231,6 +236,18 @@ class GatewayService:
             if not (identity.parent_agent_id and identity.crew_template):
                 return None
             policy_input["crew_template"] = identity.crew_template
+        if tool == ARCHITECTURE_REQUEST:
+            # The per-run cap reads how many requests this run already
+            # filed — off the gateway's own audit trail, the one record it
+            # writes, so the fact needs no new store.
+            story = await asyncio.to_thread(self._audit_store.story, run_id)
+            policy_input["architecture_requests"] = sum(
+                1
+                for e in story
+                if e["tool"] == ARCHITECTURE_REQUEST
+                and e["decision"] == "allow"
+                and e["backend_status"] == "ok"
+            )
         return policy_input
 
     async def proxy_sandbox(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -369,6 +386,36 @@ class GatewayService:
             prepared.cleanup()
 
     # -- issues + review + merge ------------------------------------------
+
+    async def architecture_request(
+        self, identity: Identity, run_id: str, rationale: str, proposal: str
+    ) -> Any:
+        """Record a crew member's proposal for the architecture masterplan
+        as a stewardship ticket, filed by the platform on the company's
+        repository: the caller chooses neither the crew nor the repository,
+        and the ticket is the record — the audit event its receipt."""
+        args = {"run_id": run_id, "rationale": rationale, "proposal": proposal}
+
+        async def backend() -> Any:
+            spec = await asyncio.to_thread(self._companies.get, identity.company or "")
+            if not spec:
+                raise BackendError(
+                    f"no applied blueprint for company {identity.company!r}"
+                )
+            headline = (proposal.strip().splitlines() or ["(no proposal)"])[0][:80]
+            title = f"Architecture request from run {run_id}: {headline}"
+            body = (
+                f"Rationale:\n{rationale.strip()}\n\n"
+                f"Proposal:\n{proposal.strip()}\n\n"
+                "Revise the architecture masterplan accordingly, or decline "
+                "in the pull request and say why.\n\n"
+                f"Filed by the platform for run {run_id} at the request of "
+                f"{identity.agent_id}.\n\n"
+                f"Crew: {DOCUMENT_CREW}"
+            )
+            return await self._git.create_issue(spec["repo"]["url"], title, body)
+
+        return await self.call(identity, ARCHITECTURE_REQUEST, args, backend)
 
     async def issues_create(
         self, identity: Identity, run_id: str, repo: str, title: str, body: str

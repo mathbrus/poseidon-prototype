@@ -12,6 +12,7 @@ from conftest import (
     WORKER_TOKEN,
     audit_events,
     mcp_session,
+    register_sandbox,
 )
 
 pytestmark = pytest.mark.anyio
@@ -164,6 +165,51 @@ async def test_reviewer_cannot_merge_or_open_issues(app, participants):
             {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b"},
         )
     assert merge.isError and create.isError
+
+
+# -- architecture.request (asking is not writing) ----------------------------
+
+
+async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backends, audit):
+    """The bound implementer asks once: the platform files the proposal as
+    a ticket on the company's repository with the stewardship trailer —
+    the caller named neither — and the audit event is the receipt. The
+    second ask in the same run is denied by the compiled cap, read off
+    that receipt."""
+    await register_sandbox(app, RUN_ID)  # the run the caller is bound to
+    async with mcp_session(app, AGENT_TOKEN) as session:
+        first = payload(
+            await session.call_tool(
+                "architecture.request",
+                {
+                    "run_id": RUN_ID,
+                    "rationale": "the plan allows one module",
+                    "proposal": "Allow a second module.\nFor the statistics.",
+                },
+            )
+        )
+        second = await session.call_tool(
+            "architecture.request",
+            {"run_id": RUN_ID, "rationale": "again", "proposal": "again"},
+        )
+    assert first["url"] == "https://github.test/i/7"
+    path, body, _ = backends.github_calls[-1]
+    assert path.endswith("/issues")
+    assert (
+        body["title"] == f"Architecture request from run {RUN_ID}: Allow a second module."
+    )
+    assert body["body"].endswith("Crew: stewardship")
+    assert "the plan allows one module" in body["body"]
+    assert second.isError and "architecture_request_over_cap" in second.content[0].text
+    events = [e for e in audit_events(audit) if e["tool"] == "architecture.request"]
+    assert [e["decision"] for e in events] == ["allow", "deny"]
+    assert backends.policy_inputs[-1]["architecture_requests"] == 1
+
+    async with mcp_session(app, PM_TOKEN) as session:
+        pm = await session.call_tool(
+            "architecture.request", {"run_id": RUN_ID, "rationale": "r", "proposal": "p"}
+        )
+    assert pm.isError, "the PM reached architecture.request"
 
 
 # -- repo.read_file (platform only) ------------------------------------------

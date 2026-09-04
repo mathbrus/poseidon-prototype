@@ -801,6 +801,40 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
     assert as_reviewer["allow"] is False
 
 
+# -- architecture requests ----------------------------------------------------
+
+
+def test_one_architecture_request_per_run(decide):
+    """A bound crew member may ask once per run — the count rides the
+    input from the gateway's own audit trail — and never without the
+    count; the PM, who files tickets itself, has no such tool."""
+
+    def request(role: str, crew: str, **extra: dict) -> dict:
+        return {
+            **ephemeral(crew, role, tool="architecture.request", args={"proposal": "p"}),
+            "run_binding_verified": True,
+            **extra,
+        }
+
+    first = decide(**request("implementer", "feature-delivery", architecture_requests=0))
+    assert first["allow"] is True
+    reviewer = decide(**request("reviewer", "feature-review", architecture_requests=0))
+    assert reviewer["allow"] is True
+    second = decide(**request("implementer", "feature-delivery", architecture_requests=1))
+    assert second == {"allow": False, "rule": "architecture_request_over_cap"}
+    uncounted = decide(**request("implementer", "feature-delivery"))
+    assert uncounted == {"allow": False, "rule": "architecture_request_count_missing"}
+    unbound = decide(
+        **{
+            **request("implementer", "feature-delivery", architecture_requests=0),
+            "run_binding_verified": False,
+        }
+    )
+    assert unbound["allow"] is False
+    pm = decide(**standing("pm", tool="architecture.request", args={"proposal": "p"}))
+    assert pm["allow"] is False
+
+
 # -- the company's documents ---------------------------------------------------
 
 
