@@ -3,10 +3,13 @@
 # authority, and a person who starts each run and answers the merge gate.
 apiVersion: poseidon.dev/v1
 
+# --8<-- [start:company]
 company:
   name: hello-saas
   mission: Ship a small SaaS product with an agent company under governance.
+  # --8<-- [end:company]
 
+# --8<-- [start:stack]
 stack:
   # The one repository this company works on, and the branch its changes
   # are measured and delivered against.
@@ -19,7 +22,9 @@ stack:
     egress_allow:
       - pypi.org
       - files.pythonhosted.org
+      # --8<-- [end:stack]
 
+# --8<-- [start:standing]
 standing:
   pm:
     role: pm
@@ -27,11 +32,13 @@ standing:
     may_spawn:
       crew: [feature-delivery, feature-review]
       max_concurrent: 2
+      # --8<-- [end:standing]
 
 # The one place a role's scope is narrowed, for standing and ephemeral
 # agents of the role alike; a role not listed keeps its catalog tools.
 # The reviewer drops the write tools its catalog role would allow: it
 # judges, it does not fix.
+# --8<-- [start:tools]
 tools:
   reviewer:
     allow:
@@ -42,7 +49,9 @@ tools:
       - git.read
       - git.comment
       - issues.comment
+      # --8<-- [end:tools]
 
+# --8<-- [start:workflows]
 workflows:
   intake:
     enabled: true
@@ -61,16 +70,21 @@ workflows:
         resolved_by: human
         # A working day for the person who answers; escalation at half.
         deadline_minutes: 1440
+        # --8<-- [end:workflows]
 
+# --8<-- [start:policies]
 policies:
   branch_protection:
     protected: [main]
     allowed_pattern: ^feature/[a-z0-9-]+$
   deny_paths:
     - .github/workflows/
+    # --8<-- [end:policies]
 
+# --8<-- [start:budgets]
 budgets:
   per_run:
     usd: 5
     # How long a run stopped at the cap waits for someone to raise it.
     pause_minutes: 60
+    # --8<-- [end:budgets]

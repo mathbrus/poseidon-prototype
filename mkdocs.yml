@@ -11,13 +11,13 @@ repo_url: https://github.com/mathbrus/poseidon-prototype
 repo_name: mathbrus/poseidon-prototype
 edit_uri: edit/master/docs/
 
-# A broken link, an orphaned page or a missing snippet fails the build.
+# A broken link, a missing anchor, an orphaned page or a missing snippet
+# fails the build.
 strict: true
+validation:
+  anchors: warn
 
 docs_dir: docs
-exclude_docs: |
-  .*
-  _source/
 
 theme:
   name: material
@@ -59,6 +59,7 @@ markdown_extensions:
   - pymdownx.snippets:
       base_path: [.]
       check_paths: true
+      dedent_subsections: true
 
 plugins:
   - search
@@ -68,9 +69,35 @@ plugins:
 
 nav:
   - Home: index.md
+  - The argument:
+      - The problem: argument/problem.md
+      - The core idea: argument/core-idea.md
+      - Anatomy of a run: argument/anatomy.md
+      - What it can do: argument/can.md
+      - What it cannot do: argument/cannot.md
+      - Further reading: argument/reading.md
+  - Concepts:
+      - concepts/index.md
+      - MCP: concepts/mcp.md
+      - OPA and Rego: concepts/opa.md
+      - Workload identity: concepts/workload-identity.md
+      - NetworkPolicy: concepts/network-policy.md
+      - Temporal: concepts/temporal.md
+      - Standing vs. ephemeral agents: concepts/standing-vs-ephemeral.md
+  - Guides:
+      - Getting started: guides/getting-started.md
+      - Hand over the keys: guides/hand-over.md
+      - Use a real model: guides/real-llm.md
+      - Run the acceptance suite: guides/acceptance.md
   - Reference:
+      - Architecture: reference/architecture.md
       - The blueprint: reference/blueprint.md
       - Roles and crews: reference/roles.md
       - Tools: reference/tools.md
       - CLI: reference/cli.md
       - Temporal contract: reference/temporal.md
+      - Policy and audit: reference/policy.md
+  - Developing:
+      - Contributing: developing/contributing.md
+      - Packages: developing/packages.md
+  - Glossary: glossary.md

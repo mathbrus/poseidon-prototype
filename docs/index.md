@@ -50,7 +50,8 @@ bar in five places:
 This is a working prototype, and it is honest about the distance still to
 travel. The destination is a company that lives in the cloud and actuates on
 the real world — customers, mail, money — not just a repository. Today it
-reaches code, under governance, on a local cluster.
+reaches code, under governance, on a local cluster. [What it cannot do](argument/cannot.md)
+is deliberately specific about the gap.
 
 !!! note "Status: working prototype"
     Every capability described here is exercised by the end-to-end suite
@@ -61,12 +62,12 @@ reaches code, under governance, on a local cluster.
 
 ## How to read this site
 
-**The argument** is written to be read start to finish. It teaches the
+[**The argument**](argument/problem.md) is written to be read start to finish. It teaches the
 ideas first, then shows where each one lives in the code. If you have never
-worked with MCP, OPA, or Kubernetes NetworkPolicy, **Concepts** is there to
+worked with MCP, OPA, or Kubernetes NetworkPolicy, [**Concepts**](concepts/index.md) is there to
 teach you, not to name-drop.
 
 If you would rather *use* it than understand it first, start with the
-**Guides**. When you need to look something up — a blueprint field, a CLI
-flag, which role holds which tool — that is what **Reference** is for, and
+[**Guides**](guides/getting-started.md). When you need to look something up — a blueprint field, a CLI
+flag, which role holds which tool — that is what [**Reference**](reference/blueprint.md) is for, and
 those pages are generated from the code so they cannot drift from it.

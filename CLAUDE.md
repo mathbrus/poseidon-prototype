@@ -61,6 +61,7 @@ One name per concept, everywhere: code, comments, docs, tests, CRs.
 Check new names against this table; if a concept is missing, add it here
 first.
 
+<!-- --8<-- [start:glossary] -->
 | Term | Meaning | Not |
 |---|---|---|
 | **role** | a catalog entry: tool ceiling, spawn authority, the procedures it may run — `pm`, `implementer`, `reviewer`, `contract-author` | role template, executor, engineer, sdet, author, tier |
@@ -75,6 +76,7 @@ first.
 | **workflow** | a Temporal workflow = a blueprint section: `intake`, `implement`, `review`, `heartbeat` | family |
 | **goal / task / observation** | the text in flight, by origin: intake scopes a goal, implement works a task, the heartbeat decides on an observation | brief |
 | **profile** | the deployment's activity-bound sizing (`TIMEOUT_PROFILE`: `default` for a paid brain, `fast` for the mock), learned by every workflow from its first config activity | fast timeouts, timeouts on the input |
+<!-- --8<-- [end:glossary] -->
 
 ## Working rules
 
