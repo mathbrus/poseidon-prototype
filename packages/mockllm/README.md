@@ -68,7 +68,7 @@ the header gets a plain reply saying so.
 
 | Procedure | Scripted behaviour |
 |---|---|
-| `decide` | a single completion naming one action from the observation, with a rationale |
+| `decide` | a single completion naming one action from the observation, with a rationale: review a delivered PR, else implement the first open ticket, else `scope` when the strategy names a slice no open ticket covers yet (offered or not — a consumed ticket is the slice's already), else idle |
 | `scope` | when the observation's strategy names an open slice (`NEXT_SLICE_MARKER`), file one ticket (an ordered contract-then-implement pair under a contract-first strategy), post the one-paragraph summary as a comment on each ticket filed (numbers read back from the `create_issue` observations), then stop; otherwise file nothing |
 | `review` | read the PR diff, run the suite, post one findings comment, end with a structured verdict (injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read; findings and then silence — no verdict at all — on `REVIEW_ABORT_MARKER`) |
 | `implement` | write `slugify.py` + its test once, then answer in plain text — which ends the SDK conversation so the host runs the advisory verify |

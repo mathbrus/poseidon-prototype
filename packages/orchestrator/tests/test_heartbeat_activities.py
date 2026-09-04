@@ -468,11 +468,27 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
         filed.append((run_id, repo, title, body))
         return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
 
+    # The git host lists the ticket a beat after creating it: the first
+    # read-back misses it, the second finds it, and only then does the
+    # filing return — the next tick's listing cannot miss what it filed.
+    listings = iter([[], [_bootstrap_issue("strategy", 9)]])
+
+    async def read_open_issues(self, run_id, repo):
+        return next(listings)
+
     import orchestrator.activities.heartbeat as module
 
-    monkeypatch.setattr(module, "GatewayClient", fake_gateway(create_issue=create_issue))
+    monkeypatch.setattr(module, "LISTING_SETTLE_S", 0)
+    monkeypatch.setattr(
+        module,
+        "GatewayClient",
+        fake_gateway(create_issue=create_issue, read_open_issues=read_open_issues),
+    )
     urls = asyncio.run(activities.heartbeat_bootstrap(["strategy"]))
     assert urls == ["https://github.test/example/repo/issues/9"]
+    assert next(listings, None) is None, (
+        "the filing returned before its ticket was listed"
+    )
     ((run_id, repo, title, body),) = filed
     assert (run_id, repo, title) == (
         f"heartbeat-{COMPANY}",

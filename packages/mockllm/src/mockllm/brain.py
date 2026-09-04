@@ -473,6 +473,16 @@ def _pr_opened(messages: list[dict[str, Any]]) -> bool:
     )
 
 
+def names_open_slice(strategy: str) -> bool:
+    """Whether the strategy names a slice to scope: the open slice, the
+    contract-first pair, or the injected conductor's bait. The resting
+    strategy names none, and the loop idles on it."""
+    return any(
+        marker in strategy
+        for marker in (NEXT_SLICE_MARKER, CONTRACT_FIRST_MARKER, CONDUCTOR_MARKER)
+    )
+
+
 def strategy_text(observation: str) -> str:
     """The strategy section of an observation, as the orchestrator renders
     it — the PM's source for the next slice. The whole text when the
@@ -567,7 +577,7 @@ def _pm_completion(messages: list[dict[str, Any]]) -> MockCompletion:
     strategy = strategy_text(text)
     poisoned = CONDUCTOR_MARKER in strategy
     contract_first = CONTRACT_FIRST_MARKER in strategy
-    if NEXT_SLICE_MARKER not in strategy and not poisoned and not contract_first:
+    if not names_open_slice(strategy):
         return _text("Nothing to scope: the strategy names no open slice.")
     plan: list[MockToolCall] = []
     if poisoned:
@@ -595,16 +605,40 @@ PR_NUMBER_RE = re.compile(r"pull request #(\d+)")
 # decision_prompt composes them); the scripted policy mirrors the decide
 # prompt's own advice — finish before starting: review a delivered PR if
 # one is waiting, else implement the first open ticket, else scope when
-# the strategy names an open slice, else idle.
+# the strategy names an open slice no ticket covers yet, else idle.
 _SECTION_ITEM_RE = re.compile(r"^#(\d+)", re.M)
 
 
-def _section_numbers(text: str, header: str) -> list[int]:
+def _section_lines(text: str, header: str) -> list[str]:
     _, found, rest = text.partition(header)
     if not found:
         return []
     section = rest.split("\n\n", 1)[0]
-    return [int(n) for n in _SECTION_ITEM_RE.findall(section)]
+    return [line for line in section.splitlines() if line and line != "(none)"]
+
+
+def _section_numbers(text: str, header: str) -> list[int]:
+    return [
+        int(n) for n in _SECTION_ITEM_RE.findall("\n".join(_section_lines(text, header)))
+    ]
+
+
+# The observation's own count of open tickets on the repository, offered
+# or not; the section below it lists only the offered ones.
+_OPEN_TICKETS_RE = re.compile(r"Open tickets on the repository: (\d+)")
+
+
+def _slice_unticketed(text: str) -> bool:
+    """Whether scoping would file the slice's first ticket: no offered
+    ticket carries the slice's title, and no open ticket is off the
+    backlog — a ticket with a run on it, delivered or in flight, is the
+    slice's already. A bare prompt without the count line reads as nothing
+    consumed."""
+    offered = _section_lines(text, "Open tickets:")
+    if any(SLICE_TITLE in line for line in offered):
+        return False
+    match = _OPEN_TICKETS_RE.search(text)
+    return match is None or int(match.group(1)) == len(offered)
 
 
 def _startable(text: str) -> str:
@@ -631,10 +665,14 @@ def _decide_completion(messages: list[dict[str, Any]]) -> MockCompletion:
             f"RATIONALE: ticket #{tickets[0]} is the oldest open work and "
             "nothing is waiting on review."
         )
-    if "scope" in startable and NEXT_SLICE_MARKER in strategy_text(text):
+    if (
+        "scope" in startable
+        and names_open_slice(strategy_text(text))
+        and _slice_unticketed(text)
+    ):
         return _text(
             "DECISION: scope\n"
-            "RATIONALE: the backlog is empty and the strategy names an open slice."
+            "RATIONALE: the strategy names an open slice and no ticket covers it."
         )
     return _text("DECISION: idle\nRATIONALE: nothing in the observation is startable.")
 

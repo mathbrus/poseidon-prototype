@@ -1,7 +1,7 @@
 """Budget enforcement, end to end, on kind.
 
-A blueprint edit shrinks hello-saas's per-run cap to a value the mock
-brain's second model call must exceed; the LLM gateway hard-stops the run
+A blueprint edit shrinks hello-saas's per-run cap to a value the run's
+second implementer call must exceed; the LLM gateway hard-stops the run
 the heartbeat started (`budget_exhausted`, audited, never silent), the
 implement workflow pauses into an API-visible `paused-budget_exhausted`
 state, a rejection signal finalizes it, the ledger fully attributes the
@@ -55,11 +55,13 @@ from .conftest import (
     wake_until_run_started,
 )
 
-# Below one mock completion's reported cost: the mock prices every
-# completion in `x-litellm-response-cost` at $0.002/1K over its
-# deterministic token counts, and the implementer's first completion alone
-# crosses 50 tokens, so the very first metered call exhausts this cap.
-TINY_CAP = 0.0001
+# The mock prices every completion in `x-litellm-response-cost` at
+# $0.002/1K over its deterministic token counts. The heartbeat's own
+# decision is metered under the run it chose (about a thousand prompt
+# tokens, $0.002), and the implementer's first completion costs about twice
+# that: the decision and one implementer call fit under this cap, the
+# second implementer call finds no headroom and is refused.
+TINY_CAP = 0.003
 
 
 def _tiny_cap():
@@ -154,22 +156,26 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     assert record["status"] == "failed"
     assert "budget_exhausted" in (record["error"] or "")
 
-    # The ledger fully attributes what was spent before the stop — to the
-    # run's ephemeral implementer, the only identity that spoke to a model.
+    # The ledger fully attributes what was spent before the stop: the
+    # conductor's decision that chose this run, then the run's ephemeral
+    # implementer — the only two identities that spoke to a model.
     from orchestrator.identity import ephemeral_agent_id
 
     implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     entries = ledger_entries(run_id)
-    assert entries, "no ledger rows for the run"
+    assert [e["agent_id"] for e in entries[:2]] == ["pm-1", implementer_id], entries
     for entry in entries:
         assert entry["run_id"] == run_id
         assert entry["company"] == "hello-saas"
-        assert entry["agent_id"] == implementer_id
-        assert entry["parent_agent_id"] == "pm-1"
-        assert entry["role"] == "implementer"
         assert entry["model"] == "mock-brain"
         assert entry["prompt_tokens"] > 0
-        assert int(entry["cached_tokens"]) > 0
+        if entry["agent_id"] == "pm-1":
+            assert entry["role"] == "pm"
+        else:
+            assert entry["agent_id"] == implementer_id
+            assert entry["parent_agent_id"] == "pm-1"
+            assert entry["role"] == "implementer"
+            assert int(entry["cached_tokens"]) > 0
     assert sum(float(e["usd"]) for e in entries) >= TINY_CAP
 
     # Budget events are in the one audit story: metered allows and the

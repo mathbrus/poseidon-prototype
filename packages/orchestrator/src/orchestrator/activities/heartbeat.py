@@ -78,6 +78,10 @@ PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 BACKLOG_LIMIT = 20
 RECENT_RUNS_LIMIT = 10
 RATIONALE_CLIP = 300
+# How long a bootstrap filing waits for the git host to list the tickets
+# it just created: polls, one second apart.
+LISTING_SETTLE_POLLS = 10
+LISTING_SETTLE_S = 1.0
 
 # The workflow's name, as the registry, the audit ledger and the policy
 # input all see it.
@@ -377,12 +381,18 @@ class HeartbeatActivities:
         """File the bootstrap ticket for each named absent document under
         the platform identity — the stewardship crew fulfils it on a later
         tick like any other ticket — and journal the filing. Returns the
-        ticket URLs."""
+        ticket URLs.
+
+        The git host lists a new issue a moment after creating it, and the
+        next tick — this one's own wake — reads that listing to see the
+        ticket already open. The filing therefore returns only once its
+        tickets are listed (bounded), so the loop cannot file twice."""
         paths = await asyncio.to_thread(
             company_documents, self._companies, self._settings.company
         )
         repo = (await self._repo())["url"]
-        urls = []
+        urls: list[str] = []
+        numbers: set[int] = set()
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
@@ -395,6 +405,7 @@ class HeartbeatActivities:
                     bootstrap_body(name, paths[name], branch),
                 )
                 urls.append(str(issue.get("url") or ""))
+                numbers.add(int(issue["number"]))
                 await self._emit(
                     run_id=self._ledger_run_id(),
                     tool="heartbeat.bootstrap",
@@ -403,6 +414,15 @@ class HeartbeatActivities:
                     rule=f"bootstrap_filed:{name}",
                 )
                 self._log.info("bootstrap ticket filed", extra={"document": name})
+            for _ in range(LISTING_SETTLE_POLLS):
+                listed = await gateway.read_open_issues(self._ledger_run_id(), repo)
+                if numbers <= {int(i["number"]) for i in listed}:
+                    break
+                await asyncio.sleep(LISTING_SETTLE_S)
+            else:
+                self._log.warning(
+                    "bootstrap tickets not listed yet", extra={"numbers": sorted(numbers)}
+                )
         return urls
 
     @activity.defn(name="heartbeat_decide")

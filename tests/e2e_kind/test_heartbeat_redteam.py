@@ -441,15 +441,20 @@ def test_the_run_that_spent_the_last_attempt_recorded_it(
     )
 
 
+IDLE_RULES = {"tick_idle:backlog_empty", "tick_idle:pm_chose_idle"}
+
+
 def test_no_third_attempt_and_the_loop_goes_idle(abandoned_review: dict):
     """`max_attempts: 2` is a bound, not a retry loop: exactly two review
-    runs exist, and the ticks after the second one finished are idle on
-    an empty backlog — the PR is consumed by exhaustion, the issue by its
-    delivery, and the company has stopped trying without a human."""
+    runs exist, and the ticks after the second one finished are idle —
+    the PR is consumed by exhaustion, the issue by its delivery, and the
+    company has stopped trying without a human. With scoping startable the
+    idle is the PM's: asked whether to scope, it finds nothing in the
+    resting strategy."""
     assert len(abandoned_review["reviews"]) == 2, abandoned_review["reviews"]
     ticks = abandoned_review["ticks"]
     last_start = max(i for i, t in enumerate(ticks) if t["decision"] == "allow")
     after = [t["rule"] for t in ticks[last_start + 1 :]]
     assert after, "no ticks after the last start"
-    assert set(after) <= {"tick_idle:runs_in_flight", "tick_idle:backlog_empty"}, after
-    assert after[-1] == "tick_idle:backlog_empty", after
+    assert set(after) <= IDLE_RULES | {"tick_idle:runs_in_flight"}, after
+    assert after[-1] in IDLE_RULES, after

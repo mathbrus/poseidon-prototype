@@ -34,6 +34,7 @@ from .conftest import (
     await_new_ticks,
     bare_heartbeat_id,
     close_issue,
+    file_ticket,
     github_api,
     heartbeat_ticks,
     open_slice_strategy,
@@ -129,11 +130,16 @@ def test_the_strategy_became_a_ticket_with_the_pms_summary(scoped: dict):
 
 def test_the_backlog_cap_refuses_a_second_scope_by_name(scoped: dict):
     """The conductor may not flood its own backlog: with the cap at one
-    open ticket and one open, the PM's next `scope` is refused by the
-    platform — a `heartbeat.decide` deny naming the cap, a refused tick,
-    and no second scope run."""
+    open ticket and one open — a ticket that is not the slice's, so the PM
+    has every reason to scope — the PM's next `scope` is refused by the
+    platform: a `heartbeat.decide` deny naming the cap, a refused tick,
+    and no second scope run. The profile swap sweeps the backlog, so the
+    unrelated ticket is filed after it."""
     env = scoped["env"]
     apply_profile(_scope_only(1), env)
+    scoped["unrelated"] = file_ticket(
+        env, f"housekeeping ({scoped['nonce']})", "Tidy the README wording."
+    )
     mark = len(heartbeat_ticks(scoped["heartbeat_id"]))
     wake_bare_heartbeat()
     (tick,) = await_new_ticks(mark, 1)
@@ -153,7 +159,7 @@ def test_a_strategy_naming_no_slice_leaves_the_loop_idle(scoped: dict):
     back and the backlog cleared, the woken loop asks the PM and the PM
     chooses idle — no scope run, no ticket."""
     env = scoped["env"]
-    close_issue(env, scoped["issue_number"])
+    close_issue(env, scoped.get("unrelated"))
     restore_strategy(env)
     apply_profile(_scope_only(5), env)
     mark = len(heartbeat_ticks(scoped["heartbeat_id"]))

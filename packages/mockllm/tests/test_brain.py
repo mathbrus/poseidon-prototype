@@ -17,6 +17,7 @@ from mockllm.brain import (
     NEXT_SLICE_MARKER,
     ORACLE_SMUGGLE_MARKER,
     REVIEW_ABORT_MARKER,
+    SLICE_TITLE,
     SLUGIFY_PY,
     SMUGGLED_CONTRACT_PATH,
     STEERED_CONTRACT_MARKER,
@@ -275,10 +276,21 @@ DECIDE_SYSTEM = header("decide")
 
 
 def decide_history(
-    tickets: list[str], prs: list[str], startable: str = "implement, review, idle"
+    tickets: list[str],
+    prs: list[str],
+    startable: str = "implement, review, idle",
+    open_tickets: int | None = None,
 ) -> list[dict]:
+    """A decide observation as the orchestrator composes it. `open_tickets`
+    is the header's raw count of open tickets on the repository, offered
+    or not; None leaves the line out, the shape of a bare prompt."""
+    count = (
+        ""
+        if open_tickets is None
+        else f" Open tickets on the repository: {open_tickets}."
+    )
     observation = (
-        "Heartbeat tick. Runs in flight: 0. Spent today: $0.00.\n"
+        f"Heartbeat tick. Runs in flight: 0. Spent today: $0.00.{count}\n"
         f"Startable actions: {startable}\n\n"
         "Open tickets:\n" + ("\n".join(tickets) or "(none)") + "\n\n"
         "Delivered pull requests awaiting review:\n"
@@ -323,15 +335,56 @@ def test_decide_idles_on_an_empty_observation():
     assert completion.tool_calls == []
 
 
-def test_decide_scopes_when_the_backlog_is_empty_and_the_strategy_is_open():
-    history = decide_history([], [], startable="implement, review, scope, idle")
+def _with_open_slice(history: list[dict]) -> list[dict]:
     history[-1]["content"] += f"\n\nStrategy:\nNext slice ({NEXT_SLICE_MARKER})."
+    return history
+
+
+def test_decide_scopes_when_the_backlog_is_empty_and_the_strategy_is_open():
+    history = _with_open_slice(
+        decide_history([], [], startable="implement, review, scope, idle")
+    )
     completion = next_completion(history)
     assert "DECISION: scope" in completion.content
     # An open ticket comes first: scoping never outranks working.
-    history = decide_history(["#5 — Add slugify"], [], startable="implement, scope, idle")
-    history[-1]["content"] += f"\n\nStrategy:\nNext slice ({NEXT_SLICE_MARKER})."
+    history = _with_open_slice(
+        decide_history(["#5 — Add slugify"], [], startable="implement, scope, idle")
+    )
     assert "DECISION: implement #5" in next_completion(history).content
+
+
+def test_decide_does_not_scope_a_slice_that_already_has_a_ticket():
+    """The slice's own ticket is on the backlog but not startable here
+    (a scope-only profile): scoping again would file it twice."""
+    history = _with_open_slice(
+        decide_history(
+            [f"#5 — Implement: {SLICE_TITLE}"],
+            [],
+            startable="scope, idle",
+            open_tickets=1,
+        )
+    )
+    assert "DECISION: idle" in next_completion(history).content
+
+
+def test_decide_does_not_scope_over_a_consumed_ticket():
+    """An open ticket off the backlog — a run on it, delivered or in
+    flight — is the slice's already: the header counts one open ticket,
+    the section offers none."""
+    history = _with_open_slice(
+        decide_history([], [], startable="scope, idle", open_tickets=1)
+    )
+    assert "DECISION: idle" in next_completion(history).content
+
+
+def test_decide_scopes_past_an_unrelated_open_ticket():
+    """A ticket that is not the slice's leaves the slice unticketed: the
+    PM proposes scope, and whether the backlog has room is the platform's
+    cap to enforce, never this script's."""
+    history = _with_open_slice(
+        decide_history(["#7 — housekeeping"], [], startable="scope, idle", open_tickets=1)
+    )
+    assert "DECISION: scope" in next_completion(history).content
 
 
 def test_decide_ignores_a_poisoned_title_and_keys_on_the_number():
