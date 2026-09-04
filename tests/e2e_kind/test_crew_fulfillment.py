@@ -1,8 +1,8 @@
 """Crew fulfillment on the live cluster.
 
-The full fulfillment path runs with the real machinery: the PM records
-intent through the gateway (policy-faced), fulfill consumes it, binds the
-crew and provisions each agent its own pod (and per-run
+The full fulfillment path runs with the real machinery: fulfill wins the
+compiled crew.request decision at the cluster's OPA as the conductor,
+binds the crew and provisions each agent its own pod (and per-run
 ServiceAccount); the implementer dispatch then implements the task through
 the gateway and opens a real PR as the *ephemeral* implementer, parentage on
 every decision. Then the sweep: identities revoked and rows terminal
@@ -20,8 +20,6 @@ import time
 from urllib.parse import urlparse
 
 from common.ids import new_run_id
-from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.implement import ImplementInput
 
 from .cluster import (
     COMPANY_NS,
@@ -29,7 +27,6 @@ from .cluster import (
     audit_story,
     crew_activities,
     gateway_url,
-    kill_worker_pod,
     kubectl,
     mcp_call,
     port_forward,
@@ -37,10 +34,9 @@ from .cluster import (
     registry,
     run_kubectl,
     sandbox_image,
-    temporal_port_forward,
     worker_settings,
 )
-from .conftest import REPO_ROOT, TASK_QUEUE
+from .conftest import TICKETS_DIR, close_issue, close_pr_url, run_implement
 
 
 @contextlib.contextmanager
@@ -108,7 +104,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
 
     run_id = new_run_id()
     nonce = secrets.token_hex(3)
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
+    task_text = (TICKETS_DIR / "happy.md").read_text() + (
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
     mcp = gateway_url(env)
@@ -117,28 +113,16 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
     backend = K8sJobsBackend(namespace=COMPANY_NS)
     handle = None
 
-    with registry() as client:
+    # 1. The compiled crew.request decision is the cluster's OPA to make,
+    #    as the conductor: fulfilment asks it before binding anything.
+    with registry() as client, port_forward("svc/opa", 8181) as opa_port:
         crew = crew_activities(
-            client, worker_settings(env, tmp_path), EphemeralPodProvisioner(COMPANY_NS)
+            client,
+            worker_settings(env, tmp_path, opa_url=f"http://127.0.0.1:{opa_port}"),
+            EphemeralPodProvisioner(COMPANY_NS),
         )
         Runs(client).start(run_id, task_text, "implement", None, "hello-saas")
         try:
-            # 1. The PM records intent through the gateway — same row, same
-            #    policy as any spawn; may_spawn/cap/budget checks all
-            #    faced here.
-            pm_token = projected_token(COMPANY_NS, "pm-1")
-            recorded = mcp_call(
-                env,
-                pm_token,
-                "crew.request",
-                {
-                    "run_id": run_id,
-                    "crew_template": "feature-delivery",
-                    "reason": "e2e crew delivery",
-                },
-            )
-            assert not recorded.isError, recorded.content
-
             # 2. The run's single sandbox, exactly as implement provisions
             #    it (the crew works it through the gateway).
             workspace = asyncio.run(
@@ -151,8 +135,8 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             )
             asyncio.run(_register(mcp, orchestrator_token, run_id, handle))
 
-            # 3. Fulfill: consume -> bind -> a pod per agent, returned by
-            #    crew role with its identity and address.
+            # 3. Fulfill: the decision -> bind -> a pod per agent, returned
+            #    by crew role with its identity and address.
             with _pod_forwarded_agent_client():
                 fulfilled = asyncio.run(
                     crew.fulfill_crew(
@@ -171,6 +155,13 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 )
                 implementer = fulfilled["agents"]["implementer"]
                 assert implementer["agent_id"] == implementer_id
+                recorded = [
+                    e
+                    for e in audit_story(run_id)
+                    if e["tool"] == "lifecycle.record_request"
+                ]
+                assert recorded and recorded[-1]["decision"] == "allow", recorded
+                assert recorded[-1]["agent_id"] == "pm-1"
 
                 # 4. The implementer dispatch carries the task verbatim. It ends
                 #    at a completion claim; the separate deliver dispatch
@@ -256,67 +247,25 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 backend.destroy(handle)
             asyncio.run(crew.destroy_ephemeral_pods(run_id))
             client.execute(
-                "DELETE FROM registry.crew_requests WHERE run_id = %s", (run_id,)
-            )
-            client.execute(
                 "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
             )
             client.execute("DELETE FROM registry.runs WHERE run_id = %s", (run_id,))
 
 
-def test_worker_kill_leaks_no_crew(stack: None) -> None:
+def test_worker_kill_leaks_no_crew(stack: None, env: dict) -> None:
     """Identities revoked and rows terminal after teardown
     *including* worker kill — the sweep rides the workflow's compensation,
-    which Temporal replays on the restarted worker. The workflow stands
-    its own crew up (fulfill_crew), so the kill lands on a
-    run with live bound ephemeral agents and their pods."""
-    from temporalio.client import Client
-
+    which Temporal replays on the restarted worker. The heartbeat's own
+    implement run stands its crew up (fulfill_crew), so the kill lands on
+    a run with live bound ephemeral agents and their pods."""
     from orchestrator.ephemeral_pods import pod_name
     from orchestrator.identity import ephemeral_agent_id
 
-    run_id = new_run_id()
-    nonce = secrets.token_hex(3)
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
-        f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
-    )
+    record = run_implement("happy", env, kill_after="crew")
+    close_pr_url(env, record.get("pr_url"))
+    close_issue(env, record["issue_number"])
+    run_id = record["run_id"]
     implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
-
-    async def run() -> dict:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            wf = await client.start_workflow(
-                "implement",
-                ImplementInput(run_id=run_id, task_text=task_text),
-                id=workflow_id("implement", run_id),
-                task_queue=TASK_QUEUE,
-            )
-            # Wait for the fulfillment's own ephemeral pod — the kill then lands
-            # on a run with live ephemeral identities to sweep.
-            deadline = time.monotonic() + 300
-            while not kubectl(
-                "-n",
-                COMPANY_NS,
-                "get",
-                "pods",
-                "-l",
-                f"poseidon.dev/kind=ephemeral-agent,poseidon.dev/run-id={run_id}",
-                "-o",
-                "jsonpath={.items[*].metadata.name}",
-                timeout=30,
-            ):
-                if time.monotonic() > deadline:
-                    raise AssertionError(
-                        "the workflow never provisioned an ephemeral pod"
-                    )
-                await asyncio.sleep(2)
-            # Kill the worker mid-run; the replay finishes the run and its
-            # teardown on the replacement pod.
-            kill_worker_pod()
-            return await asyncio.wait_for(wf.result(), timeout=900)
-
-    record = asyncio.run(run())
-    assert record["run_id"] == run_id
 
     # Nothing leaked: the row is terminal and the pod is gone.
     with registry() as client:

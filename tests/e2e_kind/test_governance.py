@@ -14,8 +14,6 @@ audit. Injection deny + recovery runs in test_injection.py through the
 crew implementer's deliver dispatch.
 """
 
-import json
-import time
 from typing import Any
 
 import httpx
@@ -28,7 +26,6 @@ from .cluster import (
     projected_token,
     psql,
 )
-from .conftest import crew_requests
 
 COMPANY_DECISION = "poseidon/authz/hello_saas/decision"
 
@@ -132,53 +129,6 @@ def test_denies_are_in_the_audit_story(stack: None) -> None:
 
 
 # -- the whole tool surface, live --------------------------------------------
-
-
-def test_pm_records_crew_intent_at_the_gateway(stack: None, env: dict) -> None:
-    """The one spawn model, tool path: the PM's projected
-    identity records an idempotent, expiring crew_requests row — intent,
-    never fulfillment."""
-    token = projected_token(COMPANY_NS, "pm-1")
-    run_id = f"run-gov-crew-{int(time.time())}"
-
-    first = mcp_call(
-        env,
-        token,
-        "crew.request",
-        {
-            "run_id": run_id,
-            "crew_template": "feature-delivery",
-            "reason": "governance e2e",
-        },
-    )
-    assert not first.isError, first.content
-    recorded = json.loads(first.content[0].text)
-    assert recorded["status"] == "recorded"
-    assert recorded["conductor"] == "pm-1"
-
-    again = mcp_call(
-        env,
-        token,
-        "crew.request",
-        {
-            "run_id": run_id,
-            "crew_template": "feature-delivery",
-            "reason": "governance e2e retried",
-        },
-    )
-    assert json.loads(again.content[0].text)["id"] == recorded["id"]
-
-    rows = crew_requests(run_id)
-    assert len(rows) == 1 and rows[0]["status"] == "recorded"
-    assert rows[0]["expires_at"] is not None
-
-    denied = mcp_call(
-        env,
-        token,
-        "crew.request",
-        {"run_id": run_id, "crew_template": "shadow-ops", "reason": "hm"},
-    )
-    assert denied.isError and "default_deny" in denied.content[0].text
 
 
 def test_merge_is_platform_only_at_the_gateway(stack: None, env: dict) -> None:

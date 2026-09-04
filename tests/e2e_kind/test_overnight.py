@@ -1,17 +1,17 @@
 """The overnight capstone: the company works while nobody watches.
 
-This is the headline demo — the moment Poseidon stops being a
-pipeline you operate and becomes a company you supervise. The whole run has
-exactly two human acts:
+This is the headline demo — the moment Poseidon stops being a pipeline
+you operate and becomes a company you supervise. Nothing goes in: the
+company's strategy names the next slice, and the whole run has exactly
+one human act:
 
-  1. `poseidon run <goal> --workflow intake` — one goal in.
-  2. `poseidon signal <run> merge --approved` — one approval out.
+  1. `poseidon signal <run> merge --approved` — one approval out.
 
-Everything between is the standing heartbeat's: it reads the ticket intake
-filed, implements it (a PR appears), sees the delivered-but-unreviewed PR,
-reviews it, and parks that review on the human merge gate — all under the
-declared caps, with no command starting the next step. Then the single
-human verdict lands and the gateway merges.
+Everything before is the standing heartbeat's: it reads the documents,
+scopes the slice into a ticket, implements it (a PR appears), sees the
+delivered-but-unreviewed PR, reviews it, and parks that review on the
+human merge gate — all under the declared caps, with no command starting
+any step. Then the single human verdict lands and the gateway merges.
 
 The concurrency cap does real sequencing work here: `max_concurrent_runs:
 1` is why the review waits for the implement run to finish rather than
@@ -20,118 +20,102 @@ company does one thing at a time because the blueprint said so.
 
 The conftest orders this module after `test_acceptance`: it is itself a
 capstone, and it adds runs the five-source assertion need not see. The
-heartbeat variant of the example (`blueprints.heartbeat_variant`) is applied
-for the module and the pristine one restored after.
+example as shipped (`hello-saas.yaml`, every workflow startable) is
+applied for the module and the pristine profile restored after.
 """
 
 import asyncio
-import json
 import os
 import re
+import secrets
 import subprocess
-import tempfile
 import time
-from pathlib import Path
 
 import pytest
 from temporalio.client import Client
 
-from common.ids import new_run_id
-from common.tasks import issue_run_task, review_run_task
+from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
+from mockllm.brain import NEXT_SLICE_MARKER
 from orchestrator.workflows.base import workflow_id
 
-from .blueprints import heartbeat_variant, restore_pristine
-from .cluster import COMPANY_NS, audit_story, await_run, temporal_port_forward
+from .blueprints import HELLO_SAAS, restore_pristine
+from .cluster import audit_story, await_run, temporal_port_forward
 from .conftest import (
     REPO_ROOT,
     apply_profile,
+    bare_heartbeat_id,
     close_issue,
     close_pr,
     github_api,
     heartbeat_ticks,
+    open_slice_strategy,
     pr_number,
+    restore_strategy,
     target_slug,
     wake_until_run_started,
+    write_strategy,
 )
 
 
-def _poseidon(args: list[str], address: str, timeout: int) -> subprocess.CompletedProcess:
-    """`poseidon …` as the human runs it, pointed at the cluster's Temporal
-    through an open port-forward — the CLI the two human acts go through."""
-    return subprocess.run(
-        ["uv", "run", "poseidon", *args],
+def _signal_merge(run_id: str, address: str) -> None:
+    """The one human act: `poseidon signal <run> merge --approved
+    --workflow review`, through the real CLI pointed at the cluster's
+    Temporal over an open port-forward."""
+    proc = subprocess.run(
+        [
+            "uv",
+            "run",
+            "poseidon",
+            "signal",
+            run_id,
+            "merge",
+            "--approved",
+            "--workflow",
+            "review",
+        ],
         cwd=REPO_ROOT,
         env={**os.environ, "TEMPORAL_ADDRESS": address},
         capture_output=True,
         text=True,
-        timeout=timeout,
-    )
-
-
-def _run_intake(goal_path: Path, run_id: str, address: str) -> dict:
-    """Human act 1: `poseidon run <goal> --workflow intake`. Blocks until
-    intake completes and prints the run record; returns it."""
-    proc = _poseidon(
-        ["run", str(goal_path), "--workflow", "intake", "--run-id", run_id],
-        address,
-        650,
-    )
-    assert proc.returncode == 0, f"poseidon run intake: {proc.stderr}\n{proc.stdout}"
-    return json.loads(proc.stdout)
-
-
-def _signal_merge(run_id: str, address: str) -> None:
-    """Human act 2: `poseidon signal <run> merge --approved --workflow review`."""
-    proc = _poseidon(
-        ["signal", run_id, "merge", "--approved", "--workflow", "review"], address, 60
+        timeout=60,
     )
     assert proc.returncode == 0, f"poseidon signal merge: {proc.stderr}"
 
 
 @pytest.fixture(scope="module")
-def overnight(stack: None, env: dict) -> dict:
+def overnight(stack: None, repo_baseline: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
-    apply_profile(heartbeat_variant(), env)
-
-    intake_run = new_run_id()
-    nonce = intake_run[-6:].lower()
-    # The goal carries the delivery branch, so the PM's ticket carries it,
-    # so the heartbeat's implement run delivers on a fresh branch — reruns
-    # against the disposable repo never collide.
-    goal = (
-        f"Ship the slugify utility (e2e overnight goal {nonce})\n\n"
-        f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
-    )
-    goal_path = Path(tempfile.mkdtemp(prefix="poseidon-goal-")) / "overnight-goal.md"
-    goal_path.write_text(goal)
-    heartbeat_id = workflow_id("heartbeat", COMPANY_NS)
-    result: dict = {"env": env, "heartbeat_id": heartbeat_id}
+    env = repo_baseline
+    apply_profile(HELLO_SAAS, env)
+    nonce = secrets.token_hex(3)
+    result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
 
     async def drive() -> None:
         with temporal_port_forward() as address:
             client = await Client.connect(address)
 
-            # --- human act 1: one goal in, through the real CLI ----------
-            result["intake"] = await asyncio.to_thread(
-                _run_intake, goal_path, intake_run, address
+            # --- nothing in: the strategy names the slice, the loop scopes
+            # it. The wake stands in for the reconcile look the loop would
+            # take on its own.
+            await asyncio.to_thread(
+                write_strategy, env, open_slice_strategy(nonce, NEXT_SLICE_MARKER)
             )
-            ticket_urls = result["intake"].get("ticket_urls") or []
-            issue_match = next(
-                (re.search(r"/issues/(\d+)$", u) for u in ticket_urls if u), None
-            )
-            assert issue_match, f"intake filed no issue: {ticket_urls}"
+            await asyncio.to_thread(wake_until_run_started, SCOPE_TASK, "scope")
+            scope = await asyncio.to_thread(await_run, SCOPE_TASK, True, 600)
+            assert scope["status"] == "done", f"unattended scope: {scope}"
+            result["scope"] = scope
+            urls = scope.get("ticket_urls") or []
+            issue_match = next((re.search(r"/issues/(\d+)$", u) for u in urls if u), None)
+            assert issue_match, f"the scope run filed no issue: {urls}"
             issue_number = int(issue_match.group(1))
             result["issue_number"] = issue_number
 
-            # --- touch nothing: the standing heartbeat runs the company —
-            # the intake's finishing nudge wakes it onto the ticket it filed,
-            # and the re-nudge below covers a backlog read that landed before
-            # the ticket was visible on the git host.
+            # --- touch nothing: the scope run's finishing nudge wakes the
+            # loop onto the ticket it filed; the re-nudge covers a backlog
+            # read that landed before the ticket was visible on the git host.
             await asyncio.to_thread(
-                wake_until_run_started,
-                issue_run_task(issue_number),
-                "implement",
+                wake_until_run_started, issue_run_task(issue_number), "implement"
             )
             implement = await asyncio.to_thread(
                 await_run, issue_run_task(issue_number), True
@@ -165,37 +149,48 @@ def overnight(stack: None, env: dict) -> dict:
                 env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
             ).json()
 
-            # --- human act 2: one approval out, through the real CLI -----
+            # --- the one human act: one approval out, through the real CLI
             await asyncio.to_thread(_signal_merge, review["run_id"], address)
             result["review_record"] = await asyncio.wait_for(
                 review_handle.result(), timeout=300
             )
 
-    asyncio.run(drive())
+    try:
+        asyncio.run(drive())
+        yield result
+    finally:
+        close_pr(env, result.get("pr_number") or 0)
+        close_issue(env, result.get("issue_number"))
+        restore_strategy(env)
+        restore_pristine()
 
-    yield result
 
-    close_pr(env, result.get("pr_number") or 0)
-    close_issue(env, result.get("issue_number"))
-    restore_pristine()
+def test_the_company_scoped_its_own_slice_unattended(overnight: dict):
+    """No human filed the ticket: the heartbeat read the strategy, started a
+    scope run under an auto-minted id, and the PM filed the slice."""
+    scope = overnight["scope"]
+    assert scope["run_id"].startswith("auto-"), scope["run_id"]
+    assert scope["workflow"] == "scope" and scope["ticket_urls"]
+    started = [
+        t
+        for t in heartbeat_ticks(overnight["heartbeat_id"])
+        if t["decision"] == "allow" and scope["run_id"] in (t["rule"] or "")
+    ]
+    assert started, "this heartbeat never recorded starting the scope run"
 
 
 def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
-    """No human ran the implement: the heartbeat consumed the intake ticket
-    and produced a PR, under an auto-minted run id. Asserted on the run and
-    on the heartbeat's own ticks — the started tick names the child run."""
+    """No human ran the implement: the heartbeat consumed the ticket the
+    scope run filed and produced a PR, under an auto-minted run id.
+    Asserted on the run and on the heartbeat's own ticks — the started
+    tick names the child run."""
     implement = overnight["implement"]
     assert implement["run_id"].startswith("auto-"), implement["run_id"]
     assert implement["workflow"] == "implement"
     assert implement["status"] == "done"
     assert implement["pr_url"]
-    # The authorized start is journaled under the run it started — the
-    # compiled heartbeat.start decision attributes to the child, whichever
-    # heartbeat asked.
     story = audit_story(implement["run_id"])
     assert any(e["tool"] == "heartbeat.start" and e["decision"] == "allow" for e in story)
-    # And the standing heartbeat recorded starting it: the tick that
-    # names the child run carries the writing workflow's own id.
     started = [
         t
         for t in heartbeat_ticks(overnight["heartbeat_id"])
@@ -230,22 +225,15 @@ def test_the_single_human_verdict_completes_delivery(overnight: dict):
     assert pull["merged"] is True, "the approved PR was not merged"
 
 
-def test_the_whole_arc_had_exactly_two_human_acts(overnight: dict):
-    """The claim stated as an invariant: implement and review each ran
-    under an auto- run id (the heartbeat's), and the merge only happened
-    after the human signal. The two human touches were the intake start
-    and the merge approval — nothing started the implement or the review."""
-    assert overnight["implement"]["run_id"].startswith("auto-")
-    assert overnight["review"]["run_id"].startswith("auto-")
-    merges = [
-        e
-        for e in audit_story(overnight["review"]["run_id"])
-        if e["tool"] == "git.merge_pr"
-    ]
-    assert merges, "no merge happened for the reviewed PR"
-    gate = [
-        e
-        for e in audit_story(overnight["review"]["run_id"])
-        if e["source"] == "process-gate" and e["rule"] == "gate_approved"
-    ]
-    assert gate, "the merge was not released by an approved gate"
+def test_the_whole_arc_had_exactly_one_human_act(overnight: dict):
+    """The claim stated as an invariant: scope, implement and review each
+    ran under an auto- run id (the heartbeat's), and the merge only
+    happened after the human signal. The one human touch was the merge
+    approval — nothing started anything."""
+    for key in ("scope", "implement", "review"):
+        assert overnight[key]["run_id"].startswith("auto-"), key
+    story = audit_story(overnight["review"]["run_id"])
+    assert any(e["tool"] == "git.merge_pr" for e in story), "no merge happened"
+    assert any(
+        e["source"] == "process-gate" and e["rule"] == "gate_approved" for e in story
+    ), "the merge was not released by an approved gate"

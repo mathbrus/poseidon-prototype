@@ -4,9 +4,10 @@ environment.
 These tests run against the kind cluster brought up by
 `deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
 GIT_TOKEN and a disposable TARGET_REPO. They open real pull requests on
-that repo. Runs go through Temporal: the suite starts workflows as a thin
-client (exactly what `poseidon run` does), and the in-cluster orchestrator
-worker drives the activities. Cluster access lives in `cluster.py`,
+that repo. Every run is the company's own: the suite files what the
+standing heartbeat should find (a ticket, a strategy naming a slice),
+wakes it with the platform's own signal, and reads the runs it starts —
+exactly the loop the product is. Cluster access lives in `cluster.py`,
 blueprint application in `blueprints.py`.
 
 Run explicitly (excluded from plain `pytest`):
@@ -26,39 +27,40 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   defaults for a paid brain.
 - **The repo-state contract** (`repo_baseline`, autouse): TARGET_REPO@main
   is suite-managed state with one owner. The baseline seeds the declared
-  shape from the mock brain's own canonical texts and prunes what it
-  refuses to inherit (an implementer-owned test tree beside the contract
-  tree; root pytest.ini or conftest.py, whose merged form would neuter
-  every later run's collection). Idempotent — a repo already at baseline
-  gets reads, not commits. No module may depend on what a previous run
-  left behind.
-- **A clean campsite** (`close_pr`, `sweep_repo_debris`, `repo_sweeper`,
-  `blueprints.quiesce_heartbeat`): debris feeds contention — the standing
-  heartbeat treats any open PR or issue as reviewable backlog, wakes the
-  moment any run of the company finishes, and one parked review holds
-  `max_concurrent_runs`' whole slot until its merge gate expires — a full
-  day at the paid-brain defaults. So a fixture closes the PRs
-  it opened the moment their openness has been verified; a module whose
-  arc the heartbeat drives sweeps BEFORE the apply, waits for the
-  heartbeat's arrival tick on that empty backlog (`apply_profile`), then
-  rides that one heartbeat — its runs wake it forward, and
-  `wake_bare_heartbeat` stands in for changes only the outside world saw —
-  and restores the pristine blueprint after; a module that drives runs
-  explicitly applies a variant that declares no heartbeat
-  (`blueprints.derived_blueprint`), so nothing is woken into its lane;
-  the session sweeper catches whatever a failure path dropped.
+  shape from the mock brain's own canonical texts — the implementation,
+  the unit tree, the acceptance contract, and the two company documents
+  with no open slice, so the standing loop at rest observes nothing to
+  scope — and prunes what it refuses to inherit (root pytest.ini or
+  conftest.py, whose merged form would neuter every later run's
+  collection). Idempotent — a repo already at baseline gets reads, not
+  commits. No module may depend on what a previous run left behind.
+- **One lane** (`run_ticket`, `run_review`, `apply_profile`,
+  `sweep_repo_debris`, `repo_sweeper`): every run is the standing
+  heartbeat's. A module files the ticket the loop should implement (or
+  writes the strategy it should scope from), wakes the loop, and reads the
+  run it started; what the loop may start on its own is declared in the
+  profile the module applies (`blueprints.may_start`), never by a company
+  without a heartbeat. Debris feeds contention — the loop treats any open
+  PR or issue as backlog and wakes the moment any run finishes — so a
+  fixture closes the PRs it opened the moment their openness has been
+  verified, a module sweeps BEFORE it applies a profile and waits for the
+  loop's arrival tick on the empty backlog (`apply_profile`), and a run
+  that is *meant* to fail runs under `blueprints.single_attempt`, or the
+  loop retries it. The session sweeper catches whatever a failure path
+  dropped.
 - **Quiet, asserted** (`test_quiet`, ordered last): when the suite exits
-  green, no workflow is running and no run is non-terminal — a failing
-  assertion, not a person asking.
+  green, no workflow but the standing heartbeat is running, it is asleep
+  on an empty backlog, and no run is non-terminal — a failing assertion,
+  not a person asking.
 
 What a new module owes: declare repo preconditions against `repo_baseline`
-(and put deviations back); close every PR it opens and delete the branch
-(`close_pr`); if it applies another blueprint profile, sweep before the
-apply and `blueprints.restore_pristine()` after; declare a heartbeat only
-when the heartbeat drives the arc — explicit runs under a
-heartbeat-bearing profile would wake it into the module's own lane; and
-anchor assertions on runs, gate events and tick windows (`heartbeat_ticks`
-past a counted mark), never on the ledger's whole history.
+(and put deviations back — a strategy that names a slice above all);
+close every PR it opens and delete the branch (`close_pr`), and close the
+tickets it filed; if it applies another blueprint profile, sweep before
+the apply and `blueprints.restore_pristine()` after; bound the attempts
+of a run it expects to fail; and anchor assertions on runs, gate events
+and tick windows (`heartbeat_ticks` past a counted mark), never on the
+ledger's whole history.
 
 Collection order is the hook's, not the filenames': the capstones run
 after every module whose runs they read, and `test_quiet` runs last.
@@ -78,28 +80,35 @@ from typing import Any
 
 import httpx
 import pytest
+import yaml
 from temporalio.client import Client, WorkflowExecutionStatus
 
-from common.ids import new_run_id
+from common.tasks import issue_run_task, review_run_task
 from mockllm.brain import (
+    ARCHITECTURE_MD,
     CONTRACT_TEST_PATH,
     CONTRACT_TESTS_PY,
     SLUGIFY_PY,
+    STRATEGY_MD,
     TEST_SLUGIFY_PY,
 )
-from orchestrator.workflows.base import PROFILES, TASK_QUEUE, Timeouts, workflow_id
-from orchestrator.workflows.implement import ImplementInput
-from orchestrator.workflows.review import ReviewInput
+from orchestrator.workflows.base import PROFILES, Timeouts, workflow_id
 
-from .blueprints import apply_blueprint, restore_pristine, wait_for_convergence
+from .blueprints import (
+    HELLO_SAAS,
+    apply_blueprint,
+    restore_pristine,
+    wait_for_convergence,
+)
 from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
     audit_story,
+    await_run,
     db_now,
     deployment_env,
     kill_worker_pod,
-    psql_json,
+    kubectl,
     run_by_task,
     run_kubectl,
     sandbox_pods,
@@ -110,6 +119,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
 
 E2E_KIND_DIR = Path(__file__).resolve().parent
+# The ticket bodies the suite files: the mock brain's scripted scenarios,
+# as a company's own tickets rather than a human's task files.
+TICKETS_DIR = E2E_KIND_DIR / "tickets"
+# Where the company keeps its documents, as the example declares it — the
+# suite writes strategies there and the baseline puts the resting ones back.
+DOCUMENT_PATHS: dict[str, str] = yaml.safe_load(HELLO_SAAS.read_text())["company"][
+    "documents"
+]
 
 # The modules that must run after everything else, in this order: the
 # acceptance capstone reads what the whole suite produced; the two
@@ -260,59 +277,143 @@ def deployed_timeouts() -> Timeouts:
     return PROFILES[deployment_env("orchestrator-worker", "TIMEOUT_PROFILE")]
 
 
-# --- running implement -------------------------------------------------------
+# --- runs: the heartbeat's, always ------------------------------------------
+#
+# The suite never starts a run-shaped workflow itself. It files what the
+# loop should find, wakes it, and reads the run the loop started — the
+# product's own path, with the harness standing in for the outside world.
 
 
-async def _execute_implement(
-    address: str, input: ImplementInput, kill_worker: bool
-) -> dict:
-    """Start implement exactly as `poseidon run` does; optionally kill the
-    worker once the sandbox exists (the crash-resume proof), then await
-    the result."""
-    client = await Client.connect(address)
-    handle = await client.start_workflow(
-        "implement",
-        input,
-        id=workflow_id("implement", input.run_id),
-        task_queue=TASK_QUEUE,
-    )
-    if kill_worker:
-        deadline = time.monotonic() + 300
-        while not sandbox_pods(input.run_id):
-            if time.monotonic() > deadline:
-                raise AssertionError("sandbox never appeared; cannot stage worker kill")
-            await asyncio.sleep(2)
-        kill_worker_pod()
-    return await asyncio.wait_for(handle.result(), timeout=1800)
-
-
-def _run(input: ImplementInput, kill_worker: bool = False) -> dict:
-    with temporal_port_forward() as address:
-        record = asyncio.run(_execute_implement(address, input, kill_worker))
-    assert record["run_id"] == input.run_id
-    return record
-
-
-def run_implement(task_file: str, kill_worker: bool, env: dict[str, str]) -> dict:
-    """One full implement run of an examples/ task through Temporal. A nonce
-    pins the delivery branch so reruns against the same disposable repo
-    never collide on an existing branch or open PR. Timeouts follow the
-    brain the cluster was actually deployed with (`deployed_timeouts`)."""
-    nonce = secrets.token_hex(3)
-    task_text = (REPO_ROOT / "examples" / task_file).read_text() + (
+def ticket_body(name: str, nonce: str) -> str:
+    """One scripted scenario as a ticket body: the text under `tickets/`
+    plus the delivery-branch line an issue-driven run parses, nonced so
+    reruns against the disposable repo never collide on a branch."""
+    return (TICKETS_DIR / f"{name}.md").read_text() + (
         f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
     )
-    return _run(
-        ImplementInput(run_id=new_run_id(), task_text=task_text),
-        kill_worker,
+
+
+def file_ticket(env: dict, title: str, body: str) -> int:
+    """File one issue on the disposable repo — the backlog entry the
+    standing heartbeat will find — and return its number."""
+    created = github_api(
+        env,
+        "POST",
+        f"/repos/{target_slug(env)}/issues",
+        json={"title": title, "body": body},
     )
+    assert created.status_code == 201, f"could not file issue: {created.text}"
+    return int(created.json()["number"])
 
 
-def run_implement_from_issue(issue_number: int, env: dict[str, str]) -> dict:
-    """One full implement run from a GitHub issue the company filed —
-    what `poseidon run <number>` starts. The issue body must carry the
-    delivery-branch line itself; the harness appends nothing."""
-    return _run(ImplementInput(run_id=new_run_id(), issue_number=issue_number))
+def _kill_worker_when(run_id: str, kill_after: str) -> None:
+    """The crash-resume proof's staging: kill the worker once the run has
+    its sandbox (`"sandbox"`) or its crew's own pod (`"crew"`), so the
+    replay on the replacement worker inherits live state to compensate."""
+    deadline = time.monotonic() + 300
+    while time.monotonic() < deadline:
+        if kill_after == "sandbox" and sandbox_pods(run_id):
+            break
+        if kill_after == "crew" and kubectl(
+            "-n",
+            COMPANY_NS,
+            "get",
+            "pods",
+            "-l",
+            f"poseidon.dev/kind=ephemeral-agent,poseidon.dev/run-id={run_id}",
+            "-o",
+            "jsonpath={.items[*].metadata.name}",
+            timeout=30,
+        ):
+            break
+        time.sleep(2)
+    else:
+        raise AssertionError(
+            f"the run never reached its {kill_after}; cannot stage the kill"
+        )
+    kill_worker_pod()
+
+
+def run_ticket(
+    env: dict, number: int, *, kill_after: str | None = None, deadline_s: int = 1800
+) -> dict:
+    """The implement run the standing heartbeat starts on ticket `number`:
+    wake the loop onto it (the platform's own signal, standing in for the
+    world the loop watches), optionally kill the worker mid-run, and wait
+    for the run's terminal registry row — the record every other helper
+    and assertion reads. `implement` must be startable in the applied
+    profile."""
+    task = issue_run_task(number)
+    wake_until_run_started(task, "implement")
+    if kill_after:
+        run = run_by_task(task, workflow="implement")
+        _kill_worker_when(run["run_id"], kill_after)
+    record = await_run(task, terminal=True, deadline_s=deadline_s)
+    return {**record, "issue_number": number}
+
+
+def run_implement(name: str, env: dict, *, kill_after: str | None = None) -> dict:
+    """File the scripted ticket `tickets/<name>.md` and let the heartbeat
+    implement it. The ticket number rides the record for cleanup."""
+    nonce = secrets.token_hex(3)
+    number = file_ticket(env, f"{name} ({nonce})", ticket_body(name, nonce))
+    return run_ticket(env, number, kill_after=kill_after)
+
+
+def run_review(
+    env: dict, pr_number: int, approve: bool | None = None, deadline_s: int = 900
+) -> tuple[str, dict]:
+    """The review run the standing heartbeat starts on the delivered PR
+    `pr_number` (the run that delivered it wakes the loop; the wake here
+    covers a backlog read that landed too early), driven to a terminal
+    state. With `approve` None, no human touches the `merge` signal — an
+    in-class PR merges under policy on its own, a declined one parks,
+    escalates and expires under the suite's gate clock. With `approve` a
+    bool, wait for the merge-gate park and deliver that one human verdict.
+    Returns the review run id and its terminal record. `review` must be
+    startable in the applied profile."""
+    task = review_run_task(pr_number)
+    wake_until_run_started(task, "review")
+    run_id = run_by_task(task, workflow="review")["run_id"]
+    if approve is not None:
+
+        async def answer() -> None:
+            with temporal_port_forward() as address:
+                client = await Client.connect(address)
+                handle = client.get_workflow_handle(workflow_id("review", run_id))
+                deadline = time.monotonic() + 600
+                while time.monotonic() < deadline:
+                    if await handle.query("state") == "paused-merge_gate":
+                        break
+                    await asyncio.sleep(0.5)
+                else:
+                    raise AssertionError(f"review of #{pr_number} never parked on merge")
+                await handle.signal("merge", args=[approve, "e2e: human verdict"])
+
+        asyncio.run(answer())
+    return run_id, await_run(task, terminal=True, deadline_s=deadline_s)
+
+
+def write_strategy(env: dict, text: str) -> None:
+    """A declared deviation from the baseline: the strategy the loop will
+    read on its next tick. The mock PM scopes a slice only when it names
+    one; put the resting strategy back (`restore_strategy`) before the
+    module ends, or the loop keeps scoping."""
+    put_repo_file(env, DOCUMENT_PATHS["strategy"], text, "e2e: strategy names a slice")
+
+
+def restore_strategy(env: dict) -> None:
+    put_repo_file(env, DOCUMENT_PATHS["strategy"], STRATEGY_MD, "e2e: strategy at rest")
+
+
+def open_slice_strategy(nonce: str, marker: str) -> str:
+    """A strategy naming one slice for the PM to scope, with the delivery
+    branch the ticket — and so the implement run — will carry."""
+    return (
+        "# Strategy\n\n"
+        f"Next slice: ship the slugify utility ({marker}; e2e {nonce}).\n\n"
+        f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
+    )
 
 
 def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
@@ -453,12 +554,17 @@ def delete_repo_file(env: dict, path: str, message: str) -> None:
 
 # The declared shape of main: the mock brain's own canonical texts, so the
 # baseline is exactly what the company itself delivers — the implementation,
-# the implementer's unit tree, and the human-merged acceptance contract the
-# composed contract verify replays against every PR head.
+# the implementer's unit tree, the human-merged acceptance contract the
+# composed contract verify replays against every PR head, and the two
+# documents the company wrote for itself.
 REPO_BASELINE: dict[str, str] = {
     "slugify.py": SLUGIFY_PY,
     "tests/unit/test_slugify.py": TEST_SLUGIFY_PY,
     CONTRACT_TEST_PATH: CONTRACT_TESTS_PY,
+    # The company's documents at rest: neither names an open slice, so
+    # the standing loop observes nothing to scope between modules.
+    DOCUMENT_PATHS["strategy"]: STRATEGY_MD,
+    DOCUMENT_PATHS["architecture"]: ARCHITECTURE_MD,
 }
 
 # Shapes the baseline refuses to inherit: root-level collection config (a
@@ -497,14 +603,11 @@ def repo_baseline(env: dict[str, str]) -> dict[str, str]:
 
 # --- leave the campsite clean ------------------------------------------------
 #
-# Debris feeds contention: the standing heartbeat treats any open PR as
-# reviewable backlog — and it wakes whenever a run finishes — so PRs a
-# module leaves behind become another module's race. Fixtures close the
-# PRs they opened the moment they are done with them; the session sweeper
-# catches what inline tests and failure paths drop; and modules that
-# applied a heartbeat-declaring blueprint terminate the heartbeat their
-# apply caused, instead of leaving it parked on its wait after the
-# pristine restore.
+# Debris feeds contention: the standing heartbeat treats any open PR or
+# issue as backlog — and it wakes whenever a run finishes — so what a
+# module leaves behind becomes another module's race. Fixtures close the
+# PRs and tickets they made the moment they are done with them; the
+# session sweeper catches what inline tests and failure paths drop.
 
 
 def pr_number(pr_url: str | None) -> int | None:
@@ -547,51 +650,9 @@ def close_issue(env: dict, number: int | None) -> None:
         )
 
 
-def crew_requests(run_id: str) -> list[dict]:
-    """The `crew_requests` rows a run recorded, read through the cluster's
-    registry — the intake -> implement handoff, as JSON."""
-    return psql_json(
-        "SELECT COALESCE(json_agg(c), '[]'::json) FROM ("
-        "SELECT * FROM registry.crew_requests WHERE run_id = :'run_id'"
-        ") c",
-        run_id=run_id,
-    )
-
-
 def gate_merge_rules(story: list[dict]) -> list[str]:
     """The merge-gate rules a run's audit story recorded, in order."""
     return [e["rule"] for e in story if e["tool"] == "gate.merge"]
-
-
-def run_review(pr_number: int, approve: bool | None = None) -> tuple[str, dict]:
-    """One policy-gated review of `pr_number`, driven to a terminal state.
-    With `approve` None, no human touches the `merge` signal — an in-class
-    PR auto-merges on its own, and a declined one escalates and expires
-    under the mock brain's fast profile. With `approve` a bool, wait for the
-    merge-gate park and deliver that one human verdict. Returns the review
-    run id and its terminal record."""
-    run_id = new_run_id()
-
-    async def drive() -> dict:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = await client.start_workflow(
-                "review",
-                ReviewInput(run_id=run_id, pr_number=pr_number),
-                id=workflow_id("review", run_id),
-                task_queue=TASK_QUEUE,
-            )
-            if approve is not None:
-                for _ in range(240):
-                    if await handle.query("state") == "paused-merge_gate":
-                        break
-                    await asyncio.sleep(0.25)
-                else:
-                    raise AssertionError(f"review of #{pr_number} never parked on merge")
-                await handle.signal("merge", args=[approve, "capstone: spec approved"])
-            return await asyncio.wait_for(handle.result(), timeout=900)
-
-    return run_id, asyncio.run(drive())
 
 
 def pr_state(env: dict, pr_url: str | None) -> str:
@@ -603,16 +664,14 @@ def pr_state(env: dict, pr_url: str | None) -> str:
 
 
 def apply_profile(path: Path, env: dict) -> None:
-    """Sweep, apply, converge, and let the standing heartbeat arrive — the
-    way a module whose arc the heartbeat drives must start. An empty
-    campsite first: the heartbeat ticks once the moment the ensure loop
-    starts it, and any open PR or issue an earlier module left becomes its
-    backlog — a review parked on a day-long gate that holds the one
-    concurrency slot. Then the wait: once the arrival tick has landed on
-    the swept backlog and the loop is parked on its wait, every tick that
+    """Sweep, apply, converge, and let the standing heartbeat settle — the
+    way every module that applies its own profile must start. An empty
+    campsite first: any open PR or issue an earlier module left becomes the
+    loop's backlog the moment it reads the new section — a review parked
+    on the gate that holds the one concurrency slot. Then the wait: once
+    the loop is parked on its wait over the swept backlog, every tick that
     follows is one the module caused — its own runs wake the heartbeat
-    forward, and `wake_bare_heartbeat` stands in for the outside world.
-    `path` must declare a heartbeat section."""
+    forward, and `wake_bare_heartbeat` stands in for the outside world."""
     sweep_repo_debris(env)
     apply_blueprint(path)
     wait_for_convergence()
@@ -620,15 +679,12 @@ def apply_profile(path: Path, env: dict) -> None:
 
 
 def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
-    """Block until the ensure loop's `heartbeat-{company}` is running and
-    parked on its wait — its arrival tick has observed the swept campsite
-    and is journaled, so tick counts taken after this are the module's
-    own. Read off the workflow's own `state` query, on its current run
-    only: a profile re-applied over itself finds the standing heartbeat
-    already waiting, and a terminated one (a quiesced earlier profile)
-    does not count until the ensure loop has started its successor. The
-    parked loop answers a wake immediately — "sleeping" means ready,
-    never dormant."""
+    """Block until the company's `heartbeat-{company}` is running and
+    parked on its wait, so tick counts taken after this are the module's
+    own. Read off the workflow's own `state` query: a profile re-applied
+    over itself finds the standing heartbeat already waiting. The parked
+    loop answers a wake immediately — "sleeping" means ready, never
+    dormant."""
     bare = workflow_id("heartbeat", COMPANY_NS)
 
     async def wait() -> None:
@@ -698,11 +754,16 @@ def sweep_repo_debris(env: dict) -> None:
 @pytest.fixture(scope="session", autouse=True)
 def repo_sweeper(env: dict[str, str]):
     """The session's last word on repo debris: whatever ran, the disposable
-    repo exits with no open PRs and no feature/* branches — so debris never
-    grows across runs, and the next session's bare heartbeat finds no
-    backlog to steal."""
+    repo exits with no open PRs, no feature/* branches and no open issues
+    — so debris never grows across runs, and the next session's standing
+    heartbeat finds no backlog to steal. Then the loop is given its idle
+    tick on that empty backlog, so `test_quiet`'s successor session starts
+    from rest."""
     yield
     sweep_repo_debris(env)
+    with contextlib.suppress(Exception):
+        wake_bare_heartbeat()
+        await_bare_heartbeat_asleep()
 
 
 # --- the shared runs ---------------------------------------------------------
@@ -710,28 +771,31 @@ def repo_sweeper(env: dict[str, str]):
 
 @pytest.fixture(scope="session")
 def implement_run(stack: None, env: dict[str, str]) -> dict:
-    """The happy-path run, with the worker killed mid-run.
+    """The happy-path run, with the worker killed mid-run: the company's
+    own implement run on the ticket the suite filed.
 
-    The PR's openness-at-birth is verified here, then the PR is closed
-    immediately: implement leaving the PR open is the product claim (it
-    holds no merge or close authority), and a suite that parades open PRs
-    across later modules hands the ensure loop's bare heartbeat backlog to
-    review — the review parks on a day-long gate and starves whichever
-    module needed the concurrency slot."""
-    record = run_implement("task-happy.md", kill_worker=True, env=env)
+    The PR's openness-at-birth is verified here, then the PR and the
+    ticket are closed immediately: implement leaving the PR open is the
+    product claim (it holds no merge or close authority), and a suite that
+    parades open PRs across later modules hands the standing heartbeat
+    backlog — a review parked on the gate that starves whichever module
+    needed the concurrency slot."""
+    record = run_implement("happy", env, kill_after="sandbox")
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
     close_pr_url(env, record.get("pr_url"))
+    close_issue(env, record["issue_number"])
     yield record
 
 
 @pytest.fixture(scope="session")
 def injected_run(stack: None, env: dict[str, str]) -> dict:
-    """The injected task — the planted 'hotfix runbook' steers delivery
+    """The injected ticket — the planted 'hotfix runbook' steers delivery
     onto `main`, the gateway denies it, the brain recovers onto feature/*.
     Openness verified at birth, then closed — see `implement_run`."""
-    record = run_implement("task-injected.md", kill_worker=False, env=env)
+    record = run_implement("injected", env)
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
     close_pr_url(env, record.get("pr_url"))
+    close_issue(env, record["issue_number"])
     yield record
 
 

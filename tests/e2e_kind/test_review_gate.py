@@ -1,41 +1,51 @@
-"""Review on the live cluster: the full chain — intake tickets,
-implement PR (started from the intake ticket's issue number, the
-`poseidon run <number>` handoff: no human retypes the spec), reviewer
-findings posted, merge gate parked, timer escalation observable, API
-approval, gateway merge — every step correlated by run_id in one audit
-story.
+"""Review on the live cluster: the full chain — the strategy scoped into a
+ticket, an operator's `poseidon run <number>` implementing it by hand (the
+repro command: no human retypes the spec, and the loop yields the ticket
+to the operator), reviewer findings posted, merge gate parked, timer
+escalation observable, API approval, gateway merge — every step correlated
+by run_id in one audit story.
 
-The chain runs its own three runs (never the shared session fixtures: this
+The chain runs its own runs (never the shared session fixtures: this
 module *merges* its PR into the disposable repo's main, and nothing else in
 the suite may inherit that side effect). The merge gate leg is timed by the
-fast profile: the gate parks, escalates at half its declared deadline with a real
-`process-gate` audit event, and only then does the test approve — so the
-escalation path is proven on every run, not just when someone forgets to
-answer.
+fast profile: the gate parks, escalates at half its declared deadline with
+a real `process-gate` audit event, and only then does the test approve —
+so the escalation path is proven on every run, not just when someone
+forgets to answer.
+
+Applies the example with `may_start: [scope, review]`: the company scopes
+and reviews on its own, and implementing is the operator's act here —
+which is what makes `poseidon run <number>` a repro rather than a race.
 """
 
 import asyncio
+import json
+import os
 import re
+import secrets
+import subprocess
 import time
 
 import pytest
+from temporalio.client import Client
 
-from common.ids import new_run_id
-from common.tasks import issue_run_task
+from common.tasks import SCOPE_TASK, issue_run_task
+from mockllm.brain import NEXT_SLICE_MARKER
 from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.intake import IntakeInput
-from orchestrator.workflows.review import ReviewInput
 
-from .blueprints import E2E_GATE_MINUTES
-from .cluster import audit_story, registry, temporal_port_forward
+from .blueprints import E2E_GATE_MINUTES, HELLO_SAAS, may_start, restore_pristine
+from .cluster import audit_story, await_run, run_by_task, temporal_port_forward
 from .conftest import (
-    TASK_QUEUE,
+    REPO_ROOT,
+    apply_profile,
     close_issue,
     close_pr,
-    crew_requests,
     github_api,
-    run_implement_from_issue,
+    open_slice_strategy,
+    restore_strategy,
     target_slug,
+    wake_until_run_started,
+    write_strategy,
 )
 
 
@@ -45,136 +55,116 @@ def _reviewer_id(run_id: str) -> str:
     return ephemeral_agent_id("feature-review", "reviewer", run_id)
 
 
-async def _execute_review_with_gate(address: str, run_id: str, pr_number: int) -> dict:
-    """Start review detached, watch it park on the merge gate, wait for the
-    escalation to land in the audit store, then approve — the exact HITL
-    sequence `poseidon review --detach` + `poseidon signal ... merge` runs."""
-    from temporalio.client import Client
-
-    client = await Client.connect(address)
-    handle = await client.start_workflow(
-        "review",
-        ReviewInput(run_id=run_id, pr_number=pr_number),
-        id=workflow_id("review", run_id),
-        task_queue=TASK_QUEUE,
+def _poseidon_run(issue_number: int, address: str) -> dict:
+    """The operator's repro: `poseidon run <number>` through the real CLI,
+    blocking until the run record prints."""
+    proc = subprocess.run(
+        ["uv", "run", "poseidon", "run", str(issue_number)],
+        cwd=REPO_ROOT,
+        env={**os.environ, "TEMPORAL_ADDRESS": address},
+        capture_output=True,
+        text=True,
+        timeout=1800,
     )
+    assert proc.returncode == 0, f"poseidon run: {proc.stderr}\n{proc.stdout}"
+    return json.loads(proc.stdout)
 
-    # The park is an API-visible pending state, reached only after the
-    # reviewer posted findings.
+
+async def _watch_review_gate(address: str, run_id: str) -> dict:
+    """Watch the loop's review park on the merge gate, wait for the
+    escalation to land in the audit store, then approve — the exact HITL
+    sequence `poseidon signal ... merge` answers."""
+    client = await Client.connect(address)
+    handle = client.get_workflow_handle(workflow_id("review", run_id))
     deadline = time.monotonic() + 600
-    parked = False
     while time.monotonic() < deadline:
-        state = await handle.query("state")
-        if state == "paused-merge_gate":
-            parked = True
+        if await handle.query("state") == "paused-merge_gate":
             break
         await asyncio.sleep(2)
-    assert parked, "the review workflow never parked on the merge gate"
+    else:
+        raise AssertionError("the review workflow never parked on the merge gate")
 
     # Nobody answers: the timer escalates at half the declared deadline and
     # the escalation is a real process-gate row — observable, not a log line.
     deadline = time.monotonic() + E2E_GATE_MINUTES * 60
-    escalated = False
     while time.monotonic() < deadline:
         if any(
             e["source"] == "process-gate" and e["rule"] == "gate_escalated"
             for e in audit_story(run_id)
         ):
-            escalated = True
             break
         await asyncio.sleep(2)
-    assert escalated, "no process-gate escalation event before the deadline"
+    else:
+        raise AssertionError("no process-gate escalation event before the deadline")
 
     # The human answers through the API — approval releases the merge.
     await handle.signal("merge", args=[True, "reviewed: findings are clean"])
-    record = await asyncio.wait_for(handle.result(), timeout=300)
-    return record
+    return await asyncio.wait_for(handle.result(), timeout=300)
 
 
 @pytest.fixture(scope="module")
-def review_chain(stack: None, env: dict) -> dict:
-    """The whole arc: a goal becomes tickets (intake), a task becomes
-    a PR (implement), the PR becomes reviewer findings, a parked gate, an
-    escalation, an approval, and a gateway merge (review)."""
+def review_chain(stack: None, repo_baseline: dict) -> dict:
+    """The whole arc: the strategy becomes a ticket (the loop's scope run),
+    the ticket becomes a PR (the operator's `poseidon run`), the PR becomes
+    reviewer findings, a parked gate, an escalation, an approval, and a
+    gateway merge (the loop's review run)."""
+    env = repo_baseline
+    apply_profile(may_start(HELLO_SAAS, "scope", "review"), env)
     chain: dict = {"env": env}
+    nonce = secrets.token_hex(3)
+    try:
+        # 1. Scope: the strategy names the slice, the loop files the ticket.
+        write_strategy(env, open_slice_strategy(nonce, NEXT_SLICE_MARKER))
+        wake_until_run_started(SCOPE_TASK, "scope")
+        chain["scope"] = await_run(SCOPE_TASK, terminal=True, deadline_s=600)
+        ticket_url = (chain["scope"].get("ticket_urls") or [""])[0]
+        issue_match = re.search(r"/issues/(\d+)$", ticket_url)
+        assert issue_match, f"the scope run filed no usable ticket: {chain['scope']}"
+        chain["ticket_url"] = ticket_url
+        chain["issue_number"] = int(issue_match.group(1))
 
-    # 1. Intake: tickets + recorded intent under the PM's authority. The
-    # goal carries the delivery-branch line, so the ticket the PM files
-    # carries it too — the issue is the whole spec the implement run
-    # consumes, and the nonce branch keeps reruns against the disposable
-    # repo from colliding.
-    intake_run = new_run_id()
-    nonce = intake_run[-6:].lower()
-    goal = (
-        f"Ship the slugify utility to production (e2e review-chain goal {nonce})\n\n"
-        f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
-    )
-
-    async def start_intake() -> dict:
-        from temporalio.client import Client
-
+        # 2. Implement, by hand: the operator's repro on the company's own
+        # ticket. The loop may not implement in this profile, so the ticket
+        # is the operator's to start — and the company's spec, not a
+        # second, human-written one.
         with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = await client.start_workflow(
-                "intake",
-                IntakeInput(run_id=intake_run, goal_text=goal),
-                id=workflow_id("intake", intake_run),
-                task_queue=TASK_QUEUE,
+            chain["implement"] = _poseidon_run(chain["issue_number"], address)
+        pr_url = chain["implement"]["pr_url"]
+        match = re.search(r"/pull/(\d+)$", pr_url or "")
+        assert match, f"implement produced no usable PR: {chain['implement']}"
+        chain["pr_number"] = int(match.group(1))
+        chain["pr_url"] = pr_url
+
+        # 3. Review, the loop's: findings -> parked gate -> escalation ->
+        # approval -> merge.
+        from common.tasks import review_run_task
+
+        wake_until_run_started(review_run_task(chain["pr_number"]), "review")
+        review_run = run_by_task(review_run_task(chain["pr_number"]), workflow="review")
+        chain["review_run_id"] = review_run["run_id"]
+        with temporal_port_forward() as address:
+            chain["review"] = asyncio.run(
+                _watch_review_gate(address, chain["review_run_id"])
             )
-            return await asyncio.wait_for(handle.result(), timeout=600)
-
-    chain["intake_run_id"] = intake_run
-    chain["intake"] = asyncio.run(start_intake())
-
-    # 2. Implement, from the ticket intake just filed — the company
-    # consumes its own artifact; nobody writes a second spec. The chain
-    # gets its own PR (this module merges it — the shared session
-    # fixtures' PRs must stay untouched).
-    ticket_url = (chain["intake"].get("ticket_urls") or [""])[0]
-    issue_match = re.search(r"/issues/(\d+)$", ticket_url)
-    assert issue_match, f"intake filed no usable ticket: {chain['intake']}"
-    chain["ticket_url"] = ticket_url
-    chain["issue_number"] = int(issue_match.group(1))
-    chain["implement"] = run_implement_from_issue(chain["issue_number"], env)
-    pr_url = chain["implement"]["pr_url"]
-    match = re.search(r"/pull/(\d+)$", pr_url or "")
-    assert match, f"implement produced no usable PR: {chain['implement']}"
-    chain["pr_number"] = int(match.group(1))
-    chain["pr_url"] = pr_url
-
-    # 3. Review: findings -> parked gate -> escalation -> approval -> merge.
-    review_run = new_run_id()
-    chain["review_run_id"] = review_run
-    with temporal_port_forward() as address:
-        chain["review"] = asyncio.run(
-            _execute_review_with_gate(address, review_run, chain["pr_number"])
-        )
-
-    yield chain
-
-    # The intake leg's leftovers, exactly as test_intake cleans its own.
-    # The merged PR's branch goes too; the merge itself is what the
-    # assertions read, and it survives the branch.
-    close_pr(env, chain["pr_number"])
-    for url in chain["intake"].get("ticket_urls") or []:
-        number = re.search(r"/issues/(\d+)$", url)
-        if number:
-            close_issue(env, number.group(1))
-    with registry() as client:
-        client.execute(
-            "DELETE FROM registry.crew_requests WHERE run_id = %s", (intake_run,)
-        )
-        client.execute("DELETE FROM registry.runs WHERE run_id = %s", (intake_run,))
+        yield chain
+    finally:
+        # The merged PR's branch goes too; the merge itself is what the
+        # assertions read, and it survives the branch.
+        if chain.get("pr_number"):
+            close_pr(env, chain["pr_number"])
+        close_issue(env, chain.get("issue_number"))
+        restore_strategy(env)
+        restore_pristine()
 
 
 def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
-    """The full chain, end to end: tickets, PR, findings, approval,
+    """The full chain, end to end: ticket, PR, findings, approval,
     merge — and the PR really is merged on GitHub."""
-    assert review_chain["intake"]["status"] == "done"
-    assert review_chain["intake"]["ticket_urls"], "intake filed no tickets"
+    assert review_chain["scope"]["status"] == "done"
+    assert review_chain["scope"]["ticket_urls"], "the scope run filed no tickets"
     assert review_chain["implement"]["status"] == "done"
     # The handoff was the ticket itself: the implement run consumed the
-    # issue intake filed (linked on its run row), and its task is the
+    # issue the company filed (linked on its run row), and its task is the
     # issue reference — no second, human-written spec anywhere.
     assert review_chain["implement"]["ticket_urls"] == [review_chain["ticket_url"]]
     assert review_chain["implement"]["task"] == issue_run_task(
@@ -194,6 +184,15 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     assert pr.json()["merged"] is True, "the gateway merge never landed"
 
 
+def test_the_operator_run_was_the_only_implement(review_chain: dict) -> None:
+    """The loop yielded the ticket: the one implement run on it is the
+    operator's (not an auto- id), and no second run raced it."""
+    run = run_by_task(issue_run_task(review_chain["issue_number"]), workflow="implement")
+    assert run and run["run_id"] == review_chain["implement"]["run_id"]
+    assert not run["run_id"].startswith("auto-"), run
+    assert review_chain["review_run_id"].startswith("auto-")
+
+
 def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> None:
     """The reviewer is an ephemeral feature-review ephemeral agent under
     the PM's authority — it reads the diff, executes the suite in its own
@@ -201,8 +200,6 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
     run_id = review_chain["review_run_id"]
     reviewer = _reviewer_id(run_id)
     story = audit_story(run_id)
-    # Parentage is the gateway pipeline's enrichment (participants row →
-    # parent attribution); lifecycle.revoke rows legitimately carry no parent.
     reviewer_events = [
         e for e in story if e["agent_id"] == reviewer and e["source"] == "gateway"
     ]
@@ -216,7 +213,6 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
         assert event["workflow"] == "review"
         assert event["decision"] == "allow"
 
-    # The findings comment is really on the PR.
     env = review_chain["env"]
     comments = github_api(
         env,
@@ -224,24 +220,14 @@ def test_findings_are_posted_by_the_ephemeral_reviewer(review_chain: dict) -> No
         f"/repos/{target_slug(env)}/issues/{review_chain['pr_number']}/comments",
     )
     assert comments.status_code == 200
-    assert any("test suite" in c["body"] for c in comments.json()), (
-        "no findings comment on the PR"
-    )
+    assert any("test suite" in c["body"] for c in comments.json()), "no findings comment"
 
 
-def test_the_crew_request_was_recorded_under_conductor_authority(
-    review_chain: dict,
-) -> None:
-    """Process-initiated: the workflow's own crew request is
-    the same crew_requests row and the same audited compiled decision an
-    agent-issued request produces."""
+def test_the_crew_was_fulfilled_under_conductor_authority(review_chain: dict) -> None:
+    """Fulfilment won the compiled crew.request decision as the conductor:
+    one audited `lifecycle.record_request` allow under the standing pm-1
+    before the crew was bound."""
     run_id = review_chain["review_run_id"]
-    rows = crew_requests(run_id)
-    assert len(rows) == 1
-    assert rows[0]["conductor"] == "pm-1"
-    assert rows[0]["crew_template"] == "feature-review"
-    assert rows[0]["status"] == "fulfilled"
-
     recorded = [e for e in audit_story(run_id) if e["tool"] == "lifecycle.record_request"]
     assert len(recorded) == 1
     assert recorded[0]["decision"] == "allow"
@@ -250,8 +236,8 @@ def test_the_crew_request_was_recorded_under_conductor_authority(
 
 
 def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
-    """Escalation, then the verdict: both transitions
-    are process-gate audit events carrying the workflow id, in order."""
+    """Escalation, then the verdict: both transitions are process-gate
+    audit events carrying the workflow id, in order."""
     run_id = review_chain["review_run_id"]
     gate_events = [e for e in audit_story(run_id) if e["source"] == "process-gate"]
     rules = [e["rule"] for e in gate_events]
@@ -265,12 +251,12 @@ def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
 
 
 def test_merge_is_a_gateway_call_strictly_after_the_gate(review_chain: dict) -> None:
-    """git.merge_pr is a gateway-audited call under
-    the platform lifecycle, and it happens after the gate's approval —
-    never before, never around the gateway. The activity's step retry may
-    re-issue the call when the git host errors (a fresh PR whose
-    mergeability GitHub has not computed yet answers 405); every attempt
-    is audited, and every one of them must still follow the approval."""
+    """git.merge_pr is a gateway-audited call under the platform lifecycle,
+    and it happens after the gate's approval — never before, never around
+    the gateway. The activity's step retry may re-issue the call when the
+    git host errors (a fresh PR whose mergeability GitHub has not computed
+    yet answers 405); every attempt is audited, and every one of them must
+    still follow the approval."""
     run_id = review_chain["review_run_id"]
     story = audit_story(run_id)
     merges = [(i, e) for i, e in enumerate(story) if e["tool"] == "git.merge_pr"]

@@ -578,17 +578,19 @@ def egress_proxy_key() -> str:
     return cluster_secret("egress-proxy-key", "EGRESS_PROXY_KEY")
 
 
-def worker_settings(env: dict, tmp_path: Path):
+def worker_settings(env: dict, tmp_path: Path, opa_url: str = "http://opa.test:8181"):
     """A `WorkerSettings` for running the orchestrator's activities from
     the host against this cluster: the gateway token file is a placeholder
     (host-side tests call the gateway with tokens they mint themselves),
-    the images are the ones the cluster carries."""
+    the images are the ones the cluster carries. `opa_url` names a
+    port-forward to the cluster's OPA when the activity under test wins a
+    compiled decision (crew fulfilment)."""
     from orchestrator.config import WorkerSettings
 
     token_file = tmp_path / "unused-token"
     token_file.write_text("unused")
     return WorkerSettings(
-        opa_url="http://opa.test:8181",
+        opa_url=opa_url,
         platform_namespace="poseidon-platform",
         sandbox_image="poseidon-sandbox:abc123",
         egress_proxy_url="http://127.0.0.1:3128",
@@ -611,7 +613,6 @@ def crew_activities(client: Registry, settings, provisioner=None):
         AuditStore,
         BudgetLedger,
         Companies,
-        CrewRequests,
         RunParticipants,
         Runs,
     )
@@ -620,7 +621,6 @@ def crew_activities(client: Registry, settings, provisioner=None):
         settings,
         RunParticipants(client),
         AuditStore(client),
-        CrewRequests(client),
         Companies(client),
         BudgetLedger(client),
         Runs(client),

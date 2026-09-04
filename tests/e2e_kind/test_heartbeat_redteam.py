@@ -33,15 +33,11 @@ the platform did:
   `max_attempts`, the run that spends the last attempt records the
   exhaustion and says so on the PR, and no third attempt is ever started.
 
-Started the way nothing else in this suite is: not by a human `poseidon
-run`, but by the standing `heartbeat` workflow reading the backlog itself
-— the ensure loop's own, woken by the platform's nudges and, where only
-the outside world changed, by the harness sending the same `wake` signal.
-The module arrives on a variant of the heartbeat blueprint with
-`may_start: [implement]` — a delivered PR waits for the world instead of
-being reviewed on the next wake, which the merged-by-hand arc needs —
-and the full example (review startable again) is applied mid-module for
-the aborted-review arc. The pristine blueprint is restored after.
+The module arrives on the example with `may_start: [implement]` — a
+delivered PR waits for the world instead of being reviewed on the next
+wake, which the merged-by-hand arc needs — and the example as shipped
+(review startable again) is applied mid-module for the aborted-review
+arc. The pristine profile is restored after.
 """
 
 import secrets
@@ -53,9 +49,9 @@ from common.tasks import issue_run_task, review_run_task
 from mockllm.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
+    HELLO_SAAS,
     apply_blueprint,
-    heartbeat_implement_only,
-    heartbeat_variant,
+    may_start,
     restore_pristine,
     wait_for_convergence,
 )
@@ -97,11 +93,10 @@ def _injected_body(nonce: str) -> str:
 
 @pytest.fixture(scope="module")
 def heartbeat_profile(stack: None, repo_baseline: dict):
-    """Apply the implement-only heartbeat variant for this module — the
-    merged-by-hand arc needs a delivered PR to wait for the world, not
-    for the next wake — and restore the pristine blueprint after, so
-    later suites run against the human-started company."""
-    apply_profile(heartbeat_implement_only(), repo_baseline)
+    """Apply the implement-only profile for this module — the merged-by-hand
+    arc needs a delivered PR to wait for the world, not for the next wake
+    — and restore the pristine profile after."""
+    apply_profile(may_start(HELLO_SAAS, "implement"), repo_baseline)
     yield
     restore_pristine()
 
@@ -318,9 +313,9 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     timed-out model call. Under the blueprint's `max_attempts: 2` the
     heartbeat must try the review twice and then stop, with the
     exhaustion on the record. Reviews are startable again here: the
-    fixture re-applies the full heartbeat example — grant-by-diff, the
-    same reviewable edit as revocation — and the standing workflow reads
-    the new section on its next tick. Requested after `merged_by_hand`,
+    fixture re-applies the example as shipped — grant-by-diff, the same
+    reviewable edit as any other — and the standing workflow reads the
+    new section on its next tick. Requested after `merged_by_hand`,
     so the world is settled: the earlier PR is merged, the earlier issue
     consumed, and the heartbeat has one candidate at a time."""
     nonce = secrets.token_hex(3)
@@ -342,7 +337,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     heartbeat_id = bare_heartbeat_id()
     result: dict = {"issue_number": issue_number, "heartbeat_id": heartbeat_id}
 
-    apply_blueprint(heartbeat_variant())
+    apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
 
     wake_until_run_started(issue_run_task(issue_number), "implement")

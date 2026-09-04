@@ -15,10 +15,11 @@ What the suite proves, and where:
                   test_registry_durability, test_crew_fulfillment
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
                   leaked no identity row, no ephemeral pod, no registration
-  3 SDLC          test_intake + test_review_gate (intake → implement →
-                  review with parked gate, escalation, API approval,
-                  platform merge); test_verify_gate (the platform's own
-                  test run, not the implementer's claim, is the gate of record);
+  3 SDLC          test_scope + test_review_gate (the strategy scoped into
+                  a ticket, an operator's `poseidon run <number>`, review
+                  with parked gate, escalation, API approval, platform
+                  merge); test_verify_gate (the platform's own test run, not
+                  the implementer's claim, is the gate of record);
                   test_audit_story (one run_id reconstructs a run's whole story)
   4 governance    test_injection (injection vs compiled policy), test_governance,
                   test_injected_conductor, test_redteam (sandbox containment +
@@ -28,7 +29,7 @@ What the suite proves, and where:
   5 budgets       test_budgets (hard-stop, API-visible pause, process-gate
                   escalation, full {run, parent, agent, role} tuple)
   6 lean standing test_operator_lifecycle (exactly one AgentInstance),
-                  test_intake, test_ephemeral_identity, test_ephemeral_pods,
+                  test_scope, test_ephemeral_identity, test_ephemeral_pods,
                   test_workload_identity; HERE: the registry's standing agents
                   agrees, and a live minted implementer is denied outside its
                   compiled allow-list at the gateway
@@ -38,11 +39,14 @@ What the suite proves, and where:
   8 unattended    test_heartbeat_redteam (an attacker-filed issue consumed by
                   the heartbeat dies at the gates; a review that dies
                   without a verdict is retried once under max_attempts,
-                  then abandoned on the record) and test_overnight
-                  (the whole arc with two human acts: one goal in, one
-                  merge approval out).
-  9 merge policy  test_delegated (in-class passing work merges with zero
-                  human commands — the arc runs through the merge) and
+                  then abandoned on the record), test_injected_conductor
+                  (a poisoned strategy cannot route work to a crew outside
+                  may_spawn nor exfiltrate) and test_overnight (the whole
+                  arc — scope, implement, review — with one human act: the
+                  merge approval out; nothing in).
+  9 merge policy  test_delegated (in-class passing work is scoped,
+                  implemented, reviewed and merged with no human act at
+                  all — the arc runs through the merge) and
                   test_split_oracle_redteam (a steered reviewer smuggling
                   a carve-out change is refused by the compiled decision,
                   not the model).
@@ -57,7 +61,8 @@ What the suite proves, and where:
 
 The suite's own discipline is proved too: test_brain_guard (the session
 refuses a paid brain without the explicit opt-in) and test_quiet (the exit
-contract, ordered last: no workflow running, no run non-terminal).
+contract, ordered last: only the standing heartbeat running, asleep on an
+empty backlog; no run non-terminal).
 
 The conftest orders this module after every module whose runs it reads:
 the five-source assertion reads what the whole suite really produced.
