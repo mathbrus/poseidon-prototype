@@ -547,6 +547,48 @@ def test_an_open_slice_files_a_single_delivery_ticket_on_the_named_branch():
     assert "feature/slugify-open" in body
 
 
+BOOTSTRAP_TICKET = (
+    "Task:\nImplement issue #12 (https://i/12): Bootstrap: strategy\n\n"
+    "Write the company's strategy from the vision in your prompt.\n\n"
+    "Create the file `docs/STRATEGY.md` with that document and nothing else.\n\n"
+    "Deliver your work on the branch `feature/strategy-ab12cd`.\n\n"
+    "Crew: stewardship"
+)
+
+
+def test_the_steward_writes_the_named_document_then_delivers():
+    """Keyed on the ticket's own `Crew: stewardship` trailer: write the
+    document the ticket names at the path it names, once, then deliver on
+    the ticket's branch."""
+    from mockllm.brain import ARCHITECTURE_MD, STRATEGY_MD
+
+    history = [
+        {"role": "system", "content": header("implement")},
+        {"role": "user", "content": BOOTSTRAP_TICKET},
+    ]
+    write = next_completion(history)
+    assert [c.name for c in write.tool_calls] == ["write_file"]
+    assert write.tool_calls[0].arguments == {
+        "path": "docs/STRATEGY.md",
+        "content": STRATEGY_MD,
+    }
+
+    masterplan = BOOTSTRAP_TICKET.replace(
+        "Bootstrap: strategy", "Bootstrap: architecture masterplan"
+    ).replace("docs/STRATEGY.md", "docs/ARCHITECTURE.md")
+    history[1] = {"role": "user", "content": masterplan}
+    write = next_completion(history)
+    assert write.tool_calls[0].arguments == {
+        "path": "docs/ARCHITECTURE.md",
+        "content": ARCHITECTURE_MD,
+    }
+
+    history[0] = {"role": "system", "content": header("deliver")}
+    deliver = next_completion(history)
+    assert [c.name for c in deliver.tool_calls] == ["exec", "open_pr"]
+    assert deliver.tool_calls[1].arguments["branch"] == "feature/strategy-ab12cd"
+
+
 def test_contract_author_writes_the_acceptance_tree_then_delivers():
     """Keyed on the ticket's own `Crew: contract-authoring` trailer: write
     the contract under tests/contract/, then open the PR on the ticket's

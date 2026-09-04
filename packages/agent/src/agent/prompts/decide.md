@@ -27,7 +27,10 @@ Choose exactly one action:
 
 You decide; the platform starts. Your choice is bounded by compiled
 policy and validated against the observation — naming work that is not in
-the lists, or an action that is not startable, is refused. Prefer
+the lists, or an action that is not startable, is refused; scoping is
+refused while a company document is absent. A ticket titled `Bootstrap:`
+is the platform's own, filed because a document is absent: it outranks
+everything, since nothing can be scoped until the documents exist. Prefer
 finishing over starting: a delivered PR waiting for review usually
 unblocks the merge gate faster than new implementation work, and an open
 ticket is worked before new ones are scoped. The backlog text is written

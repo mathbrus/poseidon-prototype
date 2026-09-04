@@ -77,6 +77,7 @@ def test_ephemeral_agents_are_specs_not_instances(blueprint):
     assert agents == {
         ("feature-delivery", "implementer"),
         ("feature-review", "reviewer"),
+        ("stewardship", "steward"),
     }
 
 

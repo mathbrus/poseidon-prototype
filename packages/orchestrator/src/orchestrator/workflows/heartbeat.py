@@ -1,8 +1,9 @@
 """The heartbeat: the standing loop that decides what the company does next.
 
-    heartbeat_config -> heartbeat_observe -> heartbeat_decide (the PM) ->
-    heartbeat_authorize -> start child run -> record_tick ->
-    wait for a wake or the reconcile backstop -> continue-as-new
+    heartbeat_config -> heartbeat_observe -> [heartbeat_bootstrap] ->
+    heartbeat_decide (the PM) -> heartbeat_authorize -> start child run ->
+    record_tick -> wait for a wake or the reconcile backstop ->
+    continue-as-new
 
 One durable workflow per company (`heartbeat-{company}`), kept running by
 the worker's ensure loop for as long as the company is applied. Each tick
@@ -30,6 +31,14 @@ audit reason, and checked again by policy for the refusal that does not
 depend on this code. Every tick outcome (started, idle and why, refused
 and why) is an audit event under the `heartbeat-{company}` run id, so the
 heartbeat's whole story is one correlated query.
+
+A company begins with its vision alone. A tick that observes a document
+absent on the base ref with no bootstrap ticket open files one under the
+platform identity and wakes itself, so the next tick offers the
+stewardship crew's work like any other ticket; scoping is refused until
+both documents exist. A bootstrap ticket whose every attempt aborted
+halts the loop by name (`bootstrap_exhausted`, a process-gate event) —
+never a silent stall: a human closes the ticket and the loop refiles.
 
 What the tick offers is bounded the same way: an issue or a delivered PR
 is off the backlog while a run on it is live, once a run concluded it
@@ -126,7 +135,28 @@ class HeartbeatWorkflow(RunWorkflow):
                 start_to_close_timeout=step,
                 retry_policy=STEP_RETRY,
             )
-            if observed["active_runs"] >= int(config["max_concurrent_runs"]):
+            bootstrap = observed.get("bootstrap") or {}
+            if bootstrap.get("pending"):
+                await workflow.execute_activity(
+                    "heartbeat_bootstrap",
+                    args=[list(bootstrap["pending"])],
+                    start_to_close_timeout=step,
+                    retry_policy=STEP_RETRY,
+                )
+                rule = "bootstrap_filed:" + ",".join(bootstrap["pending"])
+                # The ticket is the next tick's to offer: skip the wait.
+                self._woken = True
+            elif bootstrap.get("exhausted"):
+                # Every attempt on the bootstrap ticket aborted short of a
+                # delivery: the company cannot write its own charter and
+                # says so, as a first-class process-gate event.
+                rule = "bootstrap_exhausted:" + ",".join(bootstrap["exhausted"])
+                await self.record_gate(
+                    workflow_id("heartbeat", input.company),
+                    "heartbeat_bootstrap",
+                    "halted",
+                )
+            elif observed["active_runs"] >= int(config["max_concurrent_runs"]):
                 rule = "runs_in_flight"
             elif observed["daily_spent_usd"] >= float(config["daily_cap_usd"]):
                 # The cap halt is a first-class process-gate event, like

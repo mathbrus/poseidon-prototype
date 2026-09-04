@@ -12,6 +12,11 @@ Retry safety, per activity:
                           untrusted input the implement run reads itself.
     scope_observation   — the same read, rendered as the scope run's
                           dispatch text; safe.
+    heartbeat_bootstrap — files the bootstrap ticket for an absent
+                          document under the platform identity; not
+                          idempotent on retry (a duplicate ticket, never a
+                          lost one), and the next observation sees the
+                          open one and files no more.
     heartbeat_decide    — dispatches the conductor's decide procedure and polls to
                           terminal; the PM answers 409 while running
                           (re-attach) like every dispatch. The chosen
@@ -33,6 +38,7 @@ start must still win the compiled heartbeat.start decision.
 
 import asyncio
 import re
+import secrets
 import time
 from dataclasses import asdict
 from typing import Any
@@ -47,6 +53,9 @@ from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
 from orchestrator.activities.blueprint import company_repo, conductor
 from orchestrator.activities.documents import (
+    BOOTSTRAP_TITLES,
+    DOCUMENTS,
+    bootstrap_body,
     company_documents,
     read_documents,
     sections,
@@ -291,6 +300,29 @@ class HeartbeatActivities:
                     )
                     continue
                 reviewable.append(candidate)
+        # The bootstrap state of each absent document: `pending` when no
+        # ticket of the fixed title is open (the tick files one),
+        # `exhausted` when the open one spent every attempt short of a
+        # delivery (the loop halts by name rather than scope forever).
+        bootstrap: dict[str, list[str]] = {"pending": [], "exhausted": []}
+        for name in DOCUMENTS:
+            if documents[name]["present"]:
+                continue
+            tickets = [
+                issues.get(int(i["number"]))
+                for i in open_issues
+                if i.get("title") == BOOTSTRAP_TITLES[name]
+            ]
+            if not tickets:
+                bootstrap["pending"].append(name)
+            elif all(
+                a is not None
+                and not a.live
+                and not a.concluded
+                and a.count >= max_attempts
+                for a in tickets
+            ):
+                bootstrap["exhausted"].append(name)
         backlog = sorted(
             (
                 {
@@ -315,6 +347,7 @@ class HeartbeatActivities:
             # bounds is what the repository shows, not what is startable.
             "open_tickets": len(open_issues),
             "documents": documents,
+            "bootstrap": bootstrap,
             "backlog": backlog,
             "reviewable_prs": reviewable,
             "recent_runs": [
@@ -338,6 +371,39 @@ class HeartbeatActivities:
             },
         )
         return observed
+
+    @activity.defn(name="heartbeat_bootstrap")
+    async def heartbeat_bootstrap(self, names: list[str]) -> list[str]:
+        """File the bootstrap ticket for each named absent document under
+        the platform identity — the stewardship crew fulfils it on a later
+        tick like any other ticket — and journal the filing. Returns the
+        ticket URLs."""
+        paths = await asyncio.to_thread(
+            company_documents, self._companies, self._settings.company
+        )
+        repo = (await self._repo())["url"]
+        urls = []
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            for name in names:
+                branch = f"feature/{name}-{secrets.token_hex(3)}"
+                issue = await gateway.create_issue(
+                    self._ledger_run_id(),
+                    repo,
+                    BOOTSTRAP_TITLES[name],
+                    bootstrap_body(name, paths[name], branch),
+                )
+                urls.append(str(issue.get("url") or ""))
+                await self._emit(
+                    run_id=self._ledger_run_id(),
+                    tool="heartbeat.bootstrap",
+                    digest=args_digest({"document": name, "path": paths[name]}),
+                    decision="allow",
+                    rule=f"bootstrap_filed:{name}",
+                )
+                self._log.info("bootstrap ticket filed", extra={"document": name})
+        return urls
 
     @activity.defn(name="heartbeat_decide")
     async def heartbeat_decide(
@@ -423,15 +489,25 @@ class HeartbeatActivities:
         max_open_tickets: int,
     ) -> str | None:
         """Structural containment for the decide reply: a closed action
-        set, targets only from the observation, no scoping at the cap. A
-        poisoned ticket title or document can steer the choice between
-        candidates, never mint a new one or flood the backlog."""
+        set, targets only from the observation, no scoping before the
+        documents exist or at the cap. A poisoned ticket title or document
+        can steer the choice between candidates, never mint a new one or
+        flood the backlog."""
         action, target = decision.get("action"), decision.get("target")
         if action == "idle":
             return None
         if action not in may_start:
             return f"action {action!r} is not in may_start"
         if action == "scope":
+            absent = [
+                name
+                for name, document in (observed.get("documents") or {}).items()
+                if not document.get("present")
+            ]
+            if absent:
+                return (
+                    f"scope refused: {', '.join(sorted(absent))} absent on the base ref"
+                )
             if int(observed["open_tickets"]) >= max_open_tickets:
                 return (
                     f"scope refused: {observed['open_tickets']} open tickets"
@@ -561,6 +637,7 @@ class HeartbeatActivities:
             self.heartbeat_config,
             self.heartbeat_observe,
             self.scope_observation,
+            self.heartbeat_bootstrap,
             self.heartbeat_decide,
             self.heartbeat_authorize,
             self.record_tick,

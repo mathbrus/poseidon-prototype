@@ -295,9 +295,11 @@ def create_app(
     ) -> dict[str, Any]:
         """The only path by which code leaves the system. The gateway verifies the
         bundle, applies it to a fresh platform-side clone, extracts the changed
-        paths and feeds them to policy as real arguments (branch protection,
-        `deny_paths`, the contract-tree owner rule), then pushes the branch with
-        its own token and opens the pull request."""
+        paths — and which of them already exist on the base ref — and feeds
+        them to policy as real arguments (branch protection, `deny_paths`, the
+        contract-tree owner rule, the document fences and the write-once
+        strategy), then pushes the branch with its own token and opens the
+        pull request."""
         return await service.open_pr(
             identity_of(ctx), run_id, repo, branch, title, body, bundle_b64
         )

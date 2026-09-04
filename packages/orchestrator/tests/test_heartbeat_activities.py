@@ -225,10 +225,15 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
     assert [i["number"] for i in observed["backlog"]] == [5, 7]
     # The scoping cap reads every open issue, the worked one included.
     assert observed["open_tickets"] == 3
-    # Documents absent on base_ref are observed as absent, never as an error.
+    # Documents absent on base_ref are observed as absent, never as an error
+    # — and with no bootstrap ticket open, as pending.
     assert observed["documents"] == {
         "strategy": {"path": "docs/STRATEGY.md", "present": False, "text": None},
         "architecture": {"path": "docs/ARCHITECTURE.md", "present": False, "text": None},
+    }
+    assert observed["bootstrap"] == {
+        "pending": ["strategy", "architecture"],
+        "exhausted": [],
     }
     # Bodies are untrusted input; only number, title, URL and the attempt
     # count feed the tick.
@@ -424,6 +429,62 @@ def test_observe_skips_an_unreadable_delivered_pr(
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert [p["number"] for p in observed["reviewable_prs"]] == [6]
     assert [i["number"] for i in observed["backlog"]] == [9]
+
+
+def _bootstrap_issue(name: str, number: int) -> dict[str, Any]:
+    from orchestrator.activities.documents import BOOTSTRAP_TITLES
+
+    return {**_issue(number), "title": BOOTSTRAP_TITLES[name]}
+
+
+def test_observe_reads_the_bootstrap_state_off_the_open_tickets(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """An open bootstrap ticket means the document is being written, not
+    pending; one whose every attempt aborted under the cap is exhausted —
+    the loop halts by name instead of scoping forever. A present document
+    is neither."""
+    _backlog_gateway(
+        monkeypatch,
+        fake_gateway,
+        [_bootstrap_issue("strategy", 3), _bootstrap_issue("architecture", 4)],
+        files={"docs/STRATEGY.md": "# Strategy\n"},
+    )
+    for run_id in ("run-a", "run-b"):
+        runs.start(run_id, "implement issue #4", "implement", company=COMPANY)
+        runs.finish(run_id, "failed", error="boom")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert observed["bootstrap"] == {"pending": [], "exhausted": ["architecture"]}
+    # The exhausted ticket is off the backlog like any consumed item.
+    assert [i["number"] for i in observed["backlog"]] == [3]
+
+
+def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
+    activities, companies, audit, monkeypatch, fake_gateway
+):
+    filed: list[tuple[str, str, str, str]] = []
+
+    async def create_issue(self, run_id, repo, title, body):
+        filed.append((run_id, repo, title, body))
+        return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
+
+    import orchestrator.activities.heartbeat as module
+
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(create_issue=create_issue))
+    urls = asyncio.run(activities.heartbeat_bootstrap(["strategy"]))
+    assert urls == ["https://github.test/example/repo/issues/9"]
+    ((run_id, repo, title, body),) = filed
+    assert (run_id, repo, title) == (
+        f"heartbeat-{COMPANY}",
+        "github.com/example/repo",
+        "Bootstrap: strategy",
+    )
+    assert "`docs/STRATEGY.md`" in body and body.endswith("Crew: stewardship")
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert (
+        event["tool"] == "heartbeat.bootstrap"
+        and event["rule"] == "bootstrap_filed:strategy"
+    )
 
 
 def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypatch):
@@ -685,6 +746,33 @@ def test_decide_scope_needs_no_target(activities, companies, audit, monkeypatch)
     assert decision["action"] == "scope"
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "allow"
+
+
+def test_decide_refuses_scope_while_a_document_is_absent(
+    activities, companies, audit, monkeypatch
+):
+    """Nothing is scoped before the company has written its documents:
+    the first ticks are for the bootstrap tickets."""
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    _pm(monkeypatch, _decided("scope", None, "let us scope"))
+    absent = {
+        **OBSERVED,
+        "documents": {
+            "strategy": {"path": "docs/STRATEGY.md", "present": True, "text": "x"},
+            "architecture": {
+                "path": "docs/ARCHITECTURE.md",
+                "present": False,
+                "text": None,
+            },
+        },
+    }
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(
+            activities.heartbeat_decide("auto-8", absent, ["implement", "scope"], 5)
+        )
+    assert caught.value.non_retryable
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert event["decision"] == "deny" and "architecture absent" in event["rule"]
 
 
 def test_decide_refuses_scope_at_the_open_ticket_cap(

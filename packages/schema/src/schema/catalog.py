@@ -8,9 +8,9 @@ secrets: how many of a role a company hires is the blueprint's business,
 and credentials never enter a spec at all.
 
 One rule the catalog encodes rather than documents: `implementer`,
-`reviewer` and `contract-author` exist **only** as ephemeral agents. The
-schema does not forbid standing counts structurally — the compiler error
-does.
+`reviewer`, `contract-author` and `steward` exist **only** as ephemeral
+agents. The schema does not forbid standing counts structurally — the
+compiler error does.
 """
 
 from dataclasses import dataclass
@@ -20,6 +20,10 @@ from schema.tools import ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 # The agent host's units of work. A dispatch names one; a role declares
 # which it may run, and the host refuses the rest before any model call.
 PROCEDURES = ("scope", "decide", "implement", "deliver", "review")
+
+# The one role that writes the company's documents: the compiler exempts
+# it, and it alone, from the deny on the document paths.
+DOCUMENT_ROLE = "steward"
 
 
 @dataclass(frozen=True)
@@ -59,7 +63,12 @@ ROLES: dict[str, Role] = {
         ),
         tools=tuple(ISSUE_TOOLS),
         procedures=("scope", "decide"),
-        may_spawn=("contract-authoring", "feature-delivery", "feature-review"),
+        may_spawn=(
+            "contract-authoring",
+            "feature-delivery",
+            "feature-review",
+            "stewardship",
+        ),
     ),
     "implementer": Role(
         name="implementer",
@@ -91,6 +100,24 @@ ROLES: dict[str, Role] = {
         tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
         procedures=("implement", "deliver"),
     ),
+    # The company's documents have one writer. The steward writes the
+    # strategy once from the vision (the bootstrap ticket), and the
+    # architecture masterplan at bootstrap and whenever an architecture
+    # request asks for a revision. The compiled path fences name this role
+    # as the only one that may deliver into the document paths; after the
+    # strategy exists, nobody may — a future standing observer would be
+    # its author, and neither this role, the PM nor `decide` grows to
+    # fill that gap.
+    DOCUMENT_ROLE: Role(
+        name=DOCUMENT_ROLE,
+        summary=(
+            "Writes the company's strategy once and its architecture "
+            "masterplan at bootstrap and on request. Ephemeral agents only, "
+            "like the implementer."
+        ),
+        tools=tuple(SANDBOX_TOOLS + ["git.open_pr"]),
+        procedures=("implement", "deliver"),
+    ),
 }
 
 
@@ -113,5 +140,11 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
         name="contract-authoring",
         summary="One contract author delivering the acceptance tests for a slice.",
         roles=("contract-author",),
+    ),
+    # The crew a bootstrap ticket or an architecture request routes to.
+    "stewardship": CrewTemplate(
+        name="stewardship",
+        summary="One steward delivering a company document.",
+        roles=(DOCUMENT_ROLE,),
     ),
 }

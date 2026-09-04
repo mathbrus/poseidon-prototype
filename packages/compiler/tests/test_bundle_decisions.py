@@ -439,6 +439,10 @@ def test_crew_rule_compares_the_raw_role_name():
         ],
         policies={},
         heartbeat=compile_blueprint(_company()).heartbeat,
+        documents={
+            "strategy": "docs/STRATEGY.md",
+            "architecture": "docs/ARCHITECTURE.md",
+        },
     )
     body = files["crew_contract_authoring_contract_author.rego"]
     assert 'input.role == "contract-author"' in body
@@ -795,6 +799,55 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
         )
     )
     assert as_reviewer["allow"] is False
+
+
+# -- the company's documents ---------------------------------------------------
+
+
+def _delivery(crew: str, role: str, paths: list[str], present: list[str] | None) -> dict:
+    args = {"branch": "feature/doc", "paths": paths}
+    if present is not None:
+        args["paths_present"] = present
+    return ephemeral(crew, role, tool="git.open_pr", args=args)
+
+
+def test_only_the_steward_may_deliver_into_the_document_paths(decide):
+    """The document fences, by name: an implementer touching either path
+    is refused for the path's class; the steward may write the masterplan."""
+    implementer = decide(
+        **_delivery("feature-delivery", "implementer", ["docs/ARCHITECTURE.md"], [])
+    )
+    assert implementer == {"allow": False, "rule": "git_open_pr_architecture_path"}
+    implementer = decide(
+        **_delivery("feature-delivery", "implementer", ["docs/STRATEGY.md"], [])
+    )
+    assert implementer == {"allow": False, "rule": "git_open_pr_strategy_path"}
+    steward = decide(**_delivery("stewardship", "steward", ["docs/ARCHITECTURE.md"], []))
+    assert steward["allow"] is True
+    revision = decide(
+        **_delivery(
+            "stewardship", "steward", ["docs/ARCHITECTURE.md"], ["docs/ARCHITECTURE.md"]
+        )
+    )
+    assert revision["allow"] is True  # the masterplan is revised on request
+
+
+def test_the_strategy_is_written_once(decide):
+    """The steward may write the strategy while it is absent on the base
+    ref and never afterwards; a strategy delivery without the presence
+    fact fails closed — and a delivery elsewhere needs no such fact."""
+    first = decide(**_delivery("stewardship", "steward", ["docs/STRATEGY.md"], []))
+    assert first["allow"] is True
+    again = decide(
+        **_delivery("stewardship", "steward", ["docs/STRATEGY.md"], ["docs/STRATEGY.md"])
+    )
+    assert again == {"allow": False, "rule": "git_open_pr_strategy_present"}
+    unknown = decide(**_delivery("stewardship", "steward", ["docs/STRATEGY.md"], None))
+    assert unknown == {"allow": False, "rule": "git_open_pr_strategy_presence_missing"}
+    elsewhere = decide(
+        **_delivery("feature-delivery", "implementer", ["slugify.py"], None)
+    )
+    assert elsewhere["allow"] is True
 
 
 # -- the contract tree --------------------------------------------------------

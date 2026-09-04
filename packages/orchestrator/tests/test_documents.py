@@ -6,6 +6,9 @@ import asyncio
 from common.text import UNTRUSTED_CLIP
 from orchestrator.activities.documents import (
     ABSENT,
+    BOOTSTRAP_TITLES,
+    STEWARDSHIP_CREW,
+    bootstrap_body,
     present_texts,
     read_documents,
     sections,
@@ -56,3 +59,19 @@ def test_sections_state_absence_and_dispatches_carry_only_present_texts():
         f"Architecture masterplan:\n{ABSENT}",
     ]
     assert present_texts(documents) == {"strategy": "Ship slugs."}
+
+
+def test_the_bootstrap_ticket_is_the_stewards_whole_brief():
+    """The platform-filed ticket names the file, the branch and the crew:
+    the steward reads tickets, not this module."""
+    assert STEWARDSHIP_CREW == "stewardship"
+    assert BOOTSTRAP_TITLES == {
+        "strategy": "Bootstrap: strategy",
+        "architecture": "Bootstrap: architecture masterplan",
+    }
+    body = bootstrap_body("strategy", "docs/STRATEGY.md", "feature/strategy-abc123")
+    assert "`docs/STRATEGY.md`" in body
+    assert "`feature/strategy-abc123`" in body
+    assert body.endswith("Crew: stewardship")
+    assert "written once" in body
+    assert "repository tree" in bootstrap_body("architecture", "docs/A.md", "feature/a")

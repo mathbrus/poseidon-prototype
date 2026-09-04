@@ -81,10 +81,14 @@ def _require_safe_overlay_path(value: str) -> str:
 
 @dataclass
 class PreparedBundle:
-    """A verified bundle applied to a platform-side clone, awaiting push."""
+    """A verified bundle applied to a platform-side clone, awaiting push.
+    `paths` are the changed paths against the base ref; `paths_present`
+    the subset that already exists there — the fact the write-once rule
+    on the company's strategy reads."""
 
     branch: str
     paths: list[str]
+    paths_present: list[str]
     clone_dir: Path
     root: Path
 
@@ -220,6 +224,14 @@ class GitBackend:
 
     # -- git.open_pr ----------------------------------------------------------
 
+    def _exists(self, clone: Path, ref: str, path: str) -> bool:
+        """Whether `path` exists at `ref` in the clone."""
+        try:
+            self._git(clone, "cat-file", "-e", f"{ref}:{path}")
+        except GitBackendError:
+            return False
+        return True
+
     async def prepare_pr(
         self, repo: str, branch: str, bundle_b64: str, base_ref: str
     ) -> PreparedBundle:
@@ -254,8 +266,18 @@ class GitBackend:
                 f"origin/{base_ref}...{INCOMING_REF}",
             )
             paths = [line for line in diff.splitlines() if line]
-            self._log.info("bundle prepared", extra={"branch": branch, "paths": paths})
-            return PreparedBundle(branch=branch, paths=paths, clone_dir=clone, root=root)
+            present = [p for p in paths if self._exists(clone, f"origin/{base_ref}", p)]
+            self._log.info(
+                "bundle prepared",
+                extra={"branch": branch, "paths": paths, "paths_present": present},
+            )
+            return PreparedBundle(
+                branch=branch,
+                paths=paths,
+                paths_present=present,
+                clone_dir=clone,
+                root=root,
+            )
         except Exception:
             shutil.rmtree(root, ignore_errors=True)
             raise

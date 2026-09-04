@@ -39,6 +39,7 @@ def observation(**overrides: Any) -> dict[str, Any]:
         "active_runs": 0,
         "daily_spent_usd": 0.0,
         "open_tickets": 1,
+        "bootstrap": {"pending": [], "exhausted": []},
         "backlog": [
             {"number": 5, "title": "Add slugify", "url": "https://i/5", "attempts": 0}
         ],
@@ -61,6 +62,7 @@ class Harness:
     deny_rules: list[str | None] = field(default_factory=list)
 
     observed_caps: list[int] = field(default_factory=list)
+    bootstrapped: list[list[str]] = field(default_factory=list)
     decide_calls: list[tuple[str, list[str]]] = field(default_factory=list)
     authorized: list[tuple[str, str, int, float, int, int]] = field(default_factory=list)
     ticks: list[tuple[str, str]] = field(default_factory=list)
@@ -84,6 +86,11 @@ class Harness:
         async def heartbeat_observe(max_attempts: int) -> dict[str, Any]:
             harness.observed_caps.append(max_attempts)
             return harness.observations.pop(0)
+
+        @activity.defn(name="heartbeat_bootstrap")
+        async def heartbeat_bootstrap(names: list[str]) -> list[str]:
+            harness.bootstrapped.append(names)
+            return [f"https://i/{n}" for n in names]
 
         @activity.defn(name="heartbeat_decide")
         async def heartbeat_decide(
@@ -127,6 +134,7 @@ class Harness:
         return [
             heartbeat_config,
             heartbeat_observe,
+            heartbeat_bootstrap,
             heartbeat_decide,
             heartbeat_authorize,
             record_tick,
@@ -287,6 +295,45 @@ async def test_an_empty_backlog_at_the_ticket_cap_never_wakes_the_pm(env):
     await run_heartbeat(env.client, harness)
     assert harness.decide_calls == []
     assert harness.ticks[0] == ("idle", "backlog_empty")
+
+
+async def test_an_absent_document_is_bootstrapped_before_anything_else(env):
+    """A vision-only company: the tick files the bootstrap tickets for the
+    absent documents, asks the PM nothing, and wakes itself so the next
+    tick offers them."""
+    harness = Harness(
+        configs=[CONFIG, CONFIG, None],
+        observations=[
+            observation(
+                backlog=[],
+                bootstrap={"pending": ["strategy", "architecture"], "exhausted": []},
+            ),
+            observation(backlog=[], reviewable_prs=[]),
+        ],
+    )
+    await run_heartbeat(env.client, harness)
+    assert harness.bootstrapped == [["strategy", "architecture"]]
+    assert harness.decide_calls == []
+    assert harness.ticks[0] == ("idle", "bootstrap_filed:strategy,architecture")
+    # The second tick ran under the frozen clock: the tick woke itself.
+    assert harness.ticks[1][0] == "idle"
+
+
+async def test_an_exhausted_bootstrap_halts_by_name(env):
+    """Every attempt on the bootstrap ticket aborted: the loop refuses to
+    scope forever and records a process-gate halt instead."""
+    harness = Harness(
+        configs=[CONFIG],
+        observations=[
+            observation(backlog=[], bootstrap={"pending": [], "exhausted": ["strategy"]})
+        ],
+    )
+    await run_heartbeat(env.client, harness)
+    assert harness.decide_calls == []
+    assert harness.ticks[0] == ("idle", "bootstrap_exhausted:strategy")
+    assert harness.gate_events == [
+        (f"heartbeat-{COMPANY}", "heartbeat_bootstrap", "halted")
+    ]
 
 
 async def test_second_eligible_issue_waits_at_the_concurrency_cap(env):

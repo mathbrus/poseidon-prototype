@@ -35,7 +35,7 @@ allow_rules contains "role_pm_crew_request" if {
 	input.company == "hello-saas"
 	input.role == "pm"
 	input.tool == "crew.request"
-	input.args.crew_template in ["feature-delivery", "feature-review"]
+	input.args.crew_template in ["feature-delivery", "feature-review", "stewardship"]
 }
 
 # pm-1: at most 2 concurrent crews (spawn denials are

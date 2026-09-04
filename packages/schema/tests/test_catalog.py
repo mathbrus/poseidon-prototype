@@ -4,12 +4,12 @@ These are contract tests, not coverage — each one is a rule another package
 assumes it can rely on.
 """
 
-from schema.catalog import CREW_TEMPLATES, PROCEDURES, ROLES
+from schema.catalog import CREW_TEMPLATES, DOCUMENT_ROLE, PROCEDURES, ROLES
 from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
 def test_catalog_covers_the_mvp_roles():
-    assert set(ROLES) == {"pm", "implementer", "reviewer", "contract-author"}
+    assert set(ROLES) == {"pm", "implementer", "reviewer", "contract-author", "steward"}
 
 
 def test_every_role_scope_is_a_known_tool():
@@ -39,6 +39,7 @@ def test_pm_spawns_but_does_not_execute():
         "contract-authoring",
         "feature-delivery",
         "feature-review",
+        "stewardship",
     }
     assert not any(t.startswith("sandbox.") for t in pm.tools)
     assert "git.open_pr" not in pm.tools
@@ -49,6 +50,7 @@ def test_crew_templates_are_the_catalog_crews():
         "contract-authoring",
         "feature-delivery",
         "feature-review",
+        "stewardship",
     }
 
 
@@ -63,6 +65,7 @@ def test_the_shipped_crews_are_one_role_each():
     assert CREW_TEMPLATES["feature-delivery"].roles == ("implementer",)
     assert CREW_TEMPLATES["feature-review"].roles == ("reviewer",)
     assert CREW_TEMPLATES["contract-authoring"].roles == ("contract-author",)
+    assert CREW_TEMPLATES["stewardship"].roles == (DOCUMENT_ROLE,)
 
 
 def test_implementer_can_deliver_and_reviewer_cannot():
@@ -79,3 +82,14 @@ def test_contract_author_is_a_distinct_deliver_capable_role():
     independence (keyed on crew_template) holds against it for free."""
     assert "git.open_pr" in ROLES["contract-author"].tools
     assert "contract-author" not in CREW_TEMPLATES["feature-delivery"].roles
+
+
+def test_the_steward_is_a_distinct_deliver_capable_role():
+    """The company's documents have one writer: a role the compiled
+    document fences can name without naming the implementer, delivering
+    through the same governed `git.open_pr`, and only ever ephemeral."""
+    steward = ROLES[DOCUMENT_ROLE]
+    assert "git.open_pr" in steward.tools
+    assert steward.procedures == ("implement", "deliver")
+    assert not steward.may_spawn
+    assert DOCUMENT_ROLE not in CREW_TEMPLATES["feature-delivery"].roles

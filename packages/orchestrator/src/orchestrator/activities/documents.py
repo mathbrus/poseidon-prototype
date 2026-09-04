@@ -14,12 +14,52 @@ from typing import Any
 from common.text import clip
 from orchestrator.clients import GatewayClient
 from registry import Companies
+from schema.catalog import CREW_TEMPLATES, DOCUMENT_ROLE
 
 # The two documents, in the order the observation renders them; the
 # headers are the contract the mock brain parses.
 DOCUMENTS = ("strategy", "architecture")
 HEADERS = {"strategy": "Strategy:", "architecture": "Architecture masterplan:"}
 ABSENT = "(absent)"
+
+# The crew that writes a document — the one whose single role is the
+# steward — and the trailer a bootstrap ticket routes by.
+STEWARDSHIP_CREW = next(
+    name for name, crew in CREW_TEMPLATES.items() if crew.roles == (DOCUMENT_ROLE,)
+)
+# The fixed titles of the tickets the platform files for an absent
+# document: what the observation matches an open ticket against, so a
+# document is never bootstrapped twice.
+BOOTSTRAP_TITLES = {
+    "strategy": "Bootstrap: strategy",
+    "architecture": "Bootstrap: architecture masterplan",
+}
+
+
+def bootstrap_body(name: str, path: str, branch: str) -> str:
+    """The steward's whole brief for writing one absent document: the
+    vision is in its prompt, the path is the blueprint's, and the branch
+    keeps the delivery off every other run's."""
+    what = {
+        "strategy": (
+            "Write the company's strategy from the vision in your prompt: what "
+            "the company builds first, in which order, and why — the document "
+            "every later slice is scoped from. It is written once; after it "
+            "exists no role may change it."
+        ),
+        "architecture": (
+            "Write the company's architecture masterplan from the vision in "
+            "your prompt and from the repository tree in your sandbox: the "
+            "shape of the system every crew implements and reviews against. "
+            "It changes only through architecture requests."
+        ),
+    }[name]
+    return (
+        f"{what}\n\nCreate the file `{path}` with that document and nothing "
+        f"else.\n\nDeliver your work on the branch `{branch}`.\n\n"
+        f"Filed by the platform: the document is absent on the base ref.\n\n"
+        f"Crew: {STEWARDSHIP_CREW}"
+    )
 
 
 def company_documents(companies: Companies, company: str) -> dict[str, str]:

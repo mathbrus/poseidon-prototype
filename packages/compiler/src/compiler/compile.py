@@ -108,6 +108,7 @@ def compile_blueprint(
             policies=blueprint.get("policies") or {},
             repo_url=repo.url,
             heartbeat=heartbeat,
+            documents=company_cr.documents,
             merge_delegation=_merge_delegation(workflows),
         )
     )

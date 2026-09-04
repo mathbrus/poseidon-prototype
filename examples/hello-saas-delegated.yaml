@@ -38,7 +38,7 @@ standing:
     role: pm
     count: 1
     may_spawn:
-      crew: [contract-authoring, feature-delivery, feature-review]
+      crew: [contract-authoring, feature-delivery, feature-review, stewardship]
       max_concurrent: 2
 
 # The one place a role's scope is narrowed, for standing and ephemeral
@@ -70,8 +70,10 @@ workflows:
         deadline_minutes: 1440
         delegate:
           # The unit-test tree, never the whole of tests/: the contract
-          # tree below is the oracle these merges are graded by.
-          paths: [slugify.py, tests/unit/]
+          # tree below is the oracle these merges are graded by. The
+          # company's documents merge under policy too: the reviewer's
+          # verdict is the only oracle a document has.
+          paths: [slugify.py, tests/unit/, docs/]
           max_reworks: 1
           # --8<-- [end:review-delegated]
 

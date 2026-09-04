@@ -358,7 +358,11 @@ class GatewayService:
             return await self.call(
                 identity,
                 "git.open_pr",
-                {**args, "paths": prepared.paths},
+                {
+                    **args,
+                    "paths": prepared.paths,
+                    "paths_present": prepared.paths_present,
+                },
                 lambda: self._git.open_pr(prepared, repo, title, body, base_ref),
             )
         finally:

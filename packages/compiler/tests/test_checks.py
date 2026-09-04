@@ -127,6 +127,14 @@ def test_standing_implementer_is_a_compile_error(standing_implementer):
     assert "non-spawner role 'implementer'" in str(err.value)
 
 
+def test_a_standing_steward_is_a_compile_error(blueprint):
+    """The steward writes documents; it does not decide. Standing counts
+    exist only for spawners, and it is not one."""
+    blueprint["standing"]["archivist"] = {"role": "steward", "count": 1}
+    (problem,) = [p for p in problems_of(blueprint) if "standing.archivist" in p]
+    assert "non-spawner role 'steward'" in problem
+
+
 def test_lean_roster_compiles_to_exactly_one_instance(blueprint):
     """The standing agents is the PM alone; execution is ephemeral crews."""
     plan = compile_blueprint(blueprint)

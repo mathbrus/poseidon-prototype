@@ -40,6 +40,7 @@ from common.policy import (
     rego_slug,
 )
 from compiler.plan import AgentInstanceCR, EphemeralAgentSpec, HeartbeatConfig
+from schema.catalog import DOCUMENT_ROLE
 from schema.gates import UNDELEGATABLE_PATHS
 from schema.tools import RUN_SCOPED
 
@@ -449,11 +450,14 @@ REPO_TOOLS = (
 )
 
 
-def _policies_file(company: str, policies: dict[str, Any], repo_url: str) -> str:
-    """The declared repository, branch protection, deny paths and the
-    contract tree — enforceable on real arguments because the gateway
-    passes the call's `repo` and bundle-apply already gives policy the
-    changed paths."""
+def _policies_file(
+    company: str, policies: dict[str, Any], repo_url: str, documents: dict[str, str]
+) -> str:
+    """The declared repository, branch protection, deny paths, the
+    contract tree and the company's document paths — enforceable on real
+    arguments because the gateway passes the call's `repo` and
+    bundle-apply already gives policy the changed paths, and which of them
+    already exist on the base ref."""
     protection = policies.get("branch_protection") or {}
     protected = protection.get("protected") or []
     pattern = protection.get("allowed_pattern")
@@ -494,17 +498,17 @@ def _policies_file(company: str, policies: dict[str, Any], repo_url: str) -> str
             f"\tnot regex.match({json.dumps(pattern)}, input.args.branch)\n"
             "}\n"
         )
-    if deny_paths or contract_paths:
-        # Path rules fail closed: without the changed paths in the input
-        # they cannot be evaluated, so the call is denied. The gateway
-        # always supplies args.paths for git.open_pr (bundle-apply
-        # computes them before the policy query).
-        lines.append(
-            '\ndeny_rules contains "git_open_pr_paths_missing" if {\n'
-            '\tinput.tool == "git.open_pr"\n'
-            "\tnot input.args.paths\n"
-            "}\n"
-        )
+    # Path rules fail closed: without the changed paths in the input they
+    # cannot be evaluated, so the call is denied. The gateway always
+    # supplies args.paths for git.open_pr (bundle-apply computes them
+    # before the policy query). Every company has document paths to
+    # fence, so the rule is always emitted.
+    lines.append(
+        '\ndeny_rules contains "git_open_pr_paths_missing" if {\n'
+        '\tinput.tool == "git.open_pr"\n'
+        "\tnot input.args.paths\n"
+        "}\n"
+    )
     if deny_paths:
         lines.append(_open_pr_path_deny("git_open_pr_denied_paths", deny_paths))
     if contract_paths:
@@ -516,6 +520,37 @@ def _policies_file(company: str, policies: dict[str, Any], repo_url: str) -> str
                 "git_open_pr_contract_tree", contract_paths, contract.get("roles") or []
             )
         )
+    # The company's documents have one writer: only the steward may
+    # deliver into either path. The strategy is written once — a delivery
+    # touching it while it already exists on the base ref is denied for
+    # the steward too. Presence is a fact the gateway reads off the base
+    # ref and passes with the changed paths; a strategy delivery without
+    # that fact fails closed. A future standing observer would revise the
+    # strategy; nothing in the catalog grows to fill that gap.
+    strategy = json.dumps(documents["strategy"])
+    lines.append(
+        _open_pr_path_deny(
+            "git_open_pr_architecture_path", [documents["architecture"]], [DOCUMENT_ROLE]
+        )
+    )
+    lines.append(
+        _open_pr_path_deny(
+            "git_open_pr_strategy_path", [documents["strategy"]], [DOCUMENT_ROLE]
+        )
+    )
+    lines.append(
+        '\ndeny_rules contains "git_open_pr_strategy_present" if {\n'
+        '\tinput.tool == "git.open_pr"\n'
+        '\tsome path in object.get(input, ["args", "paths_present"], [])\n'
+        f"\tstartswith(path, {strategy})\n"
+        "}\n"
+        '\ndeny_rules contains "git_open_pr_strategy_presence_missing" if {\n'
+        '\tinput.tool == "git.open_pr"\n'
+        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        f"\tstartswith(path, {strategy})\n"
+        "\tnot input.args.paths_present\n"
+        "}\n"
+    )
     return "".join(lines)
 
 
@@ -526,6 +561,7 @@ def build_bundle(
     policies: dict[str, Any],
     repo_url: str,
     heartbeat: HeartbeatConfig,
+    documents: dict[str, str],
     merge_delegation: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """The company bundle: per-role and per-ephemeral-agent files, plus the
@@ -545,7 +581,7 @@ def build_bundle(
     for agent in ephemeral_agents:
         name = f"crew_{rego_slug(agent.crew)}_{rego_slug(agent.role)}.rego"
         files[name] = _crew_file(company, agent.crew, agent.role, list(agent.tools))
-    files["policies.rego"] = _policies_file(company, policies, repo_url)
+    files["policies.rego"] = _policies_file(company, policies, repo_url, documents)
     files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
     if merge_delegation is not None:
         files["merge_gate.rego"] = _merge_gate_file(company, merge_delegation, policies)

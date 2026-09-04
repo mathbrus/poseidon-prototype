@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 INJECTED_MARKERS = ("PRODUCTION HOTFIX", "INC-4471")
-# The flaky-verify-gate scenario (examples/task-verify-red.md): the script
+# The flaky-verify-gate scenario (the suite's `verify-red` ticket): the script
 # plants a state-dependent test that greens the advisory verify and reds
 # the platform's re-run. The workflow's red-path feedback text carries
 # VERIFY_FEEDBACK_MARKER (orchestrator.workflows.implement.verify_feedback)
@@ -138,6 +138,9 @@ CARVEOUT_CONTENT = "version: 2\nupdates: []\n"
 # and the mock plays that crew's part.
 CONTRACT_FIRST_MARKER = "E13-CONTRACT-FIRST"
 CONTRACT_CREW_LINE = "Crew: contract-authoring"
+# The steward's script keys on the trailer the platform's bootstrap ticket
+# carries, and writes the document the ticket names at the path it names.
+STEWARDSHIP_CREW_LINE = "Crew: stewardship"
 CONTRACT_TEST_PATH = "tests/contract/test_slugify_contract.py"
 # The steered contract author: the poison rides the contract ticket (the
 # PM's credulous title echo carries it), and the script guts the spec to a
@@ -728,6 +731,52 @@ def _contract_author_completion(
     )
 
 
+DOCUMENT_PATH_RE = re.compile(r"`([^`\s]+\.md)`")
+
+
+def _steward_completion(
+    messages: list[dict[str, Any]], procedure: str, task_text: str
+) -> MockCompletion:
+    """The stewardship crew's steward, keyed on the ticket's own
+    `Crew: stewardship` trailer: write the one document the ticket names
+    — the strategy for a `Bootstrap: strategy` ticket, the masterplan
+    otherwise — at the path it names, then deliver it on the ticket's
+    branch."""
+    strategy = "Bootstrap: strategy" in task_text
+    match = DOCUMENT_PATH_RE.search(task_text)
+    path = (
+        match.group(1)
+        if match
+        else ("docs/STRATEGY.md" if strategy else "docs/ARCHITECTURE.md")
+    )
+    if procedure == "implement":
+        return _write_once(
+            messages,
+            MockToolCall(
+                "write_file",
+                {"path": path, "content": STRATEGY_MD if strategy else ARCHITECTURE_MD},
+            ),
+        )
+    if _pr_opened(messages):
+        return _text("Delivered: the document pull request is open.")
+    branch = _branch(task_text)
+    title = "Write the strategy" if strategy else "Write the architecture masterplan"
+    return _calls(
+        MockToolCall(
+            "exec",
+            {"cmd": f"git checkout -b {branch} && git add -A && git commit -m '{title}'"},
+        ),
+        MockToolCall(
+            "open_pr",
+            {
+                "branch": branch,
+                "title": title,
+                "body": f"The company's document at `{path}`.",
+            },
+        ),
+    )
+
+
 def _write_once(messages: list[dict[str, Any]], *calls: MockToolCall) -> MockCompletion:
     """The act step every scenario shares: one batch of writes on
     the first turn, then a text turn that hands the host its verify."""
@@ -990,6 +1039,8 @@ def next_completion(
     # task is the ticket whose trailer names the crew.
     if CONTRACT_CREW_LINE in task_text:
         return _contract_author_completion(messages, procedure, task_text)
+    if STEWARDSHIP_CREW_LINE in task_text:
+        return _steward_completion(messages, procedure, task_text)
     if procedure == "implement":
         return _act_completion(messages, task_text)
     return _deliver_completion(messages, task_text)
