@@ -25,6 +25,10 @@ dev = [
     "ruff>=0.14",
     "pip-audit>=2.7",
 ]
+docs = [
+    "mkdocs-gen-files>=0.6.1",
+    "mkdocs-material>=9.7.7",
+]
 
 [tool.uv]
 package = false
