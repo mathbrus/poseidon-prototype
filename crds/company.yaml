@@ -75,8 +75,9 @@ spec:
                 budgets:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
-                # Cadence and caps for the company's own initiative; absent
-                # when runs start only from a human.
+                # The company's own initiative: its conductor, cadence and
+                # caps. Every company has one; the worker keeps
+                # `heartbeat-<company>` running from it.
                 heartbeat:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true

@@ -202,9 +202,7 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
         configs.append(
             WorkflowConfig(
                 name=name,
-                enabled=bool(workflow.get("enabled")),
-                conductor=workflow.get("conductor", ""),
-                crew=workflow.get("crew"),
+                crew=workflow["crew"],
                 # Gate config comes from the blueprint, never hardcoded.
                 gates=dict(sorted((workflow.get("gates") or {}).items())),
                 max_verify_retries=workflow.get("max_verify_retries"),
@@ -224,15 +222,14 @@ def _merge_delegation(workflows: tuple[WorkflowConfig, ...]) -> dict[str, Any] |
     return None
 
 
-def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig | None:
-    heartbeat = blueprint.get("heartbeat")
-    if not heartbeat:
-        return None
+def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig:
+    heartbeat = blueprint["heartbeat"]
     return HeartbeatConfig(
         conductor=heartbeat["conductor"],
         reconcile_minutes=int(heartbeat["reconcile_minutes"]),
         max_concurrent_runs=int(heartbeat["max_concurrent_runs"]),
         max_attempts=int(heartbeat["max_attempts"]),
+        max_open_tickets=int(heartbeat["max_open_tickets"]),
         may_start=tuple(sorted(heartbeat["may_start"])),
         daily_cap_usd=float(heartbeat["daily_cap"]["usd"]),
     )

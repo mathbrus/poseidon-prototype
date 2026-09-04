@@ -17,16 +17,14 @@ def test_hello_saas_compiles(blueprint):
     assert compile_blueprint(blueprint).company.name == "hello-saas"
 
 
-def test_workflow_needs_a_hired_conductor(blueprint):
+def test_the_conductor_must_be_a_hired_spawner(blueprint):
     blueprint["standing"]["pm"]["count"] = 0
-    (problem,) = [
-        p for p in problems_of(blueprint) if "conductor" in p and "implement" in p
-    ]
+    (problem,) = [p for p in problems_of(blueprint) if "heartbeat.conductor" in p]
     assert "not an active standing spawner" in problem
 
 
-def test_workflow_cannot_bind_to_an_unknown_role(blueprint):
-    blueprint["workflows"]["implement"]["conductor"] = "cto"
+def test_the_conductor_must_be_a_hire(blueprint):
+    blueprint["heartbeat"]["conductor"] = "cto"
     assert any("cto" in p for p in problems_of(blueprint))
 
 
@@ -105,7 +103,7 @@ def test_a_tool_scope_needs_a_real_allow_list(blueprint):
     assert any("must not be empty" in p for p in problems_of(blueprint))
 
 
-def test_enabled_workflows_need_a_run_budget(blueprint):
+def test_runs_need_a_budget(blueprint):
     blueprint["budgets"]["per_run"]["usd"] = 0
     assert any("per_run" in p for p in problems_of(blueprint))
 
@@ -138,34 +136,26 @@ def test_lean_roster_compiles_to_exactly_one_instance(blueprint):
 # -- the heartbeat -------------------------------------------------
 
 
-def test_heartbeat_section_compiles(heartbeat_blueprint):
-    assert compile_blueprint(heartbeat_blueprint).heartbeat is not None
+def test_a_company_without_a_heartbeat_does_not_compile(blueprint):
+    """compile_blueprint accepts unvalidated dicts; a missing section is a
+    named problem, not a KeyError — a company always has a heartbeat."""
+    del blueprint["heartbeat"]
+    (problem,) = [p for p in problems_of(blueprint) if p.startswith("heartbeat")]
+    assert "required" in problem
 
 
-def test_heartbeat_conductor_must_be_an_active_standing_spawner(heartbeat_blueprint):
+def test_heartbeat_conductor_must_be_an_active_standing_spawner(blueprint):
     # reviewer is a real role but crew-only — never an active standing agent.
-    heartbeat_blueprint["heartbeat"]["conductor"] = "reviewer"
-    (problem,) = [
-        p for p in problems_of(heartbeat_blueprint) if "heartbeat.conductor" in p
-    ]
+    blueprint["heartbeat"]["conductor"] = "reviewer"
+    (problem,) = [p for p in problems_of(blueprint) if "heartbeat.conductor" in p]
     assert "not an active standing spawner" in problem
 
 
-def test_heartbeat_may_start_needs_an_enabled_workflow(heartbeat_blueprint):
-    heartbeat_blueprint["workflows"]["implement"]["enabled"] = False
-    (problem,) = [
-        p for p in problems_of(heartbeat_blueprint) if "heartbeat.may_start" in p
-    ]
-    assert "implement" in problem and "enabled" in problem
-
-
-def test_heartbeat_daily_cap_must_fund_a_run(heartbeat_blueprint):
+def test_heartbeat_daily_cap_must_fund_a_run(blueprint):
     """A daily cap below the per-run budget makes the heartbeat dead
     configuration — an error, like every other dead declaration."""
-    heartbeat_blueprint["heartbeat"]["daily_cap"]["usd"] = 1
-    (problem,) = [
-        p for p in problems_of(heartbeat_blueprint) if "heartbeat.daily_cap" in p
-    ]
+    blueprint["heartbeat"]["daily_cap"]["usd"] = 1
+    (problem,) = [p for p in problems_of(blueprint) if "heartbeat.daily_cap" in p]
     assert "cannot fund a single run" in problem
 
 

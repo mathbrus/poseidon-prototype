@@ -60,10 +60,11 @@ class EphemeralAgentSpec:
 
 @dataclass(frozen=True)
 class WorkflowConfig:
+    """One crewed workflow's shape. The conductor is the company's one,
+    on `HeartbeatConfig`; `scope` has no node."""
+
     name: str
-    enabled: bool
-    conductor: str
-    crew: str | None
+    crew: str
     # Gate objects as the blueprint wrote them: `{resolved_by, delegate?}`.
     # A gate nobody declares is absent, and absent means the workflow does
     # not stop there.
@@ -82,9 +83,8 @@ class BudgetRegistration:
 
 @dataclass(frozen=True)
 class HeartbeatConfig:
-    """The standing heartbeat's declared authority. Absent (a plan without
-    one) means what it always meant: runs start only when a human starts
-    one."""
+    """The standing heartbeat's declared authority — every company has one,
+    and this is where its conductor is named."""
 
     conductor: str
     reconcile_minutes: int
@@ -92,6 +92,8 @@ class HeartbeatConfig:
     # Runs the heartbeat may start on one issue or PR before it stops
     # offering it; concluded runs consume the item regardless.
     max_attempts: int
+    # Open issues on the repository at which `scope` is refused.
+    max_open_tickets: int
     may_start: tuple[str, ...]
     daily_cap_usd: float
 
@@ -154,7 +156,7 @@ class DeploymentPlan:
     # per-company packages keep company roots disjoint, and the platform
     # rules — identical from every blueprint — live under poseidon.platform.
     platform_bundle: RegoBundle
-    heartbeat: HeartbeatConfig | None = None
+    heartbeat: HeartbeatConfig
     # The contract tree, projected into the applied record: the review
     # workflow composes the contract-verify baseline from these paths.
     # None when the blueprint declares no contract tree.
@@ -172,7 +174,7 @@ class DeploymentPlan:
                 "ephemeral_agents": [asdict(m) for m in self.ephemeral_agents],
                 "workflows": [asdict(w) for w in self.workflows],
                 "budgets": asdict(self.budgets),
-                "heartbeat": asdict(self.heartbeat) if self.heartbeat else None,
+                "heartbeat": asdict(self.heartbeat),
                 "contract_tests": self.contract_tests,
                 "infra": asdict(self.infra),
                 "bundle": {"files": dict(sorted(self.bundle.files.items()))},

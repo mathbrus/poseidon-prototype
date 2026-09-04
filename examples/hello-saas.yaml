@@ -1,6 +1,6 @@
-# hello-saas — a small company a human runs: one standing PM that scopes
-# goals into tickets, ephemeral crews that implement and review under its
-# authority, and a person who starts each run and answers the merge gate.
+# hello-saas — the smallest company: one standing PM that decides the next
+# action on every heartbeat tick, ephemeral crews that scope, implement and
+# review under its authority, and a person who answers the merge gate.
 apiVersion: poseidon.dev/v1
 
 # --8<-- [start:company]
@@ -51,19 +51,15 @@ tools:
       - issues.comment
       # --8<-- [end:tools]
 
+# The two crewed workflows: which crew fulfils each, the bounds it reads
+# and the gates it parks on. Who conducts them, and what the company may
+# start on its own, is the heartbeat's to say.
 # --8<-- [start:workflows]
 workflows:
-  intake:
-    enabled: true
-    conductor: pm
   implement:
-    enabled: true
-    conductor: pm
     crew: feature-delivery
     max_verify_retries: 2
   review:
-    enabled: true
-    conductor: pm
     crew: feature-review
     gates:
       merge:
@@ -88,3 +84,18 @@ budgets:
     # How long a run stopped at the cap waits for someone to raise it.
     pause_minutes: 60
     # --8<-- [end:budgets]
+
+# The company's own initiative: who decides, what it may start on its own,
+# how many at once, how many tries an item gets, how large the backlog may
+# grow before it stops scoping, and the day's hard stop.
+# --8<-- [start:heartbeat]
+heartbeat:
+  conductor: pm
+  reconcile_minutes: 30
+  max_concurrent_runs: 1
+  max_attempts: 2
+  max_open_tickets: 5
+  may_start: [scope, implement, review]
+  daily_cap:
+    usd: 20
+    # --8<-- [end:heartbeat]

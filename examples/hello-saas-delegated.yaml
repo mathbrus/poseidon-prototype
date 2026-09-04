@@ -1,11 +1,10 @@
-# hello-saas-delegated — the company that runs itself: a heartbeat starts
-# its runs from the backlog, and in-class passing work (`slugify.py`, the
-# unit-test tree) merges under compiled policy with no human command. A
-# person still feeds goals in and answers everything the delegation does
-# not cover — carve-outs, out-of-class paths, a declined policy merge, and
-# the acceptance-contract tree the delegation is graded by, which only the
-# contract author may write. Removing the `delegate` block reverts to
-# human-only merge; removing `heartbeat` reverts to human-started runs.
+# hello-saas-delegated — the company that finishes its own work: in-class
+# passing work (`slugify.py`, the unit-test tree) merges under compiled
+# policy with no human command. A person answers everything the
+# delegation does not cover — carve-outs, out-of-class paths, a declined
+# policy merge, and the acceptance-contract tree the delegation is graded
+# by, which only the contract author may write. Removing the `delegate`
+# block reverts to human-only merge.
 
 apiVersion: poseidon.dev/v1
 
@@ -50,18 +49,11 @@ tools:
       - issues.comment
 
 workflows:
-  intake:
-    enabled: true
-    conductor: pm
   implement:
-    enabled: true
-    conductor: pm
     crew: feature-delivery
     max_verify_retries: 2
   # --8<-- [start:review-delegated]
   review:
-    enabled: true
-    conductor: pm
     crew: feature-review
     gates:
       merge:
@@ -96,15 +88,17 @@ budgets:
     # How long a run stopped at the cap waits for someone to raise it.
     pause_minutes: 60
 
-# The company's own initiative: what it may start on its own, how many at
-# once, how many tries an item gets, and the day's hard stop.
+# The company's own initiative: who decides, what it may start on its own,
+# how many at once, how many tries an item gets, how large the backlog may
+# grow before it stops scoping, and the day's hard stop.
 # --8<-- [start:heartbeat]
 heartbeat:
   conductor: pm
   reconcile_minutes: 30
   max_concurrent_runs: 1
   max_attempts: 2
-  may_start: [implement, review]
+  max_open_tickets: 5
+  may_start: [scope, implement, review]
   daily_cap:
     usd: 20
     # --8<-- [end:heartbeat]

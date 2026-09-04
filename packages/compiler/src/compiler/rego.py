@@ -212,14 +212,14 @@ def _crew_file(company: str, crew: str, role: str, tools: list[str]) -> str:
 def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
     """The heartbeat's start authority. `heartbeat.start` is not a gateway
     tool: it is the decision the heartbeat must win before starting a
-    workflow on its own initiative. No heartbeat section
-    compiles no file, so an unattended start with no declared authority
-    falls to the default deny — revocation is a blueprint diff.
+    workflow on its own initiative; a workflow outside `may_start` falls
+    to the default deny — revocation is a blueprint diff.
 
     The caps are compiled literals and the live counts ride the input,
     verified by the caller — the `active_spawns` idiom: runs in flight,
-    today's spend, and the target item's prior attempts. Fail-safe
-    defaults: absent counts deny, like the changed-paths rules."""
+    today's spend, the target item's prior attempts, and for `scope` the
+    repository's open issues. Fail-safe defaults: absent counts deny,
+    like the changed-paths rules."""
     allows = "".join(
         f'\nallow_rules contains "heartbeat_start_{rego_slug(workflow)}" if {{\n'
         '\tinput.lifecycle == "platform"\n'
@@ -241,6 +241,19 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
         '\ndeny_rules contains "heartbeat_start_over_attempts" if {\n'
         '\tinput.tool == "heartbeat.start"\n'
         f"\tinput.args.attempts >= {int(heartbeat.max_attempts)}\n"
+        "}\n"
+        # Scoping is refused at the open-ticket cap: the conductor may
+        # not flood its own backlog. Only scope reads this count, so only
+        # scope fails closed without it.
+        '\ndeny_rules contains "heartbeat_start_over_open_tickets" if {\n'
+        '\tinput.tool == "heartbeat.start"\n'
+        '\tinput.args.workflow == "scope"\n'
+        f"\tinput.args.open_tickets >= {int(heartbeat.max_open_tickets)}\n"
+        "}\n"
+        '\ndeny_rules contains "heartbeat_start_open_tickets_missing" if {\n'
+        '\tinput.tool == "heartbeat.start"\n'
+        '\tinput.args.workflow == "scope"\n'
+        '\tnot is_number(object.get(input, ["args", "open_tickets"], null))\n'
         "}\n"
         # object.get, not a bare reference: negating a builtin over an
         # undefined reference never fires, so a bare `not is_number(...)`
@@ -492,7 +505,7 @@ def build_bundle(
     ephemeral_agents: list[EphemeralAgentSpec],
     policies: dict[str, Any],
     repo_url: str,
-    heartbeat: HeartbeatConfig | None = None,
+    heartbeat: HeartbeatConfig,
     merge_delegation: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """The company bundle: per-role and per-ephemeral-agent files, plus the
@@ -513,8 +526,7 @@ def build_bundle(
         name = f"crew_{rego_slug(agent.crew)}_{rego_slug(agent.role)}.rego"
         files[name] = _crew_file(company, agent.crew, agent.role, list(agent.tools))
     files["policies.rego"] = _policies_file(company, policies, repo_url)
-    if heartbeat is not None:
-        files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
+    files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
     if merge_delegation is not None:
         files["merge_gate.rego"] = _merge_gate_file(company, merge_delegation, policies)
     return files

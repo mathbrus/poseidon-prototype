@@ -1,9 +1,9 @@
 """Compile-time validations.
 
 These are the checks the schema cannot make, because they are about a
-company being *coherent* rather than a document being well-formed: does this
-workflow have a conductor, does every scope name a tool the gateway actually
-serves, can the budget pay for what is enabled.
+company being *coherent* rather than a document being well-formed: is the
+conductor an active standing spawner, does every scope name a tool the
+gateway actually serves, can the budget pay for a run.
 
 `compile_blueprint` accepts plain dicts and does not run the schema pass, so
 the document-level catalog checks (`schema.coherence`) run here too — the
@@ -19,8 +19,8 @@ own compiled allow-list.
 The strict lean-standing rule: a standing agent with `count > 0` must be a
 *spawner* (its catalog role carries `may_spawn`) — standing coders do not
 exist; execution is ephemeral crews, spawned under conductor authority.
-Workflow nodes bind to spawners only. `count: 0` placeholders remain legal
-documentation.
+The conductor (`heartbeat.conductor`) is a spawner. `count: 0`
+placeholders remain legal documentation.
 """
 
 import re
@@ -81,8 +81,8 @@ def _company_name(blueprint: dict[str, Any]) -> list[str]:
 
 def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:
     """No standing coder counts — every active (count > 0) hire must be a
-    spawner, and every enabled workflow's conductor must be one. Coding
-    roles exist only as ephemeral agents under a conductor's authority."""
+    spawner. Coding roles exist only as ephemeral agents under the
+    conductor's authority."""
     problems = []
     for standing_name, hire in _hires(blueprint).items():
         if hire.get("count", 0) <= 0:
@@ -94,16 +94,6 @@ def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str
                 f"{hire.get('count')} on non-spawner role "
                 f"{hire.get('role')!r} — execution is ephemeral crews; "
                 "declare a conductor with may_spawn, or set count: 0"
-            )
-    active_spawners = _active_spawners(blueprint, roles)
-    for name, wf in _enabled_workflows(blueprint).items():
-        conductor = wf.get("conductor")
-        if conductor not in active_spawners:
-            available = ", ".join(sorted(active_spawners)) or "(none active)"
-            problems.append(
-                f"workflows.{name}.conductor: {conductor!r} is not an active standing "
-                f"spawner — enabled workflows bind to a standing conductor "
-                f"spawner — a hire with count > 0 whose role may spawn (active: {available})"
             )
     return problems
 
@@ -126,12 +116,14 @@ def _active_hires(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {n: r for n, r in _hires(blueprint).items() if r.get("count", 0) > 0}
 
 
-def _enabled_workflows(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        name: wf
-        for name, wf in (blueprint.get("workflows") or {}).items()
-        if wf.get("enabled")
-    }
+def _workflows(blueprint: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    workflows = blueprint.get("workflows") or {}
+    return {n: wf for n, wf in workflows.items() if isinstance(wf, dict)}
+
+
+def _conductor(blueprint: dict[str, Any]) -> str | None:
+    heartbeat = blueprint.get("heartbeat")
+    return heartbeat.get("conductor") if isinstance(heartbeat, dict) else None
 
 
 def referenced_crews(blueprint: dict[str, Any]) -> set[str]:
@@ -193,11 +185,15 @@ def _spawn_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> list[
 def _spawnable_crews(
     blueprint: dict[str, Any], crews_catalog: dict[str, CrewTemplate]
 ) -> list[str]:
-    """Every enabled workflow's crew is a catalog crew its conductor may
-    spawn — otherwise the workflow compiles but can never be fulfilled.
-    (Whether a `may_spawn.crew` names a known crew is `schema.coherence`'s.)"""
+    """Every workflow's crew is a catalog crew the conductor may spawn —
+    otherwise the workflow compiles but can never be fulfilled. (Whether a
+    `may_spawn.crew` names a known crew is `schema.coherence`'s.)"""
     problems = []
-    for name, workflow in _enabled_workflows(blueprint).items():
+    conductor = _conductor(blueprint)
+    allowed = ((_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}).get(
+        "crew"
+    ) or []
+    for name, workflow in _workflows(blueprint).items():
         crew = workflow.get("crew")
         if crew is None:
             continue
@@ -207,10 +203,6 @@ def _spawnable_crews(
                 f"(known: {', '.join(sorted(crews_catalog))})"
             )
             continue
-        conductor = workflow.get("conductor")
-        allowed = ((_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}).get(
-            "crew"
-        ) or []
         if crew not in allowed:
             problems.append(
                 f"workflows.{name}: conductor {conductor!r} may not spawn "
@@ -240,27 +232,24 @@ def _policy_patterns(blueprint: dict[str, Any]) -> list[str]:
 
 
 def _heartbeat_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> list[str]:
-    """The heartbeat's declared authority must be coherent: an active standing spawner
-    to decide, enabled workflows to start, and a daily cap that can fund at
-    least one run — a cap below the per-run budget makes the section dead
-    configuration, and dead configuration is an error, not documentation."""
+    """Every company has a heartbeat, and its declared authority must be
+    coherent: an active standing spawner to conduct, and a daily cap that
+    can fund at least one run — a cap below the per-run budget makes the
+    section dead configuration, and dead configuration is an error, not
+    documentation."""
     heartbeat = blueprint.get("heartbeat")
-    if not heartbeat:
-        return []
+    if not isinstance(heartbeat, dict):
+        return ["heartbeat: required — a company always has a heartbeat"]
     problems = []
     conductor = heartbeat.get("conductor")
     if conductor not in _active_spawners(blueprint, roles):
+        available = ", ".join(sorted(_active_spawners(blueprint, roles))) or "(none)"
         problems.append(
             f"heartbeat.conductor: {conductor!r} is not an active standing spawner — "
-            "the heartbeat dispatches a standing conductor for its decisions"
+            "a hire with count > 0 whose role may spawn, dispatched to decide "
+            f"and to scope and the authority every crew is fulfilled under "
+            f"(active: {available})"
         )
-    enabled = _enabled_workflows(blueprint)
-    for workflow in heartbeat.get("may_start") or []:
-        if workflow not in enabled:
-            problems.append(
-                f"heartbeat.may_start: {workflow!r} is not an enabled workflow "
-                "in this blueprint, so the grant could never start anything"
-            )
     per_run = ((blueprint.get("budgets") or {}).get("per_run") or {}).get("usd") or 0
     daily = (heartbeat.get("daily_cap") or {}).get("usd") or 0
     if daily and per_run and daily < per_run:
@@ -273,23 +262,21 @@ def _heartbeat_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> l
 
 
 def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
-    """Budgets cover enabled workflows: a run cap must exist and be
-    positive, or the first hard-stop check has nothing to compare against;
-    and the pause a stopped run waits out must be declared, or the workflow
-    would park with no deadline."""
+    """A run cap must exist and be positive, or the first hard-stop check
+    has nothing to compare against; and the pause a stopped run waits out
+    must be declared, or the workflow would park with no deadline."""
     problems = []
     per_run = (blueprint.get("budgets") or {}).get("per_run") or {}
-    if _enabled_workflows(blueprint):
-        if not per_run.get("usd"):
-            problems.append(
-                "budgets.per_run.usd: enabled workflows need a per-run cap "
-                "(the LLM gateway hard-stops against it)"
-            )
-        if not per_run.get("pause_minutes"):
-            problems.append(
-                "budgets.per_run.pause_minutes: a run stopped at the cap needs a "
-                "declared wait for the human who may raise it"
-            )
+    if not per_run.get("usd"):
+        problems.append(
+            "budgets.per_run.usd: every run needs a per-run cap "
+            "(the LLM gateway hard-stops against it)"
+        )
+    if not per_run.get("pause_minutes"):
+        problems.append(
+            "budgets.per_run.pause_minutes: a run stopped at the cap needs a "
+            "declared wait for the human who may raise it"
+        )
     return problems
 
 

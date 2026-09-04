@@ -17,7 +17,7 @@ import subprocess
 
 import pytest
 import yaml
-from conftest import HEARTBEAT_SECTION, HELLO_SAAS
+from conftest import HELLO_SAAS
 
 from compiler import compile_blueprint
 from compiler.rego import REPO_TOOLS
@@ -109,12 +109,12 @@ def decide(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def decide_heartbeat(tmp_path_factory):
-    """The same company with a standing heartbeat declared."""
+    """The same company with implement as its only startable workflow."""
 
-    def add_heartbeat(blueprint: dict) -> None:
-        blueprint["heartbeat"] = copy.deepcopy(HEARTBEAT_SECTION)
+    def implement_only(blueprint: dict) -> None:
+        blueprint["heartbeat"]["may_start"] = ["implement"]
 
-    return _decider(tmp_path_factory, _company(add_heartbeat))
+    return _decider(tmp_path_factory, _company(implement_only))
 
 
 # The example blueprint's repository: a repo-bearing call names it unless a
@@ -438,6 +438,7 @@ def test_crew_rule_compares_the_raw_role_name():
             )
         ],
         policies={},
+        heartbeat=compile_blueprint(_company()).heartbeat,
     )
     body = files["crew_contract_authoring_contract_author.rego"]
     assert 'input.role == "contract-author"' in body
@@ -515,12 +516,26 @@ def heartbeat_start(workflow: str, **args) -> dict:
     }
 
 
-def test_no_heartbeat_section_means_no_unattended_start(decide):
-    """The section is opt-in all the way down to the decision: a company
-    that never declared a heartbeat compiles no heartbeat rules, so the
-    start decision falls to default deny."""
-    decision = decide(**heartbeat_start("implement", active_runs=0, daily_spent_usd=0))
-    assert decision == {"allow": False, "rule": "default_deny"}
+def test_the_heartbeat_may_start_scope(decide):
+    """Scoping the next slice is the company's own initiative like any
+    other start, bounded by the open-ticket cap."""
+    decision = decide(
+        **heartbeat_start("scope", active_runs=0, daily_spent_usd=0, open_tickets=2)
+    )
+    assert decision["allow"] is True
+    at_cap = decide(
+        **heartbeat_start("scope", active_runs=0, daily_spent_usd=0, open_tickets=5)
+    )
+    assert at_cap == {"allow": False, "rule": "heartbeat_start_over_open_tickets"}
+
+
+def test_scope_fails_closed_without_the_open_ticket_count(decide):
+    """Only scope reads the count, so only scope is refused without it:
+    an implement start carries no open-ticket fact and needs none."""
+    decision = decide(**heartbeat_start("scope", active_runs=0, daily_spent_usd=0))
+    assert decision == {"allow": False, "rule": "heartbeat_start_open_tickets_missing"}
+    implement = decide(**heartbeat_start("implement", active_runs=0, daily_spent_usd=0))
+    assert implement["allow"] is True
 
 
 def test_heartbeat_may_start_a_declared_workflow(decide_heartbeat):
@@ -605,7 +620,7 @@ def test_heartbeat_grants_no_new_path_to_merge(decide_heartbeat):
     as_platform = decide_heartbeat(
         PLATFORM_QUERY, lifecycle="platform", tool="git.merge_pr", args={"number": 4}
     )
-    assert as_platform["allow"] is True  # same as the human-started bundle
+    assert as_platform["allow"] is True
 
 
 # -- the policy-resolved merge gate ----------------------------------------

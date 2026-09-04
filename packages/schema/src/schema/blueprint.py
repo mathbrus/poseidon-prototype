@@ -1,8 +1,8 @@
 """JSON Schema for the eight blueprint sections.
 
 Structural validation only. Cross-checks that need the catalogs or a
-registry snapshot (does this template exist, does this workflow node bind to
-an active conductor, do budgets cover enabled workflows) belong to the
+registry snapshot (does this template exist, is the conductor an active
+standing spawner, can the daily cap fund a run) belong to the
 compiler — the schema's job is to make a document
 well-formed, not to make a company coherent.
 
@@ -146,26 +146,20 @@ _MERGE_DELEGATION = {
     },
 }
 
-_INTAKE_GATE = _gate(["human"])
 _MERGE_GATE = _gate(["human", "policy"], {"delegate": _MERGE_DELEGATION})
 
 
 def _workflow(
     gates: dict[str, Any] | None, bounds: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """One workflow node. Each names only the gates it actually parks on
-    and the bounds it actually reads — a merge gate on intake, or a verify
-    bound on review, was never a meaningful thing to write, so it is not a
-    writable thing. Bounds are required: a defaulted bound is authority
-    nobody wrote down."""
-    properties: dict[str, Any] = {
-        "enabled": {"type": "boolean"},
-        # The standing name that spawns this workflow — never a standing
-        # implementer (enforced by the compiler).
-        "conductor": _NAME,
-        "crew": _NAME,
-        **(bounds or {}),
-    }
+    """One crewed workflow node: the crew that fulfils its runs, the bounds
+    it reads and the gates it parks on — nothing else. Which workflows the
+    company runs is `heartbeat.may_start`; who conducts them is
+    `heartbeat.conductor`; each is said once. A merge gate on implement,
+    or a verify bound on review, was never a meaningful thing to write, so
+    it is not a writable thing. Bounds are required: a defaulted bound is
+    authority nobody wrote down."""
+    properties: dict[str, Any] = {"crew": _NAME, **(bounds or {})}
     if gates:
         properties["gates"] = {
             "type": "object",
@@ -175,17 +169,18 @@ def _workflow(
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["enabled", "conductor", *(bounds or {})],
+        "required": ["crew", *(bounds or {})],
         "properties": properties,
     }
 
 
+# The two workflows that put a crew to work. `scope` has no node: it
+# dispatches the conductor directly and configures nothing.
 _WORKFLOWS = {
     "type": "object",
     "additionalProperties": False,
-    "minProperties": 1,
+    "required": ["implement", "review"],
     "properties": {
-        "intake": _workflow({"intake": _INTAKE_GATE}),
         # How many times a red platform verify re-dispatches the implementer
         # before the run fails.
         "implement": _workflow(
@@ -235,13 +230,12 @@ _POLICIES = {
     },
 }
 
-# The standing heartbeat's declared authority: how stale its view of the
-# world may grow, concurrency, what it may start on its own initiative,
-# and a daily hard stop. Opt-in and
-# all-explicit — a company that declares a heartbeat declares every cap,
-# because a defaulted cap is authority nobody wrote down. Absent means what
-# it always meant: runs start only when a human starts one. `intake` is
-# deliberately not startable — goals enter through a human.
+# The standing heartbeat: the company's own initiative. Every company has
+# one — work originates nowhere else — and it is all-explicit: who decides,
+# how stale its view of the world may grow, concurrency, how many tries an
+# item gets, how large the backlog may grow before scoping is refused, what
+# it may start, and a daily hard stop. A defaulted cap is authority nobody
+# wrote down.
 _HEARTBEAT = {
     "type": "object",
     "additionalProperties": False,
@@ -250,11 +244,14 @@ _HEARTBEAT = {
         "reconcile_minutes",
         "max_concurrent_runs",
         "max_attempts",
+        "max_open_tickets",
         "may_start",
         "daily_cap",
     ],
     "properties": {
-        # The standing name dispatched to decide the next action.
+        # The one standing agent the company's runs are requested under:
+        # dispatched to decide each tick and to scope, and the authority
+        # every crew is fulfilled under.
         "conductor": _NAME,
         # The reconcile backstop: the platform's own completions wake the
         # tick immediately; this bounds how long a change only the outside
@@ -267,9 +264,16 @@ _HEARTBEAT = {
         # at once; this bounds the aborted ones (a timed-out model call,
         # a step cap, a cancel). 1 means every run is the only try.
         "max_attempts": {"type": "integer", "minimum": 1},
+        # `scope` is refused while the repository has this many open
+        # issues or more — every open issue counts, worked or not — so
+        # the conductor cannot flood its own backlog tick after tick.
+        "max_open_tickets": {"type": "integer", "minimum": 1},
+        # What the heartbeat may start on its own: scoping the next slice
+        # from the company's documents, implementing a ticket, reviewing
+        # a delivered pull request.
         "may_start": {
             "type": "array",
-            "items": {"type": "string", "enum": ["implement", "review"]},
+            "items": {"type": "string", "enum": ["implement", "review", "scope"]},
             "minItems": 1,
             "uniqueItems": True,
         },
@@ -318,6 +322,7 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "tools",
         "workflows",
         "budgets",
+        "heartbeat",
     ],
     "properties": {
         "apiVersion": {"type": "string", "enum": ["poseidon.dev/v1"]},
