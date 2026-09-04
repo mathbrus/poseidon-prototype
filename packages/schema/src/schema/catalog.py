@@ -15,6 +15,7 @@ compiler error does.
 
 from dataclasses import dataclass
 
+from common.tasks import DOCUMENT_CREW
 from schema.tools import ARCHITECTURE_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 
 # The agent host's units of work. A dispatch names one; a role declares
@@ -25,7 +26,6 @@ PROCEDURES = ("scope", "decide", "implement", "deliver", "review")
 # it, and it alone, from the deny on the document paths — and the crew a
 # bootstrap ticket or an architecture request routes to.
 DOCUMENT_ROLE = "steward"
-DOCUMENT_CREW = "stewardship"
 
 
 @dataclass(frozen=True)

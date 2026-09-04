@@ -19,6 +19,13 @@ REVIEW_TASK_RE = re.compile(r"^review pull request #(\d+)$")
 # table; nothing parses it.
 SCOPE_TASK = "scope the next slice"
 
+# The crew a ticket about the company's documents routes to — the one the
+# platform names in the trailer of every bootstrap ticket and every
+# architecture-request ticket it files, and the catalog's crew of the
+# steward. Named once, here, because the gateway files those tickets and
+# the catalog defines the crew.
+DOCUMENT_CREW = "stewardship"
+
 
 def issue_run_task(number: int) -> str:
     """The run row's task for an issue-driven implement run."""

@@ -11,10 +11,10 @@ ticks of a company exist to write them.
 
 from typing import Any
 
+from common.tasks import DOCUMENT_CREW
 from common.text import clip
 from orchestrator.clients import GatewayClient
 from registry import Companies
-from schema.catalog import DOCUMENT_CREW
 
 # The two documents, in the order the observation renders them; the
 # headers are the contract the mock brain parses.

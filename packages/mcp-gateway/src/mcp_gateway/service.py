@@ -26,6 +26,7 @@ from common.identity import (
     Identity,
 )
 from common.policy import PLATFORM_DECISION_PATH, company_decision_path
+from common.tasks import DOCUMENT_CREW
 from common.telemetry import get_logger
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GitBackend
@@ -36,8 +37,6 @@ from registry import (
     Runs,
     SandboxRegistrations,
 )
-from schema.catalog import DOCUMENT_CREW
-from schema.tools import ARCHITECTURE_TOOLS
 
 # tool name -> sandbox tool-server route
 SANDBOX_ROUTES = {
@@ -57,7 +56,8 @@ class PolicyDenied(Exception):
         super().__init__(f"denied by policy rule: {self.rule}")
 
 
-(ARCHITECTURE_REQUEST,) = ARCHITECTURE_TOOLS
+# The one tool whose backend files a ticket the caller does not shape.
+ARCHITECTURE_REQUEST = "architecture.request"
 
 
 class BackendError(Exception):
