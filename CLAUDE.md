@@ -1,13 +1,13 @@
 # Poseidon
 
-An autonomous software company, run by cloud coding agents, that cannot
-exceed its authority — because the system will not let it, not because
-the prompt asked nicely.
+An autonomous company, run by cloud agents, that cannot
+exceed its authority.
 
 The company is the product. It lives in the cloud, stays up, and works
-toward goals for as long as those goals remain. A human sets the charter
-and the hard stops (what may never happen, what must be approved, how
-much may be spent). They do not drive the next step.
+towards its vision for as long as that vision stands. A human writes the
+vision and the hard stops (what may never happen, what must be approved,
+how much may be spent). They do not drive the next step: the company
+works out its own strategy and its own next slice of work.
 
 ## What a company is
 
@@ -15,11 +15,9 @@ A control loop with memory: observe the world, decide what is worth
 doing, do it, learn, repeat. Not an org chart. Not a ticket queue. Not a
 CI pipeline with a nicer brain.
 
-- **Autonomy** — the system chooses the next action from a goal and
-  state. Humans declare gates. They do not stitch phases.
-- **Continuity** — standing agents that remember. Strategy, taste, and
-  unfinished work survive a restart. A worker hired for one task and
-  fired is a factory, not a company.
+- **Autonomy** — the system chooses the next action. Humans declare gates. 
+  They do not stitch phases.
+- **Continuity** — the system remembers.
 - **Coordination** — many workstreams, shared artifacts, real
   priorities. One agent filing one ticket is not an organization.
 - **Actuation** — the world is customers, money, mail, and code. A
@@ -45,13 +43,13 @@ before.
 A change that only furnishes the cage, or that buys capability by
 weakening the charter, is the wrong direction even if it ships.
 
-## The tree is not the vision
+## The tree is not the charter
 
 This file is the source of truth. The repo is not always caught up —
 the project is moving through phases, and leftovers from earlier ones
 remain. Old names, old control flow, old assumptions.
 
-When you find something incoherent with this vision, stop and ask.
+When you find something incoherent with this charter, stop and ask.
 Do not paper over it, do not reinterpret it into the new world, do
 not silently delete it. We will sort it out together.
 
@@ -64,22 +62,33 @@ first.
 <!-- --8<-- [start:glossary] -->
 | Term | Meaning | Not |
 |---|---|---|
-| **role** | a catalog entry: tool ceiling, spawn authority, the procedures it may run — `pm`, `implementer`, `reviewer`, `contract-author` | role template, executor, engineer, sdet, author, tier |
-| **crew** | a named list of roles fulfilled together for one run (`feature-delivery`, `feature-review`, `contract-authoring`); `crew_template` names it in policy input and registry rows | — |
+| **role** | a catalog entry: tool ceiling, spawn authority, the procedures it may run — `pm`, `implementer`, `reviewer`, `contract-author`, `steward` | role template, executor, engineer, sdet, author, tier |
+| **crew** | a named list of roles fulfilled together for one run (`feature-delivery`, `feature-review`, `contract-authoring`, `stewardship`); `crew_template` names it in policy input and registry rows | — |
 | **agent** | one principal: one pod, one ServiceAccount, one registry row; standing (`<standing_name>-<n>`) or ephemeral (`<crew>-<role>-<run_id>`) | brain host, member, instance, participant (the `run_participants` table and its API keep the name; prose says ephemeral agent) |
 | **agent host** | the process in the agent image: the dispatch HTTP API plus the SDK loop that runs procedures | brain host, runner |
 | **standing name** | the hire's name: the key under `standing:`, the Deployment/Service name | standing role |
-| **conductor** | the standing agent a crew is requested under; at runtime `{agent_id, role, url}` | — |
+| **conductor** | the one standing agent the company's runs are requested under, named once at `heartbeat.conductor`; at runtime `{agent_id, role, url}` | — |
 | **procedure** | the agent host's unit of work: `scope`, `decide`, `implement`, `deliver`, `review` | mode, runner, phase, loop, runtime |
 | **dispatch** | the orchestrator asking an agent to run a procedure on a text | — |
 | **brain** | the model behind the LLM gateway, nothing else (mock brain, paid brain) | — |
-| **workflow** | a Temporal workflow = a blueprint section: `intake`, `implement`, `review`, `heartbeat` | family |
-| **goal / task / observation** | the text in flight, by origin: intake scopes a goal, implement works a task, the heartbeat decides on an observation | brief |
+| **workflow** | a Temporal workflow the heartbeat may start: `scope`, `implement`, `review`; plus `heartbeat` itself | family, intake |
+| **task** | the text an implement or review run works: a ticket, a pull request | goal, brief |
+| **observation** | the platform-composed reading of the world a conductor decides or scopes on: the documents, the open tickets, the delivered pull requests, the recent runs, capacity and spend | goal, prompt, context |
+| **vision** | the human's charter text, `company.vision`; reaches every procedure but `deliver` through the static prompt; changed only by applying the blueprint again | mission, goal, purpose |
+| **strategy** | the document at `company.documents.strategy` on `base_ref`; the steward writes it once from the vision; no current role may change it afterwards (a future observer would) | roadmap, plan |
+| **architecture masterplan** | the document at `company.documents.architecture` on `base_ref`; the steward writes it at bootstrap and revises it only to fulfil an architecture request; `architecture` in identifiers | ADR, design doc, `AGENTS.md` |
+| **architecture request** | a proposal a crew member records with `architecture.request`; the platform turns it into a stewardship ticket | change request, RFC |
+| **bootstrap ticket** | the ticket the platform files for a document absent on `base_ref` (`Bootstrap: strategy`, `Bootstrap: architecture masterplan`); a stewardship crew fulfils it | seed |
+| **steward** | the catalog role that writes the two documents; ephemeral only; its crew is `stewardship` | librarian, architect |
+| **observer** | a future standing hire that would revise the strategy; not in the catalog; named in comments and docs only | — |
 | **profile** | the deployment's activity-bound sizing (`TIMEOUT_PROFILE`: `default` for a paid brain, `fast` for the mock), learned by every workflow from its first config activity | fast timeouts, timeouts on the input |
 <!-- --8<-- [end:glossary] -->
 
 ## Working rules
 
+- **A company always has a heartbeat**: a blueprint without one does not
+  compile, work originates only from its ticks, and stopping the company
+  is deleting it. There is no human-started mode and no goal file.
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.
   Never set `REAL_LLM=1` or use a paid provider without explicit
   opt-in from the user. The harness now enforces this: the e2e suite
@@ -106,7 +115,7 @@ first.
   implementation plan. Never mention phases, contract IDs (C2, C4,
   …), or how the code used to work. If you find such comments, strip
   them as you touch the file — they are debris, not documentation.
-- **Leftovers**: if code, docs, or names contradict the vision above,
+- **Leftovers**: if code, docs, or names contradict the charter above,
   ask immediately. Do not guess which world they belong to.
 - **Configuration tiers**: a knob lives in exactly one place. Would a
   human revoke it with a diff? Blueprint. Does it name where something
