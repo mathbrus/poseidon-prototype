@@ -117,10 +117,14 @@ def test_the_strategy_became_a_ticket_with_the_pms_summary(scoped: dict):
     ).json()
     assert [c["body"] for c in comments] == [PM_SUMMARY], comments
 
+    # Two actors under the one run id: the platform, composing the
+    # observation (document and backlog reads), and the PM, filing.
     story = [e for e in audit_story(record["run_id"]) if e["source"] == "gateway"]
-    assert {"issues.create", "issues.comment"} <= {e["tool"] for e in story}
-    for event in story:
-        assert event["agent_id"] == "pm-1"
+    assert {e["agent_id"] for e in story} == {"orchestrator", "pm-1"}, story
+    assert all(e["lifecycle"] == "platform" for e in story if e["agent_id"] != "pm-1")
+    pm_story = [e for e in story if e["agent_id"] == "pm-1"]
+    assert {"issues.create", "issues.comment"} <= {e["tool"] for e in pm_story}
+    for event in pm_story:
         assert event["lifecycle"] == "standing"
         assert event["company"] == "hello-saas"
         assert event["decision"] == "allow"
