@@ -216,7 +216,9 @@ def requested(bootstrapped: dict) -> dict:
     revision: dict = {}
     try:
         result["run"] = run_ticket(env, number)
-        requests = _open_issue_numbers_prefixed(env, "Architecture request from run ")
+        requests = _open_issue_numbers_prefixed(
+            env, f"Architecture request from run {result['run']['run_id']}"
+        )
         result["request_tickets"] = requests
         (request_number,) = requests
         result["request_ticket"] = github_api(
