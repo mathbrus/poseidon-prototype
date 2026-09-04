@@ -222,6 +222,9 @@ jobs:
       # mkdocs.yml sets strict: a broken link, an orphaned page or a
       # reference page that does not match the code fails the build.
       - run: uv run mkdocs build
+        env:
+          # A plugin prints a paragraph about MkDocs 2.0 on every build.
+          DISABLE_MKDOCS_2_WARNING: "true"
       # The repository is private, so there is no Pages deployment yet;
       # the built site is the artifact of every run.
       - uses: actions/upload-artifact@v4

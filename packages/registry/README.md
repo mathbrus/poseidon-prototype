@@ -85,8 +85,7 @@ Temporal, as a `registry` schema rather than a separate database, so no
 ## Every write expects to be retried
 
 The orchestrator's writes come from Temporal activities, which are
-re-executed after crashes and worker deaths ([root README, section
-3](../../README.md#3-concepts-you-need)). So the registry's job is to make
+re-executed after crashes and worker deaths ([Temporal](../../docs/concepts/temporal.md)). So the registry's job is to make
 "the retry lands on the same row" a property of the SQL, not a hope:
 
 - `Runs.start` upserts — a re-attempt resets the same row (and clears a

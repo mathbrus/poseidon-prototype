@@ -113,6 +113,10 @@ REVIEW_TOOLS = [
 | `deliver` | `DELIVER_TOOLS` | the PR URL |
 | `review` | `REVIEW_TOOLS` | posted findings + a structured pass/fail verdict |
 
+Which catalog role may be asked to run which procedure is the catalog's
+to say, rendered from `schema.catalog` on
+[Roles and crews](../../docs/reference/roles.md).
+
 `edit_file` is the partial edit coding models are trained on —
 `str_replace` of text that occurs exactly once, or `insert` after a line —
 and `read_file` answers with numbered lines (optionally a line range) so

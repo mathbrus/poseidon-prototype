@@ -16,13 +16,13 @@ sections: `company`, `stack`, `standing`, `tools`, `workflows`,
 `heartbeat` — a company without guardrails is a choice you make visibly, not
 a default you fall into by omission, and a company that declares no
 heartbeat is simply one whose runs a human starts. The document format
-itself is introduced line by line in [docs/blueprint.md](../../docs/blueprint.md).
+itself is read section by section on [the blueprint reference](../../docs/reference/blueprint.md).
 
 ## Module map
 
 | Module | Owns |
 |---|---|
-| `blueprint.py` | The JSON Schema (draft 2020-12) for the nine sections. Structure only; the tool enum is the one place it borrows from a catalog. |
+| `blueprint.py` | The JSON Schema (draft 2020-12) for the eight sections. Structure only; the tool enum is the one place it borrows from a catalog. |
 | `validate.py` | `validate_blueprint` / `load_blueprint`. Errors are rendered as a path and the allowed values, and reported all together. |
 | `coherence.py` | The catalog cross-checks (roles and crews exist, no platform-only tool for a role, scopes narrow the catalog), as functions both `validate` and the compiler run. |
 | `catalog.py` | `ROLES` and `CREW_TEMPLATES`: what a blueprint may hire and spawn, with each role's tool scope, procedures and spawn authority. |
@@ -55,15 +55,13 @@ cannot read.
 
 Four roles, and the set is closed: a blueprint names roles, it never
 defines them. A role is what an agent *is*: its tool ceiling, the crews
-it may spawn, and the procedures a dispatch may ask of it. `pm` is the standing conductor — it holds the `issues.*` tools plus
-`crew.request`, runs `scope` and `decide`, may spawn crews, and holds no
-coding tools at all: no `sandbox.*`, no `git.open_pr`. It holds no
-private memory store either: cross-run state is tickets and registry
-runs. `implementer` (sandbox tools plus `git.open_pr`; `implement` and
-`deliver`), `reviewer` (sandbox plus review tools plus `issues.comment`;
-`review`) and `contract-author` (sandbox tools plus `git.open_pr` — the
-one role that may deliver into a declared contract tree) are
-ephemeral-agent material only.
+it may spawn, and the procedures a dispatch may ask of it. `pm` is the
+standing conductor and holds no coding tools at all — no `sandbox.*`, no
+`git.open_pr` — and no private memory store either: cross-run state is
+tickets and registry runs. The other three are ephemeral-agent material
+only. Which role holds which tools, runs which procedures and may spawn
+which crews is rendered from `ROLES` on
+[Roles and crews](../../docs/reference/roles.md).
 
 Why a fixed catalog at all? Because the compiler turns each role into an
 agent spec and a per-agent Rego bundle, and a role a blueprint could
@@ -79,10 +77,8 @@ standing-coder document still validates structurally.
 
 ## The crew catalog
 
-Three crews: `feature-delivery` (one implementer), `feature-review` (one
-reviewer, run against a sandbox provisioned from the PR ref) and
-`contract-authoring` (one contract author, working from the contract
-ticket). A crew is a list of roles, and the catalog is the only place that
+Three crews, one role each, rendered from `CREW_TEMPLATES` on the same
+page. A crew is a list of roles, and the catalog is the only place that
 list is written: a blueprint names the crews it puts to work (in a hire's
 `may_spawn` and a workflow's `crew`), never their members — a name outside
 the catalog is a document error rather than something left for the
@@ -98,17 +94,17 @@ Narrowing, though, is fine: an implementer scoped to only
 `sandbox.read_file` and `sandbox.run_tests` validates.
 
 One asymmetry surprises people: an ephemeral agent's allow-list is
-deliberately **not** required to be a subset of its conductor's. The PM
-cannot open a pull request, yet the crew it spawns can. Spawn authority
-is authority to create a principal from a compiler-vetted role, not a
-capability ceiling — requiring ⊆ would force the PM's scope to become the
-union of everything it might ever spawn, the opposite of least privilege.
+deliberately **not** required to be a subset of its conductor's — spawn
+authority is authority to create a principal from a compiler-vetted role,
+not a capability ceiling. [Standing vs. ephemeral agents](../../docs/concepts/standing-vs-ephemeral.md)
+makes the argument.
 
 ## The tool catalog
 
-`tools.py` names the entire gateway surface — 16 names in seven groups
-(sandbox, repo, git, issues, review, platform, crew) — and folds them
-into `KNOWN_TOOLS`. The schema embeds that set as the enum inside every
+`tools.py` names the entire gateway surface in groups (sandbox, repo,
+git, issues, review, platform, crew) and folds them into `KNOWN_TOOLS`;
+[Tools](../../docs/reference/tools.md) renders the list with each tool's
+arguments. The schema embeds that set as the enum inside every
 tool list, so `issues.delete` fails the *schema* pass with the real names
 listed; nothing downstream ever meets an unregistered tool name.
 
@@ -157,7 +153,7 @@ the schema and the catalogs.
   lean-standing rule.
 - `orchestrator`'s `poseidon blueprint` CLI calls `load_blueprint` before
   compiling, so authors see these errors first.
-- [`gateway`](../mcp-gateway/README.md) implements the same 17 tool names.
+- [`gateway`](../mcp-gateway/README.md) implements the same tool names.
   It does not import this package — the correspondence is kept by hand,
   so adding a tool means adding it in both places, this one first.
 
