@@ -314,7 +314,7 @@ def file_ticket(env: dict, title: str, body: str) -> int:
         ).json()
         if any(int(i["number"]) == number for i in listed):
             return number
-        time.sleep(3)
+        time.sleep(5)
     raise AssertionError(f"the git host never listed issue #{number}")
 
 
@@ -542,9 +542,16 @@ def target_slug(env: dict) -> str:
 
 def read_repo_file(env: dict, path: str) -> dict | None:
     """The file's API record at `main` (sha included, for a write), or None
-    when it is absent."""
-    resp = github_api(env, "GET", f"/repos/{target_slug(env)}/contents/{path}")
-    return resp.json() if resp.status_code == 200 else None
+    when it is absent. Only a 404 means absent: a throttled or failing
+    read must not be taken for an empty path and answered with a write."""
+    for attempt in range(5):
+        resp = github_api(env, "GET", f"/repos/{target_slug(env)}/contents/{path}")
+        if resp.status_code == 200:
+            return resp.json()
+        if resp.status_code == 404:
+            return None
+        time.sleep(2 * (attempt + 1))
+    raise AssertionError(f"reading {path} failed: {resp.status_code} {resp.text}")
 
 
 def put_repo_file(env: dict, path: str, content: str, message: str) -> None:
