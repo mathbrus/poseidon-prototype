@@ -72,7 +72,6 @@ async def test_task_lifecycle_running_then_done():
             "iterations": 0,
             "error": None,
             "ticket_urls": [],
-            "crew_request_id": None,
             "comment_urls": [],
             "verdict": None,
             "verdict_summary": None,
@@ -88,7 +87,6 @@ async def test_task_lifecycle_running_then_done():
         "iterations": 2,
         "error": None,
         "ticket_urls": [],
-        "crew_request_id": None,
         "comment_urls": [],
         "verdict": None,
         "verdict_summary": None,
@@ -204,7 +202,7 @@ async def test_a_role_runs_only_its_own_procedures():
         assert (await http.get(f"/task/{RUN_ID}")).status_code == 404
 
     async with client(app_for("implementer", scope=never)) as http:
-        assert (await post(http, "scope", "a goal")).status_code == 422
+        assert (await post(http, "scope", "an observation")).status_code == 422
 
     async with client(app_for("no-such-role", implement=never)) as http:
         assert (await post(http, "implement", "x")).status_code == 422

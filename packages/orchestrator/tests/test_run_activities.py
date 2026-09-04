@@ -19,7 +19,6 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
-    InMemoryCrewRequests,
     InMemoryRunParticipants,
     InMemoryRuns,
 )
@@ -360,9 +359,7 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     sweep runs before the sandbox destroy, on the failure path (no handle)
     and the success path alike."""
     participants = InMemoryRunParticipants()
-    crew = CrewActivities(
-        settings, participants, audit, InMemoryCrewRequests(), companies, ledger, runs
-    )
+    crew = CrewActivities(settings, participants, audit, companies, ledger, runs)
     activities = RunActivities(
         settings, backend, runs, companies, instances, ledger, audit, crew
     )

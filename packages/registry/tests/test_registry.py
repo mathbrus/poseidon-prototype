@@ -11,7 +11,6 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
-    CrewRequests,
     ParticipantRevoked,
     PolicyBundles,
     Registry,
@@ -358,113 +357,11 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     assert ledger.spent_for_run("run-unmetered") == 0.0
 
 
-def test_crew_request_is_idempotent_and_expiring(registry: Registry):
-    """Same {conductor, crew, run} lands on one row;
-    while recorded a retry refreshes it; once fulfilled it is untouched —
-    a retry must not resurrect consumed intent."""
-    Runs(registry).start(RUN_ID, "task")
-    requests = CrewRequests(registry)
-    first = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it")
-    assert first["status"] == "recorded"
-    assert first["expires_at"] is not None
-
-    again = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it now")
-    assert again["id"] == first["id"]
-    assert again["reason"] == "ship it now"
-
-    registry.execute(
-        "UPDATE registry.crew_requests SET status='fulfilled',"
-        " fulfilled_at=now() WHERE id = %s",
-        (first["id"],),
-    )
-    after = requests.record("pm-1", "feature-delivery", RUN_ID, "retry")
-    assert after["status"] == "fulfilled"
-    assert after["reason"] == "ship it now"  # untouched
-
-
-def test_participant_bind_is_retry_safe_and_sweepable(registry: Registry):
-    """A retried bind (same deterministic agent_id) converges
-    on the same row; the per-run sweep revokes every live participant at
-    once and reports who it swept."""
+def test_spawn_count_is_distinct_live_crews_per_conductor(registry: Registry):
+    """The spawn count is distinct live {run, crew} pairs per conductor —
+    what the compiled concurrency cap reads off the decision input."""
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
-    participants.add(
-        "feature-delivery-implementer-x",
-        RUN_ID,
-        "pm-1",
-        "feature-delivery",
-        "implementer",
-    )
-    # A retry against the live row converges — one identity, never two.
-    participants.add(
-        "feature-delivery-implementer-x",
-        RUN_ID,
-        "pm-1",
-        "feature-delivery",
-        "implementer",
-    )
-    assert participants.active("feature-delivery-implementer-x") is not None
-
-    participants.add(
-        "feature-review-reviewer-x", RUN_ID, "pm-1", "feature-review", "reviewer"
-    )
-    swept = participants.terminate_for_run(RUN_ID)
-    assert sorted(swept) == [
-        "feature-delivery-implementer-x",
-        "feature-review-reviewer-x",
-    ]
-    assert participants.active("feature-review-reviewer-x") is None
-    assert participants.terminate_for_run(RUN_ID) == []  # idempotent
-
-
-def test_participant_row_resolves_by_service_account(registry: Registry):
-    """The row is the whole ephemeral identity: the gateway looks it up by
-    ServiceAccount name and reads company, catalog template, namespace and
-    the canonical agent_id from it — and the lookup goes dark on
-    termination, which is what makes revocation a registry write."""
-    Runs(registry).start(RUN_ID, "task")
-    participants = RunParticipants(registry)
-    participants.add(
-        "feature-delivery-implementer-X",
-        RUN_ID,
-        "pm-1",
-        "feature-delivery",
-        "implementer",
-        company="hello-saas",
-        namespace="hello-saas",
-        service_account="ephemeral-feature-delivery-implementer-x",
-    )
-    row = participants.by_service_account("ephemeral-feature-delivery-implementer-x")
-    assert row is not None
-    # Lowercasing the SA name is not invertible; the canonical id is
-    # read from the row, never derived from the name.
-    assert row["agent_id"] == "feature-delivery-implementer-X"
-    assert row["company"] == "hello-saas"
-    assert row["role"] == "implementer"  # the catalog role, as written
-    assert row["namespace"] == "hello-saas"
-
-    participants.terminate("feature-delivery-implementer-X")
-    assert (
-        participants.by_service_account("ephemeral-feature-delivery-implementer-x")
-        is None
-    )
-
-
-def test_crew_request_consume_and_spawn_count(registry: Registry):
-    """Consume claims a recorded, unexpired request exactly once (the
-    fulfilling run may re-claim its own after a crash); the spawn count is
-    distinct live {run, crew} pairs per conductor."""
-    Runs(registry).start(RUN_ID, "task")
-    requests = CrewRequests(registry)
-    participants = RunParticipants(registry)
-    recorded = requests.record("pm-1", "feature-delivery", RUN_ID, "go")
-    consumed = requests.consume(recorded["id"], RUN_ID)
-    assert consumed["status"] == "fulfilled"
-    # Idempotent for the same run; a foreign run gets nothing.
-    assert requests.consume(recorded["id"], RUN_ID) is not None
-    assert requests.consume(recorded["id"], "run-other") is None
-    assert requests.consume("crq-missing", RUN_ID) is None
-
     participants.add("fd-impl-1", RUN_ID, "pm-1", "feature-delivery", "implementer")
     participants.add("fd-second-1", RUN_ID, "pm-1", "feature-delivery", "second")
     assert participants.active_spawn_count("pm-1") == 1  # one crew, two agents

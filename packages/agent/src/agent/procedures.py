@@ -96,10 +96,8 @@ class ProcedureResult(BaseModel):
     pr_url: str | None = None
     iterations: int = 0
     error: str | None = None
-    # Scope: the tickets it filed and the crew intent it recorded — what
-    # an intake run links to the run record.
+    # Scope: the tickets it filed — what the run record links to.
     ticket_urls: list[str] = []
-    crew_request_id: str | None = None
     # The comments a dispatch posted: the reviewer's findings on the PR,
     # or the PM's summary on the ticket(s) it filed.
     comment_urls: list[str] = []
@@ -512,39 +510,31 @@ def run_review(settings: AgentSettings, run_id: str, task_text: str) -> Procedur
 
 
 def run_scope(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
-    """scope: the PM turns a goal into tickets, records crew intent, and
-    leave a one-paragraph summary as a comment on each ticket filed — all
-    through governed tools. No sandbox, no delivery, no private memory: the
-    backlog is the PM's cross-run state, and the summary comment is what a
-    later reader of that backlog finds. A dispatch that filed tickets but
-    posted no summary is a failed dispatch — the tickets are still reported,
-    so they stay linked to the run. Refusing a tool call is the gateway's
-    job; a deny surfaces as a tool observation the model sees."""
+    """scope: the PM reads the observation — the company's documents and
+    the world as the heartbeat sees it — and files the next slice of work
+    as tickets, leaving a one-paragraph summary as a comment on each; all
+    through governed tools. No sandbox, no delivery, no private memory:
+    the backlog is the PM's cross-run state, and the summary comment is
+    what a later reader of that backlog finds. Filing nothing is a valid
+    outcome (the strategy may be delivered); a dispatch that filed tickets
+    but posted no summary is a failed dispatch — the tickets are still
+    reported, so they stay linked to the run. Refusing a tool call is the
+    gateway's job; a deny surfaces as a tool observation the model sees."""
     with _session(settings, run_id, "scope", SCOPE_TOOLS, SCOPE_STEP_CAP) as s:
         convo, records = s.convo, s.records
-        convo.send_message(f"Goal:\n{task_text}")
+        convo.send_message(task_text)
         convo.run()
         failure = _loop_failure(convo)
-    partial = dict(
-        ticket_urls=records.ticket_urls,
-        crew_request_id=records.crew_request_id,
-        comment_urls=records.comment_urls,
-    )
+    partial = dict(ticket_urls=records.ticket_urls, comment_urls=records.comment_urls)
     if failure:
         return ProcedureResult(error=failure, **partial)
-    if not records.ticket_urls:
-        return ProcedureResult(error="PM filed no ticket for the goal")
-    if not records.comment_urls:
+    if records.ticket_urls and not records.comment_urls:
         return ProcedureResult(
             error="PM filed tickets without posting its summary", **partial
         )
     log.info(
         "pm finished",
-        extra={
-            "tickets": records.ticket_urls,
-            "crew_request": records.crew_request_id,
-            "comments": records.comment_urls,
-        },
+        extra={"tickets": records.ticket_urls, "comments": records.comment_urls},
     )
     return ProcedureResult(**partial)
 
@@ -552,7 +542,9 @@ def run_scope(settings: AgentSettings, run_id: str, task_text: str) -> Procedure
 # The decide contract: exactly one DECISION line and one RATIONALE line.
 # The rationale is required — an unexplained decision is a failed dispatch,
 # because the journal is half the point of asking.
-DECISION_RE = re.compile(r"^DECISION:\s*(?:(implement|review)\s+#(\d+)|(idle))\s*$", re.M)
+DECISION_RE = re.compile(
+    r"^DECISION:\s*(?:(implement|review)\s+#(\d+)|(scope|idle))\s*$", re.M
+)
 RATIONALE_RE = re.compile(r"^RATIONALE:\s*(\S.*)$", re.M)
 
 
@@ -562,9 +554,9 @@ def parse_decision(text: str) -> dict[str, Any] | None:
     rationale = RATIONALE_RE.search(text)
     if decision is None or rationale is None:
         return None
-    action, target, idle = decision.groups()
+    action, target, bare = decision.groups()
     return {
-        "action": action or idle,
+        "action": action or bare,
         "target": int(target) if target else None,
         "rationale": rationale.group(1).strip(),
     }

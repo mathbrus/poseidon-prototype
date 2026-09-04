@@ -30,7 +30,6 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
-    InMemoryCrewRequests,
     InMemoryRunParticipants,
     InMemoryRuns,
     InMemorySandboxRegistrations,
@@ -133,17 +132,6 @@ class Backends:
                 "issues.comment",
             ):
                 return {"allow": True, "rule": f"role_pm_{tool}"}
-            if tool == "crew.request" and args.get("crew_template") in (
-                "feature-delivery",
-                "feature-review",
-            ):
-                # The compiled cap and budget denies, reading
-                # the enriched input exactly like the real bundle.
-                if policy_input.get("active_spawns", 0) >= 2:
-                    return {"allow": False, "rule": "crew_request_over_cap"}
-                if policy_input.get("budget_headroom") is False:
-                    return {"allow": False, "rule": "crew_request_no_budget"}
-                return {"allow": True, "rule": "role_pm_crew_request"}
             return {"allow": False, "rule": "default_deny"}
         if (
             policy_input.get("lifecycle") == "ephemeral"
@@ -328,11 +316,6 @@ def participants() -> InMemoryRunParticipants:
 
 
 @pytest.fixture
-def crew_requests() -> InMemoryCrewRequests:
-    return InMemoryCrewRequests()
-
-
-@pytest.fixture
 def ledger() -> InMemoryBudgetLedger:
     return InMemoryBudgetLedger()
 
@@ -358,8 +341,6 @@ async def app(
     audit: InMemoryAuditStore,
     instances: InMemoryAgentInstances,
     participants: InMemoryRunParticipants,
-    crew_requests: InMemoryCrewRequests,
-    ledger: InMemoryBudgetLedger,
     companies: InMemoryCompanies,
 ):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
@@ -371,8 +352,6 @@ async def app(
         instances=instances,
         participants=participants,
         runs=InMemoryRuns(),
-        crew_requests=crew_requests,
-        ledger=ledger,
         companies=companies,
         token_reviewer=FakeReviewer(),
     )

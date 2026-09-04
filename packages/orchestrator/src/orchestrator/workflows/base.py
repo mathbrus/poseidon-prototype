@@ -165,12 +165,12 @@ class RunWorkflow:
         crew: str | None = None,
     ) -> dict[str, Any]:
         """Stand the run's ephemeral crew up under the conductor's
-        authority — the request is recorded through the same compiled
-        `crew.request` decision an agent-issued request faces — and return
-        the one agent it dispatches, as `{agent_id, url}`. `crew` overrides
-        the workflow's configured crew (a ticket naming its own). Fulfilment
-        returns the crew's agents by role and refuses a crew that declares
-        more than one, so the unpacking cannot fail here."""
+        authority — fulfilment wins the compiled `crew.request` decision as
+        the conductor first — and return the one agent it dispatches, as
+        `{agent_id, url}`. `crew` overrides the workflow's configured crew
+        (a ticket naming its own). Fulfilment returns the crew's agents by
+        role and refuses a crew that declares more than one, so the
+        unpacking cannot fail here."""
         fulfilled = await workflow.execute_activity(
             "fulfill_crew",
             args=[
@@ -180,7 +180,6 @@ class RunWorkflow:
                     "crew_template": crew or config["crew"],
                     "conductor": config["conductor"],
                     "workflow": self.WORKFLOW,
-                    "record_under_authority": True,
                 }
             ],
             start_to_close_timeout=timedelta(seconds=self._bounds.provision_s),

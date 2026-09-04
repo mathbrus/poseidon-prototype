@@ -34,9 +34,7 @@ from mcp_gateway.service import GatewayService, PolicyDenied
 from registry import (
     AgentInstances,
     AuditStore,
-    BudgetLedger,
     Companies,
-    CrewRequests,
     RunParticipants,
     Runs,
     SandboxRegistrations,
@@ -88,8 +86,6 @@ def create_app(
     instances: AgentInstances | None = None,
     participants: RunParticipants | None = None,
     runs: Runs | None = None,
-    crew_requests: CrewRequests | None = None,
-    ledger: BudgetLedger | None = None,
     companies: Companies | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
@@ -103,16 +99,7 @@ def create_app(
     # reads for decision-input enrichment). Injectable so
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.
-    accessors = (
-        sandboxes,
-        audit,
-        instances,
-        participants,
-        runs,
-        crew_requests,
-        ledger,
-        companies,
-    )
+    accessors = (sandboxes, audit, instances, participants, runs, companies)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -121,8 +108,6 @@ def create_app(
         instances = AgentInstances(registry)
         participants = RunParticipants(registry)
         runs = Runs(registry)
-        crew_requests = CrewRequests(registry)
-        ledger = BudgetLedger(registry)
         companies = Companies(registry)
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
@@ -133,9 +118,6 @@ def create_app(
         sandboxes,
         audit,
         runs,
-        crew_requests,
-        participants,
-        ledger,
         companies,
     )
     authenticator = Authenticator(
@@ -359,17 +341,6 @@ def create_app(
         identity alone, and the orchestrator calls it only after the merge gate
         resolved to merge. No blueprint can hand it to an agent role."""
         return await service.git_merge_pr(identity_of(ctx), run_id, repo, number, method)
-
-    @mcp.tool(name="crew.request")
-    async def crew_request(
-        run_id: str, crew_template: str, reason: str, ctx: Context
-    ) -> dict[str, Any]:
-        """Record a conductor's intent to spawn a crew. An allowed request is
-        authorization plus intent, never fulfilment — the implement workflow
-        consumes the recorded row and does the provisioning. The compiled rule
-        narrows `crew_template` to the caller's `may_spawn` list and enforces
-        its `max_concurrent` cap against a live spawn count."""
-        return await service.request_crew(identity_of(ctx), run_id, crew_template, reason)
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])
     async def admin_sandboxes(request: Request) -> Response:

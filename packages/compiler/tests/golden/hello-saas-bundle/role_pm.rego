@@ -6,15 +6,6 @@ package poseidon.authz.hello_saas
 import rego.v1
 
 # pm: standing pm.
-allow_rules contains "role_pm_crew_request" if {
-	input.lifecycle == "standing"
-	input.company == "hello-saas"
-	input.role == "pm"
-	input.tool == "crew.request"
-	input.args.crew_template in ["feature-delivery", "feature-review"]
-}
-
-# pm: standing pm.
 allow_rules contains "role_pm_issues_comment" if {
 	input.lifecycle == "standing"
 	input.company == "hello-saas"
@@ -36,6 +27,15 @@ allow_rules contains "role_pm_issues_read" if {
 	input.company == "hello-saas"
 	input.role == "pm"
 	input.tool == "issues.read"
+}
+
+# pm: the crews the platform may fulfil under its authority.
+allow_rules contains "role_pm_crew_request" if {
+	input.lifecycle == "standing"
+	input.company == "hello-saas"
+	input.role == "pm"
+	input.tool == "crew.request"
+	input.args.crew_template in ["feature-delivery", "feature-review"]
 }
 
 # pm-1: at most 2 concurrent crews (spawn denials are

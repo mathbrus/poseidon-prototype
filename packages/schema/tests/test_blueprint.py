@@ -54,7 +54,7 @@ def test_pm_holds_no_implementer_tools(blueprint):
     pm_tools = set(ROLES["pm"].tools)
     assert not any(t.startswith("sandbox.") for t in pm_tools)
     assert "git.open_pr" not in pm_tools
-    assert {"crew.request", "issues.create"} <= pm_tools
+    assert {"issues.create", "issues.read", "issues.comment"} == pm_tools
 
 
 def test_review_merge_gate_is_human_resolved(blueprint):

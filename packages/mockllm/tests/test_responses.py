@@ -14,10 +14,15 @@ from mockllm.app import COST_PER_1K_TOKENS, create_app
 client = TestClient(create_app())
 
 PM_SYSTEM = "# Poseidon procedure: scope\nYou are the product manager."
-GOAL_ITEM = {
+OBSERVATION_ITEM = {
     "type": "message",
     "role": "user",
-    "content": [{"type": "input_text", "text": "Goal: build a tiny Tetris"}],
+    "content": [
+        {
+            "type": "input_text",
+            "text": "Scope the next slice.\n\nStrategy:\nBuild a tiny Tetris (NEXT-SLICE-OPEN).",
+        }
+    ],
 }
 # Responses tool schemas are flat — no "function" wrapper.
 PM_TOOLS = [
@@ -29,8 +34,8 @@ PM_TOOLS = [
     },
     {
         "type": "function",
-        "name": "request_crew",
-        "description": "record a crew request",
+        "name": "comment_issue",
+        "description": "comment a ticket",
         "parameters": {"type": "object", "properties": {}},
     },
 ]
@@ -49,7 +54,8 @@ DECIDE_ITEM = {
         {
             "type": "input_text",
             "text": (
-                "Heartbeat tick. Runs in flight: 0. Spent today: $0.00.\n"
+                "Heartbeat tick. Runs in flight: 0. Spent today: $0.00."
+                " Open tickets on the repository: 0.\n"
                 "Startable actions: implement, review, idle\n\n"
                 "Open tickets:\n(none)\n\nDelivered pull requests awaiting review:\n"
                 "(none)\n\nRecent runs:\n(none)"
@@ -121,7 +127,7 @@ def test_flattened_tools_key_the_scope_procedure_and_calls_come_back_as_items():
         {
             "model": "gpt-5.6-luna",
             "instructions": PM_SYSTEM,
-            "input": [GOAL_ITEM],
+            "input": [OBSERVATION_ITEM],
             "tools": PM_TOOLS,
         }
     )
@@ -136,12 +142,12 @@ def test_flattened_tools_key_the_scope_procedure_and_calls_come_back_as_items():
 def test_function_call_history_advances_the_script():
     """Round-trip: echoing the prior function_call and its
     function_call_output back as input items must count as a made call, so
-    the stateless brain moves on to request_crew."""
+    the stateless brain moves on to the summary comment."""
     first = post(
         {
             "model": "gpt-5.6-luna",
             "instructions": PM_SYSTEM,
-            "input": [GOAL_ITEM],
+            "input": [OBSERVATION_ITEM],
             "tools": PM_TOOLS,
         }
     )
@@ -151,12 +157,12 @@ def test_function_call_history_advances_the_script():
             "model": "gpt-5.6-luna",
             "instructions": PM_SYSTEM,
             "input": [
-                GOAL_ITEM,
+                OBSERVATION_ITEM,
                 call,
                 {
                     "type": "function_call_output",
                     "call_id": call["call_id"],
-                    "output": '{"url": "https://github.test/example/issues/1"}',
+                    "output": '{"number": 1, "url": "https://github.test/example/issues/1"}',
                 },
             ],
             "tools": PM_TOOLS,
@@ -164,7 +170,7 @@ def test_function_call_history_advances_the_script():
     )
     (item,) = followup["output"]
     assert item["type"] == "function_call"
-    assert item["name"] == "request_crew"
+    assert item["name"] == "comment_issue"
 
 
 def test_chat_completions_surface_is_unchanged():

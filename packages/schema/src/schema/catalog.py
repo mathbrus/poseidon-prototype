@@ -15,7 +15,7 @@ does.
 
 from dataclasses import dataclass
 
-from schema.tools import CREW_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
+from schema.tools import ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 
 # The agent host's units of work. A dispatch names one; a role declares
 # which it may run, and the host refuses the rest before any model call.
@@ -31,7 +31,9 @@ class Role:
     tools: tuple[str, ...]
     # The procedures a dispatch may ask an agent of this role to run.
     procedures: tuple[str, ...]
-    # Crews this role may request, when the blueprint grants them.
+    # Crews the platform may fulfil under this role's authority, when the
+    # blueprint grants them: the compiled `crew.request` decision every
+    # fulfilment must win is evaluated as this role.
     may_spawn: tuple[str, ...] = ()
 
 
@@ -50,11 +52,12 @@ ROLES: dict[str, Role] = {
     "pm": Role(
         name="pm",
         summary=(
-            "Standing conductor: scopes goals, writes, reads and comments "
-            "tickets, requests crews. Holds no coding tools — the PM cannot "
-            "open a pull request or write in a sandbox."
+            "Standing conductor: decides the company's next action on every "
+            "heartbeat tick, scopes the next slice of work into tickets, and "
+            "is the authority every crew is fulfilled under. Holds no coding "
+            "tools — the PM cannot open a pull request or write in a sandbox."
         ),
-        tools=tuple(ISSUE_TOOLS + CREW_TOOLS),
+        tools=tuple(ISSUE_TOOLS),
         procedures=("scope", "decide"),
         may_spawn=("contract-authoring", "feature-delivery", "feature-review"),
     ),
@@ -103,11 +106,9 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
         roles=("reviewer",),
     ),
     # One author, working from the contract ticket itself. A distinct
-    # crew is load-bearing twice over — the crew-request row keys on
-    # `sha256(conductor|crew_template|run_id)`, so a same-template second
-    # crew in one run would collide onto one row, and reviewer independence
-    # rejects on shared `crew_template`, so the spec's author stays
-    # positionally independent of implementer and reviewer alike.
+    # crew is load-bearing: reviewer independence rejects on a shared
+    # `crew_template`, so the spec's author stays positionally independent
+    # of implementer and reviewer alike.
     "contract-authoring": CrewTemplate(
         name="contract-authoring",
         summary="One contract author delivering the acceptance tests for a slice.",

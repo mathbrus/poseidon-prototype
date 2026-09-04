@@ -88,7 +88,6 @@ class Harness:
         @activity.defn(name="fulfill_crew")
         async def fulfill_crew(request: dict[str, Any]) -> dict[str, Any]:
             return {
-                "request_id": "crq-1",
                 "agents": {
                     "implementer": {"agent_id": "fd-impl", "url": "http://crew:8000"}
                 },

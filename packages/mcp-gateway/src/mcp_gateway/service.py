@@ -32,10 +32,7 @@ from mcp_gateway.git_backend import GitBackend
 from mcp_gateway.opa import OpaClient
 from registry import (
     AuditStore,
-    BudgetLedger,
     Companies,
-    CrewRequests,
-    RunParticipants,
     Runs,
     SandboxRegistrations,
 )
@@ -71,9 +68,6 @@ class GatewayService:
         sandboxes: SandboxRegistrations,
         audit: AuditStore,
         runs: Runs,
-        crew_requests: CrewRequests,
-        participants: RunParticipants,
-        ledger: BudgetLedger,
         companies: Companies,
         git_backend: GitBackend | None = None,
     ) -> None:
@@ -89,15 +83,6 @@ class GatewayService:
         self._audit_store = audit
         # Read-only: the run row supplies the decision input's `workflow`.
         self._runs = runs
-        # Written on the crew.request tool path (the tool and the
-        # workflow path record the same row).
-        self._crew_requests = crew_requests
-        # Read-only, for the crew.request enrichment: the
-        # conductor's live spawn count and the run's budget headroom ride
-        # the decision input — the compiled caps read them there, never
-        # from pushed data.
-        self._participants = participants
-        self._ledger = ledger
         self._companies = companies
 
     # -- sandbox registry -------------------------------------------------
@@ -246,18 +231,6 @@ class GatewayService:
             if not (identity.parent_agent_id and identity.crew_template):
                 return None
             policy_input["crew_template"] = identity.crew_template
-        if tool == "crew.request":
-
-            def spawn_state() -> tuple[int, bool]:
-                spawns = self._participants.active_spawn_count(identity.agent_id)
-                spec = self._companies.get(identity.company or "") or {}
-                cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
-                headroom = cap <= 0 or self._ledger.spent_for_run(run_id) < cap
-                return spawns, headroom
-
-            spawns, headroom = await asyncio.to_thread(spawn_state)
-            policy_input["active_spawns"] = spawns
-            policy_input["budget_headroom"] = headroom
         return policy_input
 
     async def proxy_sandbox(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -446,26 +419,6 @@ class GatewayService:
             args,
             lambda: self._git.merge_pr(repo, number, method),
         )
-
-    async def request_crew(
-        self, identity: Identity, run_id: str, crew_template: str, reason: str
-    ) -> Any:
-        """Record spawn intent under the conductor identity.
-        An allowed request is authorization + intent, never fulfillment —
-        fulfillment is the orchestrator's. The compiled rule already
-        narrows the template to the conductor's may_spawn list."""
-        args = {"run_id": run_id, "crew_template": crew_template, "reason": reason}
-
-        async def backend() -> Any:
-            return await asyncio.to_thread(
-                self._crew_requests.record,
-                identity.agent_id,
-                crew_template,
-                run_id,
-                reason,
-            )
-
-        return await self.call(identity, "crew.request", args, backend)
 
     # -- audit --------------------------------------------------------------
 

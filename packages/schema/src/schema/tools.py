@@ -21,17 +21,9 @@ ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment"]
 REVIEW_TOOLS = ["git.read", "git.comment"]
 # Platform lifecycle only: the orchestrator calls it after the gate.
 PLATFORM_TOOLS = ["git.merge_pr"]
-# Standing conductors with may_spawn.
-CREW_TOOLS = ["crew.request"]
 
 KNOWN_TOOLS = frozenset(
-    SANDBOX_TOOLS
-    + REPO_TOOLS
-    + GIT_TOOLS
-    + ISSUE_TOOLS
-    + REVIEW_TOOLS
-    + PLATFORM_TOOLS
-    + CREW_TOOLS
+    SANDBOX_TOOLS + REPO_TOOLS + GIT_TOOLS + ISSUE_TOOLS + REVIEW_TOOLS + PLATFORM_TOOLS
 )
 
 # Tools no company role may declare: the platform identity holds them, and a

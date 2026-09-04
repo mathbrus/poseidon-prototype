@@ -43,7 +43,7 @@ from common.text import numbered_lines
 # construction); review writes nothing but its findings comment.
 IMPLEMENT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
 DELIVER_TOOLS = IMPLEMENT_TOOLS + ["open_pr"]
-SCOPE_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
+SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
 REVIEW_TOOLS = [
     "list_dir",
     "read_file",
@@ -71,7 +71,6 @@ class ToolRecords:
 
     pr_url: str | None = None
     ticket_urls: list[str] = field(default_factory=list)
-    crew_request_id: str | None = None
     # The reviewer's findings on the PR, or the PM's summary on its tickets.
     comment_urls: list[str] = field(default_factory=list)
     # Review: the structured verdict. The reviewer *proposes*
@@ -170,11 +169,6 @@ class ReadIssuesAction(Action):
     number: int | None = Field(
         default=None, description="Optional issue number; omit for the open backlog."
     )
-
-
-class RequestCrewAction(Action):
-    crew_template: str = Field(description="Crew template name, e.g. feature-delivery.")
-    reason: str = Field(description="Why, referencing the ticket(s).")
 
 
 class ReadPrAction(Action):
@@ -312,16 +306,6 @@ def _read_issues(ctx: HandsContext, a: ReadIssuesAction) -> dict[str, Any]:
     )
 
 
-def _request_crew(ctx: HandsContext, a: RequestCrewAction) -> dict[str, Any]:
-    result = ctx.bridge.call(
-        "crew.request",
-        {"run_id": ctx.run_id, "crew_template": a.crew_template, "reason": a.reason},
-    )
-    if result.get("id"):
-        ctx.records.crew_request_id = result["id"]
-    return result
-
-
 def _read_pr(ctx: HandsContext, a: ReadPrAction) -> dict[str, Any]:
     return ctx.bridge.call(
         "git.read",
@@ -440,13 +424,6 @@ _TOOLS: dict[str, ToolSpec] = {
         ReadIssuesAction,
         _read_issues,
         read_only=True,
-    ),
-    "request_crew": ToolSpec(
-        "Request an ephemeral crew to carry out scoped work. This records "
-        "intent for the platform to fulfill — it does not start anything "
-        "by itself.",
-        RequestCrewAction,
-        _request_crew,
     ),
     "read_pr": ToolSpec(
         "Read a pull request: metadata plus the changed files with their patches.",

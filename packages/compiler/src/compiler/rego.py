@@ -104,10 +104,24 @@ allow_rules contains "crew_{crew_slug}_{role_slug}_{tool_slug}" if {{
 {extra}}}
 """
 
-# Spawn authority is bounded by the conductor's concurrency cap and the
-# run's budget headroom — both riding the enriched *input* (the gateway
-# counts live spawns and checks the ledger; no OPA data pushes). There is
-# deliberately no child-⊆-parent scope check (see `checks`).
+# The crew.request decision: not a gateway tool but the question the
+# platform must win, as the conductor, before it fulfils a run's crew. The
+# requested template is narrowed to the conductor's may_spawn list; its
+# concurrency cap and the run's budget headroom ride the enriched *input*
+# (the platform counts live spawns and checks the ledger; no OPA data
+# pushes). There is deliberately no child-⊆-parent scope check (see
+# `checks`).
+_CREW_REQUEST_RULE = """
+# {standing_name}: the crews the platform may fulfil under its authority.
+allow_rules contains "role_{standing_slug}_crew_request" if {{
+	input.lifecycle == "standing"
+	input.company == "{company}"
+	input.role == "{role}"
+	input.tool == "{crew_request}"
+	input.args.crew_template in {may_spawn}
+}}
+"""
+
 _OVER_CAP_RULE = """
 # {agent_id}: at most {cap} concurrent crews (spawn denials are
 # first-class governance events).
@@ -145,19 +159,6 @@ def _run_binding(tool: str) -> str:
     return "\tbound_to_run\n" if tool in RUN_SCOPED else ""
 
 
-def _role_extra(tool: str, may_spawn: tuple[str, ...]) -> str:
-    """Per-tool guards beyond the plain allow. `crew.request` narrows the
-    requested template to the conductor's may_spawn list: spawn intent
-    outside it is a rule deny before anything is recorded. Concurrency caps
-    and budget headroom are enforced by separate deny rules."""
-    if tool == CREW_REQUEST:
-        return (
-            f"\tinput.args.crew_template in {json.dumps(sorted(may_spawn))}\n"
-            + _run_binding(tool)
-        )
-    return _run_binding(tool)
-
-
 def _decision_file(package: str, *rules: str) -> str:
     """The bundle's entrypoint file: the default-deny decision, then any
     rules that belong beside it rather than in a per-role file."""
@@ -187,14 +188,25 @@ def _role_file(
             company=company,
             tool=tool,
             tool_slug=rego_slug(tool),
-            extra=_role_extra(tool, may_spawn),
+            extra=_run_binding(tool),
         )
         for tool in sorted(tools)
     )
-    if max_concurrent_spawns and CREW_REQUEST in tools:
-        body += _OVER_CAP_RULE.format(
-            agent_id=agent_id, cap=int(max_concurrent_spawns), crew_request=CREW_REQUEST
+    if may_spawn:
+        body += _CREW_REQUEST_RULE.format(
+            standing_name=standing_name,
+            standing_slug=rego_slug(standing_name),
+            role=role,
+            company=company,
+            crew_request=CREW_REQUEST,
+            may_spawn=json.dumps(sorted(may_spawn)),
         )
+        if max_concurrent_spawns:
+            body += _OVER_CAP_RULE.format(
+                agent_id=agent_id,
+                cap=int(max_concurrent_spawns),
+                crew_request=CREW_REQUEST,
+            )
     return _rego_file(company, body)
 
 

@@ -44,14 +44,11 @@ agent verifiably bound to the very run it names.
 
 ## Issue tools
 
-The ticket surface of the target repository, used chiefly by the PM during
-intake.
+The ticket surface of the target repository: the PM files and comments
+tickets when it scopes, and the platform files rework and bootstrap
+tickets under its own identity.
 
 <!-- gen: tools:issues -->
-
-## Crew tools
-
-<!-- gen: tools:crew -->
 
 ## Not tools: the admin routes
 

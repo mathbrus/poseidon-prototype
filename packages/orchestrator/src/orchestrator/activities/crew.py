@@ -44,11 +44,9 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
-    CrewRequests,
     RunParticipants,
     Runs,
 )
-from registry.crews import request_id
 
 
 class CrewActivities:
@@ -57,7 +55,6 @@ class CrewActivities:
         settings: WorkerSettings,
         participants: RunParticipants,
         audit: AuditStore,
-        crew_requests: CrewRequests,
         companies: Companies,
         ledger: BudgetLedger,
         runs: Runs,
@@ -67,12 +64,10 @@ class CrewActivities:
         self._participants = participants
         self._audit = audit
         self._provisioner = provisioner
-        # Fulfillment: the recorded intent it consumes, and the
-        # applied blueprint the crew's agent specs come from.
-        self._crew_requests = crew_requests
+        # Fulfillment: the applied blueprint the crew's agent specs come from.
         self._companies = companies
-        # Read-only, for the workflow-recorded crew request: the
-        # budget-headroom half of the decision-input enrichment.
+        # Read-only, for the crew.request decision: the budget-headroom
+        # half of the decision-input enrichment.
         self._ledger = ledger
         # Read-only, for the terminal-run guard: a run that has
         # already finalized must never acquire new pods or identities.
@@ -279,20 +274,20 @@ class CrewActivities:
 
     @activity.defn(name="fulfill_crew")
     async def fulfill_crew(self, spec: dict[str, Any]) -> dict[str, Any]:
-        """The fulfillment composition: consume the recorded request, then
-        bind every agent of the crew and give each its own pod (one
-        principal, one pod, one ServiceAccount). Returns the agents by
-        role, each with its identity and dispatch address; the workflow
-        dispatches, this activity never does.
+        """The fulfillment composition: win the compiled crew.request
+        decision as the conductor, then bind every agent of the crew and
+        give each its own pod (one principal, one pod, one ServiceAccount).
+        Returns the agents by role, each with its identity and dispatch
+        address; the workflow dispatches, this activity never does.
 
         spec: {run_id, company, crew_template, conductor: {agent_id,
-        role, url}, workflow, record_under_authority?, reason?}.
-        `workflow` names the calling workflow in the recorded decision
-        input. A workflow whose blueprint binds no crew is refused here,
-        before anything is provisioned — execution is ephemeral crews, and
-        the compiler should already have refused such a blueprint.
-        Retry-safe end to end: consume is idempotent for this run, binding
-        revives deterministic identities, provisioning replaces remnants.
+        role, url}, workflow}. `workflow` names the calling workflow in the
+        decision input. A workflow whose blueprint binds no crew is refused
+        here, before anything is provisioned — execution is ephemeral
+        crews, and the compiler should already have refused such a
+        blueprint. Retry-safe end to end: the decision is re-evaluated and
+        re-audited, binding revives deterministic identities, provisioning
+        replaces remnants.
         """
         run_id = spec["run_id"]
         crew_template = spec["crew_template"]
@@ -306,37 +301,14 @@ class CrewActivities:
         conductor_role = spec["conductor"]["role"]
         started = time.monotonic()
 
-        rid = request_id(conductor, crew_template, run_id)
-        consumed = await asyncio.to_thread(self._crew_requests.consume, rid, run_id)
-        if consumed is None and spec.get("record_under_authority"):
-            # The workflow path: record the request under the
-            # conductor's authority — same row, same policy. "Same policy"
-            # is literal: the recording is allowed only if the compiled
-            # decision the crew.request *tool* faces allows it, evaluated
-            # against the same bundle with the same enriched input.
-            await self._authorize_recording(
-                run_id,
-                spec["company"],
-                conductor,
-                conductor_role,
-                crew_template,
-                spec["workflow"],
-            )
-            await asyncio.to_thread(
-                self._crew_requests.record,
-                conductor,
-                crew_template,
-                run_id,
-                spec.get("reason", "workflow-recorded under conductor authority"),
-            )
-            consumed = await asyncio.to_thread(self._crew_requests.consume, rid, run_id)
-        if consumed is None:
-            # No recorded, unexpired intent for this run: fulfillment does
-            # not improvise authority (expired requests orphan nothing).
-            raise RuntimeError(
-                f"no recorded crew request for {conductor}/{crew_template}"
-                f" on run {run_id} — record intent before fulfilling"
-            )
+        await self._authorize(
+            run_id,
+            spec["company"],
+            conductor,
+            conductor_role,
+            crew_template,
+            spec["workflow"],
+        )
 
         blueprint = await asyncio.to_thread(self._companies.get, spec["company"]) or {}
         agents = [
@@ -376,12 +348,12 @@ class CrewActivities:
                 parent_agent_id=conductor,
                 tool="lifecycle.fulfill",
                 rule="crew_fulfilled",
-                digest=args_digest({"crew_template": crew_template, "request_id": rid}),
+                digest=args_digest({"crew_template": crew_template}),
                 started=started,
             )
-        return {"request_id": rid, "agents": provisioned}
+        return {"agents": provisioned}
 
-    async def _authorize_recording(
+    async def _authorize(
         self,
         run_id: str,
         company: str,
@@ -390,11 +362,11 @@ class CrewActivities:
         crew_template: str,
         workflow: str,
     ) -> None:
-        """Evaluate the conductor-shaped crew.request decision against the
-        live compiled bundle — the "same policy" clause, literally:
-        may_spawn narrowing, the concurrency cap and budget headroom all
-        bind exactly as at the gateway's crew.request tool. The decision is
-        audited either way; a deny refuses the recording."""
+        """Evaluate the compiled crew.request decision as the conductor
+        against the live bundle: may_spawn narrowing, the concurrency cap
+        and budget headroom all bind here. The decision is audited either
+        way (`lifecycle.record_request`); a deny refuses the fulfilment
+        before anything is bound."""
 
         def enrich() -> tuple[int, bool]:
             spawns = self._participants.active_spawn_count(conductor)

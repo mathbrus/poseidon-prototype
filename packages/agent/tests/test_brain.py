@@ -442,13 +442,14 @@ def test_a_prompt_naming_another_procedure_is_refused(tmp_path, settings, monkey
 
 
 OBSERVATION = (
-    "Heartbeat tick. Runs in flight: 0. Spent today: $0.00.\n"
-    "Startable actions: implement, review, idle\n\n"
+    "Heartbeat tick. Runs in flight: 0. Spent today: $0.00."
+    " Open tickets on the repository: 1.\n"
+    "Startable actions: implement, review, scope, idle\n\n"
     "Open tickets:\n#5 — Add slugify\n\n"
     "Delivered pull requests awaiting review:\n(none)\n\n"
     "Recent runs:\n(none)\n\n"
     "Reply with exactly two lines:\n"
-    "DECISION: implement #<n> | review #<n> | idle\n"
+    "DECISION: scope | implement #<n> | review #<n> | idle\n"
     "RATIONALE: one line saying why."
 )
 
@@ -474,6 +475,7 @@ def test_decide_parses_the_two_line_contract(settings, gateway):
 def test_decide_idle_and_review_shapes(settings, gateway):
     for reply, expected in [
         ("DECISION: idle\nRATIONALE: nothing worth starting.", ("idle", None)),
+        ("DECISION: scope\nRATIONALE: the backlog is dry.", ("scope", None)),
         ("DECISION: review #7\nRATIONALE: finish first.", ("review", 7)),
     ]:
         with scripted(gateway, ScriptedLLM([says(reply)])):
@@ -529,7 +531,7 @@ def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
 
     llm = ScriptedLLM([says("done")])
     with scripted(gateway, llm):
-        run_scope(settings, RUN_ID, "goal")
+        run_scope(settings, RUN_ID, "Strategy:\n(absent)")
     system = text_of(llm.requests[0][0][0])
     assert system.startswith("# Poseidon procedure: scope")
     assert "<EFFICIENCY>" not in system

@@ -17,7 +17,6 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
-    InMemoryCrewRequests,
     InMemoryRunParticipants,
     InMemoryRuns,
 )
@@ -68,7 +67,6 @@ def crew(settings, participants, audit) -> CrewActivities:
         settings,
         participants,
         audit,
-        InMemoryCrewRequests(),
         InMemoryCompanies(),
         InMemoryBudgetLedger(),
         InMemoryRuns(),
@@ -171,7 +169,6 @@ def test_a_workflow_without_a_crew_is_refused_before_provisioning(crew):
                         "url": "http://pm:8000",
                     },
                     "workflow": "review",
-                    "record_under_authority": True,
                 }
             )
         )

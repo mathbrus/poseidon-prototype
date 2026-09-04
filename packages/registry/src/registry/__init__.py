@@ -11,7 +11,6 @@ accessor a service imports — `Runs` for the orchestrator,
 
 from registry.audit import AuditStore
 from registry.companies import Companies
-from registry.crews import CrewRequests
 from registry.db import Registry, dsn, open_registry
 from registry.instances import AgentInstances
 from registry.ledger import BudgetLedger
@@ -25,7 +24,6 @@ __all__ = [
     "AuditStore",
     "BudgetLedger",
     "Companies",
-    "CrewRequests",
     "ParticipantRevoked",
     "PolicyBundles",
     "Registry",
