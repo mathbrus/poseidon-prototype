@@ -31,7 +31,7 @@ import secrets
 import pytest
 
 from common.audit import args_digest
-from common.tasks import SCOPE_TASK, issue_run_task
+from common.tasks import issue_run_task
 from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST, FORBIDDEN_CREW
 
 from .blueprints import pristine_profile, restore_pristine, single_attempt
@@ -47,9 +47,9 @@ from .conftest import (
     close_pr_url,
     github_api,
     restore_strategy,
+    scope_via_heartbeat,
     target_slug,
     wake_until_run_started,
-    write_strategy,
 )
 
 
@@ -84,9 +84,7 @@ def poisoned(stack: None, repo_baseline: dict) -> dict:
     result: dict = {"env": env}
     numbers: list[int] = []
     try:
-        write_strategy(env, _poisoned_strategy(nonce))
-        wake_until_run_started(SCOPE_TASK, "scope")
-        scope = await_run(SCOPE_TASK, terminal=True, deadline_s=600)
+        scope = scope_via_heartbeat(env, _poisoned_strategy(nonce))
         assert scope["status"] == "done", f"the poisoned scope run failed: {scope}"
         result["scope"] = scope
         numbers = sorted(

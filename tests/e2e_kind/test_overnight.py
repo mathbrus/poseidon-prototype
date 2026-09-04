@@ -34,7 +34,7 @@ import time
 import pytest
 from temporalio.client import Client
 
-from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
+from common.tasks import issue_run_task, review_run_task
 from mockllm.brain import NEXT_SLICE_MARKER
 from orchestrator.workflows.base import workflow_id
 
@@ -51,9 +51,9 @@ from .conftest import (
     open_slice_strategy,
     pr_number,
     restore_strategy,
+    scope_via_heartbeat,
     target_slug,
     wake_until_run_started,
-    write_strategy,
 )
 
 
@@ -98,11 +98,9 @@ def overnight(stack: None, repo_baseline: dict) -> dict:
             # --- nothing in: the strategy names the slice, the loop scopes
             # it. The wake stands in for the reconcile look the loop would
             # take on its own.
-            await asyncio.to_thread(
-                write_strategy, env, open_slice_strategy(nonce, NEXT_SLICE_MARKER)
+            scope = await asyncio.to_thread(
+                scope_via_heartbeat, env, open_slice_strategy(nonce, NEXT_SLICE_MARKER)
             )
-            await asyncio.to_thread(wake_until_run_started, SCOPE_TASK, "scope")
-            scope = await asyncio.to_thread(await_run, SCOPE_TASK, True, 600)
             assert scope["status"] == "done", f"unattended scope: {scope}"
             result["scope"] = scope
             urls = scope.get("ticket_urls") or []

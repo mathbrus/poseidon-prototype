@@ -29,12 +29,12 @@ import time
 import pytest
 from temporalio.client import Client
 
-from common.tasks import SCOPE_TASK, issue_run_task
+from common.tasks import issue_run_task
 from mockllm.brain import NEXT_SLICE_MARKER
 from orchestrator.workflows.base import workflow_id
 
 from .blueprints import E2E_GATE_MINUTES, HELLO_SAAS, may_start, restore_pristine
-from .cluster import audit_story, await_run, run_by_task, temporal_port_forward
+from .cluster import audit_story, run_by_task, temporal_port_forward
 from .conftest import (
     REPO_ROOT,
     apply_profile,
@@ -43,9 +43,9 @@ from .conftest import (
     github_api,
     open_slice_strategy,
     restore_strategy,
+    scope_via_heartbeat,
     target_slug,
     wake_until_run_started,
-    write_strategy,
 )
 
 
@@ -114,9 +114,9 @@ def review_chain(stack: None, repo_baseline: dict) -> dict:
     nonce = secrets.token_hex(3)
     try:
         # 1. Scope: the strategy names the slice, the loop files the ticket.
-        write_strategy(env, open_slice_strategy(nonce, NEXT_SLICE_MARKER))
-        wake_until_run_started(SCOPE_TASK, "scope")
-        chain["scope"] = await_run(SCOPE_TASK, terminal=True, deadline_s=600)
+        chain["scope"] = scope_via_heartbeat(
+            env, open_slice_strategy(nonce, NEXT_SLICE_MARKER)
+        )
         ticket_url = (chain["scope"].get("ticket_urls") or [""])[0]
         issue_match = re.search(r"/issues/(\d+)$", ticket_url)
         assert issue_match, f"the scope run filed no usable ticket: {chain['scope']}"

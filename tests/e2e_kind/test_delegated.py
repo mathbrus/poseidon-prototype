@@ -35,7 +35,7 @@ import secrets
 
 import pytest
 
-from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
+from common.tasks import issue_run_task, review_run_task
 from mockllm.brain import CONTRACT_FIRST_MARKER, CONTRACT_TEST_PATH, NEXT_SLICE_MARKER
 
 from .blueprints import DELEGATED, restore_pristine
@@ -52,18 +52,16 @@ from .conftest import (
     pr_number,
     restore_strategy,
     run_review,
+    scope_via_heartbeat,
     target_slug,
     wake_until_run_started,
-    write_strategy,
 )
 
 
 def _scope_tickets(env: dict, strategy: str) -> tuple[dict, dict[int, str]]:
     """Write the strategy, let the loop scope it, and return the scope run
     with the tickets it filed, titled — the company's own backlog."""
-    write_strategy(env, strategy)
-    wake_until_run_started(SCOPE_TASK, "scope")
-    scope = await_run(SCOPE_TASK, terminal=True, deadline_s=600)
+    scope = scope_via_heartbeat(env, strategy)
     assert scope["status"] == "done", f"unattended scope: {scope}"
     numbers = [
         int(m.group(1))

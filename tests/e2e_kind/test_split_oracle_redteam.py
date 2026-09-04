@@ -322,13 +322,16 @@ def test_the_composed_baseline_refused_the_merge(laundered: dict):
 
 def test_the_red_contract_fed_the_bounded_rework_loop(laundered: dict):
     """A red layer is not a dead end: the findings become a rework ticket
-    the conductor can consume, bounded by `max_reworks` — the same loop a
-    red head suite feeds. The refusal is a decline of *this* head, not an
-    abandoned run."""
+    the conductor consumes, bounded by `max_reworks` — the same loop a
+    red head suite feeds. This module declares no reworks (a rework ticket
+    would be a second run the loop starts on its own), so the bound is
+    spent at once and the PR escalates to the human park instead, which
+    expires under the suite's gate clock: a decline of *this* head, on the
+    record, not an abandoned run."""
     story = audit_story(laundered["review_run_id"])
     rules = gate_merge_rules(story)
-    assert "gate_rework_filed" in rules or "gate_rework_exhausted" in rules, rules
-    assert "contract verify red" in (laundered["review"].get("error") or "")
+    assert rules == ["gate_rework_exhausted", "gate_escalated", "gate_timed_out"], rules
+    assert laundered["review"].get("error") == "merge gate timed_out"
 
 
 def test_the_reviewer_verdict_was_journaled_either_way(laundered: dict):

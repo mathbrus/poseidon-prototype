@@ -28,7 +28,7 @@ from common.tasks import SCOPE_TASK
 from mockllm.brain import NEXT_SLICE_MARKER, PM_SUMMARY
 
 from .blueprints import HELLO_SAAS, derived_blueprint, may_start, restore_pristine
-from .cluster import audit_story, await_run, run_by_task
+from .cluster import audit_story, run_by_task
 from .conftest import (
     apply_profile,
     await_new_ticks,
@@ -39,10 +39,9 @@ from .conftest import (
     heartbeat_ticks,
     open_slice_strategy,
     restore_strategy,
+    scope_via_heartbeat,
     target_slug,
     wake_bare_heartbeat,
-    wake_until_run_started,
-    write_strategy,
 )
 
 
@@ -68,9 +67,9 @@ def scoped(stack: None, repo_baseline: dict) -> dict:
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id(), "nonce": nonce}
     try:
-        write_strategy(env, open_slice_strategy(nonce, NEXT_SLICE_MARKER))
-        wake_until_run_started(SCOPE_TASK, "scope")
-        result["record"] = await_run(SCOPE_TASK, terminal=True, deadline_s=600)
+        result["record"] = scope_via_heartbeat(
+            env, open_slice_strategy(nonce, NEXT_SLICE_MARKER)
+        )
         urls = result["record"].get("ticket_urls") or []
         match = next((re.search(r"/issues/(\d+)$", u) for u in urls if u), None)
         result["issue_number"] = int(match.group(1)) if match else None
@@ -150,8 +149,8 @@ def test_the_backlog_cap_refuses_a_second_scope_by_name(scoped: dict):
         if e["tool"] == "heartbeat.decide" and e["decision"] == "deny"
     ]
     assert any("max_open_tickets" in (e["rule"] or "") for e in refusals), refusals
-    runs = [r for r in [run_by_task(SCOPE_TASK, workflow="scope")] if r is not None]
-    assert all(r["run_id"] == scoped["record"]["run_id"] for r in runs)
+    latest = run_by_task(SCOPE_TASK, workflow="scope")
+    assert latest and latest["run_id"] == scoped["record"]["run_id"], latest
 
 
 def test_a_strategy_naming_no_slice_leaves_the_loop_idle(scoped: dict):

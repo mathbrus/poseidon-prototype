@@ -361,37 +361,50 @@ def run_record(run_id: str) -> dict[str, Any] | None:
     )
 
 
-def run_by_task(task: str, workflow: str | None = None) -> dict[str, Any] | None:
-    """A run by its canonical task text — how a heartbeat-started run,
-    whose id nobody on the host chose, is found."""
+def run_by_task(
+    task: str, workflow: str | None = None, since: str | None = None
+) -> dict[str, Any] | None:
+    """The latest run on one canonical task text — how a heartbeat-started
+    run, whose id nobody on the host chose, is found. Retries share a
+    task, and every scope run works the same one, so the latest is the run
+    a module means; `since` (a registry timestamp from `db_now`) narrows
+    to runs born after the module's own trigger."""
     return psql_json(
         "SELECT COALESCE(row_to_json(r), 'null'::json) FROM registry.runs r "
         "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow') "
-        "LIMIT 1",
+        "AND (:'since' = '' OR r.created_at > :'since'::timestamptz) "
+        "ORDER BY r.created_at DESC LIMIT 1",
         default="null",
         task=task,
         workflow=workflow or "",
+        since=since or "",
     )
 
 
-def runs_by_task(task: str, workflow: str | None = None) -> list[dict[str, Any]]:
+def runs_by_task(
+    task: str, workflow: str | None = None, since: str | None = None
+) -> list[dict[str, Any]]:
     """Every run on one canonical task, oldest first — the attempts the
     heartbeat made on one issue or PR."""
     return psql_json(
         "SELECT COALESCE(json_agg(r ORDER BY r.created_at), '[]'::json) "
         "FROM registry.runs r "
-        "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow')",
+        "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow') "
+        "AND (:'since' = '' OR r.created_at > :'since'::timestamptz)",
         task=task,
         workflow=workflow or "",
+        since=since or "",
     )
 
 
-def await_run(task: str, terminal: bool, deadline_s: int = 1800) -> dict[str, Any]:
-    """Poll the registry for a run by its task — optionally until it
-    reaches a terminal state."""
+def await_run(
+    task: str, terminal: bool, deadline_s: int = 1800, since: str | None = None
+) -> dict[str, Any]:
+    """Poll the registry for the latest run on `task` (born after `since`
+    when given) — optionally until it reaches a terminal state."""
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
-        run = run_by_task(task)
+        run = run_by_task(task, since=since)
         if run and (not terminal or run["status"] in ("done", "failed")):
             return run
         time.sleep(5)

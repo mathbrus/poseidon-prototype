@@ -83,7 +83,7 @@ import pytest
 import yaml
 from temporalio.client import Client, WorkflowExecutionStatus
 
-from common.tasks import issue_run_task, review_run_task
+from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
 from mockllm.brain import (
     ARCHITECTURE_MD,
     CONTRACT_TEST_PATH,
@@ -469,22 +469,35 @@ def await_new_ticks(mark: int, n: int, deadline_s: int = 180) -> list[dict[str, 
     )
 
 
-def wake_until_run_started(task: str, workflow: str, deadline_s: int = 600) -> None:
-    """Nudge the standing heartbeat until the run it should start exists.
-    One wake usually does it; the re-nudge covers a tick whose backlog
-    read landed before the just-filed issue or just-delivered PR was
-    visible on the git host — the extra ticks it may cause are idle rows,
-    never actions."""
+def wake_until_run_started(
+    task: str, workflow: str, deadline_s: int = 600, since: str | None = None
+) -> None:
+    """Nudge the standing heartbeat until the run it should start exists
+    (born after `since` when given). One wake usually does it; the re-nudge
+    covers a tick whose backlog read landed before the just-filed issue or
+    just-delivered PR was visible on the git host — the extra ticks it may
+    cause are idle rows, never actions."""
     deadline = time.monotonic() + deadline_s
     next_wake = 0.0
     while time.monotonic() < deadline:
-        if run_by_task(task, workflow=workflow) is not None:
+        if run_by_task(task, workflow=workflow, since=since) is not None:
             return
         if time.monotonic() >= next_wake:
             wake_bare_heartbeat()
             next_wake = time.monotonic() + 60
         time.sleep(3)
     raise AssertionError(f"the heartbeat never started {task!r}")
+
+
+def scope_via_heartbeat(env: dict, strategy: str, deadline_s: int = 600) -> dict:
+    """Write the strategy, wake the loop onto it, and return the terminal
+    record of the scope run it starts. Every scope run works the same task
+    text, so the run is the one born after this write — never an earlier
+    module's."""
+    since = db_now()
+    write_strategy(env, strategy)
+    wake_until_run_started(SCOPE_TASK, "scope", since=since)
+    return await_run(SCOPE_TASK, terminal=True, deadline_s=deadline_s, since=since)
 
 
 # --- the repo-state contract ------------------------------------------------
