@@ -28,10 +28,10 @@ class AgentSettings(BaseSettings):
     # gateway per call, not a property of the token.
     gateway_token_file: str
     # The company's subject and purpose, from its applied blueprint via the
-    # pod spec: the repository every tool call names, and the mission the
+    # pod spec: the repository every tool call names, and the vision the
     # conductor's prompts carry.
     target_repo: str
-    mission: str
+    vision: str
 
     def resolve_gateway_token(self) -> str:
         # Read per call: the kubelet keeps the file fresh; a task never

@@ -237,7 +237,7 @@ def test_policy_bundle_round_trips_and_revokes(registry: Registry):
 
 def test_company_rows_and_instance_sweep(registry: Registry):
     companies, instances = Companies(registry), AgentInstances(registry)
-    companies.upsert("test-corp", {"namespace": "test-corp", "mission": "m"})
+    companies.upsert("test-corp", {"namespace": "test-corp", "vision": "m"})
     instances.upsert("tc-pm-1", "test-corp", "pm", "pm", "standard")
     instances.upsert("other-1", "other-corp", "pm", "pm", "standard")
     assert [r["agent_id"] for r in instances.for_company("test-corp")] == ["tc-pm-1"]

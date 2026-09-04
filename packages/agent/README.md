@@ -268,8 +268,8 @@ uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 
 `poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and ephemeral
 agents run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
-`MODEL`, `TARGET_REPO` and `MISSION` (the company's repository and
-mission, from its applied blueprint), `ROLE` (the catalog role, which
+`MODEL`, `TARGET_REPO` and `VISION` (the company's repository and
+vision, from its applied blueprint), `ROLE` (the catalog role, which
 bounds the procedures the host accepts) and `GATEWAY_TOKEN_FILE`. Every
 loop bound — the per-procedure step caps and implement's verify cycles —
 is a constant of the host, not a knob of the deployment.

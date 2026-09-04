@@ -78,7 +78,7 @@ def render_procedure(procedure: str, settings: AgentSettings) -> str:
     if not text.startswith(f"{PROCEDURE_HEADER}{procedure}\n"):
         raise RuntimeError(f"prompts/{procedure}.md does not open with its header")
     return text.replace("{target_repo}", settings.target_repo).replace(
-        "{mission}", settings.mission
+        "{vision}", settings.vision
     )
 
 

@@ -86,7 +86,7 @@ def compile_blueprint(
     namespace = company
     repo = Repo(**blueprint["stack"]["repo"])
     company_cr = CompanyCR(
-        name=company, namespace=namespace, mission=company_section["mission"], repo=repo
+        name=company, namespace=namespace, vision=company_section["vision"], repo=repo
     )
 
     scopes = blueprint.get("tools") or {}
@@ -141,7 +141,7 @@ def _instances(
 ) -> tuple[AgentInstanceCR, ...]:
     """Standing agents only. A `count: 0` placeholder produces no instance —
     that is the whole point of declaring one."""
-    mission = blueprint["company"]["mission"]
+    vision = blueprint["company"]["vision"]
     instances = []
     for standing_name, hire in sorted((blueprint.get("standing") or {}).items()):
         count = hire.get("count", 0)
@@ -166,7 +166,7 @@ def _instances(
                     role=role.name,
                     tools=_scope(role, scopes),
                     repo=repo,
-                    mission=mission,
+                    vision=vision,
                     may_spawn=may_spawn,
                     max_concurrent_spawns=(hire.get("may_spawn") or {}).get(
                         "max_concurrent"

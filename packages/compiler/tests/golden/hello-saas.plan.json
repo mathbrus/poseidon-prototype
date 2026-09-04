@@ -14,13 +14,13 @@
     }
   },
   "company": {
-    "mission": "Ship a small SaaS product with an agent company under governance.",
     "name": "hello-saas",
     "namespace": "hello-saas",
     "repo": {
       "base_ref": "main",
       "url": "github.com/example-org/hello-saas"
-    }
+    },
+    "vision": "A small SaaS that turns titles into URL slugs, delivered and kept green by a company of agents that never exceeds its authority."
   },
   "contract_tests": null,
   "ephemeral_agents": [
@@ -99,7 +99,6 @@
         "feature-delivery",
         "feature-review"
       ],
-      "mission": "Ship a small SaaS product with an agent company under governance.",
       "repo": {
         "base_ref": "main",
         "url": "github.com/example-org/hello-saas"
@@ -110,7 +109,8 @@
         "issues.comment",
         "issues.create",
         "issues.read"
-      ]
+      ],
+      "vision": "A small SaaS that turns titles into URL slugs, delivered and kept green by a company of agents that never exceeds its authority."
     }
   ],
   "platform_bundle": {

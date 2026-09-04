@@ -26,13 +26,17 @@ _TOOL_LIST = {
     "uniqueItems": True,
 }
 
+# The company's name and its vision — the one text a human writes. The
+# vision reaches every procedure but `deliver` through the static prompt
+# and changes only when the blueprint is applied again; the cap keeps it
+# a charter, not a specification.
 _COMPANY = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["name", "mission"],
+    "required": ["name", "vision"],
     "properties": {
         "name": _NAME,
-        "mission": _TEXT,
+        "vision": {"type": "string", "minLength": 1, "maxLength": 4000},
     },
 }
 

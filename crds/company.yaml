@@ -42,7 +42,7 @@ spec:
               required: [namespace]
               properties:
                 namespace: {type: string}
-                mission: {type: string}
+                vision: {type: string}
                 # The company's subject: the repository every run works on
                 # and the branch changes are diffed and delivered against.
                 repo:

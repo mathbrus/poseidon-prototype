@@ -25,7 +25,7 @@ class CompanyCR:
 
     name: str
     namespace: str
-    mission: str
+    vision: str
     repo: Repo
 
 
@@ -40,10 +40,10 @@ class AgentInstanceCR:
     role: str
     tools: tuple[str, ...]
     # What the pod is told about its company: the repository it works on
-    # and the mission its prompts carry. Riding the instance means an edit
-    # to either rolls the pod.
+    # and the vision its prompts carry. Riding the instance means an edit
+    # to either rolls the pod — a re-charter restarts the conductor.
     repo: Repo
-    mission: str
+    vision: str
     may_spawn: tuple[str, ...] = ()
     max_concurrent_spawns: int | None = None
 

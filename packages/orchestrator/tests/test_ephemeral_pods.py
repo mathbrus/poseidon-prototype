@@ -245,7 +245,7 @@ def _company(agents: list[dict]) -> dict:
     return {
         "namespace": "hello-saas",
         "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-        "mission": "ship it",
+        "vision": "ship it",
         "ephemeralAgents": agents,
     }
 

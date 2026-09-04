@@ -15,7 +15,7 @@ SPEC = {
     "role": "pm",
     "tools": ["issues.read", "crew.request"],
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-    "mission": "ship it",
+    "vision": "ship it",
 }
 
 PLATFORM = "poseidon-platform"
@@ -161,11 +161,11 @@ def test_service_targets_the_hire():
 
 def test_spec_edits_change_the_pod_template():
     """The reconciliation contract: a blueprint edit the pod can notice (its
-    mission, its repository) must converge as a rollout, so everything the
+    vision, its repository) must converge as a rollout, so everything the
     agent reads about its company rides the template."""
     before = resources.agent_deployment(SPEC, "hello-saas", SETTINGS)
     after = resources.agent_deployment(
-        {**SPEC, "mission": "ship something else"}, "hello-saas", SETTINGS
+        {**SPEC, "vision": "ship something else"}, "hello-saas", SETTINGS
     )
     assert before["spec"]["template"] != after["spec"]["template"]
 
@@ -174,7 +174,7 @@ def test_spec_edits_change_the_pod_template():
         for e in after["spec"]["template"]["spec"]["containers"][0]["env"]
     }
     assert env["ROLE"] == SPEC["role"] == "pm"
-    assert env["MISSION"] == "ship something else"
+    assert env["VISION"] == "ship something else"
     assert env["TARGET_REPO"] == SPEC["repo"]["url"]
     # Tools are policed at the gateway, never handed to the pod.
     assert "TOOLS" not in env

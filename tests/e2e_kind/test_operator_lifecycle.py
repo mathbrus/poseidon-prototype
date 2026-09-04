@@ -142,13 +142,13 @@ def test_opa_activated_both_bundles(stack: None):
 
 
 def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
-    """Change the company's mission, re-apply, observe a rollout with no
+    """Change the company's vision, re-apply, observe a rollout with no
     manual steps: what the PM is told about its company rides its pod."""
     document = yaml.safe_load(HELLO_SAAS.read_text())
-    mission = "Ship it, but differently."
-    assert document["company"]["mission"] != mission
-    document["company"]["mission"] = mission
-    edited = tmp_path / "hello-saas-new-mission.yaml"
+    vision = "Ship it, but differently."
+    assert document["company"]["vision"] != vision
+    document["company"]["vision"] = vision
+    edited = tmp_path / "hello-saas-new-vision.yaml"
     edited.write_text(yaml.safe_dump(document, sort_keys=False))
 
     apply_blueprint(edited)
@@ -161,9 +161,9 @@ def test_blueprint_edit_rolls_the_pm(stack: None, tmp_path: Path):
             "deployment",
             "pm",
             "-o",
-            'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="MISSION")].value}',
+            'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="VISION")].value}',
         )
-        if told == mission:
+        if told == vision:
             break
         assert time.monotonic() < deadline, f"pm pod template still tells {told!r}"
         time.sleep(3)

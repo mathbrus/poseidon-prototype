@@ -179,7 +179,7 @@ class CrewActivities:
             "MODEL": self._settings.model,
             "ROLE": spec["role"],
             "TARGET_REPO": company["repo"]["url"],
-            "MISSION": company["mission"],
+            "VISION": company["vision"],
             "GATEWAY_TOKEN_FILE": TOKEN_FILE,
         }
         # The teardown race guard: a retry still in flight while the run

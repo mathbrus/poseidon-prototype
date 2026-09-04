@@ -86,7 +86,7 @@ uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
 
 `preview` diffs the compiled plan against the live registry, so hiring,
 firing and every authority change are visible before they happen. To make
-the company yours, edit the document — the mission, the sandbox image and
+the company yours, edit the document — the vision, the sandbox image and
 test command, the `egress_allow` list, the budgets, the gate resolvers —
 and re-apply. Mistakes fail at compile time with a readable error: a
 standing implementer, an undeclared tool, or a delegated path overlapping a

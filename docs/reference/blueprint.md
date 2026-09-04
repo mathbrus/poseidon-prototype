@@ -28,9 +28,11 @@ a typo'd key is an error, never a silently ignored line.
 
 `company.name` becomes the Kubernetes namespace, the Rego package name, and
 the OPA bundle root — which is why two companies can never collide, and why
-`platform` is a reserved name. `company.mission` reaches the conductor's
-prompts: the PM scopes goals and decides the next action knowing what the
-company is for.
+`platform` is a reserved name. `company.vision` is the one text a human
+writes: it reaches every procedure but `deliver` through the static
+prompt, so the PM decides and scopes, and every crew implements and
+reviews, knowing what the company is for — and nobody in the company can
+change it. Applying the blueprint again is the only way it changes.
 
 `stack.repo` is the company's subject: the one repository every run works
 on, and the branch (`base_ref`) changes are diffed and delivered against.

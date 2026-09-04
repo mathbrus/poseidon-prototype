@@ -537,6 +537,17 @@ def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
     assert "<EFFICIENCY>" not in system
 
 
+def test_the_vision_reaches_every_procedure_but_deliver(settings):
+    """The vision rides the static prompt — the trusted channel — into
+    every procedure that judges what is worth doing; delivery only ships
+    what was already verified and reads none of it."""
+    from agent.prompting import system_prompt
+
+    for procedure in ("scope", "decide", "implement", "review"):
+        assert settings.vision in system_prompt(procedure, settings, "mock-brain")
+    assert settings.vision not in system_prompt("deliver", settings, "mock-brain")
+
+
 def test_model_family_guidance_follows_the_model():
     """The SDK's per-family block renders for a model it recognises and
     stays out for one it does not (the mock brain)."""

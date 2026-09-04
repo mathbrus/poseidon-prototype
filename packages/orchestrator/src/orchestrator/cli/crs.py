@@ -38,7 +38,7 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
         "metadata": {"name": plan.company.name},
         "spec": {
             "namespace": plan.company.namespace,
-            "mission": plan.company.mission,
+            "vision": plan.company.vision,
             "repo": {
                 "url": plan.company.repo.url,
                 "base_ref": plan.company.repo.base_ref,
@@ -73,7 +73,7 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
             "role": instance.role,
             "tools": list(instance.tools),
             "repo": {"url": instance.repo.url, "base_ref": instance.repo.base_ref},
-            "mission": instance.mission,
+            "vision": instance.vision,
             "maySpawn": list(instance.may_spawn),
         },
     }

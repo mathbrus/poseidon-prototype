@@ -121,7 +121,7 @@ def stores(monkeypatch) -> tuple[FakeBundleStore, FakeInstances, FakeCompanies]:
 
 COMPANY_SPEC = {
     "namespace": "hello-saas",
-    "mission": "ship it",
+    "vision": "ship it",
     "policyBundle": {"authz.rego": "package poseidon.authz.hello_saas\n"},
     "platformBundle": {"platform.rego": "package poseidon.platform\n"},
     "infra": {
@@ -142,7 +142,7 @@ INSTANCE_SPEC = {
     "role": "pm",
     "tools": ["issues.read", "crew.request"],
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-    "mission": "ship it",
+    "vision": "ship it",
 }
 
 

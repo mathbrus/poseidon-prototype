@@ -25,7 +25,7 @@ RUN_ID = "run-test-0001"
 APPLIED_SPEC = {
     "namespace": "hello-saas",
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-    "mission": "ship it",
+    "vision": "ship it",
     "infra": {
         "sandbox": {
             "image": "poseidon-sandbox",
