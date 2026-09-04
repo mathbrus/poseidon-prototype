@@ -350,6 +350,7 @@ class CrewActivities:
                 rule="crew_fulfilled",
                 digest=args_digest({"crew_template": crew_template}),
                 started=started,
+                workflow=spec["workflow"],
             )
         return {"agents": provisioned}
 
@@ -407,6 +408,7 @@ class CrewActivities:
             started=started,
             decision="allow" if allowed else "deny",
             lifecycle=LIFECYCLE_STANDING,
+            workflow=workflow,
         )
         if not allowed:
             # A refusal is policy's decision, not a transient failure: a
@@ -440,7 +442,11 @@ class CrewActivities:
         started: float,
         decision: str = "allow",
         lifecycle: str = LIFECYCLE_EPHEMERAL,
+        workflow: str = "",
     ) -> None:
+        """One lifecycle event on the run's story. `workflow` names the
+        workflow the run serves where the caller knows it (fulfilment and
+        its authorization); teardown's events name none."""
         event = await record_event(
             self._audit,
             run_id=run_id,
@@ -455,6 +461,7 @@ class CrewActivities:
             company=company,
             lifecycle=lifecycle,
             parent_agent_id=parent_agent_id,
+            workflow=workflow,
         )
         self._log.info("audit", extra=event.model_dump())
 
