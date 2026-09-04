@@ -87,6 +87,10 @@ first.
   deployed `llm-proxy` image, never from `.env`) unless
   `POSEIDON_ALLOW_PAID=1` is set — that variable is the opt-in
   spelling, and setting it still requires the user's say-so.
+- **Docs**: `docs/` is the MkDocs site (`uv run mkdocs build`, strict, a
+  CI gate); reference tables there are rendered from the code by
+  `scripts/gen_docs.py`, never typed. The root README, this file and
+  `packages/*/README.md` stay GitHub's, next to the code.
 - **Tests**: run pytest per-package, not from the repo root. The full
   acceptance suite is `scripts/acceptance.sh`; `test_acceptance.py` is its
   index and capstone.
