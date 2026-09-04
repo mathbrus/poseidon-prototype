@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS registry.agent_instances (
 -- implement run concluded when it delivered (pr_url), a review run when
 -- the reviewer reached a verdict (verdict). A run that ended with neither
 -- aborted, and the heartbeat may offer its item again — bounded by the
--- blueprint's attempt cap.
+-- blueprint's attempt cap. pr_settled remembers what the world did with a
+-- delivered PR once the heartbeat has seen it merged or closed on the git
+-- host: observed once, never read again.
 CREATE TABLE IF NOT EXISTS registry.runs (
     run_id      text PRIMARY KEY,
     workflow    text NOT NULL DEFAULT 'implement',
@@ -60,6 +62,7 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     task        text NOT NULL DEFAULT '',
     status      text NOT NULL,
     pr_url      text,
+    pr_settled  text,
     verdict     text,
     ticket_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
     iterations  integer NOT NULL DEFAULT 0,

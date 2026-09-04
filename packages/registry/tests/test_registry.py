@@ -482,6 +482,10 @@ def test_delivered_pr_urls_are_done_implement_runs_only(registry: Registry):
         "https://git.test/r/pull/4",
         "https://git.test/r/pull/9",
     ]
+    # The world settled one: remembered on the run, offered no more.
+    runs.mark_pr_settled("hello-saas", "https://git.test/r/pull/4", "closed")
+    assert Runs(registry).delivered_pr_urls("hello-saas") == ["https://git.test/r/pull/9"]
+    assert runs.get("run-pr-1").pr_settled == "closed"
 
 
 def test_review_attempts_conclude_on_a_recorded_verdict(registry: Registry):

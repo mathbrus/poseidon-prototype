@@ -421,7 +421,13 @@ class InMemoryRuns:
             and r.workflow == "implement"
             and r.status == "done"
             and r.pr_url
+            and r.pr_settled is None
         ]
+
+    def mark_pr_settled(self, company: str, pr_url: str, state: str) -> None:
+        for r in self.rows.values():
+            if r.company == company and r.workflow == "implement" and r.pr_url == pr_url:
+                r.pr_settled = state
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
         candidates = [

@@ -560,7 +560,9 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
     closed by anyone) is not reviewable, whatever the ledger says — and
     the check is a platform read under the heartbeat's own run id, not a
     guess. Nothing is consumed by the drop: the attempt aggregate stays a
-    record of reviews that ran, never of PRs the world settled."""
+    record of reviews that ran, never of PRs the world settled — but the
+    settlement is remembered on the delivering run, so the next tick reads
+    only what is still open."""
     reads = _backlog_gateway(
         monkeypatch,
         fake_gateway,
@@ -584,6 +586,13 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
         (f"heartbeat-{COMPANY}", 8),
     ]
     assert runs.review_attempts(COMPANY) == {}
+    assert (runs.get("run-a").pr_settled, runs.get("run-b").pr_settled) == (
+        "merged",
+        "closed",
+    )
+    reads.clear()
+    asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert reads == [(f"heartbeat-{COMPANY}", 8)]
 
 
 # -- heartbeat_authorize -----------------------------------------------------

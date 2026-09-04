@@ -328,6 +328,14 @@ class HeartbeatActivities:
                     continue
                 settled = pr_settled(pr)
                 if settled:
+                    # Observed once, remembered: the run row keeps what the
+                    # world did, and no later tick reads this PR again.
+                    await asyncio.to_thread(
+                        self._runs.mark_pr_settled,
+                        self._settings.company,
+                        candidate["url"],
+                        settled,
+                    )
                     self._log.info(
                         "delivered pr no longer reviewable",
                         extra={"number": candidate["number"], "state": settled},

@@ -41,6 +41,7 @@ class RunRecord:
     workflow_id: str | None = None
     company: str | None = None
     pr_url: str | None = None
+    pr_settled: str | None = None
     verdict: str | None = None
     ticket_urls: list[str] = field(default_factory=list)
     iterations: int = 0
@@ -58,6 +59,7 @@ class RunRecord:
             workflow_id=row["workflow_id"],
             company=row["company"],
             pr_url=row["pr_url"],
+            pr_settled=row["pr_settled"],
             verdict=row["verdict"],
             ticket_urls=list(row["ticket_urls"] or []),
             iterations=row["iterations"],
@@ -240,17 +242,28 @@ class Runs:
         }
 
     def delivered_pr_urls(self, company: str) -> list[str]:
-        """PRs the company's implement runs have opened and finished with —
-        the review side of the heartbeat's observation, before the consumed
-        ones (`review_attempts`) are subtracted."""
+        """PRs the company's implement runs have opened and finished with,
+        and the world has not settled — the review side of the heartbeat's
+        observation, before the consumed ones (`review_attempts`) are
+        subtracted."""
         rows = self._db.query(
             "SELECT pr_url FROM registry.runs"
             " WHERE company = %s AND workflow = 'implement'"
             "   AND status = 'done' AND pr_url IS NOT NULL"
+            "   AND pr_settled IS NULL"
             " ORDER BY finished_at",
             (company,),
         )
         return [row["pr_url"] for row in rows]
+
+    def mark_pr_settled(self, company: str, pr_url: str, state: str) -> None:
+        """The world settled a delivered PR (`merged`, `closed`): remember
+        it on the delivering run so no later observation reads it again."""
+        self._db.execute(
+            "UPDATE registry.runs SET pr_settled = %s"
+            " WHERE company = %s AND workflow = 'implement' AND pr_url = %s",
+            (state, company, pr_url),
+        )
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
         """The implement run that delivered a pull request — the PR's run
