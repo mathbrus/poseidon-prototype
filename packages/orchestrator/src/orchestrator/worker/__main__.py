@@ -32,8 +32,8 @@ from orchestrator.workflows import (
     HeartbeatInput,
     HeartbeatWorkflow,
     ImplementWorkflow,
-    IntakeWorkflow,
     ReviewWorkflow,
+    ScopeWorkflow,
 )
 from orchestrator.workflows.base import TASK_QUEUE, TEMPORAL_NAMESPACE, workflow_id
 from registry import (
@@ -48,20 +48,19 @@ from registry import (
 )
 from sandbox.k8s_jobs import K8sJobsBackend
 
-# How often the worker checks that the company's declared heartbeat
-# workflow is running (reconcile-on-goal: the applied blueprint's heartbeat
-# section is the goal; the workflow itself stops when the section is gone).
+# How often the worker checks that the company's heartbeat workflow is
+# running (the applied blueprint is the desired state; the workflow itself
+# stops when the company is gone).
 HEARTBEAT_ENSURE_INTERVAL_S = 60
 
 
 async def ensure_heartbeat_loop(
     client: Client, settings: WorkerSettings, companies: Companies, log
 ) -> None:
-    """Reconcile-on-goal: while the applied blueprint declares the
-    section, the company's `heartbeat-{company}` workflow is running; start
-    it if it is not. The other half of the loop is the workflow's own
-    config read — it stops itself when the section is gone — so this side
-    only ever starts, never kills."""
+    """While the company is applied, its `heartbeat-{company}` workflow
+    is running; start it if it is not. The other half of the loop is the
+    workflow's own config read — it stops itself when the company is
+    gone — so this side only ever starts, never kills."""
     while True:
         await ensure_heartbeat_once(client, settings, companies, log)
         await asyncio.sleep(HEARTBEAT_ENSURE_INTERVAL_S)
@@ -72,8 +71,7 @@ async def ensure_heartbeat_once(
 ) -> None:
     """One ensure pass, isolated so a hiccup never kills the loop."""
     try:
-        spec = await asyncio.to_thread(companies.get, settings.company)
-        if (spec or {}).get("heartbeat"):
+        if await asyncio.to_thread(companies.get, settings.company):
             await client.start_workflow(
                 "heartbeat",
                 HeartbeatInput(company=settings.company),
@@ -158,7 +156,7 @@ async def main() -> None:
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        workflows=[HeartbeatWorkflow, ImplementWorkflow, IntakeWorkflow, ReviewWorkflow],
+        workflows=[HeartbeatWorkflow, ImplementWorkflow, ReviewWorkflow, ScopeWorkflow],
         activities=[
             *run_activities.all(),
             *implement_activities.all(),

@@ -181,13 +181,14 @@ class Runs:
         return RunRecord.from_row(rows[0]) if rows else None
 
     def active_count(self, company: str) -> int:
-        """Runs currently occupying delivery capacity — what the heartbeat
-        compares against `max_concurrent_runs`. Intake is not counted: it
-        files tickets, it does not occupy a crew."""
+        """Runs currently occupying the company — what the heartbeat
+        compares against `max_concurrent_runs`: every run the heartbeat
+        may start, the conductor's own scope run included. Only the
+        heartbeat's decision rows are not runs."""
         rows = self._db.query(
             "SELECT COUNT(*) AS n FROM registry.runs"
             " WHERE company = %s AND status = 'running'"
-            "   AND workflow IN ('implement', 'review')",
+            "   AND workflow IN ('scope', 'implement', 'review')",
             (company,),
         )
         return int(rows[0]["n"])

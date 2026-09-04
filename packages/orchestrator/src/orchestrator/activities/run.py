@@ -1,4 +1,4 @@
-"""The run lifecycle activities every run-shaped workflow shares — intake,
+"""The run lifecycle activities every run-shaped workflow shares — scope,
 implement and review are born, shaped, gated and torn down the same way.
 Each is a thin client over the registry, the sandbox backend or the
 gateway; sequencing, timeouts, retries and compensation live in the
@@ -105,8 +105,8 @@ class RunActivities:
 
     @activity.defn(name="create_run")
     async def create_run(self, run_id: str, workflow: str, task: str) -> None:
-        """The run's row: which workflow owns it and the text it works
-        from (a goal, a task, or the placeholder a ticket read replaces)."""
+        """The run's row: which workflow owns it and the task it works
+        (`common.tasks`: the item's key, or scope's fixed label)."""
         await asyncio.to_thread(
             self._runs.start,
             run_id,
@@ -143,8 +143,8 @@ class RunActivities:
         the converged conductor instance — gates, crew, bounds and the
         conductor all come from config, never from code — plus the
         deployment's timeout profile (`timeouts`). Fail-closed: no
-        applied blueprint, no enabled workflow, or no converged conductor
-        each refuse the run before anything is provisioned."""
+        applied blueprint, no node for a crewed workflow, or no converged
+        conductor each refuse the run before anything is provisioned."""
         config = await asyncio.to_thread(
             workflow_config,
             self._companies,
@@ -260,21 +260,20 @@ class RunActivities:
         its issue or PR, say so twice: a `gate.heartbeat_attempts` /
         `gate_exhausted` process-gate event under this run's id, and a
         platform comment on the item, so the world learns the company has
-        stopped trying. Nothing to record when the company has no
-        heartbeat section (no bound exists), when the run's task is not
-        heartbeat-startable work (a task file), when attempts remain, or
-        when another run already concluded the item (it is consumed by
-        that conclusion, not by exhaustion)."""
+        stopped trying. Nothing to record when the run worked no item (a
+        scope run), when attempts remain, or when another run already
+        concluded the item (it is consumed by that conclusion, not by
+        exhaustion)."""
         log = self._log.bind(run_id=run_id)
 
         def read() -> tuple[str, int, int, int] | None:
             run = self._runs.get(run_id)
             if run is None:
                 return None
-            spec = self._companies.get(self._settings.company) or {}
-            max_attempts = (spec.get("heartbeat") or {}).get("max_attempts")
-            if max_attempts is None:
+            spec = self._companies.get(self._settings.company)
+            if not spec:
                 return None
+            max_attempts = spec["heartbeat"]["max_attempts"]
             kind = run.workflow
             pattern, aggregate = {
                 "implement": (ISSUE_TASK_RE, self._runs.issue_attempts),

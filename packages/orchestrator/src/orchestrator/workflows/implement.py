@@ -33,7 +33,7 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError
 
 from common.tasks import issue_run_task
 from orchestrator.gates import Gate
@@ -45,21 +45,18 @@ from orchestrator.workflows.base import (
 
 @dataclass
 class ImplementInput:
-    """Exactly one of `task_text` (a spec handed in directly) or
-    `issue_number` (a GitHub issue the company already filed — resolved by
-    the platform before dispatch) must be set."""
+    """The ticket the company filed, resolved by the platform before
+    dispatch — the one source of an implement run's text."""
 
     run_id: str
-    task_text: str | None = None
-    # None keeps the generous real-brain defaults.
-    issue_number: int | None = None
+    issue_number: int
 
 
 def issue_task(number: int, title: str, body: str, url: str) -> str:
-    """The dispatch text for an issue-driven run, composed by workflow code
-    from what the platform read — deterministic on replay. The body is
-    untrusted input, exactly like a task file's contents (bodies can run to
-    65k chars; truncation is future work, never done silently)."""
+    """The dispatch text of a run, composed by workflow code from the
+    ticket the platform read — deterministic on replay. The body is
+    untrusted input (bodies can run to 65k chars; truncation is future
+    work, never done silently)."""
     return f"Implement issue #{number} ({url}): {title}\n\n{body}"
 
 
@@ -73,8 +70,8 @@ TICKET_CREW_RE = re.compile(r"^Crew:\s*([a-z0-9][a-z0-9-]*)\s*$", re.MULTILINE)
 def ticket_crew(task_source: str) -> str | None:
     """The crew the task names, parsed deterministically by workflow code.
     The *last* match wins: the trailer is written by whoever filed the
-    ticket, and goal text quoted above it is untrusted input — a poisoned
-    goal must not outrank the filer's own trailer. What the named crew can
+    ticket, and text quoted above it is untrusted input — a poisoned
+    document quoted into a body must not outrank the filer's own trailer. What the named crew can
     actually be is policy's to decide: fulfillment re-evaluates the
     compiled `crew.request` decision, so a ticket naming a template the
     blueprint never granted dies there, audited."""
@@ -118,35 +115,26 @@ class ImplementWorkflow(RunWorkflow):
 
     @workflow.run
     async def run(self, input: ImplementInput) -> dict[str, Any]:
-        if (input.task_text is None) == (input.issue_number is None):
-            raise ApplicationError(
-                "exactly one of task_text or issue_number must be set",
-                non_retryable=True,
-            )
         handle: dict[str, Any] | None = None
         result: dict[str, Any] | None = None
         error: str | None = None
         cancelled = False
         try:
             config = await self.start_run(
-                input.run_id,
-                input.task_text or issue_run_task(input.issue_number),
+                input.run_id, issue_run_task(input.issue_number)
             )
-            # The one source of dispatch truth: the file text handed in, or
-            # the ticket the company already filed — fetched under the
-            # platform identity and composed deterministically here.
-            if input.issue_number is not None:
-                issue = await workflow.execute_activity(
-                    "read_issue",
-                    args=[input.run_id, input.issue_number],
-                    start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
-                    retry_policy=STEP_RETRY,
-                )
-                task_source = issue_task(
-                    issue["number"], issue["title"], issue["body"], issue["url"]
-                )
-            else:
-                task_source = input.task_text
+            # The one source of dispatch truth: the ticket the company
+            # filed, fetched under the platform identity and composed
+            # deterministically here.
+            issue = await workflow.execute_activity(
+                "read_issue",
+                args=[input.run_id, input.issue_number],
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                retry_policy=STEP_RETRY,
+            )
+            task_source = issue_task(
+                issue["number"], issue["title"], issue["body"], issue["url"]
+            )
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id],

@@ -427,7 +427,7 @@ class InMemoryRuns:
             for r in self.rows.values()
             if r.company == company
             and r.status == "running"
-            and r.workflow in ("implement", "review")
+            and r.workflow in ("scope", "implement", "review")
         )
 
     def issue_attempts(self, company: str) -> dict[int, Attempts]:

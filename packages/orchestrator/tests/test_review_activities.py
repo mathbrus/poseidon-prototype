@@ -24,18 +24,11 @@ RUN_ID = "run-review-0001"
 REVIEW_SPEC = {
     "namespace": "hello-saas",
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+    "heartbeat": {"conductor": "pm", "max_attempts": 2},
     "workflows": [
-        {
-            "name": "implement",
-            "enabled": True,
-            "conductor": "pm",
-            "crew": "feature-delivery",
-            "max_verify_retries": 2,
-        },
+        {"name": "implement", "crew": "feature-delivery", "max_verify_retries": 2},
         {
             "name": "review",
-            "enabled": True,
-            "conductor": "pm",
             "crew": "feature-review",
             "gates": {"merge": {"resolved_by": "human"}},
         },
@@ -562,7 +555,7 @@ def test_file_rework_files_the_canonical_ticket_and_records_it(settings, monkeyp
     assert "- slugify.py" in body
     assert RUN_ID in body  # attributed to the review run
     assert "https://git.test/r/pulls/41" in body
-    # And it lands on the run row, the intake breadcrumb.
+    # And it lands on the run row, the breadcrumb a scope run leaves too.
     assert runs.get(RUN_ID).ticket_urls == [ticket["url"]]
 
 

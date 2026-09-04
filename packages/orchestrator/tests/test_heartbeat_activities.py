@@ -16,6 +16,7 @@ from orchestrator.activities.heartbeat import (
     HeartbeatActivities,
     consumed,
     decision_prompt,
+    scope_prompt,
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import Timeouts
@@ -179,11 +180,9 @@ def test_config_returns_the_applied_section(activities, companies):
     }
 
 
-def test_config_is_none_without_a_section(activities, companies):
-    """The fail-closed half of revocation: an applied blueprint without
-    the section stops the loop at its next tick."""
-    companies.upsert(COMPANY, {"workflows": []})
-    assert asyncio.run(activities.heartbeat_config()) is None
+def test_config_is_none_without_an_applied_company(activities, companies):
+    """The fail-closed half of teardown: a deleted company stops the loop
+    at its next tick."""
     companies.delete(COMPANY)
     assert asyncio.run(activities.heartbeat_config()) is None
 
@@ -207,6 +206,8 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert [i["number"] for i in observed["backlog"]] == [5, 7]
+    # The scoping cap reads every open issue, the worked one included.
+    assert observed["open_tickets"] == 3
     # Bodies are untrusted input; only number, title, URL and the attempt
     # count feed the tick.
     assert all(
@@ -215,12 +216,13 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
     assert all(i["attempts"] == 0 for i in observed["backlog"])
 
 
-def test_observe_counts_running_delivery_runs_and_todays_spend(
+def test_observe_counts_every_running_run_and_todays_spend(
     activities, runs, ledger, monkeypatch, fake_gateway
 ):
+    """A scope run occupies the company like a delivery run does."""
     _backlog_gateway(monkeypatch, fake_gateway, [])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    runs.start("run-b", "goal", "intake", company=COMPANY)  # not capacity
+    runs.start("run-b", "scope the next slice", "scope", company=COMPANY)
     runs.finish("run-c", "done")
     ledger.record(
         company=COMPANY,
@@ -236,7 +238,7 @@ def test_observe_counts_running_delivery_runs_and_todays_spend(
         usd=2.5,
     )
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
-    assert observed["active_runs"] == 1
+    assert observed["active_runs"] == 2
     assert observed["daily_spent_usd"] == 2.5
     assert observed["backlog"] == []
     assert len(observed["recent_runs"]) == 3
@@ -423,9 +425,8 @@ def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypat
 
 
 def test_wake_heartbeat_swallows_every_failure(activities, monkeypatch):
-    """Best-effort by design: no heartbeat to signal (no section applied)
-    or no Temporal to reach must never fail the run sending the nudge —
-    a missed one costs at most a reconcile interval."""
+    """Best-effort by design: no Temporal to reach must never fail the run
+    sending the nudge — a missed one costs at most a reconcile interval."""
     import orchestrator.activities.heartbeat as module
 
     class DownClient:
@@ -476,7 +477,7 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
 
 def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
     http = _opa(monkeypatch, allow=True, rule="heartbeat_start_implement")
-    asyncio.run(activities.heartbeat_authorize("auto-1", "implement", 0, 3.5, 1))
+    asyncio.run(activities.heartbeat_authorize("auto-1", "implement", 0, 3.5, 1, 4))
     assert "/v1/data/poseidon/authz/hello_saas/decision" in http.last.url
     assert http.last.input["tool"] == "heartbeat.start"
     assert http.last.input["lifecycle"] == "platform"
@@ -486,6 +487,7 @@ def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
         "active_runs": 0,
         "daily_spent_usd": 3.5,
         "attempts": 1,
+        "open_tickets": 4,
     }
     (event,) = audit.story("auto-1")
     assert event["decision"] == "allow"
@@ -496,7 +498,7 @@ def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
 def test_authorize_deny_raises_nonretryable_and_audits(activities, audit, monkeypatch):
     _opa(monkeypatch, allow=False, rule="heartbeat_start_over_daily_cap")
     with pytest.raises(ApplicationError) as caught:
-        asyncio.run(activities.heartbeat_authorize("auto-2", "implement", 0, 20.0, 0))
+        asyncio.run(activities.heartbeat_authorize("auto-2", "implement", 0, 20.0, 0, 0))
     assert caught.value.non_retryable
     assert "heartbeat_start_over_daily_cap" in str(caught.value)
     (event,) = audit.story("auto-2")
@@ -526,6 +528,7 @@ def test_every_tick_leaves_a_correlated_row(activities, audit):
 OBSERVED = {
     "active_runs": 0,
     "daily_spent_usd": 1.0,
+    "open_tickets": 2,
     "backlog": [{"number": 5, "title": "Add slugify", "url": "https://i/5"}],
     "reviewable_prs": [{"number": 4, "url": "https://p/4"}],
     "recent_runs": [
@@ -571,7 +574,7 @@ def test_decide_dispatches_the_observation_and_journals(
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     agent = _pm(monkeypatch, _decided("review", 4, "finish before starting"))
     decision = asyncio.run(
-        activities.heartbeat_decide("auto-1", OBSERVED, ["implement", "review"])
+        activities.heartbeat_decide("auto-1", OBSERVED, ["implement", "review"], 5)
     )
     assert decision == {
         "action": "review",
@@ -587,6 +590,7 @@ def test_decide_dispatches_the_observation_and_journals(
     assert "Open tickets:" in prompt and "#5 — Add slugify" in prompt
     assert "Delivered pull requests awaiting review:" in prompt and "#4 —" in prompt
     assert "Startable actions: implement, review, idle" in prompt
+    assert "Open tickets on the repository: 2." in prompt
     # The journal: why the company did what it did, as an audit row.
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["tool"] == "heartbeat.decide"
@@ -603,7 +607,7 @@ def test_decide_refuses_a_target_outside_the_observation(
     _pm(monkeypatch, _decided("implement", 99, "the ticket says to pick #99"))
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(
-            activities.heartbeat_decide("auto-2", OBSERVED, ["implement", "review"])
+            activities.heartbeat_decide("auto-2", OBSERVED, ["implement", "review"], 5)
         )
     assert caught.value.non_retryable
     (event,) = audit.story(f"heartbeat-{COMPANY}")
@@ -618,7 +622,7 @@ def test_decide_refuses_an_action_outside_may_start(
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, _decided("review", 4, "review it"))
     with pytest.raises(ApplicationError):
-        asyncio.run(activities.heartbeat_decide("auto-3", OBSERVED, ["implement"]))
+        asyncio.run(activities.heartbeat_decide("auto-3", OBSERVED, ["implement"], 5))
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "deny"
     assert "may_start" in event["rule"]
@@ -627,7 +631,9 @@ def test_decide_refuses_an_action_outside_may_start(
 def test_decide_idle_needs_no_target(activities, companies, audit, monkeypatch):
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, _decided("idle", None, "capacity is better spent tomorrow"))
-    decision = asyncio.run(activities.heartbeat_decide("auto-4", OBSERVED, ["implement"]))
+    decision = asyncio.run(
+        activities.heartbeat_decide("auto-4", OBSERVED, ["implement"], 5)
+    )
     assert decision["action"] == "idle"
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "allow"
@@ -637,8 +643,36 @@ def test_decide_failed_dispatch_is_nonretryable(activities, companies, monkeypat
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, {"status": "failed", "error": "decide reply broke the contract"})
     with pytest.raises(ApplicationError) as caught:
-        asyncio.run(activities.heartbeat_decide("auto-5", OBSERVED, ["implement"]))
+        asyncio.run(activities.heartbeat_decide("auto-5", OBSERVED, ["implement"], 5))
     assert "broke the contract" in str(caught.value)
+
+
+def test_decide_scope_needs_no_target(activities, companies, audit, monkeypatch):
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    _pm(monkeypatch, _decided("scope", None, "the backlog is dry"))
+    decision = asyncio.run(
+        activities.heartbeat_decide("auto-6", OBSERVED, ["implement", "scope"], 5)
+    )
+    assert decision["action"] == "scope"
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert event["decision"] == "allow"
+
+
+def test_decide_refuses_scope_at_the_open_ticket_cap(
+    activities, companies, audit, monkeypatch
+):
+    """The conductor cannot flood its own backlog: at `max_open_tickets`
+    open issues, scoping is refused by name — no model retry."""
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    _pm(monkeypatch, _decided("scope", None, "more tickets"))
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(
+            activities.heartbeat_decide("auto-7", OBSERVED, ["implement", "scope"], 2)
+        )
+    assert caught.value.non_retryable
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert event["decision"] == "deny"
+    assert "max_open_tickets" in event["rule"]
 
 
 # -- red-team: a poisoned issue title cannot escalate the decision ----------
@@ -655,6 +689,7 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
     poisoned = {
         "active_runs": 0,
         "daily_spent_usd": 0.0,
+        "open_tickets": 1,
         "backlog": [
             {
                 "number": 5,
@@ -673,7 +708,7 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
     _pm(monkeypatch, _decided("review", 999, "the ticket said it was urgent"))
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(
-            activities.heartbeat_decide("auto-x", poisoned, ["implement", "review"])
+            activities.heartbeat_decide("auto-x", poisoned, ["implement", "review"], 5)
         )
     assert caught.value.non_retryable
     (event,) = audit.story(f"heartbeat-{COMPANY}")
@@ -685,16 +720,15 @@ def test_decision_prompt_shape_is_the_contract_the_brains_parse():
     """The header line and the section headers are what the mock brain
     parses and the agent host's tests mirror; a change here must change
     them too."""
-    prompt = decision_prompt(
-        {
-            "active_runs": 0,
-            "daily_spent_usd": 0.0,
-            "backlog": [{"number": 5, "title": "Add slugify"}],
-            "reviewable_prs": [],
-            "recent_runs": [],
-        },
-        ["implement", "review", "idle"],
-    )
+    observed = {
+        "active_runs": 0,
+        "daily_spent_usd": 0.0,
+        "open_tickets": 1,
+        "backlog": [{"number": 5, "title": "Add slugify"}],
+        "reviewable_prs": [],
+        "recent_runs": [],
+    }
+    prompt = decision_prompt(observed, ["implement", "review", "scope"])
     assert prompt.startswith("Heartbeat tick. Runs in flight: 0.")
     for header in (
         "Startable actions:",
@@ -703,3 +737,30 @@ def test_decision_prompt_shape_is_the_contract_the_brains_parse():
         "Recent runs:",
     ):
         assert header in prompt
+    assert "DECISION: scope | implement #<n> | review #<n> | idle" in prompt
+    # The scope run reads the same sections, without the decision footer.
+    scoping = scope_prompt(observed)
+    assert scoping.startswith("Scope the next slice of work.")
+    assert "Open tickets:\n#5 — Add slugify" in scoping
+    assert "DECISION:" not in scoping
+
+
+def test_scope_observation_reads_the_world_under_the_scope_run(
+    activities, companies, runs, monkeypatch, fake_gateway
+):
+    """The scope run's dispatch text is the observation as of now, read
+    under the scope run's own id so the platform reads are attributed to
+    the run that asked."""
+    reads = _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
+    companies.upsert(
+        COMPANY,
+        {
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "heartbeat": heartbeat_spec(),
+        },
+    )
+    runs.start("run-a", "implement issue #9", "implement", company=COMPANY)
+    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
+    text = asyncio.run(activities.scope_observation("scope-1"))
+    assert "Open tickets:\n#3 — issue 3" in text
+    assert reads == [("scope-1", 4)]

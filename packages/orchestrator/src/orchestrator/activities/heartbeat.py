@@ -1,4 +1,5 @@
-"""The heartbeat's eyes, its authorization and its audit trail. Thin
+"""The company's eyes: the observation the heartbeat decides on and the
+scope run reads, the heartbeat's authorization and its audit trail. Thin
 clients, as always — sequencing and the wait between ticks live in the
 workflow.
 
@@ -9,6 +10,8 @@ Retry safety, per activity:
                           identity); safe. Only numbers, titles, URLs and
                           attempt counts leave here: issue bodies are
                           untrusted input the implement run reads itself.
+    scope_observation   — the same read, rendered as the scope run's
+                          dispatch text; safe.
     heartbeat_decide    — dispatches the conductor's decide procedure and polls to
                           terminal; the PM answers 409 while running
                           (re-attach) like every dispatch. The chosen
@@ -40,6 +43,7 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
+from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
 from orchestrator.activities.blueprint import company_repo, conductor
 from orchestrator.audit import record_event
@@ -93,29 +97,51 @@ def _section(header: str, lines: list[str]) -> str:
     return f"{header}\n{body}"
 
 
-def decision_prompt(observed: dict[str, Any], may_start: list[str]) -> str:
-    """The decide dispatch's user message: the whole observation, composed
-    the same way every tick. The mock brain parses these section headers
-    and the agent host's tests mirror the header line, so changing either is
-    changing a contract — `test_heartbeat_activities` pins the shape."""
-    startable = ", ".join([*may_start, "idle"])
+def _world(observed: dict[str, Any]) -> list[str]:
+    """The observation's sections, composed the same way for every reader.
+    The mock brain parses these section headers and the agent host's tests
+    mirror them, so changing one is changing a contract —
+    `test_heartbeat_activities` pins the shape."""
     tickets = [f"#{i['number']} — {i['title']}" for i in observed.get("backlog") or []]
     prs = [f"#{p['number']} — {p['url']}" for p in observed.get("reviewable_prs") or []]
     runs = [
         f"{r['run_id']} {r['workflow']} {r['status']}: {r['task']}"
         for r in observed.get("recent_runs") or []
     ]
+    return [
+        _section("Open tickets:", tickets),
+        _section("Delivered pull requests awaiting review:", prs),
+        _section("Recent runs:", runs),
+    ]
+
+
+def decision_prompt(observed: dict[str, Any], may_start: list[str]) -> str:
+    """The decide dispatch's user message: the whole observation plus the
+    closed action set and the two-line reply contract."""
+    startable = ", ".join([*may_start, "idle"])
     return "\n\n".join(
         [
             f"Heartbeat tick. Runs in flight: {observed['active_runs']}."
-            f" Spent today: ${observed['daily_spent_usd']:.2f}.\n"
+            f" Spent today: ${observed['daily_spent_usd']:.2f}."
+            f" Open tickets on the repository: {observed['open_tickets']}.\n"
             f"Startable actions: {startable}",
-            _section("Open tickets:", tickets),
-            _section("Delivered pull requests awaiting review:", prs),
-            _section("Recent runs:", runs),
+            *_world(observed),
             "Reply with exactly two lines:\n"
-            "DECISION: implement #<n> | review #<n> | idle\n"
+            "DECISION: scope | implement #<n> | review #<n> | idle\n"
             "RATIONALE: one line saying why.",
+        ]
+    )
+
+
+def scope_prompt(observed: dict[str, Any]) -> str:
+    """The scope dispatch's user message: the same observation, asked to
+    yield the next slice of work as tickets."""
+    return "\n\n".join(
+        [
+            "Scope the next slice of work. Runs in flight:"
+            f" {observed['active_runs']}. Open tickets on the repository:"
+            f" {observed['open_tickets']}.",
+            *_world(observed),
         ]
     )
 
@@ -150,9 +176,9 @@ class HeartbeatActivities:
     @activity.defn(name="heartbeat_config")
     async def heartbeat_config(self) -> dict[str, Any] | None:
         """The applied blueprint's heartbeat section plus the deployment's
-        timeout profile, or None — the workflow stops on None, which is what
-        makes removal effective at the next tick regardless of what else
-        still believes in the heartbeat."""
+        timeout profile, or None when no company is applied — the workflow
+        stops on None, which is what makes deleting the company effective
+        at the next tick regardless of what else still believes in it."""
         spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}
         section = spec.get("heartbeat")
         if not section:
@@ -161,11 +187,25 @@ class HeartbeatActivities:
 
     @activity.defn(name="heartbeat_observe")
     async def heartbeat_observe(self, max_attempts: int) -> dict[str, Any]:
-        """What the tick decides from — the PM's whole decision basis:
-        in-flight runs, today's spend and the run history from the
-        registry; the unconsumed open backlog and the delivered-but-
-        unreviewed PRs as the candidate actions. Read under the platform
-        identity, like every platform read.
+        """What the tick decides from, read under the heartbeat's own id."""
+        return await self._observe(max_attempts, self._ledger_run_id())
+
+    @activity.defn(name="scope_observation")
+    async def scope_observation(self, run_id: str) -> str:
+        """The scope run's dispatch text: the observation as of now,
+        rendered for the conductor's scope procedure and read under the
+        scope run's own id, so the platform reads it makes are attributed
+        to the run that asked."""
+        spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}
+        observed = await self._observe(int(spec["heartbeat"]["max_attempts"]), run_id)
+        return scope_prompt(observed)
+
+    async def _observe(self, max_attempts: int, run_id: str) -> dict[str, Any]:
+        """The PM's whole decision basis: in-flight runs, today's spend
+        and the run history from the registry; the unconsumed open backlog
+        and the delivered-but-unreviewed PRs as the candidate actions; the
+        raw open-issue count the scoping cap reads. Read under the
+        platform identity, like every platform read.
 
         Consumption is `consumed`: an item with a live run, a concluded
         run, or `max_attempts` runs on it is not offered; one whose runs
@@ -217,12 +257,10 @@ class HeartbeatActivities:
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            open_issues = await gateway.read_open_issues(self._ledger_run_id(), repo)
+            open_issues = await gateway.read_open_issues(run_id, repo)
             for candidate in delivered:
                 try:
-                    pr = await gateway.read_pr(
-                        self._ledger_run_id(), repo, candidate["number"]
-                    )
+                    pr = await gateway.read_pr(run_id, repo, candidate["number"])
                 except GatewayError as exc:
                     # One unreadable candidate must not blind the whole
                     # tick: skip it like a settled one — not offered now,
@@ -261,6 +299,9 @@ class HeartbeatActivities:
         observed = {
             "active_runs": active_runs,
             "daily_spent_usd": daily_spent,
+            # Every open issue, worked or not: the backlog the scoping cap
+            # bounds is what the repository shows, not what is startable.
+            "open_tickets": len(open_issues),
             "backlog": backlog,
             "reviewable_prs": reviewable,
             "recent_runs": [
@@ -278,6 +319,7 @@ class HeartbeatActivities:
             extra={
                 "active_runs": active_runs,
                 "daily_spent_usd": daily_spent,
+                "open_tickets": len(open_issues),
                 "backlog": len(backlog),
                 "reviewable_prs": len(reviewable),
             },
@@ -286,12 +328,17 @@ class HeartbeatActivities:
 
     @activity.defn(name="heartbeat_decide")
     async def heartbeat_decide(
-        self, run_id: str, observed: dict[str, Any], may_start: list[str]
+        self,
+        run_id: str,
+        observed: dict[str, Any],
+        may_start: list[str],
+        max_open_tickets: int,
     ) -> dict[str, Any]:
         """Dispatch the conductor's decide procedure with the observation
         and validate the answer. The PM proposes; the platform disposes: the
         action must be in `may_start`, the target must be in the
-        observation, and the rationale is journaled either way — a
+        observation, scoping stops at the open-ticket cap, and the
+        rationale is journaled either way — a
         `heartbeat.decide` audit event is the append-only record of *why*
         the company did what it did. The dispatch runs under `run_id` (the
         run the tick would start), so the decision's own LLM spend is
@@ -328,7 +375,9 @@ class HeartbeatActivities:
                     f"decide dispatch failed: {status.get('error') or 'no decision'}",
                     non_retryable=True,
                 )
-            problem = self._invalid_reason(decision, observed, may_start)
+            problem = self._invalid_reason(
+                decision, observed, may_start, max_open_tickets
+            )
             rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
             await self._emit(
                 run_id=self._ledger_run_id(),
@@ -355,16 +404,27 @@ class HeartbeatActivities:
 
     @staticmethod
     def _invalid_reason(
-        decision: dict[str, Any], observed: dict[str, Any], may_start: list[str]
+        decision: dict[str, Any],
+        observed: dict[str, Any],
+        may_start: list[str],
+        max_open_tickets: int,
     ) -> str | None:
         """Structural containment for the decide reply: a closed action
-        set, targets only from the observation. A poisoned ticket title can
-        steer the choice between candidates, never mint a new one."""
+        set, targets only from the observation, no scoping at the cap. A
+        poisoned ticket title or document can steer the choice between
+        candidates, never mint a new one or flood the backlog."""
         action, target = decision.get("action"), decision.get("target")
         if action == "idle":
             return None
         if action not in may_start:
             return f"action {action!r} is not in may_start"
+        if action == "scope":
+            if int(observed["open_tickets"]) >= max_open_tickets:
+                return (
+                    f"scope refused: {observed['open_tickets']} open tickets"
+                    f" reach max_open_tickets={max_open_tickets}"
+                )
+            return None
         candidates = {
             "implement": {i["number"] for i in observed.get("backlog") or []},
             "review": {p["number"] for p in observed.get("reviewable_prs") or []},
@@ -381,12 +441,14 @@ class HeartbeatActivities:
         active_runs: int,
         daily_spent_usd: float,
         attempts: int,
+        open_tickets: int,
     ) -> None:
         """Evaluate the compiled heartbeat.start decision — the caps and the
         startable set bind here as policy, not as this module's opinion.
         The live counts ride the input (the active_spawns idiom): runs in
-        flight, today's spend, and the runs already made on the target
-        item; the decision is audited either way; a deny ends the tick."""
+        flight, today's spend, the runs already made on the target item,
+        and the repository's open issues; the decision is audited either
+        way; a deny ends the tick."""
         company = self._settings.company
         decision_input = {
             "company": company,
@@ -396,12 +458,13 @@ class HeartbeatActivities:
             "role": PLATFORM_ROLE,
             "run_id": child_run_id,
             "workflow": WORKFLOW,
-            "tool": "heartbeat.start",
+            "tool": HEARTBEAT_START,
             "args": {
                 "workflow": workflow_name,
                 "active_runs": active_runs,
                 "daily_spent_usd": daily_spent_usd,
                 "attempts": attempts,
+                "open_tickets": open_tickets,
             },
             "run_binding_verified": False,
         }
@@ -410,7 +473,7 @@ class HeartbeatActivities:
         allowed = bool(result.get("allow"))
         await self._emit(
             run_id=child_run_id,
-            tool="heartbeat.start",
+            tool=HEARTBEAT_START,
             digest=args_digest(decision_input["args"]),
             decision="allow" if allowed else "deny",
             rule=str(result.get("rule") or ""),
@@ -466,10 +529,9 @@ class HeartbeatActivities:
     @activity.defn(name="wake_heartbeat")
     async def wake_heartbeat(self) -> None:
         """Nudge the company's standing heartbeat: a run just changed the
-        world it watches. Best-effort by design — an absent heartbeat is
-        the normal state whenever no heartbeat section is applied, and a
-        missed nudge costs at most one reconcile interval — so every
-        failure is swallowed; this can never fail the run that sends it."""
+        world it watches. Best-effort by design — a missed nudge costs at
+        most one reconcile interval — so every failure is swallowed; this
+        can never fail the run that sends it."""
         try:
             client = await Client.connect(
                 self._settings.temporal_address, namespace=TEMPORAL_NAMESPACE
@@ -485,6 +547,7 @@ class HeartbeatActivities:
         return [
             self.heartbeat_config,
             self.heartbeat_observe,
+            self.scope_observation,
             self.heartbeat_decide,
             self.heartbeat_authorize,
             self.record_tick,

@@ -28,6 +28,7 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.identity import LIFECYCLE_EPHEMERAL, LIFECYCLE_STANDING
+from common.policy import CREW_REQUEST
 from common.telemetry import get_logger
 from common.topology import TOKEN_FILE, llm_gateway_url, mcp_gateway_url
 from orchestrator.activities.blueprint import company_repo
@@ -413,7 +414,7 @@ class CrewActivities:
             "role": conductor_role,
             "run_id": run_id,
             "workflow": workflow,
-            "tool": "crew.request",
+            "tool": CREW_REQUEST,
             "args": {"crew_template": crew_template},
             "run_binding_verified": False,
             "active_spawns": spawns,

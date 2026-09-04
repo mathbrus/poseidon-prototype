@@ -32,7 +32,13 @@ they query.
 import json
 from typing import Any
 
-from common.policy import company_package, rego_slug
+from common.policy import (
+    CREW_REQUEST,
+    HEARTBEAT_START,
+    MERGE_RESOLVE,
+    company_package,
+    rego_slug,
+)
 from compiler.plan import AgentInstanceCR, EphemeralAgentSpec, HeartbeatConfig
 from schema.gates import UNDELEGATABLE_PATHS
 from schema.tools import RUN_SCOPED
@@ -106,19 +112,19 @@ _OVER_CAP_RULE = """
 # {agent_id}: at most {cap} concurrent crews (spawn denials are
 # first-class governance events).
 deny_rules contains "crew_request_over_cap" if {{
-	input.tool == "crew.request"
+	input.tool == "{crew_request}"
 	input.agent_id == "{agent_id}"
 	input.active_spawns >= {cap}
 }}
 """
 
-_NO_BUDGET_RULE = """
+_NO_BUDGET_RULE = f"""
 # No spawn against an exhausted run budget — headroom is verified by the
-# gateway against the ledger and rides the input.
-deny_rules contains "crew_request_no_budget" if {
-	input.tool == "crew.request"
+# platform against the ledger and rides the input.
+deny_rules contains "crew_request_no_budget" if {{
+	input.tool == "{CREW_REQUEST}"
 	input.budget_headroom == false
-}
+}}
 """
 
 _PLATFORM = """
@@ -144,7 +150,7 @@ def _role_extra(tool: str, may_spawn: tuple[str, ...]) -> str:
     requested template to the conductor's may_spawn list: spawn intent
     outside it is a rule deny before anything is recorded. Concurrency caps
     and budget headroom are enforced by separate deny rules."""
-    if tool == "crew.request":
+    if tool == CREW_REQUEST:
         return (
             f"\tinput.args.crew_template in {json.dumps(sorted(may_spawn))}\n"
             + _run_binding(tool)
@@ -185,8 +191,10 @@ def _role_file(
         )
         for tool in sorted(tools)
     )
-    if max_concurrent_spawns and "crew.request" in tools:
-        body += _OVER_CAP_RULE.format(agent_id=agent_id, cap=int(max_concurrent_spawns))
+    if max_concurrent_spawns and CREW_REQUEST in tools:
+        body += _OVER_CAP_RULE.format(
+            agent_id=agent_id, cap=int(max_concurrent_spawns), crew_request=CREW_REQUEST
+        )
     return _rego_file(company, body)
 
 
@@ -224,34 +232,34 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
         f'\nallow_rules contains "heartbeat_start_{rego_slug(workflow)}" if {{\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         f'\tinput.args.workflow == "{workflow}"\n'
         "}\n"
         for workflow in sorted(heartbeat.may_start)
     )
     denies = (
         '\ndeny_rules contains "heartbeat_start_over_concurrency" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         f"\tinput.args.active_runs >= {int(heartbeat.max_concurrent_runs)}\n"
         "}\n"
         '\ndeny_rules contains "heartbeat_start_over_daily_cap" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         f"\tinput.args.daily_spent_usd >= {json.dumps(heartbeat.daily_cap_usd)}\n"
         "}\n"
         '\ndeny_rules contains "heartbeat_start_over_attempts" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         f"\tinput.args.attempts >= {int(heartbeat.max_attempts)}\n"
         "}\n"
         # Scoping is refused at the open-ticket cap: the conductor may
         # not flood its own backlog. Only scope reads this count, so only
         # scope fails closed without it.
         '\ndeny_rules contains "heartbeat_start_over_open_tickets" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tinput.args.workflow == "scope"\n'
         f"\tinput.args.open_tickets >= {int(heartbeat.max_open_tickets)}\n"
         "}\n"
         '\ndeny_rules contains "heartbeat_start_open_tickets_missing" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tinput.args.workflow == "scope"\n'
         '\tnot is_number(object.get(input, ["args", "open_tickets"], null))\n'
         "}\n"
@@ -259,15 +267,15 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
         # undefined reference never fires, so a bare `not is_number(...)`
         # would fail open on the absent key it exists to catch.
         '\ndeny_rules contains "heartbeat_start_counts_missing" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tnot is_number(object.get(input, ["args", "active_runs"], null))\n'
         "}\n"
         '\ndeny_rules contains "heartbeat_start_spend_missing" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tnot is_number(object.get(input, ["args", "daily_spent_usd"], null))\n'
         "}\n"
         '\ndeny_rules contains "heartbeat_start_attempts_missing" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tnot is_number(object.get(input, ["args", "attempts"], null))\n'
         "}\n"
     )
@@ -311,7 +319,7 @@ def _merge_gate_file(
         # separate from the generic carve-out so the audit row names the
         # class that refused.
         '\ndeny_rules contains "merge_resolve_contract_path" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome contract in {json.dumps(contract_paths)}\n"
         "\tstartswith(path, contract)\n"
@@ -320,7 +328,7 @@ def _merge_gate_file(
         # idiom: object.get so the absent key denies rather than leaving
         # the rule unevaluated.
         '\ndeny_rules contains "merge_resolve_contract_not_green" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tobject.get(input, ["args", "contract_green"], false) != true\n'
         "}\n"
         if contract_paths
@@ -334,7 +342,7 @@ def _merge_gate_file(
         '\nallow_rules contains "merge_resolve_delegated" if {\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         # The quality layers, verified by the caller and riding the
         # input: the independent reviewer's verdict, the platform's own
         # model-free checks, and the registry-checked independence of the
@@ -352,20 +360,20 @@ def _merge_gate_file(
         # Path rules fail closed, the git.open_pr idiom: without the
         # changed paths in the input the class cannot be checked.
         '\ndeny_rules contains "merge_resolve_paths_missing" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         "\tnot input.args.paths\n"
         "}\n"
         # The undelegatable surfaces as a deny — the belt under the
         # compile-time refusal to delegate them: a changed path under a
         # carve-out denies the resolve whatever the delegated class says.
         '\ndeny_rules contains "merge_resolve_carved_out_path" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome carved in {carved}\n"
         "\tstartswith(path, carved)\n"
         "}\n"
         '\ndeny_rules contains "merge_resolve_undelegated_path" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         "\tnot path_delegated(path)\n"
         "}\n"
@@ -374,15 +382,15 @@ def _merge_gate_file(
         # object.get, never a bare reference, so the absent key denies
         # rather than leaving the rule unevaluated.
         + '\ndeny_rules contains "merge_resolve_verdict_not_pass" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tobject.get(input, ["args", "verdict"], "") != "pass"\n'
         "}\n"
         '\ndeny_rules contains "merge_resolve_checks_not_green" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tobject.get(input, ["args", "checks_green"], false) != true\n'
         "}\n"
         '\ndeny_rules contains "merge_resolve_not_independent" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tobject.get(input, ["args", "reviewer_independent"], false) != true\n'
         "}\n"
     )

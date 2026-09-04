@@ -30,7 +30,7 @@ TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 # The `heartbeat` workflow is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats
 # above (`dispatch_heartbeat_s`), which are liveness pings on a dispatch.
-WORKFLOWS = ("implement", "intake", "review", "heartbeat")
+WORKFLOWS = ("scope", "implement", "review", "heartbeat")
 
 # Where every workflow above runs: one Temporal namespace, one task queue,
 # shared by the worker that hosts them and every client that starts or
@@ -235,10 +235,9 @@ class RunWorkflow:
     async def wake_heartbeat(self) -> None:
         """Nudge the company's standing heartbeat that this run changed
         the world it watches. Doubly best-effort: the activity swallows
-        its own failures (an absent heartbeat is the normal state), and
-        the guard here means even a wedged connection cannot fail a run
-        that already tore down — a missed nudge costs at most one
-        reconcile interval."""
+        its own failures, and the guard here means even a wedged
+        connection cannot fail a run that already tore down — a missed
+        nudge costs at most one reconcile interval."""
         try:
             await workflow.execute_activity(
                 "wake_heartbeat",

@@ -4,14 +4,14 @@
     heartbeat_authorize -> start child run -> record_tick ->
     wait for a wake or the reconcile backstop -> continue-as-new
 
-One durable workflow per company (`heartbeat-{company}`), kept running by the
-worker's ensure loop while the applied blueprint declares a `heartbeat`
-section. Each tick re-reads that section from the registry and stops the
-loop when it is gone — so revocation is a blueprint diff, effective at the
-next tick even if the ensure loop has not noticed yet. The compiled
-`heartbeat.start` decision is the second, independent refusal: a tick that
-somehow survived the config read still cannot start anything the bundle
-does not allow.
+One durable workflow per company (`heartbeat-{company}`), kept running by
+the worker's ensure loop for as long as the company is applied. Each tick
+re-reads the blueprint's `heartbeat` section from the registry and stops
+the loop when the company is gone — deleting the company is how it stops,
+effective at the next tick even if the ensure loop has not noticed yet.
+The compiled `heartbeat.start` decision is the second, independent
+refusal: a tick that somehow survived the config read still cannot start
+anything the bundle does not allow.
 
 Ticks are event-triggered. A `wake` signal — the platform sends one when
 a run of the company reaches its end — cuts the wait short, and the
@@ -24,14 +24,12 @@ one more tick before the next wait — many wakes, one extra tick.
 
 The tick's authority is bounded exactly as declared: it starts nothing over
 `max_concurrent_runs`, nothing at the `daily_cap`, nothing on an item that
-`max_attempts` runs already took up, and only workflows in `may_start` —
-each cap checked here for the honest audit reason, and checked again by
-policy for the refusal that does not depend on this code. An applied
-section that declares no `max_attempts` refuses every tick with a named
-rule until the blueprint is re-applied: no cap is defaulted. Every tick
-outcome (started, idle and why, refused and why) is an audit event under
-the `heartbeat-{company}` run id, so the heartbeat's whole story is one
-correlated query.
+`max_attempts` runs already took up, no scope run at `max_open_tickets`,
+and only workflows in `may_start` — each cap checked here for the honest
+audit reason, and checked again by policy for the refusal that does not
+depend on this code. Every tick outcome (started, idle and why, refused
+and why) is an audit event under the `heartbeat-{company}` run id, so the
+heartbeat's whole story is one correlated query.
 
 What the tick offers is bounded the same way: an issue or a delivered PR
 is off the backlog while a run on it is live, once a run concluded it
@@ -44,7 +42,8 @@ world on the PR or issue.
 The choice itself is the PM's: `heartbeat_decide` dispatches the standing
 conductor with the whole observation (backlog, delivered-but-unreviewed
 PRs, run history, capacity and spend) and gets back one action with a
-required rationale — journaled as a `heartbeat.decide` audit event. The PM
+required rationale — journaled as a `heartbeat.decide` audit event: scope
+the next slice, implement a ticket, review a pull request, or idle. The PM
 proposes and the platform disposes: the action set is closed, the target
 must come from the observation, `may_start` and the caps bind at
 validation and again at the compiled `heartbeat.start` decision. The PM
@@ -70,6 +69,7 @@ from orchestrator.workflows.base import (
 )
 from orchestrator.workflows.implement import ImplementInput
 from orchestrator.workflows.review import ReviewInput
+from orchestrator.workflows.scope import ScopeInput
 
 
 @dataclass
@@ -103,28 +103,23 @@ class HeartbeatWorkflow(RunWorkflow):
     @workflow.run
     async def run(self, input: HeartbeatInput) -> dict[str, Any]:
         self._woken = bool(input.pending_wake)
-        # Fail closed on the applied blueprint: no heartbeat section, no
-        # heartbeat — the loop completes and the ensure loop will only
-        # restart it once a section is applied again. The section carries
-        # the deployment's timeout profile for everything that follows.
+        # Fail closed on the applied blueprint: no company, no heartbeat —
+        # the loop completes, and the ensure loop restarts it only once a
+        # company is applied again. The section carries the deployment's
+        # timeout profile for everything that follows.
         config = await workflow.execute_activity(
             "heartbeat_config",
             start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
         if not config:
-            await self._record("stopped", "heartbeat_section_absent")
-            return {"stopped": "no heartbeat section in the applied blueprint"}
+            await self._record("stopped", "blueprint_absent")
+            return {"stopped": "no applied blueprint for the company"}
         self._bounds = Timeouts(**config["timeouts"])
         step = timedelta(seconds=self._bounds.step_s)
 
         outcome, rule = "idle", "nothing_startable"
         try:
-            if config.get("max_attempts") is None:
-                # An applied section from before the cap existed: refuse
-                # the tick by name rather than default a cap nobody wrote
-                # down. The next apply of a complete section resumes it.
-                raise _TickRefused("max_attempts_undeclared")
             observed = await workflow.execute_activity(
                 "heartbeat_observe",
                 args=[int(config["max_attempts"])],
@@ -143,12 +138,10 @@ class HeartbeatWorkflow(RunWorkflow):
                     "heartbeat_daily_cap",
                     "halted",
                 )
-            elif not observed["backlog"] and not observed["reviewable_prs"]:
+            elif not self._anything_startable(config, observed):
                 rule = "backlog_empty"
             else:
                 outcome, rule = await self._choose_and_start(input, config, observed)
-        except _TickRefused as refused:
-            outcome, rule = "refused", refused.rule
         except ActivityError as exc:
             # A refused or failed tick never kills the heartbeat; the
             # refusal is already audited where it happened, and the tick's
@@ -181,6 +174,16 @@ class HeartbeatWorkflow(RunWorkflow):
             )
         )
 
+    @staticmethod
+    def _anything_startable(config: dict[str, Any], observed: dict[str, Any]) -> bool:
+        """Whether the tick has anything to ask the PM about: a ticket to
+        implement, a delivered PR to review, or room to scope the next
+        slice. An empty world never wakes the PM."""
+        scope_open = "scope" in (config.get("may_start") or []) and int(
+            observed["open_tickets"]
+        ) < int(config["max_open_tickets"])
+        return bool(observed["backlog"] or observed["reviewable_prs"] or scope_open)
+
     async def _choose_and_start(
         self,
         input: HeartbeatInput,
@@ -198,7 +201,12 @@ class HeartbeatWorkflow(RunWorkflow):
         child_run_id = f"auto-{workflow.uuid4().hex[:8]}"
         decision = await workflow.execute_activity(
             "heartbeat_decide",
-            args=[child_run_id, observed, list(config.get("may_start") or [])],
+            args=[
+                child_run_id,
+                observed,
+                list(config.get("may_start") or []),
+                int(config["max_open_tickets"]),
+            ],
             start_to_close_timeout=timedelta(seconds=self._bounds.dispatch_s),
             schedule_to_close_timeout=timedelta(
                 seconds=self._bounds.dispatch_schedule_to_close_s
@@ -207,15 +215,22 @@ class HeartbeatWorkflow(RunWorkflow):
             heartbeat_timeout=timedelta(seconds=self._bounds.dispatch_heartbeat_s),
             retry_policy=DISPATCH_RETRY,
         )
-        if decision["action"] == "idle":
-            return "idle", "pm_chose_idle"
-        target = int(decision["target"])
         action = decision["action"]
+        if action == "idle":
+            return "idle", "pm_chose_idle"
+        target = decision.get("target")
         # The chosen item's prior attempts ride the policy input like the
         # other counts; the decide activity already confined the target
-        # to the observation, so the candidate is there.
-        candidates = observed["backlog" if action == "implement" else "reviewable_prs"]
-        attempts = next(int(c["attempts"]) for c in candidates if c["number"] == target)
+        # to the observation, so the candidate is there. A scope run works
+        # no item and carries no attempts.
+        attempts = 0
+        if action != "scope":
+            candidates = observed[
+                "backlog" if action == "implement" else "reviewable_prs"
+            ]
+            attempts = next(
+                int(c["attempts"]) for c in candidates if c["number"] == target
+            )
         # Policy first: the compiled heartbeat.start decision is the
         # authority on caps and startable workflows; a deny is audited by
         # the activity and ends the tick.
@@ -227,15 +242,18 @@ class HeartbeatWorkflow(RunWorkflow):
                 observed["active_runs"],
                 observed["daily_spent_usd"],
                 attempts,
+                observed["open_tickets"],
             ],
             start_to_close_timeout=step,
             retry_policy=STEP_RETRY,
         )
-        child: ImplementInput | ReviewInput = (
-            ImplementInput(run_id=child_run_id, issue_number=target)
-            if action == "implement"
-            else ReviewInput(run_id=child_run_id, pr_number=target)
-        )
+        child: ImplementInput | ReviewInput | ScopeInput
+        if action == "scope":
+            child = ScopeInput(run_id=child_run_id)
+        elif action == "implement":
+            child = ImplementInput(run_id=child_run_id, issue_number=int(target))
+        else:
+            child = ReviewInput(run_id=child_run_id, pr_number=int(target))
         await workflow.start_child_workflow(
             action,
             child,
@@ -244,7 +262,8 @@ class HeartbeatWorkflow(RunWorkflow):
             # supervise it — progress and gates belong to the run.
             parent_close_policy=ParentClosePolicy.ABANDON,
         )
-        return "started", f"{action}_{target}_as_{child_run_id}"
+        item = "" if action == "scope" else f"_{target}"
+        return "started", f"{action}{item}_as_{child_run_id}"
 
     async def _record(self, outcome: str, rule: str) -> None:
         await workflow.execute_activity(
@@ -253,12 +272,3 @@ class HeartbeatWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=STEP_RETRY,
         )
-
-
-class _TickRefused(Exception):
-    """Internal control flow: the tick declines to start anything, by a
-    named rule the tick record carries — the heartbeat keeps ticking."""
-
-    def __init__(self, rule: str) -> None:
-        super().__init__(rule)
-        self.rule = rule
