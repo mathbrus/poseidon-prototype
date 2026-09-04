@@ -90,7 +90,7 @@ class Harness:
         @activity.defn(name="heartbeat_bootstrap")
         async def heartbeat_bootstrap(names: list[str]) -> list[str]:
             harness.bootstrapped.append(names)
-            return [f"https://i/{n}" for n in names]
+            return list(names)
 
         @activity.defn(name="heartbeat_decide")
         async def heartbeat_decide(

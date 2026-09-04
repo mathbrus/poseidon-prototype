@@ -137,13 +137,19 @@ class HeartbeatWorkflow(RunWorkflow):
             )
             bootstrap = observed.get("bootstrap") or {}
             if bootstrap.get("pending"):
-                await workflow.execute_activity(
+                filed = await workflow.execute_activity(
                     "heartbeat_bootstrap",
                     args=[list(bootstrap["pending"])],
                     start_to_close_timeout=step,
                     retry_policy=STEP_RETRY,
                 )
-                rule = "bootstrap_filed:" + ",".join(bootstrap["pending"])
+                # The filing re-reads the documents; one that answered
+                # present since is not filed for and is read again next.
+                rule = (
+                    "bootstrap_filed:" + ",".join(filed)
+                    if filed
+                    else "bootstrap_present:" + ",".join(bootstrap["pending"])
+                )
                 # The ticket is the next tick's to offer: skip the wait.
                 self._woken = True
             elif bootstrap.get("exhausted"):

@@ -419,30 +419,40 @@ class HeartbeatActivities:
         """File the bootstrap ticket for each named absent document under
         the platform identity — the stewardship crew fulfils it on a later
         tick like any other ticket — and journal the filing. Returns the
-        ticket URLs.
+        names filed.
 
-        The git host lists a new issue a moment after creating it, and the
-        next tick — this one's own wake — reads that listing to see the
-        ticket already open. The filing therefore returns only once its
-        tickets are listed (bounded), so the loop cannot file twice."""
+        Absence is confirmed first: the git host's reads are eventually
+        consistent, and a document that answers present now (a delivery
+        merged since, a lagging read) is not filed for. And the host lists
+        a new issue a moment after creating it, while the next tick — this
+        one's own wake — reads that listing to see the ticket already open;
+        the filing therefore returns only once its tickets are listed
+        (bounded), so the loop cannot file twice."""
         paths = await asyncio.to_thread(
             company_documents, self._companies, self._settings.company
         )
-        repo = (await self._repo())["url"]
-        urls: list[str] = []
+        repo = await self._repo()
+        filed: list[str] = []
         numbers: set[int] = set()
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
+            documents = await read_documents(gateway, self._ledger_run_id(), repo, paths)
             for name in names:
+                if documents[name]["present"]:
+                    self._log.info(
+                        "document present on re-read; nothing filed",
+                        extra={"document": name},
+                    )
+                    continue
                 branch = f"feature/{name}-{secrets.token_hex(3)}"
                 issue = await gateway.create_issue(
                     self._ledger_run_id(),
-                    repo,
+                    repo["url"],
                     BOOTSTRAP_TITLES[name],
                     bootstrap_body(name, paths[name], branch),
                 )
-                urls.append(str(issue.get("url") or ""))
+                filed.append(name)
                 numbers.add(int(issue["number"]))
                 await self._emit(
                     run_id=self._ledger_run_id(),
@@ -452,16 +462,20 @@ class HeartbeatActivities:
                     rule=f"bootstrap_filed:{name}",
                 )
                 self._log.info("bootstrap ticket filed", extra={"document": name})
-            for _ in range(LISTING_SETTLE_POLLS):
-                listed = await gateway.read_open_issues(self._ledger_run_id(), repo)
+            for _ in range(LISTING_SETTLE_POLLS if numbers else 0):
+                listed = await gateway.read_open_issues(
+                    self._ledger_run_id(), repo["url"]
+                )
                 if numbers <= {int(i["number"]) for i in listed}:
                     break
                 await asyncio.sleep(LISTING_SETTLE_S)
             else:
-                self._log.warning(
-                    "bootstrap tickets not listed yet", extra={"numbers": sorted(numbers)}
-                )
-        return urls
+                if numbers:
+                    self._log.warning(
+                        "bootstrap tickets not listed yet",
+                        extra={"numbers": sorted(numbers)},
+                    )
+        return filed
 
     @activity.defn(name="heartbeat_decide")
     async def heartbeat_decide(
@@ -515,6 +529,11 @@ class HeartbeatActivities:
             problem = self._invalid_reason(
                 decision, observed, may_start, max_open_tickets
             )
+            if not problem and decision.get("action") == "implement":
+                # The listing the observation read may lag a closure by a
+                # beat; the ticket is read by number before a run is spent
+                # on it.
+                problem = await self._closed_ticket(run_id, int(decision["target"]))
             rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
             await self._emit(
                 run_id=self._ledger_run_id(),
@@ -538,6 +557,16 @@ class HeartbeatActivities:
             await asyncio.to_thread(
                 self._runs.finish, run_id, terminal, error=terminal_error
             )
+
+    async def _closed_ticket(self, run_id: str, number: int) -> str | None:
+        repo = (await self._repo())["url"]
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            issue = await gateway.read_issue(run_id, repo, number)
+        if issue.get("state") == "open":
+            return None
+        return f"ticket #{number} is {issue.get('state') or 'gone'}"
 
     @staticmethod
     def _invalid_reason(
