@@ -579,13 +579,34 @@ REPO_PRUNED: tuple[str, ...] = (
 
 
 @pytest.fixture(scope="session", autouse=True)
-def suite_blueprint(stack: None) -> None:
-    """The company the suite runs against: the pristine example on the
+def suite_blueprint(stack: None, repo_baseline: dict[str, str]) -> None:
+    """The company the suite runs against: the pristine profile on the
     suite's clock (`blueprints.suite_document`). The bootstrap applied the
-    example as written, whose gates wait a working day; the suite applies
-    it again with its own waits before the first test, so a module that
-    parks on a gate watches it escalate within a minute."""
+    example as written, whose gates wait a working day, and its heartbeat
+    has been working whatever the repository held since — a vision-only
+    repository gets its bootstrap tickets — so the suite starts from rest:
+    the baseline is seeded first (the fixture dependency), the campsite
+    swept, every run in flight allowed to end, and only then the pristine
+    profile applied with the suite's own waits, so a module that parks on
+    a gate watches it escalate within a minute."""
+    sweep_repo_debris(repo_baseline)
+    await_no_runs_in_flight()
     restore_pristine()
+
+
+def await_no_runs_in_flight(deadline_s: int = 1200) -> None:
+    """Block until the registry shows no non-terminal run — what a run the
+    standing heartbeat started before the suite owes it: an end."""
+    from .cluster import non_terminal_runs
+
+    deadline = time.monotonic() + deadline_s
+    while time.monotonic() < deadline:
+        if not non_terminal_runs():
+            return
+        time.sleep(5)
+    raise AssertionError(
+        f"runs still in flight after {deadline_s}s: {non_terminal_runs()}"
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
