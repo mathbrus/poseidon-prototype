@@ -59,7 +59,7 @@ from agent.hands import (
     ToolRecords,
     hands,
 )
-from agent.prompting import REPO_INSTRUCTIONS_FILE, repo_instructions, system_prompt
+from agent.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_context
 from common.telemetry import get_logger
 from common.topology import RUN_ID_HEADER
 
@@ -366,14 +366,21 @@ class Session:
 
 @contextmanager
 def _session(
-    settings: AgentSettings, run_id: str, procedure: str, tools: list[str], max_steps: int
+    settings: AgentSettings,
+    run_id: str,
+    procedure: str,
+    tools: list[str],
+    max_steps: int,
+    documents: dict[str, str] | None = None,
 ) -> Iterator[Session]:
     """One dispatch's machinery: a gateway session under the pod's own
     token, a scratch workspace, and an SDK conversation on the procedure's
     prompt and tool surface. A procedure that holds sandbox tools surveys the
     run's sandbox first, so the conversation opens knowing the tree and
-    the repository's instructions. The records capture every tool result;
-    the conversation is closed on the way out, whatever happened inside."""
+    the repository's instructions; the company's documents the dispatch
+    carries join them as untrusted context. The records capture every tool
+    result; the conversation is closed on the way out, whatever happened
+    inside."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
     llm = build_llm(settings, run_id, token)
@@ -390,7 +397,7 @@ def _session(
                 ctx,
                 scratch,
                 max_steps=max_steps,
-                agent_context=repo_instructions(workspace.instructions),
+                agent_context=untrusted_context(workspace.instructions, documents or {}),
             )
             try:
                 yield Session(convo, bridge, records, workspace)
@@ -412,14 +419,17 @@ def _completion(llm: LLM, system_prompt: str, user_text: str) -> str:
 
 
 def run_implement(
-    settings: AgentSettings, run_id: str, task_text: str
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """implement: the SDK loop acts (read/write/list/exec, never open_pr),
     the host runs the ADVISORY verify between turns, and advisory green
     ends the dispatch with a completion claim. The gate of record is the
     platform's own `sandbox.run_tests` in the implement workflow."""
     with _session(
-        settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP
+        settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP, documents
     ) as s:
         convo = s.convo
         convo.send_message(_act_prompt(task_text, s.workspace.entries))
@@ -451,7 +461,12 @@ def run_implement(
             convo.send_message(_test_report(result) + "\n\nFix the failures.")
 
 
-def run_deliver(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+def run_deliver(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
+) -> ProcedureResult:
     """deliver: the workflow-directed delivery, only ever dispatched after
     the platform verify gate passed. Commit the sandbox's work on the
     task's branch, bundle it, open the PR. A policy denial comes back as
@@ -477,7 +492,12 @@ def run_deliver(settings: AgentSettings, run_id: str, task_text: str) -> Procedu
     return ProcedureResult(pr_url=records.pr_url, iterations=1)
 
 
-def run_review(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+def run_review(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
+) -> ProcedureResult:
     """review: the ephemeral reviewer's dispatch: read the
     diff via git.read, execute the suite in the run's sandbox (provisioned
     from the PR ref), post findings via git.comment, and end with the
@@ -486,7 +506,9 @@ def run_review(settings: AgentSettings, run_id: str, task_text: str) -> Procedur
     only: no write_file, no open_pr, and the compiled reviewer scope enforces
     the same at the gateway. A dispatch without posted findings or without
     a verdict is a failed review."""
-    with _session(settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP) as s:
+    with _session(
+        settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP, documents
+    ) as s:
         convo, records = s.convo, s.records
         convo.send_message(f"Task:\n{task_text}")
         convo.run()
@@ -509,7 +531,12 @@ def run_review(settings: AgentSettings, run_id: str, task_text: str) -> Procedur
     )
 
 
-def run_scope(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+def run_scope(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
+) -> ProcedureResult:
     """scope: the PM reads the observation — the company's documents and
     the world as the heartbeat sees it — and files the next slice of work
     as tickets, leaving a one-paragraph summary as a comment on each; all
@@ -562,7 +589,12 @@ def parse_decision(text: str) -> dict[str, Any] | None:
     }
 
 
-def run_decide(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+def run_decide(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
+) -> ProcedureResult:
     """decide: the heartbeat's question. LLM-only — one
     completion, no tools, no gateway session: the observation in the task
     text is everything the PM may consider, and the platform validates the

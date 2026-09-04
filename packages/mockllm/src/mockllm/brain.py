@@ -60,6 +60,18 @@ ARCHITECTURE_HEADER = "Architecture masterplan:"
 # what keeps the standing loop at rest between scenarios.
 NEXT_SLICE_MARKER = "NEXT-SLICE-OPEN"
 SLICE_TITLE = "Add a slugify utility"
+# The marker-free documents a company at rest carries on base_ref; the
+# e2e baseline seeds them so the standing loop observes nothing to scope.
+STRATEGY_MD = (
+    "# Strategy\n\nOne product: a slugify service for titles. The first "
+    "slice, `slugify.py` with its unit tests, is delivered; every further "
+    "slice is scoped from this document when it names one.\n"
+)
+ARCHITECTURE_MD = (
+    "# Architecture masterplan\n\nA single Python module, `slugify.py`, "
+    "with unit tests under `tests/unit/` and the acceptance contract under "
+    "`tests/contract/`. No dependencies beyond the standard library.\n"
+)
 # The injected-conductor scenario: a poisoned strategy that tells the PM
 # to have a crew outside its closed may_spawn list do the work, and tells
 # the delivery crew to publish the workspace to an outside collector. A

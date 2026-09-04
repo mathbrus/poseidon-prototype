@@ -59,11 +59,18 @@ def runs() -> InMemoryRuns:
     return InMemoryRuns()
 
 
+DOCUMENTS = {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"}
+
+
 @pytest.fixture
 def companies() -> InMemoryCompanies:
     store = InMemoryCompanies()
     store.upsert(
-        COMPANY, {"repo": {"url": "github.com/example/repo", "base_ref": "main"}}
+        COMPANY,
+        {
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "documents": DOCUMENTS,
+        },
     )
     return store
 
@@ -109,9 +116,11 @@ def _backlog_gateway(
     fake_gateway,
     issues: list[dict[str, Any]],
     prs: dict[int, dict[str, Any]] | None = None,
+    files: dict[str, str] | None = None,
 ) -> list[tuple[str, int]]:
-    """The world as the gateway reports it: the open issues, and each PR's
-    live state by number (open unless `prs` says otherwise). Returns the
+    """The world as the gateway reports it: the open issues, each PR's
+    live state by number (open unless `prs` says otherwise), and the
+    documents present at base_ref (`files`, path to text). Returns the
     log of PR reads — (run_id, number) — so a test can assert under which
     identity the world was consulted."""
     import orchestrator.activities.heartbeat as module
@@ -125,10 +134,18 @@ def _backlog_gateway(
         reads.append((run_id, number))
         return (prs or {}).get(number) or _pr(number)
 
+    async def read_document(self, run_id, repo, ref, path):
+        text = (files or {}).get(path)
+        return {"present": text is not None, "text": text}
+
     monkeypatch.setattr(
         module,
         "GatewayClient",
-        fake_gateway(read_open_issues=read_open_issues, read_pr=read_pr),
+        fake_gateway(
+            read_open_issues=read_open_issues,
+            read_pr=read_pr,
+            read_document=read_document,
+        ),
     )
     return reads
 
@@ -208,6 +225,11 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
     assert [i["number"] for i in observed["backlog"]] == [5, 7]
     # The scoping cap reads every open issue, the worked one included.
     assert observed["open_tickets"] == 3
+    # Documents absent on base_ref are observed as absent, never as an error.
+    assert observed["documents"] == {
+        "strategy": {"path": "docs/STRATEGY.md", "present": False, "text": None},
+        "architecture": {"path": "docs/ARCHITECTURE.md", "present": False, "text": None},
+    }
     # Bodies are untrusted input; only number, title, URL and the attempt
     # count feed the tick.
     assert all(
@@ -383,10 +405,17 @@ def test_observe_skips_an_unreadable_delivered_pr(
             raise clients.GatewayError("GitHub GET /pulls/4 failed: 404")
         return _pr(number)
 
+    async def read_document(self, run_id, repo, ref, path):
+        return {"present": False, "text": None}
+
     monkeypatch.setattr(
         module,
         "GatewayClient",
-        fake_gateway(read_open_issues=read_open_issues, read_pr=read_pr),
+        fake_gateway(
+            read_open_issues=read_open_issues,
+            read_pr=read_pr,
+            read_document=read_document,
+        ),
     )
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
@@ -551,7 +580,7 @@ def _pm(monkeypatch, status: dict[str, Any]):
         async def __aexit__(self, *a):
             return False
 
-        async def dispatch(self, run_id, procedure, task_text):
+        async def dispatch(self, run_id, procedure, task_text, documents=None):
             FakeAgent.dispatched.append((run_id, procedure, task_text))
 
         async def status(self, run_id):
@@ -724,6 +753,14 @@ def test_decision_prompt_shape_is_the_contract_the_brains_parse():
         "active_runs": 0,
         "daily_spent_usd": 0.0,
         "open_tickets": 1,
+        "documents": {
+            "strategy": {"path": "docs/STRATEGY.md", "present": True, "text": "Ship."},
+            "architecture": {
+                "path": "docs/ARCHITECTURE.md",
+                "present": False,
+                "text": None,
+            },
+        },
         "backlog": [{"number": 5, "title": "Add slugify"}],
         "reviewable_prs": [],
         "recent_runs": [],
@@ -735,6 +772,8 @@ def test_decision_prompt_shape_is_the_contract_the_brains_parse():
         "Open tickets:",
         "Delivered pull requests awaiting review:",
         "Recent runs:",
+        "Strategy:\nShip.",
+        "Architecture masterplan:\n(absent)",
     ):
         assert header in prompt
     assert "DECISION: scope | implement #<n> | review #<n> | idle" in prompt
@@ -756,6 +795,7 @@ def test_scope_observation_reads_the_world_under_the_scope_run(
         COMPANY,
         {
             "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "documents": DOCUMENTS,
             "heartbeat": heartbeat_spec(),
         },
     )
@@ -764,3 +804,25 @@ def test_scope_observation_reads_the_world_under_the_scope_run(
     text = asyncio.run(activities.scope_observation("scope-1"))
     assert "Open tickets:\n#3 — issue 3" in text
     assert reads == [("scope-1", 4)]
+
+
+def test_the_observation_carries_the_documents_as_they_stand(
+    activities, companies, monkeypatch, fake_gateway
+):
+    """The strategy present on base_ref is rendered under its header; the
+    absent masterplan is stated absent — both after the three lists, so
+    a document line can never be read as a ticket."""
+    _backlog_gateway(
+        monkeypatch, fake_gateway, [], files={"docs/STRATEGY.md": "# Strategy\nShip."}
+    )
+    companies.upsert(
+        COMPANY,
+        {
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "documents": DOCUMENTS,
+            "heartbeat": heartbeat_spec(),
+        },
+    )
+    text = asyncio.run(activities.scope_observation("scope-2"))
+    assert text.index("Recent runs:") < text.index("Strategy:\n# Strategy\nShip.")
+    assert text.endswith("Architecture masterplan:\n(absent)")

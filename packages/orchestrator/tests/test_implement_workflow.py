@@ -39,6 +39,9 @@ class Harness:
     dispatch_hangs: bool = False
 
     dispatches: list[str] = field(default_factory=list)
+    # (procedure, documents) per dispatch: the implement dispatches carry
+    # the company's documents, delivery carries none.
+    carried: list[tuple[str, dict[str, str]]] = field(default_factory=list)
     torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
         default_factory=list
     )
@@ -93,11 +96,20 @@ class Harness:
                 },
             }
 
+        @activity.defn(name="read_documents")
+        async def read_documents(run_id: str) -> dict[str, str]:
+            return {"strategy": "Ship slugs."}
+
         @activity.defn(name="dispatch_agent")
         async def dispatch_agent(
-            run_id: str, url: str, procedure: str, task_text: str
+            run_id: str,
+            url: str,
+            procedure: str,
+            task_text: str,
+            documents: dict[str, str],
         ) -> dict[str, Any]:
             harness.dispatches.append(procedure)
+            harness.carried.append((procedure, documents))
             while harness.dispatch_hangs:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
@@ -141,6 +153,7 @@ class Harness:
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
+            read_documents,
             dispatch_agent,
             platform_verify,
             record_attempts_exhausted,
@@ -191,6 +204,12 @@ async def test_a_delivered_run_concluded_its_issue(env):
     record = await run_implement(env.client, harness)
     assert record["status"] == "done" and record["pr_url"] == PR_URL
     assert harness.dispatches == ["implement", "deliver"]
+    # The documents ride the implement dispatch as untrusted context and
+    # never the delivery, which only ships what was verified.
+    assert harness.carried == [
+        ("implement", {"strategy": "Ship slugs."}),
+        ("deliver", {}),
+    ]
     assert harness.attempts_recorded == []
     assert harness.wakes == 1  # the delivered PR is the heartbeat's to offer
 

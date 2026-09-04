@@ -86,7 +86,11 @@ def compile_blueprint(
     namespace = company
     repo = Repo(**blueprint["stack"]["repo"])
     company_cr = CompanyCR(
-        name=company, namespace=namespace, vision=company_section["vision"], repo=repo
+        name=company,
+        namespace=namespace,
+        vision=company_section["vision"],
+        repo=repo,
+        documents=dict(sorted(company_section["documents"].items())),
     )
 
     scopes = blueprint.get("tools") or {}

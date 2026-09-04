@@ -34,6 +34,15 @@ prompt, so the PM decides and scopes, and every crew implements and
 reviews, knowing what the company is for — and nobody in the company can
 change it. Applying the blueprint again is the only way it changes.
 
+`company.documents` names where, in that repository, the company keeps
+the two documents it writes for itself: the **strategy**, written once from
+the vision by the steward and then changed by no current role, and the
+**architecture masterplan**, written at bootstrap and revised only through
+architecture requests. The platform reads both at `base_ref` before every
+tick and every run and hands them to the conductor and the crews as
+untrusted text; a document absent on `base_ref` is what the first ticks
+exist to write, never an error.
+
 `stack.repo` is the company's subject: the one repository every run works
 on, and the branch (`base_ref`) changes are diffed and delivered against.
 It compiles into a `repo_not_declared` deny, so a tool call naming any

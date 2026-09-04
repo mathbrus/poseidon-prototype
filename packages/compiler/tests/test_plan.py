@@ -129,6 +129,14 @@ def test_heartbeat_compiles_into_plan_and_bundle(blueprint):
     assert plan.as_dict()["heartbeat"]["may_start"] == ["implement", "review", "scope"]
 
 
+def test_the_company_carries_its_document_paths(blueprint):
+    plan = compile_blueprint(blueprint)
+    assert plan.company.documents == {
+        "architecture": "docs/ARCHITECTURE.md",
+        "strategy": "docs/STRATEGY.md",
+    }
+
+
 def test_workflow_nodes_carry_no_conductor(blueprint):
     """One conductor, named on the heartbeat: a workflow node is its crew,
     bounds and gates."""

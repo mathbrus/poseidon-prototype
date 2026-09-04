@@ -36,9 +36,12 @@ def app_for(role: str, **runners):
     return create_app(settings=settings_for(role), runners=runners)
 
 
-async def post(http: httpx.AsyncClient, procedure: str, task_text: str) -> httpx.Response:
+async def post(
+    http: httpx.AsyncClient, procedure: str, task_text: str, **extra
+) -> httpx.Response:
     return await http.post(
-        "/task", json={"run_id": RUN_ID, "procedure": procedure, "task_text": task_text}
+        "/task",
+        json={"run_id": RUN_ID, "procedure": procedure, "task_text": task_text, **extra},
     )
 
 
@@ -56,13 +59,13 @@ async def test_task_lifecycle_running_then_done():
     release = asyncio.Event()
     seen: list[tuple[str, str]] = []
 
-    async def runner(run_id: str, task_text: str) -> ProcedureResult:
-        seen.append((run_id, task_text))
+    async def runner(run_id: str, task_text: str, documents: dict) -> ProcedureResult:
+        seen.append((run_id, task_text, documents))
         await release.wait()
         return ProcedureResult(pr_url="https://github.test/pull/1", iterations=2)
 
     async with client(app_for("implementer", implement=runner)) as http:
-        resp = await post(http, "implement", "do it")
+        resp = await post(http, "implement", "do it", documents={"strategy": "Ship."})
         assert resp.status_code == 202
 
         resp = await http.get(f"/task/{RUN_ID}")
@@ -92,11 +95,13 @@ async def test_task_lifecycle_running_then_done():
         "verdict_summary": None,
         "decision": None,
     }
-    assert seen == [(RUN_ID, "do it")]
+    # The documents reach the runner by name; a dispatch without any
+    # carries an empty mapping, never a missing field.
+    assert seen == [(RUN_ID, "do it", {"strategy": "Ship."})]
 
 
 async def test_procedure_result_error_maps_to_failed():
-    async def runner(run_id: str, task_text: str) -> ProcedureResult:
+    async def runner(run_id: str, task_text: str, documents: dict) -> ProcedureResult:
         return ProcedureResult(
             iterations=3, error="tests still failing after 3 iterations"
         )
@@ -111,7 +116,7 @@ async def test_procedure_result_error_maps_to_failed():
 
 
 async def test_runner_crash_maps_to_failed():
-    async def runner(run_id: str, task_text: str) -> ProcedureResult:
+    async def runner(run_id: str, task_text: str, documents: dict) -> ProcedureResult:
         raise RuntimeError("gateway unreachable")
 
     async with client(app_for("implementer", implement=runner)) as http:
@@ -131,7 +136,7 @@ async def test_unknown_run_is_404():
 async def test_duplicate_run_id_is_409():
     started = asyncio.Event()
 
-    async def runner(run_id: str, task_text: str) -> ProcedureResult:
+    async def runner(run_id: str, task_text: str, documents: dict) -> ProcedureResult:
         await started.wait()
         return ProcedureResult(pr_url="https://pr", iterations=1)
 
@@ -151,7 +156,7 @@ async def test_terminal_run_restarts_on_redispatch():
     would otherwise poll the stale failure forever."""
     attempts: list[str] = []
 
-    async def runner(run_id: str, task_text: str) -> ProcedureResult:
+    async def runner(run_id: str, task_text: str, documents: dict) -> ProcedureResult:
         attempts.append(task_text)
         if len(attempts) == 1:
             return ProcedureResult(error="budget_exhausted: cap reached")
@@ -174,7 +179,7 @@ async def test_terminal_run_restarts_on_redispatch():
 async def test_running_run_still_answers_409():
     release = asyncio.Event()
 
-    async def runner(run_id: str, task_text: str) -> ProcedureResult:
+    async def runner(run_id: str, task_text: str, documents: dict) -> ProcedureResult:
         await release.wait()
         return ProcedureResult()
 
@@ -192,7 +197,7 @@ async def test_a_role_runs_only_its_own_procedures():
     gateway's tool policy is the boundary; this is the host declining to
     start a loop it could never finish."""
 
-    async def never(run_id: str, task_text: str) -> ProcedureResult:
+    async def never(run_id: str, task_text: str, documents: dict) -> ProcedureResult:
         raise AssertionError("a refused procedure must never run")
 
     async with client(app_for("pm", implement=never, decide=never)) as http:
@@ -220,7 +225,7 @@ async def test_review_verdict_flows_through_the_status_api():
     dropped verdict fails every policy- and human-gated merge with
     'reviewer finished without a verdict'."""
 
-    async def fake_review(run_id, task_text):
+    async def fake_review(run_id, task_text, documents):
         return ProcedureResult(
             comment_urls=["https://pr/1#c-1"],
             verdict="pass",

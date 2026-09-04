@@ -27,6 +27,7 @@ from agent.procedures import (
     run_review,
     run_scope,
 )
+from agent.prompting import system_prompt
 
 TASK = "Add a `greet(name)` function to src/hello.py with a test."
 
@@ -537,12 +538,31 @@ def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
     assert "<EFFICIENCY>" not in system
 
 
+def test_the_documents_are_untrusted_context_for_implement_and_review(settings, gateway):
+    """The company's documents the dispatch carries render in the system
+    message's untrusted block beside AGENTS.md, under the name the model
+    knows them by — after the static prompt, never inside it."""
+    documents = {"strategy": "STRATEGY-TEXT-4471", "architecture": "MASTERPLAN-TEXT-9931"}
+    llm = ScriptedLLM([says("nothing to do")])
+    with scripted(gateway, llm):
+        run_implement(settings, RUN_ID, TASK, documents)
+    system = text_of(llm.requests[0][0][0])
+    static = system_prompt("implement", settings, "mock-brain")
+    assert system.startswith(static.rstrip())
+    assert "STRATEGY-TEXT-4471" in system and "MASTERPLAN-TEXT-9931" in system
+    assert "architecture masterplan" in system
+    assert "STRATEGY-TEXT-4471" not in static
+
+    llm = ScriptedLLM([says("nothing to do")])
+    with scripted(gateway, llm):
+        run_implement(settings, RUN_ID, TASK)
+    assert "STRATEGY-TEXT-4471" not in text_of(llm.requests[0][0][0])
+
+
 def test_the_vision_reaches_every_procedure_but_deliver(settings):
     """The vision rides the static prompt — the trusted channel — into
     every procedure that judges what is worth doing; delivery only ships
     what was already verified and reads none of it."""
-    from agent.prompting import system_prompt
-
     for procedure in ("scope", "decide", "implement", "review"):
         assert settings.vision in system_prompt(procedure, settings, "mock-brain")
     assert settings.vision not in system_prompt("deliver", settings, "mock-brain")

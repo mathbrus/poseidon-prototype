@@ -46,6 +46,11 @@ from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
 from orchestrator.activities.blueprint import company_repo, conductor
+from orchestrator.activities.documents import (
+    company_documents,
+    read_documents,
+    sections,
+)
 from orchestrator.audit import record_event
 from orchestrator.clients import (
     GatewayClient,
@@ -98,9 +103,10 @@ def _section(header: str, lines: list[str]) -> str:
 
 
 def _world(observed: dict[str, Any]) -> list[str]:
-    """The observation's sections, composed the same way for every reader.
-    The mock brain parses these section headers and the agent host's tests
-    mirror them, so changing one is changing a contract —
+    """The observation's sections, composed the same way for every reader:
+    the three lists, then the company's documents as they stand on
+    `base_ref`. The mock brain parses these section headers and the agent
+    host's tests mirror them, so changing one is changing a contract —
     `test_heartbeat_activities` pins the shape."""
     tickets = [f"#{i['number']} — {i['title']}" for i in observed.get("backlog") or []]
     prs = [f"#{p['number']} — {p['url']}" for p in observed.get("reviewable_prs") or []]
@@ -112,6 +118,7 @@ def _world(observed: dict[str, Any]) -> list[str]:
         _section("Open tickets:", tickets),
         _section("Delivered pull requests awaiting review:", prs),
         _section("Recent runs:", runs),
+        *sections(observed.get("documents") or {}),
     ]
 
 
@@ -204,8 +211,9 @@ class HeartbeatActivities:
         """The PM's whole decision basis: in-flight runs, today's spend
         and the run history from the registry; the unconsumed open backlog
         and the delivered-but-unreviewed PRs as the candidate actions; the
-        raw open-issue count the scoping cap reads. Read under the
-        platform identity, like every platform read.
+        raw open-issue count the scoping cap reads; and the company's
+        documents as they stand on `base_ref`. Read under the platform
+        identity, like every platform read.
 
         Consumption is `consumed`: an item with a live run, a concluded
         run, or `max_attempts` runs on it is not offered; one whose runs
@@ -253,14 +261,18 @@ class HeartbeatActivities:
             read
         )
         reviewable = []
-        repo = (await self._repo())["url"]
+        repo = await self._repo()
+        paths = await asyncio.to_thread(
+            company_documents, self._companies, self._settings.company
+        )
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            open_issues = await gateway.read_open_issues(run_id, repo)
+            documents = await read_documents(gateway, run_id, repo, paths)
+            open_issues = await gateway.read_open_issues(run_id, repo["url"])
             for candidate in delivered:
                 try:
-                    pr = await gateway.read_pr(run_id, repo, candidate["number"])
+                    pr = await gateway.read_pr(run_id, repo["url"], candidate["number"])
                 except GatewayError as exc:
                     # One unreadable candidate must not blind the whole
                     # tick: skip it like a settled one — not offered now,
@@ -302,6 +314,7 @@ class HeartbeatActivities:
             # Every open issue, worked or not: the backlog the scoping cap
             # bounds is what the repository shows, not what is startable.
             "open_tickets": len(open_issues),
+            "documents": documents,
             "backlog": backlog,
             "reviewable_prs": reviewable,
             "recent_runs": [

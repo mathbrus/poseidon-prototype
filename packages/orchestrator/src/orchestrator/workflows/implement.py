@@ -156,6 +156,10 @@ class ImplementWorkflow(RunWorkflow):
                 input.run_id, config, crew=ticket_crew(task_source)
             )
 
+            # The company's documents ride the implement dispatches as
+            # untrusted context — the base_ref copy, read by the platform,
+            # never the sandbox's. Delivery reads none of them.
+            documents = await self.read_documents(input.run_id)
             # Implement to a completion claim; the platform verify gate is
             # the gate of record. Red feeds back, bounded by the blueprint.
             verify_failures = 0
@@ -163,7 +167,7 @@ class ImplementWorkflow(RunWorkflow):
             verified = False
             while True:
                 result = await self.dispatch(
-                    input.run_id, implementer["url"], "implement", task_text
+                    input.run_id, implementer["url"], "implement", task_text, documents
                 )
                 if (result or {}).get("error"):
                     break

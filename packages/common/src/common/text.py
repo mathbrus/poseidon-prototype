@@ -1,6 +1,19 @@
-"""Text shapes the sandbox and the agent host must agree on."""
+"""Text shapes more than one component must agree on."""
 
 from collections.abc import Iterable
+
+# The most of one untrusted text — a repository document, the sandbox's
+# AGENTS.md — that reaches a model. Bounded because a file can be
+# anything; the same bound on both sides so what the observation shows
+# and what a crew reads are the same picture.
+UNTRUSTED_CLIP = 8000
+
+
+def clip(text: str, limit: int = UNTRUSTED_CLIP) -> str:
+    """The head of `text`, with a marker saying how much was dropped."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n[... {len(text) - limit} chars clipped ...]\n"
 
 
 def numbered_lines(lines: Iterable[str], first: int = 1) -> str:

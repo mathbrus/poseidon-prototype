@@ -39,6 +39,7 @@ JOB_HANDLE = {
 APPLIED_SPEC = {
     "namespace": "hello-saas",
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+    "documents": {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"},
     "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
     "contractTests": {"paths": ["tests/contract", "tests/acceptance"]},
     "heartbeat": {"conductor": "pm", "max_attempts": 2},
@@ -251,6 +252,31 @@ def test_workflow_config_fails_closed_without_a_conductor_instance(
 
 
 # -- record_gate_outcome ------------------------------------------------------
+
+
+def test_read_documents_hands_a_run_the_present_ones(
+    activities, monkeypatch, fake_gateway
+):
+    """A dispatch carries the documents present on base_ref by name, read
+    under the run's own id — the base_ref copy, never a sandbox's."""
+    import orchestrator.activities.run as module
+
+    reads = []
+
+    async def read_document(self, run_id, repo, ref, path):
+        reads.append((run_id, repo, ref, path))
+        present = path == "docs/STRATEGY.md"
+        return {"present": present, "text": "Ship slugs." if present else None}
+
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(read_document=read_document)
+    )
+    documents = asyncio.run(activities.read_documents(RUN_ID))
+    assert documents == {"strategy": "Ship slugs."}
+    assert reads == [
+        (RUN_ID, "github.com/example/repo", "main", "docs/STRATEGY.md"),
+        (RUN_ID, "github.com/example/repo", "main", "docs/ARCHITECTURE.md"),
+    ]
 
 
 def test_gate_outcomes_are_process_gate_audit_events(activities, audit):

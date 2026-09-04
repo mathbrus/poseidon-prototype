@@ -130,4 +130,61 @@ def contract_tests_problems(document: Any) -> list[str]:
     return problems
 
 
-__all__ = ["UNDELEGATABLE_PATHS", "contract_tests_problems", "merge_gate_problems"]
+def document_paths(document: Any) -> dict[str, str]:
+    """The company's document paths by name, tolerant of malformed values."""
+    section = (document.get("company") or {}).get("documents")
+    return (
+        {k: v for k, v in section.items() if isinstance(v, str)}
+        if isinstance(section, dict)
+        else {}
+    )
+
+
+def document_problems(document: Any) -> list[str]:
+    """Document-level coherence of the company's document paths, the
+    contract-tree posture: two documents cannot share a path, and a path
+    no PR may touch is a document nobody could ever write."""
+    if not isinstance(document, dict):
+        return []
+    problems = []
+    paths = document_paths(document)
+    if len(set(paths.values())) < len(paths):
+        problems.append(
+            "company.documents: the strategy and the architecture masterplan "
+            "need distinct paths"
+        )
+    deny_paths = [
+        p
+        for p in (document.get("policies") or {}).get("deny_paths") or []
+        if isinstance(p, str)
+    ]
+    contract_paths = _contract_paths(document)
+    for name, path in paths.items():
+        if ".." in path.split("/"):
+            problems.append(
+                f"company.documents.{name}: {path!r} must stay inside the repository"
+            )
+        for denied in deny_paths:
+            if _overlaps(path, denied):
+                problems.append(
+                    f"company.documents.{name}: {path!r} overlaps policies.deny_paths "
+                    f"entry {denied!r} — no PR may touch it, so the steward could "
+                    f"never write the document"
+                )
+        for contract in contract_paths:
+            if _overlaps(path, contract):
+                problems.append(
+                    f"company.documents.{name}: {path!r} overlaps policies.contract_tests "
+                    f"entry {contract!r} — a document is not a test the company is "
+                    f"graded by"
+                )
+    return problems
+
+
+__all__ = [
+    "UNDELEGATABLE_PATHS",
+    "contract_tests_problems",
+    "document_paths",
+    "document_problems",
+    "merge_gate_problems",
+]

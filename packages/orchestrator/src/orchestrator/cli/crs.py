@@ -43,6 +43,7 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
                 "url": plan.company.repo.url,
                 "base_ref": plan.company.repo.base_ref,
             },
+            "documents": dict(plan.company.documents),
             "policyBundle": plan.bundle.files,
             # Compiler-owned and identical from every blueprint; riding the
             # CR keeps the operator the only bundle writer. Every

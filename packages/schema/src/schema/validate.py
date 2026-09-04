@@ -25,7 +25,7 @@ from schema.coherence import (
     hire_problems,
     tool_scope_problems,
 )
-from schema.gates import contract_tests_problems, merge_gate_problems
+from schema.gates import contract_tests_problems, document_problems, merge_gate_problems
 from schema.tools import KNOWN_TOOLS
 
 
@@ -96,6 +96,7 @@ def validate_blueprint(document: Any) -> dict[str, Any]:
         + _catalog_problems(document)
         + merge_gate_problems(document)
         + contract_tests_problems(document)
+        + document_problems(document)
     )
     if problems:
         raise ValidationError(problems)

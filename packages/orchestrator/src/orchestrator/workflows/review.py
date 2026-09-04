@@ -377,16 +377,17 @@ class ReviewWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
-            # Process-initiated: the workflow records the review crew
-            # request under the conductor's authority — same crew_requests
-            # row, same compiled may_spawn decision an agent-issued request
-            # faces.
+            # The review crew is fulfilled under the conductor's authority
+            # — the compiled crew.request decision, evaluated as the
+            # conductor — and reads the company's documents as they stand
+            # on base_ref, untrusted like the diff itself.
             reviewer = await self.fulfill(input.run_id, config)
             result = await self.dispatch(
                 input.run_id,
                 reviewer["url"],
                 "review",
                 review_task(input.pr_number, pr["title"], pr["url"]),
+                await self.read_documents(input.run_id),
             )
             if (result or {}).get("error"):
                 raise _ReviewOver()

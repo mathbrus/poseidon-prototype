@@ -189,6 +189,16 @@ class RunWorkflow:
         (agent,) = fulfilled["agents"].values()
         return agent
 
+    async def read_documents(self, run_id: str) -> dict[str, str]:
+        """The company's documents as they stand on `base_ref`, read under
+        the run's id for the dispatches that judge work against them."""
+        return await workflow.execute_activity(
+            "read_documents",
+            args=[run_id],
+            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+            retry_policy=STEP_RETRY,
+        )
+
     async def teardown(
         self,
         run_id: str,
@@ -247,7 +257,12 @@ class RunWorkflow:
             workflow.logger.info("heartbeat wake failed; the reconcile timer covers it")
 
     async def dispatch(
-        self, run_id: str, url: str, procedure: str, task_text: str
+        self,
+        run_id: str,
+        url: str,
+        procedure: str,
+        task_text: str,
+        documents: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """One agent dispatch, budget-pause aware: a `budget_exhausted`
         result parks the workflow on the `budget` signal in an API-visible
@@ -255,11 +270,13 @@ class RunWorkflow:
         approval (the cap was raised) re-dispatches the same text, anything
         else returns the budget-marked result for teardown to finalize.
         Escalation and verdict are process-gate audit events, like the
-        merge gate's — one Gate spine, one audit contract."""
+        merge gate's — one Gate spine, one audit contract. `documents` are
+        the company's documents the procedure reads as untrusted context;
+        a procedure that judges nothing (deliver) carries none."""
         while True:
             result = await workflow.execute_activity(
                 "dispatch_agent",
-                args=[run_id, url, procedure, task_text],
+                args=[run_id, url, procedure, task_text, documents or {}],
                 start_to_close_timeout=timedelta(seconds=self._bounds.dispatch_s),
                 schedule_to_close_timeout=timedelta(
                     seconds=self._bounds.dispatch_schedule_to_close_s

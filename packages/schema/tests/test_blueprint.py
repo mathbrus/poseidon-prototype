@@ -351,6 +351,47 @@ def test_scope_has_no_workflow_node(blueprint):
     assert any("workflows" in p and "scope" in p for p in problems_of(blueprint))
 
 
+# -- the documents -------------------------------------------------
+
+
+def test_documents_are_required(blueprint):
+    """The company writes its strategy and its architecture masterplan
+    for itself; the blueprint names where, and names both."""
+    del blueprint["company"]["documents"]["architecture"]
+    assert any("architecture" in p for p in problems_of(blueprint))
+    del blueprint["company"]["documents"]
+    assert any("documents" in p for p in problems_of(blueprint))
+
+
+def test_document_paths_are_distinct_and_inside_the_repository(blueprint):
+    blueprint["company"]["documents"]["architecture"] = "docs/STRATEGY.md"
+    assert any("distinct" in p for p in problems_of(blueprint))
+    blueprint["company"]["documents"]["architecture"] = "../ARCHITECTURE.md"
+    assert any("inside the repository" in p for p in problems_of(blueprint))
+    blueprint["company"]["documents"]["architecture"] = "/etc/ARCHITECTURE.md"
+    assert any("company.documents.architecture" in p for p in problems_of(blueprint))
+
+
+def test_a_document_under_a_deny_path_is_refused(blueprint):
+    """A path no PR may touch is a document nobody could ever write."""
+    blueprint["policies"]["deny_paths"] = [".github/workflows/", "docs/"]
+    assert any(
+        "company.documents.strategy" in p and "deny_paths" in p
+        for p in problems_of(blueprint)
+    )
+
+
+def test_a_document_inside_the_contract_tree_is_refused(blueprint):
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["docs/"],
+        "roles": ["contract-author"],
+    }
+    assert any(
+        "company.documents.strategy" in p and "contract_tests" in p
+        for p in problems_of(blueprint)
+    )
+
+
 # -- the heartbeat -------------------------------------------------
 
 

@@ -32,7 +32,7 @@ from schema.coherence import (
     hire_problems,
     tool_scope_problems,
 )
-from schema.gates import contract_tests_problems, merge_gate_problems
+from schema.gates import contract_tests_problems, document_problems, merge_gate_problems
 
 
 def check(
@@ -66,6 +66,7 @@ def check(
     # delegation validate_blueprint would have refused.
     problems += merge_gate_problems(blueprint)
     problems += contract_tests_problems(blueprint)
+    problems += document_problems(blueprint)
     return problems
 
 

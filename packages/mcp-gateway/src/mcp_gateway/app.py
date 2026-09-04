@@ -273,6 +273,16 @@ def create_app(
             identity_of(ctx), run_id, repo, ref, overlay_ref, overlay_paths
         )
 
+    @mcp.tool(name="repo.read_file")
+    async def repo_read_file(
+        run_id: str, repo: str, ref: str, path: str, ctx: Context
+    ) -> dict[str, Any]:
+        """One file of the repository at `ref`, as the git host holds it —
+        `{present, text}`. Platform lifecycle only: how the orchestrator
+        reads the company's documents at `base_ref`, never from a sandbox
+        a run could have edited."""
+        return await service.read_file(identity_of(ctx), run_id, repo, ref, path)
+
     @mcp.tool(name="git.open_pr")
     async def git_open_pr(
         run_id: str,

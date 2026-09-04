@@ -166,6 +166,53 @@ async def test_reviewer_cannot_merge_or_open_issues(app, participants):
     assert merge.isError and create.isError
 
 
+# -- repo.read_file (platform only) ------------------------------------------
+
+
+async def test_reading_a_document_is_platform_only(app, backends, audit):
+    """The company's documents are read at base_ref by the platform —
+    present or honestly absent — and by nobody in the company."""
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        strategy = payload(
+            await session.call_tool(
+                "repo.read_file",
+                {
+                    "run_id": RUN_ID,
+                    "repo": REPO,
+                    "ref": "main",
+                    "path": "docs/STRATEGY.md",
+                },
+            )
+        )
+        masterplan = payload(
+            await session.call_tool(
+                "repo.read_file",
+                {
+                    "run_id": RUN_ID,
+                    "repo": REPO,
+                    "ref": "main",
+                    "path": "docs/ARCHITECTURE.md",
+                },
+            )
+        )
+    assert strategy == {"present": True, "text": "# Strategy\n\nShip slugs.\n"}
+    assert masterplan == {"present": False, "text": None}
+    assert backends.github_calls[-1][0].endswith("/contents/docs/ARCHITECTURE.md")
+
+    for token in (PM_TOKEN, AGENT_TOKEN):
+        async with mcp_session(app, token) as session:
+            result = await session.call_tool(
+                "repo.read_file",
+                {
+                    "run_id": RUN_ID,
+                    "repo": REPO,
+                    "ref": "main",
+                    "path": "docs/STRATEGY.md",
+                },
+            )
+        assert result.isError, "a company role read a document through the platform"
+
+
 # -- git.merge_pr (platform only) -------------------------------------------
 
 

@@ -110,6 +110,7 @@ class Backends:
                 return {"allow": False, "rule": "default_deny"}
             if tool in (
                 "repo.archive",
+                "repo.read_file",
                 "/admin/sandboxes",
                 "/admin/sandboxes.delete",
                 "sandbox.run_tests",
@@ -231,6 +232,15 @@ class Backends:
                     200, json=issue(number=8, pull_request={"url": "x"})
                 )
             return httpx.Response(200, json=issue())
+        if method == "GET" and "/contents/" in path:
+            # The company's documents at base_ref: the strategy exists,
+            # anything else does not.
+            if path.endswith("/contents/docs/STRATEGY.md"):
+                content = base64.b64encode(b"# Strategy\n\nShip slugs.\n").decode()
+                return httpx.Response(
+                    200, json={"type": "file", "encoding": "base64", "content": content}
+                )
+            return httpx.Response(404, json={"message": "Not Found"})
         if method == "GET" and path.endswith("/files"):
             return httpx.Response(
                 200,

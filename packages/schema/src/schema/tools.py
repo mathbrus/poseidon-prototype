@@ -19,8 +19,10 @@ GIT_TOOLS = ["git.open_pr"]
 
 ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment"]
 REVIEW_TOOLS = ["git.read", "git.comment"]
-# Platform lifecycle only: the orchestrator calls it after the gate.
-PLATFORM_TOOLS = ["git.merge_pr"]
+# Platform lifecycle only: the merge the orchestrator performs after the
+# gate, and the read of the company's documents at `base_ref` before every
+# tick and every run — never the sandbox's copy.
+PLATFORM_TOOLS = ["git.merge_pr", "repo.read_file"]
 
 KNOWN_TOOLS = frozenset(
     SANDBOX_TOOLS + REPO_TOOLS + GIT_TOOLS + ISSUE_TOOLS + REVIEW_TOOLS + PLATFORM_TOOLS

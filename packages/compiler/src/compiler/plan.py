@@ -27,6 +27,9 @@ class CompanyCR:
     namespace: str
     vision: str
     repo: Repo
+    # The company's document paths in the repository, by name: what the
+    # platform reads at `base_ref` before every tick and every run.
+    documents: dict[str, str]
 
 
 @dataclass(frozen=True)

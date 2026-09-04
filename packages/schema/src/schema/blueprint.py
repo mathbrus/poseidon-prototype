@@ -26,17 +26,31 @@ _TOOL_LIST = {
     "uniqueItems": True,
 }
 
-# The company's name and its vision — the one text a human writes. The
-# vision reaches every procedure but `deliver` through the static prompt
-# and changes only when the blueprint is applied again; the cap keeps it
-# a charter, not a specification.
+# A path inside the company's repository, relative to its root.
+_REPO_PATH = {"type": "string", "minLength": 1, "pattern": r"^[^\s/][^\s]*$"}
+
+# The company's name, its vision — the one text a human writes — and the
+# paths of the two documents the company writes for itself. The vision
+# reaches every procedure but `deliver` through the static prompt and
+# changes only when the blueprint is applied again; the cap keeps it a
+# charter, not a specification. The documents live in the repository at
+# `base_ref`: the strategy the steward writes once from the vision, and
+# the architecture masterplan it writes at bootstrap and revises on
+# request. Absence on `base_ref` is not a schema matter — it is what the
+# first ticks are for.
 _COMPANY = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["name", "vision"],
+    "required": ["name", "vision", "documents"],
     "properties": {
         "name": _NAME,
         "vision": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "documents": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["strategy", "architecture"],
+            "properties": {"strategy": _REPO_PATH, "architecture": _REPO_PATH},
+        },
     },
 }
 

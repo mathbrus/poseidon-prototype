@@ -1,7 +1,7 @@
 """The agent's dispatch HTTP API.
 
-POST /task {run_id, procedure, task_text} -> 202, runs the procedure in a
-background task (one concurrent run per host);
+POST /task {run_id, procedure, task_text, documents} -> 202, runs the
+procedure in a background task (one concurrent run per host);
 GET /task/{run_id} -> {status, pr_url, iterations, error, ...} — every
 field of the `ProcedureResult`.
 
@@ -28,13 +28,17 @@ from common.telemetry import get_logger
 from schema.catalog import ROLES
 
 Procedure = Literal["scope", "decide", "implement", "deliver", "review"]
-Runner = Callable[[str, str], Awaitable[ProcedureResult]]
+Runner = Callable[[str, str, dict[str, str]], Awaitable[ProcedureResult]]
 
 
 class TaskRequest(BaseModel):
     run_id: str
     procedure: Procedure
     task_text: str
+    # The company's documents by name, as the platform read them at
+    # base_ref: untrusted context beside the task, empty for a procedure
+    # that judges nothing.
+    documents: dict[str, str] = {}
 
 
 class TaskStatus(ProcedureResult):
@@ -63,10 +67,12 @@ def create_app(
     # The procedures are synchronous (the SDK conversation loop is
     # blocking); each dispatch runs on a worker thread.
     def in_thread(
-        run: Callable[[AgentSettings, str, str], ProcedureResult],
+        run: Callable[[AgentSettings, str, str, dict[str, str]], ProcedureResult],
     ) -> Runner:
-        async def runner(run_id: str, task_text: str) -> ProcedureResult:
-            return await asyncio.to_thread(run, _settings(), run_id, task_text)
+        async def runner(
+            run_id: str, task_text: str, documents: dict[str, str]
+        ) -> ProcedureResult:
+            return await asyncio.to_thread(run, _settings(), run_id, task_text, documents)
 
         return runner
 
@@ -89,7 +95,7 @@ def create_app(
         run_log = log.bind(run_id=run_id, role=_settings().role)
         try:
             result = await runner_by_procedure[request.procedure](
-                run_id, request.task_text
+                run_id, request.task_text, request.documents
             )
         except Exception as exc:
             run_log.exception("task crashed")

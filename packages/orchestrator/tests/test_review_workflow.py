@@ -183,9 +183,17 @@ class Harness:
                 },
             }
 
+        @activity.defn(name="read_documents")
+        async def read_documents(run_id: str) -> dict[str, str]:
+            return {"strategy": "Ship slugs."}
+
         @activity.defn(name="dispatch_agent")
         async def dispatch_agent(
-            run_id: str, url: str, procedure: str, task_text: str
+            run_id: str,
+            url: str,
+            procedure: str,
+            task_text: str,
+            documents: dict[str, str],
         ) -> dict[str, Any]:
             harness.dispatches += 1
             while harness.dispatch_hangs:
@@ -306,6 +314,7 @@ class Harness:
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
+            read_documents,
             dispatch_agent,
             record_verdict,
             platform_verify,
