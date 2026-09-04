@@ -126,14 +126,20 @@ class Runs:
     def record_artifacts(
         self, run_id: str, pr_url: str | None = None, ticket_urls: list[str] | None = None
     ) -> None:
+        """The run's artifacts as facts on its row. `pr_url` is the one
+        delivery; `ticket_urls` accumulate — the ticket a run works, the
+        tickets its dispatches file — each URL once, in the order written."""
         self._db.execute(
             """
             UPDATE registry.runs
                SET pr_url = COALESCE(%s, pr_url),
-                   ticket_urls = COALESCE(%s::jsonb, ticket_urls)
+                   ticket_urls = ticket_urls || (
+                       SELECT COALESCE(jsonb_agg(e), '[]'::jsonb)
+                         FROM jsonb_array_elements(%s::jsonb) AS e
+                        WHERE NOT ticket_urls @> jsonb_build_array(e))
              WHERE run_id = %s
             """,
-            (pr_url, json.dumps(ticket_urls) if ticket_urls else None, run_id),
+            (pr_url, json.dumps(ticket_urls or []), run_id),
         )
 
     def record_verdict(self, run_id: str, verdict: str) -> None:

@@ -342,7 +342,9 @@ class InMemoryRuns:
         if record is None:  # an UPDATE matching zero rows, not a KeyError
             return
         record.pr_url = pr_url or record.pr_url
-        record.ticket_urls = ticket_urls or record.ticket_urls
+        record.ticket_urls = record.ticket_urls + [
+            u for u in ticket_urls or [] if u not in record.ticket_urls
+        ]
 
     def record_verdict(self, run_id: str, verdict: str) -> None:
         record = self.rows.get(run_id)

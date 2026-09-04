@@ -202,11 +202,17 @@ class ImplementWorkflow(RunWorkflow):
                 elif not (delivery or {}).get("pr_url"):
                     error = "delivery finished without a PR"
                 # The deliver status carries pr_url; keep the implement
-                # iteration count alongside it.
+                # iteration count alongside it, and every ticket either
+                # dispatch filed — an architecture request is the
+                # implement dispatch's, and delivery must not erase it.
                 merged = dict(result or {})
                 merged.update(
                     {k: v for k, v in (delivery or {}).items() if v is not None}
                 )
+                merged["ticket_urls"] = [
+                    *((result or {}).get("ticket_urls") or []),
+                    *((delivery or {}).get("ticket_urls") or []),
+                ]
                 result = merged
         except asyncio.CancelledError:
             # Cooperative cancel: compensate, then let the cancellation

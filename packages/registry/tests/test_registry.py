@@ -96,6 +96,10 @@ def test_record_artifacts_accumulates(registry: Registry):
     record = runs.get(RUN_ID)
     assert record.ticket_urls == ["https://issues/1"]  # not clobbered
     assert record.pr_url == "https://pr/1"
+    # Tickets accumulate in order, each once: the ticket a run works, then
+    # the ones its dispatches file.
+    runs.record_artifacts(RUN_ID, ticket_urls=["https://issues/2", "https://issues/1"])
+    assert runs.get(RUN_ID).ticket_urls == ["https://issues/1", "https://issues/2"]
 
 
 # -- sandbox registrations ------------------------------------------------
