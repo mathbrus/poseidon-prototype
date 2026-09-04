@@ -372,7 +372,7 @@ def run_by_task(
     return psql_json(
         "SELECT COALESCE(row_to_json(r), 'null'::json) FROM registry.runs r "
         "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow') "
-        "AND (:'since' = '' OR r.created_at > :'since'::timestamptz) "
+        "AND r.created_at > COALESCE(NULLIF(:'since', ''), '-infinity')::timestamptz "
         "ORDER BY r.created_at DESC LIMIT 1",
         default="null",
         task=task,
@@ -390,7 +390,7 @@ def runs_by_task(
         "SELECT COALESCE(json_agg(r ORDER BY r.created_at), '[]'::json) "
         "FROM registry.runs r "
         "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow') "
-        "AND (:'since' = '' OR r.created_at > :'since'::timestamptz)",
+        "AND r.created_at > COALESCE(NULLIF(:'since', ''), '-infinity')::timestamptz",
         task=task,
         workflow=workflow or "",
         since=since or "",
