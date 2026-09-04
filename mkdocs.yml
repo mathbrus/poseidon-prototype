@@ -62,6 +62,15 @@ markdown_extensions:
 
 plugins:
   - search
+  - gen-files:
+      scripts:
+        - scripts/gen_docs.py
 
 nav:
   - Home: index.md
+  - Reference:
+      - The blueprint: reference/blueprint.md
+      - Roles and crews: reference/roles.md
+      - Tools: reference/tools.md
+      - CLI: reference/cli.md
+      - Temporal contract: reference/temporal.md
