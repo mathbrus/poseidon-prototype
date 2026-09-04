@@ -58,6 +58,7 @@ workflows:
     conductor: pm
     crew: feature-delivery
     max_verify_retries: 2
+  # --8<-- [start:review-delegated]
   review:
     enabled: true
     conductor: pm
@@ -72,6 +73,7 @@ workflows:
           # tree below is the oracle these merges are graded by.
           paths: [slugify.py, tests/unit/]
           max_reworks: 1
+          # --8<-- [end:review-delegated]
 
 policies:
   branch_protection:
@@ -82,9 +84,11 @@ policies:
   # The split oracle: the acceptance spec delegated merges are graded by
   # comes from different hands than the code it certifies, so the
   # implementer cannot rewrite the test that grades its own work.
+  # --8<-- [start:contract_tests]
   contract_tests:
     paths: [tests/contract/]
     roles: [contract-author]
+    # --8<-- [end:contract_tests]
 
 budgets:
   per_run:
@@ -94,6 +98,7 @@ budgets:
 
 # The company's own initiative: what it may start on its own, how many at
 # once, how many tries an item gets, and the day's hard stop.
+# --8<-- [start:heartbeat]
 heartbeat:
   conductor: pm
   reconcile_minutes: 30
@@ -102,3 +107,4 @@ heartbeat:
   may_start: [implement, review]
   daily_cap:
     usd: 20
+    # --8<-- [end:heartbeat]

@@ -1,29 +1,29 @@
-# The blueprint, line by line
+# The blueprint
 
-Everything the platform enforces comes from one document. Here is the
-shipped example, [`examples/hello-saas.yaml`](../examples/hello-saas.yaml),
-explained section by section.
+Everything the platform enforces comes from one document. This page reads
+the shipped example, `examples/hello-saas.yaml`, section by section; the
+YAML is included from that file, and the field tables are rendered from
+the JSON Schema in `packages/schema/src/schema/blueprint.py`, both at build
+time. Where the delegated profile adds a section, its YAML comes from
+`examples/hello-saas-delegated.yaml`.
 
-<details>
-<summary><b><code>company</code> and <code>stack</code> — identity and toolchain</b></summary>
+<!-- gen: blueprint-sections -->
 
-<br>
+A company without `policies` is a choice you make visibly, not a default
+you fall into by omission, and a company that declares no `heartbeat` is
+simply one whose runs a human starts. Every object refuses unknown keys, so
+a typo'd key is an error, never a silently ignored line.
+
+## `apiVersion`
+
+<!-- gen: blueprint-fields:apiVersion -->
+
+## `company` and `stack` — identity and toolchain
 
 ```yaml
-company:
-  name: hello-saas
-  mission: Ship a small SaaS product with an agent company under governance.
+--8<-- "examples/hello-saas.yaml:company"
 
-stack:
-  repo:
-    url: github.com/example-org/hello-saas
-    base_ref: main
-  toolchain:
-    image: poseidon-sandbox
-    test_command: pytest -q
-    egress_allow:
-      - pypi.org
-      - files.pythonhosted.org
+--8<-- "examples/hello-saas.yaml:stack"
 ```
 
 `company.name` becomes the Kubernetes namespace, the Rego package name, and
@@ -43,21 +43,14 @@ may reach. It compiles into both the sandbox constraints and the egress
 proxy's per-run allowlist: one list, two consumers, no drift. An empty list
 means zero egress, which is a perfectly reasonable choice.
 
-</details>
+<!-- gen: blueprint-fields:company -->
 
-<details>
-<summary><b><code>standing</code> — the standing agents</b></summary>
+<!-- gen: blueprint-fields:stack -->
 
-<br>
+## `standing` — the standing agents
 
 ```yaml
-standing:
-    pm:
-      role: pm
-      count: 1
-      may_spawn:
-        crew: [feature-delivery, feature-review]
-        max_concurrent: 2
+--8<-- "examples/hello-saas.yaml:standing"
 ```
 
 One standing agent: the PM. It may spawn two named crews, at most two at a
@@ -66,126 +59,104 @@ spawn count the gateway injects, not by an honour system.
 
 A hire is one instance — the operator names one Deployment and one Service
 per standing name — and `count: 0` is a documented growth path that
-produces none.
-Try hiring an `implementer` at `count: 1` and the compiler refuses:
-standing coders do not exist here.
+produces none. Try hiring an `implementer` at `count: 1` and the compiler
+refuses: standing coders do not exist here
+([Standing vs. ephemeral agents](../concepts/standing-vs-ephemeral.md)).
 
-</details>
+<!-- gen: blueprint-fields:standing -->
 
-<details>
-<summary><b><code>tools</code> — scopes</b></summary>
-
-<br>
+## `tools` — scopes
 
 ```yaml
-tools:
-  reviewer:
-    allow: [sandbox.read_file, sandbox.list_dir, sandbox.exec, sandbox.run_tests, git.read, git.comment, issues.comment]
+--8<-- "examples/hello-saas.yaml:tools"
 ```
 
 A crew is the list of catalog roles fulfilled together for one run. The
-catalog defines the crews (`feature-delivery`, `feature-review`,
-`contract-authoring`); a blueprint names the ones it puts to work in a
+catalog defines the crews; a blueprint names the ones it puts to work in a
 hire's `may_spawn` and a workflow's `crew`, and the compiler emits one
-ephemeral agent spec per role of each. `tools` is the one place a role's
-scope is narrowed, and it applies to every agent of that role, standing or
-ephemeral: the reviewer's list drops the write tools its catalog entry
-would allow, and a role not listed keeps its catalog tools — the PM's
-catalog entry already holds no `sandbox.*` and no `git.open_pr`, so the
-conductor that spawns the implementer cannot do the implementer's job.
-Spawn authority is not capability.
+ephemeral agent spec per role of each ([Roles and crews](roles.md)).
+`tools` is the one place a role's scope is narrowed, and it applies to
+every agent of that role, standing or ephemeral: the reviewer's list drops
+the write tools its catalog entry would allow, and a role not listed keeps
+its catalog tools — the PM's catalog entry already holds no `sandbox.*` and
+no `git.open_pr`, so the conductor that spawns the implementer cannot do
+the implementer's job. Spawn authority is not capability. A scope may
+narrow the catalog role's tools and never widen them: a document granting
+the reviewer `git.open_pr` fails validation with a message quoting the
+catalog's list.
 
-</details>
+<!-- gen: blueprint-fields:tools -->
 
-<details>
-<summary><b><code>workflows</code> — where the human gate is declared</b></summary>
-
-<br>
+## `workflows` — where the human gate is declared
 
 ```yaml
-workflows:
-  intake:
-    enabled: true
-    conductor: pm
-  implement:
-    enabled: true
-    conductor: pm
-    crew: feature-delivery
-    max_verify_retries: 2
-  review:
-    enabled: true
-    conductor: pm
-    crew: feature-review
-    gates:
-      merge:
-        resolved_by: human
-        deadline_minutes: 1440
+--8<-- "examples/hello-saas.yaml:workflows"
 ```
 
-Three workflows, one per phase of the SDLC in section 5. `intake` is the
-PM-only scoping pass — no crew, and it declares no `gates` block at all: a
-gate is an object naming its resolver, and a gate nobody declares is a stop
-nobody takes, so goals a human submits dispatch the PM without a second
-stop.
-`max_verify_retries` bounds how many times a red verify
-re-dispatches the implementer before the run fails.
+Three workflows, one per phase of the SDLC in
+[Anatomy of a run](../argument/anatomy.md). `intake` is the PM-only scoping
+pass — no crew, and it declares no `gates` block at all: a gate is an
+object naming its resolver, and a gate nobody declares is a stop nobody
+takes, so goals a human submits dispatch the PM without a second stop.
+`max_verify_retries` bounds how many times a red verify re-dispatches the
+implementer before the run fails.
 
 `gates.merge.resolved_by: human` is what makes the review workflow park and
 wait for a person; leaving `gates.merge` out entirely means the review ends
 without merging at all — an unattended auto-merge is not a default anyone
 gets implicitly. Setting it to `policy` instead, with a `delegate` block
 naming the path class and a rework bound, hands the merge to the compiled
-decision described in section 5 — `examples/hello-saas-delegated.yaml` is
-the flagship that does this. The `delegate` block cannot name a protected
-surface (`.github/`, the document's own `deny_paths`, or a declared
-`contract_tests` tree): the compiler refuses it, because a merged PR must
-never be able to rewrite the rules — or the tests — that govern merging.
-Gate configuration is read from the compiled plan at runtime —
-never hardcoded — so changing the resolver is a visible, reviewable change
-to the document, not a code edit buried somewhere.
-
-</details>
-
-<details>
-<summary><b><code>policies</code> and <code>budgets</code> — the guardrails</b></summary>
-
-<br>
+decision described in [the merge gate](../argument/anatomy.md#the-merge-gate-human-or-policy).
+The delegated profile does this:
 
 ```yaml
-policies:
-  branch_protection:
-    protected: [main]
-    allowed_pattern: ^feature/[a-z0-9-]+$
-  deny_paths: [.github/workflows/]
-  contract_tests:
-    paths: [tests/contract/]
-    roles: [contract-author]
+--8<-- "examples/hello-saas-delegated.yaml:review-delegated"
+```
 
-budgets:
-  per_run: {usd: 5, pause_minutes: 60}
+The `delegate` block cannot name a protected surface (`.github/`, the
+document's own `deny_paths`, or a declared `contract_tests` tree): the
+compiler refuses it, because a merged PR must never be able to rewrite the
+rules — or the tests — that govern merging. Gate configuration is read
+from the compiled plan at runtime — never hardcoded — so changing the
+resolver is a visible, reviewable change to the document, not a code edit
+buried somewhere.
+
+<!-- gen: blueprint-fields:workflows -->
+
+## `policies` and `budgets` — the guardrails
+
+```yaml
+--8<-- "examples/hello-saas.yaml:policies"
+
+--8<-- "examples/hello-saas.yaml:budgets"
 ```
 
 These compile into deny rules evaluated against **real arguments**. Because
 the gateway computes the changed paths before querying policy, a rule about
 `.github/workflows/` is enforceable rather than advisory — an agent cannot
-modify the CI that checks it.
+modify the CI that checks it. The path rules also fail closed: without the
+changed paths in the input they *cannot* be evaluated, so the call is
+denied rather than allowed by default. Fail-safe defaults again: the
+dangerous condition is the absent input, and absence denies.
 
-`contract_tests` declares the split oracle: the acceptance tree a delegated
-merge is graded by, and the roles that may deliver into it. Its
-consequences are deliberately positional and are described in full in
-section 5 — only `contract-author` may `git.open_pr` into the tree (the
-implementer's attempt dies at the gateway, named), the tree can never be
-delegated (a `delegate.paths` overlap is a compile error, the same refusal
-`.github/` gets), and the gating merge fact becomes the tree *as it stands
-on the base ref* run against the PR head. It is opt-in: a company that
-declares no `contract_tests` compiles no such rules and merges exactly as
-before. Removing the block reverts to one implementer-owned tree — the
-split is authority, so revoking it is a diff.
+The delegated profile adds the split oracle:
 
-The path rules also fail closed: without the changed paths in the input they
-*cannot* be evaluated, so the call is denied rather than allowed by default.
-Fail-safe defaults again: the dangerous condition is the absent input, and
-absence denies.
+```yaml
+--8<-- "examples/hello-saas-delegated.yaml:contract_tests"
+```
+
+`contract_tests` declares the acceptance tree a delegated merge is graded
+by, and the roles that may deliver into it. Its consequences are
+deliberately positional and are described in full in
+[the split oracle](../argument/anatomy.md#the-split-oracle-who-owns-the-tests)
+— only `contract-author` may `git.open_pr` into the tree (the implementer's
+attempt dies at the gateway, named), the tree can never be delegated (a
+`delegate.paths` overlap is a compile error, the same refusal `.github/`
+gets), and the gating merge fact becomes the tree *as it stands on the base
+ref* run against the PR head. It is opt-in: a company that declares no
+`contract_tests` compiles no such rules and merges exactly as before.
+Removing the block reverts to one implementer-owned tree — the split is
+authority, so revoking it is a diff.
 
 Every gate declares how long it waits for a human: `deadline_minutes` on
 the gate, `pause_minutes` on the budget. When a gate has waited half its
@@ -198,29 +169,20 @@ started the run.
 `per_run.usd` is a hard stop at the LLM gateway, not a warning. Exhausting
 it produces a distinguishable error, an audit event, an escalation, and an
 API-visible paused state that waits `pause_minutes` for the human who may
-raise the cap — never silent degradation to a cheaper model.
+raise the cap — never silent degradation to a cheaper model. It is also the
+*only* budget cap the schema accepts, and that is deliberate rather than a
+gap: in a document whose credibility rests on "declared means compiled
+means enforced," an unenforced field is worse than an absent one, so no cap
+appears here until a ledger enforces it.
 
-It is also the *only* budget cap the schema accepts, and that is
-deliberate rather than a gap. In a document whose credibility rests on
-"declared means compiled means enforced," an unenforced field is worse
-than an absent one, so no cap appears here until a ledger enforces it.
-Every budget line you can write here is a hard stop.
+<!-- gen: blueprint-fields:policies -->
 
-</details>
+<!-- gen: blueprint-fields:budgets -->
 
-<details>
-<summary><b><code>heartbeat</code> — the company's own initiative (opt-in)</b></summary>
-
-<br>
+## `heartbeat` — the company's own initiative (opt-in)
 
 ```yaml
-heartbeat:
-  conductor: pm
-  reconcile_minutes: 30
-  max_concurrent_runs: 1
-  max_attempts: 2
-  may_start: [implement, review]
-  daily_cap: {usd: 20}
+--8<-- "examples/hello-saas-delegated.yaml:heartbeat"
 ```
 
 The one section the shipped example does *not* carry, because absence is a
@@ -288,9 +250,9 @@ match. Issue bodies never feed the tick — only numbers, titles and URLs —
 because the backlog is untrusted input, and the implement run resolves the
 ticket itself under the platform identity like any other issue-driven run.
 
-</details>
+<!-- gen: blueprint-fields:heartbeat -->
 
-### Apply it
+## Apply it
 
 ```bash
 uv run poseidon blueprint preview examples/hello-saas.yaml   # what would change
@@ -300,4 +262,5 @@ uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 `preview` diffs the compiled plan against live registry state, so hiring and
 firing are visible before they happen. Firing is just a deletion in the
 diff — and deleting an agent's ServiceAccount is what revokes its identity,
-since the API server then refuses TokenReview for its tokens.
+since the API server then refuses TokenReview for its tokens. The commands
+and their flags are on [the CLI reference](cli.md).

@@ -1,0 +1,62 @@
+# Tools
+
+The MCP gateway exposes <!-- gen: tool-count --> tools. They are the entire
+action surface: everything any agent — or the platform itself — does to a
+sandbox, the git host, or the issue tracker is one of these names. Every
+call follows the same pipeline: authenticate the caller's workload
+identity, build the policy input, ask OPA, and record exactly one audit
+event. The ordering guarantee is *deny before side effect*: a denial is
+audited and returned before anything happens, while an allowed call runs
+the backend first and then writes its audit event carrying the backend's
+outcome (`backend_status: ok|error`).
+
+Three things to keep in mind while reading the signatures:
+
+- **`run_id` appears in every signature but no model ever writes it.** The
+  action schemas the model sees are `run_id`-free; the agent host injects
+  it at call time, and the gateway independently verifies the claimed run
+  against the caller's registry binding. A mismatch is a denial.
+- **`repo` is likewise injected** by the agent host, never chosen by the
+  model — and compiled policy denies any value other than the blueprint's
+  `stack.repo.url` (`repo_not_declared`), so an agent works on its
+  company's repository and nothing else.
+- **Who may call what is compiled policy**, not a property of the tool.
+  The last column is the catalog ceiling: the roles whose catalog entry
+  holds the tool before a blueprint narrows it. A tool no role holds
+  belongs to the platform lifecycle alone.
+
+The tables are rendered from the gateway's tool definitions in
+`packages/mcp-gateway/src/mcp_gateway/app.py` and the catalog in
+`packages/schema/src/schema/tools.py` at build time; a tool present in one
+and not the other fails the build.
+
+## Sandbox tools
+
+All address the run's single sandbox, resolved from `run_id`. They are
+*run-scoped* in policy (`bound_to_run`): the caller must be an ephemeral
+agent verifiably bound to the very run it names.
+
+<!-- gen: tools:sandbox -->
+
+## Repository and pull-request tools
+
+<!-- gen: tools:repository -->
+
+## Issue tools
+
+The ticket surface of the target repository, used chiefly by the PM during
+intake.
+
+<!-- gen: tools:issues -->
+
+## Crew tools
+
+<!-- gen: tools:crew -->
+
+## Not tools: the admin routes
+
+The gateway also serves two plain HTTP routes, `POST` and
+`DELETE /admin/sandboxes`, behind the same identity middleware. They
+register and retire a run's sandbox URL and are called by the platform
+lifecycle during fulfilment and teardown. They are not part of the MCP
+surface an agent can name.

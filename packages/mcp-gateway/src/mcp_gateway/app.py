@@ -178,6 +178,9 @@ def create_app(
     async def sandbox_read_file(
         run_id: str, path: str, ctx: Context, view_range: tuple[int, int] | None = None
     ) -> dict[str, Any]:
+        """One file from the run's workspace — all of it, or the 1-based inclusive
+        `[start, end]` line range (`-1` for end of file) — with `start_line` and
+        `total_lines`."""
         args: dict[str, Any] = {"run_id": run_id, "path": path}
         if view_range is not None:
             args["view_range"] = view_range
@@ -187,6 +190,7 @@ def create_app(
     async def sandbox_write_file(
         run_id: str, path: str, content: str, ctx: Context
     ) -> dict[str, Any]:
+        """Create or overwrite one file in the run's workspace."""
         return await sandbox_call(
             ctx,
             "sandbox.write_file",
@@ -203,6 +207,10 @@ def create_app(
         old_str: str | None = None,
         insert_line: int | None = None,
     ) -> dict[str, Any]:
+        """Partial edit of an existing file: `str_replace` swaps text that occurs
+        exactly once (ambiguous or absent text is a backend error, the file
+        untouched); `insert` adds lines after `insert_line` (`0` = top). Returns
+        a numbered snippet around the change."""
         args: dict[str, Any] = {
             "run_id": run_id,
             "path": path,
@@ -217,6 +225,7 @@ def create_app(
 
     @mcp.tool(name="sandbox.list_dir")
     async def sandbox_list_dir(run_id: str, path: str, ctx: Context) -> dict[str, Any]:
+        """List a workspace directory."""
         return await sandbox_call(
             ctx, "sandbox.list_dir", {"run_id": run_id, "path": path}
         )
@@ -225,6 +234,9 @@ def create_app(
     async def sandbox_exec(
         run_id: str, cmd: str, ctx: Context, timeout_s: float = 60
     ) -> dict[str, Any]:
+        """Run a shell command in the sandbox and return its output and exit code.
+        The command runs with no credentials, no cluster API, and the egress
+        proxy as its only route out."""
         return await sandbox_call(
             ctx, "sandbox.exec", {"run_id": run_id, "cmd": cmd, "timeout_s": timeout_s}
         )
@@ -233,6 +245,11 @@ def create_app(
     async def sandbox_run_tests(
         run_id: str, ctx: Context, paths: list[str] | None = None
     ) -> dict[str, Any]:
+        """Run the blueprint's `test_command` and return the result. Agents may
+        call it to check their work; the verify gate of record is the
+        orchestrator's own separate invocation. With `paths`, the run is scoped
+        to those test paths — the platform's contract-verify call, where
+        collecting nothing from a named path is a red exit, not a silent pass."""
         # `paths` scopes the run to named test paths — the platform's
         # contract-verify call; the whole-suite run stays the default.
         args: dict[str, Any] = {"run_id": run_id}
@@ -244,6 +261,9 @@ def create_app(
     async def sandbox_git_bundle(
         run_id: str, branch: str, ctx: Context
     ) -> dict[str, Any]:
+        """A git bundle of the named branch's commits since the recorded base ref,
+        base64-encoded. How work leaves the sandbox: as verifiable content, not
+        as a push."""
         return await sandbox_call(
             ctx, "sandbox.git_bundle", {"run_id": run_id, "branch": branch}
         )
@@ -257,6 +277,12 @@ def create_app(
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
     ) -> dict[str, Any]:
+        """Clone `repo` at `ref` with the platform token, strip the remote (and
+        with it the credentialed URL), and return the workspace as a base64
+        tarball. With `overlay_paths`, those paths are mirrored from
+        `overlay_ref` over the checkout — removed first, then re-checked-out —
+        which is how the platform composes the contract-verify tree. Platform
+        lifecycle only: how code enters a sandbox during fulfilment."""
         # The composed tree: `ref`'s code with `overlay_paths` mirrored
         # from `overlay_ref` — how the platform builds the baseline the
         # contract verify runs (head code, the contract tree as it stands
@@ -275,6 +301,11 @@ def create_app(
         bundle_b64: str,
         ctx: Context,
     ) -> dict[str, Any]:
+        """The only path by which code leaves the system. The gateway verifies the
+        bundle, applies it to a fresh platform-side clone, extracts the changed
+        paths and feeds them to policy as real arguments (branch protection,
+        `deny_paths`, the contract-tree owner rule), then pushes the branch with
+        its own token and opens the pull request."""
         return await service.open_pr(
             identity_of(ctx), run_id, repo, branch, title, body, bundle_b64
         )
@@ -285,42 +316,59 @@ def create_app(
     async def issues_create(
         run_id: str, repo: str, title: str, body: str, ctx: Context
     ) -> dict[str, Any]:
+        """File a new issue — how a goal becomes tickets."""
         return await service.issues_create(identity_of(ctx), run_id, repo, title, body)
 
     @mcp.tool(name="issues.read")
     async def issues_read(
         run_id: str, repo: str, ctx: Context, number: int | None = None
     ) -> dict[str, Any]:
+        """Read one issue by number (refusing pull requests — those belong to
+        `git.read`), or the open backlog when `number` is omitted. An issue-driven implement run resolves its ticket through this tool under the
+        platform identity."""
         return await service.issues_read(identity_of(ctx), run_id, repo, number)
 
     @mcp.tool(name="issues.comment")
     async def issues_comment(
         run_id: str, repo: str, number: int, body: str, ctx: Context
     ) -> dict[str, Any]:
+        """Comment on an issue — how the PM leaves its one-paragraph intake summary
+        on each ticket it files."""
         return await service.issues_comment(identity_of(ctx), run_id, repo, number, body)
 
     @mcp.tool(name="git.read")
     async def git_read(
         run_id: str, repo: str, number: int, ctx: Context
     ) -> dict[str, Any]:
+        """Read a pull request — metadata and diff — for review."""
         return await service.git_read(identity_of(ctx), run_id, repo, number)
 
     @mcp.tool(name="git.comment")
     async def git_comment(
         run_id: str, repo: str, number: int, body: str, ctx: Context
     ) -> dict[str, Any]:
+        """Post a comment on the pull request's conversation; how the reviewer
+        publishes findings."""
         return await service.git_comment(identity_of(ctx), run_id, repo, number, body)
 
     @mcp.tool(name="git.merge_pr")
     async def git_merge_pr(
         run_id: str, repo: str, number: int, ctx: Context, method: str = "merge"
     ) -> dict[str, Any]:
+        """Merge the pull request. Compiled policy grants this to the platform
+        identity alone, and the orchestrator calls it only after the merge gate
+        resolved to merge. No blueprint can hand it to an agent role."""
         return await service.git_merge_pr(identity_of(ctx), run_id, repo, number, method)
 
     @mcp.tool(name="crew.request")
     async def crew_request(
         run_id: str, crew_template: str, reason: str, ctx: Context
     ) -> dict[str, Any]:
+        """Record a conductor's intent to spawn a crew. An allowed request is
+        authorization plus intent, never fulfilment — the implement workflow
+        consumes the recorded row and does the provisioning. The compiled rule
+        narrows `crew_template` to the caller's `may_spawn` list and enforces
+        its `max_concurrent` cap against a live spawn count."""
         return await service.request_crew(identity_of(ctx), run_id, crew_template, reason)
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])

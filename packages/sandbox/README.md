@@ -9,7 +9,7 @@ The containment claim is deliberately narrow, and stating it precisely is
 half the design. It is **not** "the code cannot escape the container" —
 there is no gVisor or Kata RuntimeClass, so the container's privilege
 boundary is not claimed as a security boundary (the root README's
-[limitations](../../README.md#9-what-it-cannot-do) say the same thing).
+[limitations](../../docs/argument/cannot.md) say the same thing).
 The claim is "privilege inside the sandbox reaches nothing": no
 credential to scrape, no Kubernetes API or node metadata to reach, no
 runtime socket or host mount, no other tenant's processes, and no route
@@ -130,7 +130,7 @@ untrusted code. Its protection is that nothing else can reach it: the
 sandbox NetworkPolicy admits ingress from the MCP gateway alone, and the
 gateway authenticates and policy-checks every call before proxying. This
 is one of the unauthenticated-by-design surfaces the root README's
-[section 9](../../README.md#9-what-it-cannot-do) names explicitly, and
+[what it cannot do](../../docs/argument/cannot.md) names explicitly, and
 it depends on a CNI that enforces NetworkPolicy (Calico on kind).
 
 What the server *does* enforce is filesystem scope. Every path resolves
@@ -157,7 +157,7 @@ of `base_ref..branch`, where `base_ref` comes from the `.poseidon-base`
 file written at provision time. The sandbox has no remote to push to —
 the bundle is inert content that the *gateway* verifies, applies to a
 platform-side clone, and pushes with its own token (see
-[anatomy of a run](../../README.md#5-anatomy-of-a-run)).
+[anatomy of a run](../../docs/argument/anatomy.md)).
 
 ## Egress: allowlisted, attributed, audited
 

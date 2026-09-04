@@ -1,5 +1,5 @@
 # Poseidon CI: lint, unit tests, lockfile and dependency checks, chart
-# rendering, policy tests, lockfile-pinned image builds, and the
+# rendering, policy tests, the docs site, lockfile-pinned image builds, and the
 # secret-inspection gate that proves invariant #1 by inspection — no
 # *_TOKEN/*_KEY may be baked into the agent or sandbox images.
 #
@@ -210,6 +210,27 @@ jobs:
               exit 1
             fi
           done
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --group docs
+      # mkdocs.yml sets strict: a broken link, an orphaned page or a
+      # reference page that does not match the code fails the build.
+      - run: uv run mkdocs build
+        env:
+          # A plugin prints a paragraph about MkDocs 2.0 on every build.
+          DISABLE_MKDOCS_2_WARNING: "true"
+      # The repository is private, so there is no Pages deployment yet;
+      # the built site is the artifact of every run.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: site/
 
   e2e-kind:
     # Manual and optional: brings up a kind cluster and opens real PRs on a

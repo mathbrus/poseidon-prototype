@@ -1,0 +1,143 @@
+# What it cannot do
+
+Stated plainly, because a security posture you cannot describe honestly is
+not one you can rely on.
+
+## Not hardened: the sandbox is a container, not a VM
+
+There is no gVisor or Kata RuntimeClass. The container's own privilege
+boundary is **not** claimed as a security boundary, and a kernel exploit
+inside a sandbox is out of scope for what this design defends against.
+
+What *is* claimed, and tested: privilege inside the sandbox reaches nothing.
+The sandbox runs as uid 10001 with no privilege-escalation path and all
+capabilities dropped — but every containment assertion in the red-team suite
+is written to hold at any uid, because the non-root posture is defence in
+depth on top of the containment, not the containment itself.
+
+## Unauthenticated in-cluster services, guarded only by NetworkPolicy
+
+Five surfaces have no authentication of their own:
+
+- the **sandbox tool server** (which exposes `/exec` and runs what it is
+  given — it *is* the sandbox; that is its job),
+- the **agent's `/task` API**,
+- the **OPA bundle server**,
+- **OPA's own API**,
+- the **Temporal frontend** (its browsable web UI is opt-in — the kind
+  bootstrap deploys it only with `TEMPORAL_WEB=1`).
+
+The first four are protected by being unreachable: NetworkPolicy admits
+exactly one caller. This is a real reduction in defence in depth compared
+to authenticating them, and it means **NetworkPolicy enforcement is
+load-bearing**. On a cluster whose CNI ignores NetworkPolicy, these are
+open. The kind bootstrap installs Calico for exactly this reason.
+
+The fifth is the weakest of the set: anything that reaches the Temporal
+frontend holds full operator authority, merge approval included, because the
+`poseidon` CLI is only a thin client over it. [The Temporal contract](../reference/temporal.md)
+writes that surface down, and what does and does not guard it.
+
+## Merge approval is workflow state, not policy state
+
+OPA restricts `git.merge_pr` to the platform identity, and the workflow only
+calls it after the gate approves. But OPA cannot *independently prove* that
+approval happened — it sees a platform-lifecycle caller and allows the tool.
+
+This is the single named exception to the "enforcement is layered"
+principle: the merge guarantee has one owner, the workflow. It is mitigated
+by making gate outcomes first-class audit events, so a human can see that
+the gate — not a bug — released the merge. Making OPA require an independent
+approval artifact is the obvious hardening and is not implemented.
+
+## Supply chain: tags, not digests
+
+Third-party images are pinned to versioned tags (`openpolicyagent/opa:1.19.0`,
+LiteLLM `v1.95.1`, `postgres:16.6`), and Python dependencies are
+lockfile-pinned with the images built via `uv export --frozen` — CI asserts
+the image resolves the same version the lockfile does.
+
+Base images are **not** digest-pinned, so `python:3.12-slim` can move under
+you. Digest pinning is a deliberate policy decision that has not been taken.
+CI runs an advisory `pip-audit` on every push.
+
+## Prompt content is inherently untrusted
+
+Workspace filenames, file contents, test output and issue bodies all flow
+into agent prompts. That is not a bug to be fixed — it is what makes the
+agent useful — and it means **prompt injection is always possible**.
+
+The design response is not to sanitise the text. It is to make a successfully
+injected agent unable to do damage: no credentials, a compiled tool scope,
+an audited egress chokepoint, and a human gate before anything merges. When
+you read the red-team tests, notice that none of them assert the model
+refused. They assert the platform refused.
+
+## Deployment maturity
+
+- **kind only.** Never run against a managed cluster. Nothing in the design
+  assumes kind, and the acceptance script is cluster-neutral, but "should
+  work" is not "has worked."
+- **Single replica** for every service; no HA, no leader election.
+- **Dev secrets remain.** The chart *requires* every secret value — a
+  bare `helm install` fails rather than deploying a placeholder — but the
+  kind bootstrap supplies development defaults for the non-credential
+  ones.
+- **One company per cluster** is what has been exercised, though namespacing
+  and per-company bundle roots are designed for more.
+
+## A brain pod that dies mid-dispatch starts its dispatch over
+
+Durability covers the *orchestrator*: kill its worker and Temporal replays
+the workflow, re-attaching to a dispatch still in flight. It does not cover
+the *brain pod*. An agent pod mounts nothing but its token and is never
+restarted, so the model's conversation lives only in that process; if the
+pod dies, the retry re-dispatches from scratch against the sandbox as it
+stands — the files already written survive, the transcript does not.
+
+Persisting the conversation would need somewhere the brain can write that
+is neither the pod nor the sandbox: a gateway write channel, which is new
+authority for the one process assumed compromised. It is a decision not
+yet taken, not an oversight; the durable state of a run is the sandbox and
+the tickets, by design.
+
+## A delegated merge gate merges without a human — with named residual risk
+
+Delegating the merge gate hands a real decision to compiled policy, and
+that is authority a human chose to grant in a document they can read and
+revoke. What it does *not* remove is honest to state:
+
+- **Code that satisfies the human-approved contract but is wrong in ways
+  the contract does not test still merges.** This is the residual the
+  [split oracle](anatomy.md#the-split-oracle-who-owns-the-tests) leaves. The platform does not take the
+  implementer's own suite as the rubric: the gating fact is the contract
+  tree as it stands on `main`, authored by a different crew and merged
+  under a human's hand, run against the PR head. So an implementer cannot
+  weaken the oracle to launder a merge. What remains is that a
+  contract is only as good as the human who approved it — a spec that is
+  vacuous, or simply silent about the bug, will pass, and the code merges
+  unattended. That is the authority the human exercised by merging the
+  contract, and it is why a contract PR always stops at a person and arrives
+  with the platform's deletion facts attached. Making the spec *provably*
+  adequate (mutation testing, coverage floors) is deliberately out of scope
+  — the contract tree is tamper-evident and independently authored, not
+  proven sufficient.
+- **The reviewed tree and the merged tree can diverge.** The changed paths
+  and the verified tree are pinned when the review run starts (its sandbox
+  is provisioned from the PR head read then); the merge does not re-assert
+  the head SHA. A PR head that moves between review and merge re-opens the
+  gap between what was reviewed and what lands — recorded, not yet closed.
+- **The rework bound parses a ticket title, but nothing can rewrite it.** The
+  rework-chain depth is read back from the platform-written ticket title.
+  No company role holds a tool that can edit an issue's title, so a
+  compromised conductor cannot walk a depth downward — the mutation path is
+  positionally closed. A depth the platform stores on its own row rather
+  than parses back would be more robust still, and is flagged in the code.
+
+The compiled decision does refuse what it claims to: a steered reviewer
+cannot merge a change touching a protected surface, an implementer cannot
+PR the contract tree or launder a red baseline to green, and a steered
+contract author's gutted spec parks on a human with its deletions counted —
+`test_split_oracle_redteam` drives exactly these on the cluster. The point
+of this page is that "policy can merge" is a bounded grant with edges worth
+knowing, not a blank cheque.

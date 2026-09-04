@@ -23,13 +23,13 @@ system.
 | `ephemeral_pods.py` | The bounded Kubernetes surface for ephemeral pods: **pods and their per-run ServiceAccounts only**, in the **company namespace only**, deleted only by label selector. |
 | `identity.py` | Ephemeral identity naming — the fulfill half of the identity contract; the gateways own the verify half. |
 | `clients.py` | `GatewayClient` (MCP + admin routes) and `AgentClient` (dispatch/poll). |
-| `cli/` | `poseidon run\|review\|signal\|status`, `poseidon blueprint compile\|preview\|apply` — documented in [INTERFACES.md](../../INTERFACES.md). |
+| `cli/` | `poseidon run\|review\|signal\|status`, `poseidon blueprint compile\|preview\|apply` — documented on [the CLI reference](../../docs/reference/cli.md). |
 | `worker/` | The worker process: registers all four workflows and all activities on the `poseidon-orchestrator` task queue, and runs the ensure loop that keeps each company's heartbeat alive. |
 | `config.py` | `TemporalSettings` (all a client needs) and `WorkerSettings` (what activities need). |
 
 ## Workflow code is replayed, not run once
 
-Temporal's model (primer in [root README §3](../../README.md#3-concepts-you-need))
+Temporal's model (primer: [Temporal](../../docs/concepts/temporal.md))
 shapes everything in `workflows/`. The engine records each activity's
 result; when a worker dies, the workflow *function* is re-executed from
 the top on a new worker, with recorded results substituted for the calls
@@ -316,7 +316,7 @@ uv run poseidon status <run_id>
 ```
 
 The full command reference, and the Temporal workflow/signal/query
-contract beneath it, live in [INTERFACES.md](../../INTERFACES.md). The
+contract beneath it, live on [the Temporal contract](../../docs/reference/temporal.md). The
 run-control commands hold no credentials — runs execute on the in-cluster
 worker; the CLI only starts, signals and inspects, over `TEMPORAL_ADDRESS`
 (default `127.0.0.1:7233`, i.e. a port-forward). `blueprint apply` is the

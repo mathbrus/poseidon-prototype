@@ -1,4 +1,4 @@
-# gateway
+# mcp-gateway
 
 The MCP gateway: the chokepoint every agent tool call passes through, and
 **the only container that holds `GIT_TOKEN`**. An agent never sees a
@@ -10,7 +10,7 @@ This is where the system's thesis becomes mechanical. The agent is not
 trusted to stay in scope; it is *unable* to leave one, because the tool
 surface is the only way out and every call on it is policy-checked against
 a compiled bundle before any side effect happens. If the root README's
-[section 2](../../README.md#2-the-core-idea) is the argument, this
+[the core idea](../../docs/argument/core-idea.md) is the argument, this
 package is the working part: a reference monitor for agent effects, small
 enough to read in an afternoon.
 
@@ -127,7 +127,7 @@ so the gateway cannot query a document the compiler never wrote.
 
 | Module | Owns |
 |---|---|
-| `app.py` | The ASGI app: FastMCP server over streamable HTTP, the auth middleware, the 17 tool registrations, and `POST`/`DELETE /admin/sandboxes`. |
+| `app.py` | The ASGI app: FastMCP server over streamable HTTP, the auth middleware, the tool registrations, and `POST`/`DELETE /admin/sandboxes`. |
 | `service.py` | `GatewayService` — the pipeline above, plus one method per tool. |
 | `opa.py` | The OPA client, the per-caller decision path, the fail-closed empty-document handling. |
 | `git_backend.py` | Every platform-side git operation and the GitHub REST calls. The only place `GIT_TOKEN` is used. |
@@ -135,11 +135,12 @@ so the gateway cannot query a document the compiler never wrote.
 
 ## Tool surface
 
-The 17 tools — seven sandbox tools proxied to the run's registered tool
+The tools — the sandbox tools proxied to the run's registered tool
 server, `repo.archive` and `git.open_pr` backed by platform-side clones,
 the issue and review tools, platform-only `git.merge_pr`, and
-`crew.request` — are documented one by one, with arguments, in
-[INTERFACES.md section 3](../../INTERFACES.md#3-the-gateways-mcp-tools).
+`crew.request` — are documented one by one, with arguments, on
+[Tools](../../docs/reference/tools.md), rendered from this package's
+definitions at build time.
 The names match the lists in `schema.tools`, which is what the compiler
 validates blueprint scopes against, so a scope naming a tool the gateway
 does not serve fails at compile time.
@@ -229,7 +230,7 @@ proves the server is up.
   goes through `asyncio.to_thread` — a slow or absent Postgres must not
   stall the event loop (the pool blocks long enough to fail the liveness
   probe if it ran there).
-- `schema.tools` names the same 17 tools; `compiler.rego` must emit the
+- `schema.tools` names the same tools; `compiler.rego` must emit the
   same company slug — `tests/test_slug_invariant.py` pins that.
 - The [orchestrator](../orchestrator/README.md) is the platform-lifecycle
   caller: admin routes, `repo.archive`, post-gate `git.merge_pr`.
@@ -237,7 +238,7 @@ proves the server is up.
 ## Tests
 
 ```
-uv run pytest packages/gateway
+uv run pytest packages/mcp-gateway
 ```
 
 A few seconds, no network and no cluster. The suite runs the
