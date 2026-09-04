@@ -41,6 +41,7 @@ import re
 import secrets
 import time
 from dataclasses import asdict
+from datetime import datetime
 from typing import Any
 
 from temporalio import activity
@@ -78,10 +79,14 @@ PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 BACKLOG_LIMIT = 20
 RECENT_RUNS_LIMIT = 10
 RATIONALE_CLIP = 300
-# How long a bootstrap filing waits for the git host to list the tickets
-# it just created: polls, one second apart.
-LISTING_SETTLE_POLLS = 10
+# The git host lists a new issue up to a minute after creating it. A
+# bootstrap filing waits that long for its tickets to be listed (polls,
+# one second apart); an observation completes the listing from the
+# tickets runs finished within the lag window filed, read by number.
+LISTING_SETTLE_POLLS = 60
 LISTING_SETTLE_S = 1.0
+LISTING_LAG_S = 120
+ISSUE_URL_NUMBER_RE = re.compile(r"/issues/(\d+)$")
 
 # The workflow's name, as the registry, the audit ledger and the policy
 # input all see it.
@@ -108,6 +113,23 @@ def consumed(attempts: Attempts | None, max_attempts: int) -> bool:
     if attempts is None:
         return False
     return attempts.live or attempts.concluded or attempts.count >= max_attempts
+
+
+def _recently_filed(recent: list[Any]) -> set[int]:
+    """The numbers of the tickets filed by runs still running or finished
+    within the host's listing lag — a scope run's slice tickets, an
+    implement run's architecture request."""
+    horizon = time.time() - LISTING_LAG_S
+    numbers: set[int] = set()
+    for run in recent:
+        finished = run.finished_at
+        if finished and datetime.fromisoformat(finished).timestamp() < horizon:
+            continue
+        for url in run.ticket_urls:
+            match = ISSUE_URL_NUMBER_RE.search(url)
+            if match:
+                numbers.add(int(match.group(1)))
+    return numbers
 
 
 def _section(header: str, lines: list[str]) -> str:
@@ -283,6 +305,14 @@ class HeartbeatActivities:
         ) as gateway:
             documents = await read_documents(gateway, run_id, repo, paths)
             open_issues = await gateway.read_open_issues(run_id, repo["url"])
+            # Read your own writes: a ticket a run of ours just filed is on
+            # its row before the host lists it, and a listing without it
+            # would have the PM scope the same slice twice.
+            listed = {int(i["number"]) for i in open_issues}
+            for number in sorted(_recently_filed(recent) - listed):
+                issue = await gateway.read_issue(run_id, repo["url"], number)
+                if issue.get("state") == "open":
+                    open_issues.append(issue)
             for candidate in delivered:
                 try:
                     pr = await gateway.read_pr(run_id, repo["url"], candidate["number"])

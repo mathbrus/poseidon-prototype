@@ -295,7 +295,10 @@ def ticket_body(name: str, nonce: str) -> str:
 
 def file_ticket(env: dict, title: str, body: str) -> int:
     """File one issue on the disposable repo — the backlog entry the
-    standing heartbeat will find — and return its number."""
+    standing heartbeat will find — and return its number once the git
+    host lists it. GitHub lists a new issue up to a minute after creating
+    it, and the loop reads the listing: a ticket the world filed is only
+    filed once the world can see it."""
     created = github_api(
         env,
         "POST",
@@ -303,7 +306,16 @@ def file_ticket(env: dict, title: str, body: str) -> int:
         json={"title": title, "body": body},
     )
     assert created.status_code == 201, f"could not file issue: {created.text}"
-    return int(created.json()["number"])
+    number = int(created.json()["number"])
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        listed = github_api(
+            env, "GET", f"/repos/{target_slug(env)}/issues?state=open&per_page=100"
+        ).json()
+        if any(int(i["number"]) == number for i in listed):
+            return number
+        time.sleep(3)
+    raise AssertionError(f"the git host never listed issue #{number}")
 
 
 def _kill_worker_when(run_id: str, kill_after: str) -> None:

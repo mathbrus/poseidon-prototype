@@ -117,18 +117,25 @@ def _backlog_gateway(
     issues: list[dict[str, Any]],
     prs: dict[int, dict[str, Any]] | None = None,
     files: dict[str, str] | None = None,
+    unlisted: dict[int, dict[str, Any]] | None = None,
 ) -> list[tuple[str, int]]:
     """The world as the gateway reports it: the open issues, each PR's
-    live state by number (open unless `prs` says otherwise), and the
-    documents present at base_ref (`files`, path to text). Returns the
-    log of PR reads — (run_id, number) — so a test can assert under which
-    identity the world was consulted."""
+    live state by number (open unless `prs` says otherwise), the
+    documents present at base_ref (`files`, path to text), and the issues
+    the host answers by number but does not list yet (`unlisted`).
+    Returns the log of PR reads — (run_id, number) — and issue reads by
+    number, negated — so a test can assert under which identity the world
+    was consulted."""
     import orchestrator.activities.heartbeat as module
 
     reads: list[tuple[str, int]] = []
 
     async def read_open_issues(self, run_id, repo):
         return issues
+
+    async def read_issue(self, run_id, repo, number):
+        reads.append((run_id, -number))
+        return (unlisted or {}).get(number) or {"number": number, "state": "closed"}
 
     async def read_pr(self, run_id, repo, number):
         reads.append((run_id, number))
@@ -143,6 +150,7 @@ def _backlog_gateway(
         "GatewayClient",
         fake_gateway(
             read_open_issues=read_open_issues,
+            read_issue=read_issue,
             read_pr=read_pr,
             read_document=read_document,
         ),
@@ -930,3 +938,32 @@ def test_the_observation_carries_the_documents_as_they_stand(
     text = asyncio.run(activities.scope_observation("scope-2"))
     assert text.index("Recent runs:") < text.index("Strategy:\n# Strategy\nShip.")
     assert text.endswith("Architecture masterplan:\n(absent)")
+
+
+def test_observe_reads_the_tickets_its_own_runs_just_filed(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """The host lists a new issue a beat late. A ticket a run of ours
+    filed a moment ago is on its row, so the observation reads it by
+    number and offers it — and counts it toward the scoping cap — while
+    the listing still lacks it. A ticket the host already closed stays
+    out, and a run that finished before the lag window (the in-memory
+    registry's fixed clock is long past) is not consulted at all."""
+    runs.start("scope-1", "scope the next slice", "scope", company=COMPANY)
+    runs.record_artifacts(
+        "scope-1", ticket_urls=["https://h/issues/41", "https://h/issues/43"]
+    )
+    runs.start("scope-0", "scope the next slice", "scope", company=COMPANY)
+    runs.record_artifacts("scope-0", ticket_urls=["https://h/issues/42"])
+    runs.finish("scope-0", "done")
+    reads = _backlog_gateway(
+        monkeypatch,
+        fake_gateway,
+        [],
+        files={"docs/STRATEGY.md": "# S\n", "docs/ARCHITECTURE.md": "# A\n"},
+        unlisted={41: {"number": 41, "title": "Implement: slice", "state": "open"}},
+    )
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert [i["number"] for i in observed["backlog"]] == [41]
+    assert observed["open_tickets"] == 1
+    assert sorted(reads) == [(f"heartbeat-{COMPANY}", -43), (f"heartbeat-{COMPANY}", -41)]
