@@ -10,8 +10,9 @@ time. Where the delegated profile adds a section, its YAML comes from
 <!-- gen: blueprint-sections -->
 
 A company without `policies` is a choice you make visibly, not a default
-you fall into by omission, and a company that declares no `heartbeat` is
-simply one whose runs a human starts. Every object refuses unknown keys, so
+you fall into by omission. A company always has a `heartbeat`: it is how
+work originates, and a document without one does not compile. Every
+object refuses unknown keys, so
 a typo'd key is an error, never a silently ignored line.
 
 ## `apiVersion`
@@ -104,13 +105,15 @@ catalog's list.
 --8<-- "examples/hello-saas.yaml:workflows"
 ```
 
-Three workflows, one per phase of the SDLC in
-[Anatomy of a run](../argument/anatomy.md). `intake` is the PM-only scoping
-pass — no crew, and it declares no `gates` block at all: a gate is an
-object naming its resolver, and a gate nobody declares is a stop nobody
-takes, so goals a human submits dispatch the PM without a second stop.
-`max_verify_retries` bounds how many times a red verify re-dispatches the
-implementer before the run fails.
+The two crewed workflows of the SDLC in
+[Anatomy of a run](../argument/anatomy.md): which crew fulfils each, the
+bounds it reads and the gates it parks on, nothing else. `scope` has no
+node — it dispatches the conductor directly and configures nothing — and
+no workflow names a conductor or an `enabled` flag: who conducts the
+company's runs is `heartbeat.conductor`, and what it may start on its own
+is `heartbeat.may_start`, each said once. `max_verify_retries` bounds how
+many times a red verify re-dispatches the implementer before the run
+fails.
 
 `gates.merge.resolved_by: human` is what makes the review workflow park and
 wait for a person; leaving `gates.merge` out entirely means the review ends
@@ -190,26 +193,30 @@ appears here until a ledger enforces it.
 
 <!-- gen: blueprint-fields:budgets -->
 
-## `heartbeat` — the company's own initiative (opt-in)
+## `heartbeat` — the company's own initiative
 
 ```yaml
---8<-- "examples/hello-saas-delegated.yaml:heartbeat"
+--8<-- "examples/hello-saas.yaml:heartbeat"
 ```
 
-The one section the shipped example does *not* carry, because absence is a
-meaningful state: with no `heartbeat` section, runs start only when a human
-starts one, which is everything this reference described so far.
+Every company has one: work originates nowhere else, and a document
+without the section does not compile. It grants the platform a bounded
+authority to start work on the company's own initiative: whenever a run of
+the company finishes — and at least every `reconcile_minutes` — the named
+conductor is dispatched to choose the next action, and the chosen
+workflow may start only within `max_concurrent_runs`, under the
+`daily_cap`, on an item fewer than `max_attempts` runs have taken up, and
+— for `scope` — while the repository has fewer than `max_open_tickets`
+open issues. Every field is required — a defaulted cap is authority
+nobody wrote down. `conductor` names the one standing agent the company's
+runs are requested under: dispatched to decide each tick and to scope,
+and the authority every crew is fulfilled under.
 
-Declaring it grants the platform a bounded authority to start work on its
-own initiative: whenever a run of the company finishes — and at least every
-`reconcile_minutes` — the named conductor is dispatched to choose the next
-action from the backlog, and the chosen workflow may
-start only within `max_concurrent_runs`, under the `daily_cap`, and on an
-item fewer than `max_attempts` runs have taken up. Every field is required
-once the section exists — a defaulted cap is authority nobody wrote down
-(an applied section without `max_attempts` refuses every tick as
-`tick_refused:max_attempts_undeclared` until a complete one is applied) —
-and `intake` is deliberately not startable: goals enter through a human.
+`may_start` is the closed set of what the loop may start: `scope` (read
+the documents, file the next slice as tickets), `implement` (a ticket),
+`review` (a delivered pull request). Narrow it and the rest is an
+operator's act: a company that may not `implement` on its own waits for
+`poseidon run <number>`.
 
 `max_attempts` is what bounds an aborted run. An issue or a delivered PR
 is off the backlog while a run on it is live, once a run *concluded* it
@@ -225,41 +232,42 @@ platform comment on the PR or issue, so the abandonment is never silent.
 
 The caps compile into the company's policy bundle as a `heartbeat.start`
 decision (deny over-cap, deny absent counts — fail-safe defaults again;
-the target item's prior attempts ride the input like the other counts),
-which is the decision the heartbeat must win before starting anything.
-Only the platform lifecycle can match its allow rules: an agent reciting
-`heartbeat.start` at the gateway matches nothing, and a blueprint diff that
-removes the section removes the rules, so revocation is the same reviewable
-edit as every other authority change.
+the target item's prior attempts and the open-ticket count ride the input
+like the other counts), which is the decision the heartbeat must win
+before starting anything. Only the platform lifecycle can match its allow
+rules: an agent reciting `heartbeat.start` at the gateway matches nothing.
 
 The loop itself is one durable workflow per company (`heartbeat-{company}`),
-kept running by the orchestrator worker while the applied blueprint
-declares the section. Ticks are event-triggered: the platform nudges the
-loop with a `wake` signal when one of the company's own runs reaches its
-end, and `reconcile_minutes` is the backstop — the longest a change only
-the outside world saw (an issue filed by hand, a PR merged by hand) can
-wait for a look. A wake carries no instruction: the tick it causes
-observes, decides and is authorized exactly like one the timer caused.
-Each tick observes the open backlog, the delivered
-PRs awaiting review (the registry names them, the git host confirms each
-is still open — a PR merged or closed by anyone else is not a candidate),
-the in-flight runs and today's ledger spend, then
-dispatches the standing PM's toolless *decide* procedure: one action —
-`implement #n`, `review #n`, or `idle` — with a required one-line
-rationale, journaled as a `heartbeat.decide` audit event (the append-only
-record of *why* the company did what it did; the PM's cross-run state is
-the registry, read fresh each tick — no private memory). The PM proposes
-and the platform disposes: the action set is closed, the target must come
+kept running by the orchestrator worker for as long as the company is
+applied — deleting the company is how it stops. Ticks are event-triggered:
+the platform nudges the loop with a `wake` signal when one of the
+company's own runs reaches its end, and `reconcile_minutes` is the
+backstop — the longest a change only the outside world saw (an issue
+filed by hand, a PR merged by hand) can wait for a look. A wake carries no
+instruction: the tick it causes observes, decides and is authorized
+exactly like one the timer caused. Each tick observes the company's
+documents at the base ref, the open backlog, the delivered PRs awaiting
+review (the registry names them, the git host confirms each is still open
+— a PR merged or closed by anyone else is not a candidate), the in-flight
+runs and today's ledger spend. A document still absent on the base ref
+gets a bootstrap ticket filed under the platform identity (once: the
+observation matches the open ticket by its fixed title), and `scope` is
+refused until both documents exist. Then the tick dispatches the standing
+PM's toolless *decide* procedure: one action — `scope`, `implement #n`,
+`review #n`, or `idle` — with a required one-line rationale, journaled as
+a `heartbeat.decide` audit event (the append-only record of *why* the
+company did what it did; the PM's cross-run state is the registry and the
+documents, read fresh each tick — no private memory). The PM proposes and
+the platform disposes: the action set is closed, the target must come
 from the observation, and the start must still win the compiled
-`heartbeat.start` decision — a poisoned ticket title can at most steer the
-choice between observed candidates, never mint a new one. Idle ticks and
-cap halts record their reason too (a daily-cap halt is a first-class
-process-gate event, like the per-run budget stop). Removal is fail-closed
-twice over: the tick re-reads the section and stops when it is gone, and a
-tick that somehow survived would still find no `heartbeat.start` rule to
-match. Issue bodies never feed the tick — only numbers, titles and URLs —
-because the backlog is untrusted input, and the implement run resolves the
-ticket itself under the platform identity like any other issue-driven run.
+`heartbeat.start` decision — a poisoned ticket title or document can at
+most steer the choice between observed candidates, never mint a new one.
+Idle ticks and cap halts record their reason too (a daily-cap halt, and a
+bootstrap ticket whose every attempt aborted, are first-class
+process-gate events, like the per-run budget stop). Issue bodies never
+feed the tick — only numbers, titles and URLs — and the documents reach
+it clipped and untrusted, after the lists, so a document line is never
+read as a ticket.
 
 <!-- gen: blueprint-fields:heartbeat -->
 

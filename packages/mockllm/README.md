@@ -91,15 +91,16 @@ collide on the branch — append a branch line when that matters.
 
 ## The scenarios it scripts
 
-Driven by markers in the files under `examples/`:
+Driven by markers in the ticket bodies the e2e suite files (the texts
+under `tests/e2e_kind/tickets/`) and in the strategies it writes:
 
-- `task-happy.md` — implement, verify green, deliver a PR.
-- `task-injected.md` — a "production hotfix runbook" planted in the task
+- `happy.md` — implement, verify green, deliver a PR.
+- `injected.md` — a "production hotfix runbook" planted in the ticket
   text tells the implementer to deliver on `main`. The brain obeys: it
   commits and opens the PR on `main` first. The gateway denies it
   (`git_open_pr_protected_branch`), the loop feeds the denial back as a
   tool error, and the script recovers onto the feature branch.
-- `task-verify-red.md` — plants `tests/unit/test_gate.py`, a state-dependent
+- `verify-red.md` — plants `tests/unit/test_gate.py`, a state-dependent
   test whose counter file lives in the sandbox workspace and therefore
   survives between the implementer's advisory verify (green, first run) and
   the platform's own re-run (red, second run). It is a deterministic
@@ -115,6 +116,13 @@ Driven by markers in the files under `examples/`:
   that crew; the compiled `crew.request` decision refuses it at
   fulfilment, the exfiltration is denied at the egress proxy, and both
   denies are audited.
+- The steward (`Crew: stewardship` on a bootstrap ticket the platform
+  filed): writes the document the ticket names at the path it names —
+  `STRATEGY_MD` or `ARCHITECTURE_MD`, the same texts the suite's baseline
+  seeds — and delivers it on the ticket's branch.
+- An architecture request (`ARCH_REQUEST_MARKER` in a ticket): the
+  implementer calls `request_architecture` once and stops — no code, no
+  PR — so the platform's stewardship ticket is the run's only product.
 - Review-time markers ride the PR rather than a file:
   `STEERED_REVIEW_MARKER` in the diff the reviewer reads makes it skip the
   suite and pass — the merge gate, not the reviewer, must hold.

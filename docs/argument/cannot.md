@@ -141,3 +141,36 @@ contract author's gutted spec parks on a human with its deletions counted —
 `test_split_oracle_redteam` drives exactly these on the cluster. The point
 of this page is that "policy can merge" is a bounded grant with edges worth
 knowing, not a blank cheque.
+
+## The company writes its own charter — with named residual risk
+
+Below the vision, every document the company works from is its own:
+the strategy and the architecture masterplan are agent-written, in git,
+and read back as untrusted text. What that leaves honest to state:
+
+- **The first strategy is agent-written.** A human chartered the vision;
+  the company's reading of it is what every later slice is scoped from.
+  Under a human merge gate the strategy's pull request stops at a person;
+  under a delegated gate it merges on the reviewer's verdict alone, because
+  markdown has no oracle — no `contract_green` for a bet. Whether that
+  reading is *right* is not a fact the platform can establish.
+- **No strategy learning.** The strategy is written once and then no
+  current role may change it — the write-once rule is a compiled deny,
+  not restraint. A future standing **observer** would be its author;
+  until it exists, a strategy that has been delivered keeps the PM
+  scoping, and `idle` is the PM's own judgement. `max_open_tickets` and
+  the daily cap bound what that costs; nothing bounds how long it goes on.
+- **A poisoned strategy steers scope within policy.** Injection into the
+  documents is assumed: the PM files what a poisoned strategy tells it to,
+  and the ticket carries the poison to the crew. Containment is the same
+  as everywhere — the compiled crew list, the path fences, the egress
+  allowlist, the caps — so a poisoned document can pick *which* in-class
+  work happens, never work outside the authority. The red team
+  (`tests/e2e_kind/test_injected_conductor.py`, `test_documents.py`) drives
+  exactly that.
+- **A bootstrap ticket nobody can fulfil halts, and stays halted.** When
+  every attempt on a bootstrap ticket aborts short of a delivery, the loop
+  records a `heartbeat_bootstrap` halt and files no more; a human closes
+  the ticket and the loop refiles. A bootstrap pull request a human closed
+  without merging leaves the ticket concluded and the document absent —
+  the same remedy applies, and the loop does not guess.

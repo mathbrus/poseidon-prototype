@@ -623,6 +623,76 @@ def test_the_steward_writes_the_named_document_then_delivers():
     assert deliver.tool_calls[1].arguments["branch"] == "feature/strategy-ab12cd"
 
 
+def test_the_masterplan_edit_is_delivered_then_dropped_on_the_deny():
+    """The implementer edits the masterplan beside its honest work,
+    delivers everything, and on the gateway's deny drops the edit and
+    delivers the implementation alone — the plan changes only through the
+    steward."""
+    from mockllm.brain import MASTERPLAN_EDIT_MARKER
+
+    task = f"Task:\nAdd slugify ({MASTERPLAN_EDIT_MARKER}).\n\nDeliver on `feature/slugify-me`."
+    write = next_completion(
+        [
+            {"role": "system", "content": header("implement")},
+            {"role": "user", "content": task},
+        ]
+    )
+    assert [c.arguments["path"] for c in write.tool_calls] == [
+        "slugify.py",
+        "tests/unit/test_slugify.py",
+        "docs/ARCHITECTURE.md",
+    ]
+    history = [
+        {"role": "system", "content": header("deliver")},
+        {"role": "user", "content": task},
+    ]
+    first = next_completion(history)
+    assert [c.name for c in first.tool_calls] == ["exec", "open_pr"]
+    history += [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c0",
+                    "type": "function",
+                    "function": {"name": "open_pr", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "c0",
+            "content": "ERROR: denied by policy rule: git_open_pr_architecture_path",
+        },
+    ]
+    second = next_completion(history)
+    assert (
+        "checkout HEAD~1 -- docs/ARCHITECTURE.md" in second.tool_calls[0].arguments["cmd"]
+    )
+    assert second.tool_calls[1].arguments["branch"] == "feature/slugify-me"
+
+
+def test_the_steward_revises_the_masterplan_for_an_architecture_request():
+    from mockllm.brain import REVISED_ARCHITECTURE_MD
+
+    ticket = (
+        "Task:\nImplement issue #14: Architecture request from run auto-1: Allow a second module.\n\n"
+        "Proposal:\nAllow a second module for the slug statistics.\n\n"
+        "Deliver your work on the branch `feature/arch-14`.\n\nCrew: stewardship"
+    )
+    write = next_completion(
+        [
+            {"role": "system", "content": header("implement")},
+            {"role": "user", "content": ticket},
+        ]
+    )
+    assert write.tool_calls[0].arguments == {
+        "path": "docs/ARCHITECTURE.md",
+        "content": REVISED_ARCHITECTURE_MD,
+    }
+
+
 def test_contract_author_writes_the_acceptance_tree_then_delivers():
     """Keyed on the ticket's own `Crew: contract-authoring` trailer: write
     the contract under tests/contract/, then open the PR on the ticket's

@@ -408,15 +408,17 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
 # -- the heartbeat's observations ----------------------------------
 
 
-def test_active_count_counts_running_delivery_runs(registry: Registry):
+def test_active_count_counts_every_running_run_of_the_company(registry: Registry):
+    """Scope, implement and review runs all occupy the company; another
+    company's runs and finished runs do not."""
     runs = Runs(registry)
     runs.start("run-ac-1", "implement issue #1", "implement", None, "hello-saas")
     runs.start("run-ac-2", "review PR", "review", None, "hello-saas")
-    runs.start("run-ac-3", "a goal", "intake", None, "hello-saas")  # not capacity
+    runs.start("run-ac-3", "scope the next slice", "scope", None, "hello-saas")
     runs.start("run-ac-4", "implement issue #2", "implement", None, "other-co")
     runs.start("run-ac-5", "implement issue #9", "implement", None, "hello-saas")
     runs.finish("run-ac-5", "done")
-    assert Runs(registry).active_count("hello-saas") == 2
+    assert Runs(registry).active_count("hello-saas") == 3
 
 
 def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):

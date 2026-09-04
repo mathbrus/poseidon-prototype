@@ -76,9 +76,11 @@ The `may_spawn` block fans out into:
 2. **The `AgentInstanceCR`**, which carries `may_spawn` into the
    AgentInstance custom resource (the concurrency cap is compiled policy,
    not a resource field).
-3. **An allow rule** in the emitted `role_pm.rego` that narrows the tool's
-   *arguments*, not just its name — spawn intent outside the list is denied
-   before anything is recorded:
+3. **An allow rule** in the emitted `role_pm.rego` for the `crew.request`
+   decision the platform evaluates as the conductor before it fulfils a
+   crew — emitted from the hire's `may_spawn`, and narrowing the decision's
+   *arguments*, not just its name, so a crew outside the list is refused
+   before anything is bound:
 
    ```rego
    allow_rules contains "role_pm_crew_request" if {

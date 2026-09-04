@@ -696,7 +696,7 @@ def test_a_stuck_pm_fails_with_what_it_filed(settings, gateway):
     llm = ScriptedLLM([same] * 4)
 
     with scripted(gateway, llm):
-        result = run_scope(settings, RUN_ID, "goal")
+        result = run_scope(settings, RUN_ID, "Strategy:\n(absent)")
 
     assert result.error == "agent loop stuck repeating itself"
     assert result.ticket_urls == []

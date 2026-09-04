@@ -54,8 +54,8 @@ look like for that to be survivable.
 "Assume compromised" is a slogan until you say what the adversary gets, so
 here is the model the rest of the argument defends against.
 
-**The adversary controls every word of text the agents read.** Goal files,
-ticket bodies, code in the target repository, file names, test output,
+**The adversary controls every word of text the agents read.** The
+company's own strategy and masterplan (they live in git), ticket bodies, code in the target repository, file names, test output,
 review comments — any of it may carry instructions crafted by someone else.
 Since the model cannot durably separate instruction from data, the working
 assumption is that the adversary can steer any agent's *next tool call* at

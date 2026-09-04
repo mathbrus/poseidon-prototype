@@ -323,7 +323,9 @@ def create_app(
     async def issues_create(
         run_id: str, repo: str, title: str, body: str, ctx: Context
     ) -> dict[str, Any]:
-        """File a new issue — how a goal becomes tickets."""
+        """File a new issue — how the PM turns the next slice of the strategy
+        into tickets, and how the platform files rework and bootstrap
+        tickets."""
         return await service.issues_create(identity_of(ctx), run_id, repo, title, body)
 
     @mcp.tool(name="issues.read")
@@ -339,7 +341,7 @@ def create_app(
     async def issues_comment(
         run_id: str, repo: str, number: int, body: str, ctx: Context
     ) -> dict[str, Any]:
-        """Comment on an issue — how the PM leaves its one-paragraph intake summary
+        """Comment on an issue — how the PM leaves its one-paragraph scoping summary
         on each ticket it files."""
         return await service.issues_comment(identity_of(ctx), run_id, repo, number, body)
 

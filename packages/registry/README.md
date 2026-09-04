@@ -1,6 +1,6 @@
 # registry
 
-The join point between declarative intent and live state: nine Postgres
+The join point between declarative intent and live state: eight Postgres
 tables, each behind a write-scoped accessor class. The operator writes
 what a blueprint declared, the orchestrator writes what a run is doing,
 the gateways write what they decided — and one `run_id` query returns the
@@ -16,7 +16,7 @@ In [the root README](../../README.md)'s architecture diagrams this is the
 `registry` cylinder: the declarative path ends here (what was applied) and
 the runtime path reports here (what every enforcement point decided).
 
-## The nine tables
+## The eight tables
 
 | Table | Written by | Records |
 |---|---|---|
@@ -25,7 +25,6 @@ the runtime path reports here (what every enforcement point decided).
 | `policy_bundles` | operator | The compiled OPA bundle tarball and its revision. |
 | `runs` | orchestrator | The run record: task, status, artifacts, terminal state — and whether the run *concluded* its work item (`pr_url` for implement, `verdict` for review), which the heartbeat's attempt accounting reads. |
 | `run_participants` | orchestrator | One row per bound ephemeral identity — the whole identity, ServiceAccount name included. Revocation is a row termination. |
-| `crew_requests` | gateway **and** orchestrator | Recorded spawn authorization and intent — never fulfillment. |
 | `sandbox_registrations` | gateway | Run → sandbox address. The registration *is* the run binding. |
 | `budget_ledger` | LLM gateway | One spend entry per model call, fully attributed. |
 | `audit_events` | gateway, LLM gateway, egress proxy, orchestrator | Every decision, one ingestion contract. |
@@ -38,20 +37,17 @@ coordination: a row's origin is knowable from its table alone, no writer
 needs a protocol with another, and each accessor can encode exactly the
 retry semantics its one writer needs.
 
-The two exceptions are deliberate. `crew_requests` is shared so that both
-spawn paths — the PM calling the `crew.request` tool (gateway records) and
-a workflow recording under the PM's conductor authority (orchestrator
-records) — land the same row after facing the same compiled policy.
-`audit_events` inverts the pattern: many writers, one accessor, append
-only. Four services write it, distinguished by the `source` column, and
-what is single is the *contract*, not the writer.
+The one exception is deliberate. `audit_events` inverts the pattern: many
+writers, one accessor, append only. Four services write it, distinguished
+by the `source` column, and what is single is the *contract*, not the
+writer.
 
 ## Module map
 
 | Module | Owns |
 |---|---|
 | `db.py` | Connection pool, DSN handling, and startup migration under an advisory lock. |
-| `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
+| `schema.sql` | The eight tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
 | `companies.py` | `Companies` — the applied blueprint per company, written by the operator. |
 | `instances.py` | `AgentInstances` — the standing agents, and the gateways' workload-identity read. |
 | `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |
@@ -223,12 +219,12 @@ and audit events are not optional.
   `agent_instances` and `policy_bundles` on reconcile; its bundle server
   reads `policy_bundles` for OPA to poll.
 - [`orchestrator`](../orchestrator/README.md) writes `runs` and
-  `run_participants`, records and consumes `crew_requests`, emits the
-  `process-gate` and `process-lifecycle` audit events, and reads the
-  ledger for headroom checks.
-- [`gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`,
-  `crew_requests` and audit events; reads `agent_instances` (workload
-  identity), `run_participants` (ephemeral identity backing and the spawn count) and
+  `run_participants`, emits the `process-gate` and `process-lifecycle`
+  audit events, and reads the ledger for headroom checks and the spawn
+  count off `run_participants` when it fulfils a crew.
+- [`gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`
+  and audit events; reads `agent_instances` (workload identity),
+  `run_participants` (ephemeral identity backing) and
   `sandbox_registrations` (run binding).
 - [`llm-gateway`](../llm-gateway/README.md) writes `budget_ledger` and
   audit events; its hard stop compares `spent_for_run` before every call.

@@ -4,19 +4,21 @@
 exceed its authority — because the infrastructure will not let it, not
 because the prompt asked nicely.**
 
-You give Poseidon a charter — a goal to pursue, a budget to stay under, a
-short list of things that must never happen without you. It stands up a
-small software organisation to pursue that goal: a product manager that
-scopes the work and files tickets, ephemeral crews that implement and review
-each change, and a standing heartbeat that decides what to do next and keeps
-going. Real pull requests appear on your repository. You approve the merges
+You give Poseidon a charter — a vision to pursue, a budget to stay under,
+a short list of things that must never happen without you. It stands up a
+small software organisation to pursue that vision: a product manager that
+writes the strategy and the architecture masterplan from it, scopes the
+next slice and files tickets, ephemeral crews that implement and review
+each change, and a standing heartbeat that decides what to do next and
+keeps going. Nothing else goes in — no goal file, no task, no "please do
+X". Real pull requests appear on your repository. You approve the merges
 that matter and watch the rest happen. When you are ready to grant more, the
 company does more of its own SDLC unattended — up to and including merging
 its own passing work — and never one step past the authority you wrote down.
 
 The distinction in that first sentence is the whole point. Plenty of tools
 let an agent open a pull request. What is hard, and what Poseidon is about,
-is letting a *company of agents work toward a goal on its own* while
+is letting a *company of agents work toward a vision on its own* while
 guaranteeing it cannot force-push to `main`, spend past its budget,
 exfiltrate a secret, or act on an instruction hidden in a GitHub issue — not
 because a careful prompt asked it not to, but because the surrounding system
@@ -27,14 +29,16 @@ makes those outcomes impossible and records every attempt.
 Most agent frameworks are factories: hire an agent for one task, get an
 output, tear it down. Poseidon is trying to be a *company* — a control loop
 with memory that observes the world, decides what is worth doing, does it,
-learns, and repeats, for as long as the goals remain. That ambition sets the
-bar in five places:
+learns, and repeats, for as long as the vision stands. That ambition sets
+the bar in five places:
 
-- **Autonomy** — the system chooses the next action from a goal and its
-  state; a human declares the gates and the caps but does not stitch the
-  phases together.
-- **Continuity** — standing agents that remember across restarts. Strategy,
-  taste and unfinished work survive a worker dying; durable execution is why.
+- **Autonomy** — the system chooses the next action from its documents and
+  its state; a human declares the gates and the caps but does not stitch
+  the phases together, and does not hand in work.
+- **Continuity** — a strategy and an architecture masterplan the company
+  wrote for itself, in its repository; standing agents that remember across
+  restarts. Unfinished work survives a worker dying; durable execution is
+  why.
 - **Coordination** — many workstreams, shared artifacts, real priorities: a
   PM sequencing tickets, crews that implement and review, a heartbeat that
   picks what runs next.

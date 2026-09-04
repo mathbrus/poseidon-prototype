@@ -345,7 +345,7 @@ def test_teardown_without_sandbox_finalizes_failed(activities, backend):
 
 
 def test_teardown_links_the_tickets_a_run_filed(activities, runs):
-    """Intake's artifacts are tickets, not a PR: the run record carries
+    """A scope run's artifacts are tickets, not a PR: the run record carries
     them the way an implement record carries its pr_url."""
     asyncio.run(activities.create_run(RUN_ID, "scope", "scope the next slice"))
     result = {

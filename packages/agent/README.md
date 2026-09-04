@@ -91,9 +91,16 @@ Two status-code rules carry real semantics:
 From `hands.py`, verbatim:
 
 ```python
-IMPLEMENT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
-DELIVER_TOOLS = IMPLEMENT_TOOLS + ["open_pr"]
-SCOPE_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
+IMPLEMENT_TOOLS = [
+    "list_dir",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "exec",
+    "request_architecture",
+]
+DELIVER_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec", "open_pr"]
+SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
 REVIEW_TOOLS = [
     "list_dir",
     "read_file",

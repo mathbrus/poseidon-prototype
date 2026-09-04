@@ -96,14 +96,17 @@ same tool, now `default_deny`.
 never reaches policy at all — `_decision_input` returns `None` and the
 call is denied and audited as `ephemeral_parentage_missing`.
 
-**Live counters.** For `crew.request` the gateway additionally injects
-`active_spawns` (the conductor's live spawn count from the participants
-table) and `budget_headroom` (whether the run's ledger spend is still
-under the company's per-run cap). The compiled cap and budget rules read
-them from the input — `crew_request_over_cap` and
-`crew_request_no_budget` are rule denies like any other. Nothing is ever
-pushed into OPA, so a decision is replayable and an OPA restart is safe:
-it re-polls the bundle, and the next input carries the current state.
+**Live counters.** For `architecture.request` the gateway additionally
+injects `architecture_requests` — how many the run already filed, read
+off the gateway's own audit trail — and for `git.open_pr` it computes
+`paths_present`, which of the changed paths already exist on the base ref.
+The compiled rules read them from the input — `architecture_request_over_cap`
+and `git_open_pr_strategy_present` are rule denies like any other. (The
+`crew.request` decision, with its spawn count and budget headroom, is the
+orchestrator's to evaluate at fulfilment; it is not a gateway tool.)
+Nothing is ever pushed into OPA, so a decision is replayable and an OPA
+restart is safe: it re-polls the bundle, and the next input carries the
+current state.
 
 **Fail-closed, twice more.** If OPA has no document at the caller's
 decision path, `opa.py` does not treat the empty answer as anything but a
@@ -137,8 +140,9 @@ so the gateway cannot query a document the compiler never wrote.
 
 The tools — the sandbox tools proxied to the run's registered tool
 server, `repo.archive` and `git.open_pr` backed by platform-side clones,
-the issue and review tools, platform-only `git.merge_pr`, and
-`crew.request` — are documented one by one, with arguments, on
+`repo.read_file` for the company's documents at the base ref, the issue
+and review tools, `architecture.request`, and platform-only `git.merge_pr`
+— are documented one by one, with arguments, on
 [Tools](../../docs/reference/tools.md), rendered from this package's
 definitions at build time.
 The names match the lists in `schema.tools`, which is what the compiler

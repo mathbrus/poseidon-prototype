@@ -37,7 +37,9 @@ fields come from the registry, and `args` are the call's arguments.
 | `run_id`, `workflow` | The run the call names, and the workflow the registry says that run belongs to. |
 | `run_binding_verified` | Whether the caller is verifiably bound to that run: an ephemeral agent's row names exactly one run; a platform caller needs a live sandbox registration; a standing agent's company namespace must own the registration. Every run-scoped rule requires it, so a wrong, stale or revoked claim fails closed. |
 | `tool`, `args` | The call. For `git.open_pr` the gateway adds the changed paths it computed from the bundle, which is what makes path rules enforceable. |
-| `active_spawns`, `budget_headroom` | `crew.request` only: the caller's live spawn count and whether the run is under its per-run cap. |
+| `active_spawns`, `budget_headroom` | `crew.request` only — the decision the platform evaluates as the conductor before it fulfils a crew: the conductor's live spawn count and whether the run is under its per-run cap. |
+| `architecture_requests` | `architecture.request` only: how many requests this run already filed, read by the gateway off its own audit trail. |
+| `args.paths_present` | `git.open_pr`: which of the changed paths already exist on the base ref — what makes the strategy write-once. |
 
 ## The rule vocabulary
 
@@ -51,6 +53,10 @@ say why without a lookup.
 | `crew_<crew>_<role>_<tool>` | An ephemeral agent's compiled scope, per crew and role; run-scoped tools add the `bound_to_run` clause. |
 | `platform_<tool>` | The platform lifecycle's own tools. |
 | `crew_request_over_cap`, `crew_request_no_budget` | `crew.request` beyond the conductor's `max_concurrent`, or with no per-run budget headroom. |
+| `architecture_request_over_cap`, `architecture_request_count_missing` | A second architecture request in one run, or one without the count (fail closed). |
+| `git_open_pr_strategy_path`, `git_open_pr_architecture_path` | A delivery into a document path by any role but the steward. |
+| `git_open_pr_strategy_present`, `git_open_pr_strategy_presence_missing` | A delivery over a strategy that already exists on the base ref, or one without the presence fact (fail closed). |
+| `heartbeat_start_over_open_tickets`, `heartbeat_start_open_tickets_missing` | A `scope` start at `max_open_tickets`, or one without the count (fail closed). |
 | `repo_not_declared` | A tool call naming any repository other than the blueprint's `stack.repo.url`. |
 | `git_open_pr_protected_branch`, `git_open_pr_branch_pattern`, `git_open_pr_paths_missing`, `git_open_pr_denied_paths` | Branch protection, the allowed branch pattern, the changed paths absent from the input (fail closed), and `policies.deny_paths`. |
 | `git_open_pr_contract_tree` | A role other than the declared contract author delivering into the contract tree. |
@@ -74,8 +80,8 @@ are stored only as a digest — audit must never become a leak channel.
 | `gateway` | the MCP gateway | every tool call: decision, rule, backend outcome |
 | `llm-gateway` | the LLM gateway | every model call and its metered cost; budget stops |
 | `sandbox-infra` | the egress proxy | every allowed and denied egress attempt (`egress_not_allowlisted`) |
-| `process-gate` | the orchestrator | gate outcomes: merge and intake verdicts, escalations, expiries, budget pauses, `gate.heartbeat_attempts` exhaustion, the daily-cap halt |
-| `process-lifecycle` | the orchestrator | crew fulfilment: `lifecycle.bind`, `lifecycle.revoke`, pod provisioning and destruction; review facts (`review.verdict`, `merge.resolve`); heartbeat decisions (`heartbeat.decide`, `heartbeat.start`, `heartbeat.tick`) |
+| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, budget pauses, `gate.heartbeat_attempts` exhaustion, the daily-cap halt, the `heartbeat_bootstrap` halt |
+| `process-lifecycle` | the orchestrator | crew fulfilment: `lifecycle.bind`, `lifecycle.revoke`, pod provisioning and destruction; review facts (`review.verdict`, `merge.resolve`); heartbeat decisions (`heartbeat.decide`, `heartbeat.start`, `heartbeat.tick`, `heartbeat.bootstrap`) |
 
 Every event carries `company`, `lifecycle`, `parent_agent_id` and
 `workflow` so attribution never has to be inferred from naming

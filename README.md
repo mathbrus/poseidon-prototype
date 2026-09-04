@@ -4,18 +4,20 @@
 exceed its authority — because the infrastructure will not let it, not
 because the prompt asked nicely.**
 
-You give Poseidon a charter — a goal to pursue, a budget to stay under, a
-short list of things that must never happen without you. It stands up a
-small software organisation to pursue that goal: a product manager that
-scopes the work and files tickets, ephemeral crews that implement and review
-each change, and a standing heartbeat that decides what to do next and keeps
-going. Real pull requests appear on your repository. You approve the merges
+You give Poseidon a charter — a vision to pursue, a budget to stay under,
+a short list of things that must never happen without you. It stands up a
+small software organisation to pursue that vision: a product manager that
+writes the strategy and the architecture masterplan from it, scopes the
+next slice and files tickets, ephemeral crews that implement and review
+each change, and a standing heartbeat that decides what to do next and
+keeps going. Nothing else goes in — no goal file, no task, no "please do
+X". Real pull requests appear on your repository. You approve the merges
 that matter and watch the rest happen. When you are ready to grant more, the
 company does more of its own SDLC unattended — up to and including merging
 its own passing work — and never one step past the authority you wrote down.
 
 Plenty of tools let an agent open a pull request. What is hard, and what
-Poseidon is about, is letting a *company of agents work toward a goal on
+Poseidon is about, is letting a *company of agents work toward a vision on
 its own* while guaranteeing it cannot force-push to `main`, spend past its
 budget, exfiltrate a secret, or act on an instruction hidden in a GitHub
 issue — not because a careful prompt asked it not to, but because the
@@ -77,7 +79,7 @@ and how to test it.
 | [`common`](packages/common/README.md) | Identity, workload authn, audit model, pod security posture |
 | [`schema`](packages/schema/README.md) | The blueprint contract and the role/crew catalogs |
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
-| [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
+| [`registry`](packages/registry/README.md) | Eight Postgres tables; one writer each; the audit store |
 | [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
 | [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates, the `poseidon` CLI |
 | [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
