@@ -409,9 +409,13 @@ class CrewActivities:
             lifecycle=LIFECYCLE_STANDING,
         )
         if not allowed:
-            raise RuntimeError(
+            # A refusal is policy's decision, not a transient failure: a
+            # retry would only ask the same question and journal the same
+            # deny again.
+            raise ApplicationError(
                 f"crew request refused by policy rule"
-                f" {result.get('rule')!r} for {conductor}/{crew_template}"
+                f" {result.get('rule')!r} for {conductor}/{crew_template}",
+                non_retryable=True,
             )
 
     def _require_provisioner(self) -> EphemeralPodProvisioner:

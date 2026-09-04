@@ -5,6 +5,7 @@ label-selector discipline (via a fake provisioner)."""
 import asyncio
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from common.topology import EPHEMERAL_KIND, TOKEN_MOUNT_DIR
 from orchestrator.activities.crew import CrewActivities
@@ -397,11 +398,13 @@ def test_fulfilment_denied_by_the_compiled_decision(fulfill_world, monkeypatch):
         opa_module, "httpx", FakeOpa({"allow": False, "rule": "default_deny"})
     )
 
-    with pytest.raises(RuntimeError, match="default_deny"):
+    with pytest.raises(ApplicationError, match="default_deny") as caught:
         asyncio.run(crew.fulfill_crew(_fulfill_spec(crew_template="data-export")))
     assert participants.rows == {}  # nothing bound on a deny
     event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
     assert event.decision == "deny"
+    # Policy's answer is final: no retry re-asks it.
+    assert caught.value.non_retryable
 
 
 def test_fulfilment_with_no_policy_installed_fails_closed(fulfill_world, monkeypatch):
@@ -412,9 +415,11 @@ def test_fulfilment_with_no_policy_installed_fails_closed(fulfill_world, monkeyp
     crew, participants, _, _, _ = fulfill_world
     monkeypatch.setattr(opa_module, "httpx", FakeOpa(None))
 
-    with pytest.raises(RuntimeError, match="no_policy_installed"):
+    with pytest.raises(ApplicationError, match="no_policy_installed") as caught:
         asyncio.run(crew.fulfill_crew(_fulfill_spec()))
     assert participants.rows == {}
+    # Policy's answer is final: no retry re-asks it.
+    assert caught.value.non_retryable
 
 
 def test_ephemeral_pod_carries_a_wall_clock_deadline():
