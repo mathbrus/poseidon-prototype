@@ -229,8 +229,9 @@ proves the server is up.
 ## Cross-package interactions
 
 - `common.authn` for identity, `common.audit` for the event model.
-- `registry` for the run binding, audit sink, crew requests, participants
-  and ledger reads. Every accessor is synchronous psycopg, so every use
+- `registry` for the run binding, audit sink, participants and ledger
+  reads, and the audit store's own story of a run (the count of
+  architecture requests already allowed under it). Every accessor is synchronous psycopg, so every use
   goes through `asyncio.to_thread` — a slow or absent Postgres must not
   stall the event loop (the pool blocks long enough to fail the liveness
   probe if it ran there).

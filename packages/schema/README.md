@@ -54,12 +54,12 @@ cannot read.
 
 ## The role catalog
 
-Four roles, and the set is closed: a blueprint names roles, it never
+Five roles, and the set is closed: a blueprint names roles, it never
 defines them. A role is what an agent *is*: its tool ceiling, the crews
 it may spawn, and the procedures a dispatch may ask of it. `pm` is the
 standing conductor and holds no coding tools at all — no `sandbox.*`, no
 `git.open_pr` — and no private memory store either: cross-run state is
-tickets and registry runs. The other three are ephemeral-agent material
+tickets and registry runs. The other four are ephemeral-agent material
 only. Which role holds which tools, runs which procedures and may spawn
 which crews is rendered from `ROLES` on
 [Roles and crews](../../docs/reference/roles.md).
@@ -70,15 +70,15 @@ invent would be a policy the platform never reviewed. Roles carry tool
 scopes, procedures and spawn authority — never counts, never secrets: how many of a role a company hires
 is the blueprint's business, and credentials never enter a spec at all.
 
-The lean-standing rule — no standing `implementer`, `reviewer` or
-`contract-author` — is deliberately **not** checked here. Whether a hire
+The lean-standing rule — no standing `implementer`, `reviewer`,
+`contract-author` or `steward` — is deliberately **not** checked here. Whether a hire
 is a coder is a question about the company the plan would deploy, so it
 is a compiler error, and `test_lean_roster_profile_validates` proves the
 standing-coder document still validates structurally.
 
 ## The crew catalog
 
-Three crews, one role each, rendered from `CREW_TEMPLATES` on the same
+Four crews, one role each, rendered from `CREW_TEMPLATES` on the same
 page. A crew is a list of roles, and the catalog is the only place that
 list is written: a blueprint names the crews it puts to work (in a hire's
 `may_spawn` and a workflow's `crew`), never their members — a name outside

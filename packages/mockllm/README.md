@@ -26,9 +26,11 @@ entirely. When an acceptance test fails, the platform changed.
 | `app.py` | The OpenAI-compatible FastAPI surface and the deterministic token-usage estimate. |
 | `__main__.py` | `python -m mockllm` with LiteLLM-shaped args, accepted and ignored. |
 
-The scenarios themselves live at the repo root in `examples/` — they are
-inputs to the *platform*, not to this package; the brain merely
-recognises their markers in whatever task text reaches it.
+The scenarios themselves are the e2e suite's — ticket texts under
+`tests/e2e_kind/tickets/`, strategies and documents the harness writes
+from this package's constants — inputs to the *platform*, not to this
+package; the brain merely recognises their markers in whatever task text
+reaches it.
 
 ## Dev/test only
 
@@ -84,10 +86,11 @@ attempt–deny–recover within it. Once a delivery succeeded (`_pr_opened`
 spots a non-null `"pr_url"` in a tool observation), the script answers in
 plain text, which is what ends an SDK conversation.
 
-The delivery branch is parsed from the task text (the e2e harness
-appends a `feature/slugify-<nonce>` line). Without one the fallback is a
-fixed `feature/slugify-mock`, so repeated runs against the same repo
-collide on the branch — append a branch line when that matters.
+The delivery branch is the first `feature/<slug>` named in the task
+text (`BRANCH_RE`): a ticket body's "Deliver your work on the branch
+…" line, or a bootstrap ticket's. Without one the fallback is a fixed
+`feature/slugify-mock`, so repeated runs against the same repo collide on
+the branch — name a branch when that matters.
 
 ## The scenarios it scripts
 
@@ -124,6 +127,14 @@ under `tests/e2e_kind/tickets/`) and in the strategies it writes:
   implementer calls `request_architecture` once and stops — no code, no
   PR, no delivery dispatch — so the platform's stewardship ticket is the
   run's only product and the run ends waiting on it, by name.
+- A masterplan edit beside honest work (`MASTERPLAN_EDIT_MARKER` in a
+  ticket): the implementer delivers the change and an edit to
+  `docs/ARCHITECTURE.md` together; the gateway refuses the document path
+  by name, and the recovery delivers the implementation alone.
+- A strategy rewrite (a `Bootstrap: strategy` ticket filed by hand while
+  the strategy exists): the steward obeys and writes it; the gateway
+  refuses the delivery with `git_open_pr_strategy_present` — the strategy
+  is written once, for the steward too.
 - Review-time markers ride the PR rather than a file:
   `STEERED_REVIEW_MARKER` in the diff the reviewer reads makes it skip the
   suite and pass — the merge gate, not the reviewer, must hold.

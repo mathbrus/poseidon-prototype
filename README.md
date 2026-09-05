@@ -6,10 +6,11 @@ because the prompt asked nicely.**
 
 You give Poseidon a charter — a vision to pursue, a budget to stay under,
 a short list of things that must never happen without you. It stands up a
-small software organisation to pursue that vision: a product manager that
-writes the strategy and the architecture masterplan from it, scopes the
-next slice and files tickets, ephemeral crews that implement and review
-each change, and a standing heartbeat that decides what to do next and
+small software organisation to pursue that vision: a steward that writes
+the strategy and the architecture masterplan from it, a product manager
+that scopes the next slice and files tickets, ephemeral crews that
+implement and review each change, and a standing heartbeat that decides
+what to do next and
 keeps going. Nothing else goes in — no goal file, no task, no "please do
 X". Real pull requests appear on your repository. You approve the merges
 that matter and watch the rest happen. When you are ready to grant more, the
