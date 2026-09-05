@@ -14,6 +14,7 @@ schema's.
 
 from typing import Any
 
+from schema.gates import DOCUMENT_NAMES
 from schema.tools import KNOWN_TOOLS
 
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"
@@ -48,8 +49,8 @@ _COMPANY = {
         "documents": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["strategy", "architecture"],
-            "properties": {"strategy": _REPO_PATH, "architecture": _REPO_PATH},
+            "required": list(DOCUMENT_NAMES),
+            "properties": {name: _REPO_PATH for name in DOCUMENT_NAMES},
         },
     },
 }

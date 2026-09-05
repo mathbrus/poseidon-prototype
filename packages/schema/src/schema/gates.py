@@ -130,6 +130,11 @@ def contract_tests_problems(document: Any) -> list[str]:
     return problems
 
 
+# The company's documents, by name: the ones a blueprint must place and
+# the platform reads, bootstraps and fences.
+DOCUMENT_NAMES = ("strategy", "architecture")
+
+
 def document_paths(document: Any) -> dict[str, str]:
     """The company's document paths by name, tolerant of malformed values."""
     section = (document.get("company") or {}).get("documents")
@@ -148,6 +153,12 @@ def document_problems(document: Any) -> list[str]:
         return []
     problems = []
     paths = document_paths(document)
+    for name in DOCUMENT_NAMES:
+        if name not in paths:
+            problems.append(
+                f"company.documents.{name}: required — a company names the path "
+                f"of both its documents"
+            )
     if len(set(paths.values())) < len(paths):
         problems.append(
             "company.documents: the strategy and the architecture masterplan "
@@ -182,6 +193,7 @@ def document_problems(document: Any) -> list[str]:
 
 
 __all__ = [
+    "DOCUMENT_NAMES",
     "UNDELEGATABLE_PATHS",
     "contract_tests_problems",
     "document_paths",

@@ -61,7 +61,7 @@ pm:
   role: pm
   count: 1
   may_spawn:
-    crew: [feature-delivery, feature-review]
+    crew: [feature-delivery, feature-review, stewardship]
     max_concurrent: 2
 ```
 

@@ -93,9 +93,34 @@ def test_a_workflow_crew_must_be_a_catalog_crew(blueprint):
 
 def test_workflow_crew_must_be_spawnable_by_its_conductor(blueprint):
     """Otherwise the workflow compiles but can never be fulfilled."""
-    blueprint["standing"]["pm"]["may_spawn"]["crew"] = ["feature-review"]
+    blueprint["standing"]["pm"]["may_spawn"]["crew"] = ["feature-review", "stewardship"]
     (problem,) = [p for p in problems_of(blueprint) if "may not spawn" in p]
     assert "feature-delivery" in problem
+
+
+def test_the_conductor_must_spawn_the_stewardship_crew(blueprint):
+    """No workflow names the stewardship crew: the platform's bootstrap and
+    architecture-request tickets route to it by trailer. A conductor that
+    may not spawn it compiles a company that can never write its own
+    documents, so the compiler refuses by name."""
+    blueprint["standing"]["pm"]["may_spawn"]["crew"] = [
+        "feature-delivery",
+        "feature-review",
+        "contract-authoring",
+    ]
+    (problem,) = [p for p in problems_of(blueprint) if "stewardship" in p]
+    assert problem.startswith("heartbeat.conductor")
+
+
+def test_compiler_fails_closed_on_a_missing_document(blueprint):
+    """The compiler accepts unvalidated dicts: a document the blueprint does
+    not place is a named problem, never a KeyError inside emission."""
+    del blueprint["company"]["documents"]["architecture"]
+    assert any(
+        p.startswith("company.documents.architecture") for p in problems_of(blueprint)
+    )
+    del blueprint["company"]["documents"]
+    assert any(p.startswith("company.documents.strategy") for p in problems_of(blueprint))
 
 
 def test_a_tool_scope_needs_a_real_allow_list(blueprint):

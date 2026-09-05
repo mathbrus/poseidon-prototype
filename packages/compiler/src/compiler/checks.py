@@ -26,6 +26,7 @@ placeholders remain legal documentation.
 import re
 from typing import Any
 
+from common.tasks import DOCUMENT_CREW
 from schema.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
 from schema.coherence import (
     contract_role_problems,
@@ -186,14 +187,25 @@ def _spawn_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> list[
 def _spawnable_crews(
     blueprint: dict[str, Any], crews_catalog: dict[str, CrewTemplate]
 ) -> list[str]:
-    """Every workflow's crew is a catalog crew the conductor may spawn —
-    otherwise the workflow compiles but can never be fulfilled. (Whether a
-    `may_spawn.crew` names a known crew is `schema.coherence`'s.)"""
+    """Every crew the company needs is one the conductor may spawn: each
+    workflow's crew, and the stewardship crew the platform's document
+    tickets route to — otherwise the work compiles but can never be
+    fulfilled. (Whether a `may_spawn.crew` names a known crew is
+    `schema.coherence`'s.)"""
     problems = []
     conductor = _conductor(blueprint)
     allowed = ((_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}).get(
         "crew"
     ) or []
+    # A missing or unknown conductor is `_heartbeat_authority`'s problem;
+    # the document crew is asked of a conductor that exists.
+    if conductor in _hires(blueprint) and DOCUMENT_CREW not in allowed:
+        problems.append(
+            f"heartbeat.conductor: {conductor!r} may not spawn {DOCUMENT_CREW!r} — "
+            f"the platform's bootstrap and architecture-request tickets route to "
+            f"that crew; add it to may_spawn.crew, or the company can never write "
+            f"its documents"
+        )
     for name, workflow in _workflows(blueprint).items():
         crew = workflow.get("crew")
         if crew is None:

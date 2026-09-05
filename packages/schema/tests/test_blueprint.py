@@ -363,6 +363,19 @@ def test_documents_are_required(blueprint):
     assert any("documents" in p for p in problems_of(blueprint))
 
 
+def test_document_problems_name_a_missing_document():
+    """The document pass names each absent document itself, so a caller
+    that skips the schema pass (the compiler) fails closed on the same
+    sentence."""
+    from schema.gates import document_problems
+
+    problems = document_problems({"company": {"documents": {"strategy": "docs/S.md"}}})
+    assert problems == [
+        "company.documents.architecture: required — a company names the path of "
+        "both its documents"
+    ]
+
+
 def test_document_paths_are_distinct_and_inside_the_repository(blueprint):
     blueprint["company"]["documents"]["architecture"] = "docs/STRATEGY.md"
     assert any("distinct" in p for p in problems_of(blueprint))
