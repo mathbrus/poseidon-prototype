@@ -35,6 +35,7 @@ from registry import (
     AgentInstances,
     AuditStore,
     Companies,
+    FiledTickets,
     RunParticipants,
     Runs,
     SandboxRegistrations,
@@ -87,6 +88,7 @@ def create_app(
     participants: RunParticipants | None = None,
     runs: Runs | None = None,
     companies: Companies | None = None,
+    filed: FiledTickets | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
     settings = settings or McpGatewaySettings()
@@ -99,7 +101,7 @@ def create_app(
     # reads for decision-input enrichment). Injectable so
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.
-    accessors = (sandboxes, audit, instances, participants, runs, companies)
+    accessors = (sandboxes, audit, instances, participants, runs, companies, filed)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -109,6 +111,7 @@ def create_app(
         participants = RunParticipants(registry)
         runs = Runs(registry)
         companies = Companies(registry)
+        filed = FiledTickets(registry)
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
     service = GatewayService(
@@ -119,6 +122,7 @@ def create_app(
         audit,
         runs,
         companies,
+        filed,
     )
     authenticator = Authenticator(
         settings,

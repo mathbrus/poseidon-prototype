@@ -34,6 +34,7 @@ from mcp_gateway.opa import OpaClient
 from registry import (
     AuditStore,
     Companies,
+    FiledTickets,
     Runs,
     SandboxRegistrations,
 )
@@ -74,6 +75,7 @@ class GatewayService:
         audit: AuditStore,
         runs: Runs,
         companies: Companies,
+        filed: FiledTickets,
         git_backend: GitBackend | None = None,
     ) -> None:
         self._settings = settings
@@ -89,6 +91,10 @@ class GatewayService:
         # Read-only: the run row supplies the decision input's `workflow`.
         self._runs = runs
         self._companies = companies
+        # Every ticket this gateway creates is recorded here the moment the
+        # git host answers: the loop reads its own writes while the host's
+        # listing catches up.
+        self._filed = filed
 
     # -- sandbox registry -------------------------------------------------
     # Registry accessors are synchronous psycopg; every use goes through
@@ -413,9 +419,15 @@ class GatewayService:
                 f"{identity.agent_id}.\n\n"
                 f"Crew: {DOCUMENT_CREW}"
             )
-            return await self._git.create_issue(spec["repo"]["url"], title, body)
+            return await self._file_ticket(spec["repo"]["url"], run_id, title, body)
 
         return await self.call(identity, ARCHITECTURE_REQUEST, args, backend)
+
+    async def _file_ticket(self, repo: str, run_id: str, title: str, body: str) -> Any:
+        """Create the issue and remember it under the run that filed it."""
+        issue = await self._git.create_issue(repo, title, body)
+        await asyncio.to_thread(self._filed.record, repo, int(issue["number"]), run_id)
+        return issue
 
     async def issues_create(
         self, identity: Identity, run_id: str, repo: str, title: str, body: str
@@ -425,7 +437,7 @@ class GatewayService:
             identity,
             "issues.create",
             args,
-            lambda: self._git.create_issue(repo, title, body),
+            lambda: self._file_ticket(repo, run_id, title, body),
         )
 
     async def issues_read(

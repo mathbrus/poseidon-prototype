@@ -30,6 +30,7 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
+    InMemoryFiledTickets,
     InMemoryRunParticipants,
     InMemoryRuns,
     InMemorySandboxRegistrations,
@@ -342,6 +343,11 @@ def ledger() -> InMemoryBudgetLedger:
 
 
 @pytest.fixture
+def filed() -> InMemoryFiledTickets:
+    return InMemoryFiledTickets()
+
+
+@pytest.fixture
 def companies() -> InMemoryCompanies:
     store = InMemoryCompanies()
     store.upsert(
@@ -363,6 +369,7 @@ async def app(
     instances: InMemoryAgentInstances,
     participants: InMemoryRunParticipants,
     companies: InMemoryCompanies,
+    filed: InMemoryFiledTickets,
 ):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
     application = create_app(
@@ -374,6 +381,7 @@ async def app(
         participants=participants,
         runs=InMemoryRuns(),
         companies=companies,
+        filed=filed,
         token_reviewer=FakeReviewer(),
     )
     async with application.state.fastmcp.session_manager.run():

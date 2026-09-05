@@ -1,6 +1,6 @@
 # registry
 
-The join point between declarative intent and live state: eight Postgres
+The join point between declarative intent and live state: nine Postgres
 tables, each behind a write-scoped accessor class. The operator writes
 what a blueprint declared, the orchestrator writes what a run is doing,
 the gateways write what they decided — and one `run_id` query returns the
@@ -16,7 +16,7 @@ In [the root README](../../README.md)'s architecture diagrams this is the
 `registry` cylinder: the declarative path ends here (what was applied) and
 the runtime path reports here (what every enforcement point decided).
 
-## The eight tables
+## The nine tables
 
 | Table | Written by | Records |
 |---|---|---|
@@ -26,6 +26,7 @@ the runtime path reports here (what every enforcement point decided).
 | `runs` | orchestrator | The run record: task, status, artifacts, terminal state — and whether the run *concluded* its work item (`pr_url` for implement, `verdict` for review), which the heartbeat's attempt accounting reads. |
 | `run_participants` | orchestrator | One row per bound ephemeral identity — the whole identity, ServiceAccount name included. Revocation is a row termination. |
 | `sandbox_registrations` | gateway | Run → sandbox address. The registration *is* the run binding. |
+| `filed_tickets` | gateway | Every ticket the company filed, by repository and number, from the moment the git host created it — the heartbeat reads its own writes from here while the host's listing catches up. |
 | `budget_ledger` | LLM gateway | One spend entry per model call, fully attributed. |
 | `audit_events` | gateway, LLM gateway, egress proxy, orchestrator | Every decision, one ingestion contract. |
 
@@ -47,7 +48,7 @@ writer.
 | Module | Owns |
 |---|---|
 | `db.py` | Connection pool, DSN handling, and startup migration under an advisory lock. |
-| `schema.sql` | The eight tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
+| `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
 | `companies.py` | `Companies` — the applied blueprint per company, written by the operator. |
 | `instances.py` | `AgentInstances` — the standing agents, and the gateways' workload-identity read. |
 | `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |

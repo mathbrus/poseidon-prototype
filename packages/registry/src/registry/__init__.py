@@ -18,12 +18,14 @@ from registry.participants import ParticipantRevoked, RunParticipants
 from registry.policy import PolicyBundles, StoredBundle, pack
 from registry.runs import Attempts, RunRecord, Runs
 from registry.sandboxes import SandboxRegistrations
+from registry.tickets import FiledTickets
 
 __all__ = [
     "AgentInstances",
     "AuditStore",
     "BudgetLedger",
     "Companies",
+    "FiledTickets",
     "ParticipantRevoked",
     "PolicyBundles",
     "Registry",

@@ -11,6 +11,7 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
+    FiledTickets,
     ParticipantRevoked,
     PolicyBundles,
     Registry,
@@ -573,3 +574,18 @@ def test_participants_for_run_includes_terminated_rows(registry: Registry):
     rows = participants.for_run("run-lin-a")
     assert [(r["agent_id"], r["status"]) for r in rows] == [("lin-impl-1", "terminated")]
     assert participants.for_run("run-nowhere") == []
+
+
+# -- filed tickets ---------------------------------------------------------
+
+
+def test_filed_tickets_are_remembered_within_the_lag_window(registry: Registry):
+    """The gateway records each ticket once; the observation asks for the
+    ones filed within the host's listing lag, by repository."""
+    filed = FiledTickets(registry)
+    filed.record("github.com/example/repo", 7, RUN_ID)
+    filed.record("github.com/example/repo", 7, "run-other")  # a no-op
+    filed.record("github.com/example/repo", 9, RUN_ID)
+    filed.record("github.com/example/other", 3, RUN_ID)
+    assert FiledTickets(registry).filed_since("github.com/example/repo", 60) == [7, 9]
+    assert FiledTickets(registry).filed_since("github.com/example/repo", 0) == []

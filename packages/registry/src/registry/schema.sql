@@ -125,6 +125,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS run_participants_service_account_idx
 -- this row when the orchestrator registers a sandbox, and coupling that
 -- write to another service's insert ordering would trade a real failure
 -- mode for referential tidiness.
+-- Every ticket the company files, recorded by the gateway the moment the
+-- git host created it — the PM's tickets, the platform's bootstrap and
+-- architecture-request tickets. The host lists a new issue up to a
+-- minute after creating it; the heartbeat's observation reads its own
+-- writes from here and completes the listing by number, so a ticket the
+-- company just filed is never invisible to its next tick. Written by the
+-- gateway only.
+CREATE TABLE IF NOT EXISTS registry.filed_tickets (
+    repo      text NOT NULL,
+    number    integer NOT NULL,
+    run_id    text NOT NULL,
+    filed_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (repo, number)
+);
+
 CREATE TABLE IF NOT EXISTS registry.sandbox_registrations (
     run_id        text PRIMARY KEY,
     url           text NOT NULL,

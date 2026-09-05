@@ -14,6 +14,7 @@ failure modes than the real thing hides exactly the bugs it exists to catch.
 """
 
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -105,6 +106,22 @@ class InMemoryBudgetLedger:
 
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return [dict(e) for e in self.entries if e["run_id"] == run_id]
+
+
+class InMemoryFiledTickets:
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, int], tuple[str, float]] = {}
+
+    def record(self, repo: str, number: int, run_id: str) -> None:
+        self.rows.setdefault((repo, number), (run_id, time.time()))
+
+    def filed_since(self, repo: str, seconds: int) -> list[int]:
+        horizon = time.time() - seconds
+        return sorted(
+            number
+            for (r, number), (_run_id, filed_at) in self.rows.items()
+            if r == repo and filed_at > horizon
+        )
 
 
 class InMemorySandboxRegistrations:
