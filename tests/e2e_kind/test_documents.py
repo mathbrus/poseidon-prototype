@@ -46,6 +46,8 @@ from .blueprints import DELEGATED, restore_pristine, single_attempt
 from .cluster import (
     audit_story,
     bare_heartbeat_id,
+    db_now,
+    filed_tickets_since,
     participants,
     wake_and_await_ticks,
 )
@@ -109,10 +111,14 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
             env, DOCUMENT_PATHS[name], f"e2e: vision-only repository ({name})"
         )
     heartbeat_id = bare_heartbeat_id()
+    since = db_now()
     filing = wake_and_await_ticks(1)
     result: dict = {"env": env, "heartbeat_id": heartbeat_id, "filing_tick": filing[0]}
+    # The platform's own filings, read the way the platform reads them —
+    # from the registry, by number — not off a listing the host has not
+    # caught up with.
     tickets = {
-        name: _open_issue_numbers(env, BOOTSTRAP_TITLES[name])
+        name: _filed_titled(env, since, lambda t, name=name: t == BOOTSTRAP_TITLES[name])
         for name in BOOTSTRAP_TITLES
     }
     result["tickets"] = tickets
@@ -219,10 +225,10 @@ def requested(bootstrapped: dict) -> dict:
     result: dict = {"env": env, "issue_number": number}
     revision: dict = {}
     try:
+        since = db_now()
         result["run"] = run_ticket(number)
-        requests = _open_issue_numbers_prefixed(
-            env, f"Architecture request from run {result['run']['run_id']}"
-        )
+        prefix = f"Architecture request from run {result['run']['run_id']}"
+        requests = _filed_titled(env, since, lambda t: t.startswith(prefix))
         result["request_tickets"] = requests
         (request_number,) = requests
         result["request_ticket"] = github_api(
@@ -243,13 +249,19 @@ def requested(bootstrapped: dict) -> dict:
             close_issue(env, request_number)
 
 
-def _open_issue_numbers_prefixed(env: dict, prefix: str) -> list[int]:
-    issues = github_api(
-        env, "GET", f"/repos/{target_slug(env)}/issues?state=all&per_page=100"
-    ).json()
-    return sorted(
-        i["number"] for i in issues if (i.get("title") or "").startswith(prefix)
-    )
+def _filed_titled(env: dict, since: str, wanted) -> list[int]:
+    """The tickets the company filed after `since` whose title `wanted`
+    accepts — numbers from the registry, titles read one by one."""
+    return [
+        number
+        for number in filed_tickets_since(since)
+        if wanted(
+            github_api(env, "GET", f"/repos/{target_slug(env)}/issues/{number}")
+            .json()
+            .get("title")
+            or ""
+        )
+    ]
 
 
 def test_the_request_became_a_stewardship_ticket_the_caller_did_not_shape(

@@ -739,3 +739,16 @@ def wake_and_await_ticks(n: int = 1) -> list[dict[str, Any]]:
     mark = len(heartbeat_ticks(bare_heartbeat_id()))
     wake_bare_heartbeat()
     return await_new_ticks(mark, n)
+
+
+def filed_tickets_since(since: str) -> list[int]:
+    """The tickets the company filed after `since` (a registry timestamp
+    from `db_now`), by number — read from the registry the way the loop
+    reads its own writes, so a module never waits on the host's listing
+    for a ticket the platform just filed."""
+    rows = psql_json(
+        "SELECT COALESCE(json_agg(t.number ORDER BY t.number), '[]'::json) "
+        "FROM registry.filed_tickets t WHERE t.filed_at > :'since'::timestamptz",
+        since=since,
+    )
+    return [int(n) for n in rows]
