@@ -283,9 +283,10 @@ def create_app(
         run_id: str, repo: str, ref: str, path: str, ctx: Context
     ) -> dict[str, Any]:
         """One file of the repository at `ref`, as the git host holds it —
-        `{present, text}`. Platform lifecycle only: how the orchestrator
-        reads the company's documents at `base_ref`, never from a sandbox
-        a run could have edited."""
+        `{present, text}`, a missing file being an ordinary answer.
+        Platform lifecycle only; the orchestrator reads the company's
+        documents with it at `base_ref`, never from a sandbox a run could
+        have edited."""
         return await service.read_file(identity_of(ctx), run_id, repo, ref, path)
 
     @mcp.tool(name="git.open_pr")

@@ -31,6 +31,16 @@ class InMemoryAuditStore:
     def append(self, event: AuditEvent) -> None:
         self.events.append(event)
 
+    def count_allowed(self, run_id: str, tool: str) -> int:
+        return sum(
+            1
+            for e in self.events
+            if e.run_id == run_id
+            and e.tool == tool
+            and e.decision == "allow"
+            and e.backend_status == "ok"
+        )
+
     def story(self, run_id: str) -> list[dict[str, Any]]:
         # The same projection and order as AuditStore.story — consumers must
         # not come to depend on extra keys Postgres will never return.

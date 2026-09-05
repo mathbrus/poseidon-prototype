@@ -596,3 +596,15 @@ def test_filed_tickets_are_remembered_within_the_lag_window(registry: Registry):
     filed.record("github.com/example/other", 3, RUN_ID)
     assert FiledTickets(registry).filed_since("github.com/example/repo", 60) == [7, 9]
     assert FiledTickets(registry).filed_since("github.com/example/repo", 0) == []
+
+
+def test_count_allowed_counts_answered_allows_only(registry: Registry):
+    """A per-run cap reads the calls the gateway allowed and the host
+    answered; a deny or a failed backend does not spend the cap."""
+    store = AuditStore(registry)
+    for decision, status in (("allow", "ok"), ("allow", "error"), ("deny", None)):
+        store.append(
+            event(tool="architecture.request", decision=decision, backend_status=status)
+        )
+    assert store.count_allowed(RUN_ID, "architecture.request") == 1
+    assert store.count_allowed(RUN_ID, "git.open_pr") == 0

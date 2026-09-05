@@ -82,9 +82,9 @@ def _require_safe_overlay_path(value: str) -> str:
 @dataclass
 class PreparedBundle:
     """A verified bundle applied to a platform-side clone, awaiting push.
-    `paths` are the changed paths against the base ref; `paths_present`
-    the subset that already exists there — the fact the write-once rule
-    on the company's strategy reads."""
+    `paths` are the paths the branch changes against the base ref;
+    `paths_present` the subset that exists at the base ref's tip — the
+    fact the write-once rule on the company's strategy reads."""
 
     branch: str
     paths: list[str]
@@ -224,13 +224,17 @@ class GitBackend:
 
     # -- git.open_pr ----------------------------------------------------------
 
-    def _exists(self, clone: Path, ref: str, path: str) -> bool:
-        """Whether `path` exists at `ref` in the clone."""
-        try:
-            self._git(clone, "cat-file", "-e", f"{ref}:{path}")
-        except GitBackendError:
-            return False
-        return True
+    def _present(self, clone: Path, ref: str, paths: list[str]) -> list[str]:
+        """The subset of `paths` that exists at `ref` in the clone, in one
+        listing. `ref` is the base ref's tip, deliberately not the fork
+        point: the write-once rule on the strategy reads what the
+        repository holds at delivery time, so a branch cut before the
+        strategy merged cannot rewrite it."""
+        if not paths:
+            return []
+        listed = self._git(clone, "ls-tree", "-r", "--name-only", ref, "--", *paths)
+        present = set(listed.splitlines())
+        return [p for p in paths if p in present]
 
     async def prepare_pr(
         self, repo: str, branch: str, bundle_b64: str, base_ref: str
@@ -266,7 +270,7 @@ class GitBackend:
                 f"origin/{base_ref}...{INCOMING_REF}",
             )
             paths = [line for line in diff.splitlines() if line]
-            present = [p for p in paths if self._exists(clone, f"origin/{base_ref}", p)]
+            present = self._present(clone, f"origin/{base_ref}", paths)
             self._log.info(
                 "bundle prepared",
                 extra={"branch": branch, "paths": paths, "paths_present": present},

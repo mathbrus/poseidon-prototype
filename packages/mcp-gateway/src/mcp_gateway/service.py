@@ -249,15 +249,12 @@ class GatewayService:
             policy_input["crew_template"] = identity.crew_template
         if tool == ARCHITECTURE_REQUEST:
             # The per-run cap reads how many requests this run already
-            # filed — off the gateway's own audit trail, the one record it
-            # writes, so the fact needs no new store.
-            story = await asyncio.to_thread(self._audit_store.story, run_id)
-            policy_input["architecture_requests"] = sum(
-                1
-                for e in story
-                if e["tool"] == ARCHITECTURE_REQUEST
-                and e["decision"] == "allow"
-                and e["backend_status"] == "ok"
+            # filed — allowed and answered — off the gateway's own audit
+            # trail, the one record it writes, so the fact needs no new
+            # store. A request the host failed to file does not count:
+            # the model may ask again.
+            policy_input["architecture_requests"] = await asyncio.to_thread(
+                self._audit_store.count_allowed, run_id, ARCHITECTURE_REQUEST
             )
         return policy_input
 
