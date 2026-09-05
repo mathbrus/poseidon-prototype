@@ -461,6 +461,19 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     assert harness.wakes == 1  # the concluded review frees the slot: a nudge
 
 
+async def test_a_reviewers_architecture_request_reaches_teardown(env):
+    """A ticket the reviewer had the platform file is the review run's:
+    the dispatch result carries it through every exit to teardown, which
+    records it on the run's row."""
+    url = "https://github.test/example/repo/issues/77"
+    harness = Harness(
+        merge_gate=POLICY_GATE, dispatch={**dispatch_result(), "ticket_urls": [url]}
+    )
+    await run_review(env.client, harness)
+    (result, _error) = harness.torn_down[0]
+    assert result is not None and result["ticket_urls"] == [url]
+
+
 # -- the contract layer ------------------------------------------------------
 
 

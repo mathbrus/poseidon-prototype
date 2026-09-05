@@ -509,7 +509,9 @@ def run_review(
     record like every other tool result. Read-and-judge
     only: no write_file, no open_pr, and the compiled reviewer scope enforces
     the same at the gateway. A dispatch without posted findings or without
-    a verdict is a failed review."""
+    a verdict is a failed review. Whatever the exit, the tickets the
+    reviewer had the platform file (an architecture request) are reported:
+    they are this run's, and the record must carry them."""
     with _session(
         settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP, documents
     ) as s:
@@ -517,21 +519,19 @@ def run_review(
         convo.send_message(f"Task:\n{task_text}")
         convo.run()
         failure = _loop_failure(convo)
+    partial = dict(ticket_urls=records.ticket_urls, comment_urls=records.comment_urls)
     if not records.comment_urls:
-        return ProcedureResult(error=failure or "reviewer posted no findings")
+        return ProcedureResult(error=failure or "reviewer posted no findings", **partial)
     if records.verdict is None:
         return ProcedureResult(
-            error=failure or "reviewer finished without a verdict",
-            comment_urls=records.comment_urls,
+            error=failure or "reviewer finished without a verdict", **partial
         )
     log.info(
         "review finished",
         extra={"comments": records.comment_urls, "verdict": records.verdict},
     )
     return ProcedureResult(
-        comment_urls=records.comment_urls,
-        verdict=records.verdict,
-        verdict_summary=records.verdict_summary,
+        verdict=records.verdict, verdict_summary=records.verdict_summary, **partial
     )
 
 

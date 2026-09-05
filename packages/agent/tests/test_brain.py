@@ -576,6 +576,30 @@ def test_an_architecture_request_is_a_gateway_call_and_a_ticket_of_the_run(
     assert result.pr_url is None
 
 
+def test_a_reviewers_architecture_request_is_a_ticket_of_the_run(settings, gateway):
+    """The reviewer may ask for the plan to change instead of judging a
+    change against a plan it finds wrong; the ticket the platform filed
+    rides the review's record on every exit — with a verdict, and
+    without one."""
+    request = tc(
+        "request_architecture",
+        rationale="the plan forbids what the slice needs",
+        proposal="allow two modules",
+    )
+    findings = tc("comment_pr", number=41, body="Suite green; the plan is wrong.")
+    with scripted(gateway, ScriptedLLM([calls(request, findings), says("Asked.")])):
+        result = run_review(settings, RUN_ID, "Review pull request #41")
+    assert result.error == "reviewer finished without a verdict"
+    assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
+    verdict = tc("verdict", verdict="fail", summary="Contradicts the plan; requested.")
+    with scripted(
+        gateway, ScriptedLLM([calls(request, findings, verdict), says("Done.")])
+    ):
+        result = run_review(settings, RUN_ID, "Review pull request #41")
+    assert result.verdict == "fail"
+    assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
+
+
 def test_the_documents_are_untrusted_context_for_implement_and_review(settings, gateway):
     """The company's documents the dispatch carries render in the system
     message's untrusted block beside AGENTS.md, under the name the model

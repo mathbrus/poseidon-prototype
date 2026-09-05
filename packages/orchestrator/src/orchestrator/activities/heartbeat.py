@@ -122,7 +122,7 @@ def consumed(attempts: Attempts | None, max_attempts: int) -> bool:
 def _recently_filed(recent: list[Any]) -> set[int]:
     """The numbers of the tickets filed by runs still running or finished
     within the host's listing lag — a scope run's slice tickets, an
-    implement run's architecture request."""
+    implement or review run's architecture request."""
     horizon = time.time() - LISTING_LAG_S
     numbers: set[int] = set()
     for run in recent:
