@@ -19,6 +19,10 @@ from orchestrator.gates import Gate
 BUDGET_MARKER = "budget_exhausted"
 
 STEP_RETRY = RetryPolicy(maximum_attempts=3, backoff_coefficient=2.0)
+# For an activity whose effect is not idempotent and whose caller
+# re-observes the world anyway: a filing, a nudge. A failure is the
+# caller's to notice on its next look, never a second attempt's to repeat.
+SINGLE_ATTEMPT = RetryPolicy(maximum_attempts=1)
 # The agent works for as long as one attempt allows; heartbeats (one per
 # poll) detect a dead worker fast, and the unbounded retry re-attaches to
 # the running agent (dispatch answers 409 → poll). schedule_to_close caps
@@ -105,6 +109,11 @@ PROFILES = {"default": Timeouts(), "fast": FAST_TIMEOUTS}
 # (teardown's bookkeeping). A ceiling, never a wait: these activities
 # answer in milliseconds on either profile.
 BOOTSTRAP_S = 30
+# The git host lists a new issue up to a minute after creating it. A
+# bootstrap filing waits that long for its tickets to be listed, so the
+# next tick — its own wake — cannot miss them and file again; the
+# filing's activity bound is a step plus this wait.
+LISTING_SETTLE_S = 60
 
 
 class RunWorkflow:
@@ -251,7 +260,7 @@ class RunWorkflow:
             await workflow.execute_activity(
                 "wake_heartbeat",
                 start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=SINGLE_ATTEMPT,
             )
         except ActivityError:
             workflow.logger.info("heartbeat wake failed; the reconcile timer covers it")

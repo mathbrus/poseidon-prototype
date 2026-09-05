@@ -71,6 +71,8 @@ from temporalio.workflow import ParentClosePolicy
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
     DISPATCH_RETRY,
+    LISTING_SETTLE_S,
+    SINGLE_ATTEMPT,
     STEP_RETRY,
     RunWorkflow,
     Timeouts,
@@ -137,11 +139,14 @@ class HeartbeatWorkflow(RunWorkflow):
             )
             bootstrap = observed.get("bootstrap") or {}
             if bootstrap.get("pending"):
+                # Filing is not idempotent: never retried. A filing that
+                # fails refuses this tick, and the next one files only for
+                # what is still absent.
                 filed = await workflow.execute_activity(
                     "heartbeat_bootstrap",
                     args=[list(bootstrap["pending"])],
-                    start_to_close_timeout=step,
-                    retry_policy=STEP_RETRY,
+                    start_to_close_timeout=step + timedelta(seconds=LISTING_SETTLE_S),
+                    retry_policy=SINGLE_ATTEMPT,
                 )
                 # The filing re-reads the documents; one that answered
                 # present since is not filed for and is read again next.

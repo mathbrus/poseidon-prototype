@@ -489,7 +489,7 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
 
     import orchestrator.activities.heartbeat as module
 
-    monkeypatch.setattr(module, "LISTING_SETTLE_S", 0)
+    monkeypatch.setattr(module, "LISTING_POLL_S", 0)
     monkeypatch.setattr(
         module,
         "GatewayClient",
@@ -516,6 +516,66 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
         event["tool"] == "heartbeat.bootstrap"
         and event["rule"] == "bootstrap_filed:strategy"
     )
+
+
+def test_bootstrap_files_nothing_for_a_document_present_on_re_read(
+    activities, companies, audit, monkeypatch, fake_gateway
+):
+    """The git host's reads are eventually consistent: a document the
+    observation missed answers present when the filing re-reads it, so no
+    ticket is filed and nothing is journaled — the next tick reads again."""
+    filed: list[str] = []
+
+    async def create_issue(self, run_id, repo, title, body):
+        filed.append(title)
+        return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
+
+    async def read_document(self, run_id, repo, ref, path):
+        return {"present": True, "text": "# Strategy\n"}
+
+    import orchestrator.activities.heartbeat as module
+
+    monkeypatch.setattr(
+        module,
+        "GatewayClient",
+        fake_gateway(create_issue=create_issue, read_document=read_document),
+    )
+    assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == []
+    assert filed == [] and audit.story(f"heartbeat-{COMPANY}") == []
+
+
+def test_bootstrap_returns_with_a_warning_when_the_listing_never_settles(
+    activities, companies, audit, monkeypatch, fake_gateway
+):
+    """The wait is bounded: a host that never lists the ticket within the
+    settle window does not hold the filing — one ticket was created, the
+    filing says so, and the next tick reads for itself."""
+    created: list[str] = []
+
+    async def create_issue(self, run_id, repo, title, body):
+        created.append(title)
+        return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
+
+    async def read_open_issues(self, run_id, repo):
+        return []
+
+    async def read_document(self, run_id, repo, ref, path):
+        return {"present": False, "text": None}
+
+    import orchestrator.activities.heartbeat as module
+
+    monkeypatch.setattr(module, "LISTING_SETTLE_S", 0)
+    monkeypatch.setattr(
+        module,
+        "GatewayClient",
+        fake_gateway(
+            create_issue=create_issue,
+            read_open_issues=read_open_issues,
+            read_document=read_document,
+        ),
+    )
+    assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == ["strategy"]
+    assert created == ["Bootstrap: strategy"]
 
 
 def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypatch):

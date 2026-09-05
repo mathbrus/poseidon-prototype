@@ -14,9 +14,9 @@ Retry safety, per activity:
                           dispatch text; safe.
     heartbeat_bootstrap — files the bootstrap ticket for an absent
                           document under the platform identity; not
-                          idempotent on retry (a duplicate ticket, never a
-                          lost one), and the next observation sees the
-                          open one and files no more.
+                          idempotent, so the workflow never retries it
+                          (`SINGLE_ATTEMPT`): a filing that fails leaves
+                          the next tick to file for what is still absent.
     heartbeat_decide    — dispatches the conductor's decide procedure and polls to
                           terminal; the PM answers 409 while running
                           (re-attach) like every dispatch. The chosen
@@ -70,7 +70,12 @@ from orchestrator.clients import (
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
-from orchestrator.workflows.base import PROFILES, TEMPORAL_NAMESPACE, workflow_id
+from orchestrator.workflows.base import (
+    LISTING_SETTLE_S,
+    PROFILES,
+    TEMPORAL_NAMESPACE,
+    workflow_id,
+)
 from registry import AgentInstances, Attempts, AuditStore, BudgetLedger, Companies, Runs
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
@@ -79,12 +84,11 @@ PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 BACKLOG_LIMIT = 20
 RECENT_RUNS_LIMIT = 10
 RATIONALE_CLIP = 300
-# The git host lists a new issue up to a minute after creating it. A
-# bootstrap filing waits that long for its tickets to be listed (polls,
-# one second apart); an observation completes the listing from the
-# tickets runs finished within the lag window filed, read by number.
-LISTING_SETTLE_POLLS = 60
-LISTING_SETTLE_S = 1.0
+# The git host lists a new issue up to a minute after creating it
+# (`LISTING_SETTLE_S`, the filing's wait). A filing polls the listing at
+# this interval; an observation completes the listing from the tickets
+# runs finished within the lag window filed, read by number.
+LISTING_POLL_S = 1.0
 LISTING_LAG_S = 120
 ISSUE_URL_NUMBER_RE = re.compile(r"/issues/(\d+)$")
 
@@ -426,8 +430,8 @@ class HeartbeatActivities:
         merged since, a lagging read) is not filed for. And the host lists
         a new issue a moment after creating it, while the next tick — this
         one's own wake — reads that listing to see the ticket already open;
-        the filing therefore returns only once its tickets are listed
-        (bounded), so the loop cannot file twice."""
+        the filing therefore returns only once its tickets are listed, or
+        after `LISTING_SETTLE_S`, whichever comes first."""
         paths = await asyncio.to_thread(
             company_documents, self._companies, self._settings.company
         )
@@ -462,19 +466,20 @@ class HeartbeatActivities:
                     rule=f"bootstrap_filed:{name}",
                 )
                 self._log.info("bootstrap ticket filed", extra={"document": name})
-            for _ in range(LISTING_SETTLE_POLLS if numbers else 0):
+            deadline = time.monotonic() + LISTING_SETTLE_S
+            while numbers:
                 listed = await gateway.read_open_issues(
                     self._ledger_run_id(), repo["url"]
                 )
                 if numbers <= {int(i["number"]) for i in listed}:
                     break
-                await asyncio.sleep(LISTING_SETTLE_S)
-            else:
-                if numbers:
+                if time.monotonic() >= deadline:
                     self._log.warning(
                         "bootstrap tickets not listed yet",
                         extra={"numbers": sorted(numbers)},
                     )
+                    break
+                await asyncio.sleep(LISTING_POLL_S)
         return filed
 
     @activity.defn(name="heartbeat_decide")

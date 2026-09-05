@@ -63,6 +63,9 @@ class Harness:
 
     observed_caps: list[int] = field(default_factory=list)
     bootstrapped: list[list[str]] = field(default_factory=list)
+    # When set, every bootstrap filing raises: the not-idempotent activity
+    # the workflow must never retry.
+    bootstrap_fails: bool = False
     decide_calls: list[tuple[str, list[str]]] = field(default_factory=list)
     authorized: list[tuple[str, str, int, float, int, int]] = field(default_factory=list)
     ticks: list[tuple[str, str]] = field(default_factory=list)
@@ -90,6 +93,8 @@ class Harness:
         @activity.defn(name="heartbeat_bootstrap")
         async def heartbeat_bootstrap(names: list[str]) -> list[str]:
             harness.bootstrapped.append(names)
+            if harness.bootstrap_fails:
+                raise RuntimeError("git host unreachable")
             return list(names)
 
         @activity.defn(name="heartbeat_decide")
@@ -317,6 +322,23 @@ async def test_an_absent_document_is_bootstrapped_before_anything_else(env):
     assert harness.ticks[0] == ("idle", "bootstrap_filed:strategy,architecture")
     # The second tick ran under the frozen clock: the tick woke itself.
     assert harness.ticks[1][0] == "idle"
+
+
+async def test_a_failed_bootstrap_filing_is_never_retried(env):
+    """Filing is not idempotent: a filing that fails is attempted once,
+    the tick is refused by name, and the next tick reads the world for
+    itself — under a retrying policy the harness would count three."""
+    harness = Harness(
+        configs=[CONFIG],
+        observations=[
+            observation(backlog=[], bootstrap={"pending": ["strategy"], "exhausted": []})
+        ],
+        bootstrap_fails=True,
+    )
+    await run_heartbeat(env.client, harness)
+    assert harness.bootstrapped == [["strategy"]]
+    assert harness.ticks[0][0] == "refused"
+    assert "git host unreachable" in harness.ticks[0][1]
 
 
 async def test_an_exhausted_bootstrap_halts_by_name(env):
