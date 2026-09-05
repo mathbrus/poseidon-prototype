@@ -109,11 +109,6 @@ PROFILES = {"default": Timeouts(), "fast": FAST_TIMEOUTS}
 # (teardown's bookkeeping). A ceiling, never a wait: these activities
 # answer in milliseconds on either profile.
 BOOTSTRAP_S = 30
-# The git host lists a new issue up to a minute after creating it. A
-# bootstrap filing waits that long for its tickets to be listed, so the
-# next tick — its own wake — cannot miss them and file again; the
-# filing's activity bound is a step plus this wait.
-LISTING_SETTLE_S = 60
 
 
 class RunWorkflow:

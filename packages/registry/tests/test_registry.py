@@ -73,15 +73,15 @@ def test_start_is_retry_safe(registry: Registry):
     """A re-attempt after a worker death must land on the same row, and
     must clear a terminal state left by a previous attempt."""
     runs = Runs(registry)
-    runs.start(RUN_ID, "attempt one")
+    runs.start(RUN_ID, "attempt one", company="hello-saas")
     runs.finish(RUN_ID, "failed", error="boom")
-    runs.start(RUN_ID, "attempt two")
+    runs.start(RUN_ID, "attempt two", company="hello-saas")
 
     record = runs.get(RUN_ID)
     assert record.task == "attempt two"
     assert record.status == "running"
     assert record.error is None and record.finished_at is None
-    assert len(runs.recent()) == 1
+    assert len(runs.recent("hello-saas")) == 1
 
 
 def test_finish_recreates_a_missing_row(registry: Registry):
@@ -484,7 +484,7 @@ def test_delivered_pr_urls_are_done_implement_runs_only(registry: Registry):
         "https://git.test/r/pull/9",
     ]
     # The world settled one: remembered on the run, offered no more.
-    runs.mark_pr_settled("hello-saas", "https://git.test/r/pull/4", "closed")
+    runs.mark_pr_settled("hello-saas", 4, "closed")
     assert Runs(registry).delivered_pr_urls("hello-saas") == ["https://git.test/r/pull/9"]
     assert runs.get("run-pr-1").pr_settled == "closed"
 

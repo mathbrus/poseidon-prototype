@@ -256,13 +256,14 @@ class Runs:
         )
         return [row["pr_url"] for row in rows]
 
-    def mark_pr_settled(self, company: str, pr_url: str, state: str) -> None:
+    def mark_pr_settled(self, company: str, pr_number: int, state: str) -> None:
         """The world settled a delivered PR (`merged`, `closed`): remember
-        it on the delivering run so no later observation reads it again."""
+        it on the delivering run so no later observation reads it again.
+        Keyed the way every reader keys PRs — by number, the URL's tail."""
         self._db.execute(
             "UPDATE registry.runs SET pr_settled = %s"
-            " WHERE company = %s AND workflow = 'implement' AND pr_url = %s",
-            (state, company, pr_url),
+            " WHERE company = %s AND workflow = 'implement' AND pr_url ~ %s",
+            (state, company, f"/pull/{pr_number}$"),
         )
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
@@ -280,15 +281,17 @@ class Runs:
         )
         return RunRecord.from_row(rows[0]) if rows else None
 
-    def recent(self, limit: int = 20) -> list[RunRecord]:
+    def recent(self, company: str, limit: int = 20) -> list[RunRecord]:
+        """The company's latest runs, newest first — the observation's run
+        history."""
         # Heartbeat decision rows exist only so the heartbeat's LLM call can
         # bind; they are not work the company did, so they never enter the
         # observation's run history. The workflow name is the
         # orchestrator's (`orchestrator.activities.heartbeat.WORKFLOW`),
         # spelled here because this package cannot import it.
         rows = self._db.query(
-            "SELECT * FROM registry.runs WHERE workflow <> 'heartbeat'"
+            "SELECT * FROM registry.runs WHERE company = %s AND workflow <> 'heartbeat'"
             " ORDER BY created_at DESC LIMIT %s",
-            (limit,),
+            (company, limit),
         )
         return [RunRecord.from_row(row) for row in rows]

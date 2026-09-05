@@ -5,13 +5,15 @@ workflow.
 
 Retry safety, per activity:
     heartbeat_config    — read-only; safe.
-    heartbeat_observe   — read-only (registry + the open backlog and the
+    heartbeat_observe   — reads the registry, the open backlog and the
                           delivered PRs' live state under the platform
-                          identity); safe. Only numbers, titles, URLs and
-                          attempt counts leave here: issue bodies are
-                          untrusted input the implement run reads itself.
-    scope_observation   — the same read, rendered as the scope run's
-                          dispatch text; safe.
+                          identity, and remembers a PR the world settled
+                          on its run row (idempotent); safe. Only numbers,
+                          titles, URLs and attempt counts leave here: issue
+                          bodies are untrusted input the implement run
+                          reads itself.
+    scope_observation   — the same observation, rendered as the scope
+                          run's dispatch text; safe.
     heartbeat_bootstrap — files the bootstrap ticket for an absent
                           document under the platform identity; not
                           idempotent, so the workflow never retries it
@@ -41,7 +43,6 @@ import re
 import secrets
 import time
 from dataclasses import asdict
-from datetime import datetime
 from typing import Any
 
 from temporalio import activity
@@ -70,13 +71,16 @@ from orchestrator.clients import (
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.opa import evaluate_decision
-from orchestrator.workflows.base import (
-    LISTING_SETTLE_S,
-    PROFILES,
-    TEMPORAL_NAMESPACE,
-    workflow_id,
+from orchestrator.workflows.base import PROFILES, TEMPORAL_NAMESPACE, workflow_id
+from registry import (
+    AgentInstances,
+    Attempts,
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    FiledTickets,
+    Runs,
 )
-from registry import AgentInstances, Attempts, AuditStore, BudgetLedger, Companies, Runs
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 # The observation is a prompt, not a database dump: enough candidates to
@@ -84,13 +88,12 @@ PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 BACKLOG_LIMIT = 20
 RECENT_RUNS_LIMIT = 10
 RATIONALE_CLIP = 300
-# The git host lists a new issue up to a minute after creating it
-# (`LISTING_SETTLE_S`, the filing's wait). A filing polls the listing at
-# this interval; an observation completes the listing from the tickets
-# runs finished within the lag window filed, read by number.
-LISTING_POLL_S = 1.0
+# The git host lists a new issue up to a minute after creating it, and
+# the loop reads that listing. The one rule about it: the loop reads its
+# own writes. Every ticket the company files is on the registry the
+# moment the gateway created it; an observation reads the ones filed
+# within this window by number and completes the listing with them.
 LISTING_LAG_S = 120
-ISSUE_URL_NUMBER_RE = re.compile(r"/issues/(\d+)$")
 
 # The workflow's name, as the registry, the audit ledger and the policy
 # input all see it.
@@ -117,23 +120,6 @@ def consumed(attempts: Attempts | None, max_attempts: int) -> bool:
     if attempts is None:
         return False
     return attempts.live or attempts.concluded or attempts.count >= max_attempts
-
-
-def _recently_filed(recent: list[Any]) -> set[int]:
-    """The numbers of the tickets filed by runs still running or finished
-    within the host's listing lag — a scope run's slice tickets, an
-    implement or review run's architecture request."""
-    horizon = time.time() - LISTING_LAG_S
-    numbers: set[int] = set()
-    for run in recent:
-        finished = run.finished_at
-        if finished and datetime.fromisoformat(finished).timestamp() < horizon:
-            continue
-        for url in run.ticket_urls:
-            match = ISSUE_URL_NUMBER_RE.search(url)
-            if match:
-                numbers.add(int(match.group(1)))
-    return numbers
 
 
 def _section(header: str, lines: list[str]) -> str:
@@ -201,6 +187,7 @@ class HeartbeatActivities:
         instances: AgentInstances,
         ledger: BudgetLedger,
         audit: AuditStore,
+        filed: FiledTickets,
     ) -> None:
         self._settings = settings
         self._runs = runs
@@ -208,6 +195,7 @@ class HeartbeatActivities:
         self._instances = instances
         self._ledger = ledger
         self._audit = audit
+        self._filed = filed
         self._log = get_logger("orchestrator.heartbeat")
 
     def _ledger_run_id(self) -> str:
@@ -293,7 +281,7 @@ class HeartbeatActivities:
                 self._ledger.spent_today(company),
                 self._runs.issue_attempts(company),
                 delivered,
-                self._runs.recent(RECENT_RUNS_LIMIT),
+                self._runs.recent(company, RECENT_RUNS_LIMIT),
             )
 
         active_runs, daily_spent, issues, delivered, recent = await asyncio.to_thread(
@@ -309,11 +297,17 @@ class HeartbeatActivities:
         ) as gateway:
             documents = await read_documents(gateway, run_id, repo, paths)
             open_issues = await gateway.read_open_issues(run_id, repo["url"])
-            # Read your own writes: a ticket a run of ours just filed is on
-            # its row before the host lists it, and a listing without it
-            # would have the PM scope the same slice twice.
+            # Read your own writes: a ticket the company just filed is on
+            # the registry before the host lists it, and a listing without
+            # it would have the PM scope the same slice twice or the tick
+            # file a bootstrap ticket again.
             listed = {int(i["number"]) for i in open_issues}
-            for number in sorted(_recently_filed(recent) - listed):
+            filed = await asyncio.to_thread(
+                self._filed.filed_since, repo["url"], LISTING_LAG_S
+            )
+            for number in filed:
+                if number in listed:
+                    continue
                 issue = await gateway.read_issue(run_id, repo["url"], number)
                 if issue.get("state") == "open":
                     open_issues.append(issue)
@@ -337,7 +331,7 @@ class HeartbeatActivities:
                     await asyncio.to_thread(
                         self._runs.mark_pr_settled,
                         self._settings.company,
-                        candidate["url"],
+                        candidate["number"],
                         settled,
                     )
                     self._log.info(
@@ -427,17 +421,14 @@ class HeartbeatActivities:
 
         Absence is confirmed first: the git host's reads are eventually
         consistent, and a document that answers present now (a delivery
-        merged since, a lagging read) is not filed for. And the host lists
-        a new issue a moment after creating it, while the next tick — this
-        one's own wake — reads that listing to see the ticket already open;
-        the filing therefore returns only once its tickets are listed, or
-        after `LISTING_SETTLE_S`, whichever comes first."""
+        merged since, a lagging read) is not filed for. The ticket filed
+        is on the registry the moment the gateway created it, so the next
+        tick — this one's own wake — reads it before the host lists it."""
         paths = await asyncio.to_thread(
             company_documents, self._companies, self._settings.company
         )
         repo = await self._repo()
         filed: list[str] = []
-        numbers: set[int] = set()
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
@@ -450,14 +441,13 @@ class HeartbeatActivities:
                     )
                     continue
                 branch = f"feature/{name}-{secrets.token_hex(3)}"
-                issue = await gateway.create_issue(
+                await gateway.create_issue(
                     self._ledger_run_id(),
                     repo["url"],
                     BOOTSTRAP_TITLES[name],
                     bootstrap_body(name, paths[name], branch),
                 )
                 filed.append(name)
-                numbers.add(int(issue["number"]))
                 await self._emit(
                     run_id=self._ledger_run_id(),
                     tool="heartbeat.bootstrap",
@@ -466,20 +456,6 @@ class HeartbeatActivities:
                     rule=f"bootstrap_filed:{name}",
                 )
                 self._log.info("bootstrap ticket filed", extra={"document": name})
-            deadline = time.monotonic() + LISTING_SETTLE_S
-            while numbers:
-                listed = await gateway.read_open_issues(
-                    self._ledger_run_id(), repo["url"]
-                )
-                if numbers <= {int(i["number"]) for i in listed}:
-                    break
-                if time.monotonic() >= deadline:
-                    self._log.warning(
-                        "bootstrap tickets not listed yet",
-                        extra={"numbers": sorted(numbers)},
-                    )
-                    break
-                await asyncio.sleep(LISTING_POLL_S)
         return filed
 
     @activity.defn(name="heartbeat_decide")
@@ -534,11 +510,6 @@ class HeartbeatActivities:
             problem = self._invalid_reason(
                 decision, observed, may_start, max_open_tickets
             )
-            if not problem and decision.get("action") == "implement":
-                # The listing the observation read may lag a closure by a
-                # beat; the ticket is read by number before a run is spent
-                # on it.
-                problem = await self._closed_ticket(run_id, int(decision["target"]))
             rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
             await self._emit(
                 run_id=self._ledger_run_id(),
@@ -562,16 +533,6 @@ class HeartbeatActivities:
             await asyncio.to_thread(
                 self._runs.finish, run_id, terminal, error=terminal_error
             )
-
-    async def _closed_ticket(self, run_id: str, number: int) -> str | None:
-        repo = (await self._repo())["url"]
-        async with GatewayClient(
-            self._settings.mcp_gateway_url, self._settings.gateway_token()
-        ) as gateway:
-            issue = await gateway.read_issue(run_id, repo, number)
-        if issue.get("state") == "open":
-            return None
-        return f"ticket #{number} is {issue.get('state') or 'gone'}"
 
     @staticmethod
     def _invalid_reason(

@@ -41,6 +41,7 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
+    FiledTickets,
     RunParticipants,
     Runs,
     open_registry,
@@ -127,6 +128,7 @@ async def main() -> None:
         AgentInstances(registry),
         BudgetLedger(registry),
         AuditStore(registry),
+        FiledTickets(registry),
     )
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping

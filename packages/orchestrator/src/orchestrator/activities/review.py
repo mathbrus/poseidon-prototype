@@ -192,6 +192,11 @@ class ReviewActivities:
             pr = await gateway.read_pr(run_id, (await self._repo())["url"], pr_number)
         settled = pr_settled(pr)
         if settled:
+            # Learned here, remembered here: no later observation reads
+            # this PR again.
+            await asyncio.to_thread(
+                self._runs.mark_pr_settled, self._settings.company, pr_number, settled
+            )
             await self._append_event(
                 run_id=run_id,
                 tool="review.read_pr",

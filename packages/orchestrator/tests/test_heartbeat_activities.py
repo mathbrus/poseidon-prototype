@@ -26,6 +26,7 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
+    InMemoryFiledTickets,
     InMemoryRuns,
 )
 
@@ -94,10 +95,15 @@ def instances() -> InMemoryAgentInstances:
 
 
 @pytest.fixture
+def filed() -> InMemoryFiledTickets:
+    return InMemoryFiledTickets()
+
+
+@pytest.fixture
 def activities(
-    settings, runs, companies, instances, ledger, audit
+    settings, runs, companies, instances, ledger, audit, filed
 ) -> HeartbeatActivities:
-    return HeartbeatActivities(settings, runs, companies, instances, ledger, audit)
+    return HeartbeatActivities(settings, runs, companies, instances, ledger, audit, filed)
 
 
 def _pr(number: int, state: str = "open", merged: bool = False) -> dict[str, Any]:
@@ -276,7 +282,8 @@ def test_observe_counts_every_running_run_and_todays_spend(
     assert observed["active_runs"] == 2
     assert observed["daily_spent_usd"] == 2.5
     assert observed["backlog"] == []
-    assert len(observed["recent_runs"]) == 3
+    # run-c belongs to no company: the history is this company's alone.
+    assert len(observed["recent_runs"]) == 2
 
 
 def test_consumed_is_live_or_concluded_or_at_the_cap():
@@ -476,34 +483,17 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
         filed.append((run_id, repo, title, body))
         return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
 
-    # The git host lists the ticket a beat after creating it: the first
-    # read-back misses it, the second finds it, and only then does the
-    # filing return — the next tick's listing cannot miss what it filed.
-    listings = iter([[], [_bootstrap_issue("strategy", 9)]])
-
-    async def read_open_issues(self, run_id, repo):
-        return next(listings)
-
     async def read_document(self, run_id, repo, ref, path):
         return {"present": False, "text": None}
 
     import orchestrator.activities.heartbeat as module
 
-    monkeypatch.setattr(module, "LISTING_POLL_S", 0)
     monkeypatch.setattr(
         module,
         "GatewayClient",
-        fake_gateway(
-            create_issue=create_issue,
-            read_open_issues=read_open_issues,
-            read_document=read_document,
-        ),
+        fake_gateway(create_issue=create_issue, read_document=read_document),
     )
-    names = asyncio.run(activities.heartbeat_bootstrap(["strategy"]))
-    assert names == ["strategy"]
-    assert next(listings, None) is None, (
-        "the filing returned before its ticket was listed"
-    )
+    assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == ["strategy"]
     ((run_id, repo, title, body),) = filed
     assert (run_id, repo, title) == (
         f"heartbeat-{COMPANY}",
@@ -542,40 +532,6 @@ def test_bootstrap_files_nothing_for_a_document_present_on_re_read(
     )
     assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == []
     assert filed == [] and audit.story(f"heartbeat-{COMPANY}") == []
-
-
-def test_bootstrap_returns_with_a_warning_when_the_listing_never_settles(
-    activities, companies, audit, monkeypatch, fake_gateway
-):
-    """The wait is bounded: a host that never lists the ticket within the
-    settle window does not hold the filing — one ticket was created, the
-    filing says so, and the next tick reads for itself."""
-    created: list[str] = []
-
-    async def create_issue(self, run_id, repo, title, body):
-        created.append(title)
-        return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
-
-    async def read_open_issues(self, run_id, repo):
-        return []
-
-    async def read_document(self, run_id, repo, ref, path):
-        return {"present": False, "text": None}
-
-    import orchestrator.activities.heartbeat as module
-
-    monkeypatch.setattr(module, "LISTING_SETTLE_S", 0)
-    monkeypatch.setattr(
-        module,
-        "GatewayClient",
-        fake_gateway(
-            create_issue=create_issue,
-            read_open_issues=read_open_issues,
-            read_document=read_document,
-        ),
-    )
-    assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == ["strategy"]
-    assert created == ["Bootstrap: strategy"]
 
 
 def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypatch):
@@ -875,63 +831,6 @@ def test_decide_refuses_scope_while_a_document_is_absent(
     assert event["decision"] == "deny" and "architecture absent" in event["rule"]
 
 
-def _ticket_state(monkeypatch, fake_gateway, state: str) -> list[int]:
-    """The git host answering an issue read by number with `state`;
-    returns the log of numbers read."""
-    import orchestrator.activities.heartbeat as module
-
-    reads: list[int] = []
-
-    async def read_issue(self, run_id, repo, number):
-        reads.append(number)
-        return {"number": number, "title": "Add slugify", "state": state}
-
-    monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_issue=read_issue))
-    return reads
-
-
-def test_decide_reads_the_ticket_it_would_implement(
-    activities, companies, audit, monkeypatch, fake_gateway
-):
-    """The listing the observation read may lag a closure: the chosen
-    ticket is read by number before a run is spent on it, and an open one
-    is started."""
-    companies.upsert(
-        COMPANY,
-        {
-            "heartbeat": heartbeat_spec(),
-            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-        },
-    )
-    reads = _ticket_state(monkeypatch, fake_gateway, "open")
-    _pm(monkeypatch, _decided("implement", 5, "oldest open work"))
-    decision = asyncio.run(
-        activities.heartbeat_decide("auto-8", OBSERVED, ["implement", "review"], 5)
-    )
-    assert decision["target"] == 5 and reads == [5]
-
-
-def test_decide_refuses_a_ticket_the_world_closed(
-    activities, companies, audit, monkeypatch, fake_gateway
-):
-    companies.upsert(
-        COMPANY,
-        {
-            "heartbeat": heartbeat_spec(),
-            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-        },
-    )
-    _ticket_state(monkeypatch, fake_gateway, "closed")
-    _pm(monkeypatch, _decided("implement", 5, "oldest open work"))
-    with pytest.raises(ApplicationError) as caught:
-        asyncio.run(
-            activities.heartbeat_decide("auto-9", OBSERVED, ["implement", "review"], 5)
-        )
-    assert caught.value.non_retryable
-    (event,) = audit.story(f"heartbeat-{COMPANY}")
-    assert event["decision"] == "deny" and event["rule"] == "ticket #5 is closed"
-
-
 def test_decide_refuses_scope_at_the_open_ticket_cap(
     activities, companies, audit, monkeypatch
 ):
@@ -1073,22 +972,15 @@ def test_the_observation_carries_the_documents_as_they_stand(
     assert text.endswith("Architecture masterplan:\n(absent)")
 
 
-def test_observe_reads_the_tickets_its_own_runs_just_filed(
-    activities, runs, monkeypatch, fake_gateway
+def test_observe_reads_the_tickets_the_company_just_filed(
+    activities, filed, monkeypatch, fake_gateway
 ):
-    """The host lists a new issue a beat late. A ticket a run of ours
-    filed a moment ago is on its row, so the observation reads it by
-    number and offers it — and counts it toward the scoping cap — while
-    the listing still lacks it. A ticket the host already closed stays
-    out, and a run that finished before the lag window (the in-memory
-    registry's fixed clock is long past) is not consulted at all."""
-    runs.start("scope-1", "scope the next slice", "scope", company=COMPANY)
-    runs.record_artifacts(
-        "scope-1", ticket_urls=["https://h/issues/41", "https://h/issues/43"]
-    )
-    runs.start("scope-0", "scope the next slice", "scope", company=COMPANY)
-    runs.record_artifacts("scope-0", ticket_urls=["https://h/issues/42"])
-    runs.finish("scope-0", "done")
+    """The host lists a new issue a beat late. A ticket the company filed
+    a moment ago is on the registry, so the observation reads it by number
+    and offers it — and counts it toward the scoping cap — while the
+    listing still lacks it. A ticket the host already closed stays out."""
+    filed.record("github.com/example/repo", 41, "scope-1")
+    filed.record("github.com/example/repo", 43, "scope-1")
     reads = _backlog_gateway(
         monkeypatch,
         fake_gateway,

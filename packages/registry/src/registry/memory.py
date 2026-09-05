@@ -441,9 +441,13 @@ class InMemoryRuns:
             and r.pr_settled is None
         ]
 
-    def mark_pr_settled(self, company: str, pr_url: str, state: str) -> None:
+    def mark_pr_settled(self, company: str, pr_number: int, state: str) -> None:
         for r in self.rows.values():
-            if r.company == company and r.workflow == "implement" and r.pr_url == pr_url:
+            if (
+                r.company == company
+                and r.workflow == "implement"
+                and (r.pr_url or "").endswith(f"/pull/{pr_number}")
+            ):
                 r.pr_settled = state
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
@@ -458,9 +462,13 @@ class InMemoryRuns:
         candidates.sort(key=lambda r: r.finished_at or "")
         return candidates[-1] if candidates else None
 
-    def recent(self, limit: int = 20) -> list[RunRecord]:
+    def recent(self, company: str, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first; heartbeat
         # decision rows are not work the company did and never enter the
         # observation's run history (same workflow literal as `runs.py`).
-        work = [r for r in self.rows.values() if r.workflow != "heartbeat"]
+        work = [
+            r
+            for r in self.rows.values()
+            if r.company == company and r.workflow != "heartbeat"
+        ]
         return work[-limit:][::-1]

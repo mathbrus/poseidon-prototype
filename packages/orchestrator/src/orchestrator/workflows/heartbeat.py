@@ -71,7 +71,6 @@ from temporalio.workflow import ParentClosePolicy
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
     DISPATCH_RETRY,
-    LISTING_SETTLE_S,
     SINGLE_ATTEMPT,
     STEP_RETRY,
     RunWorkflow,
@@ -145,7 +144,7 @@ class HeartbeatWorkflow(RunWorkflow):
                 filed = await workflow.execute_activity(
                     "heartbeat_bootstrap",
                     args=[list(bootstrap["pending"])],
-                    start_to_close_timeout=step + timedelta(seconds=LISTING_SETTLE_S),
+                    start_to_close_timeout=step,
                     retry_policy=SINGLE_ATTEMPT,
                 )
                 # The filing re-reads the documents; one that answered
