@@ -60,6 +60,12 @@ class PolicyDenied(Exception):
 
 
 # The one tool whose backend files a ticket the caller does not shape.
+# The title of the stewardship ticket the platform files for an
+# architecture request; the run id follows, so the requesting run's
+# record and the ticket name each other.
+ARCHITECTURE_REQUEST_TITLE_PREFIX = "Architecture request from run "
+
+
 class BackendError(Exception):
     pass
 
@@ -408,7 +414,7 @@ class GatewayService:
                     f"no applied blueprint for company {identity.company!r}"
                 )
             headline = (proposal.strip().splitlines() or ["(no proposal)"])[0][:80]
-            title = f"Architecture request from run {run_id}: {headline}"
+            title = f"{ARCHITECTURE_REQUEST_TITLE_PREFIX}{run_id}: {headline}"
             body = (
                 f"Rationale:\n{rationale.strip()}\n\n"
                 f"Proposal:\n{proposal.strip()}\n\n"

@@ -629,9 +629,15 @@ def _section_numbers(text: str, header: str) -> list[int]:
     ]
 
 
-# The observation's own count of open tickets on the repository, offered
-# or not; the section below it lists only the offered ones.
-_OPEN_TICKETS_RE = re.compile(r"Open tickets on the repository: (\d+)")
+# The observation's section headers and header lines the decide script
+# parses, as `orchestrator.activities.observation` renders them — the
+# mock's own spelling, pinned equal to the platform's by the contract
+# test. The count line is the repository's open tickets, offered or not;
+# the section below it lists only the offered ones.
+OPEN_TICKETS_SECTION = "Open tickets:"
+REVIEWABLE_PRS_SECTION = "Delivered pull requests awaiting review:"
+STARTABLE_LINE = "Startable actions:"
+OPEN_TICKETS_COUNT_RE = re.compile(r"Open tickets on the repository: (\d+)")
 
 
 def _slice_unticketed(text: str) -> bool:
@@ -640,16 +646,16 @@ def _slice_unticketed(text: str) -> bool:
     backlog — a ticket with a run on it, delivered or in flight, is the
     slice's already. A bare prompt without the count line reads as nothing
     consumed."""
-    offered = _section_lines(text, "Open tickets:")
+    offered = _section_lines(text, OPEN_TICKETS_SECTION)
     if any(SLICE_TITLE in line for line in offered):
         return False
-    match = _OPEN_TICKETS_RE.search(text)
+    match = OPEN_TICKETS_COUNT_RE.search(text)
     return match is None or int(match.group(1)) == len(offered)
 
 
 def _startable(text: str) -> str:
     for line in text.splitlines():
-        if line.startswith("Startable actions:"):
+        if line.startswith(STARTABLE_LINE):
             return line
     return ""
 
@@ -657,8 +663,8 @@ def _startable(text: str) -> str:
 def _decide_completion(messages: list[dict[str, Any]]) -> MockCompletion:
     text = _task_text(messages)
     startable = _startable(text)
-    prs = _section_numbers(text, "Delivered pull requests awaiting review:")
-    tickets = _section_numbers(text, "Open tickets:")
+    prs = _section_numbers(text, REVIEWABLE_PRS_SECTION)
+    tickets = _section_numbers(text, OPEN_TICKETS_SECTION)
     if prs and "review" in startable:
         return _text(
             f"DECISION: review #{prs[0]}\n"
