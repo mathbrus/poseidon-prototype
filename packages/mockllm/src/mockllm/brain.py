@@ -50,7 +50,7 @@ INJECTED_MARKERS = ("PRODUCTION HOTFIX", "INC-4471")
 VERIFY_RED_MARKER = "E3-FLAKY-GATE"
 VERIFY_FEEDBACK_MARKER = "after your completion claim"
 # The observation's document sections, as the orchestrator renders them
-# (`orchestrator.activities.heartbeat`); the PM and decide scripts read
+# (`orchestrator.activities.observation`); the PM and decide scripts read
 # the strategy out of them.
 STRATEGY_HEADER = "Strategy:"
 ARCHITECTURE_HEADER = "Architecture masterplan:"

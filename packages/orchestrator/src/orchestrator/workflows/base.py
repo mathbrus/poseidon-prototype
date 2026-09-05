@@ -61,6 +61,12 @@ def workflow_id(workflow: str, key: str) -> str:
     return f"{workflow}-{key}"
 
 
+def heartbeat_run_id(company: str) -> str:
+    """The run id every heartbeat read, filing and audit row is
+    attributed to: the company's one standing loop, by its workflow id."""
+    return workflow_id("heartbeat", company)
+
+
 @dataclass
 class Timeouts:
     """Per-activity bounds — the deployment's timeout profile.
