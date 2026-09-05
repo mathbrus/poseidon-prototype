@@ -101,6 +101,13 @@ def test_record_artifacts_accumulates(registry: Registry):
     # the ones its dispatches file.
     runs.record_artifacts(RUN_ID, ticket_urls=["https://issues/2", "https://issues/1"])
     assert runs.get(RUN_ID).ticket_urls == ["https://issues/1", "https://issues/2"]
+    # Once means once within a single write too.
+    runs.record_artifacts(RUN_ID, ticket_urls=["https://issues/3", "https://issues/3"])
+    assert runs.get(RUN_ID).ticket_urls == [
+        "https://issues/1",
+        "https://issues/2",
+        "https://issues/3",
+    ]
 
 
 # -- sandbox registrations ------------------------------------------------

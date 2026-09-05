@@ -39,6 +39,7 @@ class ScopeInput:
 @workflow.defn(name="scope")
 class ScopeWorkflow(RunWorkflow):
     WORKFLOW = "scope"
+    CREWLESS = True
 
     def __init__(self) -> None:
         self._phase = "running"

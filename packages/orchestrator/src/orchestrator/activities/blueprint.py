@@ -46,7 +46,11 @@ def company_repo(companies: Companies, company: str) -> dict[str, str]:
 
 
 def workflow_config(
-    companies: Companies, instances: AgentInstances, company: str, name: str
+    companies: Companies,
+    instances: AgentInstances,
+    company: str,
+    name: str,
+    crewless: bool = False,
 ) -> dict[str, Any]:
     """The named workflow's shape, from the company's applied blueprint:
 
@@ -55,7 +59,8 @@ def workflow_config(
 
     The conductor is the company's one, named on the heartbeat section.
     `crew` is the ephemeral crew the workflow executes through, or None
-    for `scope`, which dispatches the conductor directly and has no node.
+    for a `crewless` workflow — one that dispatches the conductor directly
+    and declares it has no node.
     `gates` is the block as the blueprint wrote it (`{merge: {resolved_by,
     deadline_minutes, delegate?}}`, ...), `max_verify_retries` bounds
     implement's verify loop, `budget_pause_minutes` is how long a run
@@ -69,7 +74,7 @@ def workflow_config(
     if not spec:
         raise RuntimeError(f"no applied blueprint for company {company!r}")
     config = next((w for w in spec.get("workflows") or [] if w.get("name") == name), None)
-    if config is None and name != "scope":
+    if config is None and not crewless:
         raise RuntimeError(
             f"company {company!r} declares no {name} workflow in its applied blueprint"
         )

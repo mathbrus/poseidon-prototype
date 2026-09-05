@@ -166,25 +166,34 @@ class ImplementWorkflow(RunWorkflow):
             # The company's documents ride the implement dispatches as
             # untrusted context — the base_ref copy, read by the platform,
             # never the sandbox's. Delivery reads none of them.
-            documents = await self.read_documents(input.run_id)
+            documents = await self.dispatch_documents(input.run_id)
             # Implement to a completion claim; the platform verify gate is
             # the gate of record. Red feeds back, bounded by the blueprint.
             verify_failures = 0
             task_text = task_source
             verified = False
+            # The tickets the implement dispatches filed, across every
+            # verify retry: a re-dispatch replaces the result, never what
+            # an earlier dispatch had the platform file.
+            filed: list[str] = []
             while True:
                 result = await self.dispatch(
                     input.run_id, implementer["url"], "implement", task_text, documents
                 )
+                filed += [
+                    u for u in (result or {}).get("ticket_urls") or [] if u not in filed
+                ]
+                if result is not None:
+                    result["ticket_urls"] = list(filed)
                 if (result or {}).get("error"):
                     break
-                if (result or {}).get("ticket_urls"):
+                if filed:
                     # The implementer asked for the plan to change rather
                     # than deviate from it: nothing here is delivered. The
                     # run fails by name, and the attempt accounting decides
                     # whether the ticket is offered again — a later attempt
                     # reads the plan the steward has revised by then.
-                    error = architecture_wait(result["ticket_urls"])
+                    error = architecture_wait(filed)
                     break
                 verify = await workflow.execute_activity(
                     "platform_verify",

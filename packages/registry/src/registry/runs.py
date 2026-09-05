@@ -136,8 +136,11 @@ class Runs:
             UPDATE registry.runs
                SET pr_url = COALESCE(%s, pr_url),
                    ticket_urls = ticket_urls || (
-                       SELECT COALESCE(jsonb_agg(e), '[]'::jsonb)
-                         FROM jsonb_array_elements(%s::jsonb) AS e
+                       SELECT COALESCE(jsonb_agg(e ORDER BY ord), '[]'::jsonb)
+                         FROM (SELECT DISTINCT ON (e) e, ord
+                                 FROM jsonb_array_elements(%s::jsonb)
+                                      WITH ORDINALITY AS t(e, ord)
+                                ORDER BY e, ord) AS incoming
                         WHERE NOT ticket_urls @> jsonb_build_array(e))
              WHERE run_id = %s
             """,

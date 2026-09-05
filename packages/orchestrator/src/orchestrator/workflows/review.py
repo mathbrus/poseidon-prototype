@@ -387,7 +387,7 @@ class ReviewWorkflow(RunWorkflow):
                 reviewer["url"],
                 "review",
                 review_task(input.pr_number, pr["title"], pr["url"]),
-                await self.read_documents(input.run_id),
+                await self.dispatch_documents(input.run_id),
             )
             if (result or {}).get("error"):
                 raise _ReviewOver()

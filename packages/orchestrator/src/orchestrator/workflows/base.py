@@ -124,6 +124,10 @@ class RunWorkflow:
     """
 
     WORKFLOW: str
+    # A workflow that dispatches the conductor directly and has no node
+    # in the blueprint's `workflows` says so; every other one is refused
+    # without its node.
+    CREWLESS: bool = False
     _phase: str
     _budget_gate: Gate
     # The deployment's profile, learned from `workflow_config`; until then
@@ -154,7 +158,7 @@ class RunWorkflow:
         )
         config = await workflow.execute_activity(
             "workflow_config",
-            args=[self.WORKFLOW],
+            args=[self.WORKFLOW, self.CREWLESS],
             start_to_close_timeout=bootstrap,
             retry_policy=STEP_RETRY,
         )
@@ -193,11 +197,12 @@ class RunWorkflow:
         (agent,) = fulfilled["agents"].values()
         return agent
 
-    async def read_documents(self, run_id: str) -> dict[str, str]:
-        """The company's documents as they stand on `base_ref`, read under
-        the run's id for the dispatches that judge work against them."""
+    async def dispatch_documents(self, run_id: str) -> dict[str, str]:
+        """The company's documents as a dispatch carries them — name to
+        text for the ones present on `base_ref`, read under the run's id
+        for the dispatches that judge work against them."""
         return await workflow.execute_activity(
-            "read_documents",
+            "dispatch_documents",
             args=[run_id],
             start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=STEP_RETRY,
