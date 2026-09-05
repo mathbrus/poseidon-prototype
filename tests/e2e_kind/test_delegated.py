@@ -39,10 +39,15 @@ from common.tasks import issue_run_task, review_run_task
 from mockllm.brain import CONTRACT_FIRST_MARKER, CONTRACT_TEST_PATH, NEXT_SLICE_MARKER
 
 from .blueprints import DELEGATED, restore_pristine
-from .cluster import audit_story, await_run, participants, run_spend
+from .cluster import (
+    audit_story,
+    await_run,
+    bare_heartbeat_id,
+    participants,
+    run_spend,
+)
 from .conftest import (
     apply_profile,
-    bare_heartbeat_id,
     close_issue,
     close_pr,
     delete_repo_file,
@@ -88,16 +93,16 @@ def _implement(number: int) -> dict:
 
 
 @pytest.fixture(scope="module")
-def delegated_overnight(stack: None, repo_baseline: dict) -> dict:
+def delegated_overnight(stack: None, baseline_env: dict) -> dict:
     """Nothing in, nothing out: let the company scope, implement, review,
     and MERGE its own in-class PR with no command. Hand back every
     artifact for the assertions.
 
-    Depends on the session `repo_baseline`: the delegated blueprint declares
+    Depends on the session `baseline_env`: the delegated blueprint declares
     `contract_tests`, so the unattended merge needs the contract tree on the
     base ref — without it the composed verify is red and the arc reworks
     instead of merging."""
-    env = repo_baseline
+    env = baseline_env
     apply_profile(DELEGATED, env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
@@ -197,14 +202,14 @@ def test_delegated_arc_had_no_human_act(delegated_overnight: dict):
 
 
 @pytest.fixture(scope="module")
-def contract_first(stack: None, repo_baseline: dict) -> dict:
+def contract_first(stack: None, baseline_env: dict) -> dict:
     """One contract merge out, nothing else. Reset `main` to the
     pre-contract state, let the strategy name a contract-first slice, and
     let the platform run the whole arc: the PM files the ordered pair, the
     contract crew authors the spec, its PR parks for the single human
     merge, and then the implementation auto-merges on a green base-ref
     contract — no other command."""
-    env = repo_baseline
+    env = baseline_env
     apply_profile(DELEGATED, env)
     # The declared deviation from the session baseline: the tree is declared
     # by the blueprint but deleted from `main`, so an implementation cannot
@@ -231,7 +236,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
         contract_pr = pr_number(contract_impl["pr_url"])
         assert contract_pr is not None, f"the contract run opened no PR: {contract_impl}"
         result["contract_pr"] = contract_pr
-        c_review_run, c_review = run_review(env, contract_pr, approve=True)
+        c_review_run, c_review = run_review(contract_pr, approve=True)
         result["contract_review_run_id"] = c_review_run
         result["contract_review"] = c_review
 
@@ -241,7 +246,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
         impl_pr = pr_number(impl["pr_url"])
         assert impl_pr is not None, f"the implement run opened no PR: {impl}"
         result["implement_pr"] = impl_pr
-        i_review_run, i_review = run_review(env, impl_pr, approve=None)
+        i_review_run, i_review = run_review(impl_pr, approve=None)
         result["implement_review_run_id"] = i_review_run
         result["implement_review"] = i_review
 

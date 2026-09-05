@@ -22,10 +22,10 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   mock, or `POSEIDON_ALLOW_PAID=1` opts into spending. What the suite
   believes about the brain comes from the deployment, never from `.env`'s
   `REAL_LLM` claim — `kind-up.sh` deliberately lets an invocation-time
-  `REAL_LLM=0` beat the file. Every timer follows the same fact
-  (`deployed_timeouts`): the fast profile for the mock, the workflow
-  defaults for a paid brain.
-- **The repo-state contract** (`repo_baseline`, autouse): TARGET_REPO@main
+  `REAL_LLM=0` beat the file. The suite's waits are fixed wall-clock
+  budgets sized for the mock; a paid brain is an opt-in the waits are not
+  sized for.
+- **The repo-state contract** (`baseline_env`, autouse): TARGET_REPO@main
   is suite-managed state with one owner. The baseline seeds the declared
   shape from the mock brain's own canonical texts — the implementation,
   the unit tree, the acceptance contract, and the two company documents
@@ -42,25 +42,33 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   profile the module applies (`blueprints.may_start`), never by a company
   without a heartbeat. Debris feeds contention — the loop treats any open
   PR or issue as backlog and wakes the moment any run finishes — so a
-  fixture closes the PRs it opened the moment their openness has been
-  verified, a module sweeps BEFORE it applies a profile and waits for the
-  loop's arrival tick on the empty backlog (`apply_profile`), and a run
-  that is *meant* to fail runs under `blueprints.single_attempt`, or the
-  loop retries it. The session sweeper catches whatever a failure path
-  dropped.
+  module closes a PR as soon as its claims about it are read, or holds it
+  open only under a profile the loop cannot start a review on; a module
+  sweeps BEFORE it applies a profile and waits for the loop to be asleep
+  on the swept backlog (`apply_profile`), so the ticks it counts from
+  there are its own; and a run that is *meant* to fail runs under
+  `blueprints.single_attempt`, or the loop retries it. The session
+  sweeper catches whatever a failure path dropped.
+- **Read your own writes** (`file_ticket`, `scope_via_heartbeat`,
+  `run_ticket`): the git host lists a new issue up to a minute after
+  creating it, and the loop reads that listing. The platform reads the
+  tickets it filed itself from the registry; the harness, standing in
+  for the world, files a ticket only once the host lists it, and looks
+  a run up by its task with a since mark where the task text is shared
+  (every scope run's). No module reads a listing it just wrote to.
 - **Quiet, asserted** (`test_quiet`, ordered last): when the suite exits
   green, no workflow but the standing heartbeat is running, it is asleep
   on an empty backlog, and no run is non-terminal — a failing assertion,
   not a person asking.
 
-What a new module owes: declare repo preconditions against `repo_baseline`
+What a new module owes: declare repo preconditions against `baseline_env`
 (and put deviations back — a strategy that names a slice above all);
 close every PR it opens and delete the branch (`close_pr`), and close the
 tickets it filed; if it applies another blueprint profile, sweep before
 the apply and `blueprints.restore_pristine()` after; bound the attempts
 of a run it expects to fail; and anchor assertions on runs, gate events
-and tick windows (`heartbeat_ticks` past a counted mark), never on the
-ledger's whole history.
+and tick windows (`cluster.wake_and_await_ticks`), never on the ledger's
+whole history.
 
 Collection order is the hook's, not the filenames': the capstones run
 after every module whose runs they read, and `test_quiet` runs last.
@@ -81,7 +89,7 @@ from typing import Any
 import httpx
 import pytest
 import yaml
-from temporalio.client import Client, WorkflowExecutionStatus
+from temporalio.client import Client
 
 from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
 from mockllm.brain import (
@@ -92,7 +100,7 @@ from mockllm.brain import (
     STRATEGY_MD,
     TEST_SLUGIFY_PY,
 )
-from orchestrator.workflows.base import PROFILES, Timeouts, workflow_id
+from orchestrator.workflows.base import workflow_id
 
 from .blueprints import (
     HELLO_SAAS,
@@ -103,16 +111,16 @@ from .blueprints import (
 from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
-    audit_story,
+    await_bare_heartbeat_asleep,
     await_run,
     db_now,
-    deployment_env,
     kill_worker_pod,
     kubectl,
     run_by_task,
     run_kubectl,
     sandbox_pods,
     temporal_port_forward,
+    wake_bare_heartbeat,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -267,16 +275,6 @@ def paid_brain_guard() -> None:
         pytest.fail(problem)
 
 
-def deployed_timeouts() -> Timeouts:
-    """The timeout profile the worker is *deployed* with — what every
-    workflow in the cluster runs under, read back so the suite sizes its
-    own waits from it, never from `.env`.
-
-    Gate waits are not in the profile: they are blueprint fields, and the
-    suite applies its own (`blueprints.E2E_GATE_MINUTES`)."""
-    return PROFILES[deployment_env("orchestrator-worker", "TIMEOUT_PROFILE")]
-
-
 # --- runs: the heartbeat's, always ------------------------------------------
 #
 # The suite never starts a run-shaped workflow itself. It files what the
@@ -347,7 +345,7 @@ def _kill_worker_when(run_id: str, kill_after: str) -> None:
 
 
 def run_ticket(
-    env: dict, number: int, *, kill_after: str | None = None, deadline_s: int = 1800
+    number: int, *, kill_after: str | None = None, deadline_s: int = 1800
 ) -> dict:
     """The implement run the standing heartbeat starts on ticket `number`:
     wake the loop onto it (the platform's own signal, standing in for the
@@ -360,7 +358,7 @@ def run_ticket(
     if kill_after:
         run = run_by_task(task, workflow="implement")
         _kill_worker_when(run["run_id"], kill_after)
-    record = await_run(task, terminal=True, deadline_s=deadline_s)
+    record = await_run(task, terminal=True, deadline_s=deadline_s, workflow="implement")
     return {**record, "issue_number": number}
 
 
@@ -369,11 +367,11 @@ def run_implement(name: str, env: dict, *, kill_after: str | None = None) -> dic
     implement it. The ticket number rides the record for cleanup."""
     nonce = secrets.token_hex(3)
     number = file_ticket(env, f"{name} ({nonce})", ticket_body(name, nonce))
-    return run_ticket(env, number, kill_after=kill_after)
+    return run_ticket(number, kill_after=kill_after)
 
 
 def run_review(
-    env: dict, pr_number: int, approve: bool | None = None, deadline_s: int = 900
+    pr_number: int, approve: bool | None = None, deadline_s: int = 900
 ) -> tuple[str, dict]:
     """The review run the standing heartbeat starts on the delivered PR
     `pr_number` (the run that delivered it wakes the loop; the wake here
@@ -403,7 +401,9 @@ def run_review(
                 await handle.signal("merge", args=[approve, "e2e: human verdict"])
 
         asyncio.run(answer())
-    return run_id, await_run(task, terminal=True, deadline_s=deadline_s)
+    return run_id, await_run(
+        task, terminal=True, deadline_s=deadline_s, workflow="review"
+    )
 
 
 def write_strategy(env: dict, text: str) -> None:
@@ -425,59 +425,6 @@ def open_slice_strategy(nonce: str, marker: str) -> str:
         "# Strategy\n\n"
         f"Next slice: ship the slugify utility ({marker}; e2e {nonce}).\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.\n"
-    )
-
-
-def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
-    """The tick rows one heartbeat workflow wrote — the ledger journals
-    every tick under the shared `heartbeat-{company}` run id, and each row
-    carries the writing workflow's own id in the `workflow` column. The
-    standing heartbeat keeps its id across restarts, so this list grows
-    for as long as the session runs: scope assertions to a window (count
-    the rows, act, assert on the rows past the mark) or to rules that
-    name a run, never to the whole history."""
-    return [
-        e
-        for e in audit_story(workflow_id("heartbeat", COMPANY_NS))
-        if e["tool"] == "heartbeat.tick" and e["workflow"] == heartbeat_id
-    ]
-
-
-def bare_heartbeat_id() -> str:
-    """The standing heartbeat's workflow id — the one the ensure loop
-    keeps running and the platform's own wakes reach."""
-    return workflow_id("heartbeat", COMPANY_NS)
-
-
-def wake_bare_heartbeat() -> None:
-    """Send the platform's own `wake` signal to the standing heartbeat —
-    the harness's stand-in for a change only the outside world saw (an
-    issue filed by hand, a PR merged by hand), compressed from the
-    reconcile wait to now. A real capability exercised, not a seam:
-    production sends the same signal."""
-
-    async def send() -> None:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            await client.get_workflow_handle(bare_heartbeat_id()).signal("wake")
-
-    asyncio.run(send())
-
-
-def await_new_ticks(mark: int, n: int, deadline_s: int = 180) -> list[dict[str, Any]]:
-    """Block until the standing heartbeat has journaled at least `mark + n`
-    tick rows and return the rows past the mark. Count-then-wake
-    discipline: take the mark, wake once, wait here before waking again —
-    a wake landing mid-tick coalesces, so blind sends under-count."""
-    deadline = time.monotonic() + deadline_s
-    while time.monotonic() < deadline:
-        ticks = heartbeat_ticks(bare_heartbeat_id())
-        if len(ticks) >= mark + n:
-            return ticks[mark:]
-        time.sleep(3)
-    raise AssertionError(
-        f"the heartbeat wrote {len(heartbeat_ticks(bare_heartbeat_id()))} ticks"
-        f" within {deadline_s}s; needed {mark + n}"
     )
 
 
@@ -509,7 +456,9 @@ def scope_via_heartbeat(env: dict, strategy: str, deadline_s: int = 600) -> dict
     since = db_now()
     write_strategy(env, strategy)
     wake_until_run_started(SCOPE_TASK, "scope", since=since)
-    return await_run(SCOPE_TASK, terminal=True, deadline_s=deadline_s, since=since)
+    return await_run(
+        SCOPE_TASK, terminal=True, deadline_s=deadline_s, workflow="scope", since=since
+    )
 
 
 # --- the repo-state contract ------------------------------------------------
@@ -611,7 +560,7 @@ REPO_PRUNED: tuple[str, ...] = (
 
 
 @pytest.fixture(scope="session", autouse=True)
-def suite_blueprint(stack: None, repo_baseline: dict[str, str]) -> None:
+def suite_blueprint(stack: None, baseline_env: dict[str, str]) -> None:
     """The company the suite runs against: the pristine profile on the
     suite's clock (`blueprints.suite_document`). The bootstrap applied the
     example as written, whose gates wait a working day, and its heartbeat
@@ -621,7 +570,7 @@ def suite_blueprint(stack: None, repo_baseline: dict[str, str]) -> None:
     swept, every run in flight allowed to end, and only then the pristine
     profile applied with the suite's own waits, so a module that parks on
     a gate watches it escalate within a minute."""
-    sweep_repo_debris(repo_baseline)
+    sweep_repo_debris(baseline_env)
     await_no_runs_in_flight()
     restore_pristine()
 
@@ -642,7 +591,7 @@ def await_no_runs_in_flight(deadline_s: int = 1200) -> None:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def repo_baseline(env: dict[str, str]) -> dict[str, str]:
+def baseline_env(env: dict[str, str]) -> dict[str, str]:
     """Establish the declared shape of TARGET_REPO@main once per session —
     autouse, so a standalone module run gets the same contract the full
     suite does and a fresh disposable repo needs no manual seeding.
@@ -717,50 +666,19 @@ def pr_state(env: dict, pr_url: str | None) -> str:
 
 
 def apply_profile(path: Path, env: dict) -> None:
-    """Sweep, apply, converge, and let the standing heartbeat settle — the
-    way every module that applies its own profile must start. An empty
-    campsite first: any open PR or issue an earlier module left becomes the
-    loop's backlog the moment it reads the new section — a review parked
-    on the gate that holds the one concurrency slot. Then the wait: once
-    the loop is parked on its wait over the swept backlog, every tick that
-    follows is one the module caused — its own runs wake the heartbeat
-    forward, and `wake_bare_heartbeat` stands in for the outside world."""
+    """Sweep, apply, converge, and wait for the standing heartbeat to be
+    asleep — the way every module that applies its own profile must
+    start. An empty campsite first: any open PR or issue an earlier module
+    left becomes the loop's backlog the moment it reads the new section —
+    a review parked on the gate that holds the one concurrency slot. Then
+    the wait: with the loop asleep over the swept backlog, the ticks a
+    module counts from here are its own — its runs wake the heartbeat
+    forward, and `cluster.wake_and_await_ticks` stands in for the outside
+    world."""
     sweep_repo_debris(env)
     apply_blueprint(path)
     wait_for_convergence()
     await_bare_heartbeat_asleep()
-
-
-def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
-    """Block until the company's `heartbeat-{company}` is running and
-    parked on its wait, so tick counts taken after this are the module's
-    own. Read off the workflow's own `state` query: a profile re-applied
-    over itself finds the standing heartbeat already waiting. The parked
-    loop answers a wake immediately — "sleeping" means ready, never
-    dormant."""
-    bare = workflow_id("heartbeat", COMPANY_NS)
-
-    async def wait() -> None:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = client.get_workflow_handle(bare)
-            deadline = time.monotonic() + deadline_s
-            while time.monotonic() < deadline:
-                # Not started yet, or between runs: keep waiting.
-                with contextlib.suppress(Exception):
-                    description = await handle.describe()
-                    if (
-                        description.status == WorkflowExecutionStatus.RUNNING
-                        and await handle.query("state") == "sleeping"
-                    ):
-                        return
-                await asyncio.sleep(3)
-            raise AssertionError(
-                f"the bare heartbeat {bare} was not asleep within {deadline_s}s"
-                " of the apply"
-            )
-
-    asyncio.run(wait())
 
 
 def sweep_repo_debris(env: dict) -> None:

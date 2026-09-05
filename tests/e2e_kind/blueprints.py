@@ -12,7 +12,10 @@ from pathlib import Path
 import httpx
 import yaml
 
-from .cluster import COMPANY_NS, kubectl, port_forward
+from .cluster import COMPANY_NS, await_bare_heartbeat_asleep, kubectl, port_forward
+
+# The suite's derived blueprints, written here and removed with the process.
+_SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "examples"
@@ -35,7 +38,7 @@ def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) ->
     piece this module must not share its lane with"."""
     document = yaml.safe_load(base.read_text())
     mutate(document)
-    path = Path(tempfile.mkdtemp(prefix="poseidon-bp-")) / f"{base.stem}-{label}.yaml"
+    path = Path(_SCRATCH.name) / f"{base.stem}-{label}.yaml"
     path.write_text(yaml.safe_dump(document, sort_keys=False))
     return path
 
@@ -67,8 +70,8 @@ def single_attempt(path: Path) -> Path:
 
 
 def pristine_profile() -> Path:
-    """The company every module starts from: `hello-saas.yaml` with review
-    off the heartbeat's own initiative. A delivered PR then waits for the
+    """The company the suite rests at and every module returns to:
+    `hello-saas.yaml` with review off the heartbeat's own initiative. A delivered PR then waits for the
     world instead of being reviewed on the next wake — a review parked on
     the human gate would hold the one concurrency slot and race the
     fixture closing the PR. Modules whose arc reviews apply the example
@@ -98,7 +101,7 @@ def suite_document(path: Path) -> Path:
         for gate in (node.get("gates") or {}).values():
             gate["deadline_minutes"] = E2E_GATE_MINUTES
     document["budgets"]["per_run"]["pause_minutes"] = E2E_PAUSE_MINUTES
-    out = Path(tempfile.mkdtemp(prefix="poseidon-bp-")) / f"{path.stem}-e2e.yaml"
+    out = Path(_SCRATCH.name) / f"{path.stem}-e2e.yaml"
     out.write_text(yaml.safe_dump(document, sort_keys=False))
     return out
 
@@ -168,8 +171,6 @@ def restore_pristine() -> None:
     a restore that skipped the wait could hand the next module a company
     that never re-converged. The standing heartbeat reads the re-applied
     section on its next tick and keeps running: a company always has one."""
-    from .conftest import await_bare_heartbeat_asleep
-
     apply_blueprint(pristine_profile())
     wait_for_convergence()
     await_bare_heartbeat_asleep()

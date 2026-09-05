@@ -28,20 +28,23 @@ from common.tasks import SCOPE_TASK
 from mockllm.brain import NEXT_SLICE_MARKER, PM_SUMMARY
 
 from .blueprints import HELLO_SAAS, derived_blueprint, may_start, restore_pristine
-from .cluster import audit_story, run_by_task
-from .conftest import (
-    apply_profile,
+from .cluster import (
+    audit_story,
     await_new_ticks,
     bare_heartbeat_id,
+    heartbeat_ticks,
+    run_by_task,
+    wake_bare_heartbeat,
+)
+from .conftest import (
+    apply_profile,
     close_issue,
     file_ticket,
     github_api,
-    heartbeat_ticks,
     open_slice_strategy,
     restore_strategy,
     scope_via_heartbeat,
     target_slug,
-    wake_bare_heartbeat,
 )
 
 
@@ -58,11 +61,11 @@ def _scope_only(max_open_tickets: int):
 
 
 @pytest.fixture(scope="module")
-def scoped(stack: None, repo_baseline: dict) -> dict:
+def scoped(stack: None, baseline_env: dict) -> dict:
     """Write a strategy naming one slice, wake the loop, and let it scope:
     hand back the run, the ticket and the ticks for the assertions. The
     strategy and the profile go back at the end."""
-    env = repo_baseline
+    env = baseline_env
     apply_profile(_scope_only(5), env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id(), "nonce": nonce}

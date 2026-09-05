@@ -73,12 +73,12 @@ def _poisoned_strategy(nonce: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def poisoned(stack: None, repo_baseline: dict) -> dict:
+def poisoned(stack: None, baseline_env: dict) -> dict:
     """The poisoned strategy, through the real loop: one scope run files
     the forbidden ticket and the real one; the heartbeat then implements
     each — the forbidden one dies at fulfilment, the real one delivers
     with its exfiltration refused."""
-    env = repo_baseline
+    env = baseline_env
     apply_profile(single_attempt(pristine_profile()), env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env}

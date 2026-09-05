@@ -57,22 +57,22 @@ from .blueprints import (
 )
 from .cluster import (
     audit_story,
+    await_new_ticks,
     await_run,
+    bare_heartbeat_id,
+    heartbeat_ticks,
     run_by_task,
     run_spend,
     runs_by_task,
+    wake_bare_heartbeat,
 )
 from .conftest import (
     apply_profile,
-    await_new_ticks,
-    bare_heartbeat_id,
     close_issue,
     close_pr_url,
     github_api,
-    heartbeat_ticks,
     pr_number,
     target_slug,
-    wake_bare_heartbeat,
     wake_until_run_started,
 )
 
@@ -92,11 +92,11 @@ def _injected_body(nonce: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def heartbeat_profile(stack: None, repo_baseline: dict):
+def heartbeat_profile(stack: None, baseline_env: dict):
     """Apply the implement-only profile for this module — the merged-by-hand
     arc needs a delivered PR to wait for the world, not for the next wake
     — and restore the pristine profile after."""
-    apply_profile(may_start(HELLO_SAAS, "implement"), repo_baseline)
+    apply_profile(may_start(HELLO_SAAS, "implement"), baseline_env)
     yield
     restore_pristine()
 

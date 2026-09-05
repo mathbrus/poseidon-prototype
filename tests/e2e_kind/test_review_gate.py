@@ -103,12 +103,12 @@ async def _watch_review_gate(address: str, run_id: str) -> dict:
 
 
 @pytest.fixture(scope="module")
-def review_chain(stack: None, repo_baseline: dict) -> dict:
+def review_chain(stack: None, baseline_env: dict) -> dict:
     """The whole arc: the strategy becomes a ticket (the loop's scope run),
     the ticket becomes a PR (the operator's `poseidon run`), the PR becomes
     reviewer findings, a parked gate, an escalation, an approval, and a
     gateway merge (the loop's review run)."""
-    env = repo_baseline
+    env = baseline_env
     apply_profile(may_start(HELLO_SAAS, "scope", "review"), env)
     chain: dict = {"env": env}
     nonce = secrets.token_hex(3)
