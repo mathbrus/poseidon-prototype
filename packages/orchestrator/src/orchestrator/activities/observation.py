@@ -33,7 +33,6 @@ from common.telemetry import get_logger
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.documents import (
     BOOTSTRAP_TITLES,
-    DOCUMENTS,
     company_documents,
     read_documents,
     sections,
@@ -42,6 +41,7 @@ from orchestrator.clients import GatewayClient, GatewayError, pr_settled
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import heartbeat_run_id
 from registry import Attempts, BudgetLedger, Companies, FiledTickets, Runs
+from schema.documents import DOCUMENT_NAMES
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 # The observation is a prompt, not a database dump: enough candidates to
@@ -270,7 +270,7 @@ class ObservationActivities:
         # `exhausted` when the open one spent every attempt short of a
         # delivery (the loop halts by name rather than scope forever).
         bootstrap: dict[str, list[str]] = {"pending": [], "exhausted": []}
-        for name in DOCUMENTS:
+        for name in DOCUMENT_NAMES:
             if documents[name]["present"]:
                 continue
             tickets = [

@@ -15,7 +15,6 @@ compiler error does.
 
 from dataclasses import dataclass
 
-from common.tasks import DOCUMENT_CREW
 from schema.tools import ARCHITECTURE_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 
 # The agent host's units of work. A dispatch names one; a role declares
@@ -23,9 +22,11 @@ from schema.tools import ARCHITECTURE_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_
 PROCEDURES = ("scope", "decide", "implement", "deliver", "review")
 
 # The one role that writes the company's documents — the compiler exempts
-# it, and it alone, from the deny on the document paths — and the crew a
-# bootstrap ticket or an architecture request routes to.
-DOCUMENT_ROLE = "steward"
+# it, and it alone, from the deny on the document paths — and the crew it
+# fulfils: the one every bootstrap ticket and architecture request the
+# platform files routes to.
+STEWARD_ROLE = "steward"
+STEWARDSHIP_CREW = "stewardship"
 
 
 @dataclass(frozen=True)
@@ -112,8 +113,8 @@ ROLES: dict[str, Role] = {
     # strategy exists, nobody may — a future standing observer would be
     # its author, and neither this role, the PM nor `decide` grows to
     # fill that gap.
-    DOCUMENT_ROLE: Role(
-        name=DOCUMENT_ROLE,
+    STEWARD_ROLE: Role(
+        name=STEWARD_ROLE,
         summary=(
             "Writes the company's strategy once and its architecture "
             "masterplan at bootstrap and on request. Ephemeral agents only, "
@@ -145,9 +146,9 @@ CREW_TEMPLATES: dict[str, CrewTemplate] = {
         summary="One contract author delivering the acceptance tests for a slice.",
         roles=("contract-author",),
     ),
-    DOCUMENT_CREW: CrewTemplate(
-        name=DOCUMENT_CREW,
+    STEWARDSHIP_CREW: CrewTemplate(
+        name=STEWARDSHIP_CREW,
         summary="One steward delivering a company document.",
-        roles=(DOCUMENT_ROLE,),
+        roles=(STEWARD_ROLE,),
     ),
 }

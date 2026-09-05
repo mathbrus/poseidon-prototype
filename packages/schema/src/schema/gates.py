@@ -19,6 +19,8 @@ problems).
 
 from typing import Any
 
+from schema.documents import DOCUMENT_NAMES
+
 # Prefixes no blueprint may delegate, whatever else it says. Everything
 # under them is merge-gate governance itself or the repository's own
 # automation; the compiler also unions in the document's `deny_paths`.
@@ -130,11 +132,6 @@ def contract_tests_problems(document: Any) -> list[str]:
     return problems
 
 
-# The company's documents, by name: the ones a blueprint must place and
-# the platform reads, bootstraps and fences.
-DOCUMENT_NAMES = ("strategy", "architecture")
-
-
 def document_paths(document: Any) -> dict[str, str]:
     """The company's document paths by name, tolerant of malformed values."""
     section = (document.get("company") or {}).get("documents")
@@ -193,7 +190,6 @@ def document_problems(document: Any) -> list[str]:
 
 
 __all__ = [
-    "DOCUMENT_NAMES",
     "UNDELEGATABLE_PATHS",
     "contract_tests_problems",
     "document_paths",

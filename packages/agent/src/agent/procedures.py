@@ -61,6 +61,7 @@ from agent.hands import (
 )
 from agent.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_context
 from common.telemetry import get_logger
+from common.text import clip_tail
 from common.topology import RUN_ID_HEADER
 
 # Step caps per procedure — engineering limits on how long one SDK loop
@@ -306,17 +307,11 @@ def _loop_failure(convo: Conversation) -> str | None:
     return None
 
 
-def _clip(text: str, limit: int = _OUTPUT_CLIP) -> str:
-    if len(text) <= limit:
-        return text
-    return f"[... {len(text) - limit} chars clipped ...]\n" + text[-limit:]
-
-
 def _test_report(result: dict[str, Any]) -> str:
     return (
         f"Test run finished with exit code {result.get('exit_code')}.\n"
-        f"stdout:\n{_clip(str(result.get('stdout', '')))}\n"
-        f"stderr:\n{_clip(str(result.get('stderr', '')))}"
+        f"stdout:\n{clip_tail(str(result.get('stdout', '')), _OUTPUT_CLIP)}\n"
+        f"stderr:\n{clip_tail(str(result.get('stderr', '')), _OUTPUT_CLIP)}"
     )
 
 

@@ -14,7 +14,7 @@ schema's.
 
 from typing import Any
 
-from schema.gates import DOCUMENT_NAMES
+from schema.documents import DOCUMENT_NAMES
 from schema.tools import KNOWN_TOOLS
 
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"

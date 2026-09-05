@@ -139,10 +139,7 @@ def _arguments(args: ast.arguments) -> str:
 
 TOOL_GROUPS: dict[str, list[str]] = {
     "sandbox": tools.SANDBOX_TOOLS,
-    "repository": tools.REPO_TOOLS
-    + tools.GIT_TOOLS
-    + tools.REVIEW_TOOLS
-    + tools.PLATFORM_TOOLS,
+    "repository": tools.GIT_TOOLS + tools.REVIEW_TOOLS + tools.PLATFORM_TOOLS,
     "issues": tools.ISSUE_TOOLS,
     "architecture": tools.ARCHITECTURE_TOOLS,
 }

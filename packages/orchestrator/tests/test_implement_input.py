@@ -3,7 +3,8 @@ deterministically, and the crew trailer parsed out of it. Sequencing (the
 issue fetch before dispatch) is a workflow concern, proven live by the
 kind suite."""
 
-from orchestrator.workflows.implement import issue_task, ticket_crew
+from common.tasks import ticket_crew
+from orchestrator.workflows.implement import issue_task
 
 
 def test_issue_task_carries_number_url_title_and_body():

@@ -38,7 +38,8 @@ from openhands.sdk.llm.utils.model_prompt_spec import get_model_prompt_spec
 from openhands.sdk.skills import Skill
 
 from agent.config import AgentSettings
-from common.text import clip
+from common.text import clip_head
+from schema.documents import DOCUMENT_LABELS
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 # The first line of every prompt file: `# Poseidon procedure: <name>`.
@@ -67,9 +68,6 @@ SECTIONS: dict[str, tuple[type[PromptSection], ...]] = {
 
 # The repository's instructions to agents, shown as untrusted context.
 REPO_INSTRUCTIONS_FILE = "AGENTS.md"
-# The company's documents, by the name the dispatch carries them under,
-# and the name the model sees them by.
-DOCUMENT_SKILLS = {"strategy": "strategy", "architecture": "architecture masterplan"}
 
 
 def render_procedure(procedure: str, settings: AgentSettings) -> str:
@@ -108,14 +106,14 @@ def untrusted_context(
     instructions: str | None, documents: dict[str, str]
 ) -> AgentContext | None:
     """Everything from the repository as the conversation's agent context:
-    the sandbox's AGENTS.md and the company's documents, each bounded —
-    a file can be anything — or None when there is nothing to show."""
+    the sandbox's AGENTS.md, bounded here (a file can be anything), and
+    the company's documents, bounded once already by the platform read
+    that carried them — or None when there is nothing to show."""
     skills = []
     if instructions is not None:
-        skills.append(Skill(name=REPO_INSTRUCTIONS_FILE, content=clip(instructions)))
+        skills.append(Skill(name=REPO_INSTRUCTIONS_FILE, content=clip_head(instructions)))
     for name, text in documents.items():
-        if name in DOCUMENT_SKILLS:
-            skills.append(Skill(name=DOCUMENT_SKILLS[name], content=clip(text)))
+        skills.append(Skill(name=DOCUMENT_LABELS[name], content=text))
     if not skills:
         return None
     return AgentContext(skills=skills, current_datetime=None)

@@ -140,7 +140,13 @@ CONTRACT_FIRST_MARKER = "E13-CONTRACT-FIRST"
 CONTRACT_CREW_LINE = "Crew: contract-authoring"
 # The steward's script keys on the trailer the platform's bootstrap ticket
 # carries, and writes the document the ticket names at the path it names.
+# The titles are the platform's (`orchestrator.activities.documents`
+# and the gateway's architecture-request filing), mirrored here on
+# purpose: the mock's own spelling is what catches a rename, and the
+# contract test pins both sides equal.
 STEWARDSHIP_CREW_LINE = "Crew: stewardship"
+BOOTSTRAP_STRATEGY_TITLE = "Bootstrap: strategy"
+ARCHITECTURE_REQUEST_TITLE_PREFIX = "Architecture request from run "
 # The architecture-request scenario: a ticket carrying the marker asks for
 # a shape the masterplan forbids. The implementer requests the change and
 # stops — no code, no PR — so the platform's ticket is the run's only
@@ -800,8 +806,8 @@ def _steward_completion(
     — the strategy for a `Bootstrap: strategy` ticket, the revised
     masterplan for an architecture request, the masterplan otherwise — at
     the path it names, then deliver it on the ticket's branch."""
-    strategy = "Bootstrap: strategy" in task_text
-    revision = "Architecture request" in task_text
+    strategy = BOOTSTRAP_STRATEGY_TITLE in task_text
+    revision = ARCHITECTURE_REQUEST_TITLE_PREFIX in task_text
     match = DOCUMENT_PATH_RE.search(task_text)
     path = (
         match.group(1)

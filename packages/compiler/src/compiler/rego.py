@@ -40,9 +40,9 @@ from common.policy import (
     rego_slug,
 )
 from compiler.plan import AgentInstanceCR, EphemeralAgentSpec, HeartbeatConfig
-from schema.catalog import DOCUMENT_ROLE
+from schema.catalog import STEWARD_ROLE
 from schema.gates import UNDELEGATABLE_PATHS
-from schema.tools import RUN_SCOPED
+from schema.tools import ARCHITECTURE_REQUEST, RUN_SCOPED
 
 PLATFORM_PACKAGE = "poseidon.platform"
 
@@ -149,12 +149,12 @@ ARCHITECTURE_REQUESTS_PER_RUN = 1
 _ARCHITECTURE_CAP_RULE = f"""
 # At most {ARCHITECTURE_REQUESTS_PER_RUN} architecture request per run.
 deny_rules contains "architecture_request_over_cap" if {{
-	input.tool == "architecture.request"
+	input.tool == {json.dumps(ARCHITECTURE_REQUEST)}
 	input.architecture_requests >= {ARCHITECTURE_REQUESTS_PER_RUN}
 }}
 
 deny_rules contains "architecture_request_count_missing" if {{
-	input.tool == "architecture.request"
+	input.tool == {json.dumps(ARCHITECTURE_REQUEST)}
 	not is_number(object.get(input, ["architecture_requests"], null))
 }}
 """
@@ -547,12 +547,12 @@ def _policies_file(
     strategy = json.dumps(documents["strategy"])
     lines.append(
         _open_pr_path_deny(
-            "git_open_pr_architecture_path", [documents["architecture"]], [DOCUMENT_ROLE]
+            "git_open_pr_architecture_path", [documents["architecture"]], [STEWARD_ROLE]
         )
     )
     lines.append(
         _open_pr_path_deny(
-            "git_open_pr_strategy_path", [documents["strategy"]], [DOCUMENT_ROLE]
+            "git_open_pr_strategy_path", [documents["strategy"]], [STEWARD_ROLE]
         )
     )
     lines.append(

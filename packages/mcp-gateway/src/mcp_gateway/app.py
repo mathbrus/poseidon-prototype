@@ -41,6 +41,7 @@ from registry import (
     SandboxRegistrations,
     open_registry,
 )
+from schema.tools import ARCHITECTURE_REQUEST
 
 
 class AuthMiddleware:
@@ -310,7 +311,7 @@ def create_app(
 
     # -- issues, review, merge, crew intent ---------------------------------
 
-    @mcp.tool(name="architecture.request")
+    @mcp.tool(name=ARCHITECTURE_REQUEST)
     async def architecture_request(
         run_id: str, rationale: str, proposal: str, ctx: Context
     ) -> dict[str, Any]:

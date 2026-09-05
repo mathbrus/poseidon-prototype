@@ -11,15 +11,15 @@ ticks of a company exist to write them.
 
 from typing import Any
 
-from common.tasks import DOCUMENT_CREW
-from common.text import clip
+from common.tasks import crew_trailer
+from common.text import clip_head
 from orchestrator.clients import GatewayClient
 from registry import Companies
+from schema.catalog import STEWARDSHIP_CREW
+from schema.documents import DOCUMENT_NAMES, document_header
 
-# The two documents, in the order the observation renders them; the
-# headers are the contract the mock brain parses.
-DOCUMENTS = ("strategy", "architecture")
-HEADERS = {"strategy": "Strategy:", "architecture": "Architecture masterplan:"}
+# The observation renders each document under its header; the headers
+# are the contract the mock brain parses.
 ABSENT = "(absent)"
 
 # The fixed titles of the tickets the platform files for an absent
@@ -53,7 +53,7 @@ def bootstrap_body(name: str, path: str, branch: str) -> str:
         f"{what}\n\nCreate the file `{path}` with that document and nothing "
         f"else.\n\nDeliver your work on the branch `{branch}`.\n\n"
         f"Filed by the platform: the document is absent on the base ref.\n\n"
-        f"Crew: {DOCUMENT_CREW}"
+        f"{crew_trailer(STEWARDSHIP_CREW)}"
     )
 
 
@@ -72,7 +72,7 @@ async def read_documents(
     """Each document at `base_ref`: `{path, present, text}` by name, the
     text clipped to what a model may be shown."""
     documents = {}
-    for name in DOCUMENTS:
+    for name in DOCUMENT_NAMES:
         read = await gateway.read_document(
             run_id, repo["url"], repo["base_ref"], paths[name]
         )
@@ -80,7 +80,7 @@ async def read_documents(
         documents[name] = {
             "path": paths[name],
             "present": bool(read.get("present")),
-            "text": clip(str(text)) if text is not None else None,
+            "text": clip_head(str(text)) if text is not None else None,
         }
     return documents
 
@@ -94,8 +94,8 @@ def sections(documents: dict[str, dict[str, Any]]) -> list[str]:
     """The observation's document sections: the header, then the text as
     it stands on `base_ref`, or the absence stated."""
     rendered = []
-    for name in DOCUMENTS:
+    for name in DOCUMENT_NAMES:
         document = documents.get(name) or {}
         body = document["text"] if document.get("present") else ABSENT
-        rendered.append(f"{HEADERS[name]}\n{body}")
+        rendered.append(f"{document_header(name)}\n{body}")
     return rendered

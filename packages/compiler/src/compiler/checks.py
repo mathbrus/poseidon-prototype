@@ -26,8 +26,7 @@ placeholders remain legal documentation.
 import re
 from typing import Any
 
-from common.tasks import DOCUMENT_CREW
-from schema.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
+from schema.catalog import CREW_TEMPLATES, ROLES, STEWARDSHIP_CREW, CrewTemplate, Role
 from schema.coherence import (
     contract_role_problems,
     hire_problems,
@@ -199,9 +198,9 @@ def _spawnable_crews(
     ) or []
     # A missing or unknown conductor is `_heartbeat_authority`'s problem;
     # the document crew is asked of a conductor that exists.
-    if conductor in _hires(blueprint) and DOCUMENT_CREW not in allowed:
+    if conductor in _hires(blueprint) and STEWARDSHIP_CREW not in allowed:
         problems.append(
-            f"heartbeat.conductor: {conductor!r} may not spawn {DOCUMENT_CREW!r} — "
+            f"heartbeat.conductor: {conductor!r} may not spawn {STEWARDSHIP_CREW!r} — "
             f"the platform's bootstrap and architecture-request tickets route to "
             f"that crew; add it to may_spawn.crew, or the company can never write "
             f"its documents"

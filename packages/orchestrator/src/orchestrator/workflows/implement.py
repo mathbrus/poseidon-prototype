@@ -28,7 +28,6 @@ dispatch comes back with the LLM gateway's `budget_exhausted` marker.
 """
 
 import asyncio
-import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -36,7 +35,7 @@ from typing import Any
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
-from common.tasks import issue_run_task
+from common.tasks import issue_run_task, ticket_crew
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
@@ -61,30 +60,11 @@ def issue_task(number: int, title: str, body: str, url: str) -> str:
     return f"Implement issue #{number} ({url}): {title}\n\n{body}"
 
 
-# A ticket names the crew that should fulfill it with a trailer line
-# (`Crew: contract-authoring`); without one, the workflow's configured
-# crew fulfills it — the perennial contract, not a fallback. The name
-# grammar is the blueprint's `_NAME`.
-TICKET_CREW_RE = re.compile(r"^Crew:\s*([a-z0-9][a-z0-9-]*)\s*$", re.MULTILINE)
-
-
 def architecture_wait(ticket_urls: list[str]) -> str:
     """The error an implement run ends with when its implementer asked for
     the plan to change instead of delivering: the stewardship ticket(s)
     the platform filed, by URL, so the run row says what it waits on."""
     return "waits on architecture request: " + ", ".join(ticket_urls)
-
-
-def ticket_crew(task_source: str) -> str | None:
-    """The crew the task names, parsed deterministically by workflow code.
-    The *last* match wins: the trailer is written by whoever filed the
-    ticket, and text quoted above it is untrusted input — a poisoned
-    document quoted into a body must not outrank the filer's own trailer. What the named crew can
-    actually be is policy's to decide: fulfillment re-evaluates the
-    compiled `crew.request` decision, so a ticket naming a template the
-    blueprint never granted dies there, audited."""
-    matches = TICKET_CREW_RE.findall(task_source)
-    return matches[-1] if matches else None
 
 
 def verify_feedback(task: str, output: str) -> str:

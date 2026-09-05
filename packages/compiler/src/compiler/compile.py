@@ -28,7 +28,7 @@ from compiler.plan import (
 from compiler.rego import build_bundle, build_platform_bundle
 from compiler.snapshot import EMPTY, RegistrySnapshot
 from schema.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
-from schema.tools import PLATFORM_TOOLS, REPO_TOOLS
+from schema.tools import PLATFORM_TOOLS
 
 # What the orchestrator's own identity may call. Not blueprint-configurable:
 # a company that could grant itself the platform lifecycle would be able to
@@ -38,7 +38,6 @@ from schema.tools import PLATFORM_TOOLS, REPO_TOOLS
 PLATFORM_SCOPE = sorted(
     {
         *PLATFORM_TOOLS,
-        *REPO_TOOLS,
         "sandbox.run_tests",
         # The review workflow resolves the PR's head ref before provisioning
         # the review sandbox from it — a read, but the platform's own,

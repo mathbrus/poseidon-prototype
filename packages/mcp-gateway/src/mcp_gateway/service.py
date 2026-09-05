@@ -26,7 +26,7 @@ from common.identity import (
     Identity,
 )
 from common.policy import PLATFORM_DECISION_PATH, company_decision_path
-from common.tasks import DOCUMENT_CREW
+from common.tasks import crew_trailer
 from common.telemetry import get_logger
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GitBackend
@@ -38,6 +38,8 @@ from registry import (
     Runs,
     SandboxRegistrations,
 )
+from schema.catalog import STEWARDSHIP_CREW
+from schema.tools import ARCHITECTURE_REQUEST
 
 # tool name -> sandbox tool-server route
 SANDBOX_ROUTES = {
@@ -58,9 +60,6 @@ class PolicyDenied(Exception):
 
 
 # The one tool whose backend files a ticket the caller does not shape.
-ARCHITECTURE_REQUEST = "architecture.request"
-
-
 class BackendError(Exception):
     pass
 
@@ -417,7 +416,7 @@ class GatewayService:
                 "in the pull request and say why.\n\n"
                 f"Filed by the platform for run {run_id} at the request of "
                 f"{identity.agent_id}.\n\n"
-                f"Crew: {DOCUMENT_CREW}"
+                f"{crew_trailer(STEWARDSHIP_CREW)}"
             )
             return await self._file_ticket(spec["repo"]["url"], run_id, title, body)
 
