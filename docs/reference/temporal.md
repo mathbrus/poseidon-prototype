@@ -45,7 +45,7 @@ signal still resolves it, so the human override survives delegation.
 
 ## Queries
 
-Every workflow exposes a `state` query returning the current phase as a
+Every workflow exposes a `state` query returning the current state as a
 string — the mechanism behind the claim that a parked gate or a budget
 stop is "an API-visible paused state, never a silent hang."
 

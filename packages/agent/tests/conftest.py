@@ -185,13 +185,6 @@ class FakeGateway:
                 }
             case "issues.read":
                 return {"issues": []}
-            case "crew.request":
-                return {
-                    "id": "crq-abc123",
-                    "status": "recorded",
-                    "conductor": "pm-1",
-                    "expires_at": "2026-01-01T01:00:00+00:00",
-                }
             case "git.open_pr":
                 branch = args["branch"]
                 if branch.lower() in {"main", "master"}:

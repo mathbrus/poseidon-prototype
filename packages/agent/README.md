@@ -56,11 +56,11 @@ for it.
 ## Dispatch: the /task API
 
 The orchestrator's workflows drive this host through one small API.
-`POST /task {run_id, procedure, task_text}` answers 202 and runs the
-procedure on a background task; `GET /task/{run_id}` reports `status`
-plus every field of the `ProcedureResult` (`pr_url`, `iterations`,
-`error`, `ticket_urls`, `crew_request_id`, `comment_urls`,
-`verdict`, `verdict_summary`, `decision`) — the HTTP shape is derived
+`POST /task {run_id, procedure, task_text, documents}` answers 202 and
+runs the procedure on a background task; `GET /task/{run_id}` reports
+`status` plus every field of the `ProcedureResult` (`pr_url`,
+`iterations`, `error`, `ticket_urls`, `comment_urls`, `verdict`,
+`verdict_summary`, `decision`) — the HTTP shape is derived
 from the result type, so a new field cannot be dropped at the
 boundary. The workflow polls — the host owns no
 process-level retries, timeouts or cancellation, because Temporal already

@@ -86,7 +86,7 @@ class ReviewWorkflow(RunWorkflow):
     WORKFLOW = "review"
 
     def __init__(self) -> None:
-        self._phase = "running"
+        self._state = "running"
         self._budget_gate = Gate("budget")
         self._merge_gate = Gate("merge")
 
@@ -106,7 +106,7 @@ class ReviewWorkflow(RunWorkflow):
     def state(self) -> str:
         """The API-visible run phase: a parked merge gate must be a
         visible pending state, never a silent hang."""
-        return self._phase
+        return self._state
 
     async def _policy_merge(
         self,
@@ -311,12 +311,12 @@ class ReviewWorkflow(RunWorkflow):
         the end — every transition a process-gate audit event — and return
         the same `{released}|{error}` shape the policy path does, so the run
         has one merge-application site."""
-        self._phase = "paused-merge_gate"
+        self._state = "paused-merge_gate"
         outcome = await self._merge_gate.wait(
             **gate_deadline(gate["deadline_minutes"]),
             on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated"),
         )
-        self._phase = "running"
+        self._state = "running"
         await self.record_gate(input.run_id, "merge", outcome.kind)
         if outcome.kind != "approved":
             return {"error": f"merge gate {outcome.kind}"}
@@ -451,7 +451,7 @@ class ReviewWorkflow(RunWorkflow):
         except ActivityError as exc:
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
-        self._phase = "finalizing"
+        self._state = "finalizing"
         record = await self.teardown(input.run_id, handle, result, error)
         if not concluded:
             await self.record_attempts(input.run_id)

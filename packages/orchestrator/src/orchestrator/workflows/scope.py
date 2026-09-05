@@ -42,7 +42,7 @@ class ScopeWorkflow(RunWorkflow):
     CREWLESS = True
 
     def __init__(self) -> None:
-        self._phase = "running"
+        self._state = "running"
         self._budget_gate = Gate("budget")
 
     @workflow.signal
@@ -53,7 +53,7 @@ class ScopeWorkflow(RunWorkflow):
 
     @workflow.query
     def state(self) -> str:
-        return self._phase
+        return self._state
 
     @workflow.run
     async def run(self, input: ScopeInput) -> dict[str, Any]:
@@ -75,7 +75,7 @@ class ScopeWorkflow(RunWorkflow):
         except ActivityError as exc:
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
-        self._phase = "finalizing"
+        self._state = "finalizing"
         record = await self.teardown(input.run_id, None, result, error)
         # The tickets this run filed are the standing heartbeat's next
         # backlog — nudge it; the reconcile timer covers a nudge that

@@ -85,7 +85,7 @@ class ImplementWorkflow(RunWorkflow):
     WORKFLOW = "implement"
 
     def __init__(self) -> None:
-        self._phase = "running"
+        self._state = "running"
         self._budget_gate = Gate("budget")
 
     @workflow.signal
@@ -99,7 +99,7 @@ class ImplementWorkflow(RunWorkflow):
     def state(self) -> str:
         """The API-visible run phase (a budget stop must be a visible
         pending state, never silent degradation)."""
-        return self._phase
+        return self._state
 
     @workflow.run
     async def run(self, input: ImplementInput) -> dict[str, Any]:
@@ -226,7 +226,7 @@ class ImplementWorkflow(RunWorkflow):
         except ActivityError as exc:
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
-        self._phase = "finalizing"
+        self._state = "finalizing"
         record = await self.teardown(input.run_id, handle, result, error)
         # Delivered is concluded, whatever happened after (a failed
         # teardown still delivered); a run that opened no PR aborted, and

@@ -15,8 +15,9 @@ import re
 ISSUE_TASK_RE = re.compile(r"^implement issue #(\d+)$")
 REVIEW_TASK_RE = re.compile(r"^review pull request #(\d+)$")
 
-# The run row's task for a scope run — a label for humans reading the runs
-# table; nothing parses it.
+# The run row's task for a scope run. Every scope run works the same
+# text, so a lookup by task finds the latest scope run; nothing parses a
+# number out of it.
 SCOPE_TASK = "scope the next slice"
 
 # A ticket names the crew that should fulfil it with a trailer line

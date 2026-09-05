@@ -1,4 +1,4 @@
-"""The dispatch HTTP surface with an injected procedure runner."""
+"""The dispatch HTTP surface with an injected dispatch per procedure."""
 
 import asyncio
 
@@ -32,8 +32,8 @@ def settings_for(role: str) -> AgentSettings:
     )
 
 
-def app_for(role: str, **runners):
-    return create_app(settings=settings_for(role), runners=runners)
+def app_for(role: str, **dispatches):
+    return create_app(settings=settings_for(role), dispatches=dispatches)
 
 
 async def post(

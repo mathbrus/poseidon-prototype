@@ -99,7 +99,13 @@ def _tool_definitions() -> dict[str, Tool]:
                 and deco.func.attr == "tool"
             ):
                 continue
-            name = next(kw.value.value for kw in deco.keywords if kw.arg == "name")  # type: ignore[attr-defined]
+            named = next(kw.value for kw in deco.keywords if kw.arg == "name")
+            # A literal, or a constant of the tool catalog by name.
+            name = (
+                named.value
+                if isinstance(named, ast.Constant)
+                else getattr(tools, named.id)  # type: ignore[attr-defined]
+            )
             description = ast.get_docstring(node)
             if not description:
                 raise SystemExit(f"gen_docs: tool {name!r} has no docstring")

@@ -354,7 +354,7 @@ async def test_an_exhausted_bootstrap_halts_by_name(env):
     assert harness.decide_calls == []
     assert harness.ticks[0] == ("idle", "bootstrap_exhausted:strategy")
     assert harness.gate_events == [
-        (f"heartbeat-{COMPANY}", "heartbeat_bootstrap", "halted")
+        (f"heartbeat-{COMPANY}", "heartbeat_bootstrap_exhausted", "halted")
     ]
 
 

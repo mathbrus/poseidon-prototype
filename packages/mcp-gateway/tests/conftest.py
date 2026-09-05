@@ -28,7 +28,6 @@ from mcp_gateway.git_backend import GITHUB_API_URL
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
-    InMemoryBudgetLedger,
     InMemoryCompanies,
     InMemoryFiledTickets,
     InMemoryRunParticipants,
@@ -335,11 +334,6 @@ def instances() -> InMemoryAgentInstances:
 @pytest.fixture
 def participants() -> InMemoryRunParticipants:
     return InMemoryRunParticipants()
-
-
-@pytest.fixture
-def ledger() -> InMemoryBudgetLedger:
-    return InMemoryBudgetLedger()
 
 
 @pytest.fixture

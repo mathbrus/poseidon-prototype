@@ -235,7 +235,7 @@ def contract_first(stack: None, repo_baseline: dict) -> dict:
         result["contract_review_run_id"] = c_review_run
         result["contract_review"] = c_review
 
-        # --- the implement phase: no human act at all ----------------------
+        # --- the implement half: no human act at all ----------------------
         impl = _implement(implement_issue)
         result["implement"] = impl
         impl_pr = pr_number(impl["pr_url"])

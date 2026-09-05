@@ -124,7 +124,7 @@ class RunWorkflow:
     `process-gate` audit events, the budget-pause loop around an agent
     dispatch, and teardown.
 
-    Subclasses name their `WORKFLOW`, set `_phase` and `_budget_gate`, and
+    Subclasses name their `WORKFLOW`, set `_state` and `_budget_gate`, and
     declare their own signals and the `state` query — Temporal reads those
     off the concrete class.
     """
@@ -134,7 +134,7 @@ class RunWorkflow:
     # in the blueprint's `workflows` says so; every other one is refused
     # without its node.
     CREWLESS: bool = False
-    _phase: str
+    _state: str
     _budget_gate: Gate
     # The deployment's profile, learned from `workflow_config`; until then
     # (and on a birth that failed before it) the default sizing applies.
@@ -301,12 +301,12 @@ class RunWorkflow:
             )
             if BUDGET_MARKER not in ((result or {}).get("error") or ""):
                 return result
-            self._phase = f"paused-{BUDGET_MARKER}"
+            self._state = f"paused-{BUDGET_MARKER}"
             outcome = await self._budget_gate.wait(
                 **gate_deadline(self._config["budget_pause_minutes"]),
                 on_escalate=lambda: self.record_gate(run_id, "budget", "escalated"),
             )
-            self._phase = "running"
+            self._state = "running"
             await self.record_gate(run_id, "budget", outcome.kind)
             if outcome.kind != "approved":
                 return result

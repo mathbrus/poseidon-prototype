@@ -33,7 +33,7 @@ reviewer hit its step cap) does not take its ticket or PR down with it:
 the item is offered again until `max_attempts` runs have tried, and the
 run that spends the last attempt leaves a comment on it saying so. A
 bootstrap ticket that exhausts its attempts halts the loop by name
-(`heartbeat_bootstrap`, a process-gate event) instead of scoping without
+(`heartbeat_bootstrap_exhausted`, a process-gate event) instead of scoping without
 a strategy; close the ticket and the loop refiles.
 
 Your job is two acts: keep the charter (edit the blueprint, re-apply) and

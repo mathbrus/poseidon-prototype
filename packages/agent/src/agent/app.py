@@ -28,7 +28,9 @@ from common.telemetry import get_logger
 from schema.catalog import ROLES
 
 Procedure = Literal["scope", "decide", "implement", "deliver", "review"]
-Runner = Callable[[str, str, dict[str, str]], Awaitable[ProcedureResult]]
+# One dispatch: the orchestrator asking this host to run a procedure on a
+# text, with the company's documents beside it.
+Dispatch = Callable[[str, str, dict[str, str]], Awaitable[ProcedureResult]]
 
 
 class TaskRequest(BaseModel):
@@ -51,9 +53,9 @@ class TaskStatus(ProcedureResult):
 
 def create_app(
     settings: AgentSettings | None = None,
-    runners: dict[str, Runner] | None = None,
+    dispatches: dict[str, Dispatch] | None = None,
 ) -> FastAPI:
-    """`runners` overrides the runner for any procedure — how tests drive
+    """`dispatches` overrides how any procedure is run — how tests drive
     the API without an SDK loop behind it."""
 
     def _settings() -> AgentSettings:
@@ -68,21 +70,21 @@ def create_app(
     # blocking); each dispatch runs on a worker thread.
     def in_thread(
         run: Callable[[AgentSettings, str, str, dict[str, str]], ProcedureResult],
-    ) -> Runner:
-        async def runner(
+    ) -> Dispatch:
+        async def dispatch(
             run_id: str, task_text: str, documents: dict[str, str]
         ) -> ProcedureResult:
             return await asyncio.to_thread(run, _settings(), run_id, task_text, documents)
 
-        return runner
+        return dispatch
 
-    runner_by_procedure: dict[str, Runner] = {
+    dispatch_by_procedure: dict[str, Dispatch] = {
         "scope": in_thread(procedures.run_scope),
         "decide": in_thread(procedures.run_decide),
         "implement": in_thread(procedures.run_implement),
         "deliver": in_thread(procedures.run_deliver),
         "review": in_thread(procedures.run_review),
-        **(runners or {}),
+        **(dispatches or {}),
     }
 
     log = get_logger("agent")
@@ -94,7 +96,7 @@ def create_app(
         run_id = request.run_id
         run_log = log.bind(run_id=run_id, role=_settings().role)
         try:
-            result = await runner_by_procedure[request.procedure](
+            result = await dispatch_by_procedure[request.procedure](
                 run_id, request.task_text, request.documents
             )
         except Exception as exc:

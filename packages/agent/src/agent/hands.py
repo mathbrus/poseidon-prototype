@@ -40,7 +40,8 @@ from common.text import numbered_lines
 
 # Per-procedure tool surfaces — the structural guarantee: implement has
 # no `open_pr` (delivery before the platform verify gate is impossible by
-# construction); review writes nothing but its findings comment.
+# construction); review writes nothing but its findings comment and, at
+# most, one architecture request the platform files as a ticket.
 IMPLEMENT_TOOLS = [
     "list_dir",
     "read_file",
