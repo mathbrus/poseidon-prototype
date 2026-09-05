@@ -17,7 +17,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from orchestrator.workflows.base import FAST_TIMEOUTS
-from orchestrator.workflows.implement import ImplementInput, ImplementWorkflow
+from orchestrator.workflows.implement import (
+    ImplementInput,
+    ImplementWorkflow,
+    architecture_wait,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -47,6 +51,7 @@ class Harness:
     )
     attempts_recorded: list[str] = field(default_factory=list)
     wakes: int = 0
+    verifies: int = 0
 
     def activities(self) -> list[Any]:
         harness = self
@@ -118,6 +123,7 @@ class Harness:
 
         @activity.defn(name="platform_verify")
         async def platform_verify(run_id: str) -> dict[str, Any]:
+            harness.verifies += 1
             return {"passed": True, "output": ""}
 
         @activity.defn(name="record_attempts_exhausted")
@@ -224,6 +230,26 @@ async def test_an_implementer_that_died_leaves_the_issue_for_another_try(env):
     assert harness.dispatches == ["implement"]
     assert harness.attempts_recorded == [RUN_ID]
     assert harness.wakes == 1  # a failed run frees the slot: still a nudge
+
+
+async def test_an_architecture_request_ends_the_run_without_delivery(env):
+    """The implementer asked for the plan to change instead of deviating:
+    no verify, no delivery dispatch, the run fails by name with the ticket
+    it waits on, the ticket rides the record, and the attempt accounting
+    runs — a later attempt works the ticket against the revised plan."""
+    url = "https://github.test/example/repo/issues/77"
+    harness = Harness(
+        implement={"status": "done", "error": None, "iterations": 1, "ticket_urls": [url]}
+    )
+    record = await run_implement(env.client, harness)
+    assert record["status"] == "failed"
+    assert harness.dispatches == ["implement"]
+    assert harness.verifies == 0
+    (result, error) = harness.torn_down[0]
+    assert error == architecture_wait([url])
+    assert result is not None and result["ticket_urls"] == [url]
+    assert harness.attempts_recorded == [RUN_ID]
+    assert harness.wakes == 1
 
 
 async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):

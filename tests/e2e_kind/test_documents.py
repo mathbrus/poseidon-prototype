@@ -37,6 +37,7 @@ from mockllm.brain import (
     STRATEGY_MD,
 )
 from orchestrator.activities.documents import BOOTSTRAP_TITLES, bootstrap_body
+from orchestrator.workflows.implement import architecture_wait
 
 from .blueprints import DELEGATED, restore_pristine, single_attempt
 from .cluster import audit_story, await_run, participants
@@ -274,9 +275,11 @@ def test_the_request_became_a_stewardship_ticket_the_caller_did_not_shape(
 
 def test_the_requesting_run_delivered_nothing(requested: dict):
     """Asking is not doing: the run that asked opened no pull request and
-    edited no plan — the ticket waits on the steward."""
+    edited no plan — it ended waiting on the steward's ticket, by name."""
     run = requested["run"]
     assert not run["pr_url"]
+    assert run["status"] == "failed"
+    assert run["error"] == architecture_wait([requested["request_ticket"]["html_url"]])
     assert not any(
         e["tool"] == "git.open_pr" and e["decision"] == "allow"
         for e in audit_story(run["run_id"])

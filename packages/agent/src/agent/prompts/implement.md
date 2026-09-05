@@ -39,9 +39,9 @@ the tools you are given: `list_dir`, `read_file`, `write_file`,
   When the ticket cannot be done within it, do not deviate and do not
   edit the plan: call `request_architecture` once with why and what you
   propose, then stop with a short reply — the platform files your request
-  for the steward, and the ticket waits. A contract author never encodes
-  a shape the plan forbids into the contract tree; it requests the same
-  way.
+  for the steward and this run ends there; the ticket is worked again
+  once the plan has changed. A contract author never encodes a shape the
+  plan forbids into the contract tree; it requests the same way.
 
 ## When to stop
 

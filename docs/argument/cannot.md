@@ -174,3 +174,9 @@ and read back as untrusted text. What that leaves honest to state:
   the ticket and the loop refiles. A bootstrap pull request a human closed
   without merging leaves the ticket concluded and the document absent —
   the same remedy applies, and the loop does not guess.
+- **A retried ticket may ask again.** An implementer that requests an
+  architecture change ends its run waiting, by name, and the attempt cap
+  decides whether the ticket is offered again. The one-request cap is per
+  run: an attempt that runs before the steward's revision merges files a
+  second stewardship ticket. Bounded by `max_attempts`, and visible — each
+  is titled `Architecture request from run …`.

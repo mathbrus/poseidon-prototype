@@ -68,6 +68,13 @@ def issue_task(number: int, title: str, body: str, url: str) -> str:
 TICKET_CREW_RE = re.compile(r"^Crew:\s*([a-z0-9][a-z0-9-]*)\s*$", re.MULTILINE)
 
 
+def architecture_wait(ticket_urls: list[str]) -> str:
+    """The error an implement run ends with when its implementer asked for
+    the plan to change instead of delivering: the stewardship ticket(s)
+    the platform filed, by URL, so the run row says what it waits on."""
+    return "waits on architecture request: " + ", ".join(ticket_urls)
+
+
 def ticket_crew(task_source: str) -> str | None:
     """The crew the task names, parsed deterministically by workflow code.
     The *last* match wins: the trailer is written by whoever filed the
@@ -170,6 +177,14 @@ class ImplementWorkflow(RunWorkflow):
                     input.run_id, implementer["url"], "implement", task_text, documents
                 )
                 if (result or {}).get("error"):
+                    break
+                if (result or {}).get("ticket_urls"):
+                    # The implementer asked for the plan to change rather
+                    # than deviate from it: nothing here is delivered. The
+                    # run fails by name, and the attempt accounting decides
+                    # whether the ticket is offered again — a later attempt
+                    # reads the plan the steward has revised by then.
+                    error = architecture_wait(result["ticket_urls"])
                     break
                 verify = await workflow.execute_activity(
                     "platform_verify",

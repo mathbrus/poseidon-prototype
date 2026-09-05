@@ -1045,10 +1045,6 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
             ),
         )
 
-    if ARCH_REQUEST_MARKER in task_text:
-        # The ticket waits on the architecture request: nothing to deliver.
-        return _text("Nothing to deliver: the ticket waits on the architecture request.")
-
     if MASTERPLAN_EDIT_MARKER in task_text:
         if prs == 0:
             # Deliver everything, masterplan edit included; the gateway's

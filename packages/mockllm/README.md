@@ -122,7 +122,8 @@ under `tests/e2e_kind/tickets/`) and in the strategies it writes:
   seeds — and delivers it on the ticket's branch.
 - An architecture request (`ARCH_REQUEST_MARKER` in a ticket): the
   implementer calls `request_architecture` once and stops — no code, no
-  PR — so the platform's stewardship ticket is the run's only product.
+  PR, no delivery dispatch — so the platform's stewardship ticket is the
+  run's only product and the run ends waiting on it, by name.
 - Review-time markers ride the PR rather than a file:
   `STEERED_REVIEW_MARKER` in the diff the reviewer reads makes it skip the
   suite and pass — the merge gate, not the reviewer, must hold.
