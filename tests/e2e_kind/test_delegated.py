@@ -35,7 +35,7 @@ import secrets
 
 import pytest
 
-from common.tasks import issue_run_task, review_run_task
+from common.tasks import review_run_task
 from mockllm.brain import CONTRACT_FIRST_MARKER, CONTRACT_TEST_PATH, NEXT_SLICE_MARKER
 
 from .blueprints import DELEGATED, restore_pristine
@@ -57,6 +57,7 @@ from .conftest import (
     pr_number,
     restore_strategy,
     run_review,
+    run_ticket,
     scope_via_heartbeat,
     target_slug,
     wake_until_run_started,
@@ -85,8 +86,7 @@ def _scope_tickets(env: dict, strategy: str) -> tuple[dict, dict[int, str]]:
 
 
 def _implement(number: int) -> dict:
-    wake_until_run_started(issue_run_task(number), "implement")
-    implement = await_run(issue_run_task(number), terminal=True)
+    implement = run_ticket(number)
     assert implement["status"] == "done", f"unattended implement: {implement}"
     assert implement["pr_url"], "the unattended implement produced no PR"
     return implement

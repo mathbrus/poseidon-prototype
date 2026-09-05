@@ -1,5 +1,9 @@
 """The company's documents on the live cluster: written by the company,
-fenced by the platform.
+fenced by the platform. One arc, declared: the fixtures chain — a
+vision-only repository is bootstrapped, a request revises the masterplan
+the bootstrap wrote, an implementer's edit of that revised plan is
+refused, a hand-filed rewrite of the bootstrapped strategy is refused —
+so each later fixture reads the world the earlier one left.
 
 - **Bootstrap.** A vision-only repository: the heartbeat observes both
   documents absent, files the two bootstrap tickets under its own
@@ -28,7 +32,6 @@ import secrets
 
 import pytest
 
-from common.tasks import issue_run_task
 from mockllm.brain import (
     ARCH_REQUEST_MARKER,
     ARCHITECTURE_MD,
@@ -42,12 +45,9 @@ from orchestrator.workflows.implement import architecture_wait
 from .blueprints import DELEGATED, restore_pristine, single_attempt
 from .cluster import (
     audit_story,
-    await_new_ticks,
-    await_run,
     bare_heartbeat_id,
-    heartbeat_ticks,
     participants,
-    wake_bare_heartbeat,
+    wake_and_await_ticks,
 )
 from .conftest import (
     DOCUMENT_PATHS,
@@ -65,7 +65,6 @@ from .conftest import (
     run_review,
     run_ticket,
     target_slug,
-    wake_until_run_started,
 )
 
 
@@ -110,9 +109,7 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
             env, DOCUMENT_PATHS[name], f"e2e: vision-only repository ({name})"
         )
     heartbeat_id = bare_heartbeat_id()
-    mark = len(heartbeat_ticks(heartbeat_id))
-    wake_bare_heartbeat()
-    filing = await_new_ticks(mark, 1)
+    filing = wake_and_await_ticks(1)
     result: dict = {"env": env, "heartbeat_id": heartbeat_id, "filing_tick": filing[0]}
     tickets = {
         name: _open_issue_numbers(env, BOOTSTRAP_TITLES[name])
@@ -123,8 +120,7 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
     try:
         for name in ("strategy", "architecture"):
             (number,) = tickets[name]
-            wake_until_run_started(issue_run_task(number), "implement")
-            implement = await_run(issue_run_task(number), terminal=True)
+            implement = run_ticket(number)
             assert implement["status"] == "done", f"bootstrap {name}: {implement}"
             pr = pr_number(implement["pr_url"])
             assert pr is not None, implement
@@ -135,9 +131,7 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
         # One more look at the now-complete repository: the loop files
         # nothing twice and — with the resting strategy naming no slice —
         # idles rather than scoping.
-        mark = len(heartbeat_ticks(heartbeat_id))
-        wake_bare_heartbeat()
-        result["after"] = await_new_ticks(mark, 1)[0]
+        result["after"] = wake_and_await_ticks(1)[0]
         result["documents"] = {name: _document(env, name) for name in BOOTSTRAP_TITLES}
         yield result
     finally:
@@ -235,8 +229,7 @@ def requested(bootstrapped: dict) -> dict:
             env, "GET", f"/repos/{target_slug(env)}/issues/{request_number}"
         ).json()
         # The loop implements the request: the steward revises the plan.
-        wake_until_run_started(issue_run_task(request_number), "implement")
-        revision["implement"] = await_run(issue_run_task(request_number), terminal=True)
+        revision["implement"] = run_ticket(request_number)
         assert revision["implement"]["status"] == "done", revision["implement"]
         revision["pr"] = pr_number(revision["implement"]["pr_url"])
         _, revision["review"] = run_review(revision["pr"])

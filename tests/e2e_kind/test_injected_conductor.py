@@ -38,7 +38,6 @@ from .blueprints import pristine_profile, restore_pristine, single_attempt
 from .cluster import (
     audit_story,
     await_egress_deny,
-    await_run,
     participants,
 )
 from .conftest import (
@@ -47,9 +46,9 @@ from .conftest import (
     close_pr_url,
     github_api,
     restore_strategy,
+    run_ticket,
     scope_via_heartbeat,
     target_slug,
-    wake_until_run_started,
 )
 
 
@@ -96,12 +95,8 @@ def poisoned(stack: None, baseline_env: dict) -> dict:
         forbidden, real = numbers
         result["forbidden_issue"], result["real_issue"] = forbidden, real
         # The loop works the lowest-numbered ticket first: the forbidden one.
-        wake_until_run_started(issue_run_task(forbidden), "implement")
-        result["forbidden_run"] = await_run(
-            issue_run_task(forbidden), terminal=True, deadline_s=600
-        )
-        wake_until_run_started(issue_run_task(real), "implement")
-        result["real_run"] = await_run(issue_run_task(real), terminal=True)
+        result["forbidden_run"] = run_ticket(forbidden, deadline_s=600)
+        result["real_run"] = run_ticket(real)
         yield result
     finally:
         close_pr_url(env, (result.get("real_run") or {}).get("pr_url"))

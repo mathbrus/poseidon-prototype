@@ -34,7 +34,7 @@ import time
 import pytest
 from temporalio.client import Client
 
-from common.tasks import issue_run_task, review_run_task
+from common.tasks import review_run_task
 from mockllm.brain import NEXT_SLICE_MARKER
 from orchestrator.workflows.base import workflow_id
 
@@ -55,6 +55,7 @@ from .conftest import (
     open_slice_strategy,
     pr_number,
     restore_strategy,
+    run_ticket,
     scope_via_heartbeat,
     target_slug,
     wake_until_run_started,
@@ -116,12 +117,7 @@ def overnight(stack: None, baseline_env: dict) -> dict:
             # --- touch nothing: the scope run's finishing nudge wakes the
             # loop onto the ticket it filed; the re-nudge covers a backlog
             # read that landed before the ticket was visible on the git host.
-            await asyncio.to_thread(
-                wake_until_run_started, issue_run_task(issue_number), "implement"
-            )
-            implement = await asyncio.to_thread(
-                await_run, issue_run_task(issue_number), True
-            )
+            implement = await asyncio.to_thread(run_ticket, issue_number)
             assert implement["status"] == "done", f"unattended implement: {implement}"
             assert implement["pr_url"], "the unattended implement produced no PR"
             result["implement"] = implement
