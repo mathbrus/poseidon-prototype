@@ -8,6 +8,11 @@ mcpGateway:
     type: NodePort
     nodePort: 30080
 
+console:
+  service:
+    type: NodePort
+    nodePort: 30090
+
 # The egress allowlist comes from the applied blueprint
 # (hello-saas admits the PyPI hosts, so the `pip install` allow path stays
 # exercisable) — no static host config here.

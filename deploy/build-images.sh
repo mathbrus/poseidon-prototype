@@ -19,6 +19,7 @@ poseidon-operator|poseidon-operator|common registry operator||||kopf run -m pose
 poseidon-sandbox|sandbox|common sandbox|toolchain|git|/workspace|uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000
 poseidon-egress-proxy|sandbox|common registry sandbox|egress|||python -m sandbox.egressproxy
 poseidon-mockllm|mockllm|mockllm||||python -m mockllm
+poseidon-console|console|common schema registry compiler console||||uvicorn --factory console.app:create_app --host 0.0.0.0 --port 8090
 '
 
 if [ "${1:-}" = "--list" ]; then

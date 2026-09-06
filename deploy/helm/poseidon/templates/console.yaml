@@ -1,0 +1,121 @@
+# The console: the one door a person acts on the company through, the
+# counterpart of the MCP gateway for agents. It verifies the human (a token
+# for its own audience, through TokenReview), asks OPA whether that person
+# may perform the act, performs it (a Temporal signal or start, the two
+# CRs of an apply) and audits it under the person's name.
+#
+# It holds no secret but the registry DSN: no GIT_TOKEN, no provider key.
+# Its cluster authority is exactly what an apply needs — the two CRDs and
+# a look at the company namespace — which the operator deliberately lacks.
+{{ include "poseidon.authDelegator" (dict "root" . "name" "console") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: poseidon-console
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["poseidon.dev"]
+    resources: ["companies", "agentinstances"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: poseidon-console
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: poseidon-console
+subjects:
+  - kind: ServiceAccount
+    name: console
+    namespace: {{ .Release.Namespace }}
+{{- range .Values.console.humans }}
+---
+# A human, on a cluster without an identity provider: a ServiceAccount
+# whose only use is the TokenRequest a person makes with their own cluster
+# credentials. No pod ever runs as it, so no token is ever mounted.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: human-{{ . }}
+  labels:
+    {{- include "poseidon.labels" $ | nindent 4 }}
+automountServiceAccountToken: false
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: console
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: console
+  template:
+    metadata:
+      labels:
+        app: console
+        {{- include "poseidon.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: console
+      securityContext:
+        {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: console
+          image: "{{ .Values.images.console.repository }}:{{ .Values.images.console.tag }}"
+          imagePullPolicy: {{ .Values.images.console.pullPolicy }}
+          securityContext:
+            {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - containerPort: 8090
+          env:
+            - name: COMPANY
+              value: {{ .Values.company | quote }}
+            - name: OPA_URL
+              value: http://opa:8181
+            - name: TEMPORAL_ADDRESS
+              value: {{ .Values.orchestrator.temporalAddress | quote }}
+            - name: PLATFORM_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: CONSOLE_HUMANS
+              value: {{ join "," .Values.console.humans | quote }}
+            {{- include "poseidon.registryDsnEnv" . | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            periodSeconds: 5
+            initialDelaySeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8090
+            periodSeconds: 10
+            initialDelaySeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: console
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.console.service.type }}
+  selector:
+    app: console
+  ports:
+    - port: 8090
+      targetPort: 8090
+      {{- if .Values.console.service.nodePort }}
+      nodePort: {{ .Values.console.service.nodePort }}
+      {{- end }}

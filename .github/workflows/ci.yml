@@ -86,8 +86,16 @@ jobs:
                    for d in docs if d["kind"] == "Service"}
           for name, port in {t.MCP_GATEWAY: t.MCP_GATEWAY_PORT, t.LLM_GATEWAY: t.LLM_GATEWAY_PORT,
                              t.EGRESS_PROXY: t.EGRESS_PROXY_PORT, t.OPA: t.OPA_PORT,
-                             t.BUNDLE_SERVER: t.BUNDLE_PORT}.items():
+                             t.BUNDLE_SERVER: t.BUNDLE_PORT, t.CONSOLE: t.CONSOLE_PORT}.items():
               assert ports[name] == port, (name, ports[name], port)
+          # The humans the chart declares: one ServiceAccount each, named with
+          # the shared prefix, and the same names handed to the console.
+          humans = {d["metadata"]["name"] for d in docs if d["kind"] == "ServiceAccount"
+                    and d["metadata"]["name"].startswith(t.HUMAN_SA_PREFIX)}
+          console = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == t.CONSOLE)
+          env = {e["name"]: e.get("value") for e in console["spec"]["template"]["spec"]["containers"][0]["env"]}
+          declared = {t.human_service_account(n) for n in env["CONSOLE_HUMANS"].split(",")}
+          assert humans == declared and humans, (humans, declared)
           worker = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == t.ORCHESTRATOR_SERVICE_ACCOUNT)
           token = worker["spec"]["template"]["spec"]["volumes"][0]["projected"]["sources"][0]["serviceAccountToken"]
           assert token["audience"] == t.TOKEN_AUDIENCE and token["expirationSeconds"] == t.TOKEN_TTL_S, token

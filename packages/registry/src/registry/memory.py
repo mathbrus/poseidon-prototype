@@ -139,6 +139,15 @@ class InMemoryBudgetLedger:
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return [dict(e) for e in self.entries if e["run_id"] == run_id]
 
+    def spent_since(self, company: str, since: str | None) -> dict[str, Any]:
+        # The fake's entries carry no clock: every entry is "since".
+        mine = [e for e in self.entries if e["company"] == company]
+        return {
+            "usd": float(sum(e["usd"] for e in mine)),
+            "prompt_tokens": int(sum(e["prompt_tokens"] for e in mine)),
+            "completion_tokens": int(sum(e["completion_tokens"] for e in mine)),
+        }
+
 
 class InMemoryFiledTickets:
     def __init__(self) -> None:
@@ -493,6 +502,15 @@ class InMemoryRuns:
         ]
         candidates.sort(key=lambda r: r.finished_at or "")
         return candidates[-1] if candidates else None
+
+    def since(self, company: str, since: str | None) -> list[RunRecord]:
+        return [
+            r
+            for r in self.rows.values()
+            if r.company == company
+            and r.workflow != "heartbeat"
+            and (since is None or (r.created_at or "") >= since)
+        ]
 
     def recent(self, company: str, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first; heartbeat

@@ -15,6 +15,7 @@ dependencies = [
     "compiler",
     "poseidon-operator",
     "llm-gateway",
+    "console",
 ]
 
 [dependency-groups]
@@ -50,8 +51,9 @@ ignore = ["B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
-    "agent", "common", "compiler", "llm_gateway", "mcp_gateway", "mockllm",
-    "orchestrator", "poseidon_operator", "registry", "sandbox", "schema",
+    "agent", "common", "compiler", "console", "llm_gateway", "mcp_gateway",
+    "mockllm", "orchestrator", "poseidon_operator", "registry", "sandbox",
+    "schema",
 ]
 
 [tool.pytest.ini_options]
@@ -74,3 +76,4 @@ registry = { workspace = true }
 compiler = { workspace = true }
 poseidon-operator = { workspace = true }
 llm-gateway = { workspace = true }
+console = { workspace = true }

@@ -3,9 +3,10 @@
 # - Default CNI disabled: kindnet does not enforce NetworkPolicy, and
 #   NetworkPolicy enforcement matters here; the bootstrap installs Calico
 #   instead. The pod subnet matches Calico's default IPv4 pool.
-# - extraPortMappings expose the gateway NodePort (values-kind.yaml) on the
-#   host's loopback under a familiar port, so the host-side CLI
-#   keeps MCP_GATEWAY_URL=http://127.0.0.1:8080. Standing agents have no
+# - extraPortMappings expose the gateway and console NodePorts
+#   (values-kind.yaml) on the host's loopback under familiar ports, so the
+#   host keeps MCP_GATEWAY_URL=http://127.0.0.1:8080 and
+#   POSEIDON_CONSOLE_URL=http://127.0.0.1:8090. Standing agents have no
 #   NodePort: the orchestrator reaches them in-cluster
 #   through their per-role Services.
 kind: Cluster
@@ -19,4 +20,7 @@ nodes:
     extraPortMappings:
       - containerPort: 30080   # mcp-gateway NodePort
         hostPort: 8080
+        listenAddress: 127.0.0.1
+      - containerPort: 30090   # console NodePort
+        hostPort: 8090
         listenAddress: 127.0.0.1

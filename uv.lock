@@ -15,6 +15,7 @@ members = [
     "agent",
     "common",
     "compiler",
+    "console",
     "llm-gateway",
     "mcp-gateway",
     "mockllm",
@@ -624,6 +625,37 @@ dependencies = [
 requires-dist = [
     { name = "common", editable = "packages/common" },
     { name = "schema", editable = "packages/schema" },
+]
+
+[[package]]
+name = "console"
+version = "0.1.0"
+source = { editable = "packages/console" }
+dependencies = [
+    { name = "common", extra = ["otel"] },
+    { name = "compiler" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "kubernetes" },
+    { name = "pyyaml" },
+    { name = "registry" },
+    { name = "schema" },
+    { name = "temporalio" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "common", extras = ["otel"], editable = "packages/common" },
+    { name = "compiler", editable = "packages/compiler" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "kubernetes", specifier = ">=31" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "registry", editable = "packages/registry" },
+    { name = "schema", editable = "packages/schema" },
+    { name = "temporalio", specifier = ">=1.31" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [[package]]
@@ -2638,6 +2670,7 @@ dependencies = [
     { name = "agent" },
     { name = "common" },
     { name = "compiler" },
+    { name = "console" },
     { name = "llm-gateway" },
     { name = "mcp-gateway" },
     { name = "mockllm" },
@@ -2666,6 +2699,7 @@ requires-dist = [
     { name = "agent", editable = "packages/agent" },
     { name = "common", editable = "packages/common" },
     { name = "compiler", editable = "packages/compiler" },
+    { name = "console", editable = "packages/console" },
     { name = "llm-gateway", editable = "packages/llm-gateway" },
     { name = "mcp-gateway", editable = "packages/mcp-gateway" },
     { name = "mockllm", editable = "packages/mockllm" },
