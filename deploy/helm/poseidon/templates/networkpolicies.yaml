@@ -184,4 +184,48 @@ spec:
       ports:
         - port: 443
         - port: 6443
+---
+# The Temporal frontend, fenced. Reaching it is starting runs, delivering
+# gate signals and terminating workflows, so only the two components whose
+# job that is may: the orchestrator worker (it hosts the workflows) and the
+# console (it starts, signals and inspects them on a human's behalf), plus
+# Temporal's own components — the internal worker service, history and
+# matching membership, admintools, the namespace Job, and the web UI when
+# the bootstrap opts into it. Every other pod in the platform namespace,
+# and every company pod, is refused at the network. (A human with cluster
+# credentials still reaches it by port-forward, which enters the pod's own
+# network namespace beneath any policy; what makes that harmless is the
+# verified verdict, not this fence.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: temporal-frontend-ingress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: temporal
+      app.kubernetes.io/instance: temporal
+      app.kubernetes.io/component: frontend
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: temporal
+              app.kubernetes.io/instance: temporal
+      ports:
+        - port: 7233
+        - port: 7243
+        - port: 6933
+    - from:
+        - podSelector:
+            matchLabels:
+              app: orchestrator-worker
+        - podSelector:
+            matchLabels:
+              app: console
+      ports:
+        - port: 7233
 {{- end }}

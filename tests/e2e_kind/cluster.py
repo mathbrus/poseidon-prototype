@@ -213,6 +213,23 @@ def restart_gateway() -> None:
     )
 
 
+def platform_pod(app: str) -> str:
+    """A running platform pod by its `app` label — the vantage point for a
+    probe of what the platform namespace's own pods may reach."""
+    return kubectl(
+        "-n",
+        PLATFORM_NS,
+        "get",
+        "pod",
+        "-l",
+        f"app={app}",
+        "--field-selector=status.phase=Running",
+        "-o",
+        "jsonpath={.items[0].metadata.name}",
+        timeout=30,
+    )
+
+
 def agent_pod(namespace: str = COMPANY_NS) -> str:
     """The standing agent's pod — the vantage point for containment probes."""
     return kubectl(
