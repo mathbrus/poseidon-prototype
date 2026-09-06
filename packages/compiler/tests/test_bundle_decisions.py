@@ -443,6 +443,7 @@ def test_crew_rule_compares_the_raw_role_name():
             "strategy": "docs/STRATEGY.md",
             "architecture": "docs/ARCHITECTURE.md",
         },
+        humans=("owner",),
     )
     body = files["crew_contract_authoring_contract_author.rego"]
     assert 'input.role == "contract-author"' in body
@@ -653,6 +654,9 @@ def merge_resolve(**args) -> dict:
     # Independence and the contract fact default to true here so each test
     # isolates the layer it is about; the dedicated tests below flip them.
     # (Under a bundle with no contract tree the fact is simply unread.)
+    # The resolver defaults to the policy path; the human-path tests below
+    # name theirs.
+    args.setdefault("resolver", "policy")
     args.setdefault("reviewer_independent", True)
     args.setdefault("contract_green", True)
     return {
@@ -665,8 +669,8 @@ def merge_resolve(**args) -> dict:
 
 def test_no_delegation_means_no_unattended_merge(decide):
     """Opt-in all the way down to the decision, the heartbeat.start posture:
-    a human-resolved gate compiles no merge.resolve authority, so the
-    decision falls to default deny."""
+    a human-resolved gate compiles no delegated merge.resolve authority, so
+    the policy path falls to default deny."""
     decision = decide(
         **merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
     )
@@ -1176,3 +1180,127 @@ def test_revocation_leaves_the_tree_undelegated_not_unguarded(decide_revoked):
         )
     )
     assert decision == {"allow": False, "rule": "merge_resolve_undelegated_path"}
+
+
+# -- the human path of the merge gate, and the console's acts ---------------
+
+
+def human(name: str, tool: str, **args) -> dict:
+    return {
+        "company": "hello-saas",
+        "lifecycle": "human",
+        "role": "human",
+        "agent_id": name,
+        "tool": tool,
+        "args": args,
+    }
+
+
+def human_resolve(record: dict | None, **args) -> dict:
+    """A merge.resolve on the human path, with the console's recorded
+    verdict (or none) riding the input."""
+    if record is not None:
+        args["human_verdict"] = record
+    return merge_resolve(resolver="human", **args)
+
+
+def test_a_human_may_resolve_the_merge_gate(decide):
+    """The company's human answers the merge gate, either way, and the rule
+    names the gate and the verdict — what the workflow reads back."""
+    approve = decide(**human("owner", "gate.resolve", gate="merge", approved=True))
+    reject = decide(**human("owner", "gate.resolve", gate="merge", approved=False))
+    budget = decide(**human("owner", "gate.resolve", gate="budget", approved=True))
+    assert approve == {"allow": True, "rule": "gate_resolve_merge_approve"}
+    assert reject == {"allow": True, "rule": "gate_resolve_merge_reject"}
+    assert budget == {"allow": True, "rule": "gate_resolve_budget_approve"}
+
+
+def test_a_human_may_start_cancel_wake_and_apply(decide):
+    start = decide(**human("owner", "run.start", workflow="implement", number=4))
+    scope = decide(**human("owner", "run.start", workflow="scope"))
+    cancel = decide(**human("owner", "run.cancel", run_id="run-1"))
+    wake = decide(**human("owner", "heartbeat.wake"))
+    apply = decide(**human("owner", "blueprint.apply"))
+    assert start == {"allow": True, "rule": "run_start_implement"}
+    assert scope == {"allow": False, "rule": "default_deny"}
+    assert cancel == {"allow": True, "rule": "run_cancel"}
+    assert wake == {"allow": True, "rule": "heartbeat_wake"}
+    assert apply == {"allow": True, "rule": "blueprint_apply"}
+
+
+def test_an_unlisted_human_is_denied_by_name(decide):
+    """A verified person the company did not name is refused by a rule that
+    says so — an audit row, not an unfired allow."""
+    decision = decide(**human("stranger", "gate.resolve", gate="merge", approved=True))
+    assert decision == {"allow": False, "rule": "human_not_recognized"}
+
+
+def test_an_agent_cannot_claim_human_authority(decide):
+    """The rules key on the lifecycle: an agent presenting a human's name
+    gets nothing, and a human presenting an agent's tools gets nothing."""
+    as_pm = decide(
+        **standing(
+            "pm", agent_id="owner", tool="gate.resolve", gate="merge", approved=True
+        )
+    )
+    as_human = decide(**human("owner", "issues.create", repo=DECLARED_REPO))
+    assert as_pm == {"allow": False, "rule": "default_deny"}
+    assert as_human == {"allow": False, "rule": "default_deny"}
+
+
+def test_a_recorded_human_verdict_releases_the_merge(decide):
+    decision = decide(**human_resolve({"principal": "owner", "approved": True}))
+    assert decision == {"allow": True, "rule": "merge_resolve_human"}
+
+
+def test_merge_resolve_human_needs_a_recorded_verdict(decide):
+    """A signal that reached the workflow without a console-recorded
+    verdict releases nothing: the deny names the missing artifact."""
+    decision = decide(**human_resolve(None))
+    assert decision == {"allow": False, "rule": "merge_resolve_no_human_verdict"}
+
+
+def test_a_recorded_rejection_releases_nothing(decide):
+    decision = decide(**human_resolve({"principal": "owner", "approved": False}))
+    assert decision == {"allow": False, "rule": "merge_resolve_human_rejected"}
+
+
+def test_a_non_human_verdict_cannot_release(decide):
+    """A verdict recorded under a name the company did not list — a human
+    the deployment knows but the blueprint does not — releases nothing."""
+    decision = decide(**human_resolve({"principal": "stranger", "approved": True}))
+    assert decision == {"allow": False, "rule": "merge_resolve_not_a_human"}
+
+
+def test_merge_resolve_fails_closed_without_a_resolver(decide):
+    decision = decide(**{**merge_resolve(), "args": {}})
+    assert decision == {"allow": False, "rule": "merge_resolve_resolver_missing"}
+
+
+def test_a_human_release_ignores_delegation_facts(decide_delegated):
+    """The human override: a recorded approval releases a change the
+    delegated class would refuse — a carve-out, an undelegated path, red
+    checks — because the person, not the class, is the authority."""
+    decision = decide_delegated(
+        **human_resolve(
+            {"principal": "owner", "approved": True},
+            verdict="fail",
+            checks_green=False,
+            paths=[".github/workflows/ci.yml", "docs/x.md"],
+        )
+    )
+    assert decision == {"allow": True, "rule": "merge_resolve_human"}
+
+
+def test_delegation_denies_stay_on_the_policy_path(decide_delegated):
+    """And the converse: the policy path is held to every delegated fact
+    whatever verdict a human may have recorded."""
+    decision = decide_delegated(
+        **merge_resolve(
+            verdict="pass",
+            checks_green=True,
+            paths=[".github/workflows/ci.yml"],
+            human_verdict={"principal": "owner", "approved": True},
+        )
+    )
+    assert decision == {"allow": False, "rule": "merge_resolve_carved_out_path"}

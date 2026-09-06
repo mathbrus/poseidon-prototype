@@ -20,6 +20,13 @@ WORKFLOWS = ("scope", "implement", "review", "heartbeat")
 # but the heartbeat.
 HUMAN_STARTABLE = ("implement", "review")
 
+# The gates a run parks on for a human: the merge gate of a review, and
+# the budget pause of any run that hit its cap. A human resolves either
+# through the console; the compiler emits one rule per gate and verdict.
+MERGE_GATE = "merge"
+BUDGET_GATE = "budget"
+GATES = (MERGE_GATE, BUDGET_GATE)
+
 # One Temporal namespace, one task queue.
 TEMPORAL_NAMESPACE = "default"
 TASK_QUEUE = "poseidon-orchestrator"

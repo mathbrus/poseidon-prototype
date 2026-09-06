@@ -30,8 +30,14 @@ _TOOL_LIST = {
 # A path inside the company's repository, relative to its root.
 _REPO_PATH = {"type": "string", "minLength": 1, "pattern": r"^[^\s/][^\s]*$"}
 
-# The company's name, its vision — the one text a human writes — and the
-# paths of the two documents the company writes for itself. The vision
+# The company's name, its vision — the one text a human writes — the
+# humans who may act on it, and the paths of the two documents the
+# company writes for itself. The humans are the people the console lets
+# resolve a gate, start or cancel a run by hand, wake the heartbeat and
+# re-apply this document: named here so that authority is a diff, and
+# required because every company has at least one gate only a person can
+# answer (the budget pause; a policy-resolved merge falls back to one).
+# The vision
 # reaches every procedure but `deliver` through the static prompt and
 # changes only when the blueprint is applied again; the cap keeps it a
 # charter, not a specification. The documents live in the repository at
@@ -42,10 +48,16 @@ _REPO_PATH = {"type": "string", "minLength": 1, "pattern": r"^[^\s/][^\s]*$"}
 _COMPANY = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["name", "vision", "documents"],
+    "required": ["name", "vision", "humans", "documents"],
     "properties": {
         "name": _NAME,
         "vision": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "humans": {
+            "type": "array",
+            "items": _NAME,
+            "minItems": 1,
+            "uniqueItems": True,
+        },
         "documents": {
             "type": "object",
             "additionalProperties": False,

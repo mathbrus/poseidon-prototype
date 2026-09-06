@@ -108,7 +108,8 @@ def compile_blueprint(
             repo_url=repo.url,
             heartbeat=heartbeat,
             documents=company_cr.documents,
-            merge_delegation=_merge_delegation(workflows),
+            humans=tuple(company_section["humans"]),
+            merge_gate=_merge_gate(workflows),
         )
     )
     return DeploymentPlan(
@@ -121,6 +122,7 @@ def compile_blueprint(
         bundle=bundle,
         platform_bundle=RegoBundle(files=build_platform_bundle(PLATFORM_SCOPE)),
         heartbeat=heartbeat,
+        humans=tuple(company_section["humans"]),
         contract_tests=(blueprint.get("policies") or {}).get("contract_tests"),
     )
 
@@ -215,14 +217,15 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
     return tuple(configs)
 
 
-def _merge_delegation(workflows: tuple[WorkflowConfig, ...]) -> dict[str, Any] | None:
-    """The one policy-resolved merge gate's delegation, if any workflow
-    declares one — what `merge.resolve` compiles from. No delegation
-    compiles no rule, so an unattended merge falls to the default deny."""
+def _merge_gate(workflows: tuple[WorkflowConfig, ...]) -> dict[str, Any] | None:
+    """The one merge gate, if any workflow declares one — what
+    `merge.resolve` compiles from: the human path always, the delegated
+    path when the gate is policy-resolved. No gate compiles no rule, so a
+    review under a company that declared none ends without merging."""
     for config in workflows:
-        gate = config.gates.get("merge") or {}
-        if gate.get("resolved_by") == "policy":
-            return gate.get("delegate")
+        gate = config.gates.get("merge")
+        if gate:
+            return gate
     return None
 
 
