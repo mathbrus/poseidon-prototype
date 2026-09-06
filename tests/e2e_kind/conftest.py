@@ -3,12 +3,15 @@ environment.
 
 These tests run against the kind cluster brought up by
 `deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
-GIT_TOKEN and a disposable TARGET_REPO. They open real pull requests on
-that repo. Every run is the company's own: the suite files what the
-standing heartbeat should find (a ticket, a strategy naming a slice),
-wakes it with the platform's own signal, and reads the runs it starts —
-exactly the loop the product is. Cluster access lives in `cluster.py`,
-blueprint application in `blueprints.py`.
+GIT_TOKEN, a disposable TARGET_REPO and the console's address. They open
+real pull requests on that repo. Every run is the company's own: the suite
+files what the standing heartbeat should find (a ticket, a strategy naming
+a slice), wakes it, and reads the runs it starts — exactly the loop the
+product is. Every *act* on the company is the console's, as the human the
+chart declares (`owner`, with a token minted like `poseidon login`); what
+the suite *observes* it reads with its own instruments — psql, kubectl,
+the git host — never the product's word for it. Cluster access lives in
+`cluster.py`, blueprint application in `blueprints.py`.
 
 Run explicitly (excluded from plain `pytest`):
 
@@ -66,15 +69,16 @@ What a new module owes: declare repo preconditions against `baseline_env`
 close every PR it opens and delete the branch (`close_pr`), and close the
 tickets it filed; if it applies another blueprint profile, sweep before
 the apply and `blueprints.restore_pristine()` after; bound the attempts
-of a run it expects to fail; and anchor assertions on runs, gate events
-and tick windows (`cluster.wake_and_await_ticks`), never on the ledger's
-whole history.
+of a run it expects to fail; act through the console (`cluster.console`),
+never by a raw Temporal signal — except a red-team proving the raw road
+releases nothing; and anchor assertions on runs, gate events and tick
+windows (`cluster.wake_and_await_ticks`), never on the ledger's whole
+history.
 
 Collection order is the hook's, not the filenames': the capstones run
 after every module whose runs they read, and `test_quiet` runs last.
 """
 
-import asyncio
 import base64
 import contextlib
 import functools
@@ -89,10 +93,8 @@ from typing import Any
 import httpx
 import pytest
 import yaml
-from temporalio.client import Client
 
 from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
-from common.workflows import workflow_id
 from mockllm.brain import (
     ARCHITECTURE_MD,
     CONTRACT_TEST_PATH,
@@ -113,13 +115,14 @@ from .cluster import (
     PLATFORM_NS,
     await_bare_heartbeat_asleep,
     await_run,
+    console,
+    console_url,
     db_now,
     kill_worker_pod,
     kubectl,
     run_by_task,
     run_kubectl,
     sandbox_pods,
-    temporal_port_forward,
     wake_bare_heartbeat,
 )
 
@@ -199,6 +202,12 @@ def stack(env: dict[str, str]) -> None:
         if resp.status_code != 401:
             pytest.fail(
                 f"gateway at {gateway_url} answered "
+                f"{resp.status_code}, expected 401 without a token"
+            )
+        resp = httpx.get(console_url(env) + "/whoami", timeout=5)
+        if resp.status_code != 401:
+            pytest.fail(
+                f"console at {console_url(env)} answered "
                 f"{resp.status_code}, expected 401 without a token"
             )
     except httpx.TransportError as exc:
@@ -386,24 +395,23 @@ def run_review(
     wake_until_run_started(task, "review")
     run_id = run_by_task(task, workflow="review")["run_id"]
     if approve is not None:
-
-        async def answer() -> None:
-            with temporal_port_forward() as address:
-                client = await Client.connect(address)
-                handle = client.get_workflow_handle(workflow_id("review", run_id))
-                deadline = time.monotonic() + 600
-                while time.monotonic() < deadline:
-                    if await handle.query("state") == "paused-merge_gate":
-                        break
-                    await asyncio.sleep(0.5)
-                else:
-                    raise AssertionError(f"review of #{pr_number} never parked on merge")
-                await handle.signal("merge", args=[approve, "e2e: human verdict"])
-
-        asyncio.run(answer())
+        await_gate(run_id, "paused-merge_gate")
+        console().resolve(run_id, "merge", approve, "e2e: human verdict")
     return run_id, await_run(
         task, terminal=True, deadline_s=deadline_s, workflow="review"
     )
+
+
+def await_gate(run_id: str, state: str, deadline_s: int = 600) -> None:
+    """Block until the run's workflow reports the API-visible `state` a
+    parked gate must show — read through the console, as an operator
+    deciding whether to answer would."""
+    deadline = time.monotonic() + deadline_s
+    while time.monotonic() < deadline:
+        if console().run(run_id)["execution"]["state"] == state:
+            return
+        time.sleep(2)
+    raise AssertionError(f"run {run_id} never reached {state!r}")
 
 
 def write_strategy(env: dict, text: str) -> None:

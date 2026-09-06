@@ -4,8 +4,9 @@
 # which module proves which claim.
 #
 # The suite is cluster-neutral: it reaches the cluster through the current
-# kubectl context, deploy/kind/.env, and the gateway URL in it;
-# deploy/kind/kind-up.sh is the kind bring-up.
+# kubectl context, deploy/kind/.env, and the gateway and console URLs in
+# it; deploy/kind/kind-up.sh is the kind bring-up. Every act on the company
+# is the console's, as the human the chart declares.
 #
 # Cost: zero LLM spend, enforced — the preflight below and the suite's own
 # session guard both refuse a paid brain (read from the deployed llm-proxy
@@ -34,6 +35,13 @@ kubectl get deployment/orchestrator-worker -n poseidon-platform >/dev/null 2>&1 
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$GATEWAY_URL/mcp" || true)
 [ "$code" = "401" ] || {
   echo "gateway at $GATEWAY_URL answered '$code' (expected 401 without a token)" >&2
+  exit 1
+}
+CONSOLE_URL=$(grep -E '^POSEIDON_CONSOLE_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+CONSOLE_URL=${CONSOLE_URL:-http://127.0.0.1:8090}
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$CONSOLE_URL/whoami" || true)
+[ "$code" = "401" ] || {
+  echo "console at $CONSOLE_URL answered '$code' (expected 401 without a token)" >&2
   exit 1
 }
 # The LLM-cost rule, enforced at the door: the suite's own session guard

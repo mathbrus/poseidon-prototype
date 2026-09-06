@@ -3,7 +3,6 @@ of the platform does, and waiting for the company to converge — which
 includes policy: OPA must have activated the company's bundle, not just
 the pods be Ready."""
 
-import subprocess
 import tempfile
 import time
 from collections.abc import Callable
@@ -12,7 +11,13 @@ from pathlib import Path
 import httpx
 import yaml
 
-from .cluster import COMPANY_NS, await_bare_heartbeat_asleep, kubectl, port_forward
+from .cluster import (
+    COMPANY_NS,
+    await_bare_heartbeat_asleep,
+    console,
+    kubectl,
+    port_forward,
+)
 
 # The suite's derived blueprints, written here and removed with the process.
 _SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")
@@ -107,18 +112,12 @@ def suite_document(path: Path) -> Path:
 
 
 def apply_blueprint(path: Path) -> None:
-    """`poseidon blueprint apply` of the suite's version of `path` (see
-    `suite_document`). The registry may be unreachable from the host —
-    apply degrades to diffing against nothing and still submits the CRs."""
-    path = suite_document(path)
-    proc = subprocess.run(
-        ["uv", "run", "poseidon", "blueprint", "apply", str(path), "--yes"],
-        capture_output=True,
-        text=True,
-        timeout=300,
-        cwd=REPO_ROOT,
-    )
-    assert proc.returncode == 0, f"blueprint apply failed: {proc.stderr}"
+    """Apply the suite's version of `path` (see `suite_document`) through
+    the console, as the human `owner` — the act an operator performs: the
+    console compiles it against the live registry, decides, submits the
+    CRs; the operator converges them."""
+    result = console().apply(suite_document(path).read_text())
+    assert result["company"] == COMPANY_NS, result
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:

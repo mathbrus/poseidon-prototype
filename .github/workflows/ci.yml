@@ -269,6 +269,7 @@ jobs:
           GIT_TOKEN=${GIT_TOKEN}
           TARGET_REPO=${TARGET_REPO}
           MCP_GATEWAY_URL=http://127.0.0.1:8080
+          POSEIDON_CONSOLE_URL=http://127.0.0.1:8090
           EOF
           deploy/kind/kind-up.sh
       - run: scripts/acceptance.sh -v

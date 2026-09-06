@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import io
 import json
+import os
 import socket
 import subprocess
 import tarfile
@@ -22,14 +23,21 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from temporalio.client import Client, WorkflowExecutionStatus
 
-from common.topology import RUN_ID_LABEL, TOKEN_AUDIENCE
+from common.topology import (
+    CONSOLE_PORT,
+    CONSOLE_TOKEN_AUDIENCE,
+    RUN_ID_LABEL,
+    TOKEN_AUDIENCE,
+    human_service_account,
+)
 from common.workflows import workflow_id
+from poseidon_cli import ConsoleClient
 from registry import Registry, open_registry
 
 PLATFORM_NS = "poseidon-platform"  # the chart release namespace kind-up installs into
 COMPANY_NS = "hello-saas"
+CONSOLE_URL = f"http://127.0.0.1:{CONSOLE_PORT}"
 POSTGRES_USER = "poseidon"
 
 # --- kubectl -----------------------------------------------------------------
@@ -548,6 +556,56 @@ def workspace_tar(
     return buf.getvalue()
 
 
+# --- acting as a human: the console --------------------------------------------
+#
+# Every act the suite performs on the company — apply a profile, wake the
+# loop, answer a gate, start a repro run — goes through the console as the
+# human the chart declares (`owner`), exactly as an operator does. What the
+# suite *observes* it reads with its own instruments (psql, kubectl, the
+# git host, a raw Temporal port-forward for the red-team), never the
+# product's word for it.
+
+HUMAN = "owner"
+_TOKEN_TTL_S = 8 * 60
+_token_cache: dict[str, tuple[str, float]] = {}
+
+
+def console_url(env: dict | None = None) -> str:
+    return (env or {}).get(
+        "POSEIDON_CONSOLE_URL", os.environ.get("POSEIDON_CONSOLE_URL", CONSOLE_URL)
+    )
+
+
+def human_token(name: str = HUMAN) -> str:
+    """A token for the console's audience, minted for one of the humans
+    the chart declares — the same TokenRequest `poseidon login` makes.
+    Cached under its ten-minute lifetime so a module's polling does not
+    become a kubectl storm."""
+    cached = _token_cache.get(name)
+    if cached and cached[1] > time.monotonic():
+        return cached[0]
+    token = projected_token(
+        PLATFORM_NS, human_service_account(name), CONSOLE_TOKEN_AUDIENCE
+    )
+    _token_cache[name] = (token, time.monotonic() + _TOKEN_TTL_S)
+    return token
+
+
+def console(env: dict | None = None, name: str = HUMAN) -> ConsoleClient:
+    """The console, as the human `name` — the one way the suite acts."""
+    return ConsoleClient(console_url(env), human_token(name))
+
+
+def console_env(env: dict | None = None) -> dict[str, str]:
+    """The environment the real CLI needs to act as `owner`: for the
+    modules that exercise `poseidon …` itself."""
+    return {
+        **os.environ,
+        "POSEIDON_CONSOLE_URL": console_url(env),
+        "POSEIDON_TOKEN": human_token(),
+    }
+
+
 # --- acting as the platform or an agent ----------------------------------------
 
 
@@ -686,18 +744,12 @@ def bare_heartbeat_id() -> str:
 
 
 def wake_bare_heartbeat() -> None:
-    """Send the platform's own `wake` signal to the standing heartbeat —
-    the harness's stand-in for a change only the outside world saw (an
-    issue filed by hand, a PR merged by hand), compressed from the
-    reconcile wait to now. A real capability exercised, not a seam:
-    production sends the same signal."""
-
-    async def send() -> None:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            await client.get_workflow_handle(bare_heartbeat_id()).signal("wake")
-
-    asyncio.run(send())
+    """Nudge the standing heartbeat through the console — the harness's
+    stand-in for a change only the outside world saw (an issue filed by
+    hand, a PR merged by hand), compressed from the reconcile wait to now.
+    A real capability exercised, not a seam: an operator sends the same
+    nudge, decided and audited under their name."""
+    console().wake()
 
 
 def await_new_ticks(mark: int, n: int, deadline_s: int = 180) -> list[dict[str, Any]]:
@@ -725,28 +777,17 @@ def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
     loop answers a wake immediately — "sleeping" means ready, never
     dormant."""
     bare = workflow_id("heartbeat", COMPANY_NS)
-
-    async def wait() -> None:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = client.get_workflow_handle(bare)
-            deadline = time.monotonic() + deadline_s
-            while time.monotonic() < deadline:
-                # Not started yet, or between runs: keep waiting.
-                with contextlib.suppress(Exception):
-                    description = await handle.describe()
-                    if (
-                        description.status == WorkflowExecutionStatus.RUNNING
-                        and await handle.query("state") == "sleeping"
-                    ):
-                        return
-                await asyncio.sleep(3)
-            raise AssertionError(
-                f"the bare heartbeat {bare} was not asleep within {deadline_s}s"
-                " of the apply"
-            )
-
-    asyncio.run(wait())
+    deadline = time.monotonic() + deadline_s
+    while time.monotonic() < deadline:
+        # Not started yet, or between runs: keep waiting.
+        with contextlib.suppress(Exception):
+            execution = console().heartbeat()["execution"]
+            if execution["status"] == "RUNNING" and execution["state"] == "sleeping":
+                return
+        time.sleep(3)
+    raise AssertionError(
+        f"the bare heartbeat {bare} was not asleep within {deadline_s}s of the apply"
+    )
 
 
 def wake_and_await_ticks(n: int = 1) -> list[dict[str, Any]]:

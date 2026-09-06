@@ -17,17 +17,14 @@ loop would start on its own. The module finalizer re-applies the pristine
 profile so later suites run against the real cap.
 """
 
-import asyncio
 import secrets
 import time
 from typing import Any
 
 import httpx
 import pytest
-from temporalio.client import Client
 
 from common.tasks import issue_run_task
-from common.workflows import workflow_id
 
 from .blueprints import (
     E2E_PAUSE_MINUTES,
@@ -40,14 +37,15 @@ from .cluster import (
     COMPANY_NS,
     audit_story,
     await_run,
+    console,
     port_forward,
     projected_token,
     psql_json,
     run_by_task,
-    temporal_port_forward,
 )
 from .conftest import (
     apply_profile,
+    await_gate,
     close_issue,
     close_pr_url,
     file_ticket,
@@ -104,30 +102,14 @@ def _paused_run(env: dict) -> tuple[int, str]:
     wake_until_run_started(issue_run_task(number), "implement")
     run_id = run_by_task(issue_run_task(number), workflow="implement")["run_id"]
 
-    async def wait_for_pause() -> None:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = client.get_workflow_handle(workflow_id("implement", run_id))
-            deadline = time.monotonic() + 300
-            while True:
-                state = await handle.query("state")
-                if state == "paused-budget_exhausted":
-                    return
-                assert time.monotonic() < deadline, f"never paused (state={state!r})"
-                await asyncio.sleep(2)
-
-    asyncio.run(wait_for_pause())
+    await_gate(run_id, "paused-budget_exhausted", deadline_s=300)
     return number, run_id
 
 
 def _signal_budget(run_id: str, approved: bool, payload: str) -> None:
-    async def send() -> None:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = client.get_workflow_handle(workflow_id("implement", run_id))
-            await handle.signal("budget", args=[approved, payload])
-
-    asyncio.run(send())
+    """The human's answer to the budget pause, through the console: the
+    verdict is recorded under their name, then delivered."""
+    console().resolve(run_id, "budget", approved, payload)
 
 
 def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> None:

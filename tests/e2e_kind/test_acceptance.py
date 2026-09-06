@@ -23,8 +23,10 @@ What the suite proves, and where:
                   test_audit_story (one run_id reconstructs a run's whole story)
   4 governance    test_injection (injection vs compiled policy), test_governance,
                   test_injected_conductor, test_redteam (sandbox containment +
-                  egress), test_containment, test_sandbox_k8s (the deadline
-                  kills a runaway); HERE: all five audit sources are real in
+                  egress), test_containment (agents reach only the gateways;
+                  the Temporal frontend is fenced from every platform pod but
+                  the worker and the console), test_sandbox_k8s (the deadline
+                  kills a runaway); HERE: all six audit sources are real in
                   this suite execution — nothing seeded
   5 budgets       test_budgets (hard-stop, API-visible pause, process-gate
                   escalation, full {run, parent, agent, role} tuple)
@@ -66,6 +68,19 @@ What the suite proves, and where:
                   test_scope (the strategy becomes the company's own
                   ticket; scoping is refused by name at max_open_tickets).
 
+ 12 the console  test_console_identity (a human is known by the token the
+                  cluster issued for the console's audience and refused at
+                  the gateways; an agent is refused at the console; a human
+                  the company did not name is refused by name; no platform
+                  identity can mint a human's token) and
+                  test_console_redteam (a merge signal delivered straight to
+                  the workflow engine, past the console, releases nothing —
+                  the run fails on `merge_resolve_no_human_verdict` with the
+                  PR unmerged — while the same verdict through the console
+                  merges and names the person); test_review_gate (the release
+                  read the recorded verdict); HERE: the console's rows are
+                  among the six sources.
+
 The suite's own discipline is proved too: test_brain_guard (the session
 refuses a paid brain without the explicit opt-in) and test_quiet (the exit
 contract, ordered last: only the standing heartbeat running, asleep on an
@@ -77,7 +92,6 @@ the five-source assertion reads what the whole suite really produced.
 
 import asyncio
 import json
-import os
 import subprocess
 
 import yaml
@@ -92,14 +106,12 @@ from .blueprints import (
 )
 from .cluster import (
     COMPANY_NS,
-    POSTGRES_USER,
     audit_story,
-    cluster_secret,
+    console_env,
     crew_activities,
     events_since,
     kubectl,
     mcp_call,
-    port_forward,
     projected_token,
     psql_json,
     registry,
@@ -115,68 +127,66 @@ ALL_SOURCES = {
     "sandbox-infra",
     "process-gate",
     "process-lifecycle",
+    "console",
 }
 
 
 # -- 1 declarative: compile → preview, scripted, against the live cluster ------
 
 
-def _blueprint_cli(args: list[str], dsn: str) -> subprocess.CompletedProcess:
-    """`poseidon blueprint …` exactly as an operator runs it, pointed at
-    the cluster's registry."""
+def _poseidon(env: dict, *args: str) -> subprocess.CompletedProcess:
+    """`poseidon …` exactly as an operator runs it: the real CLI, as the
+    human `owner`, against the cluster's console."""
     return subprocess.run(
-        ["uv", "run", "poseidon", "blueprint", *args],
+        ["uv", "run", "poseidon", *args],
         capture_output=True,
         text=True,
         timeout=300,
         cwd=REPO_ROOT,
-        env={**os.environ, "REGISTRY_DSN": dsn},
+        env=console_env(env),
     )
 
 
-def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
+def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     """Criterion 1's first two verbs, e2e: previewing the applied
-    blueprint against the live registry reports *no changes* (the cluster
-    is converged on exactly what the document says), an edit previews as
-    exactly that one change, and a local compile produces byte-for-byte
-    the bundle revision the cluster serves — compile is what's live."""
-    password = cluster_secret("postgres-credentials", "POSTGRES_PASSWORD")
-    with port_forward("svc/postgres", 5432) as port:
-        dsn = f"postgresql://{POSTGRES_USER}:{password}@127.0.0.1:{port}/{POSTGRES_USER}"
+    blueprint through the console reports *no changes* (the cluster is
+    converged on exactly what the document says, and the console compiled
+    against the live registry), an edit previews as exactly that one
+    change, and a local compile produces byte-for-byte the bundle revision
+    the cluster serves — compile is what's live."""
+    # Preview of the applied document — the profile the suite leaves
+    # applied: a converged cluster diffs empty.
+    pristine = _poseidon(
+        env, "blueprint", "preview", str(suite_document(pristine_profile()))
+    )
+    assert pristine.returncode == 0, pristine.stderr
+    assert "hello-saas: no changes" in pristine.stdout, pristine.stdout
+    assert "budget:" in pristine.stdout
 
-        # Preview of the applied document — the profile the suite leaves
-        # applied: a converged cluster diffs empty.
-        pristine = _blueprint_cli(
-            ["preview", str(suite_document(pristine_profile()))], dsn
-        )
-        assert pristine.returncode == 0, pristine.stderr
-        assert "registry unreachable" not in pristine.stderr, (
-            "preview fell back to diffing against nothing — the assertion"
-            f" below would be vacuous: {pristine.stderr}"
-        )
-        assert "hello-saas: no changes" in pristine.stdout, pristine.stdout
-        assert "budget:" in pristine.stdout
+    # Preview of an edit: exactly the edit, nothing else.
+    document = yaml.safe_load(HELLO_SAAS.read_text())
+    assert "lead" not in document["standing"]
+    document["standing"]["lead"] = {
+        "role": "pm",
+        "count": 1,
+        "may_spawn": {"crew": ["feature-delivery"], "max_concurrent": 1},
+    }
+    edited = tmp_path / "hello-saas-second-hire.yaml"
+    edited.write_text(yaml.safe_dump(document, sort_keys=False))
+    preview = _poseidon(env, "blueprint", "preview", str(edited))
+    assert preview.returncode == 0, preview.stderr
+    assert "hello-saas: 1 change(s)" in preview.stdout, preview.stdout
+    assert "+ lead-1" in preview.stdout
 
-        # Preview of an edit: exactly the edit, nothing else.
-        document = yaml.safe_load(HELLO_SAAS.read_text())
-        assert "lead" not in document["standing"]
-        document["standing"]["lead"] = {
-            "role": "pm",
-            "count": 1,
-            "may_spawn": {"crew": ["feature-delivery"], "max_concurrent": 1},
-        }
-        edited = tmp_path / "hello-saas-second-hire.yaml"
-        edited.write_text(yaml.safe_dump(document, sort_keys=False))
-        preview = _blueprint_cli(["preview", str(edited)], dsn)
-        assert preview.returncode == 0, preview.stderr
-        assert "hello-saas: 1 change(s)" in preview.stdout, preview.stdout
-        assert "+ lead-1" in preview.stdout
-
-    # Compile, scripted (the CLI, not just the library), emitting the
-    # bundle to disk like the CI policy job does.
+    # Compile, scripted and cluster-free (`python -m compiler`, what the CI
+    # policy job runs), emitting the bundle to disk.
     out = tmp_path / "compiled-bundle"
-    compiled = _blueprint_cli(
-        ["compile", str(HELLO_SAAS), "--no-live", "--out", str(out)], dsn=""
+    compiled = subprocess.run(
+        ["uv", "run", "python", "-m", "compiler", str(HELLO_SAAS), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=REPO_ROOT,
     )
     assert compiled.returncode == 0, compiled.stderr
     assert list(out.glob("*.rego")), "compile emitted no Rego files"
