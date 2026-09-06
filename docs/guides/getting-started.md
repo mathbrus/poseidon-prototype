@@ -29,7 +29,7 @@ pull requests against it. Do not point this at anything you care about.
 
 ```bash
 uv sync
-for p in packages/*/; do uv run pytest "$p" -q; done   # all eleven suites, no cluster needed
+for p in packages/*/; do uv run pytest "$p" -q; done   # every package's suite (thirteen), no cluster needed
 ```
 
 Tests run per package, never repo-wide — `uv run pytest packages/` fails
@@ -50,8 +50,20 @@ deploy/kind/kind-up.sh
 That script is idempotent — re-run it after changing code or the chart. It
 creates the kind cluster, installs Calico (kind's default CNI does **not**
 enforce NetworkPolicy, which would make containment tests pass vacuously),
-builds and side-loads the eight images, installs the chart and Temporal,
-applies the CRDs, and applies the example blueprint.
+builds and side-loads the nine images, installs the chart and Temporal,
+applies the CRDs, and applies the example blueprint through the console
+as `owner`. Then take a token of your own:
+
+```bash
+export POSEIDON_TOKEN=$(uv run poseidon login owner)
+uv run poseidon whoami
+```
+
+Every `poseidon` command from here on is a call to the console — the one
+service a person acts on a company through — under that name. `login`
+mints the token with the kubeconfig you already hold, for the human the
+chart declares (`owner` on kind); nothing else is needed on your machine:
+no port-forward, no database address, no cluster credentials in the CLI.
 
 !!! tip "This costs nothing to run"
     The cluster deploys the deterministic mock brain by default, so the
@@ -111,15 +123,15 @@ company:
 ```
 
 Put that `company:` block in place of the example's, in a copy of
-`examples/hello-saas.yaml` saved as `company.yaml`. Leave a Temporal
-port-forward up for every CLI command. Activity bounds come from the
-deployment's `TIMEOUT_PROFILE`, so a cluster brought up with `REAL_LLM=1`
-already runs the generous profile a paid brain needs.
+`examples/hello-saas.yaml` saved as `company.yaml`, keeping `humans:
+[owner]` — the name your token carries, and the only one policy will let
+act. Activity bounds come from the deployment's `TIMEOUT_PROFILE`, so a
+cluster brought up with `REAL_LLM=1` already runs the generous profile a
+paid brain needs.
 
 ```bash
-kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233
 uv run poseidon blueprint apply company.yaml --yes
-uv run poseidon status hello-saas --workflow heartbeat
+uv run poseidon heartbeat state
 ```
 
 ### 1. Bootstrap
@@ -133,7 +145,7 @@ it as a pull request. Under `hello-saas.yaml` those pull requests park on
 your merge gate like any other:
 
 ```bash
-uv run poseidon signal <review_run_id> merge --workflow review
+uv run poseidon signal <review_run_id> merge
 ```
 
 Until both documents are on `main`, the loop refuses to scope: the first
@@ -178,10 +190,15 @@ masterplan, and ends with a verdict. Under `hello-saas.yaml` the merge
 gate is yours:
 
 ```bash
-uv run poseidon signal <review_run_id> merge --workflow review
+uv run poseidon signal <review_run_id> merge
 ```
 
+The console records that verdict under your name before it delivers the
+signal, and the release reads the record: policy merges on a recorded
+approval by a person the blueprint names, never on the signal alone.
+
 Every step is on the record: `uv run poseidon status <run_id>` for the
-run, and one `run_id` query against the audit store for its whole story.
+run and `uv run poseidon story <run_id>` for its whole story, every source
+in order — your verdict among them.
 [Hand over the keys](hand-over.md) is where the merge becomes the
 company's too.

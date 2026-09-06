@@ -81,7 +81,9 @@ delegated authority on behalf of input it cannot vet.
 **What is out of scope.** Kernel exploits from inside the sandbox container
 ([it is a container, not a VM](cannot.md)); a malicious platform operator;
 compromise of the cluster itself or of the git host. The platform services —
-gateway, orchestrator, operator — are trusted code. The claim is not that
+gateway, orchestrator, operator, console — are trusted code; the console
+is the first of them that authenticates a person, and what it trusts is
+the API server's verdict on the token, never the request. The claim is not that
 nothing is trusted; it is that **no LLM sits inside the trusted computing
 base**. Text flows into models, models emit tool calls, and every
 consequence of those calls is decided by ordinary code reading compiled

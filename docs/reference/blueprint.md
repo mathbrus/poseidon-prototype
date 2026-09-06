@@ -7,17 +7,7 @@ the JSON Schema in `packages/schema/src/schema/blueprint.py`, both at build
 time. Where the delegated profile adds a section, its YAML comes from
 `examples/hello-saas-delegated.yaml`.
 
-| Section | Required |
-|---|---|
-| `apiVersion` | yes |
-| `company` | yes |
-| `stack` | yes |
-| `standing` | yes |
-| `tools` | yes |
-| `workflows` | yes |
-| `policies` |  |
-| `budgets` | yes |
-| `heartbeat` | yes |
+<!-- gen: blueprint-sections -->
 
 A company without `policies` is a choice you make visibly, not a default
 you fall into by omission. A company always has a `heartbeat`: it is how
@@ -27,9 +17,7 @@ a typo'd key is an error, never a silently ignored line.
 
 ## `apiVersion`
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `apiVersion` | string | yes | one of `poseidon.dev/v1` |
+<!-- gen: blueprint-fields:apiVersion -->
 
 ## `company` and `stack` — identity and toolchain
 
@@ -46,6 +34,14 @@ writes: it reaches every procedure but `deliver` through the static
 prompt, so the PM decides and scopes, and every crew implements and
 reviews, knowing what the company is for — and nobody in the company can
 change it. Applying the blueprint again is the only way it changes.
+
+`company.humans` names the people who may act on the company through
+[the console](console.md): apply the document again, answer a gate, start
+or cancel a run by hand, wake the heartbeat. The compiler emits one allow
+per person, act and verdict from the list, so the audit row for an act
+names exactly what was granted — and the authority is a diff: add a name
+and re-apply, or remove one and that person's next act is refused by
+`human_not_recognized`, under their name.
 
 `company.documents` names where, in that repository, the company keeps
 the two documents it writes for itself: the **strategy**, written once from
@@ -67,26 +63,9 @@ may reach. It compiles into both the sandbox constraints and the egress
 proxy's per-run allowlist: one list, two consumers, no drift. An empty list
 means zero egress, which is a perfectly reasonable choice.
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `company` | object | yes |  |
-| `company.name` | string | yes | matches `^[a-z0-9][a-z0-9-]*$` |
-| `company.vision` | string | yes | non-empty |
-| `company.humans` | array of string | yes | matches `^[a-z0-9][a-z0-9-]*$`; at least items: 1; unique |
-| `company.documents` | object | yes |  |
-| `company.documents.strategy` | string | yes | matches `^[^\s/][^\s]*$` |
-| `company.documents.architecture` | string | yes | matches `^[^\s/][^\s]*$` |
+<!-- gen: blueprint-fields:company -->
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `stack` | object | yes |  |
-| `stack.repo` | object | yes |  |
-| `stack.repo.url` | string | yes | non-empty |
-| `stack.repo.base_ref` | string | yes | non-empty |
-| `stack.toolchain` | object | yes |  |
-| `stack.toolchain.image` | string | yes | non-empty |
-| `stack.toolchain.test_command` | string | yes | non-empty |
-| `stack.toolchain.egress_allow` | array of string |  | unique |
+<!-- gen: blueprint-fields:stack -->
 
 ## `standing` — the standing agents
 
@@ -104,15 +83,7 @@ produces none. Try hiring an `implementer` at `count: 1` and the compiler
 refuses: standing coders do not exist here
 ([Standing vs. ephemeral agents](../concepts/standing-vs-ephemeral.md)).
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `standing` | map of object | yes | at least entries: 1 |
-| `standing.<name>` | object |  |  |
-| `standing.<name>.role` | string | yes | matches `^[a-z0-9][a-z0-9-]*$` |
-| `standing.<name>.count` | integer | yes | one of `0`, `1` |
-| `standing.<name>.may_spawn` | object |  |  |
-| `standing.<name>.may_spawn.crew` | array of string |  | matches `^[a-z0-9][a-z0-9-]*$`; unique |
-| `standing.<name>.may_spawn.max_concurrent` | integer |  | ≥ 1 |
+<!-- gen: blueprint-fields:standing -->
 
 ## `tools` — scopes
 
@@ -134,11 +105,7 @@ narrow the catalog role's tools and never widen them: a document granting
 the reviewer `git.open_pr` fails validation with a message quoting the
 catalog's list.
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `tools` | map of object | yes |  |
-| `tools.<name>` | object |  |  |
-| `tools.<name>.allow` | array of string | yes | one of `architecture.request`, `git.comment`, `git.merge_pr`, `git.open_pr`, `git.read`, `issues.comment`, `issues.create`, `issues.read`, `repo.archive`, `repo.read_file`, `sandbox.edit_file`, `sandbox.exec`, `sandbox.git_bundle`, `sandbox.list_dir`, `sandbox.read_file`, `sandbox.run_tests`, `sandbox.write_file`; unique |
+<!-- gen: blueprint-fields:tools -->
 
 ## `workflows` — where the human gate is declared
 
@@ -156,8 +123,11 @@ is `heartbeat.may_start`, each said once. `max_verify_retries` bounds how
 many times a red verify re-dispatches the implementer before the run
 fails.
 
-`gates.merge.resolved_by: human` is what makes the review workflow park and
-wait for a person; leaving `gates.merge` out entirely means the review ends
+`gates.merge.resolved_by: human` is what makes the review workflow park on
+the `merge` signal the console delivers: the console records the person's
+verdict under their name, then signals, and the release reads the recorded
+verdict — a signal with no verdict on record merges nothing. Leaving
+`gates.merge` out entirely means the review ends
 without merging at all — an unattended auto-merge is not a default anyone
 gets implicitly. Setting it to `policy` instead, with a `delegate` block
 naming the path class and a rework bound, hands the merge to the compiled
@@ -176,21 +146,7 @@ from the compiled plan at runtime — never hardcoded — so changing the
 resolver is a visible, reviewable change to the document, not a code edit
 buried somewhere.
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `workflows` | object | yes |  |
-| `workflows.implement` | object | yes |  |
-| `workflows.implement.crew` | string | yes | matches `^[a-z0-9][a-z0-9-]*$` |
-| `workflows.implement.max_verify_retries` | integer | yes | ≥ 0 |
-| `workflows.review` | object | yes |  |
-| `workflows.review.crew` | string | yes | matches `^[a-z0-9][a-z0-9-]*$` |
-| `workflows.review.gates` | object |  |  |
-| `workflows.review.gates.merge` | object |  |  |
-| `workflows.review.gates.merge.resolved_by` | string | yes | one of `human`, `policy` |
-| `workflows.review.gates.merge.deadline_minutes` | integer | yes | ≥ 1 |
-| `workflows.review.gates.merge.delegate` | object |  |  |
-| `workflows.review.gates.merge.delegate.paths` | array of string | yes | matches `^[^\s/][^\s]*$`; at least items: 1; unique |
-| `workflows.review.gates.merge.delegate.max_reworks` | integer | yes | ≥ 0 |
+<!-- gen: blueprint-fields:workflows -->
 
 ## `policies` and `budgets` — the guardrails
 
@@ -244,23 +200,9 @@ gap: in a document whose credibility rests on "declared means compiled
 means enforced," an unenforced field is worse than an absent one, so no cap
 appears here until a ledger enforces it.
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `policies` | object |  |  |
-| `policies.branch_protection` | object |  |  |
-| `policies.branch_protection.protected` | array of string |  | unique |
-| `policies.branch_protection.allowed_pattern` | string |  | non-empty |
-| `policies.deny_paths` | array of string |  | matches `^[^\s/][^\s]*$`; unique |
-| `policies.contract_tests` | object |  |  |
-| `policies.contract_tests.paths` | array of string | yes | matches `^[^\s/][^\s]*$`; at least items: 1; unique |
-| `policies.contract_tests.roles` | array of string | yes | matches `^[a-z0-9][a-z0-9-]*$`; at least items: 1; unique |
+<!-- gen: blueprint-fields:policies -->
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `budgets` | object | yes |  |
-| `budgets.per_run` | object | yes |  |
-| `budgets.per_run.usd` | number | yes | > 0 |
-| `budgets.per_run.pause_minutes` | integer | yes | ≥ 1 |
+<!-- gen: blueprint-fields:budgets -->
 
 ## `heartbeat` — the company's own initiative
 
@@ -338,17 +280,7 @@ feed the tick — only numbers, titles and URLs — and the documents reach
 it clipped and untrusted, after the lists, so a document line is never
 read as a ticket.
 
-| Field | Type | Required | Constraints |
-|---|---|---|---|
-| `heartbeat` | object | yes |  |
-| `heartbeat.conductor` | string | yes | matches `^[a-z0-9][a-z0-9-]*$` |
-| `heartbeat.reconcile_minutes` | integer | yes | ≥ 1 |
-| `heartbeat.max_concurrent_runs` | integer | yes | ≥ 1 |
-| `heartbeat.max_attempts` | integer | yes | ≥ 1 |
-| `heartbeat.max_open_tickets` | integer | yes | ≥ 1 |
-| `heartbeat.may_start` | array of string | yes | one of `implement`, `review`, `scope`; at least items: 1; unique |
-| `heartbeat.daily_cap` | object | yes |  |
-| `heartbeat.daily_cap.usd` | number | yes | > 0 |
+<!-- gen: blueprint-fields:heartbeat -->
 
 ## Apply it
 
@@ -357,8 +289,11 @@ uv run poseidon blueprint preview examples/hello-saas.yaml   # what would change
 uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 ```
 
-`preview` diffs the compiled plan against live registry state, so hiring and
-firing are visible before they happen. Firing is just a deletion in the
+Both commands are calls to [the console](console.md), which compiles the
+document against the live registry: `preview` diffs the compiled plan
+against it, so hiring and firing are visible before they happen; `apply`
+submits the compiled custom resources, decided against the company's
+bundle and audited under your name. Firing is just a deletion in the
 diff — and deleting an agent's ServiceAccount is what revokes its identity,
 since the API server then refuses TokenReview for its tokens. The commands
 and their flags are on [the CLI reference](cli.md).

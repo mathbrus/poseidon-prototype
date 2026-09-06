@@ -1,33 +1,31 @@
-# The contract beneath the CLI: Temporal
+# The contract beneath the console: Temporal
 
-Every `poseidon` command is sugar over the Temporal client API. The CLI
-confers no authority of its own — the real contract is the workflow
-surface the orchestrator registers, and any process that can reach the
-Temporal frontend can exercise all of it: start runs, deliver gate
-verdicts, terminate workflows, read every run's history. A dashboard, a
-chat-ops approval bot, or the e2e suite would integrate here, not by
-shelling out to the CLI. This page writes that contract down; the tables
-are rendered from the workflow classes at build time.
+Every act a person performs through [the console](console.md) ends as a
+Temporal client call: a workflow started, a signal delivered, an
+execution described. The console confers the authority — it verifies the
+person, wins the compiled decision, records the act — and Temporal
+carries it out; the real contract is the workflow surface the
+orchestrator registers, and this page writes it down. The tables are
+rendered from the workflow classes at build time. Nothing integrates
+here directly: a dashboard, a chat-ops bot or the acceptance suite is a
+client of the console, and the raw surface below it is fenced.
 
 All workflows run on task queue `poseidon-orchestrator` and are named
 deterministically: one workflow per run, `{workflow}-{run_id}`, and one
-heartbeat per company, `heartbeat-{company}`.
+heartbeat per company, `heartbeat-{company}`. Both names live in
+`common.workflows`, shared by the worker that hosts them and the console
+that addresses them.
 
 ## Workflows
 
-| Workflow | Workflow id | Input | Signals | Queries |
-|---|---|---|---|---|
-| `scope` | `scope-{run_id}` | `ScopeInput(run_id)` | `budget` | `state` |
-| `implement` | `implement-{run_id}` | `ImplementInput(run_id, issue_number)` | `budget` | `state` |
-| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number)` | `budget`, `merge` | `state` |
-| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, pending_wake=False)` | `wake` | `state` |
+<!-- gen: workflows -->
 
 `implement` takes the number of a ticket the company filed; the platform
 resolves the open issue first and composes the task from it. `scope`
 takes nothing but a run id: its text is the observation the platform
-composes. The heartbeat is started by the worker's ensure loop, never by a
-human, and stops itself when the company is gone — and it is what starts
-the three run-shaped workflows.
+composes, and no human starts it. The heartbeat is started by the worker's
+ensure loop, never by a human, and stops itself when the company is gone —
+and it is what starts the three run-shaped workflows.
 
 Activity bounds are not part of any input: the worker's `TIMEOUT_PROFILE`
 (`default` for a paid brain, `fast` for the mock) sizes every workflow it
@@ -35,61 +33,68 @@ hosts, and each workflow learns it from its first config activity.
 
 ## Signals
 
-Signals are how verdicts enter a parked workflow. The gate signals share
-one signature, `(approved: bool, payload: str | None)`, which is exactly
-what `poseidon signal` sends. The heartbeat's `wake` is the one exception:
-it carries nothing at all, because it decides nothing — it ends the wait
-to the next tick, which observes, decides and is authorized like any
-other.
+Signals are how verdicts reach a parked workflow — and a signal is a
+nudge to look, never the verdict itself. The gate signals share one
+signature, `(approved: bool, payload: str | None)`, which is what the
+console sends after it has recorded the verdict under the person's name.
+The heartbeat's `wake` carries nothing at all, because it decides
+nothing: it ends the wait to the next tick, which observes, decides and
+is authorized like any other.
 
-| Workflow | Signal | Arguments | What it resolves |
-|---|---|---|---|
-| `scope` | `budget` | `approved, payload` | `poseidon signal <run_id> budget --workflow scope`: resolve a budget pause, exactly as in implement. |
-| `implement` | `budget` | `approved, payload` | `poseidon signal <run_id> budget --approved/--no-approved`: resolve a budget pause — approved means the cap was raised and the run may continue; rejected finalizes it. |
-| `review` | `budget` | `approved, payload` | The console's budget verdict: resolve a budget pause, exactly as in implement. |
-| `review` | `merge` | `approved, payload` | The console's merge verdict, the signal the merge gate parks on. A nudge to look, not the verdict itself: the release reads the verdict the console recorded under the human's name. |
-| `heartbeat` | `wake` | — | A nudge that something changed the world this loop watches — never an instruction. The sleeping wait ends (or the running tick is followed by one more), and the tick that results observes, decides and is authorized like any other. |
+<!-- gen: signals -->
 
-Under `resolved_by: policy` the compiled `merge.resolve` decision may
-release the merge itself before the gate ever parks — but the `merge`
-signal still resolves it, so the human override survives delegation.
+The merge gate's release is not the `merge` signal. After the gate
+approves, the review workflow reads the console's recorded verdict back
+from the audit store (`read_human_verdict`) and the compiled
+`merge.resolve` decision releases the merge on its human path —
+`merge_resolve_human`, a recorded approval by one of the company's
+humans — or refuses by name: `merge_resolve_no_human_verdict` when no
+verdict was recorded, `merge_resolve_human_rejected` when the latest one
+rejects, `merge_resolve_not_a_human` when its author is not in
+`company.humans`. A refusal records `gate_verdict_unverified` and ends the
+run failed, unmerged. Under `resolved_by: policy` the delegated path may
+release the merge before the gate ever parks; a decline still falls to the
+human path, verified the same way, so the override survives delegation.
+
+The budget gate is decided and recorded by the console like the merge
+gate, but the workflow does not read its record back: a forged budget
+approval only re-dispatches under the per-run cap the LLM gateway
+enforces from the ledger, and cannot spend past the stop.
 
 ## Queries
 
 Every workflow exposes a `state` query returning the current state as a
 string — the mechanism behind the claim that a parked gate or a budget
-stop is "an API-visible paused state, never a silent hang."
+stop is "an API-visible paused state, never a silent hang." The console
+surfaces it on every run read.
 
 ## What guards this surface
 
-Nothing in the surface itself. The Temporal frontend has **no
-authentication of its own**, and Poseidon's NetworkPolicies do not select
-the Temporal pods — they are installed by Temporal's own chart. The
-browsable `temporal-web` UI over this same authority is **opt-in**: the
-kind bootstrap deploys it only with `TEMPORAL_WEB=1`. Two facts keep this
-honest rather than alarming:
+The Temporal frontend has no authentication of its own, and two things
+stand in for it.
 
-- **Agents cannot reach it.** Company namespaces are deny-all by
-  construction, with holes only toward the two gateways and the egress
-  proxy. The statement "agents have exactly one interface, the gateway"
-  survives — by the operator's NetworkPolicy, not by Temporal's.
-- **Humans reach it deliberately.** On kind there is no ingress; you hold
-  operator authority exactly when you can run `kubectl port-forward` into
-  the platform namespace — that is, when you already hold cluster
-  credentials.
+- **The fence.** A NetworkPolicy in the platform namespace admits exactly
+  the components whose job the frontend is — the orchestrator worker,
+  which hosts the workflows, and the console, which starts, signals and
+  inspects them on a person's behalf — plus Temporal's own pods. Every
+  other platform pod, and every company pod, is refused at the network.
+  The browsable `temporal-web` UI is one more pod inside the fence, and
+  opt-in: the kind bootstrap deploys it only with `TEMPORAL_WEB=1`.
+- **The verdict.** A human with cluster credentials still reaches the
+  frontend by `kubectl port-forward`, which enters the pod's own network
+  namespace beneath any policy. State it plainly: *network reach to port
+  7233 delivers a signal.* But a signal without a console-recorded verdict
+  fails the run — the compiled `merge.resolve` decision reads the record,
+  not the signal — so the road that stays open releases nothing.
+  `tests/e2e_kind/test_console_redteam.py` walks it on every acceptance
+  run.
 
-But state it plainly: *delivering a merge-gate verdict requires nothing
-but network reach to port 7233.* On any cluster where the platform
-namespace is reachable more broadly than intended, the merge gate is too.
-
-One qualifier under a delegated gate: an in-class merge needs no signal at
-all — the compiled `merge.resolve` decision releases it, and its authority
-is exactly that decision (the caller-verified verdict, the platform's own
-green checks, reviewer-independence, the delegated path class, and — when
-the company declares a contract tree — `contract_green`, the base-ref
-contract tree run against the PR head), nothing more. Every one of those is
-a platform-computed value passed as a real argument, so adversarial prose in
-the diff cannot rewrite it; a company with no `contract_tests` declared
-never has the contract fact read. Frontend reach still matters for the human
-override and for every class the delegation does not cover, which stay
-signal-resolved.
+Under a delegated gate an in-class merge needs no signal at all — the
+compiled decision releases it, and its authority is exactly that decision
+(the caller-verified verdict, the platform's own green checks,
+reviewer-independence, the delegated path class, and — when the company
+declares a contract tree — `contract_green`, the base-ref contract tree
+run against the PR head), nothing more. Every one of those is a
+platform-computed value passed as a real argument, so adversarial prose
+in the diff cannot rewrite it; a company with no `contract_tests`
+declared never has the contract fact read.

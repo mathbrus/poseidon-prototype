@@ -26,13 +26,14 @@ allow. The `rule` is the name that lands in the audit row.
 
 ## What a decision reads
 
-The MCP gateway builds the input; nothing in it comes from the caller's
-own claims. Identity fields are the verified workload identity, the run
+The MCP gateway builds the input for a tool call, the orchestrator for
+its own decisions, the console for a human's act; nothing in it comes
+from the caller's own claims. Identity fields are the verified workload identity, the run
 fields come from the registry, and `args` are the call's arguments.
 
 | Field | Where it comes from |
 |---|---|
-| `company`, `agent_id`, `lifecycle`, `parent_agent_id`, `role` | The verified identity: a TokenReview on the caller's projected ServiceAccount token, resolved against the registry row that mints the identity (`agent_instances` for standing agents, `run_participants` for ephemeral ones). |
+| `company`, `agent_id`, `lifecycle`, `parent_agent_id`, `role` | The verified identity: a TokenReview on the caller's projected ServiceAccount token, resolved against the registry row that mints the identity (`agent_instances` for standing agents, `run_participants` for ephemeral ones). For a human act the console builds the input the same way: `lifecycle: human`, `agent_id` the person's name, `role: human`, `company` the one the console hosts. |
 | `crew_template` | Ephemeral callers only, from their participants row. An ephemeral caller with no parent or crew is refused before policy runs. |
 | `run_id`, `workflow` | The run the call names, and the workflow the registry says that run belongs to. |
 | `run_binding_verified` | Whether the caller is verifiably bound to that run: an ephemeral agent's row names exactly one run; a platform caller needs a live sandbox registration; a standing agent's company namespace must own the registration. Every run-scoped rule requires it, so a wrong, stale or revoked claim fails closed. |
@@ -63,6 +64,11 @@ say why without a lookup.
 | `heartbeat_start_<workflow>` | The heartbeat may start this workflow (only those on `may_start`). |
 | `heartbeat_start_over_concurrency`, `heartbeat_start_over_daily_cap`, `heartbeat_start_over_attempts` | A declared cap reached. |
 | `heartbeat_start_counts_missing`, `heartbeat_start_spend_missing`, `heartbeat_start_attempts_missing` | The live counts absent from the input — absence denies. |
+| `gate_resolve_<gate>_approve`, `gate_resolve_<gate>_reject` | A human the company names answers a gate through the console; the rule names the verdict, which is how the workflow reads it back. |
+| `run_start_<workflow>`, `run_cancel`, `heartbeat_wake`, `blueprint_apply` | The other human acts, for a human the company names. |
+| `human_not_recognized` | A verified person the blueprint's `company.humans` does not name. |
+| `merge_resolve_human` | The human path of the merge gate: a verdict the console recorded, approving, by one of the company's humans. |
+| `merge_resolve_no_human_verdict`, `merge_resolve_human_rejected`, `merge_resolve_not_a_human`, `merge_resolve_resolver_missing` | No recorded verdict (a signal by another road), the latest one rejects, its author is not a company human, or the path was not named. |
 | `merge_resolve_delegated` | A policy-resolved merge: verdict passed, checks green, reviewer independent, every changed path in the delegated class, and the contract green when one is declared. |
 | `merge_resolve_verdict_not_pass`, `merge_resolve_checks_not_green`, `merge_resolve_not_independent` | One of the platform facts failed. |
 | `merge_resolve_paths_missing`, `merge_resolve_carved_out_path`, `merge_resolve_undelegated_path`, `merge_resolve_contract_path` | The changed paths absent, or touching a carve-out (`.github/`), an undelegated path, or the contract tree. |
@@ -80,8 +86,9 @@ are stored only as a digest — audit must never become a leak channel.
 | `gateway` | the MCP gateway | every tool call: decision, rule, backend outcome |
 | `llm-gateway` | the LLM gateway | every model call and its metered cost; budget stops |
 | `sandbox-infra` | the egress proxy | every allowed and denied egress attempt (`egress_not_allowlisted`) |
-| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, budget pauses, `gate.heartbeat_attempts` exhaustion, the daily-cap halt, the `heartbeat_bootstrap_exhausted` halt |
+| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget pauses, `gate.heartbeat_attempts` exhaustion, the daily-cap halt, the `heartbeat_bootstrap_exhausted` halt |
 | `process-lifecycle` | the orchestrator | crew fulfilment: `lifecycle.bind`, `lifecycle.revoke`, pod provisioning and destruction; review facts (`review.verdict`, `merge.resolve`); heartbeat decisions (`heartbeat.decide`, `heartbeat.start`, `heartbeat.tick`, `heartbeat.bootstrap`) |
+| `console` | the console | every human act, under the person's name: `gate.resolve` (the recorded verdict the merge release reads), `run.start`, `run.cancel`, `heartbeat.wake`, `blueprint.apply`; and every token it refused |
 
 Every event carries `company`, `lifecycle`, `parent_agent_id` and
 `workflow` so attribution never has to be inferred from naming

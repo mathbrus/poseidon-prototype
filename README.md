@@ -55,8 +55,8 @@ download the `docs-site` artifact of any CI run; its pages live under
   NetworkPolicy, Temporal, and standing vs. ephemeral agents.
 - **Guides** — bring up a cluster, drive a run, hand over the heartbeat and
   the merge, run the acceptance suite.
-- **Reference** — the blueprint, roles and crews, tools, the CLI, the
-  Temporal contract, policy and audit. Rendered from the code.
+- **Reference** — the blueprint, roles and crews, tools, the console and
+  its CLI, the Temporal contract, policy and audit. Rendered from the code.
 
 ## Quickstart
 
@@ -64,9 +64,10 @@ It costs nothing: the default brain is a deterministic mock.
 
 ```bash
 uv sync
-for p in packages/*/; do uv run pytest "$p" -q; done   # eleven suites, no cluster needed
+for p in packages/*/; do uv run pytest "$p" -q; done   # thirteen suites, no cluster needed
 cp deploy/kind/.env.example deploy/kind/.env            # fill in GIT_TOKEN and the suite's TARGET_REPO
 deploy/kind/kind-up.sh                                  # cluster, images, chart, the company
+export POSEIDON_TOKEN=$(uv run poseidon login owner)    # you, to the console
 scripts/acceptance.sh                                   # the whole suite, zero LLM spend
 ```
 
@@ -82,9 +83,11 @@ and how to test it.
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
 | [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
-| [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates, the `poseidon` CLI |
+| [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates |
 | [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
 | [`llm-gateway`](packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |
+| [`console`](packages/console/README.md) | The human's chokepoint: verify the person, ask policy, act, audit |
+| [`cli`](packages/cli/README.md) | `poseidon-cli`: the `poseidon` CLI and the console client it is built on |
 | [`agent`](packages/agent/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
 | [`sandbox`](packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
 | [`mockllm`](packages/mockllm/README.md) | The deterministic brain that makes e2e runs free |

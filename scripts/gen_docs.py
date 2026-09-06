@@ -3,8 +3,8 @@
 mkdocs-gen-files runs this at build time (see mkdocs.yml). A page under
 docs/ carries a line `<!-- gen: NAME -->` wherever a table belongs; this
 script replaces the marker with the table rendered from the catalogs, the
-gateway's tool definitions, the `poseidon` CLI, the Temporal workflows and
-the blueprint JSON Schema, and re-emits the page. Nothing rendered here is
+gateway's tool definitions, the `poseidon` CLI, the console's routes, the
+Temporal workflows and the blueprint JSON Schema, and re-emits the page. Nothing rendered here is
 committed, so nothing here can drift from the code. A marker naming no
 generator, a generator no page uses, or a tool without a description fails
 the build.
@@ -24,6 +24,7 @@ import mkdocs_gen_files
 import typer.main
 
 from common.workflows import WORKFLOWS, workflow_id
+from console.app import ROUTES
 from orchestrator import workflows
 from poseidon_cli.main import app as cli_app
 from schema import tools
@@ -200,6 +201,18 @@ def cli(_: str | None) -> str:
     return "\n\n".join(out)
 
 
+# -- the console -------------------------------------------------------------
+
+
+def console_routes(_: str | None) -> str:
+    """The console's route table, as the app declares it."""
+    rows = [
+        [code(f"{method} {path}"), what, code(decision) if decision else "—"]
+        for method, path, what, decision in ROUTES
+    ]
+    return table(["Route", "What it does", "Decision"], rows)
+
+
 # -- the Temporal contract ---------------------------------------------------
 
 _WORKFLOW_CLASSES: dict[str, tuple[type, type]] = {
@@ -332,6 +345,7 @@ GENERATORS: dict[str, Callable[[str | None], str]] = {
     "tools": tool_table,
     "tool-count": tool_count,
     "cli": cli,
+    "console": console_routes,
     "workflows": workflow_table,
     "signals": signal_table,
     "blueprint-fields": blueprint_fields,

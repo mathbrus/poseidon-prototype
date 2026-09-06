@@ -136,8 +136,9 @@ agent host surfaces: the implement workflow matches the `budget_exhausted`
 marker in the dispatch result, parks on a `budget` signal in an
 API-visible `paused-budget_exhausted` state, fires an escalation at half
 the gate deadline, and records every transition as a `process-gate`
-audit event. `poseidon signal <run_id> budget --approved` (after
-raising the cap) re-dispatches; anything else finalizes the run with
+audit event. `poseidon signal <run_id> budget` (after raising the cap
+— the console decides and audits the verdict under the person's name,
+then delivers it) re-dispatches; anything else finalizes the run with
 the budget error. Never a quietly smaller model, never a truncated
 context — exhaustion is a distinguishable error, an audit event, an
 escalation, and a visible paused state.

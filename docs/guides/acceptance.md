@@ -18,6 +18,13 @@ and a real compiled merge gate.
 It spends nothing: the suite refuses to run against a paid brain unless
 `POSEIDON_ALLOW_PAID=1` opts in ([Use a real model](real-llm.md)).
 
+The script's preflight reads `deploy/kind/.env` for the gateway and the
+console (`MCP_GATEWAY_URL`, `POSEIDON_CONSOLE_URL`) and checks that each
+answers `401` without a token. The suite then acts only through
+[the console](../reference/console.md), as the `owner` the chart
+declares, and observes with psql, kubectl and GitHub — the same door a
+person uses, and no other.
+
 ```bash
 deploy/kind/kind-down.sh    # when you are done
 ```

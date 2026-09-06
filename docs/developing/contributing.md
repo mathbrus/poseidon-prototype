@@ -3,7 +3,7 @@
 ## Repository map
 
 ```
-packages/          eleven workspace packages (see Packages)
+packages/          thirteen workspace packages (see Packages)
 docs/              this site's pages; mkdocs.yml at the root builds it
 scripts/           acceptance.sh, gen_docs.py
 Dockerfile         one recipe for every image; deploy/build-images.sh is the matrix
@@ -19,7 +19,7 @@ tests/e2e_kind/    the acceptance suite that runs against a live cluster
 ```bash
 uv sync
 uv run pytest packages/common
-for p in packages/*/; do uv run pytest "$p" -q; done   # all eleven suites, no cluster needed
+for p in packages/*/; do uv run pytest "$p" -q; done   # all thirteen suites, no cluster needed
 ```
 
 Every package has its own `tests/conftest.py`, and pytest cannot collect
@@ -68,7 +68,8 @@ The reference pages are rendered from the code at build time by
 `scripts/gen_docs.py`: a page carries an HTML comment naming a generator
 (`gen: roles`, `gen: tools:sandbox`, …) where a table belongs, and the
 script fills it from the catalogs, the gateway's tool
-definitions, the CLI and the workflow classes. Nothing rendered is
+definitions, the CLI, the console's route table and the workflow
+classes. Nothing rendered is
 committed. Add a tool without a docstring, or drop a marker, and the build
 says so.
 
@@ -84,8 +85,8 @@ from `CLAUDE.md` rather than copying.
 | `lint` | ruff check + format |
 | `lock` | `uv lock --check`; advisory `pip-audit` |
 | `helm` | chart lints and renders — and a bare render must **fail**, proving secrets are required |
-| `unit` | all eleven suites, with a real Postgres so the registry tests run |
-| `opa` | the compiled bundle parses under the pinned OPA |
+| `unit` | all thirteen suites, with a real Postgres so the registry tests run |
+| `opa` | `python -m compiler` compiles the example blueprint with no cluster; the bundle parses under the pinned OPA |
 | `docs` | the site builds strict; the built site is the run's artifact |
-| `images` | all eight build; images resolve locked versions; no secret-shaped env baked in; every image runs as uid 10001 |
+| `images` | all nine build; images resolve locked versions; no secret-shaped env baked in; every image runs as uid 10001 |
 | `e2e-kind` | the full acceptance suite — **manual dispatch only** (real PRs, real cluster) |

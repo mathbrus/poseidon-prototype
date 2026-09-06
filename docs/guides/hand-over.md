@@ -40,7 +40,7 @@ Your job is two acts: keep the charter (edit the blueprint, re-apply) and
 answer merge gates. Watch it work:
 
 ```bash
-uv run poseidon status hello-saas --workflow heartbeat   # the standing workflow
+uv run poseidon heartbeat state                          # the standing workflow and its ticks
 kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
 ```
 
@@ -49,7 +49,8 @@ that may not `implement` on its own waits for `poseidon run <number>`.
 Removing the section is not a state — it does not compile. To stop the
 company, delete it: the loop reads no applied blueprint at its next tick
 and stops. `tests/e2e_kind/test_overnight.py` runs the whole arrangement
-end to end with exactly one human act: the approval out.
+end to end with exactly one human act: the approval out, through the
+console.
 
 ## The delegated gate: the company merges its own work
 
@@ -91,9 +92,11 @@ layer feeds the bounded rework loop instead.
     it out of `delegate.paths` to read that reading yourself.
     [What it cannot do](../argument/cannot.md) names the residual.
 
-With the merge handed over, the human surface is empty:
-`tests/e2e_kind/test_delegated.py` proves the arc — the company scopes,
-implements, reviews and merges its own in-class passing work, every
-decision on the audit record, and nobody touches anything. Taking the
+With the merge handed over, no human act remains. The human surface —
+the console — still stands, idle; every approval you did give is on the
+record under your name. `tests/e2e_kind/test_delegated.py` proves the arc
+— the company scopes, implements, reviews and merges its own in-class
+passing work, every decision on the audit record, and nobody touches
+anything. Taking the
 merge back is the same diff in reverse: re-apply a profile with
 `resolved_by: human` and every merge parks on you again.

@@ -16,7 +16,8 @@ sections: `company`, `stack`, `standing`, `tools`, `workflows`,
 a company without guardrails is a choice you make visibly, not a default
 you fall into by omission — and a company always has a heartbeat: it is
 how work originates, and `company.vision` with `company.documents` is
-what it originates from. The document format
+what it originates from. `company.humans` names the people who may act
+on the company through the console. The document format
 itself is read section by section on [the blueprint reference](../../docs/reference/blueprint.md).
 
 ## Module map
@@ -152,8 +153,9 @@ the schema and the catalogs.
   `RUN_SCOPED` when emitting Rego. It also owns everything this package
   refuses to check: workflow-conductor binding, budget coverage, the
   lean-standing rule.
-- `orchestrator`'s `poseidon blueprint` CLI calls `load_blueprint` before
-  compiling, so authors see these errors first.
+- The [`console`](../console/README.md) (`preview`, `apply`) and
+  `python -m compiler` call `load_blueprint` before compiling, so authors
+  see these errors first.
 - [`gateway`](../mcp-gateway/README.md) implements the same tool names.
   It does not import this package — the correspondence is kept by hand,
   so adding a tool means adding it in both places, this one first.
@@ -162,7 +164,7 @@ the schema and the catalogs.
 
 - Every object in the schema is `additionalProperties: false`: a typo'd
   key is an error, never a silently ignored line.
-- Names (`company.name`, standing names, agents) match
+- Names (`company.name`, `company.humans`, standing names, agents) match
   `^[a-z0-9][a-z0-9-]*$`; roles are keyed by name so a blueprint
   diff — a hire, a fire — reads as one.
 - An ephemeral agent's `tools` list is required, explicit, and at most the

@@ -17,8 +17,10 @@ For Poseidon this buys two things that matter more than convenience:
   runs.
 - **Human gates that survive restarts.** The merge gate is a workflow
   parked on a signal, possibly for hours. That is durable state, not a
-  process holding a socket open and hoping.
+  process holding a socket open and hoping. A person answers it through
+  the console, and the workflow releases on the verdict the console
+  recorded under their name — the signal only tells it to look.
 
 The kind test suite kills the worker mid-run and asserts the run completes
 with nothing leaked. The workflows, their signals and the surface beneath
-the CLI are written down in [the Temporal contract](../reference/temporal.md).
+the console are written down in [the Temporal contract](../reference/temporal.md).
