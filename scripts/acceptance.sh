@@ -19,7 +19,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ENV_FILE=deploy/kind/.env
-GATEWAY_URL=$(grep -E '^MCP_GATEWAY_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+GATEWAY_URL=$(grep -E '^MCP_GATEWAY_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
 GATEWAY_URL=${GATEWAY_URL:-http://127.0.0.1:8080}
 
 # Preflight, so a missing cluster fails in seconds with a useful message
@@ -37,7 +37,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$GATEWAY_URL/mcp" ||
   echo "gateway at $GATEWAY_URL answered '$code' (expected 401 without a token)" >&2
   exit 1
 }
-CONSOLE_URL=$(grep -E '^POSEIDON_CONSOLE_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)
+CONSOLE_URL=$(grep -E '^POSEIDON_CONSOLE_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
 CONSOLE_URL=${CONSOLE_URL:-http://127.0.0.1:8090}
 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$CONSOLE_URL/whoami" || true)
 [ "$code" = "401" ] || {
