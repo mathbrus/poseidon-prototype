@@ -9,11 +9,20 @@ from collections.abc import Iterable
 UNTRUSTED_CLIP = 8000
 
 
-def clip(text: str, limit: int = UNTRUSTED_CLIP) -> str:
-    """The head of `text`, with a marker saying how much was dropped."""
+def clip_head(text: str, limit: int = UNTRUSTED_CLIP) -> str:
+    """The head of `text`, with a marker saying how much was dropped —
+    for a document, whose opening matters."""
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n[... {len(text) - limit} chars clipped ...]\n"
+
+
+def clip_tail(text: str, limit: int) -> str:
+    """The tail of `text`, with a marker saying how much was dropped —
+    for a test run's output, whose ending matters."""
+    if len(text) <= limit:
+        return text
+    return f"[... {len(text) - limit} chars clipped ...]\n" + text[-limit:]
 
 
 def numbered_lines(lines: Iterable[str], first: int = 1) -> str:

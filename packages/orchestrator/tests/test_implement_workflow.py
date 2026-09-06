@@ -52,6 +52,12 @@ class Harness:
     attempts_recorded: list[str] = field(default_factory=list)
     wakes: int = 0
     verifies: int = 0
+    # Scripted verify outcomes, consumed in order; green once exhausted.
+    verify_outcomes: list[dict[str, Any]] = field(default_factory=list)
+    # Scripted implement dispatch results, consumed in order; `implement`
+    # once exhausted.
+    implement_outcomes: list[dict[str, Any]] = field(default_factory=list)
+    max_verify_retries: int = 0
 
     def activities(self) -> list[Any]:
         harness = self
@@ -64,13 +70,15 @@ class Harness:
             return {"cap_usd": 5.0, "spent_usd": 0.0}
 
         @activity.defn(name="workflow_config")
-        async def workflow_config(workflow: str) -> dict[str, Any]:
+        async def workflow_config(
+            workflow: str, crewless: bool = False
+        ) -> dict[str, Any]:
             return {
                 "company": "hello-saas",
                 "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
                 "crew": "feature-delivery",
                 "gates": {},
-                "max_verify_retries": 0,
+                "max_verify_retries": harness.max_verify_retries,
                 "budget_pause_minutes": 1,
                 "contract_paths": [],
                 "timeouts": asdict(FAST_TIMEOUTS),
@@ -101,8 +109,8 @@ class Harness:
                 },
             }
 
-        @activity.defn(name="read_documents")
-        async def read_documents(run_id: str) -> dict[str, str]:
+        @activity.defn(name="dispatch_documents")
+        async def dispatch_documents(run_id: str) -> dict[str, str]:
             return {"strategy": "Ship slugs."}
 
         @activity.defn(name="dispatch_agent")
@@ -119,11 +127,17 @@ class Harness:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
                 await asyncio.sleep(0.05)
-            return dict(harness.deliver if procedure == "deliver" else harness.implement)
+            if procedure == "deliver":
+                return dict(harness.deliver)
+            if harness.implement_outcomes:
+                return dict(harness.implement_outcomes.pop(0))
+            return dict(harness.implement)
 
         @activity.defn(name="platform_verify")
         async def platform_verify(run_id: str) -> dict[str, Any]:
             harness.verifies += 1
+            if harness.verify_outcomes:
+                return harness.verify_outcomes.pop(0)
             return {"passed": True, "output": ""}
 
         @activity.defn(name="record_attempts_exhausted")
@@ -159,7 +173,7 @@ class Harness:
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
-            read_documents,
+            dispatch_documents,
             dispatch_agent,
             platform_verify,
             record_attempts_exhausted,
@@ -250,6 +264,30 @@ async def test_an_architecture_request_ends_the_run_without_delivery(env):
     assert result is not None and result["ticket_urls"] == [url]
     assert harness.attempts_recorded == [RUN_ID]
     assert harness.wakes == 1
+
+
+async def test_a_verify_retry_keeps_the_first_dispatchs_tickets(env):
+    """A ticket an implement dispatch had the platform file is the run's
+    whatever the verify loop does next: a red verify re-dispatches, and
+    the re-dispatch's result must not erase it."""
+    url = "https://github.test/example/repo/issues/78"
+    harness = Harness(
+        implement_outcomes=[
+            {"status": "done", "error": None, "iterations": 1, "ticket_urls": [url]},
+        ],
+        verify_outcomes=[{"passed": False, "output": "red"}],
+        max_verify_retries=1,
+    )
+    # A dispatch that filed a ticket ends the run at the request (no
+    # verify at all), so the first dispatch here files nothing and the
+    # second, after the red verify, does.
+    harness.implement_outcomes.insert(
+        0, {"status": "done", "error": None, "iterations": 1, "ticket_urls": []}
+    )
+    await run_implement(env.client, harness)
+    (result, error) = harness.torn_down[0]
+    assert result is not None and result["ticket_urls"] == [url]
+    assert error == architecture_wait([url])
 
 
 async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):

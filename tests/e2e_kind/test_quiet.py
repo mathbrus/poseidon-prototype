@@ -24,7 +24,7 @@ def test_only_the_heartbeat_is_still_running(stack: None):
     review parked on a gate nobody will answer, no scope run mid-dispatch.
     The one workflow left is the standing heartbeat — a company always has
     one — and it is asleep, its last tick idle on an empty backlog."""
-    from .conftest import await_bare_heartbeat_asleep, bare_heartbeat_id, heartbeat_ticks
+    from .cluster import await_bare_heartbeat_asleep, bare_heartbeat_id, heartbeat_ticks
 
     running = [w for w in running_workflows() if f"heartbeat-{COMPANY_NS}" not in w]
     assert running == [], "workflows survived the suite; a module left its campsite dirty"

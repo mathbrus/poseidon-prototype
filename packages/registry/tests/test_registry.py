@@ -11,6 +11,7 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
+    FiledTickets,
     ParticipantRevoked,
     PolicyBundles,
     Registry,
@@ -72,15 +73,15 @@ def test_start_is_retry_safe(registry: Registry):
     """A re-attempt after a worker death must land on the same row, and
     must clear a terminal state left by a previous attempt."""
     runs = Runs(registry)
-    runs.start(RUN_ID, "attempt one")
+    runs.start(RUN_ID, "attempt one", company="hello-saas")
     runs.finish(RUN_ID, "failed", error="boom")
-    runs.start(RUN_ID, "attempt two")
+    runs.start(RUN_ID, "attempt two", company="hello-saas")
 
     record = runs.get(RUN_ID)
     assert record.task == "attempt two"
     assert record.status == "running"
     assert record.error is None and record.finished_at is None
-    assert len(runs.recent()) == 1
+    assert len(runs.recent("hello-saas")) == 1
 
 
 def test_finish_recreates_a_missing_row(registry: Registry):
@@ -100,6 +101,13 @@ def test_record_artifacts_accumulates(registry: Registry):
     # the ones its dispatches file.
     runs.record_artifacts(RUN_ID, ticket_urls=["https://issues/2", "https://issues/1"])
     assert runs.get(RUN_ID).ticket_urls == ["https://issues/1", "https://issues/2"]
+    # Once means once within a single write too.
+    runs.record_artifacts(RUN_ID, ticket_urls=["https://issues/3", "https://issues/3"])
+    assert runs.get(RUN_ID).ticket_urls == [
+        "https://issues/1",
+        "https://issues/2",
+        "https://issues/3",
+    ]
 
 
 # -- sandbox registrations ------------------------------------------------
@@ -483,7 +491,7 @@ def test_delivered_pr_urls_are_done_implement_runs_only(registry: Registry):
         "https://git.test/r/pull/9",
     ]
     # The world settled one: remembered on the run, offered no more.
-    runs.mark_pr_settled("hello-saas", "https://git.test/r/pull/4", "closed")
+    runs.mark_pr_settled("hello-saas", 4, "closed")
     assert Runs(registry).delivered_pr_urls("hello-saas") == ["https://git.test/r/pull/9"]
     assert runs.get("run-pr-1").pr_settled == "closed"
 
@@ -573,3 +581,30 @@ def test_participants_for_run_includes_terminated_rows(registry: Registry):
     rows = participants.for_run("run-lin-a")
     assert [(r["agent_id"], r["status"]) for r in rows] == [("lin-impl-1", "terminated")]
     assert participants.for_run("run-nowhere") == []
+
+
+# -- filed tickets ---------------------------------------------------------
+
+
+def test_filed_tickets_are_remembered_within_the_lag_window(registry: Registry):
+    """The gateway records each ticket once; the observation asks for the
+    ones filed within the host's listing lag, by repository."""
+    filed = FiledTickets(registry)
+    filed.record("github.com/example/repo", 7, RUN_ID)
+    filed.record("github.com/example/repo", 7, "run-other")  # a no-op
+    filed.record("github.com/example/repo", 9, RUN_ID)
+    filed.record("github.com/example/other", 3, RUN_ID)
+    assert FiledTickets(registry).filed_since("github.com/example/repo", 60) == [7, 9]
+    assert FiledTickets(registry).filed_since("github.com/example/repo", 0) == []
+
+
+def test_count_allowed_counts_answered_allows_only(registry: Registry):
+    """A per-run cap reads the calls the gateway allowed and the host
+    answered; a deny or a failed backend does not spend the cap."""
+    store = AuditStore(registry)
+    for decision, status in (("allow", "ok"), ("allow", "error"), ("deny", None)):
+        store.append(
+            event(tool="architecture.request", decision=decision, backend_status=status)
+        )
+    assert store.count_allowed(RUN_ID, "architecture.request") == 1
+    assert store.count_allowed(RUN_ID, "git.open_pr") == 0

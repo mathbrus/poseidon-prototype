@@ -12,8 +12,10 @@ from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
 from common.tasks import issue_run_task
-from orchestrator.activities.heartbeat import (
-    HeartbeatActivities,
+from orchestrator.activities.bootstrap import BootstrapActivities
+from orchestrator.activities.heartbeat import HeartbeatActivities
+from orchestrator.activities.observation import (
+    ObservationActivities,
     consumed,
     decision_prompt,
     scope_prompt,
@@ -26,6 +28,7 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
+    InMemoryFiledTickets,
     InMemoryRuns,
 )
 
@@ -94,10 +97,23 @@ def instances() -> InMemoryAgentInstances:
 
 
 @pytest.fixture
-def activities(
-    settings, runs, companies, instances, ledger, audit
-) -> HeartbeatActivities:
-    return HeartbeatActivities(settings, runs, companies, instances, ledger, audit)
+def filed() -> InMemoryFiledTickets:
+    return InMemoryFiledTickets()
+
+
+@pytest.fixture
+def activities(settings, runs, companies, instances, audit) -> HeartbeatActivities:
+    return HeartbeatActivities(settings, runs, companies, instances, audit)
+
+
+@pytest.fixture
+def observation(settings, runs, companies, ledger, filed) -> ObservationActivities:
+    return ObservationActivities(settings, runs, companies, ledger, filed)
+
+
+@pytest.fixture
+def bootstrap(settings, companies, audit) -> BootstrapActivities:
+    return BootstrapActivities(settings, companies, audit)
 
 
 def _pr(number: int, state: str = "open", merged: bool = False) -> dict[str, Any]:
@@ -126,7 +142,7 @@ def _backlog_gateway(
     Returns the log of PR reads — (run_id, number) — and issue reads by
     number, negated — so a test can assert under which identity the world
     was consulted."""
-    import orchestrator.activities.heartbeat as module
+    import orchestrator.activities.observation as module
 
     reads: list[tuple[str, int]] = []
 
@@ -225,11 +241,11 @@ def _issue(number: int) -> dict[str, Any]:
 
 
 def test_observe_backlog_is_unconsumed_sorted_and_body_free(
-    activities, runs, ledger, monkeypatch, fake_gateway
+    observation, runs, ledger, monkeypatch, fake_gateway
 ):
     _backlog_gateway(monkeypatch, fake_gateway, [_issue(7), _issue(3), _issue(5)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert [i["number"] for i in observed["backlog"]] == [5, 7]
     # The scoping cap reads every open issue, the worked one included.
     assert observed["open_tickets"] == 3
@@ -252,7 +268,7 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
 
 
 def test_observe_counts_every_running_run_and_todays_spend(
-    activities, runs, ledger, monkeypatch, fake_gateway
+    observation, runs, ledger, monkeypatch, fake_gateway
 ):
     """A scope run occupies the company like a delivery run does."""
     _backlog_gateway(monkeypatch, fake_gateway, [])
@@ -272,11 +288,12 @@ def test_observe_counts_every_running_run_and_todays_spend(
         reasoning_tokens=0,
         usd=2.5,
     )
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["active_runs"] == 2
     assert observed["daily_spent_usd"] == 2.5
     assert observed["backlog"] == []
-    assert len(observed["recent_runs"]) == 3
+    # run-c belongs to no company: the history is this company's alone.
+    assert len(observed["recent_runs"]) == 2
 
 
 def test_consumed_is_live_or_concluded_or_at_the_cap():
@@ -291,7 +308,7 @@ def test_consumed_is_live_or_concluded_or_at_the_cap():
 
 
 def test_observe_reoffers_an_aborted_issue_run_with_its_attempt_count(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     """An implement run that aborted before delivering (a timed-out model
     call, a step cap) is not the company's last word on the ticket: under
@@ -300,33 +317,33 @@ def test_observe_reoffers_an_aborted_issue_run_with_its_attempt_count(
     _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     runs.finish("run-a", "failed", error="litellm.Timeout")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert [(i["number"], i["attempts"]) for i in observed["backlog"]] == [(3, 1)]
 
 
 def test_observe_excludes_an_issue_with_a_live_run(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["backlog"] == []
 
 
 def test_observe_excludes_a_delivered_issue_whatever_the_run_status(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     """Delivered is concluded: a run that opened its PR and then failed at
     teardown still consumed the ticket."""
     _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     runs.finish("run-a", "failed", error="teardown: boom", pr_url="https://p/4")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["backlog"] == []
 
 
 def test_observe_excludes_an_issue_at_the_attempt_cap(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     """Two aborted runs under `max_attempts: 2`: the cap is spent and the
     issue stays consumed — bounded, never a retry loop."""
@@ -334,15 +351,15 @@ def test_observe_excludes_an_issue_at_the_attempt_cap(
     for run_id in ("run-a", "run-b"):
         runs.start(run_id, "implement issue #3", "implement", company=COMPANY)
         runs.finish(run_id, "failed", error="boom")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["backlog"] == []
     # max_attempts: 1 reproduces the one-shot rule exactly.
     runs.rows.pop("run-b")
-    assert asyncio.run(activities.heartbeat_observe(1))["backlog"] == []
+    assert asyncio.run(observation.heartbeat_observe(1))["backlog"] == []
 
 
 def test_observe_offers_delivered_unreviewed_prs(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     _backlog_gateway(monkeypatch, fake_gateway, [])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
@@ -350,14 +367,14 @@ def test_observe_offers_delivered_unreviewed_prs(
     runs.start("run-b", "implement issue #5", "implement", company=COMPANY)
     runs.finish("run-b", "done", pr_url="https://github.test/example/repo/pull/6")
     runs.start("run-c", "review pull request #6", "review", company=COMPANY)
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == [
         {"number": 4, "url": "https://github.test/example/repo/pull/4", "attempts": 0}
     ]
 
 
 def test_observe_reoffers_a_review_that_aborted_without_a_verdict(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     """The finding this exists for: a review that died of a timed-out
     model call or the step cap reached no verdict, so the PR is still
@@ -367,14 +384,14 @@ def test_observe_reoffers_a_review_that_aborted_without_a_verdict(
     runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
     runs.start("run-b", "review pull request #4", "review", company=COMPANY)
     runs.finish("run-b", "failed", error="agent loop did not finish within 30 steps")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == [
         {"number": 4, "url": "https://github.test/example/repo/pull/4", "attempts": 1}
     ]
 
 
 def test_observe_excludes_a_review_that_concluded_whatever_its_status(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     """A verdict is a conclusion: a failed review whose reviewer judged
     (rework filed, gate rejected or expired) stays consumed."""
@@ -384,12 +401,12 @@ def test_observe_excludes_a_review_that_concluded_whatever_its_status(
     runs.start("run-b", "review pull request #4", "review", company=COMPANY)
     runs.record_verdict("run-b", "fail")
     runs.finish("run-b", "failed", error="policy merge gate: rework ticket filed")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == []
 
 
 def test_observe_excludes_a_review_at_the_attempt_cap(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     _backlog_gateway(monkeypatch, fake_gateway, [])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
@@ -397,18 +414,18 @@ def test_observe_excludes_a_review_at_the_attempt_cap(
     for run_id in ("run-b", "run-c"):
         runs.start(run_id, "review pull request #4", "review", company=COMPANY)
         runs.finish(run_id, "failed", error="litellm.Timeout")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == []
 
 
 def test_observe_skips_an_unreadable_delivered_pr(
-    activities, runs, monkeypatch, fake_gateway
+    observation, activities, runs, monkeypatch, fake_gateway
 ):
     """A candidate the gateway cannot read (a 404 — for instance a registry
     that remembers a PR from another repository) is skipped like a settled
     one, instead of blinding the whole observation: every other candidate
     and the backlog still reach the PM."""
-    import orchestrator.activities.heartbeat as module
+    import orchestrator.activities.observation as module
 
     async def read_open_issues(self, run_id, repo):
         return [_issue(9)]
@@ -434,7 +451,7 @@ def test_observe_skips_an_unreadable_delivered_pr(
     runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
     runs.start("run-b", "implement issue #5", "implement", company=COMPANY)
     runs.finish("run-b", "done", pr_url="https://github.test/example/repo/pull/6")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert [p["number"] for p in observed["reviewable_prs"]] == [6]
     assert [i["number"] for i in observed["backlog"]] == [9]
 
@@ -446,7 +463,7 @@ def _bootstrap_issue(name: str, number: int) -> dict[str, Any]:
 
 
 def test_observe_reads_the_bootstrap_state_off_the_open_tickets(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     """An open bootstrap ticket means the document is being written, not
     pending; one whose every attempt aborted under the cap is exhausted —
@@ -461,14 +478,14 @@ def test_observe_reads_the_bootstrap_state_off_the_open_tickets(
     for run_id in ("run-a", "run-b"):
         runs.start(run_id, "implement issue #4", "implement", company=COMPANY)
         runs.finish(run_id, "failed", error="boom")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["bootstrap"] == {"pending": [], "exhausted": ["architecture"]}
     # The exhausted ticket is off the backlog like any consumed item.
     assert [i["number"] for i in observed["backlog"]] == [3]
 
 
 def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
-    activities, companies, audit, monkeypatch, fake_gateway
+    bootstrap, activities, companies, audit, monkeypatch, fake_gateway
 ):
     filed: list[tuple[str, str, str, str]] = []
 
@@ -476,34 +493,17 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
         filed.append((run_id, repo, title, body))
         return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
 
-    # The git host lists the ticket a beat after creating it: the first
-    # read-back misses it, the second finds it, and only then does the
-    # filing return — the next tick's listing cannot miss what it filed.
-    listings = iter([[], [_bootstrap_issue("strategy", 9)]])
-
-    async def read_open_issues(self, run_id, repo):
-        return next(listings)
-
     async def read_document(self, run_id, repo, ref, path):
         return {"present": False, "text": None}
 
-    import orchestrator.activities.heartbeat as module
+    import orchestrator.activities.bootstrap as module
 
-    monkeypatch.setattr(module, "LISTING_POLL_S", 0)
     monkeypatch.setattr(
         module,
         "GatewayClient",
-        fake_gateway(
-            create_issue=create_issue,
-            read_open_issues=read_open_issues,
-            read_document=read_document,
-        ),
+        fake_gateway(create_issue=create_issue, read_document=read_document),
     )
-    names = asyncio.run(activities.heartbeat_bootstrap(["strategy"]))
-    assert names == ["strategy"]
-    assert next(listings, None) is None, (
-        "the filing returned before its ticket was listed"
-    )
+    assert asyncio.run(bootstrap.heartbeat_bootstrap(["strategy"])) == ["strategy"]
     ((run_id, repo, title, body),) = filed
     assert (run_id, repo, title) == (
         f"heartbeat-{COMPANY}",
@@ -519,7 +519,7 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
 
 
 def test_bootstrap_files_nothing_for_a_document_present_on_re_read(
-    activities, companies, audit, monkeypatch, fake_gateway
+    bootstrap, activities, companies, audit, monkeypatch, fake_gateway
 ):
     """The git host's reads are eventually consistent: a document the
     observation missed answers present when the filing re-reads it, so no
@@ -533,49 +533,15 @@ def test_bootstrap_files_nothing_for_a_document_present_on_re_read(
     async def read_document(self, run_id, repo, ref, path):
         return {"present": True, "text": "# Strategy\n"}
 
-    import orchestrator.activities.heartbeat as module
+    import orchestrator.activities.bootstrap as module
 
     monkeypatch.setattr(
         module,
         "GatewayClient",
         fake_gateway(create_issue=create_issue, read_document=read_document),
     )
-    assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == []
+    assert asyncio.run(bootstrap.heartbeat_bootstrap(["strategy"])) == []
     assert filed == [] and audit.story(f"heartbeat-{COMPANY}") == []
-
-
-def test_bootstrap_returns_with_a_warning_when_the_listing_never_settles(
-    activities, companies, audit, monkeypatch, fake_gateway
-):
-    """The wait is bounded: a host that never lists the ticket within the
-    settle window does not hold the filing — one ticket was created, the
-    filing says so, and the next tick reads for itself."""
-    created: list[str] = []
-
-    async def create_issue(self, run_id, repo, title, body):
-        created.append(title)
-        return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
-
-    async def read_open_issues(self, run_id, repo):
-        return []
-
-    async def read_document(self, run_id, repo, ref, path):
-        return {"present": False, "text": None}
-
-    import orchestrator.activities.heartbeat as module
-
-    monkeypatch.setattr(module, "LISTING_SETTLE_S", 0)
-    monkeypatch.setattr(
-        module,
-        "GatewayClient",
-        fake_gateway(
-            create_issue=create_issue,
-            read_open_issues=read_open_issues,
-            read_document=read_document,
-        ),
-    )
-    assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == ["strategy"]
-    assert created == ["Bootstrap: strategy"]
 
 
 def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypatch):
@@ -620,7 +586,7 @@ def test_wake_heartbeat_swallows_every_failure(activities, monkeypatch):
 
 
 def test_observe_drops_delivered_prs_the_world_has_settled(
-    activities, runs, monkeypatch, fake_gateway
+    observation, runs, monkeypatch, fake_gateway
 ):
     """The registry knows what the company delivered; only the git host
     knows what happened to it since. A PR merged by a human's hand (or
@@ -643,7 +609,7 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
     for run_id, issue, pr in (("run-a", 3, 4), ("run-b", 5, 6), ("run-c", 7, 8)):
         runs.start(run_id, issue_run_task(issue), "implement", company=COMPANY)
         runs.finish(run_id, "done", pr_url=f"https://github.test/example/repo/pull/{pr}")
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == [
         {"number": 8, "url": "https://github.test/example/repo/pull/8", "attempts": 0}
     ]
@@ -658,7 +624,7 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
         "closed",
     )
     reads.clear()
-    asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert reads == [(f"heartbeat-{COMPANY}", 8)]
 
 
@@ -875,63 +841,6 @@ def test_decide_refuses_scope_while_a_document_is_absent(
     assert event["decision"] == "deny" and "architecture absent" in event["rule"]
 
 
-def _ticket_state(monkeypatch, fake_gateway, state: str) -> list[int]:
-    """The git host answering an issue read by number with `state`;
-    returns the log of numbers read."""
-    import orchestrator.activities.heartbeat as module
-
-    reads: list[int] = []
-
-    async def read_issue(self, run_id, repo, number):
-        reads.append(number)
-        return {"number": number, "title": "Add slugify", "state": state}
-
-    monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_issue=read_issue))
-    return reads
-
-
-def test_decide_reads_the_ticket_it_would_implement(
-    activities, companies, audit, monkeypatch, fake_gateway
-):
-    """The listing the observation read may lag a closure: the chosen
-    ticket is read by number before a run is spent on it, and an open one
-    is started."""
-    companies.upsert(
-        COMPANY,
-        {
-            "heartbeat": heartbeat_spec(),
-            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-        },
-    )
-    reads = _ticket_state(monkeypatch, fake_gateway, "open")
-    _pm(monkeypatch, _decided("implement", 5, "oldest open work"))
-    decision = asyncio.run(
-        activities.heartbeat_decide("auto-8", OBSERVED, ["implement", "review"], 5)
-    )
-    assert decision["target"] == 5 and reads == [5]
-
-
-def test_decide_refuses_a_ticket_the_world_closed(
-    activities, companies, audit, monkeypatch, fake_gateway
-):
-    companies.upsert(
-        COMPANY,
-        {
-            "heartbeat": heartbeat_spec(),
-            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-        },
-    )
-    _ticket_state(monkeypatch, fake_gateway, "closed")
-    _pm(monkeypatch, _decided("implement", 5, "oldest open work"))
-    with pytest.raises(ApplicationError) as caught:
-        asyncio.run(
-            activities.heartbeat_decide("auto-9", OBSERVED, ["implement", "review"], 5)
-        )
-    assert caught.value.non_retryable
-    (event,) = audit.story(f"heartbeat-{COMPANY}")
-    assert event["decision"] == "deny" and event["rule"] == "ticket #5 is closed"
-
-
 def test_decide_refuses_scope_at_the_open_ticket_cap(
     activities, companies, audit, monkeypatch
 ):
@@ -1030,7 +939,7 @@ def test_decision_prompt_shape_is_the_contract_the_brains_parse():
 
 
 def test_scope_observation_reads_the_world_under_the_scope_run(
-    activities, companies, runs, monkeypatch, fake_gateway
+    observation, companies, runs, monkeypatch, fake_gateway
 ):
     """The scope run's dispatch text is the observation as of now, read
     under the scope run's own id so the platform reads are attributed to
@@ -1046,13 +955,13 @@ def test_scope_observation_reads_the_world_under_the_scope_run(
     )
     runs.start("run-a", "implement issue #9", "implement", company=COMPANY)
     runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
-    text = asyncio.run(activities.scope_observation("scope-1"))
+    text = asyncio.run(observation.scope_observation("scope-1"))
     assert "Open tickets:\n#3 — issue 3" in text
     assert reads == [("scope-1", 4)]
 
 
 def test_the_observation_carries_the_documents_as_they_stand(
-    activities, companies, monkeypatch, fake_gateway
+    observation, companies, monkeypatch, fake_gateway
 ):
     """The strategy present on base_ref is rendered under its header; the
     absent masterplan is stated absent — both after the three lists, so
@@ -1068,27 +977,20 @@ def test_the_observation_carries_the_documents_as_they_stand(
             "heartbeat": heartbeat_spec(),
         },
     )
-    text = asyncio.run(activities.scope_observation("scope-2"))
+    text = asyncio.run(observation.scope_observation("scope-2"))
     assert text.index("Recent runs:") < text.index("Strategy:\n# Strategy\nShip.")
     assert text.endswith("Architecture masterplan:\n(absent)")
 
 
-def test_observe_reads_the_tickets_its_own_runs_just_filed(
-    activities, runs, monkeypatch, fake_gateway
+def test_observe_reads_the_tickets_the_company_just_filed(
+    observation, filed, monkeypatch, fake_gateway
 ):
-    """The host lists a new issue a beat late. A ticket a run of ours
-    filed a moment ago is on its row, so the observation reads it by
-    number and offers it — and counts it toward the scoping cap — while
-    the listing still lacks it. A ticket the host already closed stays
-    out, and a run that finished before the lag window (the in-memory
-    registry's fixed clock is long past) is not consulted at all."""
-    runs.start("scope-1", "scope the next slice", "scope", company=COMPANY)
-    runs.record_artifacts(
-        "scope-1", ticket_urls=["https://h/issues/41", "https://h/issues/43"]
-    )
-    runs.start("scope-0", "scope the next slice", "scope", company=COMPANY)
-    runs.record_artifacts("scope-0", ticket_urls=["https://h/issues/42"])
-    runs.finish("scope-0", "done")
+    """The host lists a new issue a beat late. A ticket the company filed
+    a moment ago is on the registry, so the observation reads it by number
+    and offers it — and counts it toward the scoping cap — while the
+    listing still lacks it. A ticket the host already closed stays out."""
+    filed.record("github.com/example/repo", 41, "scope-1")
+    filed.record("github.com/example/repo", 43, "scope-1")
     reads = _backlog_gateway(
         monkeypatch,
         fake_gateway,
@@ -1096,7 +998,7 @@ def test_observe_reads_the_tickets_its_own_runs_just_filed(
         files={"docs/STRATEGY.md": "# S\n", "docs/ARCHITECTURE.md": "# A\n"},
         unlisted={41: {"number": 41, "title": "Implement: slice", "state": "open"}},
     )
-    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert [i["number"] for i in observed["backlog"]] == [41]
     assert observed["open_tickets"] == 1
     assert sorted(reads) == [(f"heartbeat-{COMPANY}", -43), (f"heartbeat-{COMPANY}", -41)]

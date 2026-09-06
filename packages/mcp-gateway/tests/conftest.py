@@ -28,8 +28,8 @@ from mcp_gateway.git_backend import GITHUB_API_URL
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
-    InMemoryBudgetLedger,
     InMemoryCompanies,
+    InMemoryFiledTickets,
     InMemoryRunParticipants,
     InMemoryRuns,
     InMemorySandboxRegistrations,
@@ -337,8 +337,8 @@ def participants() -> InMemoryRunParticipants:
 
 
 @pytest.fixture
-def ledger() -> InMemoryBudgetLedger:
-    return InMemoryBudgetLedger()
+def filed() -> InMemoryFiledTickets:
+    return InMemoryFiledTickets()
 
 
 @pytest.fixture
@@ -363,6 +363,7 @@ async def app(
     instances: InMemoryAgentInstances,
     participants: InMemoryRunParticipants,
     companies: InMemoryCompanies,
+    filed: InMemoryFiledTickets,
 ):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
     application = create_app(
@@ -374,6 +375,7 @@ async def app(
         participants=participants,
         runs=InMemoryRuns(),
         companies=companies,
+        filed=filed,
         token_reviewer=FakeReviewer(),
     )
     async with application.state.fastmcp.session_manager.run():

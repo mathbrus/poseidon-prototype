@@ -1,5 +1,9 @@
 """The company's documents on the live cluster: written by the company,
-fenced by the platform.
+fenced by the platform. One arc, declared: the fixtures chain — a
+vision-only repository is bootstrapped, a request revises the masterplan
+the bootstrap wrote, an implementer's edit of that revised plan is
+refused, a hand-filed rewrite of the bootstrapped strategy is refused —
+so each later fixture reads the world the earlier one left.
 
 - **Bootstrap.** A vision-only repository: the heartbeat observes both
   documents absent, files the two bootstrap tickets under its own
@@ -28,7 +32,6 @@ import secrets
 
 import pytest
 
-from common.tasks import issue_run_task
 from mockllm.brain import (
     ARCH_REQUEST_MARKER,
     ARCHITECTURE_MD,
@@ -40,19 +43,23 @@ from orchestrator.activities.documents import BOOTSTRAP_TITLES, bootstrap_body
 from orchestrator.workflows.implement import architecture_wait
 
 from .blueprints import DELEGATED, restore_pristine, single_attempt
-from .cluster import audit_story, await_run, participants
+from .cluster import (
+    audit_story,
+    bare_heartbeat_id,
+    db_now,
+    filed_tickets_since,
+    participants,
+    wake_and_await_ticks,
+)
 from .conftest import (
     DOCUMENT_PATHS,
     apply_profile,
-    await_new_ticks,
-    bare_heartbeat_id,
     close_issue,
     close_pr,
     close_pr_url,
     delete_repo_file,
     file_ticket,
     github_api,
-    heartbeat_ticks,
     pr_number,
     put_repo_file,
     read_repo_file,
@@ -60,8 +67,6 @@ from .conftest import (
     run_review,
     run_ticket,
     target_slug,
-    wake_bare_heartbeat,
-    wake_until_run_started,
 )
 
 
@@ -80,12 +85,12 @@ def _open_issue_numbers(env: dict, title: str) -> list[int]:
 
 
 @pytest.fixture(scope="module")
-def one_shot_delegated(stack: None, repo_baseline: dict):
-    apply_profile(single_attempt(DELEGATED), repo_baseline)
-    yield repo_baseline
-    restore_strategy(repo_baseline)
+def one_shot_delegated(stack: None, baseline_env: dict):
+    apply_profile(single_attempt(DELEGATED), baseline_env)
+    yield baseline_env
+    restore_strategy(baseline_env)
     put_repo_file(
-        repo_baseline,
+        baseline_env,
         DOCUMENT_PATHS["architecture"],
         ARCHITECTURE_MD,
         "e2e: masterplan at rest",
@@ -106,12 +111,14 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
             env, DOCUMENT_PATHS[name], f"e2e: vision-only repository ({name})"
         )
     heartbeat_id = bare_heartbeat_id()
-    mark = len(heartbeat_ticks(heartbeat_id))
-    wake_bare_heartbeat()
-    filing = await_new_ticks(mark, 1)
+    since = db_now()
+    filing = wake_and_await_ticks(1)
     result: dict = {"env": env, "heartbeat_id": heartbeat_id, "filing_tick": filing[0]}
+    # The platform's own filings, read the way the platform reads them —
+    # from the registry, by number — not off a listing the host has not
+    # caught up with.
     tickets = {
-        name: _open_issue_numbers(env, BOOTSTRAP_TITLES[name])
+        name: _filed_titled(env, since, lambda t, name=name: t == BOOTSTRAP_TITLES[name])
         for name in BOOTSTRAP_TITLES
     }
     result["tickets"] = tickets
@@ -119,21 +126,18 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
     try:
         for name in ("strategy", "architecture"):
             (number,) = tickets[name]
-            wake_until_run_started(issue_run_task(number), "implement")
-            implement = await_run(issue_run_task(number), terminal=True)
+            implement = run_ticket(number)
             assert implement["status"] == "done", f"bootstrap {name}: {implement}"
             pr = pr_number(implement["pr_url"])
             assert pr is not None, implement
-            _, review = run_review(env, pr)
+            _, review = run_review(pr)
             assert review["status"] == "done", f"bootstrap {name} review: {review}"
             runs[name] = {"implement": implement, "review": review, "pr": pr}
         result["runs"] = runs
         # One more look at the now-complete repository: the loop files
         # nothing twice and — with the resting strategy naming no slice —
         # idles rather than scoping.
-        mark = len(heartbeat_ticks(heartbeat_id))
-        wake_bare_heartbeat()
-        result["after"] = await_new_ticks(mark, 1)[0]
+        result["after"] = wake_and_await_ticks(1)[0]
         result["documents"] = {name: _document(env, name) for name in BOOTSTRAP_TITLES}
         yield result
     finally:
@@ -221,21 +225,20 @@ def requested(bootstrapped: dict) -> dict:
     result: dict = {"env": env, "issue_number": number}
     revision: dict = {}
     try:
-        result["run"] = run_ticket(env, number)
-        requests = _open_issue_numbers_prefixed(
-            env, f"Architecture request from run {result['run']['run_id']}"
-        )
+        since = db_now()
+        result["run"] = run_ticket(number)
+        prefix = f"Architecture request from run {result['run']['run_id']}"
+        requests = _filed_titled(env, since, lambda t: t.startswith(prefix))
         result["request_tickets"] = requests
         (request_number,) = requests
         result["request_ticket"] = github_api(
             env, "GET", f"/repos/{target_slug(env)}/issues/{request_number}"
         ).json()
         # The loop implements the request: the steward revises the plan.
-        wake_until_run_started(issue_run_task(request_number), "implement")
-        revision["implement"] = await_run(issue_run_task(request_number), terminal=True)
+        revision["implement"] = run_ticket(request_number)
         assert revision["implement"]["status"] == "done", revision["implement"]
         revision["pr"] = pr_number(revision["implement"]["pr_url"])
-        _, revision["review"] = run_review(env, revision["pr"])
+        _, revision["review"] = run_review(revision["pr"])
         result["revision"] = revision
         result["masterplan"] = _document(env, "architecture")
         yield result
@@ -246,13 +249,19 @@ def requested(bootstrapped: dict) -> dict:
             close_issue(env, request_number)
 
 
-def _open_issue_numbers_prefixed(env: dict, prefix: str) -> list[int]:
-    issues = github_api(
-        env, "GET", f"/repos/{target_slug(env)}/issues?state=all&per_page=100"
-    ).json()
-    return sorted(
-        i["number"] for i in issues if (i.get("title") or "").startswith(prefix)
-    )
+def _filed_titled(env: dict, since: str, wanted) -> list[int]:
+    """The tickets the company filed after `since` whose title `wanted`
+    accepts — numbers from the registry, titles read one by one."""
+    return [
+        number
+        for number in filed_tickets_since(since)
+        if wanted(
+            github_api(env, "GET", f"/repos/{target_slug(env)}/issues/{number}")
+            .json()
+            .get("title")
+            or ""
+        )
+    ]
 
 
 def test_the_request_became_a_stewardship_ticket_the_caller_did_not_shape(
@@ -321,11 +330,11 @@ def masterplan_edit(requested: dict) -> dict:
     )
     result: dict = {"env": env, "issue_number": number}
     try:
-        result["run"] = run_ticket(env, number)
+        result["run"] = run_ticket(number)
         pr = pr_number(result["run"]["pr_url"])
         result["pr"] = pr
         if pr is not None:
-            run_review(env, pr)  # the loop reviews what it delivered
+            run_review(pr)  # the loop reviews what it delivered
         result["masterplan"] = _document(env, "architecture")
         yield result
     finally:
@@ -377,7 +386,7 @@ def strategy_rewrite(masterplan_edit: dict) -> dict:
     )
     result: dict = {"env": env, "issue_number": number}
     try:
-        result["run"] = run_ticket(env, number, deadline_s=900)
+        result["run"] = run_ticket(number, deadline_s=900)
         result["strategy"] = _document(env, "strategy")
         yield result
     finally:

@@ -45,7 +45,7 @@ import time
 
 import pytest
 
-from common.tasks import issue_run_task, review_run_task
+from common.tasks import review_run_task
 from mockllm.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
@@ -57,23 +57,23 @@ from .blueprints import (
 )
 from .cluster import (
     audit_story,
-    await_run,
+    bare_heartbeat_id,
+    heartbeat_ticks,
     run_by_task,
     run_spend,
     runs_by_task,
+    wake_and_await_ticks,
+    wake_bare_heartbeat,
 )
 from .conftest import (
     apply_profile,
-    await_new_ticks,
-    bare_heartbeat_id,
     close_issue,
     close_pr_url,
+    file_ticket,
     github_api,
-    heartbeat_ticks,
     pr_number,
+    run_ticket,
     target_slug,
-    wake_bare_heartbeat,
-    wake_until_run_started,
 )
 
 # The title is the decide-prompt injection; the body carries only the
@@ -92,11 +92,11 @@ def _injected_body(nonce: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def heartbeat_profile(stack: None, repo_baseline: dict):
+def heartbeat_profile(stack: None, baseline_env: dict):
     """Apply the implement-only profile for this module — the merged-by-hand
     arc needs a delivered PR to wait for the world, not for the next wake
     — and restore the pristine profile after."""
-    apply_profile(may_start(HELLO_SAAS, "implement"), repo_baseline)
+    apply_profile(may_start(HELLO_SAAS, "implement"), baseline_env)
     yield
     restore_pristine()
 
@@ -108,30 +108,13 @@ def unattended_run(heartbeat_profile, env: dict) -> dict:
     signal the platform sends. Returns the child run record plus the
     heartbeat's id."""
     nonce = secrets.token_hex(3)
-    slug = target_slug(env)
-    created = github_api(
-        env,
-        "POST",
-        f"/repos/{slug}/issues",
-        json={"title": INJECTED_TITLE, "body": _injected_body(nonce)},
-    )
-    assert created.status_code == 201, f"could not file issue: {created.text}"
-    issue_number = created.json()["number"]
+    issue_number = file_ticket(env, INJECTED_TITLE, _injected_body(nonce))
     heartbeat_id = bare_heartbeat_id()
 
     # An issue filed straight on GitHub is a change only the outside world
     # saw: wake the standing heartbeat onto it, then let it run the
     # implement to a terminal state with no human command.
-    wake_until_run_started(issue_run_task(issue_number), "implement")
-    deadline = time.monotonic() + 1800
-    child = None
-    while time.monotonic() < deadline:
-        child = run_by_task(issue_run_task(issue_number), workflow="implement")
-        if child and child["status"] in ("done", "failed"):
-            break
-        time.sleep(5)
-    assert child is not None, "the heartbeat never started the issue"
-    assert child["status"] in ("done", "failed"), f"child hung: {child}"
+    child = run_ticket(issue_number)
     record = {"child": child, "heartbeat_id": heartbeat_id}
 
     yield {**record, "issue_number": issue_number}
@@ -194,8 +177,7 @@ def test_nothing_merged_without_a_human(unattended_run: dict, pr_info):
     delivered the merge signal, so the PR sits open on a feature branch —
     the exfiltration never rode the delivery either."""
     child = unattended_run["child"]
-    if child["status"] != "done":
-        return  # a failed run produced no PR to check; containment held upstream
+    assert child["status"] == "done", f"the unattended run did not deliver: {child}"
     pr_url = child["pr_url"]
     assert pr_url, "a done run produced no PR"
     pull = pr_info(pr_url)
@@ -271,15 +253,12 @@ def merged_by_hand(unattended_run: dict, env: dict) -> dict:
     head = github_api(env, "GET", f"/repos/{slug}/pulls/{number}").json()["head"]["ref"]
     github_api(env, "DELETE", f"/repos/{slug}/git/refs/heads/{head}")
 
-    # Count-then-wake, twice: a wake landing mid-tick coalesces, so the
+    # Two looks, one at a time: a wake landing mid-tick coalesces, so the
     # second is sent only after the first tick has journaled.
-    mark = len(heartbeat_ticks(bare_heartbeat_id()))
-    wake_bare_heartbeat()
-    await_new_ticks(mark, 1)
-    wake_bare_heartbeat()
+    ticks = wake_and_await_ticks(1) + wake_and_await_ticks(1)
 
     return {
-        "ticks": await_new_ticks(mark, 2),
+        "ticks": ticks,
         "pr_number": number,
         "heartbeat_id": bare_heartbeat_id(),
     }
@@ -319,29 +298,19 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
     so the world is settled: the earlier PR is merged, the earlier issue
     consumed, and the heartbeat has one candidate at a time."""
     nonce = secrets.token_hex(3)
-    slug = target_slug(env)
-    created = github_api(
+    issue_number = file_ticket(
         env,
-        "POST",
-        f"/repos/{slug}/issues",
-        json={
-            "title": f"Add slugify utility ({REVIEW_ABORT_MARKER})",
-            "body": (
-                "Add a slugify utility with tests.\n\n"
-                f"Deliver your work on the branch `feature/slugify-{nonce}`."
-            ),
-        },
+        f"Add slugify utility ({REVIEW_ABORT_MARKER})",
+        "Add a slugify utility with tests.\n\n"
+        f"Deliver your work on the branch `feature/slugify-{nonce}`.",
     )
-    assert created.status_code == 201, f"could not file issue: {created.text}"
-    issue_number = created.json()["number"]
     heartbeat_id = bare_heartbeat_id()
     result: dict = {"issue_number": issue_number, "heartbeat_id": heartbeat_id}
 
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
 
-    wake_until_run_started(issue_run_task(issue_number), "implement")
-    implement = await_run(issue_run_task(issue_number), True)
+    implement = run_ticket(issue_number)
     assert implement["status"] == "done", f"unattended implement: {implement}"
     number = pr_number(implement["pr_url"])
     assert number is not None, f"not a PR url: {implement['pr_url']!r}"
@@ -374,9 +343,7 @@ def abandoned_review(merged_by_hand: dict, env: dict) -> dict:
             break
         time.sleep(3)
     for _ in range(2):
-        seen = len(heartbeat_ticks(heartbeat_id))
-        wake_bare_heartbeat()
-        await_new_ticks(seen, 1)
+        wake_and_await_ticks(1)
     result["reviews"] = runs_by_task(task, workflow="review")
     result["ticks"] = heartbeat_ticks(heartbeat_id)
 
@@ -441,9 +408,6 @@ def test_the_run_that_spent_the_last_attempt_recorded_it(
     )
 
 
-IDLE_RULES = {"tick_idle:backlog_empty", "tick_idle:pm_chose_idle"}
-
-
 def test_no_third_attempt_and_the_loop_goes_idle(abandoned_review: dict):
     """`max_attempts: 2` is a bound, not a retry loop: exactly two review
     runs exist, and the ticks after the second one finished are idle —
@@ -456,5 +420,5 @@ def test_no_third_attempt_and_the_loop_goes_idle(abandoned_review: dict):
     last_start = max(i for i, t in enumerate(ticks) if t["decision"] == "allow")
     after = [t["rule"] for t in ticks[last_start + 1 :]]
     assert after, "no ticks after the last start"
-    assert set(after) <= IDLE_RULES | {"tick_idle:runs_in_flight"}, after
-    assert after[-1] in IDLE_RULES, after
+    assert set(after) <= {"tick_idle:runs_in_flight", "tick_idle:pm_chose_idle"}, after
+    assert after[-1] == "tick_idle:pm_chose_idle", after

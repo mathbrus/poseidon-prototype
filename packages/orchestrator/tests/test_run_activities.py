@@ -205,7 +205,7 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
 def test_scope_has_no_node_and_binds_no_crew(activities):
     """Scope dispatches the conductor directly: nothing under `workflows`
     configures it, and its shape is the conductor alone."""
-    config = asyncio.run(activities.workflow_config("scope"))
+    config = asyncio.run(activities.workflow_config("scope", True))
     assert config["conductor"] == PM
     assert config["crew"] is None and config["gates"] == {}
 
@@ -254,7 +254,7 @@ def test_workflow_config_fails_closed_without_a_conductor_instance(
 # -- record_gate_outcome ------------------------------------------------------
 
 
-def test_read_documents_hands_a_run_the_present_ones(
+def test_dispatch_documents_hands_a_run_the_present_ones(
     activities, monkeypatch, fake_gateway
 ):
     """A dispatch carries the documents present on base_ref by name, read
@@ -271,7 +271,7 @@ def test_read_documents_hands_a_run_the_present_ones(
     monkeypatch.setattr(
         module, "GatewayClient", fake_gateway(read_document=read_document)
     )
-    documents = asyncio.run(activities.read_documents(RUN_ID))
+    documents = asyncio.run(activities.dispatch_documents(RUN_ID))
     assert documents == {"strategy": "Ship slugs."}
     assert reads == [
         (RUN_ID, "github.com/example/repo", "main", "docs/STRATEGY.md"),

@@ -26,7 +26,7 @@ from common.identity import (
     Identity,
 )
 from common.policy import PLATFORM_DECISION_PATH, company_decision_path
-from common.tasks import DOCUMENT_CREW
+from common.tasks import crew_trailer
 from common.telemetry import get_logger
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GitBackend
@@ -34,9 +34,12 @@ from mcp_gateway.opa import OpaClient
 from registry import (
     AuditStore,
     Companies,
+    FiledTickets,
     Runs,
     SandboxRegistrations,
 )
+from schema.catalog import STEWARDSHIP_CREW
+from schema.tools import ARCHITECTURE_REQUEST
 
 # tool name -> sandbox tool-server route
 SANDBOX_ROUTES = {
@@ -57,7 +60,10 @@ class PolicyDenied(Exception):
 
 
 # The one tool whose backend files a ticket the caller does not shape.
-ARCHITECTURE_REQUEST = "architecture.request"
+# The title of the stewardship ticket the platform files for an
+# architecture request; the run id follows, so the requesting run's
+# record and the ticket name each other.
+ARCHITECTURE_REQUEST_TITLE_PREFIX = "Architecture request from run "
 
 
 class BackendError(Exception):
@@ -74,6 +80,7 @@ class GatewayService:
         audit: AuditStore,
         runs: Runs,
         companies: Companies,
+        filed: FiledTickets,
         git_backend: GitBackend | None = None,
     ) -> None:
         self._settings = settings
@@ -89,6 +96,10 @@ class GatewayService:
         # Read-only: the run row supplies the decision input's `workflow`.
         self._runs = runs
         self._companies = companies
+        # Every ticket this gateway creates is recorded here the moment the
+        # git host answers: the loop reads its own writes while the host's
+        # listing catches up.
+        self._filed = filed
 
     # -- sandbox registry -------------------------------------------------
     # Registry accessors are synchronous psycopg; every use goes through
@@ -238,15 +249,12 @@ class GatewayService:
             policy_input["crew_template"] = identity.crew_template
         if tool == ARCHITECTURE_REQUEST:
             # The per-run cap reads how many requests this run already
-            # filed — off the gateway's own audit trail, the one record it
-            # writes, so the fact needs no new store.
-            story = await asyncio.to_thread(self._audit_store.story, run_id)
-            policy_input["architecture_requests"] = sum(
-                1
-                for e in story
-                if e["tool"] == ARCHITECTURE_REQUEST
-                and e["decision"] == "allow"
-                and e["backend_status"] == "ok"
+            # filed — allowed and answered — off the gateway's own audit
+            # trail, the one record it writes, so the fact needs no new
+            # store. A request the host failed to file does not count:
+            # the model may ask again.
+            policy_input["architecture_requests"] = await asyncio.to_thread(
+                self._audit_store.count_allowed, run_id, ARCHITECTURE_REQUEST
             )
         return policy_input
 
@@ -403,7 +411,7 @@ class GatewayService:
                     f"no applied blueprint for company {identity.company!r}"
                 )
             headline = (proposal.strip().splitlines() or ["(no proposal)"])[0][:80]
-            title = f"Architecture request from run {run_id}: {headline}"
+            title = f"{ARCHITECTURE_REQUEST_TITLE_PREFIX}{run_id}: {headline}"
             body = (
                 f"Rationale:\n{rationale.strip()}\n\n"
                 f"Proposal:\n{proposal.strip()}\n\n"
@@ -411,11 +419,17 @@ class GatewayService:
                 "in the pull request and say why.\n\n"
                 f"Filed by the platform for run {run_id} at the request of "
                 f"{identity.agent_id}.\n\n"
-                f"Crew: {DOCUMENT_CREW}"
+                f"{crew_trailer(STEWARDSHIP_CREW)}"
             )
-            return await self._git.create_issue(spec["repo"]["url"], title, body)
+            return await self._file_ticket(spec["repo"]["url"], run_id, title, body)
 
         return await self.call(identity, ARCHITECTURE_REQUEST, args, backend)
+
+    async def _file_ticket(self, repo: str, run_id: str, title: str, body: str) -> Any:
+        """Create the issue and remember it under the run that filed it."""
+        issue = await self._git.create_issue(repo, title, body)
+        await asyncio.to_thread(self._filed.record, repo, int(issue["number"]), run_id)
+        return issue
 
     async def issues_create(
         self, identity: Identity, run_id: str, repo: str, title: str, body: str
@@ -425,7 +439,7 @@ class GatewayService:
             identity,
             "issues.create",
             args,
-            lambda: self._git.create_issue(repo, title, body),
+            lambda: self._file_ticket(repo, run_id, title, body),
         )
 
     async def issues_read(

@@ -1,6 +1,6 @@
 # Poseidon
 
-**An autonomous software company, run by cloud coding agents, that cannot
+**An autonomous company, run by cloud agents, that cannot
 exceed its authority — because the infrastructure will not let it, not
 because the prompt asked nicely.**
 

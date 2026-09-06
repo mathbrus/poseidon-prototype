@@ -14,7 +14,6 @@ SANDBOX_TOOLS = [
     "sandbox.run_tests",
     "sandbox.git_bundle",
 ]
-REPO_TOOLS = ["repo.archive"]
 GIT_TOOLS = ["git.open_pr"]
 
 ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment"]
@@ -22,15 +21,16 @@ REVIEW_TOOLS = ["git.read", "git.comment"]
 # A crew member's one way to change the architecture masterplan: record a
 # proposal, which the platform files as a stewardship ticket. Asking is
 # not writing.
-ARCHITECTURE_TOOLS = ["architecture.request"]
-# Platform lifecycle only: the merge the orchestrator performs after the
-# gate, and the read of the company's documents at `base_ref` before every
-# tick and every run — never the sandbox's copy.
-PLATFORM_TOOLS = ["git.merge_pr", "repo.read_file"]
+ARCHITECTURE_REQUEST = "architecture.request"
+ARCHITECTURE_TOOLS = [ARCHITECTURE_REQUEST]
+# Platform lifecycle only: the archive a run's sandbox is provisioned
+# from, the merge the orchestrator performs after the gate, and the read
+# of the company's documents at `base_ref` before every tick and every
+# run — never the sandbox's copy.
+PLATFORM_TOOLS = ["repo.archive", "git.merge_pr", "repo.read_file"]
 
 KNOWN_TOOLS = frozenset(
     SANDBOX_TOOLS
-    + REPO_TOOLS
     + GIT_TOOLS
     + ISSUE_TOOLS
     + REVIEW_TOOLS

@@ -79,7 +79,7 @@ from the `run_id` alone ([Policy and audit](policy.md) lists them).
 | **llm-proxy** | provider API key | Talking to the actual model provider. Reachable *only* from the LLM gateway. |
 | **egress proxy** | egress HMAC key | The one network route out of a sandbox; allowlist + audit. |
 | **OPA** | — | Answering decision queries from compiled bundles. |
-| **registry** (Postgres) | — | Eight tables, one writer each; the audit and run store. |
+| **registry** (Postgres) | — | Nine tables, one writer each; the audit and run store. |
 | **agent** | *nothing* | Running the procedure a dispatch names, against the model behind the LLM gateway. Its credential is its own ServiceAccount's projected token file — for standing agents and ephemeral agents alike. |
 | **sandbox** | *nothing* | Running untrusted workspace code. |
 

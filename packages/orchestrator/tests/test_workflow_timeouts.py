@@ -11,7 +11,6 @@ from dataclasses import fields
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
     FAST_TIMEOUTS,
-    LISTING_SETTLE_S,
     PROFILES,
     Timeouts,
 )
@@ -40,12 +39,3 @@ def test_the_bootstrap_bound_covers_a_registry_round_trip_on_either_profile():
     """The birth activities run before the profile is known; their bound
     must not be tighter than what the fast profile allows a step."""
     assert BOOTSTRAP_S <= FAST_TIMEOUTS.step_s
-
-
-def test_the_bootstrap_filing_bound_covers_the_listing_settle_on_either_profile():
-    """The filing waits up to LISTING_SETTLE_S for its tickets to be listed
-    after creating them; its activity bound is a step plus that wait, so a
-    slow host can never time the filing out into a second attempt."""
-    for profile in PROFILES.values():
-        assert profile.step_s + LISTING_SETTLE_S > LISTING_SETTLE_S
-        assert profile.step_s > 0

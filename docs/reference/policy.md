@@ -80,7 +80,7 @@ are stored only as a digest — audit must never become a leak channel.
 | `gateway` | the MCP gateway | every tool call: decision, rule, backend outcome |
 | `llm-gateway` | the LLM gateway | every model call and its metered cost; budget stops |
 | `sandbox-infra` | the egress proxy | every allowed and denied egress attempt (`egress_not_allowlisted`) |
-| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, budget pauses, `gate.heartbeat_attempts` exhaustion, the daily-cap halt, the `heartbeat_bootstrap` halt |
+| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, budget pauses, `gate.heartbeat_attempts` exhaustion, the daily-cap halt, the `heartbeat_bootstrap_exhausted` halt |
 | `process-lifecycle` | the orchestrator | crew fulfilment: `lifecycle.bind`, `lifecycle.revoke`, pod provisioning and destruction; review facts (`review.verdict`, `merge.resolve`); heartbeat decisions (`heartbeat.decide`, `heartbeat.start`, `heartbeat.tick`, `heartbeat.bootstrap`) |
 
 Every event carries `company`, `lifecycle`, `parent_agent_id` and

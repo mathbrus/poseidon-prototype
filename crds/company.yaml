@@ -51,12 +51,14 @@ spec:
                   properties:
                     url: {type: string}
                     base_ref: {type: string}
-                # The company's document paths in that repository, by
-                # name (strategy, architecture): read at base_ref before
-                # every tick and every run.
+                # The company's two document paths in that repository:
+                # read at base_ref before every tick and every run.
                 documents:
                   type: object
-                  additionalProperties: {type: string}
+                  required: [strategy, architecture]
+                  properties:
+                    strategy: {type: string}
+                    architecture: {type: string}
                 # The compiled Rego bundle, filename -> source. The operator
                 # persists it and serves it over the standard OPA bundle
                 # API; OPA polls. No runtime data pushes.

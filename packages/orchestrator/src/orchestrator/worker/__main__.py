@@ -20,9 +20,11 @@ from temporalio.worker import Worker
 
 from common.telemetry import get_logger
 from orchestrator.activities import (
+    BootstrapActivities,
     CrewActivities,
     HeartbeatActivities,
     ImplementActivities,
+    ObservationActivities,
     ReviewActivities,
     RunActivities,
 )
@@ -41,6 +43,7 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
+    FiledTickets,
     RunParticipants,
     Runs,
     open_registry,
@@ -125,8 +128,17 @@ async def main() -> None:
         Runs(registry),
         Companies(registry),
         AgentInstances(registry),
-        BudgetLedger(registry),
         AuditStore(registry),
+    )
+    observation_activities = ObservationActivities(
+        settings,
+        Runs(registry),
+        Companies(registry),
+        BudgetLedger(registry),
+        FiledTickets(registry),
+    )
+    bootstrap_activities = BootstrapActivities(
+        settings, Companies(registry), AuditStore(registry)
     )
     # On a fresh cluster the worker may come up before Temporal does (the
     # poseidon release installs first) — wait patiently instead of tripping
@@ -161,6 +173,8 @@ async def main() -> None:
             *crew_activities.all(),
             *review_activities.all(),
             *heartbeat_activities.all(),
+            *observation_activities.all(),
+            *bootstrap_activities.all(),
         ],
     )
     log.info(

@@ -1,6 +1,6 @@
 # Poseidon
 
-**An autonomous software company, run by cloud coding agents, that cannot
+**An autonomous company, run by cloud agents, that cannot
 exceed its authority — because the infrastructure will not let it, not
 because the prompt asked nicely.**
 
@@ -80,7 +80,7 @@ and how to test it.
 | [`common`](packages/common/README.md) | Identity, workload authn, audit model, pod security posture |
 | [`schema`](packages/schema/README.md) | The blueprint contract and the role/crew catalogs |
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
-| [`registry`](packages/registry/README.md) | Eight Postgres tables; one writer each; the audit store |
+| [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
 | [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
 | [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates, the `poseidon` CLI |
 | [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |

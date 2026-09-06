@@ -126,7 +126,9 @@ class Harness:
             return {"cap_usd": 5.0, "spent_usd": 0.0}
 
         @activity.defn(name="workflow_config")
-        async def workflow_config(workflow: str) -> dict[str, Any]:
+        async def workflow_config(
+            workflow: str, crewless: bool = False
+        ) -> dict[str, Any]:
             return {
                 "company": "hello-saas",
                 "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
@@ -183,8 +185,8 @@ class Harness:
                 },
             }
 
-        @activity.defn(name="read_documents")
-        async def read_documents(run_id: str) -> dict[str, str]:
+        @activity.defn(name="dispatch_documents")
+        async def dispatch_documents(run_id: str) -> dict[str, str]:
             return {"strategy": "Ship slugs."}
 
         @activity.defn(name="dispatch_agent")
@@ -314,7 +316,7 @@ class Harness:
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
-            read_documents,
+            dispatch_documents,
             dispatch_agent,
             record_verdict,
             platform_verify,

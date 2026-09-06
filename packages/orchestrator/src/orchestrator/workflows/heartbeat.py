@@ -37,7 +37,8 @@ absent on the base ref with no bootstrap ticket open files one under the
 platform identity and wakes itself, so the next tick offers the
 stewardship crew's work like any other ticket; scoping is refused until
 both documents exist. A bootstrap ticket whose every attempt aborted
-halts the loop by name (`bootstrap_exhausted`, a process-gate event) —
+halts the loop by name (the `heartbeat_bootstrap_exhausted` process-gate
+event; the tick's rule is `bootstrap_exhausted`) —
 never a silent stall: a human closes the ticket and the loop refiles.
 
 What the tick offers is bounded the same way: an issue or a delivered PR
@@ -71,7 +72,6 @@ from temporalio.workflow import ParentClosePolicy
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
     DISPATCH_RETRY,
-    LISTING_SETTLE_S,
     SINGLE_ATTEMPT,
     STEP_RETRY,
     RunWorkflow,
@@ -96,7 +96,7 @@ class HeartbeatInput:
 @workflow.defn(name="heartbeat")
 class HeartbeatWorkflow(RunWorkflow):
     def __init__(self) -> None:
-        self._phase = "ticking"
+        self._state = "ticking"
         self._woken = False
 
     @workflow.signal
@@ -109,7 +109,7 @@ class HeartbeatWorkflow(RunWorkflow):
 
     @workflow.query
     def state(self) -> str:
-        return self._phase
+        return self._state
 
     @workflow.run
     async def run(self, input: HeartbeatInput) -> dict[str, Any]:
@@ -145,7 +145,7 @@ class HeartbeatWorkflow(RunWorkflow):
                 filed = await workflow.execute_activity(
                     "heartbeat_bootstrap",
                     args=[list(bootstrap["pending"])],
-                    start_to_close_timeout=step + timedelta(seconds=LISTING_SETTLE_S),
+                    start_to_close_timeout=step,
                     retry_policy=SINGLE_ATTEMPT,
                 )
                 # The filing re-reads the documents; one that answered
@@ -159,12 +159,12 @@ class HeartbeatWorkflow(RunWorkflow):
                 self._woken = True
             elif bootstrap.get("exhausted"):
                 # Every attempt on the bootstrap ticket aborted short of a
-                # delivery: the company cannot write its own charter and
+                # delivery: the company cannot write its own documents and
                 # says so, as a first-class process-gate event.
                 rule = "bootstrap_exhausted:" + ",".join(bootstrap["exhausted"])
                 await self.record_gate(
                     workflow_id("heartbeat", input.company),
-                    "heartbeat_bootstrap",
+                    "heartbeat_bootstrap_exhausted",
                     "halted",
                 )
             elif observed["active_runs"] >= int(config["max_concurrent_runs"]):
@@ -192,7 +192,7 @@ class HeartbeatWorkflow(RunWorkflow):
 
         await self._record(outcome, rule)
 
-        self._phase = "sleeping"
+        self._state = "sleeping"
         # A wake that landed during the tick skips the wait: one more tick
         # services it, however many wakes coalesced into the flag. The
         # reset before continue-as-new consumes the wake this run answers

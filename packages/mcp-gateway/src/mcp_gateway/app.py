@@ -35,11 +35,13 @@ from registry import (
     AgentInstances,
     AuditStore,
     Companies,
+    FiledTickets,
     RunParticipants,
     Runs,
     SandboxRegistrations,
     open_registry,
 )
+from schema.tools import ARCHITECTURE_REQUEST
 
 
 class AuthMiddleware:
@@ -87,6 +89,7 @@ def create_app(
     participants: RunParticipants | None = None,
     runs: Runs | None = None,
     companies: Companies | None = None,
+    filed: FiledTickets | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
     settings = settings or McpGatewaySettings()
@@ -99,7 +102,7 @@ def create_app(
     # reads for decision-input enrichment). Injectable so
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.
-    accessors = (sandboxes, audit, instances, participants, runs, companies)
+    accessors = (sandboxes, audit, instances, participants, runs, companies, filed)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -109,6 +112,7 @@ def create_app(
         participants = RunParticipants(registry)
         runs = Runs(registry)
         companies = Companies(registry)
+        filed = FiledTickets(registry)
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
     service = GatewayService(
@@ -119,6 +123,7 @@ def create_app(
         audit,
         runs,
         companies,
+        filed,
     )
     authenticator = Authenticator(
         settings,
@@ -278,9 +283,10 @@ def create_app(
         run_id: str, repo: str, ref: str, path: str, ctx: Context
     ) -> dict[str, Any]:
         """One file of the repository at `ref`, as the git host holds it —
-        `{present, text}`. Platform lifecycle only: how the orchestrator
-        reads the company's documents at `base_ref`, never from a sandbox
-        a run could have edited."""
+        `{present, text}`, a missing file being an ordinary answer.
+        Platform lifecycle only; the orchestrator reads the company's
+        documents with it at `base_ref`, never from a sandbox a run could
+        have edited."""
         return await service.read_file(identity_of(ctx), run_id, repo, ref, path)
 
     @mcp.tool(name="git.open_pr")
@@ -306,7 +312,7 @@ def create_app(
 
     # -- issues, review, merge, crew intent ---------------------------------
 
-    @mcp.tool(name="architecture.request")
+    @mcp.tool(name=ARCHITECTURE_REQUEST)
     async def architecture_request(
         run_id: str, rationale: str, proposal: str, ctx: Context
     ) -> dict[str, Any]:

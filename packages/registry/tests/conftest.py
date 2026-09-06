@@ -29,13 +29,14 @@ def registry() -> Registry:
 
 @pytest.fixture(autouse=True)
 def clean(registry: Registry):
-    """Every table starts empty for the next test — all eight, so no test
+    """Every table starts empty for the next test — all nine, so no test
     needs its own cleanup; run_participants goes before runs (the foreign
     key)."""
     yield
     for table in (
         "audit_events",
         "sandbox_registrations",
+        "filed_tickets",
         "run_participants",
         "runs",
         "budget_ledger",

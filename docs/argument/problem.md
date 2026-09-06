@@ -55,8 +55,9 @@ look like for that to be survivable.
 here is the model the rest of the argument defends against.
 
 **The adversary controls every word of text the agents read.** The
-company's own strategy and masterplan (they live in git), ticket bodies, code in the target repository, file names, test output,
-review comments — any of it may carry instructions crafted by someone else.
+company's own strategy and masterplan (they live in git), ticket bodies,
+code in the target repository, file names, test output, review comments —
+any of it may carry instructions crafted by someone else.
 Since the model cannot durably separate instruction from data, the working
 assumption is that the adversary can steer any agent's *next tool call* at
 any time. In classical terms, every agent is a standing invitation to the

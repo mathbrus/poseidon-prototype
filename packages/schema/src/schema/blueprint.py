@@ -14,7 +14,7 @@ schema's.
 
 from typing import Any
 
-from schema.gates import DOCUMENT_NAMES
+from schema.documents import DOCUMENT_NAMES
 from schema.tools import KNOWN_TOOLS
 
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"
@@ -160,7 +160,12 @@ _MERGE_DELEGATION = {
     "additionalProperties": False,
     "required": ["paths", "max_reworks"],
     "properties": {
-        "paths": {"type": "array", "items": _TEXT, "minItems": 1, "uniqueItems": True},
+        "paths": {
+            "type": "array",
+            "items": _REPO_PATH,
+            "minItems": 1,
+            "uniqueItems": True,
+        },
         "max_reworks": {"type": "integer", "minimum": 0},
     },
 }
@@ -221,7 +226,7 @@ _POLICIES = {
                 "allowed_pattern": _TEXT,
             },
         },
-        "deny_paths": {"type": "array", "items": _TEXT, "uniqueItems": True},
+        "deny_paths": {"type": "array", "items": _REPO_PATH, "uniqueItems": True},
         # The contract tree: the contract/acceptance tests and the role
         # templates that may deliver into it. Compiles to a `git.open_pr`
         # deny for every other role and joins the merge carve-outs — the
@@ -234,7 +239,7 @@ _POLICIES = {
             "properties": {
                 "paths": {
                     "type": "array",
-                    "items": _TEXT,
+                    "items": _REPO_PATH,
                     "minItems": 1,
                     "uniqueItems": True,
                 },

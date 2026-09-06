@@ -14,6 +14,7 @@ failure modes than the real thing hides exactly the bugs it exists to catch.
 """
 
 import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -29,6 +30,16 @@ class InMemoryAuditStore:
 
     def append(self, event: AuditEvent) -> None:
         self.events.append(event)
+
+    def count_allowed(self, run_id: str, tool: str) -> int:
+        return sum(
+            1
+            for e in self.events
+            if e.run_id == run_id
+            and e.tool == tool
+            and e.decision == "allow"
+            and e.backend_status == "ok"
+        )
 
     def story(self, run_id: str) -> list[dict[str, Any]]:
         # The same projection and order as AuditStore.story — consumers must
@@ -105,6 +116,22 @@ class InMemoryBudgetLedger:
 
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return [dict(e) for e in self.entries if e["run_id"] == run_id]
+
+
+class InMemoryFiledTickets:
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, int], tuple[str, float]] = {}
+
+    def record(self, repo: str, number: int, run_id: str) -> None:
+        self.rows.setdefault((repo, number), (run_id, time.time()))
+
+    def filed_since(self, repo: str, seconds: int) -> list[int]:
+        horizon = time.time() - seconds
+        return sorted(
+            number
+            for (r, number), (_run_id, filed_at) in self.rows.items()
+            if r == repo and filed_at > horizon
+        )
 
 
 class InMemorySandboxRegistrations:
@@ -342,9 +369,9 @@ class InMemoryRuns:
         if record is None:  # an UPDATE matching zero rows, not a KeyError
             return
         record.pr_url = pr_url or record.pr_url
-        record.ticket_urls = record.ticket_urls + [
-            u for u in ticket_urls or [] if u not in record.ticket_urls
-        ]
+        for url in ticket_urls or []:
+            if url not in record.ticket_urls:
+                record.ticket_urls.append(url)
 
     def record_verdict(self, run_id: str, verdict: str) -> None:
         record = self.rows.get(run_id)
@@ -424,9 +451,13 @@ class InMemoryRuns:
             and r.pr_settled is None
         ]
 
-    def mark_pr_settled(self, company: str, pr_url: str, state: str) -> None:
+    def mark_pr_settled(self, company: str, pr_number: int, state: str) -> None:
         for r in self.rows.values():
-            if r.company == company and r.workflow == "implement" and r.pr_url == pr_url:
+            if (
+                r.company == company
+                and r.workflow == "implement"
+                and (r.pr_url or "").endswith(f"/pull/{pr_number}")
+            ):
                 r.pr_settled = state
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
@@ -441,9 +472,13 @@ class InMemoryRuns:
         candidates.sort(key=lambda r: r.finished_at or "")
         return candidates[-1] if candidates else None
 
-    def recent(self, limit: int = 20) -> list[RunRecord]:
+    def recent(self, company: str, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first; heartbeat
         # decision rows are not work the company did and never enter the
         # observation's run history (same workflow literal as `runs.py`).
-        work = [r for r in self.rows.values() if r.workflow != "heartbeat"]
+        work = [
+            r
+            for r in self.rows.values()
+            if r.company == company and r.workflow != "heartbeat"
+        ]
         return work[-limit:][::-1]

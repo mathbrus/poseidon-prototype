@@ -28,20 +28,22 @@ from common.tasks import SCOPE_TASK
 from mockllm.brain import NEXT_SLICE_MARKER, PM_SUMMARY
 
 from .blueprints import HELLO_SAAS, derived_blueprint, may_start, restore_pristine
-from .cluster import audit_story, run_by_task
+from .cluster import (
+    audit_story,
+    bare_heartbeat_id,
+    heartbeat_ticks,
+    run_by_task,
+    wake_and_await_ticks,
+)
 from .conftest import (
     apply_profile,
-    await_new_ticks,
-    bare_heartbeat_id,
     close_issue,
     file_ticket,
     github_api,
-    heartbeat_ticks,
     open_slice_strategy,
     restore_strategy,
     scope_via_heartbeat,
     target_slug,
-    wake_bare_heartbeat,
 )
 
 
@@ -58,11 +60,11 @@ def _scope_only(max_open_tickets: int):
 
 
 @pytest.fixture(scope="module")
-def scoped(stack: None, repo_baseline: dict) -> dict:
+def scoped(stack: None, baseline_env: dict) -> dict:
     """Write a strategy naming one slice, wake the loop, and let it scope:
     hand back the run, the ticket and the ticks for the assertions. The
     strategy and the profile go back at the end."""
-    env = repo_baseline
+    env = baseline_env
     apply_profile(_scope_only(5), env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id(), "nonce": nonce}
@@ -131,23 +133,32 @@ def test_the_strategy_became_a_ticket_with_the_pms_summary(scoped: dict):
         assert event["workflow"] == "scope"
 
 
-def test_the_backlog_cap_refuses_a_second_scope_by_name(scoped: dict):
+@pytest.fixture
+def at_the_cap(scoped: dict) -> dict:
+    """The cap at one with one unrelated ticket open: the slice's own
+    ticket closed by number first (the profile swap's sweep reads a
+    listing the host may not have caught up with), the cap applied, the
+    unrelated ticket filed after the swap. Put back on exit: the ticket
+    closed, the cap at five."""
+    env = scoped["env"]
+    close_issue(env, scoped["issue_number"])
+    apply_profile(_scope_only(1), env)
+    unrelated = file_ticket(env, f"housekeeping ({scoped['nonce']})", "Tidy the README.")
+    try:
+        yield {**scoped, "unrelated": unrelated}
+    finally:
+        close_issue(env, unrelated)
+        apply_profile(_scope_only(5), env)
+
+
+def test_the_backlog_cap_refuses_a_second_scope_by_name(at_the_cap: dict):
     """The conductor may not flood its own backlog: with the cap at one
     open ticket and one open — a ticket that is not the slice's, so the PM
     has every reason to scope — the PM's next `scope` is refused by the
     platform: a `heartbeat.decide` deny naming the cap, a refused tick,
-    and no second scope run. The slice's own ticket is closed by number
-    first — the profile swap's sweep reads a listing the host may not have
-    caught up — and the unrelated ticket is filed after the swap."""
-    env = scoped["env"]
-    close_issue(env, scoped["issue_number"])
-    apply_profile(_scope_only(1), env)
-    scoped["unrelated"] = file_ticket(
-        env, f"housekeeping ({scoped['nonce']})", "Tidy the README wording."
-    )
-    mark = len(heartbeat_ticks(scoped["heartbeat_id"]))
-    wake_bare_heartbeat()
-    (tick,) = await_new_ticks(mark, 1)
+    and no second scope run."""
+    scoped = at_the_cap
+    (tick,) = wake_and_await_ticks(1)
     assert tick["decision"] == "deny" and "max_open_tickets" in (tick["rule"] or ""), tick
     refusals = [
         e
@@ -164,10 +175,7 @@ def test_a_strategy_naming_no_slice_leaves_the_loop_idle(scoped: dict):
     back and the backlog cleared, the woken loop asks the PM and the PM
     chooses idle — no scope run, no ticket."""
     env = scoped["env"]
-    close_issue(env, scoped.get("unrelated"))
     restore_strategy(env)
     apply_profile(_scope_only(5), env)
-    mark = len(heartbeat_ticks(scoped["heartbeat_id"]))
-    wake_bare_heartbeat()
-    (tick,) = await_new_ticks(mark, 1)
+    (tick,) = wake_and_await_ticks(1)
     assert tick["rule"] == "tick_idle:pm_chose_idle", tick

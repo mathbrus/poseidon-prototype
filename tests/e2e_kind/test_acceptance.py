@@ -33,9 +33,9 @@ What the suite proves, and where:
                   test_workload_identity; HERE: the registry's standing agents
                   agrees, and a live minted implementer is denied outside its
                   compiled allow-list at the gateway
-  7 cluster-      the suite reaches the cluster through the kubectl
-    neutral       context and .env alone; the kind-specific piece is
-                  deploy/kind/kind-up.sh.
+  7 cluster-      by construction, not by a module: `cluster.py` reaches
+    neutral       the cluster through the kubectl context and .env alone,
+                  and the kind-specific piece is deploy/kind/kind-up.sh.
   8 unattended    test_heartbeat_redteam (an attacker-filed issue consumed by
                   the heartbeat dies at the gates; a review that dies
                   without a verdict is retried once under max_attempts,
@@ -58,6 +58,13 @@ What the suite proves, and where:
                   contract-then-implement, the contract PR parks for one human
                   merge, then in-class work auto-merges on a green base-ref
                   contract).
+ 11 documents     test_documents (a vision-only repository bootstraps both
+                  documents through the steward; an architecture request
+                  becomes a stewardship ticket the loop implements; an
+                  implementer cannot deliver into the masterplan and the
+                  strategy is written once, for the steward too);
+                  test_scope (the strategy becomes the company's own
+                  ticket; scoping is refused by name at max_open_tickets).
 
 The suite's own discipline is proved too: test_brain_guard (the session
 refuses a paid brain without the explicit opt-in) and test_quiet (the exit
@@ -137,8 +144,11 @@ def test_compile_and_preview_close_the_declarative_loop(stack, tmp_path):
     with port_forward("svc/postgres", 5432) as port:
         dsn = f"postgresql://{POSTGRES_USER}:{password}@127.0.0.1:{port}/{POSTGRES_USER}"
 
-        # Preview of the applied document: a converged cluster diffs empty.
-        pristine = _blueprint_cli(["preview", str(HELLO_SAAS)], dsn)
+        # Preview of the applied document — the profile the suite leaves
+        # applied: a converged cluster diffs empty.
+        pristine = _blueprint_cli(
+            ["preview", str(suite_document(pristine_profile()))], dsn
+        )
         assert pristine.returncode == 0, pristine.stderr
         assert "registry unreachable" not in pristine.stderr, (
             "preview fell back to diffing against nothing — the assertion"

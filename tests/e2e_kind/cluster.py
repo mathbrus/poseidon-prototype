@@ -22,8 +22,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from temporalio.client import Client, WorkflowExecutionStatus
 
 from common.topology import RUN_ID_LABEL, TOKEN_AUDIENCE
+from orchestrator.workflows.base import workflow_id
 from registry import Registry, open_registry
 
 PLATFORM_NS = "poseidon-platform"  # the chart release namespace kind-up installs into
@@ -381,30 +383,31 @@ def run_by_task(
     )
 
 
-def runs_by_task(
-    task: str, workflow: str | None = None, since: str | None = None
-) -> list[dict[str, Any]]:
+def runs_by_task(task: str, workflow: str | None = None) -> list[dict[str, Any]]:
     """Every run on one canonical task, oldest first — the attempts the
     heartbeat made on one issue or PR."""
     return psql_json(
         "SELECT COALESCE(json_agg(r ORDER BY r.created_at), '[]'::json) "
         "FROM registry.runs r "
-        "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow') "
-        "AND r.created_at > COALESCE(NULLIF(:'since', ''), '-infinity')::timestamptz",
+        "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow')",
         task=task,
         workflow=workflow or "",
-        since=since or "",
     )
 
 
 def await_run(
-    task: str, terminal: bool, deadline_s: int = 1800, since: str | None = None
+    task: str,
+    terminal: bool,
+    deadline_s: int = 1800,
+    workflow: str | None = None,
+    since: str | None = None,
 ) -> dict[str, Any]:
-    """Poll the registry for the latest run on `task` (born after `since`
-    when given) — optionally until it reaches a terminal state."""
+    """Poll the registry for the latest run on `task` (of `workflow`, born
+    after `since`, when given) — optionally until it reaches a terminal
+    state."""
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
-        run = run_by_task(task, since=since)
+        run = run_by_task(task, workflow=workflow, since=since)
         if run and (not terminal or run["status"] in ("done", "failed")):
             return run
         time.sleep(5)
@@ -639,3 +642,113 @@ def crew_activities(client: Registry, settings, provisioner=None):
         Runs(client),
         provisioner=provisioner,
     )
+
+
+# --- the standing heartbeat: its id, its ticks, its wake and its sleep -----
+
+
+def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
+    """The tick rows one heartbeat workflow wrote — the ledger journals
+    every tick under the shared `heartbeat-{company}` run id, and each row
+    carries the writing workflow's own id in the `workflow` column. The
+    standing heartbeat keeps its id across restarts, so this list grows
+    for as long as the session runs: scope assertions to a window (count
+    the rows, act, assert on the rows past the mark) or to rules that
+    name a run, never to the whole history."""
+    return [
+        e
+        for e in audit_story(workflow_id("heartbeat", COMPANY_NS))
+        if e["tool"] == "heartbeat.tick" and e["workflow"] == heartbeat_id
+    ]
+
+
+def bare_heartbeat_id() -> str:
+    """The standing heartbeat's workflow id — the one the ensure loop
+    keeps running and the platform's own wakes reach."""
+    return workflow_id("heartbeat", COMPANY_NS)
+
+
+def wake_bare_heartbeat() -> None:
+    """Send the platform's own `wake` signal to the standing heartbeat —
+    the harness's stand-in for a change only the outside world saw (an
+    issue filed by hand, a PR merged by hand), compressed from the
+    reconcile wait to now. A real capability exercised, not a seam:
+    production sends the same signal."""
+
+    async def send() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            await client.get_workflow_handle(bare_heartbeat_id()).signal("wake")
+
+    asyncio.run(send())
+
+
+def await_new_ticks(mark: int, n: int, deadline_s: int = 180) -> list[dict[str, Any]]:
+    """Block until the standing heartbeat has journaled at least `mark + n`
+    tick rows and return the rows past the mark. Count-then-wake
+    discipline: take the mark, wake once, wait here before waking again —
+    a wake landing mid-tick coalesces, so blind sends under-count."""
+    deadline = time.monotonic() + deadline_s
+    while time.monotonic() < deadline:
+        ticks = heartbeat_ticks(bare_heartbeat_id())
+        if len(ticks) >= mark + n:
+            return ticks[mark:]
+        time.sleep(3)
+    raise AssertionError(
+        f"the heartbeat wrote {len(heartbeat_ticks(bare_heartbeat_id()))} ticks"
+        f" within {deadline_s}s; needed {mark + n}"
+    )
+
+
+def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
+    """Block until the company's `heartbeat-{company}` is running and
+    parked on its wait, so tick counts taken after this are the module's
+    own. Read off the workflow's own `state` query: a profile re-applied
+    over itself finds the standing heartbeat already waiting. The parked
+    loop answers a wake immediately — "sleeping" means ready, never
+    dormant."""
+    bare = workflow_id("heartbeat", COMPANY_NS)
+
+    async def wait() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = client.get_workflow_handle(bare)
+            deadline = time.monotonic() + deadline_s
+            while time.monotonic() < deadline:
+                # Not started yet, or between runs: keep waiting.
+                with contextlib.suppress(Exception):
+                    description = await handle.describe()
+                    if (
+                        description.status == WorkflowExecutionStatus.RUNNING
+                        and await handle.query("state") == "sleeping"
+                    ):
+                        return
+                await asyncio.sleep(3)
+            raise AssertionError(
+                f"the bare heartbeat {bare} was not asleep within {deadline_s}s"
+                " of the apply"
+            )
+
+    asyncio.run(wait())
+
+
+def wake_and_await_ticks(n: int = 1) -> list[dict[str, Any]]:
+    """The one way a module makes the standing heartbeat look now: count
+    its ticks, send the platform's own wake, and return the `n` ticks it
+    journals from there — the module's own, never an earlier one's."""
+    mark = len(heartbeat_ticks(bare_heartbeat_id()))
+    wake_bare_heartbeat()
+    return await_new_ticks(mark, n)
+
+
+def filed_tickets_since(since: str) -> list[int]:
+    """The tickets the company filed after `since` (a registry timestamp
+    from `db_now`), by number — read from the registry the way the loop
+    reads its own writes, so a module never waits on the host's listing
+    for a ticket the platform just filed."""
+    rows = psql_json(
+        "SELECT COALESCE(json_agg(t.number ORDER BY t.number), '[]'::json) "
+        "FROM registry.filed_tickets t WHERE t.filed_at > :'since'::timestamptz",
+        since=since,
+    )
+    return [int(n) for n in rows]

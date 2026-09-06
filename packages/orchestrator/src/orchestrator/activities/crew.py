@@ -87,7 +87,8 @@ class CrewActivities:
         crew, company and catalog role, and the gateways resolve the SA
         against it on every call. Nothing is signed here.
 
-        spec: {run_id, company, crew_template, role, parent_agent_id}.
+        spec: {run_id, company, crew_template, role, parent_agent_id,
+        workflow}.
         Retry-safe: the agent_id derives from {crew, role, run}, so a
         re-bind lands on the same row — one identity, never two. A re-bind
         after the run's teardown swept the row raises `ParticipantRevoked`:
@@ -106,6 +107,7 @@ class CrewActivities:
             rule="participant_bound",
             digest=args_digest(spec),
             started=started,
+            workflow=spec.get("workflow", ""),
         )
         self._log.bind(run_id=spec["run_id"]).info(
             "participant bound", extra={"agent_id": agent_id}
@@ -162,7 +164,8 @@ class CrewActivities:
         The pod's only credential is the projected token the kubelet
         mounts — nothing token-shaped enters the env or workflow history.
 
-        spec: {run_id, company, crew_template, role, parent_agent_id}.
+        spec: {run_id, company, crew_template, role, parent_agent_id,
+        workflow}.
         Re-asserting the binding row lets a retry after a crash converge on
         the same identity; a retry that lost the race with its run's
         teardown raises `ParticipantRevoked` instead.
@@ -210,6 +213,7 @@ class CrewActivities:
             rule="ephemeral_pod_provisioned",
             digest=args_digest(spec),
             started=started,
+            workflow=spec.get("workflow", ""),
         )
         self._log.bind(run_id=spec["run_id"]).info(
             "ephemeral pod provisioned", extra={"agent_id": agent_id, "url": handle.url}
@@ -336,6 +340,7 @@ class CrewActivities:
                 "crew_template": crew_template,
                 "role": agent["role"],
                 "parent_agent_id": conductor,
+                "workflow": spec["workflow"],
             }
             await self.bind_participant(agent_spec)
             pod = await self.provision_ephemeral_pod(agent_spec)
@@ -445,8 +450,9 @@ class CrewActivities:
         workflow: str = "",
     ) -> None:
         """One lifecycle event on the run's story. `workflow` names the
-        workflow the run serves where the caller knows it (fulfilment and
-        its authorization); teardown's events name none."""
+        workflow the run serves: every fulfilment event carries it (the
+        agent spec does); teardown's events, which know only the run id,
+        name none."""
         event = await record_event(
             self._audit,
             run_id=run_id,

@@ -142,7 +142,7 @@ contract author's gutted spec parks on a human with its deletions counted —
 of this page is that "policy can merge" is a bounded grant with edges worth
 knowing, not a blank cheque.
 
-## The company writes its own charter — with named residual risk
+## The company writes its own documents — with named residual risk
 
 Below the vision, every document the company works from is its own:
 the strategy and the architecture masterplan are agent-written, in git,
@@ -170,10 +170,12 @@ and read back as untrusted text. What that leaves honest to state:
   exactly that.
 - **A bootstrap ticket nobody can fulfil halts, and stays halted.** When
   every attempt on a bootstrap ticket aborts short of a delivery, the loop
-  records a `heartbeat_bootstrap` halt and files no more; a human closes
-  the ticket and the loop refiles. A bootstrap pull request a human closed
-  without merging leaves the ticket concluded and the document absent —
-  the same remedy applies, and the loop does not guess.
+  records a `heartbeat_bootstrap_exhausted` halt and files no more; a
+  human closes the ticket and the loop refiles. A bootstrap pull request a
+  human closed without merging is the other shape: the ticket concluded
+  (it delivered) and the document is still absent, so the loop names no
+  halt and idles, scoping refused, until a human closes the ticket and
+  the loop refiles. The loop does not guess either way.
 - **A retried ticket may ask again.** An implementer that requests an
   architecture change ends its run waiting, by name, and the attempt cap
   decides whether the ticket is offered again. The one-request cap is per

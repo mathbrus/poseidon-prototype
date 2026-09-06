@@ -46,7 +46,7 @@ def reviewer_token(participants) -> str:
 # -- issues.* (the PM's surface) --------------------------------------------
 
 
-async def test_pm_runs_the_issue_lifecycle(app, backends, audit):
+async def test_pm_runs_the_issue_lifecycle(app, backends, audit, filed):
     async with mcp_session(app, PM_TOKEN) as session:
         created = payload(
             await session.call_tool(
@@ -77,6 +77,9 @@ async def test_pm_runs_the_issue_lifecycle(app, backends, audit):
         ("issues.comment", "allow"),
     ]
     assert all(e["agent_id"] == "pm-1" for e in audit_events(audit))
+    # The ticket is on the registry the moment the host created it, under
+    # the run that filed it: the loop reads its own writes from there.
+    assert filed.filed_since(REPO, 60) == [7]
 
 
 async def test_single_issue_read_returns_the_view(app, backends):

@@ -34,23 +34,28 @@ import time
 import pytest
 from temporalio.client import Client
 
-from common.tasks import issue_run_task, review_run_task
+from common.tasks import review_run_task
 from mockllm.brain import NEXT_SLICE_MARKER
 from orchestrator.workflows.base import workflow_id
 
 from .blueprints import HELLO_SAAS, restore_pristine
-from .cluster import audit_story, await_run, temporal_port_forward
+from .cluster import (
+    audit_story,
+    await_run,
+    bare_heartbeat_id,
+    heartbeat_ticks,
+    temporal_port_forward,
+)
 from .conftest import (
     REPO_ROOT,
     apply_profile,
-    bare_heartbeat_id,
     close_issue,
     close_pr,
     github_api,
-    heartbeat_ticks,
     open_slice_strategy,
     pr_number,
     restore_strategy,
+    run_ticket,
     scope_via_heartbeat,
     target_slug,
     wake_until_run_started,
@@ -83,10 +88,10 @@ def _signal_merge(run_id: str, address: str) -> None:
 
 
 @pytest.fixture(scope="module")
-def overnight(stack: None, repo_baseline: dict) -> dict:
+def overnight(stack: None, baseline_env: dict) -> dict:
     """Drive the whole unattended arc and hand back every artifact for the
     assertions to read."""
-    env = repo_baseline
+    env = baseline_env
     apply_profile(HELLO_SAAS, env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
@@ -112,12 +117,7 @@ def overnight(stack: None, repo_baseline: dict) -> dict:
             # --- touch nothing: the scope run's finishing nudge wakes the
             # loop onto the ticket it filed; the re-nudge covers a backlog
             # read that landed before the ticket was visible on the git host.
-            await asyncio.to_thread(
-                wake_until_run_started, issue_run_task(issue_number), "implement"
-            )
-            implement = await asyncio.to_thread(
-                await_run, issue_run_task(issue_number), True
-            )
+            implement = await asyncio.to_thread(run_ticket, issue_number)
             assert implement["status"] == "done", f"unattended implement: {implement}"
             assert implement["pr_url"], "the unattended implement produced no PR"
             result["implement"] = implement

@@ -44,6 +44,19 @@ class AuditStore:
             ),
         )
 
+    def count_allowed(self, run_id: str, tool: str) -> int:
+        """How many calls of `tool` this run made that were allowed and
+        answered — the fact a per-run cap on a tool reads."""
+        rows = self._db.query(
+            """
+            SELECT count(*) AS n FROM registry.audit_events
+             WHERE run_id = %s AND tool = %s
+               AND decision = 'allow' AND backend_status = 'ok'
+            """,
+            (run_id, tool),
+        )
+        return int(rows[0]["n"]) if rows else 0
+
     def story(self, run_id: str) -> list[dict[str, Any]]:
         """Everything the platform decided for this run, in order — across
         every source, from one query."""

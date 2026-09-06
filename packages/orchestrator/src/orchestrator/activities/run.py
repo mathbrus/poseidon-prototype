@@ -145,12 +145,15 @@ class RunActivities:
         return {"cap_usd": cap, "spent_usd": spent}
 
     @activity.defn(name="workflow_config")
-    async def workflow_config(self, workflow: str) -> dict[str, Any]:
+    async def workflow_config(
+        self, workflow: str, crewless: bool = False
+    ) -> dict[str, Any]:
         """The named workflow's shape, read from the applied blueprint and
         the converged conductor instance — gates, crew, bounds and the
         conductor all come from config, never from code — plus the
         deployment's timeout profile (`timeouts`). Fail-closed: no
-        applied blueprint, no node for a crewed workflow, or no converged
+        applied blueprint, no node for a crewed workflow (`crewless` is
+        the workflow's own word that it has none), or no converged
         conductor each refuse the run before anything is provisioned."""
         config = await asyncio.to_thread(
             workflow_config,
@@ -158,11 +161,12 @@ class RunActivities:
             self._instances,
             self._settings.company,
             workflow,
+            crewless,
         )
         return {**config, "timeouts": asdict(PROFILES[self._settings.timeout_profile])}
 
-    @activity.defn(name="read_documents")
-    async def read_documents(self, run_id: str) -> dict[str, str]:
+    @activity.defn(name="dispatch_documents")
+    async def dispatch_documents(self, run_id: str) -> dict[str, str]:
         """The company's documents as a dispatch carries them: name to
         text for the ones present on `base_ref`, read under the run's own
         id — never the sandbox's copy, which the run could have edited."""
@@ -349,7 +353,7 @@ class RunActivities:
             self.create_run,
             self.check_budget,
             self.workflow_config,
-            self.read_documents,
+            self.dispatch_documents,
             self.record_gate_outcome,
             self.teardown,
             self.record_attempts_exhausted,

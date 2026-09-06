@@ -49,9 +49,11 @@ revises the plan on a later tick. Asking is not writing.
 Both documents are read at the base ref before every tick and every run,
 under the platform identity — never the sandbox's copy, which the run
 could have edited — and handed to the conductor and the crews as untrusted
-text, beside the repository's `AGENTS.md`. Rank order, enforced by
-channel: the vision (the static prompt) outranks the strategy outranks the
-masterplan outranks tickets, requests and `AGENTS.md`.
+text, beside the repository's `AGENTS.md`. Two channels, one boundary:
+the vision is the static prompt and is trusted; everything else — the
+strategy, the masterplan, tickets, requests, `AGENTS.md` — reaches the
+model as untrusted content, ordered but not ranked. Every prompt says so
+in the same sentence.
 
 !!! note
     A vision-only repository is not an error. The first ticks observe the

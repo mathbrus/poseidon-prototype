@@ -61,6 +61,12 @@ def workflow_id(workflow: str, key: str) -> str:
     return f"{workflow}-{key}"
 
 
+def heartbeat_run_id(company: str) -> str:
+    """The run id every heartbeat read, filing and audit row is
+    attributed to: the company's one standing loop, by its workflow id."""
+    return workflow_id("heartbeat", company)
+
+
 @dataclass
 class Timeouts:
     """Per-activity bounds — the deployment's timeout profile.
@@ -109,11 +115,6 @@ PROFILES = {"default": Timeouts(), "fast": FAST_TIMEOUTS}
 # (teardown's bookkeeping). A ceiling, never a wait: these activities
 # answer in milliseconds on either profile.
 BOOTSTRAP_S = 30
-# The git host lists a new issue up to a minute after creating it. A
-# bootstrap filing waits that long for its tickets to be listed, so the
-# next tick — its own wake — cannot miss them and file again; the
-# filing's activity bound is a step plus this wait.
-LISTING_SETTLE_S = 60
 
 
 class RunWorkflow:
@@ -123,13 +124,17 @@ class RunWorkflow:
     `process-gate` audit events, the budget-pause loop around an agent
     dispatch, and teardown.
 
-    Subclasses name their `WORKFLOW`, set `_phase` and `_budget_gate`, and
+    Subclasses name their `WORKFLOW`, set `_state` and `_budget_gate`, and
     declare their own signals and the `state` query — Temporal reads those
     off the concrete class.
     """
 
     WORKFLOW: str
-    _phase: str
+    # A workflow that dispatches the conductor directly and has no node
+    # in the blueprint's `workflows` says so; every other one is refused
+    # without its node.
+    CREWLESS: bool = False
+    _state: str
     _budget_gate: Gate
     # The deployment's profile, learned from `workflow_config`; until then
     # (and on a birth that failed before it) the default sizing applies.
@@ -159,7 +164,7 @@ class RunWorkflow:
         )
         config = await workflow.execute_activity(
             "workflow_config",
-            args=[self.WORKFLOW],
+            args=[self.WORKFLOW, self.CREWLESS],
             start_to_close_timeout=bootstrap,
             retry_policy=STEP_RETRY,
         )
@@ -198,11 +203,12 @@ class RunWorkflow:
         (agent,) = fulfilled["agents"].values()
         return agent
 
-    async def read_documents(self, run_id: str) -> dict[str, str]:
-        """The company's documents as they stand on `base_ref`, read under
-        the run's id for the dispatches that judge work against them."""
+    async def dispatch_documents(self, run_id: str) -> dict[str, str]:
+        """The company's documents as a dispatch carries them — name to
+        text for the ones present on `base_ref`, read under the run's id
+        for the dispatches that judge work against them."""
         return await workflow.execute_activity(
-            "read_documents",
+            "dispatch_documents",
             args=[run_id],
             start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=STEP_RETRY,
@@ -295,12 +301,12 @@ class RunWorkflow:
             )
             if BUDGET_MARKER not in ((result or {}).get("error") or ""):
                 return result
-            self._phase = f"paused-{BUDGET_MARKER}"
+            self._state = f"paused-{BUDGET_MARKER}"
             outcome = await self._budget_gate.wait(
                 **gate_deadline(self._config["budget_pause_minutes"]),
                 on_escalate=lambda: self.record_gate(run_id, "budget", "escalated"),
             )
-            self._phase = "running"
+            self._state = "running"
             await self.record_gate(run_id, "budget", outcome.kind)
             if outcome.kind != "approved":
                 return result

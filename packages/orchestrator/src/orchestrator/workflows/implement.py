@@ -28,7 +28,6 @@ dispatch comes back with the LLM gateway's `budget_exhausted` marker.
 """
 
 import asyncio
-import re
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -36,7 +35,7 @@ from typing import Any
 from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
-from common.tasks import issue_run_task
+from common.tasks import issue_run_task, ticket_crew
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     STEP_RETRY,
@@ -61,30 +60,11 @@ def issue_task(number: int, title: str, body: str, url: str) -> str:
     return f"Implement issue #{number} ({url}): {title}\n\n{body}"
 
 
-# A ticket names the crew that should fulfill it with a trailer line
-# (`Crew: contract-authoring`); without one, the workflow's configured
-# crew fulfills it — the perennial contract, not a fallback. The name
-# grammar is the blueprint's `_NAME`.
-TICKET_CREW_RE = re.compile(r"^Crew:\s*([a-z0-9][a-z0-9-]*)\s*$", re.MULTILINE)
-
-
 def architecture_wait(ticket_urls: list[str]) -> str:
     """The error an implement run ends with when its implementer asked for
     the plan to change instead of delivering: the stewardship ticket(s)
     the platform filed, by URL, so the run row says what it waits on."""
     return "waits on architecture request: " + ", ".join(ticket_urls)
-
-
-def ticket_crew(task_source: str) -> str | None:
-    """The crew the task names, parsed deterministically by workflow code.
-    The *last* match wins: the trailer is written by whoever filed the
-    ticket, and text quoted above it is untrusted input — a poisoned
-    document quoted into a body must not outrank the filer's own trailer. What the named crew can
-    actually be is policy's to decide: fulfillment re-evaluates the
-    compiled `crew.request` decision, so a ticket naming a template the
-    blueprint never granted dies there, audited."""
-    matches = TICKET_CREW_RE.findall(task_source)
-    return matches[-1] if matches else None
 
 
 def verify_feedback(task: str, output: str) -> str:
@@ -105,7 +85,7 @@ class ImplementWorkflow(RunWorkflow):
     WORKFLOW = "implement"
 
     def __init__(self) -> None:
-        self._phase = "running"
+        self._state = "running"
         self._budget_gate = Gate("budget")
 
     @workflow.signal
@@ -119,7 +99,7 @@ class ImplementWorkflow(RunWorkflow):
     def state(self) -> str:
         """The API-visible run phase (a budget stop must be a visible
         pending state, never silent degradation)."""
-        return self._phase
+        return self._state
 
     @workflow.run
     async def run(self, input: ImplementInput) -> dict[str, Any]:
@@ -166,25 +146,34 @@ class ImplementWorkflow(RunWorkflow):
             # The company's documents ride the implement dispatches as
             # untrusted context — the base_ref copy, read by the platform,
             # never the sandbox's. Delivery reads none of them.
-            documents = await self.read_documents(input.run_id)
+            documents = await self.dispatch_documents(input.run_id)
             # Implement to a completion claim; the platform verify gate is
             # the gate of record. Red feeds back, bounded by the blueprint.
             verify_failures = 0
             task_text = task_source
             verified = False
+            # The tickets the implement dispatches filed, across every
+            # verify retry: a re-dispatch replaces the result, never what
+            # an earlier dispatch had the platform file.
+            filed: list[str] = []
             while True:
                 result = await self.dispatch(
                     input.run_id, implementer["url"], "implement", task_text, documents
                 )
+                filed += [
+                    u for u in (result or {}).get("ticket_urls") or [] if u not in filed
+                ]
+                if result is not None:
+                    result["ticket_urls"] = list(filed)
                 if (result or {}).get("error"):
                     break
-                if (result or {}).get("ticket_urls"):
+                if filed:
                     # The implementer asked for the plan to change rather
                     # than deviate from it: nothing here is delivered. The
                     # run fails by name, and the attempt accounting decides
                     # whether the ticket is offered again — a later attempt
                     # reads the plan the steward has revised by then.
-                    error = architecture_wait(result["ticket_urls"])
+                    error = architecture_wait(filed)
                     break
                 verify = await workflow.execute_activity(
                     "platform_verify",
@@ -237,7 +226,7 @@ class ImplementWorkflow(RunWorkflow):
         except ActivityError as exc:
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
-        self._phase = "finalizing"
+        self._state = "finalizing"
         record = await self.teardown(input.run_id, handle, result, error)
         # Delivered is concluded, whatever happened after (a failed
         # teardown still delivered); a run that opened no PR aborted, and

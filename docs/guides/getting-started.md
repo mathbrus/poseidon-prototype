@@ -110,9 +110,11 @@ company:
     score — with pytest coverage, on a repository the company keeps green.
 ```
 
-Leave a Temporal port-forward up for every CLI command. Activity bounds
-come from the deployment's `TIMEOUT_PROFILE`, so a cluster brought up with
-`REAL_LLM=1` already runs the generous profile a paid brain needs.
+Put that `company:` block in place of the example's, in a copy of
+`examples/hello-saas.yaml` saved as `company.yaml`. Leave a Temporal
+port-forward up for every CLI command. Activity bounds come from the
+deployment's `TIMEOUT_PROFILE`, so a cluster brought up with `REAL_LLM=1`
+already runs the generous profile a paid brain needs.
 
 ```bash
 kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233
@@ -131,7 +133,7 @@ it as a pull request. Under `hello-saas.yaml` those pull requests park on
 your merge gate like any other:
 
 ```bash
-uv run poseidon signal <review run_id> merge --workflow review
+uv run poseidon signal <review_run_id> merge --workflow review
 ```
 
 Until both documents are on `main`, the loop refuses to scope: the first
@@ -176,7 +178,7 @@ masterplan, and ends with a verdict. Under `hello-saas.yaml` the merge
 gate is yours:
 
 ```bash
-uv run poseidon signal <review run_id> merge --workflow review
+uv run poseidon signal <review_run_id> merge --workflow review
 ```
 
 Every step is on the record: `uv run poseidon status <run_id>` for the

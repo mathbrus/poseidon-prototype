@@ -74,7 +74,8 @@ first.
 | **workflow** | a Temporal workflow the heartbeat may start: `scope`, `implement`, `review`; plus `heartbeat` itself | family, intake |
 | **task** | the text an implement or review run works: a ticket, a pull request | goal, brief |
 | **observation** | the platform-composed reading of the world a conductor decides or scopes on: the documents, the open tickets, the delivered pull requests, the recent runs, capacity and spend | goal, prompt, context |
-| **vision** | the human's charter text, `company.vision`; reaches every procedure but `deliver` through the static prompt; changed only by applying the blueprint again | mission, goal, purpose |
+| **charter** | the blueprint a human applies: the vision, the budgets, the gates, the policies; this file is the charter of the project, not of a company | mission, constitution, goal file |
+| **vision** | the human's statement of purpose in the charter, `company.vision`; reaches every procedure but `deliver` through the static prompt; changed only by applying the blueprint again | mission, goal, purpose |
 | **strategy** | the document at `company.documents.strategy` on `base_ref`; the steward writes it once from the vision; no current role may change it afterwards (a future observer would) | roadmap, plan |
 | **architecture masterplan** | the document at `company.documents.architecture` on `base_ref`; the steward writes it at bootstrap and revises it only to fulfil an architecture request; `architecture` in identifiers | ADR, design doc, `AGENTS.md` |
 | **architecture request** | a proposal a crew member records with `architecture.request`; the platform turns it into a stewardship ticket | change request, RFC |
