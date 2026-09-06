@@ -21,12 +21,10 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel, ValidationError
 from starlette.applications import Starlette
-from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.types import ASGIApp, Receive, Scope, Send
 
-from common.authn import Authenticator, Reviewer, default_reviewer
+from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
 from common.identity import Identity
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.opa import OpaClient
@@ -42,31 +40,6 @@ from registry import (
     open_registry,
 )
 from schema.tools import ARCHITECTURE_REQUEST
-
-
-class AuthMiddleware:
-    """Authenticate every HTTP request once (Kubernetes TokenReview) and
-    stash the identity in the request state; rejected tokens are audited
-    by the authenticator."""
-
-    def __init__(self, app: ASGIApp, authenticator: Authenticator) -> None:
-        self.app = app
-        self.authenticator = authenticator
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-        authorization = Headers(scope=scope).get("authorization")
-        identity = await self.authenticator.authenticate(
-            authorization, scope.get("path", "")
-        )
-        if identity is None:
-            response = JSONResponse({"detail": "unauthorized"}, status_code=401)
-            await response(scope, receive, send)
-            return
-        scope.setdefault("state", {})["identity"] = identity
-        await self.app(scope, receive, send)
 
 
 class RegisterSandboxRequest(BaseModel):

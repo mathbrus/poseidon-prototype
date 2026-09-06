@@ -32,11 +32,9 @@ from typing import Any, NamedTuple
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from starlette.datastructures import Headers
-from starlette.types import ASGIApp, Receive, Scope, Send
 
 from common.audit import AuditEvent, args_digest
-from common.authn import Authenticator, Reviewer, default_reviewer
+from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
 from common.identity import LIFECYCLE_EPHEMERAL, Identity
 from common.telemetry import get_logger
 from common.topology import RUN_ID_HEADER
@@ -108,34 +106,6 @@ def _reported_cost(headers: httpx.Headers) -> float | None:
     if not math.isfinite(usd) or usd < 0.0:
         return None
     return usd
-
-
-class AuthMiddleware:
-    """Same shape as the MCP gateway's: authenticate once per request,
-    stash the identity, 401 otherwise (rejects audited by the
-    authenticator). The health probes are the only unauthenticated routes."""
-
-    def __init__(self, app: ASGIApp, authenticator: Authenticator) -> None:
-        self.app = app
-        self.authenticator = authenticator
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope.get("path", "") in (
-            "/healthz",
-            "/health/liveliness",
-        ):
-            await self.app(scope, receive, send)
-            return
-        authorization = Headers(scope=scope).get("authorization")
-        identity = await self.authenticator.authenticate(
-            authorization, scope.get("path", "")
-        )
-        if identity is None:
-            response = JSONResponse({"detail": "unauthorized"}, status_code=401)
-            await response(scope, receive, send)
-            return
-        scope.setdefault("state", {})["identity"] = identity
-        await self.app(scope, receive, send)
 
 
 def _error(status: int, message: str, code: str) -> JSONResponse:
@@ -397,5 +367,9 @@ def create_app(
             request, TOOL_RESPONSES, "/v1/responses", _responses_digest_fields
         )
 
-    app.add_middleware(AuthMiddleware, authenticator=authenticator)
+    app.add_middleware(
+        AuthMiddleware,
+        authenticator=authenticator,
+        open_paths=("/healthz", "/health/liveliness"),
+    )
     return app

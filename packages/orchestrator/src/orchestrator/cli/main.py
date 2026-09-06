@@ -17,15 +17,10 @@ import typer
 from temporalio.client import Client, WorkflowExecutionStatus
 
 from common.ids import new_run_id
+from common.workflows import TASK_QUEUE, TEMPORAL_NAMESPACE, WORKFLOWS, workflow_id
 from orchestrator.cli.blueprint import app as blueprint_app
 from orchestrator.config import TemporalSettings
 from orchestrator.workflows import ImplementInput, ReviewInput
-from orchestrator.workflows.base import (
-    TASK_QUEUE,
-    TEMPORAL_NAMESPACE,
-    WORKFLOWS,
-    workflow_id,
-)
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 app.add_typer(blueprint_app, name="blueprint")

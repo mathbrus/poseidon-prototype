@@ -27,7 +27,7 @@ import pytest
 from temporalio.client import Client
 
 from common.tasks import issue_run_task
-from orchestrator.workflows.base import workflow_id
+from common.workflows import workflow_id
 
 from .blueprints import (
     E2E_PAUSE_MINUTES,

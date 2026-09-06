@@ -20,6 +20,17 @@ HEARTBEAT_START = "heartbeat.start"
 CREW_REQUEST = "crew.request"
 MERGE_RESOLVE = "merge.resolve"
 
+# The acts a human performs through the console, decided against the
+# company's bundle exactly like the tools above: whether *this* verified
+# person may resolve a gate, start or cancel a run by hand, nudge the
+# heartbeat, or apply the blueprint. The compiler emits the rules from
+# `company.humans`; the console queries them by these names.
+GATE_RESOLVE = "gate.resolve"
+RUN_START = "run.start"
+RUN_CANCEL = "run.cancel"
+HEARTBEAT_WAKE = "heartbeat.wake"
+BLUEPRINT_APPLY = "blueprint.apply"
+
 
 def rego_slug(value: str) -> str:
     """A name as a Rego identifier segment: dots, hyphens and slashes become

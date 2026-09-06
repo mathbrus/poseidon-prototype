@@ -19,7 +19,9 @@ from collections.abc import Callable
 from typing import Any
 
 from common.audit import AuditEvent
+from common.policy import GATE_RESOLVE
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
+from registry.audit import verdict_rule
 from registry.participants import ParticipantRevoked
 from registry.runs import Attempts, RunRecord
 
@@ -40,6 +42,26 @@ class InMemoryAuditStore:
             and e.decision == "allow"
             and e.backend_status == "ok"
         )
+
+    def latest_human_verdict(self, run_id: str, gate: str) -> dict[str, Any] | None:
+        rules = {verdict_rule(gate, True), verdict_rule(gate, False)}
+        verdicts = [
+            e
+            for e in self.events
+            if e.run_id == run_id
+            and e.source == "console"
+            and e.tool == GATE_RESOLVE
+            and e.decision == "allow"
+            and e.rule in rules
+        ]
+        if not verdicts:
+            return None
+        last = max(enumerate(verdicts), key=lambda item: (item[1].ts, item[0]))[1]
+        return {
+            "principal": last.agent_id,
+            "approved": last.rule == verdict_rule(gate, True),
+            "ts": last.ts,
+        }
 
     def story(self, run_id: str) -> list[dict[str, Any]]:
         # The same projection and order as AuditStore.story — consumers must

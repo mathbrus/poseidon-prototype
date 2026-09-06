@@ -25,7 +25,7 @@ import pytest
 from temporalio.client import Client, WorkflowExecutionStatus
 
 from common.topology import RUN_ID_LABEL, TOKEN_AUDIENCE
-from orchestrator.workflows.base import workflow_id
+from common.workflows import workflow_id
 from registry import Registry, open_registry
 
 PLATFORM_NS = "poseidon-platform"  # the chart release namespace kind-up installs into

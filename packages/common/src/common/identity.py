@@ -6,10 +6,12 @@ the standing caller's namespace (for run-binding enrichment), and the
 ephemeral caller's run binding, parentage and crew from its live
 `run_participants` row.
 
-Produced exclusively by `common.authn` from one credential shape: a
-projected Kubernetes service-account token, verified through TokenReview.
-Shared by both gateways — the MCP gateway and the LLM gateway verify the
-same identities.
+Produced exclusively by `common.authn`, from a Kubernetes-issued token
+verified through TokenReview. Two shapes present one: a workload's
+projected service-account token (the two gateways verify these, against
+the registry) and a human's token (the console verifies these, against
+the humans the deployment declares). Policy keys on the lifecycle, so a
+human and a workload can never be confused for one another.
 """
 
 from pydantic import BaseModel
@@ -22,6 +24,10 @@ PLATFORM_ROLE = "platform"
 LIFECYCLE_STANDING = "standing"
 LIFECYCLE_EPHEMERAL = "ephemeral"
 LIFECYCLE_PLATFORM = "platform"
+# A verified person acting through the console. Not a catalog role: the
+# catalog lists what agents may be, and a human is never an agent.
+LIFECYCLE_HUMAN = "human"
+HUMAN_ROLE = "human"
 
 
 class Identity(BaseModel):

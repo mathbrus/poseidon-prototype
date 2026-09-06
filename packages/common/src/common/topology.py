@@ -16,6 +16,7 @@ LLM_GATEWAY_PORT = 4000
 OPA_PORT = 8181
 EGRESS_PROXY_PORT = 3128
 BUNDLE_PORT = 8081
+CONSOLE_PORT = 8090
 
 # Platform Service names, as the chart names them.
 MCP_GATEWAY = "mcp-gateway"
@@ -23,6 +24,7 @@ LLM_GATEWAY = "llm-gateway"
 EGRESS_PROXY = "egress-proxy"
 OPA = "opa"
 BUNDLE_SERVER = "bundle-server"
+CONSOLE = "console"
 
 # The ports company-namespace NetworkPolicies open toward platform peers.
 PEER_PORTS = {
@@ -43,6 +45,15 @@ TOKEN_AUDIENCE = "poseidon-mcp-gateway"
 TOKEN_MOUNT_DIR = "/var/run/poseidon/identity"
 TOKEN_FILE = f"{TOKEN_MOUNT_DIR}/token"
 TOKEN_TTL_S = 3600
+
+# Human identity: a person presents a token the API server issued for the
+# console's own audience, so a workload's token is worthless at the console
+# and a human's token is worthless at either gateway. On a cluster without
+# an identity provider, the chart declares each human as a ServiceAccount
+# named with this prefix in the platform namespace; a token for it is
+# minted through the TokenRequest API with the caller's own kubeconfig.
+CONSOLE_TOKEN_AUDIENCE = "poseidon-console"
+HUMAN_SA_PREFIX = "human-"
 
 # Labels the operator, the orchestrator and the NetworkPolicies key on.
 KIND_LABEL = "poseidon.dev/kind"
@@ -75,6 +86,11 @@ def mcp_gateway_url(platform_namespace: str) -> str:
 
 def llm_gateway_url(platform_namespace: str) -> str:
     return service_url(LLM_GATEWAY, platform_namespace, LLM_GATEWAY_PORT)
+
+
+def human_service_account(name: str) -> str:
+    """The ServiceAccount the chart declares for a human, by their name."""
+    return f"{HUMAN_SA_PREFIX}{name}"
 
 
 def agent_url(standing_name: str, company_namespace: str) -> str:

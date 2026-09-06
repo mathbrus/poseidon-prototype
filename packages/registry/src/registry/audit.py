@@ -1,14 +1,27 @@
 """`audit_events` — the one ingestion contract for every audit source.
 
 Its whole point is the correlated query: one `run_id`,
-one ordered story, every source — gateway, sandbox-infra, llm-gateway and
-process-gate all write this table through this accessor and nothing else.
+one ordered story, every source — gateway, sandbox-infra, llm-gateway,
+process-gate, process-lifecycle and console all write this table through
+this accessor and nothing else.
+
+Two reads feed policy rather than a reader: `count_allowed` (a per-run
+tool cap) and `latest_human_verdict` (the console-recorded verdict the
+merge gate is released on). Both read facts the platform wrote under its
+own identity, which is what lets OPA decide on them.
 """
 
 from typing import Any
 
 from common.audit import AuditEvent
+from common.policy import GATE_RESOLVE
 from registry.db import Registry
+
+
+def verdict_rule(gate: str, approved: bool) -> str:
+    """The rule a console verdict is recorded under — the verdict named in
+    the rule itself, so it can be read back without decoding a digest."""
+    return f"gate_resolve_{gate}_{'approve' if approved else 'reject'}"
 
 
 class AuditStore:
@@ -56,6 +69,30 @@ class AuditStore:
             (run_id, tool),
         )
         return int(rows[0]["n"]) if rows else 0
+
+    def latest_human_verdict(self, run_id: str, gate: str) -> dict[str, Any] | None:
+        """The console's most recent verdict on this run's gate —
+        `{principal, approved, ts}` — or None when no human ever answered
+        through the console. Latest wins: an approval followed by a
+        rejection reads as rejected."""
+        rows = self._db.query(
+            """
+            SELECT ts, agent_id, rule FROM registry.audit_events
+             WHERE run_id = %s AND source = 'console' AND tool = %s
+               AND decision = 'allow' AND rule IN (%s, %s)
+             ORDER BY ts DESC, id DESC
+             LIMIT 1
+            """,
+            (run_id, GATE_RESOLVE, verdict_rule(gate, True), verdict_rule(gate, False)),
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        return {
+            "principal": row["agent_id"],
+            "approved": row["rule"] == verdict_rule(gate, True),
+            "ts": row["ts"],
+        }
 
     def story(self, run_id: str) -> list[dict[str, Any]]:
         """Everything the platform decided for this run, in order — across

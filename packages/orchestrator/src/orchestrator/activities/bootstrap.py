@@ -16,6 +16,7 @@ from temporalio import activity
 
 from common.audit import args_digest
 from common.telemetry import get_logger
+from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.documents import (
     BOOTSTRAP_TITLES,
@@ -26,7 +27,6 @@ from orchestrator.activities.documents import (
 from orchestrator.activities.heartbeat import emit_heartbeat_event
 from orchestrator.clients import GatewayClient
 from orchestrator.config import WorkerSettings
-from orchestrator.workflows.base import heartbeat_run_id
 from registry import AuditStore, Companies
 
 

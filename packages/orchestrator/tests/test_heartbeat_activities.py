@@ -177,7 +177,7 @@ def _backlog_gateway(
 def _opa(monkeypatch, allow: bool, rule: str):
     # The OPA transport lives in orchestrator.opa now (shared with crew
     # fulfilment); patch it there.
-    import orchestrator.opa as module
+    import common.opa as module
 
     class FakeResponse:
         def raise_for_status(self):

@@ -28,6 +28,7 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.identity import LIFECYCLE_EPHEMERAL, LIFECYCLE_STANDING
+from common.opa import evaluate_decision
 from common.policy import CREW_REQUEST
 from common.telemetry import get_logger
 from common.topology import TOKEN_FILE, llm_gateway_url, mcp_gateway_url
@@ -39,7 +40,6 @@ from orchestrator.ephemeral_pods import (
     service_account_name,
 )
 from orchestrator.identity import ephemeral_agent_id
-from orchestrator.opa import evaluate_decision
 from registry import (
     AuditStore,
     BudgetLedger,

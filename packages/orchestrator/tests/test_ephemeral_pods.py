@@ -286,7 +286,7 @@ class FakeOpa:
 def fulfill_world(settings, provisioner, monkeypatch):
     """A company with one implementer crew and a compiled decision that
     allows the PM to have it fulfilled; `opa` captures what was asked."""
-    import orchestrator.opa as opa_module
+    import common.opa as opa_module
     from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
 
     participants = InMemoryRunParticipants()
@@ -391,7 +391,7 @@ def test_the_decision_names_the_calling_workflow(fulfill_world):
 def test_fulfilment_denied_by_the_compiled_decision(fulfill_world, monkeypatch):
     """A ticket naming a crew outside may_spawn dies here, audited, with
     nothing bound and nothing provisioned."""
-    import orchestrator.opa as opa_module
+    import common.opa as opa_module
 
     crew, participants, audit, _, _ = fulfill_world
     monkeypatch.setattr(
@@ -410,7 +410,7 @@ def test_fulfilment_denied_by_the_compiled_decision(fulfill_world, monkeypatch):
 def test_fulfilment_with_no_policy_installed_fails_closed(fulfill_world, monkeypatch):
     """An empty OPA answer (no compiled bundle active) must refuse, not
     improvise."""
-    import orchestrator.opa as opa_module
+    import common.opa as opa_module
 
     crew, participants, _, _, _ = fulfill_world
     monkeypatch.setattr(opa_module, "httpx", FakeOpa(None))

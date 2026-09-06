@@ -1,10 +1,11 @@
 """The shared OPA decision transport: one endpoint, one decision path, one
-fail-closed default for both authorization chokepoints that query OPA
-directly (crew.request recording and heartbeat.start)."""
+fail-closed default for every chokepoint that queries OPA directly — the
+orchestrator's crew.request, heartbeat.start and merge.resolve, and the
+console's human acts."""
 
 import pytest
 
-from orchestrator import opa
+from common import opa
 
 pytestmark = pytest.mark.anyio
 

@@ -43,15 +43,15 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
+from common.opa import evaluate_decision
 from common.policy import MERGE_RESOLVE
 from common.tasks import ISSUE_TASK_RE
 from common.telemetry import get_logger
+from common.workflows import workflow_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient, pr_settled
 from orchestrator.config import WorkerSettings
-from orchestrator.opa import evaluate_decision
-from orchestrator.workflows.base import workflow_id
 from registry import AuditStore, Companies, RunParticipants, Runs
 
 # The canonical rework-ticket title. The chain depth and the root PR ride

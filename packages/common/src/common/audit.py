@@ -9,7 +9,8 @@ must never become a leak channel.
 Sources: the MCP gateway's decision pipeline; the egress proxy's
 allows/denies (`sandbox-infra`); the LLM gateway; `process-lifecycle`, the
 orchestrator's fulfill machinery (identity mint/revoke, ephemeral-pod
-provisioning); and the process gates.
+provisioning); the process gates; and the console, the human's
+chokepoint, whose events are the only ones carrying a person's name.
 """
 
 import hashlib
@@ -20,7 +21,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 Source = Literal[
-    "gateway", "llm-gateway", "sandbox-infra", "process-gate", "process-lifecycle"
+    "gateway",
+    "llm-gateway",
+    "sandbox-infra",
+    "process-gate",
+    "process-lifecycle",
+    "console",
 ]
 
 

@@ -92,6 +92,7 @@ import yaml
 from temporalio.client import Client
 
 from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
+from common.workflows import workflow_id
 from mockllm.brain import (
     ARCHITECTURE_MD,
     CONTRACT_TEST_PATH,
@@ -100,7 +101,6 @@ from mockllm.brain import (
     STRATEGY_MD,
     TEST_SLUGIFY_PY,
 )
-from orchestrator.workflows.base import workflow_id
 
 from .blueprints import (
     HELLO_SAAS,

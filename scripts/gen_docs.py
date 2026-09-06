@@ -23,9 +23,9 @@ from typing import Any
 import mkdocs_gen_files
 import typer.main
 
+from common.workflows import WORKFLOWS, workflow_id
 from orchestrator import workflows
 from orchestrator.cli.main import app as cli_app
-from orchestrator.workflows.base import WORKFLOWS, workflow_id
 from schema import tools
 from schema.blueprint import BLUEPRINT_SCHEMA
 from schema.catalog import CREW_TEMPLATES, PROCEDURES, ROLES

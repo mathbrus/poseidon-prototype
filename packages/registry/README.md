@@ -151,18 +151,21 @@ identity the platform already revoked, with nothing left in the workflow
 to collect the pod holding it. The in-memory double raises the same
 exception, so unit suites exercise the same sharp edge.
 
-## The audit store: one `run_id`, five sources
+## The audit store: one `run_id`, six sources
 
 `audit_events` is the table the phrase "whatever happened, one query tells
-the story" refers to. Five sources write it in practice — `gateway` (tool
+the story" refers to. Six sources write it in practice — `gateway` (tool
 decisions and rejected tokens), `llm-gateway` (model calls),
 `sandbox-infra` (the egress proxy's allows and denies), `process-gate`
-(gate verdicts and escalations) and `process-lifecycle` (crew lifecycle) —
+(gate verdicts and escalations), `process-lifecycle` (crew lifecycle) and
+`console` (a human's acts, the only rows carrying a person's name) —
 all through `AuditStore.append`, all in the shape of `common.audit`'s
 `AuditEvent`. `story(run_id)` returns every event for a run ordered by
 `(ts, id)`, backed by an index on `(run_id, ts)`. Because every
 enforcement point records the same fields, one query reconstructs a run
-across all of them.
+across all of them. Two reads feed policy: `count_allowed` (a per-run
+tool cap) and `latest_human_verdict` (the console-recorded verdict the
+merge gate is released on).
 
 Two shapes of restraint define the table. There is **no foreign key on
 `run_id`**, on purpose: an event whose `run_id` is a *claim* that failed

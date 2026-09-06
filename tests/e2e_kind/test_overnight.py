@@ -35,8 +35,8 @@ import pytest
 from temporalio.client import Client
 
 from common.tasks import review_run_task
+from common.workflows import workflow_id
 from mockllm.brain import NEXT_SLICE_MARKER
-from orchestrator.workflows.base import workflow_id
 
 from .blueprints import HELLO_SAAS, restore_pristine
 from .cluster import (

@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from common.audit import args_digest
-from common.authn import ServiceAccount
+from common.authn import Principal, ServiceAccount
 from llm_gateway.app import create_app
 from llm_gateway.config import LlmGatewaySettings
 from registry.memory import (
@@ -39,11 +39,15 @@ CREW_TOKEN = "crew-secret"
 
 
 class FakeReviewer:
-    async def review(self, token: str, audience: str) -> ServiceAccount | None:
+    async def review(self, token: str, audience: str) -> Principal | None:
         if token == AGENT_TOKEN:
-            return ServiceAccount(COMPANY, "implementer-1")
+            return Principal.of(ServiceAccount(COMPANY, "implementer-1").username)
         if token == CREW_TOKEN:
-            return ServiceAccount(COMPANY, "ephemeral-feature-delivery-implementer-01x")
+            return Principal.of(
+                ServiceAccount(
+                    COMPANY, "ephemeral-feature-delivery-implementer-01x"
+                ).username
+            )
         return None
 
 
