@@ -51,9 +51,9 @@ server:
           retention: 3d
 
 # The in-cluster CLI is a debugging convenience, not platform surface. The
-# web UI is off by default: anything that reaches the Temporal frontend holds
-# full operator authority, and a browsable UI over it is the cheapest such
-# reach — kind-up.sh re-enables it with TEMPORAL_WEB=1 (--set web.enabled=true).
+# web UI is off by default: it is one more pod inside the frontend's fence
+# (the poseidon chart's temporal-frontend-ingress) — kind-up.sh re-enables
+# it with TEMPORAL_WEB=1 (--set web.enabled=true).
 web:
   enabled: false
 admintools:

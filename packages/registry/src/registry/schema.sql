@@ -14,9 +14,9 @@
 --   orchestrator  -> runs, run_participants
 --   gateway       -> sandbox_registrations
 --   LLM gateway   -> budget_ledger
---   audit_events  <- gateway, LLM gateway, egress proxy and orchestrator
---                    (process-gate, process-lifecycle): many writers, one
---                    append-only contract
+--   audit_events  <- gateway, LLM gateway, egress proxy, orchestrator
+--                    (process-gate, process-lifecycle) and console: many
+--                    writers, one append-only contract
 
 CREATE SCHEMA IF NOT EXISTS registry;
 

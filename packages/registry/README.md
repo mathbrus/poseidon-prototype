@@ -28,7 +28,7 @@ the runtime path reports here (what every enforcement point decided).
 | `sandbox_registrations` | gateway | Run → sandbox address. The registration *is* the run binding. |
 | `filed_tickets` | gateway | Every ticket the company filed, by repository and number, from the moment the git host created it — the heartbeat reads its own writes from here while the host's listing catches up. |
 | `budget_ledger` | LLM gateway | One spend entry per model call, fully attributed. |
-| `audit_events` | gateway, LLM gateway, egress proxy, orchestrator | Every decision, one ingestion contract. |
+| `audit_events` | gateway, LLM gateway, egress proxy, orchestrator, console | Every decision, one ingestion contract. |
 
 Seven tables have exactly one writer. The discipline is not a Postgres
 grant — every service connects with the same DSN — but a code convention
@@ -39,7 +39,7 @@ needs a protocol with another, and each accessor can encode exactly the
 retry semantics its one writer needs.
 
 The one exception is deliberate. `audit_events` inverts the pattern: many
-writers, one accessor, append only. Four services write it, distinguished
+writers, one accessor, append only. Five services write it, distinguished
 by the `source` column, and what is single is the *contract*, not the
 writer.
 
@@ -47,17 +47,17 @@ writer.
 
 | Module | Owns |
 |---|---|
-| `db.py` | Connection pool, DSN handling, and startup migration under an advisory lock. |
+| `db.py` | Connection pool, DSN handling, startup migration under an advisory lock, and `Registry.now` — the database clock, the fence a human takes from the console before acting. |
 | `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
 | `companies.py` | `Companies` — the applied blueprint per company, written by the operator. |
 | `instances.py` | `AgentInstances` — the standing agents, and the gateways' workload-identity read. |
 | `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |
-| `runs.py` | `Runs` — the run record and its terminal state. |
+| `runs.py` | `Runs` — the run record and its terminal state; `since` lists a company's runs from a fence. |
 | `participants.py` | `RunParticipants` — bound identities, revocation, the spawn count. |
 | `sandboxes.py` | `SandboxRegistrations` — run → sandbox address. |
 | `crews.py` | `CrewRequests` — idempotent, expiring spawn requests. |
-| `ledger.py` | `BudgetLedger` — one ledger with dimensions, never parallel accounts. |
-| `audit.py` | `AuditStore` — the one ingestion contract, and the `story(run_id)` query. |
+| `ledger.py` | `BudgetLedger` — one ledger with dimensions, never parallel accounts; `spent_since` sums a company's spend from a fence. |
+| `audit.py` | `AuditStore` — the one ingestion contract, the `story(run_id)` query, and `latest_human_verdict` — the console-recorded verdict the merge gate is released on. |
 | `memory.py` | In-memory stand-ins for every accessor. **Shipped on purpose** — see below. |
 
 ## Migration is every service's job
@@ -151,18 +151,21 @@ identity the platform already revoked, with nothing left in the workflow
 to collect the pod holding it. The in-memory double raises the same
 exception, so unit suites exercise the same sharp edge.
 
-## The audit store: one `run_id`, five sources
+## The audit store: one `run_id`, six sources
 
 `audit_events` is the table the phrase "whatever happened, one query tells
-the story" refers to. Five sources write it in practice — `gateway` (tool
+the story" refers to. Six sources write it in practice — `gateway` (tool
 decisions and rejected tokens), `llm-gateway` (model calls),
 `sandbox-infra` (the egress proxy's allows and denies), `process-gate`
-(gate verdicts and escalations) and `process-lifecycle` (crew lifecycle) —
+(gate verdicts and escalations), `process-lifecycle` (crew lifecycle) and
+`console` (a human's acts, the only rows carrying a person's name) —
 all through `AuditStore.append`, all in the shape of `common.audit`'s
 `AuditEvent`. `story(run_id)` returns every event for a run ordered by
 `(ts, id)`, backed by an index on `(run_id, ts)`. Because every
 enforcement point records the same fields, one query reconstructs a run
-across all of them.
+across all of them. Two reads feed policy: `count_allowed` (a per-run
+tool cap) and `latest_human_verdict` (the console-recorded verdict the
+merge gate is released on).
 
 Two shapes of restraint define the table. There is **no foreign key on
 `run_id`**, on purpose: an event whose `run_id` is a *claim* that failed
@@ -221,8 +224,12 @@ and audit events are not optional.
   reads `policy_bundles` for OPA to poll.
 - [`orchestrator`](../orchestrator/README.md) writes `runs` and
   `run_participants`, emits the `process-gate` and `process-lifecycle`
-  audit events, and reads the ledger for headroom checks and the spawn
-  count off `run_participants` when it fulfils a crew.
+  audit events, reads the ledger for headroom checks and the spawn
+  count off `run_participants` when it fulfils a crew, and reads
+  `AuditStore.latest_human_verdict` when a human merge gate is signalled.
+- [`console`](../console/README.md) writes audit events (`source=console`,
+  under the person's name) and reads on a human's behalf: `Runs.since`,
+  `BudgetLedger.spent_since`, `AuditStore.story` and `Registry.now`.
 - [`gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`
   and audit events; reads `agent_instances` (workload identity),
   `run_participants` (ephemeral identity backing) and
@@ -246,7 +253,9 @@ The SQL is the thing under test — upsert convergence, the revocation
 `WHERE` clause, the cross-source `story` query — so a fake would test
 nothing. CI provides a Postgres service container; locally,
 `kubectl -n poseidon-platform port-forward svc/postgres 5432:5432` against
-the kind cluster works. (The pure bundle-packing tests in
+the kind cluster works. That DSN is for developers and the platform
+services; the `poseidon` CLI holds none — it reads runs, stories and
+spend through the console. (The pure bundle-packing tests in
 `test_bundles.py` need no database at all; they skip anyway because the
 suite-wide cleanup fixture depends on the database session fixture.)
 

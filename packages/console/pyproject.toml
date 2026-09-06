@@ -1,0 +1,30 @@
+[project]
+name = "console"
+version = "0.1.0"
+description = "Poseidon console: the human's chokepoint — verify the person, ask policy, act, audit"
+requires-python = ">=3.12"
+dependencies = [
+    "common[otel]",
+    "registry",
+    "schema",
+    "compiler",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "kubernetes>=31",
+    "pyyaml>=6",
+    "temporalio>=1.31",
+    "uvicorn>=0.30",
+]
+
+[tool.uv.sources]
+common = { workspace = true }
+registry = { workspace = true }
+schema = { workspace = true }
+compiler = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/console"]

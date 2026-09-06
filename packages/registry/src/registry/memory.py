@@ -16,9 +16,11 @@ failure modes than the real thing hides exactly the bugs it exists to catch.
 import re
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from common.audit import AuditEvent
+from common.policy import GATE_RESOLVE, verdict_rule
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from registry.participants import ParticipantRevoked
 from registry.runs import Attempts, RunRecord
@@ -41,7 +43,27 @@ class InMemoryAuditStore:
             and e.backend_status == "ok"
         )
 
-    def story(self, run_id: str) -> list[dict[str, Any]]:
+    def latest_human_verdict(self, run_id: str, gate: str) -> dict[str, Any] | None:
+        rules = {verdict_rule(gate, True), verdict_rule(gate, False)}
+        verdicts = [
+            e
+            for e in self.events
+            if e.run_id == run_id
+            and e.source == "console"
+            and e.tool == GATE_RESOLVE
+            and e.decision == "allow"
+            and e.rule in rules
+        ]
+        if not verdicts:
+            return None
+        last = max(enumerate(verdicts), key=lambda item: (item[1].ts, item[0]))[1]
+        return {
+            "principal": last.agent_id,
+            "approved": last.rule == verdict_rule(gate, True),
+            "ts": last.ts,
+        }
+
+    def story(self, run_id: str, since: str | None = None) -> list[dict[str, Any]]:
         # The same projection and order as AuditStore.story — consumers must
         # not come to depend on extra keys Postgres will never return.
         return [
@@ -63,7 +85,11 @@ class InMemoryAuditStore:
                 "workflow": e.workflow,
             }
             for e in sorted(
-                (e for e in self.events if e.run_id == run_id),
+                (
+                    e
+                    for e in self.events
+                    if e.run_id == run_id and (since is None or e.ts >= since)
+                ),
                 key=lambda e: e.ts,
             )
         ]
@@ -93,6 +119,7 @@ class InMemoryBudgetLedger:
     ) -> None:
         self.entries.append(
             {
+                "ts": datetime.now(UTC).isoformat(),
                 "company": company,
                 "run_id": run_id,
                 "agent_id": agent_id,
@@ -116,6 +143,18 @@ class InMemoryBudgetLedger:
 
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return [dict(e) for e in self.entries if e["run_id"] == run_id]
+
+    def spent_since(self, company: str, since: str | None) -> dict[str, Any]:
+        mine = [
+            e
+            for e in self.entries
+            if e["company"] == company and (since is None or e["ts"] >= since)
+        ]
+        return {
+            "usd": float(sum(e["usd"] for e in mine)),
+            "prompt_tokens": int(sum(e["prompt_tokens"] for e in mine)),
+            "completion_tokens": int(sum(e["completion_tokens"] for e in mine)),
+        }
 
 
 class InMemoryFiledTickets:
@@ -471,6 +510,15 @@ class InMemoryRuns:
         ]
         candidates.sort(key=lambda r: r.finished_at or "")
         return candidates[-1] if candidates else None
+
+    def since(self, company: str, since: str | None) -> list[RunRecord]:
+        return [
+            r
+            for r in self.rows.values()
+            if r.company == company
+            and r.workflow != "heartbeat"
+            and (since is None or (r.created_at or "") >= since)
+        ]
 
     def recent(self, company: str, limit: int = 20) -> list[RunRecord]:
         # Insertion order stands in for created_at, newest first; heartbeat

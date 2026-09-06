@@ -181,22 +181,23 @@ for deploy in "${TEMPORAL_DEPLOYS[@]}"; do
   kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
 done
 kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeout=300s
+kubectl -n "$PLATFORM_NS" rollout status deployment/console --timeout=300s
 
 echo "==> apply the blueprint"
-# The company is declarative from here: compile + submit CRs, and the
-# operator converges the namespace, its policies and the standing agents.
-# A port-forward lets apply read the live registry, so the diff it prints is
-# the real one rather than "everything is new".
-kubectl -n "$PLATFORM_NS" port-forward svc/postgres 15432:5432 >/dev/null 2>&1 &
-PGPF=$!
-trap 'rm -f "$SECRETS_FILE"; kill $PGPF 2>/dev/null || true' EXIT
-for _ in $(seq 30); do
-  (exec 3<>/dev/tcp/127.0.0.1/15432) 2>/dev/null && break
+# The company is declarative from here: the console compiles the blueprint
+# against the live registry and submits the CRs, and the operator converges
+# the namespace, its policies and the standing agents. The apply is a
+# human's act: `owner` is the human the chart declares, and the token is
+# the cluster's own — minted here with the kubeconfig that just installed
+# everything, as any operator would.
+export POSEIDON_CONSOLE_URL="${POSEIDON_CONSOLE_URL:-http://127.0.0.1:8090}"
+for _ in $(seq 60); do
+  curl -sf -o /dev/null "$POSEIDON_CONSOLE_URL/healthz" && break
   sleep 1
 done
-REGISTRY_DSN="postgresql://${POSTGRES_USER:-poseidon}:${POSTGRES_PASSWORD:-poseidon-dev-postgres}@127.0.0.1:15432/${POSTGRES_USER:-poseidon}" \
-  uv run poseidon blueprint apply examples/hello-saas.yaml --yes
-kill $PGPF 2>/dev/null || true
+POSEIDON_TOKEN=$(uv run poseidon login owner --namespace "$PLATFORM_NS")
+export POSEIDON_TOKEN
+uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 # Every standing agent the applied blueprint hires (execution itself is
 # ephemeral crews, so these are the only long-lived company pods).
 for hire in $(kubectl -n "$COMPANY_NS" get agentinstances -o jsonpath='{.items[*].spec.standingName}'); do
@@ -234,7 +235,17 @@ if [ "$code" != "401" ]; then
   echo "error: gateway answered $code, expected 401 without a token" >&2
   exit 1
 fi
+# The console: a person is refused without a token and known with one.
+code=$(curl -s -o /dev/null -w '%{http_code}' "$POSEIDON_CONSOLE_URL/whoami")
+if [ "$code" != "401" ]; then
+  echo "error: console answered $code, expected 401 without a token" >&2
+  exit 1
+fi
+if ! uv run poseidon whoami | grep -q '"human": "owner"'; then
+  echo "error: the console did not recognise the owner token" >&2
+  exit 1
+fi
 # Standing agents have no NodePort: they are reached in-cluster
 # by the orchestrator, and the operator gives each standing agent its own Service.
 
-echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}"
+echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}, console $POSEIDON_CONSOLE_URL"

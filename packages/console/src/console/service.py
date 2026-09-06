@@ -1,0 +1,419 @@
+"""The console's service: every human act as verify → decide → do → audit,
+and the reads beside them.
+
+An act is a decision first. The verified person's identity and the act's
+facts are one decision input to the company's compiled bundle — the same
+shape the gateway sends for a tool call — and a deny is a `PolicyDenied`
+the app answers 403 with the rule's name, audited like an allow. The one
+act policy cannot decide is the first apply: no bundle exists for a
+company before its Company CR installs one, so when OPA serves no policy
+for the company any verified human may apply, and the audit row says so
+(`blueprint_apply_bootstrap`).
+
+A gate verdict is recorded before it is delivered: the audit row under
+the person's name is the artifact the review workflow reads back and
+`merge.resolve` decides on, and the Temporal signal that follows is only
+a nudge to look. Row first, signal second, so the read can never race
+the signal.
+"""
+
+import asyncio
+import time
+from collections.abc import Callable
+from typing import Any
+
+import yaml
+
+from common.audit import AuditEvent, args_digest
+from common.identity import Identity
+from common.ids import new_run_id
+from common.opa import NO_POLICY_RULE, evaluate_decision
+from common.policy import (
+    BLUEPRINT_APPLY,
+    GATE_RESOLVE,
+    HEARTBEAT_TICK,
+    HEARTBEAT_WAKE,
+    RUN_CANCEL,
+    RUN_START,
+    verdict_rule,
+)
+from common.telemetry import get_logger
+from common.workflows import (
+    GATES,
+    GATES_OF,
+    HUMAN_STARTABLE,
+    PARKED_STATE,
+    heartbeat_run_id,
+    workflow_id,
+)
+from compiler import (
+    DeploymentPlan,
+    InstanceSnapshot,
+    RegistrySnapshot,
+    compile_blueprint,
+    diff_plan,
+)
+from compiler.errors import CompileError
+from console.config import ConsoleSettings
+from console.temporal import AlreadyStarted, WorkflowNotFound, Workflows
+from registry import AgentInstances, AuditStore, BudgetLedger, RunRecord, Runs
+from schema import validate_blueprint
+from schema.validate import ValidationError
+
+BOOTSTRAP_RULE = "blueprint_apply_bootstrap"
+
+
+class PolicyDenied(Exception):
+    def __init__(self, rule: str) -> None:
+        super().__init__(f"denied by policy: {rule}")
+        self.rule = rule
+
+
+class Invalid(Exception):
+    """The request names something that cannot be acted on: an unknown
+    run, a gate or workflow that does not exist, a blueprint that does
+    not validate or is another company's."""
+
+
+class ConsoleService:
+    def __init__(
+        self,
+        settings: ConsoleSettings,
+        audit: AuditStore,
+        runs: Runs,
+        ledger: BudgetLedger,
+        instances: AgentInstances,
+        workflows: Workflows,
+        submit_crs: Callable[[DeploymentPlan], tuple[int, int]],
+        clock: Callable[[], str],
+    ) -> None:
+        self._settings = settings
+        self._audit = audit
+        self._runs = runs
+        self._ledger = ledger
+        self._instances = instances
+        self._workflows = workflows
+        self._submit = submit_crs
+        self._clock = clock
+        self._log = get_logger("console")
+
+    # -- verify → decide → do → audit ---------------------------------------
+
+    async def _decide(
+        self, identity: Identity, tool: str, args: dict[str, Any], run_id: str = ""
+    ) -> dict[str, Any]:
+        decision_input = {
+            "company": self._settings.company,
+            "agent_id": identity.agent_id,
+            "lifecycle": identity.lifecycle,
+            "parent_agent_id": "",
+            "role": identity.role,
+            "run_id": run_id,
+            "workflow": "",
+            "tool": tool,
+            "args": args,
+            "run_binding_verified": False,
+        }
+        return await evaluate_decision(
+            self._settings.opa_url, self._settings.company, decision_input
+        )
+
+    async def _record(
+        self,
+        identity: Identity,
+        tool: str,
+        args: dict[str, Any],
+        decision: dict[str, Any],
+        *,
+        run_id: str = "",
+        workflow: str = "",
+        started: float,
+    ) -> None:
+        event = AuditEvent(
+            run_id=run_id,
+            agent_id=identity.agent_id,
+            role=identity.role,
+            tool=tool,
+            args_digest=args_digest(args),
+            decision="allow" if decision.get("allow") else "deny",
+            rule=str(decision.get("rule") or ""),
+            latency_ms=int((time.monotonic() - started) * 1000),
+            backend_status=None,
+            source="console",
+            company=self._settings.company,
+            lifecycle=identity.lifecycle,
+            workflow=workflow,
+        )
+        await asyncio.to_thread(self._audit.append, event)
+        self._log.info("audit", extra=event.model_dump())
+
+    async def _act(
+        self,
+        identity: Identity,
+        tool: str,
+        args: dict[str, Any],
+        *,
+        run_id: str = "",
+        workflow: str = "",
+        bootstrap_rule: str | None = None,
+    ) -> dict[str, Any]:
+        """Decide the act and audit the answer; raise on deny. Returns the
+        decision so a caller can name the allowing rule."""
+        started = time.monotonic()
+        decision = await self._decide(identity, tool, args, run_id)
+        if (
+            bootstrap_rule is not None
+            and not decision.get("allow")
+            and decision.get("rule") == NO_POLICY_RULE
+        ):
+            decision = {"allow": True, "rule": bootstrap_rule}
+        await self._record(
+            identity,
+            tool,
+            args,
+            decision,
+            run_id=run_id,
+            workflow=workflow,
+            started=started,
+        )
+        if not decision.get("allow"):
+            raise PolicyDenied(str(decision.get("rule") or "default_deny"))
+        return decision
+
+    # -- the blueprint --------------------------------------------------------
+
+    def _plan(self, blueprint_text: str) -> tuple[DeploymentPlan, RegistrySnapshot]:
+        try:
+            document = yaml.safe_load(blueprint_text)
+        except yaml.YAMLError as exc:
+            raise Invalid(f"blueprint is not YAML: {exc}") from exc
+        if not isinstance(document, dict):
+            raise Invalid("blueprint is not a mapping")
+        try:
+            validate_blueprint(document)
+        except ValidationError as exc:
+            raise Invalid(str(exc)) from exc
+        name = document["company"]["name"]
+        if name != self._settings.company:
+            raise Invalid(f"this console hosts {self._settings.company!r}, not {name!r}")
+        snapshot = RegistrySnapshot(
+            instances=tuple(
+                InstanceSnapshot(
+                    agent_id=row["agent_id"],
+                    company=row["company"],
+                    standing_name=row["standing_name"],
+                    role=row["role"],
+                    status=row["status"],
+                )
+                for row in self._instances.for_company(name)
+            )
+        )
+        try:
+            plan = compile_blueprint(document, snapshot=snapshot)
+        except CompileError as exc:
+            raise Invalid(str(exc)) from exc
+        return plan, snapshot
+
+    async def preview(self, blueprint_text: str) -> dict[str, Any]:
+        """Compile against the live registry and say what applying would
+        change. A read: nothing is decided, nothing is written."""
+        plan, snapshot = await asyncio.to_thread(self._plan, blueprint_text)
+        return {"diff": diff_plan(plan, snapshot).as_text(), "plan": plan.as_dict()}
+
+    async def apply(self, identity: Identity, blueprint_text: str) -> dict[str, Any]:
+        plan, snapshot = await asyncio.to_thread(self._plan, blueprint_text)
+        decision = await self._act(
+            identity,
+            BLUEPRINT_APPLY,
+            {"company": plan.company.name},
+            bootstrap_rule=BOOTSTRAP_RULE,
+        )
+        created, updated = await asyncio.to_thread(self._submit, plan)
+        return {
+            "company": plan.company.name,
+            "created": created,
+            "updated": updated,
+            "diff": diff_plan(plan, snapshot).as_text(),
+            "rule": decision["rule"],
+        }
+
+    # -- runs -----------------------------------------------------------------
+
+    async def start_run(
+        self, identity: Identity, workflow: str, number: int
+    ) -> dict[str, Any]:
+        """Start one implement or review run by hand — a person reproducing
+        a run on a text the company produced. The heartbeat starts the
+        company's own runs; this bypasses its caps, which is why it is a
+        decided act."""
+        if workflow not in HUMAN_STARTABLE:
+            raise Invalid(
+                f"a human may start {', '.join(HUMAN_STARTABLE)}; not {workflow!r}"
+            )
+        run_id = new_run_id()
+        wf_id = workflow_id(workflow, run_id)
+        await self._act(
+            identity,
+            RUN_START,
+            {"workflow": workflow, "number": number},
+            run_id=run_id,
+            workflow=wf_id,
+        )
+        key = "issue_number" if workflow == "implement" else "pr_number"
+        try:
+            await self._workflows.start(workflow, run_id, {"run_id": run_id, key: number})
+        except AlreadyStarted as exc:
+            raise Invalid(f"a workflow already runs as {wf_id}") from exc
+        return {"run_id": run_id, "workflow": workflow, "workflow_id": wf_id}
+
+    def _run_of(self, run_id: str) -> tuple[RunRecord, str]:
+        """The run's row and the workflow id that addresses it."""
+        record = self._runs.get(run_id)
+        if record is None:
+            raise Invalid(f"no run {run_id!r}")
+        return record, record.workflow_id or workflow_id(record.workflow, run_id)
+
+    async def resolve_gate(
+        self,
+        identity: Identity,
+        run_id: str,
+        gate: str,
+        approved: bool,
+        payload: str | None,
+    ) -> dict[str, Any]:
+        """Record the verdict under the person's name, then deliver it. The
+        allowing rule names the gate and the verdict (`gate_resolve_merge_
+        approve`), which is exactly what the workflow reads back. A verdict
+        answers a question that was asked: the run's workflow must have
+        the gate and be parked on it."""
+        if gate not in GATES:
+            raise Invalid(f"gates are {', '.join(GATES)}; not {gate!r}")
+        record, wf_id = await asyncio.to_thread(self._run_of, run_id)
+        if gate not in GATES_OF.get(record.workflow, ()):
+            raise Invalid(f"a {record.workflow} run has no {gate} gate")
+        try:
+            execution = await self._workflows.inspect(wf_id)
+        except WorkflowNotFound as exc:
+            raise Invalid(f"run {run_id!r} has no workflow to signal") from exc
+        if execution["state"] != PARKED_STATE[gate]:
+            raise Invalid(
+                f"run {run_id!r} is not parked on its {gate} gate"
+                f" (state {execution['state']!r})"
+            )
+        decision = await self._act(
+            identity,
+            GATE_RESOLVE,
+            {"gate": gate, "run_id": run_id, "approved": approved},
+            run_id=run_id,
+            workflow=wf_id,
+        )
+        if decision["rule"] != verdict_rule(gate, approved):
+            # The compiled allow is the record the workflow reads back; a
+            # bundle that allowed under any other name would record nothing
+            # readable, so refuse rather than deliver an unreadable verdict.
+            raise RuntimeError(f"gate.resolve allowed under {decision['rule']!r}")
+        try:
+            await self._workflows.signal(wf_id, gate, [approved, payload])
+        except WorkflowNotFound as exc:
+            raise Invalid(f"run {run_id!r} has no workflow to signal") from exc
+        return {
+            "run_id": run_id,
+            "gate": gate,
+            "approved": approved,
+            "principal": identity.agent_id,
+        }
+
+    async def cancel_run(
+        self, identity: Identity, run_id: str, reason: str
+    ) -> dict[str, Any]:
+        _, wf_id = await asyncio.to_thread(self._run_of, run_id)
+        await self._act(
+            identity,
+            RUN_CANCEL,
+            {"run_id": run_id, "reason": reason},
+            run_id=run_id,
+            workflow=wf_id,
+        )
+        try:
+            await self._workflows.cancel(wf_id)
+        except WorkflowNotFound as exc:
+            raise Invalid(f"run {run_id!r} has no workflow to cancel") from exc
+        return {"run_id": run_id, "cancelled": True}
+
+    async def run(self, run_id: str) -> dict[str, Any]:
+        record, wf_id = await asyncio.to_thread(self._run_of, run_id)
+        try:
+            execution = await self._workflows.inspect(wf_id)
+        except WorkflowNotFound:
+            execution = {"workflow_id": wf_id, "status": "NOT_FOUND", "state": None}
+        return {**record.as_dict(), "company": record.company, "execution": execution}
+
+    async def runs_since(self, since: str | None) -> list[dict[str, Any]]:
+        records = await asyncio.to_thread(self._runs.since, self._settings.company, since)
+        return [
+            {**r.as_dict(), "company": r.company, "workflow_id": r.workflow_id}
+            for r in records
+        ]
+
+    async def story(self, run_id: str) -> list[dict[str, Any]]:
+        return _jsonable(await asyncio.to_thread(self._audit.story, run_id))
+
+    async def spend(self, run_id: str) -> dict[str, Any]:
+        usd = await asyncio.to_thread(self._ledger.spent_for_run, run_id)
+        entries = await asyncio.to_thread(self._ledger.entries_for_run, run_id)
+        return {"run_id": run_id, "usd": usd, "entries": _jsonable(entries)}
+
+    async def spend_since(self, since: str | None) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self._ledger.spent_since, self._settings.company, since
+        )
+
+    # -- the heartbeat --------------------------------------------------------
+
+    async def heartbeat(self, since: str | None) -> dict[str, Any]:
+        """The company's standing loop: its execution, and its ticks since
+        a fence — the rows the loop journals under the shared heartbeat
+        run id, each naming the rule its tick ended on."""
+        company = self._settings.company
+        wf_id = workflow_id("heartbeat", company)
+        try:
+            execution = await self._workflows.inspect(wf_id)
+        except WorkflowNotFound:
+            execution = {"workflow_id": wf_id, "status": "NOT_FOUND", "state": None}
+        story = await asyncio.to_thread(
+            self._audit.story, heartbeat_run_id(company), since
+        )
+        ticks = [e for e in _jsonable(story) if e["tool"] == HEARTBEAT_TICK]
+        return {"company": company, "execution": execution, "ticks": ticks}
+
+    async def wake(self, identity: Identity) -> dict[str, Any]:
+        """A nudge that something changed the world the loop watches —
+        never an instruction. The tick that results observes, decides and
+        is authorized like any other."""
+        company = self._settings.company
+        wf_id = workflow_id("heartbeat", company)
+        await self._act(
+            identity,
+            HEARTBEAT_WAKE,
+            {},
+            run_id=heartbeat_run_id(company),
+            workflow=wf_id,
+        )
+        try:
+            await self._workflows.signal(wf_id, "wake", [])
+        except WorkflowNotFound as exc:
+            raise Invalid(f"no heartbeat is running for {company!r}") from exc
+        return {"company": company, "woken": True}
+
+    async def now(self) -> dict[str, str]:
+        """The registry's clock — the fence a reader takes before acting so
+        its reads are its own."""
+        return {"now": await asyncio.to_thread(self._clock)}
+
+
+def _jsonable(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Registry rows with their timestamps as ISO strings."""
+    return [
+        {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in row.items()}
+        for row in rows
+    ]

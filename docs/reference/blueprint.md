@@ -35,6 +35,14 @@ prompt, so the PM decides and scopes, and every crew implements and
 reviews, knowing what the company is for — and nobody in the company can
 change it. Applying the blueprint again is the only way it changes.
 
+`company.humans` names the people who may act on the company through
+[the console](console.md): apply the document again, answer a gate, start
+or cancel a run by hand, wake the heartbeat. The compiler emits one allow
+per person, act and verdict from the list, so the audit row for an act
+names exactly what was granted — and the authority is a diff: add a name
+and re-apply, or remove one and that person's next act is refused by
+`human_not_recognized`, under their name.
+
 `company.documents` names where, in that repository, the company keeps
 the two documents it writes for itself: the **strategy**, written once from
 the vision by the steward and then changed by no current role, and the
@@ -115,8 +123,11 @@ is `heartbeat.may_start`, each said once. `max_verify_retries` bounds how
 many times a red verify re-dispatches the implementer before the run
 fails.
 
-`gates.merge.resolved_by: human` is what makes the review workflow park and
-wait for a person; leaving `gates.merge` out entirely means the review ends
+`gates.merge.resolved_by: human` is what makes the review workflow park on
+the `merge` signal the console delivers: the console records the person's
+verdict under their name, then signals, and the release reads the recorded
+verdict — a signal with no verdict on record merges nothing. Leaving
+`gates.merge` out entirely means the review ends
 without merging at all — an unattended auto-merge is not a default anyone
 gets implicitly. Setting it to `policy` instead, with a `delegate` block
 naming the path class and a rework bound, hands the merge to the compiled
@@ -278,8 +289,11 @@ uv run poseidon blueprint preview examples/hello-saas.yaml   # what would change
 uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 ```
 
-`preview` diffs the compiled plan against live registry state, so hiring and
-firing are visible before they happen. Firing is just a deletion in the
+Both commands are calls to [the console](console.md), which compiles the
+document against the live registry: `preview` diffs the compiled plan
+against it, so hiring and firing are visible before they happen; `apply`
+submits the compiled custom resources, decided against the company's
+bundle and audited under your name. Firing is just a deletion in the
 diff — and deleting an agent's ServiceAccount is what revokes its identity,
 since the API server then refuses TokenReview for its tokens. The commands
 and their flags are on [the CLI reference](cli.md).

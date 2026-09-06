@@ -20,6 +20,14 @@ from schema.tools import KNOWN_TOOLS
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"
 
 _NAME = {"type": "string", "minLength": 1, "pattern": r"^[a-z0-9][a-z0-9-]*$"}
+# A human's name: what the console verifies them as — a chart-declared
+# `human-<name>` on kind, or an identity provider's username elsewhere.
+_HUMAN = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 254,
+    "pattern": r"^[A-Za-z0-9][A-Za-z0-9._@:-]*$",
+}
 _TEXT = {"type": "string", "minLength": 1}
 _TOOL_LIST = {
     "type": "array",
@@ -30,8 +38,14 @@ _TOOL_LIST = {
 # A path inside the company's repository, relative to its root.
 _REPO_PATH = {"type": "string", "minLength": 1, "pattern": r"^[^\s/][^\s]*$"}
 
-# The company's name, its vision — the one text a human writes — and the
-# paths of the two documents the company writes for itself. The vision
+# The company's name, its vision — the one text a human writes — the
+# humans who may act on it, and the paths of the two documents the
+# company writes for itself. The humans are the people the console lets
+# resolve a gate, start or cancel a run by hand, wake the heartbeat and
+# re-apply this document: named here so that authority is a diff, and
+# required because every company has at least one gate only a person can
+# answer (the budget pause; a policy-resolved merge falls back to one).
+# The vision
 # reaches every procedure but `deliver` through the static prompt and
 # changes only when the blueprint is applied again; the cap keeps it a
 # charter, not a specification. The documents live in the repository at
@@ -42,10 +56,16 @@ _REPO_PATH = {"type": "string", "minLength": 1, "pattern": r"^[^\s/][^\s]*$"}
 _COMPANY = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["name", "vision", "documents"],
+    "required": ["name", "vision", "humans", "documents"],
     "properties": {
         "name": _NAME,
         "vision": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "humans": {
+            "type": "array",
+            "items": _HUMAN,
+            "minItems": 1,
+            "uniqueItems": True,
+        },
         "documents": {
             "type": "object",
             "additionalProperties": False,

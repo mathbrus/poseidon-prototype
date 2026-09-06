@@ -21,7 +21,7 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from common.authn import ServiceAccount
+from common.authn import Principal, ServiceAccount
 from mcp_gateway.app import create_app
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GITHUB_API_URL
@@ -65,8 +65,9 @@ class FakeReviewer:
         REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "ephemeral-reviewer-01x"),
     }
 
-    async def review(self, token: str, audience: str) -> ServiceAccount | None:
-        return self.accounts.get(token)
+    async def review(self, token: str, audience: str) -> Principal | None:
+        account = self.accounts.get(token)
+        return None if account is None else Principal(account.username, account)
 
 
 SANDBOX_RESPONSES = {

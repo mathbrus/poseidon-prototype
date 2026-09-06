@@ -12,6 +12,7 @@ Retry safety, per activity:
                           append-only posture) and sets it on the run row,
                           an idempotent update.
     reviewer_independent— read-only against the registry; safe.
+    read_human_verdict  — read-only against the audit store; safe.
     resolve_merge       — re-evaluates the compiled merge.resolve decision
                           and re-audits; the honest record of what was
                           asked (the heartbeat_authorize posture).
@@ -27,10 +28,13 @@ Retry safety, per activity:
 The merge itself: `git.merge_pr` is a *gateway tool
 call* under the orchestrator's platform identity — one of the two mediation
 paths, audited at the gateway like any agent call — issued by the workflow
-only after the human gate approved. The gate outcome events here are the
-`process-gate` audit source: approvals are workflow state, so the
-audit story is where a human can later see that the gate, not a bug,
-released the merge.
+only after `merge.resolve` allowed. On the human path that decision reads
+the verdict the console recorded under the person's name (the audit store
+is the artifact; `read_human_verdict` fetches it), so a signal that
+reached the workflow by any other road releases nothing. The gate outcome
+events are the `process-gate` audit source; the resolve is the
+`process-lifecycle` one; together the story shows who released the merge
+and that policy, not a bug, let it through.
 """
 
 import asyncio
@@ -43,15 +47,15 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
+from common.opa import evaluate_decision
 from common.policy import MERGE_RESOLVE
 from common.tasks import ISSUE_TASK_RE
 from common.telemetry import get_logger
+from common.workflows import MERGE_GATE, workflow_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient, pr_settled
 from orchestrator.config import WorkerSettings
-from orchestrator.opa import evaluate_decision
-from orchestrator.workflows.base import workflow_id
 from registry import AuditStore, Companies, RunParticipants, Runs
 
 # The canonical rework-ticket title. The chain depth and the root PR ride
@@ -448,23 +452,38 @@ class ReviewActivities:
             "contract edit surfaced", extra={"pr_number": pr_number, **deletions}
         )
 
+    @activity.defn(name="read_human_verdict")
+    async def read_human_verdict(self, run_id: str) -> dict[str, Any] | None:
+        """The console's latest recorded verdict on this run's merge gate —
+        `{principal, approved, ts}` — or None when no human answered through
+        the console. Read by the platform off its own audit store, so the
+        fact `merge.resolve` decides on is one the workflow never took from
+        the signal: a signal is a nudge to look; the record is the verdict."""
+        verdict = await asyncio.to_thread(
+            self._audit.latest_human_verdict, run_id, MERGE_GATE
+        )
+        if verdict is not None:
+            verdict = {**verdict, "ts": str(verdict["ts"])}
+        return verdict
+
     @activity.defn(name="resolve_merge")
     async def resolve_merge(
         self,
         run_id: str,
-        verdict: str,
-        checks_green: bool,
-        reviewer_independent: bool,
-        contract_green: bool,
-        paths: list[str],
+        resolver: str,
+        facts: dict[str, Any],
         workflow_id: str,
     ) -> dict[str, Any]:
         """Evaluate the compiled `merge.resolve` decision — the
         heartbeat_authorize idiom: the caller-verified facts ride the input,
-        the delegated class and carve-outs bind as policy, and the answer
-        is audited either way. Unlike heartbeat.start, a deny is a routed
-        outcome, not an error: good work outside the delegation falls
-        back to the human signal."""
+        the compiled literals bind as policy, and the answer is audited
+        either way. On the `policy` resolver the facts are the delegated
+        layers (verdict, checks, independence, the contract fact, the
+        changed paths); on the `human` resolver the one fact is the
+        console-recorded verdict. Unlike heartbeat.start, a deny is a
+        routed outcome, not an error: good work outside the delegation
+        falls back to the human signal, and an unrecorded human signal
+        ends the run unmerged."""
         company = self._settings.company
         decision_input = {
             "company": company,
@@ -475,17 +494,7 @@ class ReviewActivities:
             "run_id": run_id,
             "workflow": "review",
             "tool": MERGE_RESOLVE,
-            "args": {
-                "verdict": verdict,
-                "checks_green": checks_green,
-                "reviewer_independent": reviewer_independent,
-                # The composed-baseline fact: the contract tree as it
-                # stands on the base ref, run against this PR's head.
-                # Vacuously true only when no contract tree is declared —
-                # the compiled rule then never reads it.
-                "contract_green": contract_green,
-                "paths": paths,
-            },
+            "args": {"resolver": resolver, **facts},
             "run_binding_verified": False,
         }
         started = time.monotonic()
@@ -537,6 +546,7 @@ class ReviewActivities:
             self.record_verdict,
             self.reviewer_independent,
             self.warn_contract_edit,
+            self.read_human_verdict,
             self.resolve_merge,
             self.rework_depth,
             self.file_rework,

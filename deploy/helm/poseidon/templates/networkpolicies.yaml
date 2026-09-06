@@ -127,4 +127,105 @@ spec:
               {{- range .Values.networkPolicies.clusterCidrs }}
               - {{ . }}
               {{- end }}
+---
+# The console: the one door a person acts on the company through. It
+# reaches exactly what its acts need — OPA for the decision, the registry
+# for the audit row and the reads, Temporal's frontend to start, signal
+# and inspect workflows, the API server for TokenReview and the CRs it
+# submits — and nothing else: no company namespace, no git host, no model.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: console-egress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: console
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: opa
+      ports:
+        - port: 8181
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: temporal
+              app.kubernetes.io/component: frontend
+      ports:
+        - port: 7233
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The API server: TokenReview for the human's token, and the two CRDs
+    # an apply submits. By address, as for the gateway above.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+        - port: 6443
+---
+# The Temporal frontend, fenced. Reaching it is starting runs, delivering
+# gate signals and terminating workflows, so only the two components whose
+# job that is may: the orchestrator worker (it hosts the workflows) and the
+# console (it starts, signals and inspects them on a human's behalf), plus
+# Temporal's own components — the internal worker service, history and
+# matching membership, admintools, the namespace Job, and the web UI when
+# the bootstrap opts into it. Every other pod in the platform namespace,
+# and every company pod, is refused at the network. (A human with cluster
+# credentials still reaches it by port-forward, which enters the pod's own
+# network namespace beneath any policy; what makes that harmless is the
+# verified verdict, not this fence.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: temporal-frontend-ingress
+  labels:
+    {{- include "poseidon.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: temporal
+      app.kubernetes.io/instance: temporal
+      app.kubernetes.io/component: frontend
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: temporal
+              app.kubernetes.io/instance: temporal
+      ports:
+        - port: 7233
+        - port: 7243
+        - port: 6933
+    - from:
+        - podSelector:
+            matchLabels:
+              app: orchestrator-worker
+        - podSelector:
+            matchLabels:
+              app: console
+      ports:
+        - port: 7233
 {{- end }}

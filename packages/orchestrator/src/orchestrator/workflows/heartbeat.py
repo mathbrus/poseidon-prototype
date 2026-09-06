@@ -69,6 +69,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 from temporalio.workflow import ParentClosePolicy
 
+from common.workflows import workflow_id
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
     DISPATCH_RETRY,
@@ -76,7 +77,6 @@ from orchestrator.workflows.base import (
     STEP_RETRY,
     RunWorkflow,
     Timeouts,
-    workflow_id,
 )
 from orchestrator.workflows.implement import ImplementInput
 from orchestrator.workflows.review import ReviewInput

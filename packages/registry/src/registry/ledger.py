@@ -78,6 +78,25 @@ class BudgetLedger:
         )
         return float(rows[0]["spent"])
 
+    def spent_since(self, company: str, since: str | None) -> dict[str, Any]:
+        """The company's attributed spend and tokens at or after a fence —
+        what a reader compares its own cap against."""
+        rows = self._db.query(
+            "SELECT COALESCE(SUM(usd), 0) AS usd,"
+            " COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,"
+            " COALESCE(SUM(completion_tokens), 0) AS completion_tokens"
+            " FROM registry.budget_ledger"
+            " WHERE company = %s"
+            " AND (%s::timestamptz IS NULL OR ts >= %s::timestamptz)",
+            (company, since, since),
+        )
+        row = rows[0]
+        return {
+            "usd": float(row["usd"]),
+            "prompt_tokens": int(row["prompt_tokens"]),
+            "completion_tokens": int(row["completion_tokens"]),
+        }
+
     def entries_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return self._db.query(
             "SELECT ts, company, run_id, agent_id, parent_agent_id, role,"

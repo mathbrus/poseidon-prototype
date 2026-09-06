@@ -94,6 +94,7 @@ nav:
       - The blueprint: reference/blueprint.md
       - Roles and crews: reference/roles.md
       - Tools: reference/tools.md
+      - The console: reference/console.md
       - CLI: reference/cli.md
       - Temporal contract: reference/temporal.md
       - Policy and audit: reference/policy.md

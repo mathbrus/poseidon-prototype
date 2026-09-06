@@ -7,10 +7,10 @@ is reachable only from this service, so this is the single audited,
 metered, authenticated route to any model.
 """
 
-from common.authn import WorkloadAuthnSettings
+from common.authn import AuthnSettings
 
 
-class LlmGatewaySettings(WorkloadAuthnSettings):
+class LlmGatewaySettings(AuthnSettings):
     """Every field is set by the chart's llm-gateway template."""
 
     # Where completions are forwarded: the LiteLLM container holding the

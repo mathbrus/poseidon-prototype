@@ -1,5 +1,5 @@
 """Review on the live cluster: the full chain — the strategy scoped into a
-ticket, an operator's `poseidon run <number>` implementing it by hand (the
+ticket, a person's `poseidon run <number>` implementing it by hand (the
 repro command: no human retypes the spec, and the loop yields the ticket
 to the operator), reviewer findings posted, merge gate parked, timer
 escalation observable, API approval, gateway merge — every step correlated
@@ -18,26 +18,23 @@ and reviews on its own, and implementing is the operator's act here —
 which is what makes `poseidon run <number>` a repro rather than a race.
 """
 
-import asyncio
 import json
-import os
 import re
 import secrets
 import subprocess
 import time
 
 import pytest
-from temporalio.client import Client
 
-from common.tasks import issue_run_task
+from common.tasks import issue_run_task, review_run_task
 from mockllm.brain import NEXT_SLICE_MARKER
-from orchestrator.workflows.base import workflow_id
 
 from .blueprints import E2E_GATE_MINUTES, HELLO_SAAS, may_start, restore_pristine
-from .cluster import audit_story, run_by_task, temporal_port_forward
+from .cluster import HUMAN, audit_story, await_run, console_env, run_by_task
 from .conftest import (
     REPO_ROOT,
     apply_profile,
+    await_gate,
     close_issue,
     close_pr,
     github_api,
@@ -55,34 +52,32 @@ def _reviewer_id(run_id: str) -> str:
     return ephemeral_agent_id("feature-review", "reviewer", run_id)
 
 
-def _poseidon_run(issue_number: int, address: str) -> dict:
-    """The operator's repro: `poseidon run <number>` through the real CLI,
-    blocking until the run record prints."""
+def _poseidon(env: dict, *args: str, timeout: int = 1800) -> subprocess.CompletedProcess:
+    """The real CLI, as the human `owner` against the cluster's console."""
     proc = subprocess.run(
-        ["uv", "run", "poseidon", "run", str(issue_number)],
+        ["uv", "run", "poseidon", *args],
         cwd=REPO_ROOT,
-        env={**os.environ, "TEMPORAL_ADDRESS": address},
+        env=console_env(env),
         capture_output=True,
         text=True,
-        timeout=1800,
+        timeout=timeout,
     )
-    assert proc.returncode == 0, f"poseidon run: {proc.stderr}\n{proc.stdout}"
-    return json.loads(proc.stdout)
+    assert proc.returncode == 0, f"poseidon {args[0]}: {proc.stderr}\n{proc.stdout}"
+    return proc
 
 
-async def _watch_review_gate(address: str, run_id: str) -> dict:
+def _poseidon_run(env: dict, issue_number: int) -> dict:
+    """A run by hand: `poseidon run <number>` through the real CLI,
+    blocking until the run record prints."""
+    return json.loads(_poseidon(env, "run", str(issue_number)).stdout)
+
+
+def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:
     """Watch the loop's review park on the merge gate, wait for the
-    escalation to land in the audit store, then approve — the exact HITL
-    sequence `poseidon signal ... merge` answers."""
-    client = await Client.connect(address)
-    handle = client.get_workflow_handle(workflow_id("review", run_id))
-    deadline = time.monotonic() + 600
-    while time.monotonic() < deadline:
-        if await handle.query("state") == "paused-merge_gate":
-            break
-        await asyncio.sleep(2)
-    else:
-        raise AssertionError("the review workflow never parked on the merge gate")
+    escalation to land in the audit store, then approve through the real
+    CLI — the exact HITL sequence `poseidon signal <run> merge` answers —
+    and read the run to its end."""
+    await_gate(run_id, "paused-merge_gate")
 
     # Nobody answers: the timer escalates at half the declared deadline and
     # the escalation is a real process-gate row — observable, not a log line.
@@ -93,13 +88,22 @@ async def _watch_review_gate(address: str, run_id: str) -> dict:
             for e in audit_story(run_id)
         ):
             break
-        await asyncio.sleep(2)
+        time.sleep(2)
     else:
         raise AssertionError("no process-gate escalation event before the deadline")
 
-    # The human answers through the API — approval releases the merge.
-    await handle.signal("merge", args=[True, "reviewed: findings are clean"])
-    return await asyncio.wait_for(handle.result(), timeout=300)
+    # The human answers through the console: the verdict is recorded under
+    # their name, then delivered — and the release reads the record.
+    _poseidon(
+        env,
+        "signal",
+        run_id,
+        "merge",
+        "--payload",
+        "reviewed: findings are clean",
+        timeout=120,
+    )
+    return await_run(review_run_task(pr_number), terminal=True, workflow="review")
 
 
 @pytest.fixture(scope="module")
@@ -127,8 +131,7 @@ def review_chain(stack: None, baseline_env: dict) -> dict:
         # ticket. The loop may not implement in this profile, so the ticket
         # is the operator's to start — and the company's spec, not a
         # second, human-written one.
-        with temporal_port_forward() as address:
-            chain["implement"] = _poseidon_run(chain["issue_number"], address)
+        chain["implement"] = _poseidon_run(env, chain["issue_number"])
         pr_url = chain["implement"]["pr_url"]
         match = re.search(r"/pull/(\d+)$", pr_url or "")
         assert match, f"implement produced no usable PR: {chain['implement']}"
@@ -137,15 +140,12 @@ def review_chain(stack: None, baseline_env: dict) -> dict:
 
         # 3. Review, the loop's: findings -> parked gate -> escalation ->
         # approval -> merge.
-        from common.tasks import review_run_task
-
         wake_until_run_started(review_run_task(chain["pr_number"]), "review")
         review_run = run_by_task(review_run_task(chain["pr_number"]), workflow="review")
         chain["review_run_id"] = review_run["run_id"]
-        with temporal_port_forward() as address:
-            chain["review"] = asyncio.run(
-                _watch_review_gate(address, chain["review_run_id"])
-            )
+        chain["review"] = _watch_review_gate(
+            env, chain["review_run_id"], chain["pr_number"]
+        )
         yield chain
     finally:
         # The merged PR's branch goes too; the merge itself is what the
@@ -184,9 +184,9 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     assert pr.json()["merged"] is True, "the gateway merge never landed"
 
 
-def test_the_operator_run_was_the_only_implement(review_chain: dict) -> None:
+def test_the_run_by_hand_was_the_only_implement(review_chain: dict) -> None:
     """The loop yielded the ticket: the one implement run on it is the
-    operator's (not an auto- id), and no second run raced it."""
+    person's (not an auto- id), and no second run raced it."""
     run = run_by_task(issue_run_task(review_chain["issue_number"]), workflow="implement")
     assert run and run["run_id"] == review_chain["implement"]["run_id"]
     assert not run["run_id"].startswith("auto-"), run
@@ -248,6 +248,35 @@ def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
     escalated, approved = gate_events
     assert escalated["decision"] == "deny"
     assert approved["decision"] == "allow"
+
+
+def test_the_release_read_the_recorded_verdict(review_chain: dict) -> None:
+    """The approval is not the signal: the console recorded the verdict
+    under the human's name, the workflow read it back, and the compiled
+    `merge.resolve` released the merge on its human path — three rows in
+    the one story, in that order, naming the same person."""
+    run_id = review_chain["review_run_id"]
+    story = audit_story(run_id)
+    verdicts = [
+        (i, e)
+        for i, e in enumerate(story)
+        if e["source"] == "console" and e["tool"] == "gate.resolve"
+    ]
+    assert len(verdicts) == 1, verdicts
+    index, verdict = verdicts[0]
+    assert (verdict["agent_id"], verdict["lifecycle"], verdict["decision"]) == (
+        HUMAN,
+        "human",
+        "allow",
+    )
+    assert verdict["rule"] == "gate_resolve_merge_approve"
+    assert verdict["workflow"] == f"review-{run_id}"
+    resolves = [(i, e) for i, e in enumerate(story) if e["tool"] == "merge.resolve"]
+    assert resolves, "the merge was never decided"
+    release_index, release = resolves[-1]
+    assert (release["decision"], release["rule"]) == ("allow", "merge_resolve_human")
+    assert release["source"] == "process-lifecycle"
+    assert index < release_index, "the verdict was not recorded before the release"
 
 
 def test_merge_is_a_gateway_call_strictly_after_the_gate(review_chain: dict) -> None:

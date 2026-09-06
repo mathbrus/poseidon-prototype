@@ -55,6 +55,10 @@ images:
     repository: poseidon-egress-proxy
     tag: latest
     pullPolicy: IfNotPresent
+  console:
+    repository: poseidon-console
+    tag: latest
+    pullPolicy: IfNotPresent
 
 # Secrets layout: GIT_TOKEN mountable only into the gateway,
 # LLM_API_KEY only into LiteLLM — both live in the platform namespace.
@@ -111,6 +115,20 @@ mcpGateway:
     type: ClusterIP
     # Set (with type NodePort) to give the host-side runner a stable port.
     nodePort: null
+
+# The console: the one door a person acts on the company through.
+console:
+  service:
+    type: ClusterIP
+    nodePort: null
+  # The humans this cluster knows, on a cluster without an identity
+  # provider: one ServiceAccount `human-<name>` each, in the platform
+  # namespace, and the console maps only these names to a person. A token
+  # for one is minted through the TokenRequest API with the caller's own
+  # cluster credentials (`poseidon login <name>`). Which of them may act
+  # on the company is the blueprint's `company.humans`, not this list.
+  humans:
+    - owner
 
 networkPolicies:
   enabled: true

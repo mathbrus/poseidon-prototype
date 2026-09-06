@@ -30,6 +30,7 @@ from typing import Any
 from temporalio import activity
 
 from common.telemetry import get_logger
+from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.documents import (
     BOOTSTRAP_TITLES,
@@ -39,7 +40,6 @@ from orchestrator.activities.documents import (
 )
 from orchestrator.clients import GatewayClient, GatewayError, pr_settled
 from orchestrator.config import WorkerSettings
-from orchestrator.workflows.base import heartbeat_run_id
 from registry import Attempts, BudgetLedger, Companies, FiledTickets, Runs
 from schema.documents import DOCUMENT_NAMES
 

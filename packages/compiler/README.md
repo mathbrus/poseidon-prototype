@@ -9,7 +9,8 @@ aspirational: a governance mistake fails here, at compile, instead of at the
 first tool call in production.
 
 The compiler reads nothing but its arguments, writes nothing, and touches
-no cluster. Applying a plan is the operator's job. If the vocabulary here
+no cluster. Applying a plan is someone else's job: the console submits it
+as custom resources, the operator converges them. If the vocabulary here
 is new — blueprints, OPA, run binding — read the
 [root README](../../README.md) first (sections 2, 4 and 7).
 
@@ -38,10 +39,12 @@ Purity here is not aesthetics; each consequence is load-bearing.
   cluster, or iteration order — `as_dict()` sorts by construction.
 - **One mutation point.** Because compiling cannot touch the cluster,
   *apply* is the only place enforcement changes, and it is a separate,
-  visible act (`poseidon blueprint apply` = compile + submit CRs).
+  visible act (the console's apply = compile + submit CRs, decided by
+  policy and audited under the person's name; `python -m compiler` is
+  the same compile with no cluster, the plan on stdout).
 - **Testability without infrastructure.** Even the diff needs no
   database: `snapshot.py` defines `RegistrySnapshot` as a frozen value
-  the caller (the CLI) builds from registry rows and hands in.
+  the caller (the console) builds from registry rows and hands in.
 
 The claim is enforced, not asserted. `test_purity.py` monkeypatches
 `builtins.open` so that any write-mode open (`w`, `a`, `x`, `+`) raises,
@@ -169,6 +172,31 @@ pattern would otherwise surface as an OPA bundle-load failure long after
 apply. (Python's `re` is not OPA's RE2, but it rejects the same broken
 syntax an author actually writes.)
 
+### The humans and the merge gate
+
+Two files carry the human's authority. `console.rego`, from
+`company.humans`, is what the console must win before it acts: one allow
+per act, gate and verdict for the named people
+(`gate_resolve_<gate>_approve` / `_reject`, `run_start_implement` /
+`run_start_review`, `run_cancel`, `heartbeat_wake`, `blueprint_apply`),
+keyed on the `human` lifecycle so no workload can claim one, and one
+deny, `human_not_recognized`, for a verified person the company did not
+name. Authority is the list, and the list is a diff.
+
+`merge_gate.rego` is emitted for every declared merge gate and decides
+`merge.resolve` — not a gateway tool but the decision the review workflow
+must win before merging — on either of two paths named by
+`input.args.resolver`. The human path (every gate): the verdict the
+console recorded under the person's name rides the input, read back from
+the audit store by the platform, and `merge_resolve_human` releases on a
+recorded approval by one of the company's humans and nothing else
+(`merge_resolve_no_human_verdict`, `merge_resolve_human_rejected`,
+`merge_resolve_not_a_human` and `merge_resolve_resolver_missing` name
+the refusals). A human may release what policy never could — a carve-out,
+the contract tree — which is the override the gate promises. The
+delegated path (a policy-resolved gate only) is scoped to `resolver ==
+"policy"`, so the human path is never held to the delegated class.
+
 ## Two bundles per apply
 
 - **The company bundle**, `package poseidon.authz.<company_slug>` — per
@@ -217,7 +245,7 @@ privilege (`test_child_scope_need_not_be_a_subset_of_the_conductor`).
 ## The goldens are generated — never hand-edit them
 
 `tests/golden/` holds the compiled plan (`hello-saas.plan.json`) and both
-bundles (seven `.rego` files, company and platform side by side) for
+bundles (ten `.rego` files, company and platform side by side) for
 `examples/hello-saas.yaml`. They are a review artifact: the point is that a
 human reads the diff when policy output changes.
 
@@ -238,9 +266,12 @@ run instead of surfacing as a readable Rego diff.
 
 ## Entry points
 
-A library, driven by the `poseidon blueprint` CLI in `orchestrator/cli/`
-(`compile`, `preview`, `apply` — apply is exactly compile + CR submission).
-No Dockerfile of its own; it ships inside the orchestrator image.
+A library, driven by the console (`preview` and `apply` — apply is
+exactly compile + CR submission, against a snapshot of the live registry)
+and by `python -m compiler BLUEPRINT [--out DIR]`, the offline compile
+with no cluster and no registry: the plan on stdout, the bundles on disk
+when asked — what CI's `opa` job and the docs build use. No Dockerfile of
+its own; it ships inside the console image.
 
 ## Cross-package interactions
 
@@ -250,7 +281,7 @@ No Dockerfile of its own; it ships inside the orchestrator image.
 - Reads a `RegistrySnapshot` built from `registry` rows to keep agent ids
   stable across applies (existing ids are reused in order; minted ids skip
   anything taken) and to compute the firing half of a diff.
-- Its plan rides the custom resources the CLI submits — the Company CR
+- Its plan rides the custom resources the console submits — the Company CR
   carries the bundles, infra IR, workflows, budgets and crew specs — and
   the `operator` ([README](../operator/README.md)) reconciles them. From
   the applied blueprint, the `orchestrator` reads SandboxPolicy, workflow

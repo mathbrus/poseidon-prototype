@@ -351,6 +351,22 @@ def test_scope_has_no_workflow_node(blueprint):
     assert any("workflows" in p and "scope" in p for p in problems_of(blueprint))
 
 
+# -- the humans ------------------------------------------------------
+
+
+def test_humans_are_required_and_named(blueprint):
+    """Every company has a gate only a person can answer, so the blueprint
+    names who — at least one, each a name, no name twice."""
+    blueprint["company"]["humans"] = []
+    assert any("humans" in p for p in problems_of(blueprint))
+    blueprint["company"]["humans"] = ["owner", "owner"]
+    assert any("humans" in p for p in problems_of(blueprint))
+    blueprint["company"]["humans"] = ["Not A Name"]
+    assert any("humans" in p for p in problems_of(blueprint))
+    del blueprint["company"]["humans"]
+    assert any("humans" in p for p in problems_of(blueprint))
+
+
 # -- the documents -------------------------------------------------
 
 

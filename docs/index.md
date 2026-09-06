@@ -73,6 +73,6 @@ worked with MCP, OPA, or Kubernetes NetworkPolicy, [**Concepts**](concepts/index
 teach you, not to name-drop.
 
 If you would rather *use* it than understand it first, start with the
-[**Guides**](guides/getting-started.md). When you need to look something up — a blueprint field, a CLI
-flag, which role holds which tool — that is what [**Reference**](reference/blueprint.md) is for, and
+[**Guides**](guides/getting-started.md). When you need to look something up — a blueprint field, a console
+route or a CLI flag, which role holds which tool — that is what [**Reference**](reference/blueprint.md) is for, and
 those pages are generated from the code so they cannot drift from it.

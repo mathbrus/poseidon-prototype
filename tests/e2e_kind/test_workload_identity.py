@@ -34,9 +34,10 @@ def gateway_status(env: dict[str, str], token: str | None) -> int:
 
 
 def wait_for_authn_deny(rule: str, principal: str) -> list[dict[str, Any]]:
+    """The gateway's own audit of a refused token, once it lands."""
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
-        events = authn_denies(rule, principal)
+        events = authn_denies(rule, principal, "gateway")
         if events:
             return events
         time.sleep(1)

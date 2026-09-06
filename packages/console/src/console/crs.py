@@ -1,7 +1,7 @@
 """Turning a deployment plan into custom resources.
 
-The only place the CLI touches a cluster, and it touches nothing but the two
-CRDs: every real object — namespace, NetworkPolicy, Deployment, bundle — is
+The only place the console touches a cluster, and it touches nothing but
+the two CRDs: every real object — namespace, NetworkPolicy, Deployment, bundle — is
 the operator's to create from these. Submitting a CR is a statement of
 intent, never an instruction.
 

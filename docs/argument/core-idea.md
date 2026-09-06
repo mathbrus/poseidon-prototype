@@ -52,7 +52,7 @@ at 3am on the first tool call that hits it.
 
 ## Every consequential action passes a chokepoint
 
-There are exactly two chokepoint services: the **MCP gateway** (all tool
+Agents face exactly two chokepoint services: the **MCP gateway** (all tool
 use — files, shell, git, issues; the sole holder of the git token) and the
 **LLM gateway** (all model access; it holds no key itself — the provider
 key sits one hop behind it, in an llm-proxy that only the LLM gateway can
@@ -68,7 +68,17 @@ ordering guarantee is *deny before side effect*: a denial is recorded and
 returned before anything happens, while an allowed call acts first and
 then records how the action went.
 
-A third chokepoint, the **egress proxy**, is the only network route out of a
+A person faces one: the **console**, the human-facing chokepoint with the
+same shape. It authenticates (a token the API server issued for the
+console's own audience — worthless at the gateways, as an agent's is
+here), decides (the company's compiled bundle names the humans who may
+act, and which act), audits under the person's name, and only then acts.
+It is the only thing a person acts through — applying a blueprint,
+answering a gate, starting a run by hand, waking the heartbeat — which is
+what makes a merge approval a *recorded verdict*: the workflow releases
+on the record the console wrote, not on the signal that woke it.
+
+One more chokepoint, the **egress proxy**, is the only network route out of a
 sandbox. Everything else is dropped by NetworkPolicy — silently, as a
 backstop beneath the audited layer.
 

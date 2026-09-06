@@ -29,20 +29,16 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
-from common.policy import HEARTBEAT_START
+from common.opa import evaluate_decision
+from common.policy import HEARTBEAT_START, HEARTBEAT_TICK
 from common.telemetry import get_logger
+from common.workflows import TEMPORAL_NAMESPACE, heartbeat_run_id, workflow_id
 from orchestrator.activities.blueprint import conductor
 from orchestrator.activities.observation import decision_prompt
 from orchestrator.audit import record_event
 from orchestrator.clients import dispatch_and_poll
 from orchestrator.config import WorkerSettings
-from orchestrator.opa import evaluate_decision
-from orchestrator.workflows.base import (
-    PROFILES,
-    TEMPORAL_NAMESPACE,
-    heartbeat_run_id,
-    workflow_id,
-)
+from orchestrator.workflows.base import PROFILES
 from registry import AgentInstances, AuditStore, Companies, Runs
 
 RATIONALE_CLIP = 300
@@ -295,7 +291,7 @@ class HeartbeatActivities:
         allow; every other outcome declined or was refused to start."""
         await self._emit(
             run_id=heartbeat_run_id(self._settings.company),
-            tool="heartbeat.tick",
+            tool=HEARTBEAT_TICK,
             digest=args_digest({"outcome": outcome, "rule": rule}),
             decision="allow" if outcome == "started" else "deny",
             rule=f"tick_{outcome}:{rule}",

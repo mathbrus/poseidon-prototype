@@ -37,7 +37,9 @@ LLM_API_KEY=sk-ant-your-anthropic-key
 MODEL=anthropic/claude-sonnet-4-5
 ```
 
-Re-run `kind-up.sh` after every provider or model change.
+Re-run `kind-up.sh` after every provider or model change. The same file
+holds `POSEIDON_CONSOLE_URL`, where the `poseidon` CLI reaches the console
+(`http://127.0.0.1:8090` on kind); a provider change does not touch it.
 
 !!! warning "The acceptance suite refuses a paid brain"
     Do not point `scripts/acceptance.sh` at a paid provider: the suite

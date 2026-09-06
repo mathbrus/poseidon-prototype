@@ -160,6 +160,11 @@ class DeploymentPlan:
     # rules — identical from every blueprint — live under poseidon.platform.
     platform_bundle: RegoBundle
     heartbeat: HeartbeatConfig
+    # The company's humans, as the blueprint names them: the people whose
+    # acts through the console the bundle allows. Here rather than on the
+    # Company CR because the bundle is what carries the authority; the plan
+    # shows the list so a preview reads who may answer the gates.
+    humans: tuple[str, ...]
     # The contract tree, projected into the applied record: the review
     # workflow composes the contract-verify baseline from these paths.
     # None when the blueprint declares no contract tree.
@@ -178,6 +183,7 @@ class DeploymentPlan:
                 "workflows": [asdict(w) for w in self.workflows],
                 "budgets": asdict(self.budgets),
                 "heartbeat": asdict(self.heartbeat),
+                "humans": list(self.humans),
                 "contract_tests": self.contract_tests,
                 "infra": asdict(self.infra),
                 "bundle": {"files": dict(sorted(self.bundle.files.items()))},

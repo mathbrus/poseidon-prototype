@@ -284,6 +284,18 @@ class Runs:
         )
         return RunRecord.from_row(rows[0]) if rows else None
 
+    def since(self, company: str, since: str | None) -> list[RunRecord]:
+        """The company's runs created at or after a fence (every run when
+        none is given), oldest first — a reader's window onto what the
+        company did after it took its clock."""
+        rows = self._db.query(
+            "SELECT * FROM registry.runs WHERE company = %s AND workflow <> 'heartbeat'"
+            " AND (%s::timestamptz IS NULL OR created_at >= %s::timestamptz)"
+            " ORDER BY created_at, run_id",
+            (company, since, since),
+        )
+        return [RunRecord.from_row(row) for row in rows]
+
     def recent(self, company: str, limit: int = 20) -> list[RunRecord]:
         """The company's latest runs, newest first — the observation's run
         history."""

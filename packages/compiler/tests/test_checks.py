@@ -205,10 +205,13 @@ def test_delegated_merge_compiles_the_gate_into_the_bundle(blueprint):
     assert "merge_gate.rego" in plan.bundle.files
 
 
-def test_no_delegation_compiles_no_merge_gate_file(blueprint):
-    """Revocation is a blueprint diff: a human-resolved gate emits no
-    merge.resolve authority at all, so the decision falls to default deny."""
-    assert "merge_gate.rego" not in compile_blueprint(blueprint).bundle.files
+def test_no_delegation_compiles_no_delegated_rule(blueprint):
+    """Revocation is a blueprint diff: a human-resolved gate emits the human
+    path of merge.resolve and no delegated one, so an unattended merge
+    falls to default deny."""
+    gate_file = compile_blueprint(blueprint).bundle.files["merge_gate.rego"]
+    assert "merge_resolve_human" in gate_file
+    assert "merge_resolve_delegated" not in gate_file
 
 
 def test_compiler_fails_closed_on_a_carved_out_delegation(blueprint):

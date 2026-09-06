@@ -7,7 +7,9 @@ into enforcement; the **runtime path** does work under that enforcement.
 
 ```mermaid
 flowchart LR
-    BP["blueprint<br/><i>hello-saas.yaml</i>"] --> SCH["<b>schema</b><br/>well-formed?"]
+    H(["a human<br/><i>poseidon blueprint apply</i>"]) --> CON["<b>console</b><br/>verify · decide · audit"]
+    CON --> BP["blueprint<br/><i>hello-saas.yaml</i>"]
+    BP --> SCH["<b>schema</b><br/>well-formed?"]
     SCH --> CMP["<b>compiler</b><br/>coherent?<br/>pure function"]
     CMP --> PLAN["deployment plan<br/>CRs · Rego · infra IR"]
     PLAN --> OP["<b>operator</b><br/>reconciles"]
@@ -45,7 +47,14 @@ flowchart TB
         PROXY["<b>egress proxy</b>"]
         OPA2["<b>OPA</b>"]
         DB[("<b>registry</b>")]
+        CON["<b>console</b><br/>the human's door"]
+        TMP["<b>Temporal</b><br/>fenced"]
     end
+    HUM(["a human"]) -->|"verdicts, applies, reads"| CON
+    CON -->|decision| OPA2
+    CON -->|"audit, under a name"| DB
+    CON -->|"start · signal · inspect"| TMP
+    ORC --- TMP
     ORC -->|dispatch| PM
     ORC -->|dispatch| EX
     PM -->|tools| GW
@@ -62,18 +71,22 @@ flowchart TB
 
 Read the arrows into `registry` as "the whole story of a run ends up here."
 One `run_id` query returns the gateway's decisions, the proxy's allows and
-denies, the LLM gateway's spend, and the process gates' verdicts, in order.
-Five distinct sources write audit events — `gateway`, `llm-gateway`,
-`sandbox-infra`, `process-gate`, `process-lifecycle` — and the acceptance
-suite asserts that a single run's story is reconstructible across all five
-from the `run_id` alone ([Policy and audit](policy.md) lists them).
+denies, the LLM gateway's spend, the process gates' verdicts and the
+human's acts, in order. Six distinct sources write audit events —
+`gateway`, `llm-gateway`, `sandbox-infra`, `process-gate`,
+`process-lifecycle`, `console` — and the acceptance suite asserts that a
+single run's story is reconstructible across all six from the `run_id`
+alone ([Policy and audit](policy.md) lists them). The console's rows are
+the only ones carrying a person's name; the merge gate's release reads
+one of them back.
 
 ## What each service is responsible for
 
 | Service | Holds | Responsible for |
 |---|---|---|
 | **operator** | — | Reconciling CRs into namespaces, NetworkPolicies, Deployments, RBAC; persisting bundles. Never runs a process, never creates an ephemeral agent. |
-| **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, ephemeral pods and their per-run ServiceAccounts, identity binding, the human merge gate. No `GIT_TOKEN`, no signing key. |
+| **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, ephemeral pods and their per-run ServiceAccounts, identity binding, the merge gate's park and its release on the recorded verdict. No `GIT_TOKEN`, no signing key. |
+| **console** | registry DSN | Every human act: authenticate the person, decide, audit under their name, act — apply the blueprint (it alone submits the CRs), record and deliver gate verdicts, start or cancel a run, wake the heartbeat; and every human read. |
 | **MCP gateway** | `GIT_TOKEN` | Every tool call: authenticate, decide, audit, act. |
 | **LLM gateway** | — | Every model call: authenticate, attribute to a run, check budget, pin the deployment's model, meter. |
 | **llm-proxy** | provider API key | Talking to the actual model provider. Reachable *only* from the LLM gateway. |

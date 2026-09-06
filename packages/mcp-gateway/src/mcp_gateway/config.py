@@ -1,10 +1,10 @@
 """Gateway settings: workload-authn knobs (shared shape, `common.authn`)
 plus the gateway-internal ones."""
 
-from common.authn import WorkloadAuthnSettings
+from common.authn import AuthnSettings
 
 
-class McpGatewaySettings(WorkloadAuthnSettings):
+class McpGatewaySettings(AuthnSettings):
     """Every field is set by the chart's mcp-gateway template."""
 
     opa_url: str

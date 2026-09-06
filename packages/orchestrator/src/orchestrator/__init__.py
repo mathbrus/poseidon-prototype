@@ -1,7 +1,6 @@
 """Poseidon orchestrator: durable workflows over Temporal.
 
 Layout:
-    cli/        `poseidon run|signal|status` — a thin Temporal client
     workflows/  workflow definitions (scope, implement, review, heartbeat)
     activities/ step-shaped activity functions, thin clients over the
                 gateway, SandboxBackend and agent HTTP

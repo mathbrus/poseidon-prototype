@@ -15,11 +15,13 @@ members = [
     "agent",
     "common",
     "compiler",
+    "console",
     "llm-gateway",
     "mcp-gateway",
     "mockllm",
     "orchestrator",
     "poseidon",
+    "poseidon-cli",
     "poseidon-operator",
     "registry",
     "sandbox",
@@ -624,6 +626,37 @@ dependencies = [
 requires-dist = [
     { name = "common", editable = "packages/common" },
     { name = "schema", editable = "packages/schema" },
+]
+
+[[package]]
+name = "console"
+version = "0.1.0"
+source = { editable = "packages/console" }
+dependencies = [
+    { name = "common", extra = ["otel"] },
+    { name = "compiler" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "kubernetes" },
+    { name = "pyyaml" },
+    { name = "registry" },
+    { name = "schema" },
+    { name = "temporalio" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "common", extras = ["otel"], editable = "packages/common" },
+    { name = "compiler", editable = "packages/compiler" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "kubernetes", specifier = ">=31" },
+    { name = "pyyaml", specifier = ">=6" },
+    { name = "registry", editable = "packages/registry" },
+    { name = "schema", editable = "packages/schema" },
+    { name = "temporalio", specifier = ">=1.31" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [[package]]
@@ -2369,27 +2402,23 @@ version = "0.1.0"
 source = { editable = "packages/orchestrator" }
 dependencies = [
     { name = "common", extra = ["otel"] },
-    { name = "compiler" },
     { name = "httpx" },
     { name = "mcp" },
     { name = "registry" },
     { name = "sandbox" },
     { name = "schema" },
     { name = "temporalio" },
-    { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "common", extras = ["otel"], editable = "packages/common" },
-    { name = "compiler", editable = "packages/compiler" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
     { name = "registry", editable = "packages/registry" },
     { name = "sandbox", editable = "packages/sandbox" },
     { name = "schema", editable = "packages/schema" },
     { name = "temporalio", specifier = ">=1.31" },
-    { name = "typer", specifier = ">=0.12" },
 ]
 
 [[package]]
@@ -2642,10 +2671,12 @@ dependencies = [
     { name = "agent" },
     { name = "common" },
     { name = "compiler" },
+    { name = "console" },
     { name = "llm-gateway" },
     { name = "mcp-gateway" },
     { name = "mockllm" },
     { name = "orchestrator" },
+    { name = "poseidon-cli" },
     { name = "poseidon-operator" },
     { name = "registry" },
     { name = "sandbox" },
@@ -2670,10 +2701,12 @@ requires-dist = [
     { name = "agent", editable = "packages/agent" },
     { name = "common", editable = "packages/common" },
     { name = "compiler", editable = "packages/compiler" },
+    { name = "console", editable = "packages/console" },
     { name = "llm-gateway", editable = "packages/llm-gateway" },
     { name = "mcp-gateway", editable = "packages/mcp-gateway" },
     { name = "mockllm", editable = "packages/mockllm" },
     { name = "orchestrator", editable = "packages/orchestrator" },
+    { name = "poseidon-cli", editable = "packages/cli" },
     { name = "poseidon-operator", editable = "packages/operator" },
     { name = "registry", editable = "packages/registry" },
     { name = "sandbox", editable = "packages/sandbox" },
@@ -2691,6 +2724,25 @@ dev = [
 docs = [
     { name = "mkdocs-gen-files", specifier = ">=0.6.1" },
     { name = "mkdocs-material", specifier = ">=9.7.7" },
+]
+
+[[package]]
+name = "poseidon-cli"
+version = "0.1.0"
+source = { editable = "packages/cli" }
+dependencies = [
+    { name = "common" },
+    { name = "httpx" },
+    { name = "kubernetes" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "common", editable = "packages/common" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "kubernetes", specifier = ">=31" },
+    { name = "typer", specifier = ">=0.12" },
 ]
 
 [[package]]
@@ -3946,7 +3998,7 @@ wheels = [
 
 [[package]]
 name = "typer"
-version = "0.27.0"
+version = "0.27.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "annotated-doc" },
@@ -3954,9 +4006,9 @@ dependencies = [
     { name = "rich" },
     { name = "shellingham" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/37/78/fda3361b56efc27944f24225f6ecd13d96d6fcfe37bd0eb34e2f4c63f9fc/typer-0.27.0.tar.gz", hash = "sha256:629bd12ea5d13a17148125d9a264f949eb171fb3f120f9b04d85873cab054fa5", size = 203430, upload-time = "2026-07-15T19:21:07.007Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/f7/57713ba479fd405eb76de31404b2c744c289e336b2d999511ebf51e496f7/typer-0.27.2.tar.gz", hash = "sha256:269b7eb9d3c202ca84b4bc9618cb04ebb43d3d4d1e567e4c768607232c05f945", size = 204045, upload-time = "2026-08-28T10:26:55.046Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/40/03/26a383c9e58c213199d1aad1c3d353cfc22d4444ec6d2c0bf8ad02523843/typer-0.27.0-py3-none-any.whl", hash = "sha256:6f4b27631e47f077871b7dc30e933ec0131c1390fbe0e387ea5574b5bac9ccf1", size = 122716, upload-time = "2026-07-15T19:21:05.553Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/bf/205d0004930ede8f542fb58f601526fccf4ae7626075ca1e6c4de5d3d652/typer-0.27.2-py3-none-any.whl", hash = "sha256:b3a5fc4342d5fc8fda8fc3010b1cf117e9249aab7fae800c2eff62fd3842d97d", size = 123130, upload-time = "2026-08-28T10:26:53.752Z" },
 ]
 
 [[package]]

@@ -19,6 +19,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.worker import Worker
 
 from common.telemetry import get_logger
+from common.workflows import TASK_QUEUE, TEMPORAL_NAMESPACE, workflow_id
 from orchestrator.activities import (
     BootstrapActivities,
     CrewActivities,
@@ -37,7 +38,6 @@ from orchestrator.workflows import (
     ReviewWorkflow,
     ScopeWorkflow,
 )
-from orchestrator.workflows.base import TASK_QUEUE, TEMPORAL_NAMESPACE, workflow_id
 from registry import (
     AgentInstances,
     AuditStore,

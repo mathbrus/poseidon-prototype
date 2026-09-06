@@ -24,31 +24,27 @@ example as shipped (`hello-saas.yaml`, every workflow startable) is
 applied for the module and the pristine profile restored after.
 """
 
-import asyncio
-import os
 import re
 import secrets
 import subprocess
-import time
 
 import pytest
-from temporalio.client import Client
 
 from common.tasks import review_run_task
 from mockllm.brain import NEXT_SLICE_MARKER
-from orchestrator.workflows.base import workflow_id
 
 from .blueprints import HELLO_SAAS, restore_pristine
 from .cluster import (
     audit_story,
     await_run,
     bare_heartbeat_id,
+    console_env,
     heartbeat_ticks,
-    temporal_port_forward,
 )
 from .conftest import (
     REPO_ROOT,
     apply_profile,
+    await_gate,
     close_issue,
     close_pr,
     github_api,
@@ -62,27 +58,16 @@ from .conftest import (
 )
 
 
-def _signal_merge(run_id: str, address: str) -> None:
-    """The one human act: `poseidon signal <run> merge --approved
-    --workflow review`, through the real CLI pointed at the cluster's
-    Temporal over an open port-forward."""
+def _signal_merge(env: dict, run_id: str) -> None:
+    """The one human act: `poseidon signal <run> merge`, through the real
+    CLI as the human `owner` against the cluster's console."""
     proc = subprocess.run(
-        [
-            "uv",
-            "run",
-            "poseidon",
-            "signal",
-            run_id,
-            "merge",
-            "--approved",
-            "--workflow",
-            "review",
-        ],
+        ["uv", "run", "poseidon", "signal", run_id, "merge", "--approved"],
         cwd=REPO_ROOT,
-        env={**os.environ, "TEMPORAL_ADDRESS": address},
+        env=console_env(env),
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=120,
     )
     assert proc.returncode == 0, f"poseidon signal merge: {proc.stderr}"
 
@@ -96,65 +81,49 @@ def overnight(stack: None, baseline_env: dict) -> dict:
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
 
-    async def drive() -> None:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
+    def drive() -> None:
+        # --- nothing in: the strategy names the slice, the loop scopes
+        # it. The wake stands in for the reconcile look the loop would
+        # take on its own.
+        scope = scope_via_heartbeat(env, open_slice_strategy(nonce, NEXT_SLICE_MARKER))
+        assert scope["status"] == "done", f"unattended scope: {scope}"
+        result["scope"] = scope
+        urls = scope.get("ticket_urls") or []
+        issue_match = next((re.search(r"/issues/(\d+)$", u) for u in urls if u), None)
+        assert issue_match, f"the scope run filed no issue: {urls}"
+        issue_number = int(issue_match.group(1))
+        result["issue_number"] = issue_number
 
-            # --- nothing in: the strategy names the slice, the loop scopes
-            # it. The wake stands in for the reconcile look the loop would
-            # take on its own.
-            scope = await asyncio.to_thread(
-                scope_via_heartbeat, env, open_slice_strategy(nonce, NEXT_SLICE_MARKER)
-            )
-            assert scope["status"] == "done", f"unattended scope: {scope}"
-            result["scope"] = scope
-            urls = scope.get("ticket_urls") or []
-            issue_match = next((re.search(r"/issues/(\d+)$", u) for u in urls if u), None)
-            assert issue_match, f"the scope run filed no issue: {urls}"
-            issue_number = int(issue_match.group(1))
-            result["issue_number"] = issue_number
+        # --- touch nothing: the scope run's finishing nudge wakes the
+        # loop onto the ticket it filed; the re-nudge covers a backlog
+        # read that landed before the ticket was visible on the git host.
+        implement = run_ticket(issue_number)
+        assert implement["status"] == "done", f"unattended implement: {implement}"
+        assert implement["pr_url"], "the unattended implement produced no PR"
+        result["implement"] = implement
+        number = pr_number(implement["pr_url"])
+        assert number is not None, f"not a PR url: {implement['pr_url']!r}"
+        result["pr_number"] = number
 
-            # --- touch nothing: the scope run's finishing nudge wakes the
-            # loop onto the ticket it filed; the re-nudge covers a backlog
-            # read that landed before the ticket was visible on the git host.
-            implement = await asyncio.to_thread(run_ticket, issue_number)
-            assert implement["status"] == "done", f"unattended implement: {implement}"
-            assert implement["pr_url"], "the unattended implement produced no PR"
-            result["implement"] = implement
-            number = pr_number(implement["pr_url"])
-            assert number is not None, f"not a PR url: {implement['pr_url']!r}"
-            result["pr_number"] = number
+        # The implement's finishing nudge wakes the heartbeat onto
+        # the delivered PR; the review it starts parks on the human
+        # merge gate.
+        wake_until_run_started(review_run_task(number), "review")
+        review = await_run(review_run_task(number), False)
+        result["review"] = review
+        await_gate(review["run_id"], "paused-merge_gate")
+        result["parked_pr"] = github_api(
+            env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
+        ).json()
 
-            # The implement's finishing nudge wakes the heartbeat onto
-            # the delivered PR; the review it starts parks on the human
-            # merge gate.
-            await asyncio.to_thread(
-                wake_until_run_started, review_run_task(number), "review"
-            )
-            review = await asyncio.to_thread(await_run, review_run_task(number), False)
-            result["review"] = review
-            review_handle = client.get_workflow_handle(
-                workflow_id("review", review["run_id"])
-            )
-            deadline = time.monotonic() + 600
-            while time.monotonic() < deadline:
-                if await review_handle.query("state") == "paused-merge_gate":
-                    break
-                await asyncio.sleep(2)
-            else:
-                raise AssertionError("the unattended review never parked to merge")
-            result["parked_pr"] = github_api(
-                env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
-            ).json()
-
-            # --- the one human act: one approval out, through the real CLI
-            await asyncio.to_thread(_signal_merge, review["run_id"], address)
-            result["review_record"] = await asyncio.wait_for(
-                review_handle.result(), timeout=300
-            )
+        # --- the one human act: one approval out, through the real CLI
+        _signal_merge(env, review["run_id"])
+        result["review_record"] = await_run(
+            review_run_task(number), terminal=True, deadline_s=300, workflow="review"
+        )
 
     try:
-        asyncio.run(drive())
+        drive()
         yield result
     finally:
         close_pr(env, result.get("pr_number") or 0)

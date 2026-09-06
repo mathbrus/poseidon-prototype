@@ -46,11 +46,12 @@ introduction to them, these are the primary sources worth your time.
 If you are reading this with a class, these are the places where
 the design genuinely has something to argue about.
 
-1. The merge gate is the one place enforcement has a single owner
-   ([What it cannot do](cannot.md#merge-approval-is-workflow-state-not-policy-state)).
-   Sketch the independently-checkable approval artifact that
-   would let OPA verify the human said yes — and account for the new trust
-   your artifact introduces.
+1. The merge is released on a verdict the console recorded, not on the
+   signal ([What it cannot do](cannot.md#the-merge-release-trusts-the-console-and-the-registry)).
+   The artifact is an unsigned audit row. Name what it trusts that the
+   signal did not, decide whether signing it would buy anything against
+   the writers who could forge it, and say what a compromised console
+   can and cannot do.
 2. `bound_to_run` guards sandbox tools but not `git.open_pr`
    ([OPA and Rego](../concepts/opa.md)). Reconstruct the reasoning: what property of opening a pull
    request makes run binding the wrong guard, and which compiled rules
@@ -62,6 +63,8 @@ the design genuinely has something to argue about.
    ([Standing vs. ephemeral agents](../concepts/standing-vs-ephemeral.md)). Argue both sides: privilege-escalation hole, or the
    correct reading of least privilege?
 5. [What it cannot do](cannot.md#unauthenticated-in-cluster-services-guarded-only-by-networkpolicy) concedes that in-cluster surfaces rely on NetworkPolicy
-   alone — and that the Temporal frontend is not even covered by that.
-   Rank the five unauthenticated surfaces by consequence-if-reached and
-   decide which you would authenticate first, and with what identity.
+   alone, and that a port-forward passes beneath it. Rank the five
+   unauthenticated surfaces by consequence-if-reached now that a signal
+   to the frontend releases nothing, decide which you would authenticate
+   first, and say whether the console's identity model — a ServiceAccount
+   per person, a token for one audience — would serve it.

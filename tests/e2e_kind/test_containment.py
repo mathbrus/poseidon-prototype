@@ -7,7 +7,21 @@ proven by test_redteam.py against a live sandbox.
 
 import pytest
 
-from .cluster import COMPANY_NS, PLATFORM_NS, agent_pod, kubectl, probe, run_kubectl
+from .cluster import (
+    COMPANY_NS,
+    PLATFORM_NS,
+    agent_pod,
+    kubectl,
+    platform_pod,
+    probe,
+    probe_tcp,
+    run_kubectl,
+)
+
+# Temporal's gRPC frontend: the one port the fence admits the worker and
+# the console on.
+TEMPORAL_FRONTEND = f"temporal-frontend.{PLATFORM_NS}.svc.cluster.local"
+TEMPORAL_PORT = 7233
 
 
 @pytest.mark.parametrize(
@@ -29,6 +43,25 @@ from .cluster import COMPANY_NS, PLATFORM_NS, agent_pod, kubectl, probe, run_kub
 )
 def test_agent_reaches_only_the_gateways(stack: None, url: str, want: str) -> None:
     assert probe(agent_pod(), url, want), f"{url} should be {want}"
+
+
+@pytest.mark.parametrize(
+    ("app", "want"),
+    [
+        # Reaching the frontend is starting runs and delivering gate
+        # signals: the worker hosts the workflows and the console acts on a
+        # human's behalf; a platform pod with neither job is refused.
+        ("orchestrator-worker", "reachable"),
+        ("console", "reachable"),
+        ("llm-gateway", "blocked"),
+    ],
+)
+def test_temporal_frontend_is_fenced_from_platform_pods(
+    stack: None, app: str, want: str
+) -> None:
+    assert probe_tcp(
+        platform_pod(app), TEMPORAL_FRONTEND, TEMPORAL_PORT, want, PLATFORM_NS
+    ), f"the frontend should be {want} from {app}"
 
 
 def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:

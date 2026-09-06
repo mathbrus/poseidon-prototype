@@ -27,28 +27,56 @@ Five surfaces have no authentication of their own:
 - the **Temporal frontend** (its browsable web UI is opt-in — the kind
   bootstrap deploys it only with `TEMPORAL_WEB=1`).
 
-The first four are protected by being unreachable: NetworkPolicy admits
-exactly one caller. This is a real reduction in defence in depth compared
-to authenticating them, and it means **NetworkPolicy enforcement is
-load-bearing**. On a cluster whose CNI ignores NetworkPolicy, these are
-open. The kind bootstrap installs Calico for exactly this reason.
+All five are protected by being unreachable: NetworkPolicy admits exactly
+the callers whose job they are — one for the first four, and for the
+frontend the orchestrator worker and [the console](../reference/console.md).
+This is a real reduction in defence in depth compared to authenticating
+them, and it means **NetworkPolicy enforcement is load-bearing**. On a
+cluster whose CNI ignores NetworkPolicy, these are open. The kind
+bootstrap installs Calico for exactly this reason.
 
-The fifth is the weakest of the set: anything that reaches the Temporal
-frontend holds full operator authority, merge approval included, because the
-`poseidon` CLI is only a thin client over it. [The Temporal contract](../reference/temporal.md)
-writes that surface down, and what does and does not guard it.
+The frontend keeps one road the fence cannot close: a human with cluster
+credentials reaches it by `kubectl port-forward`, which enters the pod's
+own network namespace beneath any policy. That reach is not merge
+authority — a signal delivered there without a verdict the console
+recorded releases nothing, and the acceptance suite proves it on every
+run — but it is still reach into the workflow engine, and
+[the Temporal contract](../reference/temporal.md) writes down exactly
+what it buys.
 
-## Merge approval is workflow state, not policy state
+The one **authenticated** surface a person reaches is the console, and it
+is deliberately the only one: on kind a NodePort on the host's loopback,
+nowhere an ingress. Exposing it beyond the host is a decision this
+prototype has not made, and the token lifetimes, revocation and phishing
+questions that come with it are not answered here.
 
-OPA restricts `git.merge_pr` to the platform identity, and the workflow only
-calls it after the gate approves. But OPA cannot *independently prove* that
-approval happened — it sees a platform-lifecycle caller and allows the tool.
+## The merge release trusts the console and the registry
 
-This is the single named exception to the "enforcement is layered"
-principle: the merge guarantee has one owner, the workflow. It is mitigated
-by making gate outcomes first-class audit events, so a human can see that
-the gate — not a bug — released the merge. Making OPA require an independent
-approval artifact is the obvious hardening and is not implemented.
+The merge is released on a record, not on a signal: the console writes
+the verdict under the verified person's name before it delivers the
+signal, the workflow reads that record back, and the compiled
+`merge.resolve` decision releases the merge on the record — or refuses by
+name. OPA decides on an artifact it can read; a signal alone merges
+nothing.
+
+What that buys is bounded by what it trusts, and the trust is named:
+
+- **The console and the registry.** The record is an audit row the
+  console wrote; a compromised console, or a writer of `audit_events`,
+  could forge one. The row is not signed. The console is trusted code
+  like the gateways, and the sixth writer of a table five already share.
+- **The applier.** The first apply of a company is decided by nobody —
+  no bundle exists yet — and any later apply can rewrite `company.humans`,
+  so whoever may apply may name who answers the gates. That is the
+  authority a kubeconfig always held; it is now visible and audited under
+  a name.
+- **The budget gate.** Its verdicts are decided and recorded by the
+  console like the merge gate's, but the workflow does not read them
+  back: a `budget` signal delivered past the console resumes a run under
+  nobody's name. It cannot spend past the stop — the re-dispatch runs
+  under the same per-run cap the LLM gateway enforces from the ledger —
+  but "spend is a stop, not a warning" is kept by the ledger here, not by
+  a verified verdict. A known gap, not a residual.
 
 ## Supply chain: tags, not digests
 

@@ -33,12 +33,19 @@ import json
 from typing import Any
 
 from common.policy import (
+    BLUEPRINT_APPLY,
     CREW_REQUEST,
+    GATE_RESOLVE,
     HEARTBEAT_START,
+    HEARTBEAT_WAKE,
     MERGE_RESOLVE,
+    RUN_CANCEL,
+    RUN_START,
     company_package,
     rego_slug,
+    verdict_rule,
 )
+from common.workflows import GATES, HUMAN_STARTABLE
 from compiler.plan import AgentInstanceCR, EphemeralAgentSpec, HeartbeatConfig
 from schema.catalog import STEWARD_ROLE
 from schema.gates import UNDELEGATABLE_PATHS
@@ -312,29 +319,143 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
     return _rego_file(company, allows + denies)
 
 
+def _console_file(company: str, humans: tuple[str, ...]) -> str:
+    """The company's humans: who may act on it through the console. Every
+    human act is a decision the console must win before it does anything —
+    the `heartbeat.start` idiom, keyed on the `human` lifecycle so no
+    workload can claim it. One allow per act, gate and verdict, so the
+    audit row names what was granted; one deny for a verified person the
+    company did not name. Authority is the list, and the list is a diff."""
+    names = json.dumps(sorted(humans))
+
+    def act(rule: str, tool: str, *facts: str) -> str:
+        return (
+            f'\nallow_rules contains "{rule}" if {{\n'
+            '\tinput.lifecycle == "human"\n'
+            f'\tinput.company == "{company}"\n'
+            f'\tinput.tool == "{tool}"\n'
+            + "".join(f"\t{fact}\n" for fact in facts)
+            + f"\tinput.agent_id in {names}\n"
+            "}\n"
+        )
+
+    body = "".join(
+        act(
+            verdict_rule(gate, approved),
+            GATE_RESOLVE,
+            f'input.args.gate == "{gate}"',
+            f"input.args.approved == {json.dumps(approved)}",
+        )
+        for gate in GATES
+        for approved in (True, False)
+    )
+    body += "".join(
+        act(
+            f"run_start_{rego_slug(workflow)}",
+            RUN_START,
+            f'input.args.workflow == "{workflow}"',
+        )
+        for workflow in HUMAN_STARTABLE
+    )
+    body += act("run_cancel", RUN_CANCEL)
+    body += act("heartbeat_wake", HEARTBEAT_WAKE)
+    body += act("blueprint_apply", BLUEPRINT_APPLY)
+    body += (
+        '\ndeny_rules contains "human_not_recognized" if {\n'
+        '\tinput.lifecycle == "human"\n'
+        f"\tnot input.agent_id in {names}\n"
+        "}\n"
+    )
+    return _rego_file(company, body)
+
+
 def _merge_gate_file(
-    company: str, delegation: dict[str, Any], policies: dict[str, Any]
+    company: str,
+    humans: tuple[str, ...],
+    gate: dict[str, Any],
+    policies: dict[str, Any],
 ) -> str:
-    """The policy-resolved merge gate's authority. `merge.resolve` is not a
-    gateway tool: it is the decision the review workflow must win before
-    merging without a human — the `heartbeat.start` idiom. The three
+    """The merge gate's authority. `merge.resolve` is not a gateway tool: it
+    is the decision the review workflow must win before merging, on
+    either of two paths named by `input.args.resolver`.
+
+    The human path (every gate): the verdict the console recorded under
+    the person's name rides the input, read back from the audit store by
+    the platform — the release needs a recorded approval by one of the
+    company's humans, and nothing else. A signal that reached the workflow
+    without a recorded verdict is refused by name. A human may release a
+    change policy never could (a carve-out, the contract tree): that is
+    the override the gate promises.
+
+    The delegated path (a policy-resolved gate only): the three
     caller-verified facts ride the input (the reviewer's verdict, the
     platform's own model-free checks, reviewer-independence from the
     implementer); the delegated class, the carve-outs and the contract
-    tree are compiled literals. No delegation compiles no file, so an
-    unattended merge with no declared class falls to the default deny —
-    revocation is a blueprint diff.
+    tree are compiled literals. No delegation compiles no delegated
+    allow, so an unattended merge with no declared class falls to the
+    default deny — revocation is a blueprint diff.
 
-    Fail-safe defaults throughout: the single allow references every input
-    it needs, so a missing fact simply never allows; the named denies
-    restate each requirement negatively so a refusal is a first-class
-    audit story (the rule names the layer that refused), not just an
-    unfired allow."""
+    Fail-safe defaults throughout: each allow references every input it
+    needs, so a missing fact simply never allows; the named denies restate
+    each requirement negatively so a refusal is a first-class audit story
+    (the rule names the layer that refused), not just an unfired allow."""
+    names = json.dumps(sorted(humans))
+    body = (
+        # The resolver is the fork: absent, neither path can allow and the
+        # deny names why.
+        '\ndeny_rules contains "merge_resolve_resolver_missing" if {\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
+        '\tnot object.get(input, ["args", "resolver"], "") in ["human", "policy"]\n'
+        "}\n"
+        '\nallow_rules contains "merge_resolve_human" if {\n'
+        '\tinput.lifecycle == "platform"\n'
+        f'\tinput.company == "{company}"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
+        '\tinput.args.resolver == "human"\n'
+        "\tinput.args.human_verdict.approved == true\n"
+        f"\tinput.args.human_verdict.principal in {names}\n"
+        "}\n"
+        '\ndeny_rules contains "merge_resolve_no_human_verdict" if {\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
+        '\tinput.args.resolver == "human"\n'
+        '\tnot is_object(object.get(input, ["args", "human_verdict"], null))\n'
+        "}\n"
+        # The two denies below speak only about a recorded verdict; an
+        # absent one is the first deny's to name.
+        '\ndeny_rules contains "merge_resolve_human_rejected" if {\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
+        '\tinput.args.resolver == "human"\n'
+        '\tis_object(object.get(input, ["args", "human_verdict"], null))\n'
+        '\tobject.get(input, ["args", "human_verdict", "approved"], false) != true\n'
+        "}\n"
+        '\ndeny_rules contains "merge_resolve_not_a_human" if {\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
+        '\tinput.args.resolver == "human"\n'
+        '\tis_object(object.get(input, ["args", "human_verdict"], null))\n'
+        '\tnot object.get(input, ["args", "human_verdict", "principal"], "") in '
+        f"{names}\n"
+        "}\n"
+    )
+    delegation = gate.get("delegate") if gate.get("resolved_by") == "policy" else None
+    if delegation is not None:
+        body += _delegated_rules(company, delegation, policies)
+    return _rego_file(company, body)
+
+
+def _delegated_rules(
+    company: str, delegation: dict[str, Any], policies: dict[str, Any]
+) -> str:
+    """The policy path of the merge gate; every rule is scoped to
+    `resolver == "policy"` so the human path is never held to the
+    delegated class."""
     paths = json.dumps(sorted(delegation.get("paths") or []))
     carved = json.dumps(
         sorted({*UNDELEGATABLE_PATHS, *(policies.get("deny_paths") or [])})
     )
     contract_paths = sorted((policies.get("contract_tests") or {}).get("paths") or [])
+    policy_path = (
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n\tinput.args.resolver == "policy"\n'
+    )
     # A declared contract tree prices its fact into the delegation: the
     # allow additionally requires the platform-composed contract verify
     # (base-ref contract tree over the PR head) to be green. Undeclared,
@@ -349,8 +470,8 @@ def _merge_gate_file(
         # separate from the generic carve-out so the audit row names the
         # class that refused.
         '\ndeny_rules contains "merge_resolve_contract_path" if {\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        + policy_path
+        + '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome contract in {json.dumps(contract_paths)}\n"
         "\tstartswith(path, contract)\n"
         "}\n"
@@ -358,13 +479,13 @@ def _merge_gate_file(
         # idiom: object.get so the absent key denies rather than leaving
         # the rule unevaluated.
         '\ndeny_rules contains "merge_resolve_contract_not_green" if {\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        '\tobject.get(input, ["args", "contract_green"], false) != true\n'
+        + policy_path
+        + '\tobject.get(input, ["args", "contract_green"], false) != true\n'
         "}\n"
         if contract_paths
         else ""
     )
-    body = (
+    return (
         "\npath_delegated(path) if {\n"
         f"\tsome delegated in {paths}\n"
         "\tstartswith(path, delegated)\n"
@@ -372,12 +493,12 @@ def _merge_gate_file(
         '\nallow_rules contains "merge_resolve_delegated" if {\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
+        + policy_path
         # The quality layers, verified by the caller and riding the
         # input: the independent reviewer's verdict, the platform's own
         # model-free checks, and the registry-checked independence of the
         # reviewer from the implementer. None alone merges anything.
-        '\tinput.args.verdict == "pass"\n'
+        + '\tinput.args.verdict == "pass"\n'
         "\tinput.args.checks_green == true\n"
         "\tinput.args.reviewer_independent == true\n" + contract_requirement +
         # Every changed path fits the delegated class; an empty diff has
@@ -390,21 +511,21 @@ def _merge_gate_file(
         # Path rules fail closed, the git.open_pr idiom: without the
         # changed paths in the input the class cannot be checked.
         '\ndeny_rules contains "merge_resolve_paths_missing" if {\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        "\tnot input.args.paths\n"
+        + policy_path
+        + "\tnot input.args.paths\n"
         "}\n"
         # The undelegatable surfaces as a deny — the belt under the
         # compile-time refusal to delegate them: a changed path under a
         # carve-out denies the resolve whatever the delegated class says.
         '\ndeny_rules contains "merge_resolve_carved_out_path" if {\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        + policy_path
+        + '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome carved in {carved}\n"
         "\tstartswith(path, carved)\n"
         "}\n"
         '\ndeny_rules contains "merge_resolve_undelegated_path" if {\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        + policy_path
+        + '\tsome path in object.get(input, ["args", "paths"], [])\n'
         "\tnot path_delegated(path)\n"
         "}\n"
         + contract_deny
@@ -412,19 +533,18 @@ def _merge_gate_file(
         # object.get, never a bare reference, so the absent key denies
         # rather than leaving the rule unevaluated.
         + '\ndeny_rules contains "merge_resolve_verdict_not_pass" if {\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        '\tobject.get(input, ["args", "verdict"], "") != "pass"\n'
+        + policy_path
+        + '\tobject.get(input, ["args", "verdict"], "") != "pass"\n'
         "}\n"
         '\ndeny_rules contains "merge_resolve_checks_not_green" if {\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        '\tobject.get(input, ["args", "checks_green"], false) != true\n'
+        + policy_path
+        + '\tobject.get(input, ["args", "checks_green"], false) != true\n'
         "}\n"
         '\ndeny_rules contains "merge_resolve_not_independent" if {\n'
-        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
-        '\tobject.get(input, ["args", "reviewer_independent"], false) != true\n'
+        + policy_path
+        + '\tobject.get(input, ["args", "reviewer_independent"], false) != true\n'
         "}\n"
     )
-    return _rego_file(company, body)
 
 
 def _platform_rules(tools: list[str]) -> str:
@@ -579,11 +699,13 @@ def build_bundle(
     repo_url: str,
     heartbeat: HeartbeatConfig,
     documents: dict[str, str],
-    merge_delegation: dict[str, Any] | None = None,
+    humans: tuple[str, ...],
+    merge_gate: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """The company bundle: per-role and per-ephemeral-agent files, plus the
-    company's decision entrypoint and the blueprint's policy rules — all
-    under the company's own package."""
+    company's decision entrypoint, the blueprint's policy rules, the
+    heartbeat's and the humans' authority, and the merge gate's when one
+    is declared — all under the company's own package."""
     files = {
         "authz.rego": _decision_file(
             company_package(company), _NO_BUDGET_RULE, _ARCHITECTURE_CAP_RULE
@@ -604,8 +726,9 @@ def build_bundle(
         files[name] = _crew_file(company, agent.crew, agent.role, list(agent.tools))
     files["policies.rego"] = _policies_file(company, policies, repo_url, documents)
     files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
-    if merge_delegation is not None:
-        files["merge_gate.rego"] = _merge_gate_file(company, merge_delegation, policies)
+    files["console.rego"] = _console_file(company, humans)
+    if merge_gate is not None:
+        files["merge_gate.rego"] = _merge_gate_file(company, humans, merge_gate, policies)
     return files
 
 

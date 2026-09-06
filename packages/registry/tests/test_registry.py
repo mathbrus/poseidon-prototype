@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from common.audit import AuditEvent
+from common.policy import GATE_RESOLVE, verdict_rule
 from registry import (
     AgentInstances,
     Attempts,
@@ -608,3 +609,97 @@ def test_count_allowed_counts_answered_allows_only(registry: Registry):
         )
     assert store.count_allowed(RUN_ID, "architecture.request") == 1
     assert store.count_allowed(RUN_ID, "git.open_pr") == 0
+
+
+# -- the console's reads --------------------------------------------------------
+
+
+def test_now_is_the_databases_clock(registry: Registry):
+    stamp = registry.now()
+    assert "T" in stamp and ("+" in stamp or stamp.endswith("Z"))
+
+
+def test_runs_since_a_fence_are_the_companys_runs_after_it(registry: Registry):
+    runs = Runs(registry)
+    runs.start("run-before", "task a", company="hello-saas")
+    fence = registry.now()
+    runs.start("run-after", "task b", company="hello-saas")
+    runs.start("run-elsewhere", "task c", company="other-co")
+    runs.start("heartbeat-hello-saas", "tick", workflow="heartbeat", company="hello-saas")
+    since = [r.run_id for r in runs.since("hello-saas", fence)]
+    assert since == ["run-after"]
+    everything = [r.run_id for r in runs.since("hello-saas", None)]
+    assert everything == ["run-before", "run-after"]
+
+
+def test_spent_since_a_fence_sums_the_companys_ledger_after_it(registry: Registry):
+    ledger = BudgetLedger(registry)
+    Runs(registry).start(RUN_ID, "task", company="hello-saas")
+
+    def entry(usd: float, company: str = "hello-saas") -> None:
+        ledger.record(
+            company=company,
+            run_id=RUN_ID,
+            agent_id="implementer-1",
+            parent_agent_id="",
+            role="implementer",
+            model="mock-brain",
+            prompt_tokens=10,
+            completion_tokens=5,
+            cached_tokens=0,
+            reasoning_tokens=0,
+            usd=usd,
+        )
+
+    entry(0.5)
+    fence = registry.now()
+    entry(0.25)
+    entry(1.0, company="other-co")
+    assert ledger.spent_since("hello-saas", fence) == {
+        "usd": 0.25,
+        "prompt_tokens": 10,
+        "completion_tokens": 5,
+    }
+    assert ledger.spent_since("hello-saas", None)["usd"] == 0.75
+
+
+def test_story_since_a_fence(registry: Registry):
+    audit = AuditStore(registry)
+    audit.append(event(tool="before"))
+    fence = registry.now()
+    audit.append(event(tool="after"))
+    assert [e["tool"] for e in audit.story(RUN_ID, fence)] == ["after"]
+    assert [e["tool"] for e in audit.story(RUN_ID)] == ["before", "after"]
+
+
+def test_latest_human_verdict_is_the_consoles_last_word(registry: Registry):
+    """Only the console's rows are verdicts; the latest wins; another run's
+    or another gate's verdict is never this one's."""
+    audit = AuditStore(registry)
+
+    def verdict(approved: bool, gate: str = "merge", run_id: str = RUN_ID, **extra):
+        audit.append(
+            event(
+                run_id=run_id,
+                agent_id="owner",
+                role="human",
+                lifecycle="human",
+                tool=GATE_RESOLVE,
+                rule=verdict_rule(gate, approved),
+                source="console",
+                **extra,
+            )
+        )
+
+    assert audit.latest_human_verdict(RUN_ID, "merge") is None
+    # The workflow's own process-gate row is not a verdict.
+    audit.append(event(tool="gate.merge", rule="gate_approved", source="process-gate"))
+    assert audit.latest_human_verdict(RUN_ID, "merge") is None
+    verdict(True, ts="2026-01-01T00:00:01+00:00")
+    verdict(True, run_id="run-other", ts="2026-01-01T00:00:05+00:00")
+    verdict(False, gate="budget", ts="2026-01-01T00:00:06+00:00")
+    read = audit.latest_human_verdict(RUN_ID, "merge")
+    assert read["principal"] == "owner" and read["approved"] is True
+    verdict(False, ts="2026-01-01T00:00:02+00:00")
+    assert audit.latest_human_verdict(RUN_ID, "merge")["approved"] is False
+    assert audit.latest_human_verdict(RUN_ID, "budget")["approved"] is False

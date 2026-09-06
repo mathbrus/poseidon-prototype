@@ -2,15 +2,16 @@
 
 The durable spine: four Temporal workflows, the activities they
 sequence, the process gates they park on, the bounded Kubernetes surface
-for ephemeral ephemeral pods, the worker that runs it all, and the `poseidon`
-CLI. The [root README](../../README.md) states the promises; this package
-is where they become control flow.
+for ephemeral pods, and the worker that runs it all. The
+[root README](../../README.md) states the promises; this package is where
+they become control flow.
 
 Two things make it the one to read carefully. It is the **only binder of
 ephemeral identities** — the sole writer of `run_participants` rows and
-creator of per-run crew ServiceAccounts — and it owns the **human merge
-gate**, the single point where a person is required before code leaves the
-system.
+creator of per-run crew ServiceAccounts — and it holds the **merge
+gate**: the review workflow parks on the signal the console delivers and
+releases only on the verdict the console recorded, the single point where
+a person is required before code leaves the system.
 
 ## Module map
 
@@ -23,9 +24,8 @@ system.
 | `ephemeral_pods.py` | The bounded Kubernetes surface for ephemeral pods: **pods and their per-run ServiceAccounts only**, in the **company namespace only**, deleted only by label selector. |
 | `identity.py` | Ephemeral identity naming — the fulfill half of the identity contract; the gateways own the verify half. |
 | `clients.py` | `GatewayClient` (MCP + admin routes) and `AgentClient` (dispatch/poll). |
-| `cli/` | `poseidon run\|review\|signal\|status`, `poseidon blueprint compile\|preview\|apply` — documented on [the CLI reference](../../docs/reference/cli.md). |
 | `worker/` | The worker process: registers all four workflows and all activities on the `poseidon-orchestrator` task queue, and runs the ensure loop that keeps each company's heartbeat alive. |
-| `config.py` | `TemporalSettings` (all a client needs) and `WorkerSettings` (what activities need). |
+| `config.py` | `WorkerSettings` — what the worker and its activities need, every field set by the chart. |
 
 ## Workflow code is replayed, not run once
 
@@ -93,8 +93,13 @@ identity, provision a *full* sandbox from its head ref (the reviewer runs
 tests, it does not just read diffs), fulfill a review crew, dispatch the
 ephemeral reviewer (the `review` procedure), journal its structured verdict,
 then resolve the merge gate as the blueprint declares. `resolved_by:
-human` parks on the `merge` signal; approve merges under the platform
-identity, reject or timeout is an honest failure. `resolved_by: policy`
+human` parks on the `merge` signal the console delivers; when the signal
+approves, `read_human_verdict` fetches the verdict the console recorded
+under the person's name from the audit store, and one evaluation of the
+compiled `merge.resolve` decision on its human path releases the merge
+under the platform identity — a signal with no verdict on record ends
+the run unmerged, as a `gate_verdict_unverified` process-gate event.
+Reject or timeout is an honest failure. `resolved_by: policy`
 runs the platform's own layers first — the verify re-run in the review
 sandbox (implement's `platform_verify`, one verification concept with two
 callers), the registry-checked reviewer-independence fact, and one
@@ -211,18 +216,27 @@ the registry. The park itself is API-visible through the `state` query
 never a silent hang.
 
 The merge gate is the only human gate the shipped blueprint enables, and
-the sole owner of the merge guarantee. Merge approval is *workflow state*
-— the single named exception to policy-side defence in depth — which is
-why its outcomes are first-class audit rows and the merge itself is a
-gateway-audited `git.merge_pr` call that policy grants to the platform
-identity alone. Gate config comes from the compiled plan
-(`workflows.<name>.gates`), never hardcoded.
+the sole owner of the merge guarantee. The signal is not the approval.
+The approval is the verdict the console recorded under the person's name
+before it signalled; `read_human_verdict` reads it back, and the compiled
+`merge.resolve` decision — its human path, `merge_resolve_human` —
+releases on a recorded approval by one of the blueprint's `humans` and
+on nothing else. A signal that reached the workflow by any other road
+(network reach to the engine, a person the company did not name) finds
+no verdict and releases nothing, by a rule that says so. Every outcome
+is a first-class audit row, and the merge itself is a gateway-audited
+`git.merge_pr` call that policy grants to the platform identity alone.
+Gate config comes from the compiled plan (`workflows.<name>.gates`),
+never hardcoded.
 
 The budget pause rides the same spine: when a dispatch returns the LLM
 gateway's `budget_exhausted` marker, the workflow parks on the `budget`
 signal rather than silently retrying against an exhausted cap. Approval
 means the cap was raised — the same text is re-dispatched; anything else
-finalizes the run with the budget error.
+finalizes the run with the budget error. The budget verdict is authorized
+and audited by the console but not read back here: a forged approval only
+re-dispatches under the same per-run cap the LLM gateway enforces from
+the ledger.
 
 ## Identity: bound deterministically, revoked by a row
 
@@ -305,28 +319,30 @@ governance problem, never a silent one.
 | What | How | Image |
 |---|---|---|
 | worker | `python -m orchestrator.worker` | `poseidon-orchestrator` |
-| CLI | `uv run poseidon …` | run from a checkout |
+
+A person reaches the workflows through the console, with the `poseidon`
+CLI as its client:
 
 ```
-uv run poseidon blueprint compile examples/hello-saas.yaml --out ./bundle
-uv run poseidon blueprint preview examples/hello-saas.yaml
-uv run poseidon blueprint apply examples/hello-saas.yaml --yes
+export POSEIDON_TOKEN=$(uv run poseidon login owner)
 
 uv run poseidon run 42                                   # implement ticket #42 by hand (an operator's repro)
 uv run poseidon review 41                                # review PR #41 by hand
-uv run poseidon signal <run_id> merge --workflow review  # approve the gate
-uv run poseidon signal <run_id> merge --no-approved --workflow review
+uv run poseidon signal <run_id> merge                    # approve the gate: the verdict is recorded, then delivered
+uv run poseidon signal <run_id> merge --no-approved
 uv run poseidon status <run_id>
+uv run poseidon story <run_id>
+uv run poseidon heartbeat state
 ```
 
-The full command reference, and the Temporal workflow/signal/query
-contract beneath it, live on [the Temporal contract](../../docs/reference/temporal.md). The
-run-control commands hold no credentials — runs execute on the in-cluster
-worker; the CLI only starts, signals and inspects, over `TEMPORAL_ADDRESS`
-(default `127.0.0.1:7233`, i.e. a port-forward). `blueprint apply` is the
-exception: it submits the Company and AgentInstance CRs with *your*
-kubeconfig — cluster mutation stays with the operator, and the CLI's
-authority there is exactly the caller's own.
+Every one of those is a console call: the console decides the act
+against the company's bundle, audits it under the person's name, and
+only then starts, signals or inspects the workflow. Temporal's frontend
+is fenced by NetworkPolicy to the worker, the console and Temporal's own
+components; nothing on a laptop holds a Temporal address or a registry
+DSN. The workflow, signal and query contract is on
+[the Temporal contract](../../docs/reference/temporal.md), the human's
+side on [the console](../../docs/reference/console.md).
 
 ## Credential posture
 
@@ -347,8 +363,12 @@ ephemeral-pod provisioner use: each is useless where the other is needed.
   the k8s_jobs backend.
 - [`registry`](../registry/README.md) for runs, participants, crew
   requests, companies, budgets and audit.
-- [`compiler`](../compiler/README.md) + [`schema`](../schema/README.md)
-  behind the `poseidon blueprint` commands.
+- [`console`](../console/README.md) starts, signals, cancels and
+  inspects the workflows on a verified human's behalf — over the naming
+  in `common.workflows`, which both share — and records the verdict
+  `read_human_verdict` reads back. It also submits the Company and
+  AgentInstance CRs the applied blueprint comes from; this package reads
+  the result (workflow, gate and sandbox config) from the registry.
 - [`agent`](../agent/README.md) over HTTP for dispatch.
 
 ## Tests

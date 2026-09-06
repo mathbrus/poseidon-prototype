@@ -57,6 +57,12 @@ class Registry:
         with self._connection() as conn:
             return conn.execute(sql, params).fetchall()
 
+    def now(self) -> str:
+        """The database's clock, as an ISO timestamp — the fence a reader
+        takes so that "since" means since the registry's own now, not the
+        reader's."""
+        return self.query("SELECT now() AS now")[0]["now"].isoformat()
+
     def migrate(self) -> None:
         """Apply the schema. Idempotent and safe to run from every service
         at startup, in any order, concurrently."""

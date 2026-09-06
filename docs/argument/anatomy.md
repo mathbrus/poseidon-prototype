@@ -205,8 +205,15 @@ one statement of the rules; the guides and the reference link here rather
 than restating them.
 
 **`resolved_by: human`** parks the workflow on the `merge` signal: a person
-approves or rejects. Nobody home is a recorded outcome, not a hang — an
-escalation fires at half the deadline, and the gate expires at the end.
+approves or rejects through [the console](../reference/console.md), which
+verifies who they are, asks the compiled bundle whether `company.humans`
+names them, records the verdict under their name, and only then signals.
+The signal is a nudge to look: the workflow reads the recorded verdict
+back and the same `merge.resolve` decision releases the merge on it — a
+recorded approval by one of the company's humans — or refuses by name,
+and a signal that arrived by any other road ends the run unmerged. Nobody
+home is a recorded outcome, not a hang — an escalation fires at half the
+deadline, and the gate expires at the end.
 
 **`resolved_by: policy`** merges with no human command — but only when
 every one of these platform-established facts holds:
@@ -244,7 +251,8 @@ approved silently.
 
 Either way, the *orchestrator* performs the merge, under its platform
 identity, via a gateway tool call that policy permits to nobody else — and
-every transition, human or policy, is a first-class audit event.
+every transition, human or policy, is a first-class audit event, the
+human's under the human's name.
 
 ## Teardown
 

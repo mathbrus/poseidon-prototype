@@ -1,13 +1,14 @@
 """Evaluating a compiled decision against the live OPA bundle.
 
-The orchestrator queries OPA directly at two authorization chokepoints that
-are not a gateway tool call: the workflow-recorded `crew.request` (crew
-fulfilment under a conductor's authority) and the heartbeat's
-`heartbeat.start`. Both send the same decision-input shape the gateway sends
-and read the same default-deny bundle — this module is the one place the
-transport lives, so the two callers cannot drift on the endpoint, the
-slug, or the no-policy-installed default. What each does with the verdict —
-which audit event to emit, which error to raise — stays with the caller.
+The orchestrator and the console query OPA directly at the authorization
+chokepoints that are not a gateway tool call: the workflow-recorded
+`crew.request`, the heartbeat's `heartbeat.start`, the merge gate's
+`merge.resolve`, and every human act the console performs. All send the
+same decision-input shape the gateway sends and read the same
+default-deny bundle — this module is the one place the transport lives,
+so no two callers can drift on the endpoint, the slug, or the
+no-policy-installed default. What each does with the verdict — which
+audit event to emit, which error to raise — stays with the caller.
 """
 
 from typing import Any
@@ -19,7 +20,8 @@ from common.policy import company_decision_path
 # A caller with no served bundle gets a deny, not an exception: an
 # unconverged company must fail closed, exactly as the default-deny rule
 # would inside a bundle that was installed.
-NO_POLICY = {"allow": False, "rule": "no_policy_installed"}
+NO_POLICY_RULE = "no_policy_installed"
+NO_POLICY = {"allow": False, "rule": NO_POLICY_RULE}
 
 
 async def evaluate_decision(

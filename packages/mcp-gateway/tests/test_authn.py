@@ -15,7 +15,7 @@ import json
 import httpx
 import pytest
 
-from common.authn import Authenticator, ServiceAccount
+from common.authn import Authenticator, Principal, ServiceAccount
 from common.topology import TOKEN_AUDIENCE
 from mcp_gateway.config import McpGatewaySettings
 from registry.memory import (
@@ -41,11 +41,12 @@ class FakeReviewer:
         self.accounts = accounts
         self.calls: list[tuple[str, str]] = []
 
-    async def review(self, token: str, audience: str) -> ServiceAccount | None:
+    async def review(self, token: str, audience: str) -> Principal | None:
         self.calls.append((token, audience))
         if audience != AUD:
             return None
-        return self.accounts.get(token)
+        account = self.accounts.get(token)
+        return None if account is None else Principal(account.username, account)
 
 
 @pytest.fixture
@@ -300,15 +301,17 @@ async def test_kube_token_reviewer_speaks_tokenreview(tmp_path):
     reviewer = KubeTokenReviewer(
         "https://kube.test", str(own), "unused-ca", http_client=client
     )
-    account = await reviewer.review("good", AUD)
-    assert account == ServiceAccount("hello-saas", "implementer-1")
+    principal = await reviewer.review("good", AUD)
+    assert principal is not None
+    assert principal.service_account == ServiceAccount("hello-saas", "implementer-1")
     assert await reviewer.review("bad", AUD) is None
     assert len(seen) == 2
 
 
-async def test_kube_token_reviewer_ignores_non_service_accounts(tmp_path):
+async def test_kube_token_reviewer_names_non_service_accounts(tmp_path):
     """A human kubeconfig user authenticates fine at the API server but is
-    not a workload; the gateway must not map it to anything."""
+    not a workload: the reviewer reports the principal by name (so the
+    gateway's refusal is audited with it), and never as a ServiceAccount."""
     from common.authn import KubeTokenReviewer
 
     own = tmp_path / "token"
@@ -329,4 +332,7 @@ async def test_kube_token_reviewer_ignores_non_service_accounts(tmp_path):
         transport=httpx.MockTransport(handler), base_url="https://kube.test"
     )
     reviewer = KubeTokenReviewer("https://kube.test", str(own), "ca", http_client=client)
-    assert await reviewer.review("any", AUD) is None
+    principal = await reviewer.review("any", AUD)
+    assert principal is not None
+    assert principal.username == "kubernetes-admin"
+    assert principal.service_account is None
