@@ -92,14 +92,15 @@ class ReviewWorkflow(RunWorkflow):
 
     @workflow.signal
     def budget(self, approved: bool, payload: str | None = None) -> None:
-        """`poseidon signal <run_id> budget --workflow review`: resolve a
-        budget pause, exactly as in implement."""
+        """The console's budget verdict: resolve a budget pause, exactly as
+        in implement."""
         self._budget_gate.resolve(approved, payload)
 
     @workflow.signal
     def merge(self, approved: bool, payload: str | None = None) -> None:
-        """`poseidon signal <run_id> merge --approved/--no-approved
-        --workflow review` — the human verdict the merge gate parks on."""
+        """The console's merge verdict, the signal the merge gate parks on.
+        A nudge to look, not the verdict itself: the release reads the
+        verdict the console recorded under the human's name."""
         self._merge_gate.resolve(approved, payload)
 
     @workflow.query
@@ -225,19 +226,20 @@ class ReviewWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )
-        resolve = await workflow.execute_activity(
-            "resolve_merge",
-            args=[
-                input.run_id,
-                verdict,
-                bool(verify.get("passed")),
-                bool(independence.get("independent")),
-                contract_green,
-                pr.get("paths") or [],
-                workflow.info().workflow_id,
-            ],
-            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
-            retry_policy=STEP_RETRY,
+        resolve = await self._resolve(
+            input,
+            "policy",
+            {
+                "verdict": verdict,
+                "checks_green": bool(verify.get("passed")),
+                "reviewer_independent": bool(independence.get("independent")),
+                # The composed-baseline fact: the contract tree as it
+                # stands on the base ref, run against this PR's head.
+                # Vacuously true only when no contract tree is declared —
+                # the compiled rule then never reads it.
+                "contract_green": contract_green,
+                "paths": pr.get("paths") or [],
+            },
         )
         if not resolve.get("allow"):
             await self.record_gate(input.run_id, "merge", "policy_declined")
@@ -302,6 +304,18 @@ class ReviewWorkflow(RunWorkflow):
             retry_policy=STEP_RETRY,
         )
 
+    async def _resolve(
+        self, input: "ReviewInput", resolver: str, facts: dict[str, Any]
+    ) -> dict[str, Any]:
+        """One evaluation of the compiled `merge.resolve` on the named
+        path, audited by the activity either way."""
+        return await workflow.execute_activity(
+            "resolve_merge",
+            args=[input.run_id, resolver, facts, workflow.info().workflow_id],
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
+            retry_policy=STEP_RETRY,
+        )
+
     async def _human_merge(
         self, input: "ReviewInput", gate: dict[str, Any]
     ) -> dict[str, Any]:
@@ -310,7 +324,14 @@ class ReviewWorkflow(RunWorkflow):
         spent. Park on the signal, escalate at half the deadline, expire at
         the end — every transition a process-gate audit event — and return
         the same `{released}|{error}` shape the policy path does, so the run
-        has one merge-application site."""
+        has one merge-application site.
+
+        An approving signal is not the release. The release is policy's:
+        the verdict the console recorded under the human's name is read
+        back from the audit store and `merge.resolve` decides on it — so a
+        signal delivered by any other road (network reach to the workflow
+        engine, a human the company did not name) finds no recorded
+        verdict and ends the run unmerged, by a rule that says so."""
         self._state = "paused-merge_gate"
         outcome = await self._merge_gate.wait(
             **gate_deadline(gate["deadline_minutes"]),
@@ -320,6 +341,20 @@ class ReviewWorkflow(RunWorkflow):
         await self.record_gate(input.run_id, "merge", outcome.kind)
         if outcome.kind != "approved":
             return {"error": f"merge gate {outcome.kind}"}
+        verdict = await workflow.execute_activity(
+            "read_human_verdict",
+            args=[input.run_id],
+            start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
+            retry_policy=STEP_RETRY,
+        )
+        resolve = await self._resolve(
+            input, "human", {"human_verdict": verdict} if verdict else {}
+        )
+        if not resolve.get("allow"):
+            await self.record_gate(input.run_id, "merge", "verdict_unverified")
+            return {
+                "error": f"merge gate: no verified human verdict ({resolve.get('rule')})"
+            }
         return {"released": await self._merge_pr(input)}
 
     async def _release(self, input: "ReviewInput") -> dict[str, Any]:

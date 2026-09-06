@@ -1,12 +1,9 @@
-"""Orchestrator settings.
-
-Split in two: `TemporalSettings` is all a Temporal client needs (the CLI —
-every field has a default suitable for a port-forwarded kind cluster);
-`WorkerSettings` adds what activities need. The worker's gateway credential
-is its projected service-account token; GIT_TOKEN and
-provider keys never appear here by design. SandboxPolicy values come from
-the applied blueprint's infra IR in the registry — only the
-egress-proxy attribution env and the logical-image resolution live here.
+"""Orchestrator settings: what the worker and its activities need. The
+worker's gateway credential is its projected service-account token;
+GIT_TOKEN and provider keys never appear here by design. SandboxPolicy
+values come from the applied blueprint's infra IR in the registry — only
+the egress-proxy attribution env and the logical-image resolution live
+here.
 """
 
 from pathlib import Path
@@ -17,13 +14,7 @@ from pydantic_settings import BaseSettings
 from sandbox.egressproxy.credentials import sandbox_proxy_env
 
 
-class TemporalSettings(BaseSettings):
-    # The CLI's default is the kind port-forward; the worker (below) has
-    # none and takes the in-cluster address from the chart.
-    temporal_address: str = "127.0.0.1:7233"
-
-
-class WorkerSettings(TemporalSettings):
+class WorkerSettings(BaseSettings):
     """Every field is set by the chart's orchestrator-worker template; none
     has a default the deployment could silently rely on."""
 

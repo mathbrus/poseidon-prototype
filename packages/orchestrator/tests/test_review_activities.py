@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from common.audit import AuditEvent
 from orchestrator.activities.review import ReviewActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -400,25 +401,30 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
     monkeypatch.setattr(module, "evaluate_decision", fake_evaluate)
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
 
-    released = asyncio.run(
-        activities.resolve_merge(RUN_ID, "pass", True, True, True, ["src/a.py"], "wf-rev")
-    )
-    declined = asyncio.run(
-        activities.resolve_merge(RUN_ID, "pass", True, True, True, ["deploy/x"], "wf-rev")
-    )
-    assert released == {"allow": True, "rule": "merge_resolve_delegated"}
-    assert declined == {"allow": False, "rule": "merge_resolve_undelegated_path"}
-
-    # The decision input carries the caller-verified facts, platform-shaped.
-    assert seen[0]["tool"] == "merge.resolve"
-    assert seen[0]["lifecycle"] == "platform"
-    assert seen[0]["args"] == {
+    facts = {
         "verdict": "pass",
         "checks_green": True,
         "reviewer_independent": True,
         "contract_green": True,
-        "paths": ["src/a.py"],
     }
+    released = asyncio.run(
+        activities.resolve_merge(
+            RUN_ID, "policy", {**facts, "paths": ["src/a.py"]}, "wf-rev"
+        )
+    )
+    declined = asyncio.run(
+        activities.resolve_merge(
+            RUN_ID, "policy", {**facts, "paths": ["deploy/x"]}, "wf-rev"
+        )
+    )
+    assert released == {"allow": True, "rule": "merge_resolve_delegated"}
+    assert declined == {"allow": False, "rule": "merge_resolve_undelegated_path"}
+
+    # The decision input carries the caller-verified facts, platform-shaped,
+    # and names the path being decided.
+    assert seen[0]["tool"] == "merge.resolve"
+    assert seen[0]["lifecycle"] == "platform"
+    assert seen[0]["args"] == {"resolver": "policy", **facts, "paths": ["src/a.py"]}
 
     events = [e for e in audit.events if e.tool == "merge.resolve"]
     assert [(e.decision, e.rule) for e in events] == [
@@ -603,3 +609,86 @@ def test_a_forged_higher_depth_only_escalates_sooner(settings, monkeypatch):
     _chain(runs, "implement issue #7")
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
     assert asyncio.run(activities.rework_depth(RUN_ID, 41))["depth"] == 99
+
+
+# -- the recorded human verdict ---------------------------------------------
+
+
+def _console_verdict(run_id: str, approved: bool, principal: str, ts: str) -> AuditEvent:
+    return AuditEvent(
+        ts=ts,
+        run_id=run_id,
+        agent_id=principal,
+        role="human",
+        tool="gate.resolve",
+        args_digest="d",
+        decision="allow",
+        rule=f"gate_resolve_merge_{'approve' if approved else 'reject'}",
+        latency_ms=0,
+        backend_status=None,
+        source="console",
+        company="hello-saas",
+        lifecycle="human",
+    )
+
+
+def test_read_human_verdict_is_none_until_the_console_answered(settings, audit):
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    # A process-gate row (the workflow's own record of a signal) is not a
+    # verdict: only the console's rows name a person.
+    audit.append(
+        AuditEvent(
+            ts="2026-01-01T00:00:00+00:00",
+            run_id=RUN_ID,
+            agent_id="orchestrator",
+            role="platform",
+            tool="gate.merge",
+            args_digest="d",
+            decision="allow",
+            rule="gate_approved",
+            latency_ms=0,
+            backend_status=None,
+            source="process-gate",
+        )
+    )
+    assert asyncio.run(activities.read_human_verdict(RUN_ID)) is None
+
+
+def test_read_human_verdict_reads_the_latest_console_row(settings, audit):
+    """Latest wins: an approval followed by a rejection reads as rejected,
+    and another run's verdict is never this run's."""
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    audit.append(_console_verdict(RUN_ID, True, "owner", "2026-01-01T00:00:01+00:00"))
+    audit.append(
+        _console_verdict("run-other", True, "owner", "2026-01-01T00:00:03+00:00")
+    )
+    approved = asyncio.run(activities.read_human_verdict(RUN_ID))
+    assert approved == {
+        "principal": "owner",
+        "approved": True,
+        "ts": "2026-01-01T00:00:01+00:00",
+    }
+    audit.append(_console_verdict(RUN_ID, False, "owner", "2026-01-01T00:00:02+00:00"))
+    rejected = asyncio.run(activities.read_human_verdict(RUN_ID))
+    assert rejected["approved"] is False
+
+
+def test_resolve_merge_on_the_human_path_carries_only_the_verdict(
+    settings, audit, monkeypatch
+):
+    import orchestrator.activities.review as module
+
+    seen = []
+
+    async def fake_evaluate(opa_url, company, decision_input):
+        seen.append(decision_input)
+        return {"allow": True, "rule": "merge_resolve_human"}
+
+    monkeypatch.setattr(module, "evaluate_decision", fake_evaluate)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
+    verdict = {"principal": "owner", "approved": True, "ts": "t"}
+    result = asyncio.run(
+        activities.resolve_merge(RUN_ID, "human", {"human_verdict": verdict}, "wf-rev")
+    )
+    assert result == {"allow": True, "rule": "merge_resolve_human"}
+    assert seen[0]["args"] == {"resolver": "human", "human_verdict": verdict}

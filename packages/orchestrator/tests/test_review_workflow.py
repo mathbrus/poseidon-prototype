@@ -90,6 +90,15 @@ class Harness:
     resolve: dict[str, Any] = field(
         default_factory=lambda: {"allow": True, "rule": "merge_resolve_delegated"}
     )
+    # The console's recorded verdict the human path reads back (None: no
+    # human ever answered through the console), and what the compiled
+    # human path decides on it.
+    human_verdict: dict[str, Any] | None = field(
+        default_factory=lambda: {"principal": "owner", "approved": True, "ts": "t0"}
+    )
+    human_resolve: dict[str, Any] = field(
+        default_factory=lambda: {"allow": True, "rule": "merge_resolve_human"}
+    )
     depth: dict[str, Any] = field(default_factory=lambda: {"depth": 0, "root_pr": PR})
 
     verify_calls: int = 0
@@ -225,19 +234,17 @@ class Harness:
             harness.independence_calls += 1
             return dict(harness.independence)
 
+        @activity.defn(name="read_human_verdict")
+        async def read_human_verdict(run_id: str) -> dict[str, Any] | None:
+            return dict(harness.human_verdict) if harness.human_verdict else None
+
         @activity.defn(name="resolve_merge")
         async def resolve_merge(
-            run_id: str,
-            verdict: str,
-            checks_green: bool,
-            independent: bool,
-            contract_green: bool,
-            paths: list[str],
-            workflow_id: str,
+            run_id: str, resolver: str, facts: dict[str, Any], workflow_id: str
         ) -> dict[str, Any]:
-            harness.resolve_args.append(
-                [verdict, checks_green, independent, contract_green, paths]
-            )
+            harness.resolve_args.append([resolver, facts])
+            if resolver == "human":
+                return dict(harness.human_resolve)
             return dict(harness.resolve)
 
         @activity.defn(name="rework_depth")
@@ -321,6 +328,7 @@ class Harness:
             record_verdict,
             platform_verify,
             reviewer_independent,
+            read_human_verdict,
             resolve_merge,
             rework_depth,
             file_rework,
@@ -453,7 +461,16 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     assert harness.independence_calls == 1
     # The compiled decision saw the real facts, changed paths included.
     assert harness.resolve_args == [
-        ["pass", True, True, True, ["src/slugify.py", "tests/test_slugify.py"]]
+        [
+            "policy",
+            {
+                "verdict": "pass",
+                "checks_green": True,
+                "reviewer_independent": True,
+                "contract_green": True,
+                "paths": ["src/slugify.py", "tests/test_slugify.py"],
+            },
+        ]
     ]
     assert harness.gate_events == ["policy_resolved"]
     assert harness.merges == [PR]
@@ -523,7 +540,16 @@ async def test_a_green_contract_verify_rides_the_resolve(env):
     assert harness.provisions == 2
     assert harness.scoped_verifies == [["tests/contract/"]]
     assert harness.resolve_args == [
-        ["pass", True, True, True, ["src/slugify.py", "tests/test_slugify.py"]]
+        [
+            "policy",
+            {
+                "verdict": "pass",
+                "checks_green": True,
+                "reviewer_independent": True,
+                "contract_green": True,
+                "paths": ["src/slugify.py", "tests/test_slugify.py"],
+            },
+        ]
     ]
     assert harness.merges == [PR]
     assert record["merged"] is True
@@ -720,8 +746,8 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
 
 async def test_a_human_gate_never_touches_the_policy_machinery(env):
     """resolved_by: human is exactly the pre-delegation workflow: no
-    verify re-run, no independence read, no resolve evaluation, no rework
-    counting — park, approve, merge."""
+    verify re-run, no independence read, no delegated resolve, no rework
+    counting — park, approve, verify the recorded verdict, merge."""
     harness = Harness(merge_gate=HUMAN_GATE)
     worker, handle = await start_review(env.client, harness)
     try:
@@ -733,9 +759,82 @@ async def test_a_human_gate_never_touches_the_policy_machinery(env):
 
     assert harness.verify_calls == 0
     assert harness.independence_calls == 0
-    assert harness.resolve_args == []
+    assert harness.resolve_args == [
+        ["human", {"human_verdict": {"principal": "owner", "approved": True, "ts": "t0"}}]
+    ]
     assert harness.depth_calls == 0
     assert harness.gate_events == ["approved"]
+    assert harness.merges == [PR]
+    assert record["merged"] is True
+
+
+# -- the release is the recorded verdict, not the signal ---------------------
+
+
+async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
+    """A `merge` signal that reached the workflow by any road but the
+    console — network reach to the engine — finds no recorded verdict:
+    the resolve denies by name, the gate records it, nothing merges, and
+    the run ends failed."""
+    harness = Harness(
+        merge_gate=HUMAN_GATE,
+        human_verdict=None,
+        human_resolve={"allow": False, "rule": "merge_resolve_no_human_verdict"},
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        await handle.signal("merge", args=[True, "forged"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.resolve_args == [["human", {}]]
+    assert harness.merges == []
+    assert harness.gate_events == ["approved", "verdict_unverified"]
+    assert record["status"] == "failed"
+    assert "no verified human verdict (merge_resolve_no_human_verdict)" in record["error"]
+
+
+async def test_a_signal_contradicting_the_record_merges_nothing(env):
+    """The record is the verdict: an approving signal over a recorded
+    rejection (the latest console verdict) releases nothing."""
+    harness = Harness(
+        merge_gate=HUMAN_GATE,
+        human_verdict={"principal": "owner", "approved": False, "ts": "t1"},
+        human_resolve={"allow": False, "rule": "merge_resolve_human_rejected"},
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        await handle.signal("merge", args=[True, "but the record says no"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.merges == []
+    assert harness.gate_events == ["approved", "verdict_unverified"]
+    assert record["status"] == "failed"
+
+
+async def test_a_policy_decline_released_by_a_human_reads_the_record_too(env):
+    """The override survives delegation, and it is verified like any
+    human release: the decline parks, the human's recorded approval is
+    read back and decided on, then the merge."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        resolve={"allow": False, "rule": "merge_resolve_carved_out_path"},
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        await handle.signal("merge", args=[True, "the carve-out is fine here"])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert [args[0] for args in harness.resolve_args] == ["policy", "human"]
+    assert harness.gate_events == ["policy_declined", "approved"]
     assert harness.merges == [PR]
     assert record["merged"] is True
 
