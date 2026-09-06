@@ -54,6 +54,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from common.tasks import review_run_task
+from common.workflows import MERGE_GATE, PARKED_STATE
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
@@ -332,7 +333,7 @@ class ReviewWorkflow(RunWorkflow):
         signal delivered by any other road (network reach to the workflow
         engine, a human the company did not name) finds no recorded
         verdict and ends the run unmerged, by a rule that says so."""
-        self._state = "paused-merge_gate"
+        self._state = PARKED_STATE[MERGE_GATE]
         outcome = await self._merge_gate.wait(
             **gate_deadline(gate["deadline_minutes"]),
             on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated"),

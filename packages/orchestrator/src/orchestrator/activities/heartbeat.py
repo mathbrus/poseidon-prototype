@@ -30,7 +30,7 @@ from temporalio.exceptions import ApplicationError
 from common.audit import args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
-from common.policy import HEARTBEAT_START
+from common.policy import HEARTBEAT_START, HEARTBEAT_TICK
 from common.telemetry import get_logger
 from common.workflows import TEMPORAL_NAMESPACE, heartbeat_run_id, workflow_id
 from orchestrator.activities.blueprint import conductor
@@ -291,7 +291,7 @@ class HeartbeatActivities:
         allow; every other outcome declined or was refused to start."""
         await self._emit(
             run_id=heartbeat_run_id(self._settings.company),
-            tool="heartbeat.tick",
+            tool=HEARTBEAT_TICK,
             digest=args_digest({"outcome": outcome, "rule": rule}),
             decision="allow" if outcome == "started" else "deny",
             rule=f"tick_{outcome}:{rule}",

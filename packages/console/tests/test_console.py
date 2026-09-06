@@ -234,6 +234,7 @@ async def test_a_denied_verdict_is_a_403_that_signals_nothing(client, world):
 
 async def test_a_rejection_is_recorded_as_one(client, world):
     a_review_run(world)
+    world.workflows.running[f"review-{RUN_ID}"] = "paused-budget_exhausted"
     response = await client.post(
         f"/runs/{RUN_ID}/gates/budget", json={"approved": False}, headers=as_owner()
     )
@@ -245,16 +246,28 @@ async def test_a_rejection_is_recorded_as_one(client, world):
     )
 
 
-async def test_an_unknown_run_or_gate_cannot_be_resolved(client, world):
+async def test_a_verdict_answers_only_a_question_that_was_asked(client, world):
+    """An unknown run, a gate that does not exist, a gate the run's workflow
+    does not have, and a gate the run is not parked on: refused before
+    policy is asked, nothing recorded, nothing signalled."""
     a_review_run(world)
-    unknown = await client.post(
-        "/runs/run-nope/gates/merge", json={"approved": True}, headers=as_owner()
+    world.runs.start(
+        "run-impl", "Implement #7", "implement", "implement-run-impl", COMPANY
     )
-    bad_gate = await client.post(
-        f"/runs/{RUN_ID}/gates/door", json={"approved": True}, headers=as_owner()
-    )
-    assert unknown.status_code == bad_gate.status_code == 422
+    world.workflows.running["implement-run-impl"] = "running"
+    refusals = [
+        ("run-nope", "merge"),
+        (RUN_ID, "door"),
+        ("run-impl", "merge"),
+        (RUN_ID, "budget"),
+    ]
+    for run_id, gate in refusals:
+        response = await client.post(
+            f"/runs/{run_id}/gates/{gate}", json={"approved": True}, headers=as_owner()
+        )
+        assert response.status_code == 422, (run_id, gate, response.text)
     assert world.audit.events == []
+    assert world.workflows.calls == []
 
 
 # -- the other acts ----------------------------------------------------------

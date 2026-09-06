@@ -25,6 +25,7 @@ from .cluster import (
     authn_denies,
     console,
     console_url,
+    db_now,
     gateway_url,
     projected_token,
     run_kubectl,
@@ -44,6 +45,7 @@ def test_a_humans_token_is_refused_at_the_gateway(stack: None, env: dict) -> Non
     """The console's audience is the console's: the API server will not
     even verify the token for the gateway's audience, so the gateway sees
     a token that maps to nothing and says so in the audit store."""
+    since = db_now()
     token = projected_token(
         PLATFORM_NS, human_service_account(HUMAN), CONSOLE_TOKEN_AUDIENCE
     )
@@ -53,7 +55,10 @@ def test_a_humans_token_is_refused_at_the_gateway(stack: None, env: dict) -> Non
         timeout=10,
     )
     assert resp.status_code == 401
-    assert authn_denies("authn_token_rejected", "unknown"), (
+    # The API server refuses the audience, so the gateway sees a token that
+    # verifies as nobody — and says so, from its own door, after this test
+    # started.
+    assert authn_denies("authn_token_rejected", "unknown", "gateway", since), (
         "the gateway's refusal of the human's token was not audited"
     )
 
@@ -62,6 +67,7 @@ def test_a_workloads_token_is_refused_at_the_console(stack: None, env: dict) -> 
     """An agent's projected token (the gateway audience) does not verify
     for the console; and even a token the console's audience *would*
     verify — a workload ServiceAccount minted for it — is not a person."""
+    since = db_now()
     agent_token = projected_token(COMPANY_NS, "pm-1", TOKEN_AUDIENCE)
     with pytest.raises(ConsoleError) as refused:
         _console_as(env, agent_token).whoami()
@@ -72,8 +78,7 @@ def test_a_workloads_token_is_refused_at_the_console(stack: None, env: dict) -> 
         _console_as(env, workload_as_human).whoami()
     assert refused.value.status == 401
     principal = f"system:serviceaccount:{COMPANY_NS}:pm-1"
-    denies = authn_denies("authn_not_a_human", principal)
-    assert denies and all(e["source"] == "console" for e in denies), denies
+    assert authn_denies("authn_not_a_human", principal, "console", since)
 
 
 def test_an_unnamed_human_is_refused_by_name(stack: None, env: dict) -> None:

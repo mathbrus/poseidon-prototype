@@ -13,9 +13,9 @@ from common.audit import AuditEvent
 from common.authn import (
     Authenticator,
     AuthMiddleware,
+    AuthnSettings,
     Principal,
     ServiceAccount,
-    WorkloadAuthnSettings,
 )
 from common.identity import (
     HUMAN_ROLE,
@@ -96,8 +96,8 @@ REVIEWS = {
 
 
 @pytest.fixture
-def settings() -> WorkloadAuthnSettings:
-    return WorkloadAuthnSettings(platform_namespace=PLATFORM_NS)
+def settings() -> AuthnSettings:
+    return AuthnSettings(platform_namespace=PLATFORM_NS)
 
 
 @pytest.fixture

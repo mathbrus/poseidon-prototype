@@ -1,19 +1,20 @@
 """The raw road releases nothing.
 
-Before the console, an approving `merge` signal was the release: whoever
-could reach the Temporal frontend could merge. The fence closes that road
-in-cluster; this module walks the one that stays open — a port-forward
-with cluster credentials, beneath any policy — and proves it is harmless:
-a signal delivered straight to the workflow engine finds no verdict the
+The fence closes the in-cluster road to the Temporal frontend; this
+module walks the one that stays open — a port-forward with cluster
+credentials, beneath any policy — and proves it is harmless: a `merge`
+signal delivered straight to the workflow engine finds no verdict the
 console recorded, `merge.resolve` refuses it by name, the run ends failed
 and the pull request stays unmerged. Then the same verdict through the
 console, on the review of a second PR, merges — and the story names the
 person.
 
-Two PRs the company delivered under the pristine profile, then the
-one-shot review profile (`may_start: [review]`, `max_attempts: 1`): the
-loop reviews each once and nothing else, so the review the raw road
-failed is never retried into the lane the console's review needs.
+Two PRs the company delivers under an implement-only profile, then the
+review-only profile applied over them without a sweep — the two open PRs
+are the backlog this module means the loop to have. A review that
+reached a verdict concluded its PR, so the loop reviews each once: the
+review the raw road failed is never retried into the lane the console's
+review needs.
 """
 
 import asyncio
@@ -24,10 +25,17 @@ from temporalio.client import Client
 from common.tasks import review_run_task
 from common.workflows import workflow_id
 
-from .blueprints import HELLO_SAAS, may_start, restore_pristine, single_attempt
+from .blueprints import (
+    HELLO_SAAS,
+    apply_blueprint,
+    may_start,
+    restore_pristine,
+    wait_for_convergence,
+)
 from .cluster import (
     HUMAN,
     audit_story,
+    await_bare_heartbeat_asleep,
     await_run,
     console,
     run_by_task,
@@ -68,11 +76,13 @@ def _pull(env: dict, number: int) -> dict:
 
 @pytest.fixture(scope="module")
 def delivered(stack: None, baseline_env: dict) -> dict:
-    """Two PRs the company delivered, for two reviews — the raw road's and
-    the console's — under the one-shot review profile."""
+    """Two PRs the company delivered under an implement-only profile, for
+    two reviews — the raw road's and the console's — under the review-only
+    one, applied over the open PRs on purpose: they are the backlog."""
     env = baseline_env
     import secrets
 
+    apply_profile(may_start(HELLO_SAAS, "implement"), env)
     prs: list[int] = []
     issues: list[int] = []
     for _ in range(2):
@@ -82,7 +92,9 @@ def delivered(stack: None, baseline_env: dict) -> dict:
         record = run_ticket(number)
         assert record["status"] == "done" and record["pr_url"], record
         prs.append(pr_number(record["pr_url"]))
-    apply_profile(single_attempt(may_start(HELLO_SAAS, "review")), env)
+    apply_blueprint(may_start(HELLO_SAAS, "review"))
+    wait_for_convergence()
+    await_bare_heartbeat_asleep()
     try:
         yield {"env": env, "prs": prs}
     finally:

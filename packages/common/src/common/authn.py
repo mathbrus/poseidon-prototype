@@ -68,7 +68,7 @@ from common.topology import (
 TOKENREVIEW_PATH = "/apis/authentication.k8s.io/v1/tokenreviews"
 
 
-class WorkloadAuthnSettings(BaseSettings):
+class AuthnSettings(BaseSettings):
     """The verification knobs every verifier shares; each service's settings
     class inherits this so one env layout configures them identically."""
 
@@ -181,7 +181,7 @@ class KubeTokenReviewer:
         return Principal.of(username) if username else None
 
 
-def default_reviewer(settings: WorkloadAuthnSettings) -> KubeTokenReviewer | None:
+def default_reviewer(settings: AuthnSettings) -> KubeTokenReviewer | None:
     """The in-cluster reviewer, or None outside a cluster (unit tests)."""
     api_url = settings.kube_api_url
     if not api_url:
@@ -205,7 +205,7 @@ class Authenticator:
 
     def __init__(
         self,
-        settings: WorkloadAuthnSettings,
+        settings: AuthnSettings,
         audit: AuditSink,
         instances: InstanceReads | None = None,
         participants: ParticipantReads | None = None,
@@ -224,7 +224,7 @@ class Authenticator:
         self._humans = None if humans is None else frozenset(humans)
         if self._humans is None and (instances is None or participants is None):
             raise ValueError("workload mode needs the registry readers")
-        self._log = get_logger("workload.authn")
+        self._log = get_logger("authn")
         # token digest -> (principal, monotonic deadline); TokenReview
         # successes only. Deliberately *not* an identity cache: the cache
         # proves who holds the token, and the registry mapping runs on

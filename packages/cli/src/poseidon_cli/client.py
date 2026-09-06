@@ -40,13 +40,18 @@ class ConsoleClient:
         base_url: str | None = None,
         token: str | None = None,
         transport: httpx.BaseTransport | None = None,
-        timeout: float = 120.0,
+        timeout: float = 600.0,
     ) -> None:
         self.base_url = (base_url or os.environ.get(URL_VAR) or DEFAULT_URL).rstrip("/")
         self.token = token if token is not None else os.environ.get(TOKEN_VAR, "")
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        # An apply waits for the operator to create the company namespace,
+        # which can take a while on a fresh cluster; connecting must not.
         self._http = httpx.Client(
-            base_url=self.base_url, headers=headers, transport=transport, timeout=timeout
+            base_url=self.base_url,
+            headers=headers,
+            transport=transport,
+            timeout=httpx.Timeout(timeout, connect=10.0),
         )
 
     @classmethod

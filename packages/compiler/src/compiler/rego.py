@@ -43,6 +43,7 @@ from common.policy import (
     RUN_START,
     company_package,
     rego_slug,
+    verdict_rule,
 )
 from common.workflows import GATES, HUMAN_STARTABLE
 from compiler.plan import AgentInstanceCR, EphemeralAgentSpec, HeartbeatConfig
@@ -340,7 +341,7 @@ def _console_file(company: str, humans: tuple[str, ...]) -> str:
 
     body = "".join(
         act(
-            f"gate_resolve_{rego_slug(gate)}_{'approve' if approved else 'reject'}",
+            verdict_rule(gate, approved),
             GATE_RESOLVE,
             f'input.args.gate == "{gate}"',
             f"input.args.approved == {json.dumps(approved)}",

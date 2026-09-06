@@ -25,7 +25,6 @@ from typing import Any
 import pytest
 
 from common.topology import (
-    CONSOLE_PORT,
     CONSOLE_TOKEN_AUDIENCE,
     RUN_ID_LABEL,
     TOKEN_AUDIENCE,
@@ -37,7 +36,6 @@ from registry import Registry, open_registry
 
 PLATFORM_NS = "poseidon-platform"  # the chart release namespace kind-up installs into
 COMPANY_NS = "hello-saas"
-CONSOLE_URL = f"http://127.0.0.1:{CONSOLE_PORT}"
 POSTGRES_USER = "poseidon"
 
 # --- kubectl -----------------------------------------------------------------
@@ -142,11 +140,14 @@ def agent_image() -> str:
 
 
 def projected_token(
-    namespace: str, service_account: str, audience: str = TOKEN_AUDIENCE
+    namespace: str,
+    service_account: str,
+    audience: str = TOKEN_AUDIENCE,
+    duration: str = "10m",
 ) -> str:
-    """Workload identity, minted through the TokenRequest API: the same
-    kind of audience-scoped projected token the kubelet mounts, for one
-    of the cluster's real ServiceAccounts."""
+    """An identity minted through the TokenRequest API: the same kind of
+    audience-scoped token the kubelet mounts for a workload, or a person
+    mints for themselves, for one of the cluster's real ServiceAccounts."""
     return kubectl(
         "-n",
         namespace,
@@ -154,7 +155,7 @@ def projected_token(
         "token",
         service_account,
         f"--audience={audience}",
-        "--duration=10m",
+        f"--duration={duration}",
     )
 
 
@@ -277,6 +278,38 @@ def probe(pod: str, url: str, want: str, namespace: str = COMPANY_NS) -> bool:
     return proc.returncode == 0
 
 
+# A port that speaks no HTTP (Temporal's gRPC frontend) is probed for a TCP
+# connection alone: accepted is reachable, refused or dropped is blocked.
+TCP_PROBE = """
+import socket, sys
+host, port, want = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+try:
+    socket.create_connection((host, port), timeout=3).close()
+    reachable = True
+except Exception:
+    reachable = False
+sys.exit(0 if reachable == (want == "reachable") else 1)
+"""
+
+
+def probe_tcp(pod: str, host: str, port: int, want: str, namespace: str) -> bool:
+    """Whether `host:port` accepts a connection from inside `pod`."""
+    proc = run_kubectl(
+        "-n",
+        namespace,
+        "exec",
+        pod,
+        "--",
+        "python",
+        "-c",
+        TCP_PROBE,
+        host,
+        str(port),
+        want,
+    )
+    return proc.returncode == 0
+
+
 # --- the registry ------------------------------------------------------------
 
 
@@ -364,17 +397,24 @@ def events_since(fence: str) -> list[dict[str, Any]]:
     )
 
 
-def authn_denies(rule: str, principal: str) -> list[dict[str, Any]]:
-    """Recent authn deny events for one rule and principal. They carry no
+def authn_denies(
+    rule: str, principal: str, source: str, since: str | None = None
+) -> list[dict[str, Any]]:
+    """Authn deny events for one rule and principal from one door, since a
+    registry timestamp (the last five minutes when none). They carry no
     run_id — the credential never mapped to one."""
     return psql_json(
         "SELECT COALESCE(json_agg(e ORDER BY e.ts), '[]'::json) FROM ("
         "SELECT * FROM registry.audit_events"
         " WHERE decision = 'deny' AND rule = :'rule' AND agent_id = :'principal'"
-        "   AND ts > now() - interval '5 minutes'"
+        "   AND source = :'source'"
+        "   AND ts > COALESCE(NULLIF(:'since', '')::timestamptz,"
+        "                     now() - interval '5 minutes')"
         ") e",
         rule=rule,
         principal=principal,
+        source=source,
+        since=since or "",
     )
 
 
@@ -559,50 +599,54 @@ def workspace_tar(
 # --- acting as a human: the console --------------------------------------------
 #
 # Every act the suite performs on the company — apply a profile, wake the
-# loop, answer a gate, start a repro run — goes through the console as the
-# human the chart declares (`owner`), exactly as an operator does. What the
+# loop, answer a gate, start a run by hand — goes through the console as
+# the human the chart declares (`owner`), exactly as a person does. What the
 # suite *observes* it reads with its own instruments (psql, kubectl, the
 # git host, a raw Temporal port-forward for the red-team), never the
 # product's word for it.
 
 HUMAN = "owner"
-_TOKEN_TTL_S = 8 * 60
-_token_cache: dict[str, tuple[str, float]] = {}
+# A client per human, renewed with its token: the token lives ten
+# minutes, the client eight, so no call ever rides an expired one and a
+# module's polling is one connection, not a socket per poll.
+_CLIENT_TTL_S = 8 * 60
+_clients: dict[str, tuple[ConsoleClient, float]] = {}
 
 
 def console_url(env: dict | None = None) -> str:
-    return (env or {}).get(
-        "POSEIDON_CONSOLE_URL", os.environ.get("POSEIDON_CONSOLE_URL", CONSOLE_URL)
-    )
+    """Where the console is, as `.env` says — else the client's own default."""
+    return (env or {}).get("POSEIDON_CONSOLE_URL") or ConsoleClient().base_url
 
 
-def human_token(name: str = HUMAN) -> str:
+def human_token(name: str = HUMAN, duration: str = "10m") -> str:
     """A token for the console's audience, minted for one of the humans
-    the chart declares — the same TokenRequest `poseidon login` makes.
-    Cached under its ten-minute lifetime so a module's polling does not
-    become a kubectl storm."""
-    cached = _token_cache.get(name)
-    if cached and cached[1] > time.monotonic():
-        return cached[0]
-    token = projected_token(
-        PLATFORM_NS, human_service_account(name), CONSOLE_TOKEN_AUDIENCE
+    the chart declares — the same TokenRequest `poseidon login` makes."""
+    return projected_token(
+        PLATFORM_NS, human_service_account(name), CONSOLE_TOKEN_AUDIENCE, duration
     )
-    _token_cache[name] = (token, time.monotonic() + _TOKEN_TTL_S)
-    return token
 
 
 def console(env: dict | None = None, name: str = HUMAN) -> ConsoleClient:
     """The console, as the human `name` — the one way the suite acts."""
-    return ConsoleClient(console_url(env), human_token(name))
+    cached = _clients.get(name)
+    if cached and cached[1] > time.monotonic():
+        return cached[0]
+    if cached:
+        cached[0].close()
+    client = ConsoleClient(console_url(env), human_token(name))
+    _clients[name] = (client, time.monotonic() + _CLIENT_TTL_S)
+    return client
 
 
 def console_env(env: dict | None = None) -> dict[str, str]:
-    """The environment the real CLI needs to act as `owner`: for the
-    modules that exercise `poseidon …` itself."""
+    """The environment the real CLI needs to act as `owner` — a fresh
+    token that outlives the longest command (`poseidon run` waits for a
+    whole implement run): for the modules that exercise `poseidon …`
+    itself."""
     return {
         **os.environ,
         "POSEIDON_CONSOLE_URL": console_url(env),
-        "POSEIDON_TOKEN": human_token(),
+        "POSEIDON_TOKEN": human_token(duration="1h"),
     }
 
 
@@ -747,7 +791,7 @@ def wake_bare_heartbeat() -> None:
     """Nudge the standing heartbeat through the console — the harness's
     stand-in for a change only the outside world saw (an issue filed by
     hand, a PR merged by hand), compressed from the reconcile wait to now.
-    A real capability exercised, not a seam: an operator sends the same
+    A real capability exercised, not a seam: a person sends the same
     nudge, decided and audited under their name."""
     console().wake()
 

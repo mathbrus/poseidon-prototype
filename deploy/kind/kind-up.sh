@@ -195,8 +195,7 @@ for _ in $(seq 60); do
   curl -sf -o /dev/null "$POSEIDON_CONSOLE_URL/healthz" && break
   sleep 1
 done
-POSEIDON_TOKEN=$(kubectl -n "$PLATFORM_NS" create token human-owner \
-  --audience poseidon-console --duration 1h)
+POSEIDON_TOKEN=$(uv run poseidon login owner --namespace "$PLATFORM_NS")
 export POSEIDON_TOKEN
 uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 # Every standing agent the applied blueprint hires (execution itself is

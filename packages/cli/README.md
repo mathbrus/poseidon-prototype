@@ -21,11 +21,11 @@ uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 
 uv run poseidon signal <run_id> merge                    # approve a parked merge
 uv run poseidon signal <run_id> merge --no-approved      # reject it
-uv run poseidon signal <run_id> budget                   # raise a cap a run stopped at
+uv run poseidon signal <run_id> budget                   # let a run continue past its pause
 uv run poseidon status <run_id>
 uv run poseidon story <run_id>
 uv run poseidon heartbeat state
-uv run poseidon run 42                                   # an operator's repro on ticket #42
+uv run poseidon run 42                                   # a run by hand on ticket #42
 uv run poseidon review 41                                # or on pull request #41
 ```
 

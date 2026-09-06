@@ -37,12 +37,12 @@ bootstrap installs Calico for exactly this reason.
 
 The frontend keeps one road the fence cannot close: a human with cluster
 credentials reaches it by `kubectl port-forward`, which enters the pod's
-own network namespace beneath any policy. Reaching it used to be full
-operator authority, merge approval included. It is not any more — a
-signal delivered there without a verdict the console recorded releases
-nothing, and the acceptance suite proves it on every run — but it is
-still reach into the workflow engine, and [the Temporal contract](../reference/temporal.md)
-writes down exactly what that buys.
+own network namespace beneath any policy. That reach is not merge
+authority — a signal delivered there without a verdict the console
+recorded releases nothing, and the acceptance suite proves it on every
+run — but it is still reach into the workflow engine, and
+[the Temporal contract](../reference/temporal.md) writes down exactly
+what it buys.
 
 The one **authenticated** surface a person reaches is the console, and it
 is deliberately the only one: on kind a NodePort on the host's loopback,
@@ -52,13 +52,12 @@ questions that come with it are not answered here.
 
 ## The merge release trusts the console and the registry
 
-The merge gate used to be the single named exception to "enforcement is
-layered": approval was workflow state, and OPA could not independently
-prove a human said yes. It can now. The console records the verdict under
-the verified person's name before it delivers the signal, the workflow
-reads that record back, and the compiled `merge.resolve` decision
-releases the merge on the record — or refuses by name. A signal alone
-merges nothing.
+The merge is released on a record, not on a signal: the console writes
+the verdict under the verified person's name before it delivers the
+signal, the workflow reads that record back, and the compiled
+`merge.resolve` decision releases the merge on the record — or refuses by
+name. OPA decides on an artifact it can read; a signal alone merges
+nothing.
 
 What that buys is bounded by what it trusts, and the trust is named:
 
@@ -68,13 +67,16 @@ What that buys is bounded by what it trusts, and the trust is named:
   like the gateways, and the sixth writer of a table five already share.
 - **The applier.** The first apply of a company is decided by nobody —
   no bundle exists yet — and any later apply can rewrite `company.humans`,
-  so whoever may apply may name the approvers. That is the authority a
-  kubeconfig always held; it is now visible and audited under a name.
+  so whoever may apply may name who answers the gates. That is the
+  authority a kubeconfig always held; it is now visible and audited under
+  a name.
 - **The budget gate.** Its verdicts are decided and recorded by the
   console like the merge gate's, but the workflow does not read them
-  back: a forged budget approval only re-dispatches under the per-run cap
-  the LLM gateway enforces from the ledger, and cannot spend past the
-  stop.
+  back: a `budget` signal delivered past the console resumes a run under
+  nobody's name. It cannot spend past the stop — the re-dispatch runs
+  under the same per-run cap the LLM gateway enforces from the ledger —
+  but "spend is a stop, not a warning" is kept by the ledger here, not by
+  a verified verdict. A known gap, not a residual.
 
 ## Supply chain: tags, not digests
 

@@ -66,7 +66,8 @@ enforces from the ledger, and cannot spend past the stop.
 Every workflow exposes a `state` query returning the current state as a
 string — the mechanism behind the claim that a parked gate or a budget
 stop is "an API-visible paused state, never a silent hang." The console
-surfaces it on every run read.
+surfaces it when a run is read, and requires the parked state before it
+records a verdict on that gate.
 
 ## What guards this surface
 

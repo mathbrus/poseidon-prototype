@@ -1,5 +1,5 @@
-"""Applying the example blueprints to the cluster, exactly as an operator
-of the platform does, and waiting for the company to converge — which
+"""Applying the example blueprints to the cluster, exactly as a person
+running the platform does, and waiting for the company to converge — which
 includes policy: OPA must have activated the company's bundle, not just
 the pods be Ready."""
 
@@ -53,7 +53,7 @@ def may_start(base: Path, *workflows: str) -> Path:
     one lane every module shares is the standing heartbeat's; what it may
     start on its own is the blueprint's to say, so a module that must not
     have its delivered PR reviewed on the next wake, or its ticket
-    implemented before an operator does, declares that — never a company
+    implemented before a person does, declares that — never a company
     without a heartbeat, which does not compile."""
 
     def narrow(document: dict) -> None:
@@ -113,7 +113,7 @@ def suite_document(path: Path) -> Path:
 
 def apply_blueprint(path: Path) -> None:
     """Apply the suite's version of `path` (see `suite_document`) through
-    the console, as the human `owner` — the act an operator performs: the
+    the console, as the human `owner` — the act a person performs: the
     console compiles it against the live registry, decides, submits the
     CRs; the operator converges them."""
     result = console().apply(suite_document(path).read_text())

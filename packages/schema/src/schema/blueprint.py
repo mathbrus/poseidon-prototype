@@ -20,6 +20,14 @@ from schema.tools import KNOWN_TOOLS
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"
 
 _NAME = {"type": "string", "minLength": 1, "pattern": r"^[a-z0-9][a-z0-9-]*$"}
+# A human's name: what the console verifies them as — a chart-declared
+# `human-<name>` on kind, or an identity provider's username elsewhere.
+_HUMAN = {
+    "type": "string",
+    "minLength": 1,
+    "maxLength": 254,
+    "pattern": r"^[A-Za-z0-9][A-Za-z0-9._@:-]*$",
+}
 _TEXT = {"type": "string", "minLength": 1}
 _TOOL_LIST = {
     "type": "array",
@@ -54,7 +62,7 @@ _COMPANY = {
         "vision": {"type": "string", "minLength": 1, "maxLength": 4000},
         "humans": {
             "type": "array",
-            "items": _NAME,
+            "items": _HUMAN,
             "minItems": 1,
             "uniqueItems": True,
         },

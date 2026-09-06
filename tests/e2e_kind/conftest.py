@@ -404,7 +404,7 @@ def run_review(
 
 def await_gate(run_id: str, state: str, deadline_s: int = 600) -> None:
     """Block until the run's workflow reports the API-visible `state` a
-    parked gate must show — read through the console, as an operator
+    parked gate must show — read through the console, as a person
     deciding whether to answer would."""
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:

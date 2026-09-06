@@ -1,5 +1,5 @@
 """Review on the live cluster: the full chain — the strategy scoped into a
-ticket, an operator's `poseidon run <number>` implementing it by hand (the
+ticket, a person's `poseidon run <number>` implementing it by hand (the
 repro command: no human retypes the spec, and the loop yields the ticket
 to the operator), reviewer findings posted, merge gate parked, timer
 escalation observable, API approval, gateway merge — every step correlated
@@ -67,7 +67,7 @@ def _poseidon(env: dict, *args: str, timeout: int = 1800) -> subprocess.Complete
 
 
 def _poseidon_run(env: dict, issue_number: int) -> dict:
-    """The operator's repro: `poseidon run <number>` through the real CLI,
+    """A run by hand: `poseidon run <number>` through the real CLI,
     blocking until the run record prints."""
     return json.loads(_poseidon(env, "run", str(issue_number)).stdout)
 
@@ -184,9 +184,9 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     assert pr.json()["merged"] is True, "the gateway merge never landed"
 
 
-def test_the_operator_run_was_the_only_implement(review_chain: dict) -> None:
+def test_the_run_by_hand_was_the_only_implement(review_chain: dict) -> None:
     """The loop yielded the ticket: the one implement run on it is the
-    operator's (not an auto- id), and no second run raced it."""
+    person's (not an auto- id), and no second run raced it."""
     run = run_by_task(issue_run_task(review_chain["issue_number"]), workflow="implement")
     assert run and run["run_id"] == review_chain["implement"]["run_id"]
     assert not run["run_id"].startswith("auto-"), run

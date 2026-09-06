@@ -31,12 +31,21 @@ from common.opa import NO_POLICY_RULE, evaluate_decision
 from common.policy import (
     BLUEPRINT_APPLY,
     GATE_RESOLVE,
+    HEARTBEAT_TICK,
     HEARTBEAT_WAKE,
     RUN_CANCEL,
     RUN_START,
+    verdict_rule,
 )
 from common.telemetry import get_logger
-from common.workflows import GATES, HUMAN_STARTABLE, heartbeat_run_id, workflow_id
+from common.workflows import (
+    GATES,
+    GATES_OF,
+    HUMAN_STARTABLE,
+    PARKED_STATE,
+    heartbeat_run_id,
+    workflow_id,
+)
 from compiler import (
     DeploymentPlan,
     InstanceSnapshot,
@@ -46,14 +55,12 @@ from compiler import (
 )
 from compiler.errors import CompileError
 from console.config import ConsoleSettings
-from console.temporal import WorkflowNotFound, Workflows
-from registry import AgentInstances, AuditStore, BudgetLedger, Runs
-from registry.audit import verdict_rule
+from console.temporal import AlreadyStarted, WorkflowNotFound, Workflows
+from registry import AgentInstances, AuditStore, BudgetLedger, RunRecord, Runs
 from schema import validate_blueprint
 from schema.validate import ValidationError
 
 BOOTSTRAP_RULE = "blueprint_apply_bootstrap"
-HEARTBEAT_TICK = "heartbeat.tick"
 
 
 class PolicyDenied(Exception):
@@ -235,8 +242,8 @@ class ConsoleService:
     async def start_run(
         self, identity: Identity, workflow: str, number: int
     ) -> dict[str, Any]:
-        """Start one implement or review run by hand — an operator's repro
-        of a run on a text the company produced. The heartbeat starts the
+        """Start one implement or review run by hand — a person reproducing
+        a run on a text the company produced. The heartbeat starts the
         company's own runs; this bypasses its caps, which is why it is a
         decided act."""
         if workflow not in HUMAN_STARTABLE:
@@ -253,14 +260,18 @@ class ConsoleService:
             workflow=wf_id,
         )
         key = "issue_number" if workflow == "implement" else "pr_number"
-        await self._workflows.start(workflow, run_id, {"run_id": run_id, key: number})
+        try:
+            await self._workflows.start(workflow, run_id, {"run_id": run_id, key: number})
+        except AlreadyStarted as exc:
+            raise Invalid(f"a workflow already runs as {wf_id}") from exc
         return {"run_id": run_id, "workflow": workflow, "workflow_id": wf_id}
 
-    def _workflow_of(self, run_id: str) -> str:
+    def _run_of(self, run_id: str) -> tuple[RunRecord, str]:
+        """The run's row and the workflow id that addresses it."""
         record = self._runs.get(run_id)
         if record is None:
             raise Invalid(f"no run {run_id!r}")
-        return record.workflow_id or workflow_id(record.workflow, run_id)
+        return record, record.workflow_id or workflow_id(record.workflow, run_id)
 
     async def resolve_gate(
         self,
@@ -272,10 +283,23 @@ class ConsoleService:
     ) -> dict[str, Any]:
         """Record the verdict under the person's name, then deliver it. The
         allowing rule names the gate and the verdict (`gate_resolve_merge_
-        approve`), which is exactly what the workflow reads back."""
+        approve`), which is exactly what the workflow reads back. A verdict
+        answers a question that was asked: the run's workflow must have
+        the gate and be parked on it."""
         if gate not in GATES:
             raise Invalid(f"gates are {', '.join(GATES)}; not {gate!r}")
-        wf_id = await asyncio.to_thread(self._workflow_of, run_id)
+        record, wf_id = await asyncio.to_thread(self._run_of, run_id)
+        if gate not in GATES_OF.get(record.workflow, ()):
+            raise Invalid(f"a {record.workflow} run has no {gate} gate")
+        try:
+            execution = await self._workflows.inspect(wf_id)
+        except WorkflowNotFound as exc:
+            raise Invalid(f"run {run_id!r} has no workflow to signal") from exc
+        if execution["state"] != PARKED_STATE[gate]:
+            raise Invalid(
+                f"run {run_id!r} is not parked on its {gate} gate"
+                f" (state {execution['state']!r})"
+            )
         decision = await self._act(
             identity,
             GATE_RESOLVE,
@@ -283,9 +307,11 @@ class ConsoleService:
             run_id=run_id,
             workflow=wf_id,
         )
-        # The compiler names the allow after the verdict; the registry
-        # reads the verdict back by that name. Pin the agreement here.
-        assert decision["rule"] == verdict_rule(gate, approved), decision
+        if decision["rule"] != verdict_rule(gate, approved):
+            # The compiled allow is the record the workflow reads back; a
+            # bundle that allowed under any other name would record nothing
+            # readable, so refuse rather than deliver an unreadable verdict.
+            raise RuntimeError(f"gate.resolve allowed under {decision['rule']!r}")
         try:
             await self._workflows.signal(wf_id, gate, [approved, payload])
         except WorkflowNotFound as exc:
@@ -300,7 +326,7 @@ class ConsoleService:
     async def cancel_run(
         self, identity: Identity, run_id: str, reason: str
     ) -> dict[str, Any]:
-        wf_id = await asyncio.to_thread(self._workflow_of, run_id)
+        _, wf_id = await asyncio.to_thread(self._run_of, run_id)
         await self._act(
             identity,
             RUN_CANCEL,
@@ -315,10 +341,7 @@ class ConsoleService:
         return {"run_id": run_id, "cancelled": True}
 
     async def run(self, run_id: str) -> dict[str, Any]:
-        record = await asyncio.to_thread(self._runs.get, run_id)
-        if record is None:
-            raise Invalid(f"no run {run_id!r}")
-        wf_id = record.workflow_id or workflow_id(record.workflow, run_id)
+        record, wf_id = await asyncio.to_thread(self._run_of, run_id)
         try:
             execution = await self._workflows.inspect(wf_id)
         except WorkflowNotFound:
@@ -357,12 +380,10 @@ class ConsoleService:
             execution = await self._workflows.inspect(wf_id)
         except WorkflowNotFound:
             execution = {"workflow_id": wf_id, "status": "NOT_FOUND", "state": None}
-        story = await asyncio.to_thread(self._audit.story, heartbeat_run_id(company))
-        ticks = [
-            e
-            for e in _jsonable(story)
-            if e["tool"] == HEARTBEAT_TICK and (since is None or e["ts"] >= since)
-        ]
+        story = await asyncio.to_thread(
+            self._audit.story, heartbeat_run_id(company), since
+        )
+        ticks = [e for e in _jsonable(story) if e["tool"] == HEARTBEAT_TICK]
         return {"company": company, "execution": execution, "ticks": ticks}
 
     async def wake(self, identity: Identity) -> dict[str, Any]:

@@ -92,7 +92,7 @@ and scanners are noise, not governance signals; only rejected tokens are.
 
 Every credential here names its intended consumer. Projected SA tokens are
 minted by the kubelet with audience `poseidon-mcp-gateway` (the default
-`token_audience` in `WorkloadAuthnSettings`), and TokenReview is asked
+`token_audience` in `AuthnSettings`), and TokenReview is asked
 with that same audience — so the one token an agent pod holds is useless
 at the Kubernetes API server or anywhere else that checks audiences. Theft
 of the agent's only credential yields the right to *ask the gateway*, and
@@ -110,7 +110,7 @@ agents (only the first holds a credential of its own; see the
 [llm-gateway README](../llm-gateway/README.md)), and they must answer
 "who is calling?" identically — an identity the MCP gateway refuses but the LLM gateway
 accepts would be a policy bypass through the cheaper door. Putting the
-`Authenticator` (and `WorkloadAuthnSettings`, which both gateways'
+`Authenticator` (and `AuthnSettings`, which both gateways'
 settings classes inherit) in `common` makes drift structurally difficult:
 one change moves both, and one env layout configures both.
 
@@ -172,7 +172,7 @@ Export stays env-gated at runtime either way.
 
 - [`gateway`](../mcp-gateway/README.md) and
   [`llm-gateway`](../llm-gateway/README.md) both construct an
-  `Authenticator`; their settings classes inherit `WorkloadAuthnSettings`.
+  `Authenticator`; their settings classes inherit `AuthnSettings`.
   [`console`](../console/README.md) constructs one in human mode, and
   queries OPA through `opa` and addresses workflows through `workflows`,
   as the orchestrator does.

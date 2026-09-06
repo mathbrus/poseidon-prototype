@@ -14,12 +14,14 @@ from .cluster import (
     kubectl,
     platform_pod,
     probe,
+    probe_tcp,
     run_kubectl,
 )
 
-# Temporal's HTTP API port: a real HTTP status answers a reachable probe,
-# where the gRPC port would make every reply look like a refusal.
-TEMPORAL_HTTP = f"http://temporal-frontend.{PLATFORM_NS}.svc.cluster.local:7243/"
+# Temporal's gRPC frontend: the one port the fence admits the worker and
+# the console on.
+TEMPORAL_FRONTEND = f"temporal-frontend.{PLATFORM_NS}.svc.cluster.local"
+TEMPORAL_PORT = 7233
 
 
 @pytest.mark.parametrize(
@@ -57,9 +59,9 @@ def test_agent_reaches_only_the_gateways(stack: None, url: str, want: str) -> No
 def test_temporal_frontend_is_fenced_from_platform_pods(
     stack: None, app: str, want: str
 ) -> None:
-    assert probe(platform_pod(app), TEMPORAL_HTTP, want, namespace=PLATFORM_NS), (
-        f"the frontend should be {want} from {app}"
-    )
+    assert probe_tcp(
+        platform_pod(app), TEMPORAL_FRONTEND, TEMPORAL_PORT, want, PLATFORM_NS
+    ), f"the frontend should be {want} from {app}"
 
 
 def test_no_credential_shaped_env_in_company_pods(stack: None) -> None:

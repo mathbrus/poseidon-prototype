@@ -14,14 +14,8 @@ own identity, which is what lets OPA decide on them.
 from typing import Any
 
 from common.audit import AuditEvent
-from common.policy import GATE_RESOLVE
+from common.policy import GATE_RESOLVE, verdict_rule
 from registry.db import Registry
-
-
-def verdict_rule(gate: str, approved: bool) -> str:
-    """The rule a console verdict is recorded under — the verdict named in
-    the rule itself, so it can be read back without decoding a digest."""
-    return f"gate_resolve_{gate}_{'approve' if approved else 'reject'}"
 
 
 class AuditStore:
@@ -94,9 +88,11 @@ class AuditStore:
             "ts": row["ts"],
         }
 
-    def story(self, run_id: str) -> list[dict[str, Any]]:
+    def story(self, run_id: str, since: str | None = None) -> list[dict[str, Any]]:
         """Everything the platform decided for this run, in order — across
-        every source, from one query."""
+        every source, from one query; at or after `since` when given (a
+        registry timestamp), so a reader of a standing run's long story
+        asks only for its own window."""
         return self._db.query(
             """
             SELECT ts, run_id, agent_id, role, tool, args_digest,
@@ -104,7 +100,8 @@ class AuditStore:
                    source, company, lifecycle, parent_agent_id, workflow
               FROM registry.audit_events
              WHERE run_id = %s
+               AND (%s::timestamptz IS NULL OR ts >= %s::timestamptz)
              ORDER BY ts, id
             """,
-            (run_id,),
+            (run_id, since, since),
         )

@@ -72,8 +72,9 @@ Everything runs against fakes: a scripted TokenReview, in-memory registry
 accessors, a recording Temporal double, a recording CR submit. What is
 pinned: the health probe is the only open route; a rejected token is
 audited with its principal; a denied act is a 403 naming the rule and
-does nothing; the verdict row precedes the signal and is read back under
-the same rule; the bootstrap apply; reads need a human and touch nothing;
+does nothing; the verdict row precedes the signal, under the rule the
+registry reads it back by; a verdict is refused unless the run is parked
+on that gate; the bootstrap apply; reads need a human and touch nothing;
 the route table equals the app.
 
 ## Invariants

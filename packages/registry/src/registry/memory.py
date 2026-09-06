@@ -16,12 +16,12 @@ failure modes than the real thing hides exactly the bugs it exists to catch.
 import re
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from common.audit import AuditEvent
-from common.policy import GATE_RESOLVE
+from common.policy import GATE_RESOLVE, verdict_rule
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
-from registry.audit import verdict_rule
 from registry.participants import ParticipantRevoked
 from registry.runs import Attempts, RunRecord
 
@@ -63,7 +63,7 @@ class InMemoryAuditStore:
             "ts": last.ts,
         }
 
-    def story(self, run_id: str) -> list[dict[str, Any]]:
+    def story(self, run_id: str, since: str | None = None) -> list[dict[str, Any]]:
         # The same projection and order as AuditStore.story — consumers must
         # not come to depend on extra keys Postgres will never return.
         return [
@@ -85,7 +85,11 @@ class InMemoryAuditStore:
                 "workflow": e.workflow,
             }
             for e in sorted(
-                (e for e in self.events if e.run_id == run_id),
+                (
+                    e
+                    for e in self.events
+                    if e.run_id == run_id and (since is None or e.ts >= since)
+                ),
                 key=lambda e: e.ts,
             )
         ]
@@ -115,6 +119,7 @@ class InMemoryBudgetLedger:
     ) -> None:
         self.entries.append(
             {
+                "ts": datetime.now(UTC).isoformat(),
                 "company": company,
                 "run_id": run_id,
                 "agent_id": agent_id,
@@ -140,8 +145,11 @@ class InMemoryBudgetLedger:
         return [dict(e) for e in self.entries if e["run_id"] == run_id]
 
     def spent_since(self, company: str, since: str | None) -> dict[str, Any]:
-        # The fake's entries carry no clock: every entry is "since".
-        mine = [e for e in self.entries if e["company"] == company]
+        mine = [
+            e
+            for e in self.entries
+            if e["company"] == company and (since is None or e["ts"] >= since)
+        ]
         return {
             "usd": float(sum(e["usd"] for e in mine)),
             "prompt_tokens": int(sum(e["prompt_tokens"] for e in mine)),

@@ -126,8 +126,9 @@ def run(
     issue_number: int,
     detach: bool = typer.Option(False, help="Start the run and exit"),
 ) -> None:
-    """Start one implement run by hand on a ticket the company filed — an
-    operator's repro. The heartbeat starts the company's runs on its own."""
+    """Start one implement run by hand on a ticket the company filed — a
+    person reproducing a run. The heartbeat starts the company's runs on
+    its own."""
     _start("implement", issue_number, detach)
 
 
@@ -140,9 +141,14 @@ def review(
         " `poseidon signal <run_id> merge` answers",
     ),
 ) -> None:
-    """Start one review run by hand on a delivered pull request — an
-    operator's repro, like `run`."""
+    """Start one review run by hand on a delivered pull request — a person
+    reproducing a run, like `run`."""
     _start("review", pr_number, detach)
+
+
+# How long a just-started run may take to have a row and a running
+# workflow before waiting on it is given up.
+START_GRACE_S = 120.0
 
 
 def _start(workflow: str, number: int, detach: bool) -> None:
@@ -151,19 +157,37 @@ def _start(workflow: str, number: int, detach: bool) -> None:
     typer.echo(f"started {started['workflow_id']} (run_id {started['run_id']})", err=True)
     if detach:
         return
+    _show(_await_run(client, started["run_id"]))
+
+
+def _await_run(client: ConsoleClient, run_id: str) -> dict[str, Any]:
+    """Poll the run to its end. The worker writes the run's row a moment
+    after the start is accepted, so "no such run" is "not yet" within the
+    grace, and a refusal after it."""
     import time
 
+    born = time.monotonic()
     while True:
-        record = _call(client.run, started["run_id"])
-        if record["status"] not in ("running",) or record["execution"]["status"] not in (
-            "RUNNING",
-            "NOT_FOUND",
-        ):
+        try:
+            record = client.run(run_id)
+        except ConsoleError as exc:
+            if exc.status == 422 and time.monotonic() - born < START_GRACE_S:
+                time.sleep(2)
+                continue
+            raise
+        execution = record["execution"]["status"]
+        if record["status"] != "running" or execution not in ("RUNNING", "NOT_FOUND"):
             break
+        if execution == "NOT_FOUND" and time.monotonic() - born >= START_GRACE_S:
+            typer.echo(
+                f"run {run_id} has no workflow after {START_GRACE_S:.0f}s", err=True
+            )
+            raise typer.Exit(1)
         time.sleep(5)
-    _show(record)
     if record.get("status") != "done":
+        _show(record)
         sys.exit(1)
+    return record
 
 
 @app.command()
@@ -174,7 +198,9 @@ def signal(
     payload: str = typer.Option(None, help="A note recorded with the verdict"),
 ) -> None:
     """Answer a gate a run parked on — `merge` or `budget`. The console
-    records the verdict under your name, then delivers it."""
+    records the verdict under your name, then delivers it. Approving a
+    budget pause lets the run continue under its cap as it stands: raise
+    the cap in the blueprint first if it needs more."""
     _show(_call(_client().resolve, run_id, gate, approved, payload))
 
 

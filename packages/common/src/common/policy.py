@@ -19,6 +19,9 @@ PLATFORM_DECISION_PATH = "poseidon/platform/decision"
 HEARTBEAT_START = "heartbeat.start"
 CREW_REQUEST = "crew.request"
 MERGE_RESOLVE = "merge.resolve"
+# The heartbeat's journal entry per tick — the audit tool name a reader of
+# the loop (the console, the acceptance suite) filters on.
+HEARTBEAT_TICK = "heartbeat.tick"
 
 # The acts a human performs through the console, decided against the
 # company's bundle exactly like the tools above: whether *this* verified
@@ -30,6 +33,14 @@ RUN_START = "run.start"
 RUN_CANCEL = "run.cancel"
 HEARTBEAT_WAKE = "heartbeat.wake"
 BLUEPRINT_APPLY = "blueprint.apply"
+
+
+def verdict_rule(gate: str, approved: bool) -> str:
+    """The rule a human's verdict on a gate is allowed and recorded under:
+    the verdict named in the rule itself, so the compiler that emits the
+    allow, the console that records it and the workflow that reads it
+    back agree on one spelling."""
+    return f"gate_resolve_{rego_slug(gate)}_{'approve' if approved else 'reject'}"
 
 
 def rego_slug(value: str) -> str:

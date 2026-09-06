@@ -135,7 +135,7 @@ ALL_SOURCES = {
 
 
 def _poseidon(env: dict, *args: str) -> subprocess.CompletedProcess:
-    """`poseidon …` exactly as an operator runs it: the real CLI, as the
+    """`poseidon …` exactly as a person runs it: the real CLI, as the
     human `owner`, against the cluster's console."""
     return subprocess.run(
         ["uv", "run", "poseidon", *args],

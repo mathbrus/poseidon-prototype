@@ -4,10 +4,10 @@ adds where the company's policy and workflows live, and who the humans
 are on a cluster without an identity provider.
 """
 
-from common.authn import WorkloadAuthnSettings
+from common.authn import AuthnSettings
 
 
-class ConsoleSettings(WorkloadAuthnSettings):
+class ConsoleSettings(AuthnSettings):
     """Every field is set by the chart's console template."""
 
     # The one company this installation hosts: the bundle its decisions
