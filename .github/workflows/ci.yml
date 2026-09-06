@@ -152,8 +152,8 @@ jobs:
       - run: uv sync
       - name: Compiled bundle parses
         run: |
-          uv run poseidon blueprint compile examples/hello-saas.yaml \
-            --no-live --out compiled-bundle >/dev/null
+          uv run python -m compiler examples/hello-saas.yaml \
+            --out compiled-bundle >/dev/null
           # Pinned to the tag the chart deploys, so CI checks the bundle
           # against the OPA that will actually load it.
           docker run --rm -v "$PWD/compiled-bundle:/b:ro" \

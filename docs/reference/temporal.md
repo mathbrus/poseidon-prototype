@@ -15,7 +15,12 @@ heartbeat per company, `heartbeat-{company}`.
 
 ## Workflows
 
-<!-- gen: workflows -->
+| Workflow | Workflow id | Input | Signals | Queries |
+|---|---|---|---|---|
+| `scope` | `scope-{run_id}` | `ScopeInput(run_id)` | `budget` | `state` |
+| `implement` | `implement-{run_id}` | `ImplementInput(run_id, issue_number)` | `budget` | `state` |
+| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number)` | `budget`, `merge` | `state` |
+| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, pending_wake=False)` | `wake` | `state` |
 
 `implement` takes the number of a ticket the company filed; the platform
 resolves the open issue first and composes the task from it. `scope`
@@ -37,7 +42,13 @@ it carries nothing at all, because it decides nothing — it ends the wait
 to the next tick, which observes, decides and is authorized like any
 other.
 
-<!-- gen: signals -->
+| Workflow | Signal | Arguments | What it resolves |
+|---|---|---|---|
+| `scope` | `budget` | `approved, payload` | `poseidon signal <run_id> budget --workflow scope`: resolve a budget pause, exactly as in implement. |
+| `implement` | `budget` | `approved, payload` | `poseidon signal <run_id> budget --approved/--no-approved`: resolve a budget pause — approved means the cap was raised and the run may continue; rejected finalizes it. |
+| `review` | `budget` | `approved, payload` | The console's budget verdict: resolve a budget pause, exactly as in implement. |
+| `review` | `merge` | `approved, payload` | The console's merge verdict, the signal the merge gate parks on. A nudge to look, not the verdict itself: the release reads the verdict the console recorded under the human's name. |
+| `heartbeat` | `wake` | — | A nudge that something changed the world this loop watches — never an instruction. The sleeping wait ends (or the running tick is followed by one more), and the tick that results observes, decides and is authorized like any other. |
 
 Under `resolved_by: policy` the compiled `merge.resolve` decision may
 release the merge itself before the gate ever parks — but the `merge`
