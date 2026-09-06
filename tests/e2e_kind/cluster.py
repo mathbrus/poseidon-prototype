@@ -361,37 +361,50 @@ def run_record(run_id: str) -> dict[str, Any] | None:
     )
 
 
-def run_by_task(task: str, workflow: str | None = None) -> dict[str, Any] | None:
-    """A run by its canonical task text — how a heartbeat-started run,
-    whose id nobody on the host chose, is found."""
+def run_by_task(
+    task: str, workflow: str | None = None, since: str | None = None
+) -> dict[str, Any] | None:
+    """The latest run on one canonical task text — how a heartbeat-started
+    run, whose id nobody on the host chose, is found. Retries share a
+    task, and every scope run works the same one, so the latest is the run
+    a module means; `since` (a registry timestamp from `db_now`) narrows
+    to runs born after the module's own trigger."""
     return psql_json(
         "SELECT COALESCE(row_to_json(r), 'null'::json) FROM registry.runs r "
         "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow') "
-        "LIMIT 1",
+        "AND r.created_at > COALESCE(NULLIF(:'since', ''), '-infinity')::timestamptz "
+        "ORDER BY r.created_at DESC LIMIT 1",
         default="null",
         task=task,
         workflow=workflow or "",
+        since=since or "",
     )
 
 
-def runs_by_task(task: str, workflow: str | None = None) -> list[dict[str, Any]]:
+def runs_by_task(
+    task: str, workflow: str | None = None, since: str | None = None
+) -> list[dict[str, Any]]:
     """Every run on one canonical task, oldest first — the attempts the
     heartbeat made on one issue or PR."""
     return psql_json(
         "SELECT COALESCE(json_agg(r ORDER BY r.created_at), '[]'::json) "
         "FROM registry.runs r "
-        "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow')",
+        "WHERE r.task = :'task' AND (:'workflow' = '' OR r.workflow = :'workflow') "
+        "AND r.created_at > COALESCE(NULLIF(:'since', ''), '-infinity')::timestamptz",
         task=task,
         workflow=workflow or "",
+        since=since or "",
     )
 
 
-def await_run(task: str, terminal: bool, deadline_s: int = 1800) -> dict[str, Any]:
-    """Poll the registry for a run by its task — optionally until it
-    reaches a terminal state."""
+def await_run(
+    task: str, terminal: bool, deadline_s: int = 1800, since: str | None = None
+) -> dict[str, Any]:
+    """Poll the registry for the latest run on `task` (born after `since`
+    when given) — optionally until it reaches a terminal state."""
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
-        run = run_by_task(task)
+        run = run_by_task(task, since=since)
         if run and (not terminal or run["status"] in ("done", "failed")):
             return run
         time.sleep(5)
@@ -578,17 +591,19 @@ def egress_proxy_key() -> str:
     return cluster_secret("egress-proxy-key", "EGRESS_PROXY_KEY")
 
 
-def worker_settings(env: dict, tmp_path: Path):
+def worker_settings(env: dict, tmp_path: Path, opa_url: str = "http://opa.test:8181"):
     """A `WorkerSettings` for running the orchestrator's activities from
     the host against this cluster: the gateway token file is a placeholder
     (host-side tests call the gateway with tokens they mint themselves),
-    the images are the ones the cluster carries."""
+    the images are the ones the cluster carries. `opa_url` names a
+    port-forward to the cluster's OPA when the activity under test wins a
+    compiled decision (crew fulfilment)."""
     from orchestrator.config import WorkerSettings
 
     token_file = tmp_path / "unused-token"
     token_file.write_text("unused")
     return WorkerSettings(
-        opa_url="http://opa.test:8181",
+        opa_url=opa_url,
         platform_namespace="poseidon-platform",
         sandbox_image="poseidon-sandbox:abc123",
         egress_proxy_url="http://127.0.0.1:3128",
@@ -611,7 +626,6 @@ def crew_activities(client: Registry, settings, provisioner=None):
         AuditStore,
         BudgetLedger,
         Companies,
-        CrewRequests,
         RunParticipants,
         Runs,
     )
@@ -620,7 +634,6 @@ def crew_activities(client: Registry, settings, provisioner=None):
         settings,
         RunParticipants(client),
         AuditStore(client),
-        CrewRequests(client),
         Companies(client),
         BudgetLedger(client),
         Runs(client),

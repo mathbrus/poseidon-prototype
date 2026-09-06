@@ -26,16 +26,14 @@ from common.identity import (
     Identity,
 )
 from common.policy import PLATFORM_DECISION_PATH, company_decision_path
+from common.tasks import DOCUMENT_CREW
 from common.telemetry import get_logger
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GitBackend
 from mcp_gateway.opa import OpaClient
 from registry import (
     AuditStore,
-    BudgetLedger,
     Companies,
-    CrewRequests,
-    RunParticipants,
     Runs,
     SandboxRegistrations,
 )
@@ -58,6 +56,10 @@ class PolicyDenied(Exception):
         super().__init__(f"denied by policy rule: {self.rule}")
 
 
+# The one tool whose backend files a ticket the caller does not shape.
+ARCHITECTURE_REQUEST = "architecture.request"
+
+
 class BackendError(Exception):
     pass
 
@@ -71,9 +73,6 @@ class GatewayService:
         sandboxes: SandboxRegistrations,
         audit: AuditStore,
         runs: Runs,
-        crew_requests: CrewRequests,
-        participants: RunParticipants,
-        ledger: BudgetLedger,
         companies: Companies,
         git_backend: GitBackend | None = None,
     ) -> None:
@@ -89,15 +88,6 @@ class GatewayService:
         self._audit_store = audit
         # Read-only: the run row supplies the decision input's `workflow`.
         self._runs = runs
-        # Written on the crew.request tool path (the tool and the
-        # workflow path record the same row).
-        self._crew_requests = crew_requests
-        # Read-only, for the crew.request enrichment: the
-        # conductor's live spawn count and the run's budget headroom ride
-        # the decision input — the compiled caps read them there, never
-        # from pushed data.
-        self._participants = participants
-        self._ledger = ledger
         self._companies = companies
 
     # -- sandbox registry -------------------------------------------------
@@ -246,18 +236,18 @@ class GatewayService:
             if not (identity.parent_agent_id and identity.crew_template):
                 return None
             policy_input["crew_template"] = identity.crew_template
-        if tool == "crew.request":
-
-            def spawn_state() -> tuple[int, bool]:
-                spawns = self._participants.active_spawn_count(identity.agent_id)
-                spec = self._companies.get(identity.company or "") or {}
-                cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
-                headroom = cap <= 0 or self._ledger.spent_for_run(run_id) < cap
-                return spawns, headroom
-
-            spawns, headroom = await asyncio.to_thread(spawn_state)
-            policy_input["active_spawns"] = spawns
-            policy_input["budget_headroom"] = headroom
+        if tool == ARCHITECTURE_REQUEST:
+            # The per-run cap reads how many requests this run already
+            # filed — off the gateway's own audit trail, the one record it
+            # writes, so the fact needs no new store.
+            story = await asyncio.to_thread(self._audit_store.story, run_id)
+            policy_input["architecture_requests"] = sum(
+                1
+                for e in story
+                if e["tool"] == ARCHITECTURE_REQUEST
+                and e["decision"] == "allow"
+                and e["backend_status"] == "ok"
+            )
         return policy_input
 
     async def proxy_sandbox(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -326,6 +316,14 @@ class GatewayService:
             lambda: self._git.archive(repo, ref, overlay_ref, overlay_paths),
         )
 
+    async def read_file(
+        self, identity: Identity, run_id: str, repo: str, ref: str, path: str
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "ref": ref, "path": path}
+        return await self.call(
+            identity, "repo.read_file", args, lambda: self._git.read_file(repo, ref, path)
+        )
+
     async def open_pr(
         self,
         identity: Identity,
@@ -377,13 +375,47 @@ class GatewayService:
             return await self.call(
                 identity,
                 "git.open_pr",
-                {**args, "paths": prepared.paths},
+                {
+                    **args,
+                    "paths": prepared.paths,
+                    "paths_present": prepared.paths_present,
+                },
                 lambda: self._git.open_pr(prepared, repo, title, body, base_ref),
             )
         finally:
             prepared.cleanup()
 
     # -- issues + review + merge ------------------------------------------
+
+    async def architecture_request(
+        self, identity: Identity, run_id: str, rationale: str, proposal: str
+    ) -> Any:
+        """Record a crew member's proposal for the architecture masterplan
+        as a stewardship ticket, filed by the platform on the company's
+        repository: the caller chooses neither the crew nor the repository,
+        and the ticket is the record — the audit event its receipt."""
+        args = {"run_id": run_id, "rationale": rationale, "proposal": proposal}
+
+        async def backend() -> Any:
+            spec = await asyncio.to_thread(self._companies.get, identity.company or "")
+            if not spec:
+                raise BackendError(
+                    f"no applied blueprint for company {identity.company!r}"
+                )
+            headline = (proposal.strip().splitlines() or ["(no proposal)"])[0][:80]
+            title = f"Architecture request from run {run_id}: {headline}"
+            body = (
+                f"Rationale:\n{rationale.strip()}\n\n"
+                f"Proposal:\n{proposal.strip()}\n\n"
+                "Revise the architecture masterplan accordingly, or decline "
+                "in the pull request and say why.\n\n"
+                f"Filed by the platform for run {run_id} at the request of "
+                f"{identity.agent_id}.\n\n"
+                f"Crew: {DOCUMENT_CREW}"
+            )
+            return await self._git.create_issue(spec["repo"]["url"], title, body)
+
+        return await self.call(identity, ARCHITECTURE_REQUEST, args, backend)
 
     async def issues_create(
         self, identity: Identity, run_id: str, repo: str, title: str, body: str
@@ -446,26 +478,6 @@ class GatewayService:
             args,
             lambda: self._git.merge_pr(repo, number, method),
         )
-
-    async def request_crew(
-        self, identity: Identity, run_id: str, crew_template: str, reason: str
-    ) -> Any:
-        """Record spawn intent under the conductor identity.
-        An allowed request is authorization + intent, never fulfillment —
-        fulfillment is the orchestrator's. The compiled rule already
-        narrows the template to the conductor's may_spawn list."""
-        args = {"run_id": run_id, "crew_template": crew_template, "reason": reason}
-
-        async def backend() -> Any:
-            return await asyncio.to_thread(
-                self._crew_requests.record,
-                identity.agent_id,
-                crew_template,
-                run_id,
-                reason,
-            )
-
-        return await self.call(identity, "crew.request", args, backend)
 
     # -- audit --------------------------------------------------------------
 

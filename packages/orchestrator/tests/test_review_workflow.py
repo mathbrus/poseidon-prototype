@@ -178,15 +178,22 @@ class Harness:
         @activity.defn(name="fulfill_crew")
         async def fulfill_crew(request: dict[str, Any]) -> dict[str, Any]:
             return {
-                "request_id": "crq-1",
                 "agents": {
                     "reviewer": {"agent_id": "fr-reviewer", "url": "http://crew:8000"}
                 },
             }
 
+        @activity.defn(name="read_documents")
+        async def read_documents(run_id: str) -> dict[str, str]:
+            return {"strategy": "Ship slugs."}
+
         @activity.defn(name="dispatch_agent")
         async def dispatch_agent(
-            run_id: str, url: str, procedure: str, task_text: str
+            run_id: str,
+            url: str,
+            procedure: str,
+            task_text: str,
+            documents: dict[str, str],
         ) -> dict[str, Any]:
             harness.dispatches += 1
             while harness.dispatch_hangs:
@@ -307,6 +314,7 @@ class Harness:
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
+            read_documents,
             dispatch_agent,
             record_verdict,
             platform_verify,
@@ -451,6 +459,19 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     assert record["merged"] is True
     assert record["merge_sha"] == "abc123"
     assert harness.wakes == 1  # the concluded review frees the slot: a nudge
+
+
+async def test_a_reviewers_architecture_request_reaches_teardown(env):
+    """A ticket the reviewer had the platform file is the review run's:
+    the dispatch result carries it through every exit to teardown, which
+    records it on the run's row."""
+    url = "https://github.test/example/repo/issues/77"
+    harness = Harness(
+        merge_gate=POLICY_GATE, dispatch={**dispatch_result(), "ticket_urls": [url]}
+    )
+    await run_review(env.client, harness)
+    (result, _error) = harness.torn_down[0]
+    assert result is not None and result["ticket_urls"] == [url]
 
 
 # -- the contract layer ------------------------------------------------------

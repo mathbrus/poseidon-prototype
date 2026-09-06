@@ -15,10 +15,12 @@ which tools it holds — efficiency, file hygiene, code quality, the
 per-model-family guidance — assembled by the SDK's own registry, so a
 version bump updates the text.
 
-The repository's AGENTS.md, when the sandbox has one, is handed to the
-SDK as a repo skill: it renders in the system message's second content
-block inside the SDK's UNTRUSTED_CONTENT framing, which is exactly what
-text from the repository is, and the static prompt stays byte-identical.
+The repository's AGENTS.md, when the sandbox has one, and the company's
+documents (the strategy and the architecture masterplan, as the platform
+read them at base_ref) are handed to the SDK as repo skills: they render
+in the system message's second content block inside the SDK's
+UNTRUSTED_CONTENT framing, which is exactly what text from the repository
+is, and the static prompt stays byte-identical.
 """
 
 from pathlib import Path
@@ -36,6 +38,7 @@ from openhands.sdk.llm.utils.model_prompt_spec import get_model_prompt_spec
 from openhands.sdk.skills import Skill
 
 from agent.config import AgentSettings
+from common.text import clip
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 # The first line of every prompt file: `# Poseidon procedure: <name>`.
@@ -63,9 +66,10 @@ SECTIONS: dict[str, tuple[type[PromptSection], ...]] = {
 }
 
 # The repository's instructions to agents, shown as untrusted context.
-# Bounded: a file can be anything.
 REPO_INSTRUCTIONS_FILE = "AGENTS.md"
-REPO_INSTRUCTIONS_CLIP = 8000
+# The company's documents, by the name the dispatch carries them under,
+# and the name the model sees them by.
+DOCUMENT_SKILLS = {"strategy": "strategy", "architecture": "architecture masterplan"}
 
 
 def render_procedure(procedure: str, settings: AgentSettings) -> str:
@@ -78,7 +82,7 @@ def render_procedure(procedure: str, settings: AgentSettings) -> str:
     if not text.startswith(f"{PROCEDURE_HEADER}{procedure}\n"):
         raise RuntimeError(f"prompts/{procedure}.md does not open with its header")
     return text.replace("{target_repo}", settings.target_repo).replace(
-        "{mission}", settings.mission
+        "{vision}", settings.vision
     )
 
 
@@ -100,15 +104,18 @@ def system_prompt(procedure: str, settings: AgentSettings, model: str) -> str:
     return compose(render_procedure(procedure, settings), SECTIONS[procedure], model)
 
 
-def repo_instructions(text: str | None) -> AgentContext | None:
-    """The sandbox's AGENTS.md as the conversation's agent context, or
-    None when there is none to show."""
-    if text is None:
+def untrusted_context(
+    instructions: str | None, documents: dict[str, str]
+) -> AgentContext | None:
+    """Everything from the repository as the conversation's agent context:
+    the sandbox's AGENTS.md and the company's documents, each bounded —
+    a file can be anything — or None when there is nothing to show."""
+    skills = []
+    if instructions is not None:
+        skills.append(Skill(name=REPO_INSTRUCTIONS_FILE, content=clip(instructions)))
+    for name, text in documents.items():
+        if name in DOCUMENT_SKILLS:
+            skills.append(Skill(name=DOCUMENT_SKILLS[name], content=clip(text)))
+    if not skills:
         return None
-    if len(text) > REPO_INSTRUCTIONS_CLIP:
-        dropped = len(text) - REPO_INSTRUCTIONS_CLIP
-        text = text[:REPO_INSTRUCTIONS_CLIP] + f"\n[... {dropped} chars clipped ...]\n"
-    return AgentContext(
-        skills=[Skill(name=REPO_INSTRUCTIONS_FILE, content=text)],
-        current_datetime=None,
-    )
+    return AgentContext(skills=skills, current_datetime=None)

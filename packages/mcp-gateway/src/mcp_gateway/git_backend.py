@@ -81,10 +81,14 @@ def _require_safe_overlay_path(value: str) -> str:
 
 @dataclass
 class PreparedBundle:
-    """A verified bundle applied to a platform-side clone, awaiting push."""
+    """A verified bundle applied to a platform-side clone, awaiting push.
+    `paths` are the changed paths against the base ref; `paths_present`
+    the subset that already exists there — the fact the write-once rule
+    on the company's strategy reads."""
 
     branch: str
     paths: list[str]
+    paths_present: list[str]
     clone_dir: Path
     root: Path
 
@@ -220,6 +224,14 @@ class GitBackend:
 
     # -- git.open_pr ----------------------------------------------------------
 
+    def _exists(self, clone: Path, ref: str, path: str) -> bool:
+        """Whether `path` exists at `ref` in the clone."""
+        try:
+            self._git(clone, "cat-file", "-e", f"{ref}:{path}")
+        except GitBackendError:
+            return False
+        return True
+
     async def prepare_pr(
         self, repo: str, branch: str, bundle_b64: str, base_ref: str
     ) -> PreparedBundle:
@@ -254,8 +266,18 @@ class GitBackend:
                 f"origin/{base_ref}...{INCOMING_REF}",
             )
             paths = [line for line in diff.splitlines() if line]
-            self._log.info("bundle prepared", extra={"branch": branch, "paths": paths})
-            return PreparedBundle(branch=branch, paths=paths, clone_dir=clone, root=root)
+            present = [p for p in paths if self._exists(clone, f"origin/{base_ref}", p)]
+            self._log.info(
+                "bundle prepared",
+                extra={"branch": branch, "paths": paths, "paths_present": present},
+            )
+            return PreparedBundle(
+                branch=branch,
+                paths=paths,
+                paths_present=present,
+                clone_dir=clone,
+                root=root,
+            )
         except Exception:
             shutil.rmtree(root, ignore_errors=True)
             raise
@@ -288,8 +310,15 @@ class GitBackend:
     # -- GitHub REST (issues.*, git.read/comment/merge_pr) --------------------
 
     async def _github(
-        self, method: str, path: str, json: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        json: dict[str, Any] | None = None,
+        *,
+        missing_ok: bool = False,
     ) -> Any:
+        """One GitHub REST call. `missing_ok` turns a 404 into None — for
+        reads whose subject may honestly not exist yet."""
         headers = {"Accept": "application/vnd.github+json"}
         if self._settings.git_token:
             headers["Authorization"] = f"Bearer {self._settings.git_token}"
@@ -299,6 +328,8 @@ class GitBackend:
             json=json,
             headers=headers,
         )
+        if missing_ok and resp.status_code == 404:
+            return None
         if resp.status_code not in (200, 201):
             raise GitBackendError(
                 self._redact(
@@ -316,6 +347,22 @@ class GitBackend:
             "body": issue.get("body") or "",
             "url": issue.get("html_url", ""),
         }
+
+    async def read_file(self, repo: str, ref: str, path: str) -> dict[str, Any]:
+        """One file at `ref` from the git host — `{present, text}`; a
+        missing file is `present: false`, never an error, because a
+        document the company has not written yet is an ordinary state."""
+        _require_safe_ref("ref", ref)
+        _require_safe_overlay_path(path)
+        entry = await self._github(
+            "GET",
+            f"/repos/{repo_slug(repo)}/contents/{path}?ref={ref}",
+            missing_ok=True,
+        )
+        if entry is None or entry.get("type") != "file":
+            return {"present": False, "text": None}
+        text = base64.b64decode(entry.get("content") or "").decode("utf-8", "replace")
+        return {"present": True, "text": text}
 
     async def create_issue(self, repo: str, title: str, body: str) -> dict[str, Any]:
         issue = await self._github(

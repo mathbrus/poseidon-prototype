@@ -6,6 +6,7 @@ import threading
 
 import pytest
 from conftest import (
+    ARCHITECTURE_TICKET_URL,
     COMMENT_URL,
     PR_URL,
     RUN_ID,
@@ -27,6 +28,7 @@ from agent.procedures import (
     run_review,
     run_scope,
 )
+from agent.prompting import system_prompt
 
 TASK = "Add a `greet(name)` function to src/hello.py with a test."
 
@@ -201,7 +203,14 @@ def test_prompt_and_toolsets_per_phase(settings, gateway):
     assert "carry it out" not in task_message  # no delivery talk while acting
 
     offered = set(llm.offered(0)) - {"finish", "think"}
-    assert offered == {"list_dir", "read_file", "write_file", "edit_file", "exec"}
+    assert offered == {
+        "list_dir",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "exec",
+        "request_architecture",
+    }
     assert "open_pr" not in llm.offered(0)  # no delivery tool, ever, here
     # The read tools declare themselves read-only, which also keeps the
     # SDK's security_risk parameter out of their schemas.
@@ -442,13 +451,14 @@ def test_a_prompt_naming_another_procedure_is_refused(tmp_path, settings, monkey
 
 
 OBSERVATION = (
-    "Heartbeat tick. Runs in flight: 0. Spent today: $0.00.\n"
-    "Startable actions: implement, review, idle\n\n"
+    "Heartbeat tick. Runs in flight: 0. Spent today: $0.00."
+    " Open tickets on the repository: 1.\n"
+    "Startable actions: implement, review, scope, idle\n\n"
     "Open tickets:\n#5 — Add slugify\n\n"
     "Delivered pull requests awaiting review:\n(none)\n\n"
     "Recent runs:\n(none)\n\n"
     "Reply with exactly two lines:\n"
-    "DECISION: implement #<n> | review #<n> | idle\n"
+    "DECISION: scope | implement #<n> | review #<n> | idle\n"
     "RATIONALE: one line saying why."
 )
 
@@ -474,6 +484,7 @@ def test_decide_parses_the_two_line_contract(settings, gateway):
 def test_decide_idle_and_review_shapes(settings, gateway):
     for reply, expected in [
         ("DECISION: idle\nRATIONALE: nothing worth starting.", ("idle", None)),
+        ("DECISION: scope\nRATIONALE: the backlog is dry.", ("scope", None)),
         ("DECISION: review #7\nRATIONALE: finish first.", ("review", 7)),
     ]:
         with scripted(gateway, ScriptedLLM([says(reply)])):
@@ -529,10 +540,94 @@ def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
 
     llm = ScriptedLLM([says("done")])
     with scripted(gateway, llm):
-        run_scope(settings, RUN_ID, "goal")
+        run_scope(settings, RUN_ID, "Strategy:\n(absent)")
     system = text_of(llm.requests[0][0][0])
     assert system.startswith("# Poseidon procedure: scope")
     assert "<EFFICIENCY>" not in system
+
+
+def test_an_architecture_request_is_a_gateway_call_and_a_ticket_of_the_run(
+    settings, gateway
+):
+    """The hand resolves to `architecture.request` under the run's identity
+    — no crew, no repository chosen by the model — and the ticket the
+    platform filed rides the run record like a PM's."""
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc(
+                    "request_architecture",
+                    rationale="one module is not enough",
+                    proposal="allow two",
+                )
+            ),
+            says("Requested a change to the plan; stopping."),
+        ]
+    )
+    with scripted(gateway, llm):
+        result = run_implement(settings, RUN_ID, TASK)
+    (tool, args) = next(c for c in gateway.calls if c[0] == "architecture.request")
+    assert args == {
+        "run_id": RUN_ID,
+        "rationale": "one module is not enough",
+        "proposal": "allow two",
+    }
+    assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
+    assert result.pr_url is None
+
+
+def test_a_reviewers_architecture_request_is_a_ticket_of_the_run(settings, gateway):
+    """The reviewer may ask for the plan to change instead of judging a
+    change against a plan it finds wrong; the ticket the platform filed
+    rides the review's record on every exit — with a verdict, and
+    without one."""
+    request = tc(
+        "request_architecture",
+        rationale="the plan forbids what the slice needs",
+        proposal="allow two modules",
+    )
+    findings = tc("comment_pr", number=41, body="Suite green; the plan is wrong.")
+    with scripted(gateway, ScriptedLLM([calls(request, findings), says("Asked.")])):
+        result = run_review(settings, RUN_ID, "Review pull request #41")
+    assert result.error == "reviewer finished without a verdict"
+    assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
+    verdict = tc("verdict", verdict="fail", summary="Contradicts the plan; requested.")
+    with scripted(
+        gateway, ScriptedLLM([calls(request, findings, verdict), says("Done.")])
+    ):
+        result = run_review(settings, RUN_ID, "Review pull request #41")
+    assert result.verdict == "fail"
+    assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
+
+
+def test_the_documents_are_untrusted_context_for_implement_and_review(settings, gateway):
+    """The company's documents the dispatch carries render in the system
+    message's untrusted block beside AGENTS.md, under the name the model
+    knows them by — after the static prompt, never inside it."""
+    documents = {"strategy": "STRATEGY-TEXT-4471", "architecture": "MASTERPLAN-TEXT-9931"}
+    llm = ScriptedLLM([says("nothing to do")])
+    with scripted(gateway, llm):
+        run_implement(settings, RUN_ID, TASK, documents)
+    system = text_of(llm.requests[0][0][0])
+    static = system_prompt("implement", settings, "mock-brain")
+    assert system.startswith(static.rstrip())
+    assert "STRATEGY-TEXT-4471" in system and "MASTERPLAN-TEXT-9931" in system
+    assert "architecture masterplan" in system
+    assert "STRATEGY-TEXT-4471" not in static
+
+    llm = ScriptedLLM([says("nothing to do")])
+    with scripted(gateway, llm):
+        run_implement(settings, RUN_ID, TASK)
+    assert "STRATEGY-TEXT-4471" not in text_of(llm.requests[0][0][0])
+
+
+def test_the_vision_reaches_every_procedure_but_deliver(settings):
+    """The vision rides the static prompt — the trusted channel — into
+    every procedure that judges what is worth doing; delivery only ships
+    what was already verified and reads none of it."""
+    for procedure in ("scope", "decide", "implement", "review"):
+        assert settings.vision in system_prompt(procedure, settings, "mock-brain")
+    assert settings.vision not in system_prompt("deliver", settings, "mock-brain")
 
 
 def test_model_family_guidance_follows_the_model():
@@ -625,7 +720,7 @@ def test_a_stuck_pm_fails_with_what_it_filed(settings, gateway):
     llm = ScriptedLLM([same] * 4)
 
     with scripted(gateway, llm):
-        result = run_scope(settings, RUN_ID, "goal")
+        result = run_scope(settings, RUN_ID, "Strategy:\n(absent)")
 
     assert result.error == "agent loop stuck repeating itself"
     assert result.ticket_urls == []

@@ -41,6 +41,7 @@ class RunRecord:
     workflow_id: str | None = None
     company: str | None = None
     pr_url: str | None = None
+    pr_settled: str | None = None
     verdict: str | None = None
     ticket_urls: list[str] = field(default_factory=list)
     iterations: int = 0
@@ -58,6 +59,7 @@ class RunRecord:
             workflow_id=row["workflow_id"],
             company=row["company"],
             pr_url=row["pr_url"],
+            pr_settled=row["pr_settled"],
             verdict=row["verdict"],
             ticket_urls=list(row["ticket_urls"] or []),
             iterations=row["iterations"],
@@ -126,14 +128,20 @@ class Runs:
     def record_artifacts(
         self, run_id: str, pr_url: str | None = None, ticket_urls: list[str] | None = None
     ) -> None:
+        """The run's artifacts as facts on its row. `pr_url` is the one
+        delivery; `ticket_urls` accumulate — the ticket a run works, the
+        tickets its dispatches file — each URL once, in the order written."""
         self._db.execute(
             """
             UPDATE registry.runs
                SET pr_url = COALESCE(%s, pr_url),
-                   ticket_urls = COALESCE(%s::jsonb, ticket_urls)
+                   ticket_urls = ticket_urls || (
+                       SELECT COALESCE(jsonb_agg(e), '[]'::jsonb)
+                         FROM jsonb_array_elements(%s::jsonb) AS e
+                        WHERE NOT ticket_urls @> jsonb_build_array(e))
              WHERE run_id = %s
             """,
-            (pr_url, json.dumps(ticket_urls) if ticket_urls else None, run_id),
+            (pr_url, json.dumps(ticket_urls or []), run_id),
         )
 
     def record_verdict(self, run_id: str, verdict: str) -> None:
@@ -181,13 +189,14 @@ class Runs:
         return RunRecord.from_row(rows[0]) if rows else None
 
     def active_count(self, company: str) -> int:
-        """Runs currently occupying delivery capacity — what the heartbeat
-        compares against `max_concurrent_runs`. Intake is not counted: it
-        files tickets, it does not occupy a crew."""
+        """Runs currently occupying the company — what the heartbeat
+        compares against `max_concurrent_runs`: every run the heartbeat
+        may start, the conductor's own scope run included. Only the
+        heartbeat's decision rows are not runs."""
         rows = self._db.query(
             "SELECT COUNT(*) AS n FROM registry.runs"
             " WHERE company = %s AND status = 'running'"
-            "   AND workflow IN ('implement', 'review')",
+            "   AND workflow IN ('scope', 'implement', 'review')",
             (company,),
         )
         return int(rows[0]["n"])
@@ -233,17 +242,28 @@ class Runs:
         }
 
     def delivered_pr_urls(self, company: str) -> list[str]:
-        """PRs the company's implement runs have opened and finished with —
-        the review side of the heartbeat's observation, before the consumed
-        ones (`review_attempts`) are subtracted."""
+        """PRs the company's implement runs have opened and finished with,
+        and the world has not settled — the review side of the heartbeat's
+        observation, before the consumed ones (`review_attempts`) are
+        subtracted."""
         rows = self._db.query(
             "SELECT pr_url FROM registry.runs"
             " WHERE company = %s AND workflow = 'implement'"
             "   AND status = 'done' AND pr_url IS NOT NULL"
+            "   AND pr_settled IS NULL"
             " ORDER BY finished_at",
             (company,),
         )
         return [row["pr_url"] for row in rows]
+
+    def mark_pr_settled(self, company: str, pr_url: str, state: str) -> None:
+        """The world settled a delivered PR (`merged`, `closed`): remember
+        it on the delivering run so no later observation reads it again."""
+        self._db.execute(
+            "UPDATE registry.runs SET pr_settled = %s"
+            " WHERE company = %s AND workflow = 'implement' AND pr_url = %s",
+            (state, company, pr_url),
+        )
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
         """The implement run that delivered a pull request — the PR's run

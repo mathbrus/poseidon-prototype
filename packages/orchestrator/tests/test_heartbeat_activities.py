@@ -16,6 +16,7 @@ from orchestrator.activities.heartbeat import (
     HeartbeatActivities,
     consumed,
     decision_prompt,
+    scope_prompt,
 )
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import Timeouts
@@ -58,11 +59,18 @@ def runs() -> InMemoryRuns:
     return InMemoryRuns()
 
 
+DOCUMENTS = {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"}
+
+
 @pytest.fixture
 def companies() -> InMemoryCompanies:
     store = InMemoryCompanies()
     store.upsert(
-        COMPANY, {"repo": {"url": "github.com/example/repo", "base_ref": "main"}}
+        COMPANY,
+        {
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "documents": DOCUMENTS,
+        },
     )
     return store
 
@@ -108,11 +116,16 @@ def _backlog_gateway(
     fake_gateway,
     issues: list[dict[str, Any]],
     prs: dict[int, dict[str, Any]] | None = None,
+    files: dict[str, str] | None = None,
+    unlisted: dict[int, dict[str, Any]] | None = None,
 ) -> list[tuple[str, int]]:
-    """The world as the gateway reports it: the open issues, and each PR's
-    live state by number (open unless `prs` says otherwise). Returns the
-    log of PR reads — (run_id, number) — so a test can assert under which
-    identity the world was consulted."""
+    """The world as the gateway reports it: the open issues, each PR's
+    live state by number (open unless `prs` says otherwise), the
+    documents present at base_ref (`files`, path to text), and the issues
+    the host answers by number but does not list yet (`unlisted`).
+    Returns the log of PR reads — (run_id, number) — and issue reads by
+    number, negated — so a test can assert under which identity the world
+    was consulted."""
     import orchestrator.activities.heartbeat as module
 
     reads: list[tuple[str, int]] = []
@@ -120,14 +133,27 @@ def _backlog_gateway(
     async def read_open_issues(self, run_id, repo):
         return issues
 
+    async def read_issue(self, run_id, repo, number):
+        reads.append((run_id, -number))
+        return (unlisted or {}).get(number) or {"number": number, "state": "closed"}
+
     async def read_pr(self, run_id, repo, number):
         reads.append((run_id, number))
         return (prs or {}).get(number) or _pr(number)
 
+    async def read_document(self, run_id, repo, ref, path):
+        text = (files or {}).get(path)
+        return {"present": text is not None, "text": text}
+
     monkeypatch.setattr(
         module,
         "GatewayClient",
-        fake_gateway(read_open_issues=read_open_issues, read_pr=read_pr),
+        fake_gateway(
+            read_open_issues=read_open_issues,
+            read_issue=read_issue,
+            read_pr=read_pr,
+            read_document=read_document,
+        ),
     )
     return reads
 
@@ -179,11 +205,9 @@ def test_config_returns_the_applied_section(activities, companies):
     }
 
 
-def test_config_is_none_without_a_section(activities, companies):
-    """The fail-closed half of revocation: an applied blueprint without
-    the section stops the loop at its next tick."""
-    companies.upsert(COMPANY, {"workflows": []})
-    assert asyncio.run(activities.heartbeat_config()) is None
+def test_config_is_none_without_an_applied_company(activities, companies):
+    """The fail-closed half of teardown: a deleted company stops the loop
+    at its next tick."""
     companies.delete(COMPANY)
     assert asyncio.run(activities.heartbeat_config()) is None
 
@@ -207,6 +231,18 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert [i["number"] for i in observed["backlog"]] == [5, 7]
+    # The scoping cap reads every open issue, the worked one included.
+    assert observed["open_tickets"] == 3
+    # Documents absent on base_ref are observed as absent, never as an error
+    # — and with no bootstrap ticket open, as pending.
+    assert observed["documents"] == {
+        "strategy": {"path": "docs/STRATEGY.md", "present": False, "text": None},
+        "architecture": {"path": "docs/ARCHITECTURE.md", "present": False, "text": None},
+    }
+    assert observed["bootstrap"] == {
+        "pending": ["strategy", "architecture"],
+        "exhausted": [],
+    }
     # Bodies are untrusted input; only number, title, URL and the attempt
     # count feed the tick.
     assert all(
@@ -215,12 +251,13 @@ def test_observe_backlog_is_unconsumed_sorted_and_body_free(
     assert all(i["attempts"] == 0 for i in observed["backlog"])
 
 
-def test_observe_counts_running_delivery_runs_and_todays_spend(
+def test_observe_counts_every_running_run_and_todays_spend(
     activities, runs, ledger, monkeypatch, fake_gateway
 ):
+    """A scope run occupies the company like a delivery run does."""
     _backlog_gateway(monkeypatch, fake_gateway, [])
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
-    runs.start("run-b", "goal", "intake", company=COMPANY)  # not capacity
+    runs.start("run-b", "scope the next slice", "scope", company=COMPANY)
     runs.finish("run-c", "done")
     ledger.record(
         company=COMPANY,
@@ -236,7 +273,7 @@ def test_observe_counts_running_delivery_runs_and_todays_spend(
         usd=2.5,
     )
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
-    assert observed["active_runs"] == 1
+    assert observed["active_runs"] == 2
     assert observed["daily_spent_usd"] == 2.5
     assert observed["backlog"] == []
     assert len(observed["recent_runs"]) == 3
@@ -381,10 +418,17 @@ def test_observe_skips_an_unreadable_delivered_pr(
             raise clients.GatewayError("GitHub GET /pulls/4 failed: 404")
         return _pr(number)
 
+    async def read_document(self, run_id, repo, ref, path):
+        return {"present": False, "text": None}
+
     monkeypatch.setattr(
         module,
         "GatewayClient",
-        fake_gateway(read_open_issues=read_open_issues, read_pr=read_pr),
+        fake_gateway(
+            read_open_issues=read_open_issues,
+            read_pr=read_pr,
+            read_document=read_document,
+        ),
     )
     runs.start("run-a", "implement issue #3", "implement", company=COMPANY)
     runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
@@ -393,6 +437,145 @@ def test_observe_skips_an_unreadable_delivered_pr(
     observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
     assert [p["number"] for p in observed["reviewable_prs"]] == [6]
     assert [i["number"] for i in observed["backlog"]] == [9]
+
+
+def _bootstrap_issue(name: str, number: int) -> dict[str, Any]:
+    from orchestrator.activities.documents import BOOTSTRAP_TITLES
+
+    return {**_issue(number), "title": BOOTSTRAP_TITLES[name]}
+
+
+def test_observe_reads_the_bootstrap_state_off_the_open_tickets(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """An open bootstrap ticket means the document is being written, not
+    pending; one whose every attempt aborted under the cap is exhausted —
+    the loop halts by name instead of scoping forever. A present document
+    is neither."""
+    _backlog_gateway(
+        monkeypatch,
+        fake_gateway,
+        [_bootstrap_issue("strategy", 3), _bootstrap_issue("architecture", 4)],
+        files={"docs/STRATEGY.md": "# Strategy\n"},
+    )
+    for run_id in ("run-a", "run-b"):
+        runs.start(run_id, "implement issue #4", "implement", company=COMPANY)
+        runs.finish(run_id, "failed", error="boom")
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert observed["bootstrap"] == {"pending": [], "exhausted": ["architecture"]}
+    # The exhausted ticket is off the backlog like any consumed item.
+    assert [i["number"] for i in observed["backlog"]] == [3]
+
+
+def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
+    activities, companies, audit, monkeypatch, fake_gateway
+):
+    filed: list[tuple[str, str, str, str]] = []
+
+    async def create_issue(self, run_id, repo, title, body):
+        filed.append((run_id, repo, title, body))
+        return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
+
+    # The git host lists the ticket a beat after creating it: the first
+    # read-back misses it, the second finds it, and only then does the
+    # filing return — the next tick's listing cannot miss what it filed.
+    listings = iter([[], [_bootstrap_issue("strategy", 9)]])
+
+    async def read_open_issues(self, run_id, repo):
+        return next(listings)
+
+    async def read_document(self, run_id, repo, ref, path):
+        return {"present": False, "text": None}
+
+    import orchestrator.activities.heartbeat as module
+
+    monkeypatch.setattr(module, "LISTING_POLL_S", 0)
+    monkeypatch.setattr(
+        module,
+        "GatewayClient",
+        fake_gateway(
+            create_issue=create_issue,
+            read_open_issues=read_open_issues,
+            read_document=read_document,
+        ),
+    )
+    names = asyncio.run(activities.heartbeat_bootstrap(["strategy"]))
+    assert names == ["strategy"]
+    assert next(listings, None) is None, (
+        "the filing returned before its ticket was listed"
+    )
+    ((run_id, repo, title, body),) = filed
+    assert (run_id, repo, title) == (
+        f"heartbeat-{COMPANY}",
+        "github.com/example/repo",
+        "Bootstrap: strategy",
+    )
+    assert "`docs/STRATEGY.md`" in body and body.endswith("Crew: stewardship")
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert (
+        event["tool"] == "heartbeat.bootstrap"
+        and event["rule"] == "bootstrap_filed:strategy"
+    )
+
+
+def test_bootstrap_files_nothing_for_a_document_present_on_re_read(
+    activities, companies, audit, monkeypatch, fake_gateway
+):
+    """The git host's reads are eventually consistent: a document the
+    observation missed answers present when the filing re-reads it, so no
+    ticket is filed and nothing is journaled — the next tick reads again."""
+    filed: list[str] = []
+
+    async def create_issue(self, run_id, repo, title, body):
+        filed.append(title)
+        return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
+
+    async def read_document(self, run_id, repo, ref, path):
+        return {"present": True, "text": "# Strategy\n"}
+
+    import orchestrator.activities.heartbeat as module
+
+    monkeypatch.setattr(
+        module,
+        "GatewayClient",
+        fake_gateway(create_issue=create_issue, read_document=read_document),
+    )
+    assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == []
+    assert filed == [] and audit.story(f"heartbeat-{COMPANY}") == []
+
+
+def test_bootstrap_returns_with_a_warning_when_the_listing_never_settles(
+    activities, companies, audit, monkeypatch, fake_gateway
+):
+    """The wait is bounded: a host that never lists the ticket within the
+    settle window does not hold the filing — one ticket was created, the
+    filing says so, and the next tick reads for itself."""
+    created: list[str] = []
+
+    async def create_issue(self, run_id, repo, title, body):
+        created.append(title)
+        return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
+
+    async def read_open_issues(self, run_id, repo):
+        return []
+
+    async def read_document(self, run_id, repo, ref, path):
+        return {"present": False, "text": None}
+
+    import orchestrator.activities.heartbeat as module
+
+    monkeypatch.setattr(module, "LISTING_SETTLE_S", 0)
+    monkeypatch.setattr(
+        module,
+        "GatewayClient",
+        fake_gateway(
+            create_issue=create_issue,
+            read_open_issues=read_open_issues,
+            read_document=read_document,
+        ),
+    )
+    assert asyncio.run(activities.heartbeat_bootstrap(["strategy"])) == ["strategy"]
+    assert created == ["Bootstrap: strategy"]
 
 
 def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypatch):
@@ -423,9 +606,8 @@ def test_wake_heartbeat_signals_the_companys_standing_loop(activities, monkeypat
 
 
 def test_wake_heartbeat_swallows_every_failure(activities, monkeypatch):
-    """Best-effort by design: no heartbeat to signal (no section applied)
-    or no Temporal to reach must never fail the run sending the nudge —
-    a missed one costs at most a reconcile interval."""
+    """Best-effort by design: no Temporal to reach must never fail the run
+    sending the nudge — a missed one costs at most a reconcile interval."""
     import orchestrator.activities.heartbeat as module
 
     class DownClient:
@@ -445,7 +627,9 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
     closed by anyone) is not reviewable, whatever the ledger says — and
     the check is a platform read under the heartbeat's own run id, not a
     guess. Nothing is consumed by the drop: the attempt aggregate stays a
-    record of reviews that ran, never of PRs the world settled."""
+    record of reviews that ran, never of PRs the world settled — but the
+    settlement is remembered on the delivering run, so the next tick reads
+    only what is still open."""
     reads = _backlog_gateway(
         monkeypatch,
         fake_gateway,
@@ -469,6 +653,13 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
         (f"heartbeat-{COMPANY}", 8),
     ]
     assert runs.review_attempts(COMPANY) == {}
+    assert (runs.get("run-a").pr_settled, runs.get("run-b").pr_settled) == (
+        "merged",
+        "closed",
+    )
+    reads.clear()
+    asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert reads == [(f"heartbeat-{COMPANY}", 8)]
 
 
 # -- heartbeat_authorize -----------------------------------------------------
@@ -476,7 +667,7 @@ def test_observe_drops_delivered_prs_the_world_has_settled(
 
 def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
     http = _opa(monkeypatch, allow=True, rule="heartbeat_start_implement")
-    asyncio.run(activities.heartbeat_authorize("auto-1", "implement", 0, 3.5, 1))
+    asyncio.run(activities.heartbeat_authorize("auto-1", "implement", 0, 3.5, 1, 4))
     assert "/v1/data/poseidon/authz/hello_saas/decision" in http.last.url
     assert http.last.input["tool"] == "heartbeat.start"
     assert http.last.input["lifecycle"] == "platform"
@@ -486,6 +677,7 @@ def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
         "active_runs": 0,
         "daily_spent_usd": 3.5,
         "attempts": 1,
+        "open_tickets": 4,
     }
     (event,) = audit.story("auto-1")
     assert event["decision"] == "allow"
@@ -496,7 +688,7 @@ def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
 def test_authorize_deny_raises_nonretryable_and_audits(activities, audit, monkeypatch):
     _opa(monkeypatch, allow=False, rule="heartbeat_start_over_daily_cap")
     with pytest.raises(ApplicationError) as caught:
-        asyncio.run(activities.heartbeat_authorize("auto-2", "implement", 0, 20.0, 0))
+        asyncio.run(activities.heartbeat_authorize("auto-2", "implement", 0, 20.0, 0, 0))
     assert caught.value.non_retryable
     assert "heartbeat_start_over_daily_cap" in str(caught.value)
     (event,) = audit.story("auto-2")
@@ -526,6 +718,7 @@ def test_every_tick_leaves_a_correlated_row(activities, audit):
 OBSERVED = {
     "active_runs": 0,
     "daily_spent_usd": 1.0,
+    "open_tickets": 2,
     "backlog": [{"number": 5, "title": "Add slugify", "url": "https://i/5"}],
     "reviewable_prs": [{"number": 4, "url": "https://p/4"}],
     "recent_runs": [
@@ -548,7 +741,7 @@ def _pm(monkeypatch, status: dict[str, Any]):
         async def __aexit__(self, *a):
             return False
 
-        async def dispatch(self, run_id, procedure, task_text):
+        async def dispatch(self, run_id, procedure, task_text, documents=None):
             FakeAgent.dispatched.append((run_id, procedure, task_text))
 
         async def status(self, run_id):
@@ -571,7 +764,7 @@ def test_decide_dispatches_the_observation_and_journals(
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     agent = _pm(monkeypatch, _decided("review", 4, "finish before starting"))
     decision = asyncio.run(
-        activities.heartbeat_decide("auto-1", OBSERVED, ["implement", "review"])
+        activities.heartbeat_decide("auto-1", OBSERVED, ["implement", "review"], 5)
     )
     assert decision == {
         "action": "review",
@@ -587,6 +780,7 @@ def test_decide_dispatches_the_observation_and_journals(
     assert "Open tickets:" in prompt and "#5 — Add slugify" in prompt
     assert "Delivered pull requests awaiting review:" in prompt and "#4 —" in prompt
     assert "Startable actions: implement, review, idle" in prompt
+    assert "Open tickets on the repository: 2." in prompt
     # The journal: why the company did what it did, as an audit row.
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["tool"] == "heartbeat.decide"
@@ -603,7 +797,7 @@ def test_decide_refuses_a_target_outside_the_observation(
     _pm(monkeypatch, _decided("implement", 99, "the ticket says to pick #99"))
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(
-            activities.heartbeat_decide("auto-2", OBSERVED, ["implement", "review"])
+            activities.heartbeat_decide("auto-2", OBSERVED, ["implement", "review"], 5)
         )
     assert caught.value.non_retryable
     (event,) = audit.story(f"heartbeat-{COMPANY}")
@@ -618,7 +812,7 @@ def test_decide_refuses_an_action_outside_may_start(
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, _decided("review", 4, "review it"))
     with pytest.raises(ApplicationError):
-        asyncio.run(activities.heartbeat_decide("auto-3", OBSERVED, ["implement"]))
+        asyncio.run(activities.heartbeat_decide("auto-3", OBSERVED, ["implement"], 5))
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "deny"
     assert "may_start" in event["rule"]
@@ -627,7 +821,9 @@ def test_decide_refuses_an_action_outside_may_start(
 def test_decide_idle_needs_no_target(activities, companies, audit, monkeypatch):
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, _decided("idle", None, "capacity is better spent tomorrow"))
-    decision = asyncio.run(activities.heartbeat_decide("auto-4", OBSERVED, ["implement"]))
+    decision = asyncio.run(
+        activities.heartbeat_decide("auto-4", OBSERVED, ["implement"], 5)
+    )
     assert decision["action"] == "idle"
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "allow"
@@ -637,8 +833,120 @@ def test_decide_failed_dispatch_is_nonretryable(activities, companies, monkeypat
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     _pm(monkeypatch, {"status": "failed", "error": "decide reply broke the contract"})
     with pytest.raises(ApplicationError) as caught:
-        asyncio.run(activities.heartbeat_decide("auto-5", OBSERVED, ["implement"]))
+        asyncio.run(activities.heartbeat_decide("auto-5", OBSERVED, ["implement"], 5))
     assert "broke the contract" in str(caught.value)
+
+
+def test_decide_scope_needs_no_target(activities, companies, audit, monkeypatch):
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    _pm(monkeypatch, _decided("scope", None, "the backlog is dry"))
+    decision = asyncio.run(
+        activities.heartbeat_decide("auto-6", OBSERVED, ["implement", "scope"], 5)
+    )
+    assert decision["action"] == "scope"
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert event["decision"] == "allow"
+
+
+def test_decide_refuses_scope_while_a_document_is_absent(
+    activities, companies, audit, monkeypatch
+):
+    """Nothing is scoped before the company has written its documents:
+    the first ticks are for the bootstrap tickets."""
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    _pm(monkeypatch, _decided("scope", None, "let us scope"))
+    absent = {
+        **OBSERVED,
+        "documents": {
+            "strategy": {"path": "docs/STRATEGY.md", "present": True, "text": "x"},
+            "architecture": {
+                "path": "docs/ARCHITECTURE.md",
+                "present": False,
+                "text": None,
+            },
+        },
+    }
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(
+            activities.heartbeat_decide("auto-8", absent, ["implement", "scope"], 5)
+        )
+    assert caught.value.non_retryable
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert event["decision"] == "deny" and "architecture absent" in event["rule"]
+
+
+def _ticket_state(monkeypatch, fake_gateway, state: str) -> list[int]:
+    """The git host answering an issue read by number with `state`;
+    returns the log of numbers read."""
+    import orchestrator.activities.heartbeat as module
+
+    reads: list[int] = []
+
+    async def read_issue(self, run_id, repo, number):
+        reads.append(number)
+        return {"number": number, "title": "Add slugify", "state": state}
+
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_issue=read_issue))
+    return reads
+
+
+def test_decide_reads_the_ticket_it_would_implement(
+    activities, companies, audit, monkeypatch, fake_gateway
+):
+    """The listing the observation read may lag a closure: the chosen
+    ticket is read by number before a run is spent on it, and an open one
+    is started."""
+    companies.upsert(
+        COMPANY,
+        {
+            "heartbeat": heartbeat_spec(),
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+        },
+    )
+    reads = _ticket_state(monkeypatch, fake_gateway, "open")
+    _pm(monkeypatch, _decided("implement", 5, "oldest open work"))
+    decision = asyncio.run(
+        activities.heartbeat_decide("auto-8", OBSERVED, ["implement", "review"], 5)
+    )
+    assert decision["target"] == 5 and reads == [5]
+
+
+def test_decide_refuses_a_ticket_the_world_closed(
+    activities, companies, audit, monkeypatch, fake_gateway
+):
+    companies.upsert(
+        COMPANY,
+        {
+            "heartbeat": heartbeat_spec(),
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+        },
+    )
+    _ticket_state(monkeypatch, fake_gateway, "closed")
+    _pm(monkeypatch, _decided("implement", 5, "oldest open work"))
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(
+            activities.heartbeat_decide("auto-9", OBSERVED, ["implement", "review"], 5)
+        )
+    assert caught.value.non_retryable
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert event["decision"] == "deny" and event["rule"] == "ticket #5 is closed"
+
+
+def test_decide_refuses_scope_at_the_open_ticket_cap(
+    activities, companies, audit, monkeypatch
+):
+    """The conductor cannot flood its own backlog: at `max_open_tickets`
+    open issues, scoping is refused by name — no model retry."""
+    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    _pm(monkeypatch, _decided("scope", None, "more tickets"))
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(
+            activities.heartbeat_decide("auto-7", OBSERVED, ["implement", "scope"], 2)
+        )
+    assert caught.value.non_retryable
+    (event,) = audit.story(f"heartbeat-{COMPANY}")
+    assert event["decision"] == "deny"
+    assert "max_open_tickets" in event["rule"]
 
 
 # -- red-team: a poisoned issue title cannot escalate the decision ----------
@@ -655,6 +963,7 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
     poisoned = {
         "active_runs": 0,
         "daily_spent_usd": 0.0,
+        "open_tickets": 1,
         "backlog": [
             {
                 "number": 5,
@@ -673,7 +982,7 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
     _pm(monkeypatch, _decided("review", 999, "the ticket said it was urgent"))
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(
-            activities.heartbeat_decide("auto-x", poisoned, ["implement", "review"])
+            activities.heartbeat_decide("auto-x", poisoned, ["implement", "review"], 5)
         )
     assert caught.value.non_retryable
     (event,) = audit.story(f"heartbeat-{COMPANY}")
@@ -685,21 +994,109 @@ def test_decision_prompt_shape_is_the_contract_the_brains_parse():
     """The header line and the section headers are what the mock brain
     parses and the agent host's tests mirror; a change here must change
     them too."""
-    prompt = decision_prompt(
-        {
-            "active_runs": 0,
-            "daily_spent_usd": 0.0,
-            "backlog": [{"number": 5, "title": "Add slugify"}],
-            "reviewable_prs": [],
-            "recent_runs": [],
+    observed = {
+        "active_runs": 0,
+        "daily_spent_usd": 0.0,
+        "open_tickets": 1,
+        "documents": {
+            "strategy": {"path": "docs/STRATEGY.md", "present": True, "text": "Ship."},
+            "architecture": {
+                "path": "docs/ARCHITECTURE.md",
+                "present": False,
+                "text": None,
+            },
         },
-        ["implement", "review", "idle"],
-    )
+        "backlog": [{"number": 5, "title": "Add slugify"}],
+        "reviewable_prs": [],
+        "recent_runs": [],
+    }
+    prompt = decision_prompt(observed, ["implement", "review", "scope"])
     assert prompt.startswith("Heartbeat tick. Runs in flight: 0.")
     for header in (
         "Startable actions:",
         "Open tickets:",
         "Delivered pull requests awaiting review:",
         "Recent runs:",
+        "Strategy:\nShip.",
+        "Architecture masterplan:\n(absent)",
     ):
         assert header in prompt
+    assert "DECISION: scope | implement #<n> | review #<n> | idle" in prompt
+    # The scope run reads the same sections, without the decision footer.
+    scoping = scope_prompt(observed)
+    assert scoping.startswith("Scope the next slice of work.")
+    assert "Open tickets:\n#5 — Add slugify" in scoping
+    assert "DECISION:" not in scoping
+
+
+def test_scope_observation_reads_the_world_under_the_scope_run(
+    activities, companies, runs, monkeypatch, fake_gateway
+):
+    """The scope run's dispatch text is the observation as of now, read
+    under the scope run's own id so the platform reads are attributed to
+    the run that asked."""
+    reads = _backlog_gateway(monkeypatch, fake_gateway, [_issue(3)])
+    companies.upsert(
+        COMPANY,
+        {
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "documents": DOCUMENTS,
+            "heartbeat": heartbeat_spec(),
+        },
+    )
+    runs.start("run-a", "implement issue #9", "implement", company=COMPANY)
+    runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
+    text = asyncio.run(activities.scope_observation("scope-1"))
+    assert "Open tickets:\n#3 — issue 3" in text
+    assert reads == [("scope-1", 4)]
+
+
+def test_the_observation_carries_the_documents_as_they_stand(
+    activities, companies, monkeypatch, fake_gateway
+):
+    """The strategy present on base_ref is rendered under its header; the
+    absent masterplan is stated absent — both after the three lists, so
+    a document line can never be read as a ticket."""
+    _backlog_gateway(
+        monkeypatch, fake_gateway, [], files={"docs/STRATEGY.md": "# Strategy\nShip."}
+    )
+    companies.upsert(
+        COMPANY,
+        {
+            "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+            "documents": DOCUMENTS,
+            "heartbeat": heartbeat_spec(),
+        },
+    )
+    text = asyncio.run(activities.scope_observation("scope-2"))
+    assert text.index("Recent runs:") < text.index("Strategy:\n# Strategy\nShip.")
+    assert text.endswith("Architecture masterplan:\n(absent)")
+
+
+def test_observe_reads_the_tickets_its_own_runs_just_filed(
+    activities, runs, monkeypatch, fake_gateway
+):
+    """The host lists a new issue a beat late. A ticket a run of ours
+    filed a moment ago is on its row, so the observation reads it by
+    number and offers it — and counts it toward the scoping cap — while
+    the listing still lacks it. A ticket the host already closed stays
+    out, and a run that finished before the lag window (the in-memory
+    registry's fixed clock is long past) is not consulted at all."""
+    runs.start("scope-1", "scope the next slice", "scope", company=COMPANY)
+    runs.record_artifacts(
+        "scope-1", ticket_urls=["https://h/issues/41", "https://h/issues/43"]
+    )
+    runs.start("scope-0", "scope the next slice", "scope", company=COMPANY)
+    runs.record_artifacts("scope-0", ticket_urls=["https://h/issues/42"])
+    runs.finish("scope-0", "done")
+    reads = _backlog_gateway(
+        monkeypatch,
+        fake_gateway,
+        [],
+        files={"docs/STRATEGY.md": "# S\n", "docs/ARCHITECTURE.md": "# A\n"},
+        unlisted={41: {"number": 41, "title": "Implement: slice", "state": "open"}},
+    )
+    observed = asyncio.run(activities.heartbeat_observe(MAX_ATTEMPTS))
+    assert [i["number"] for i in observed["backlog"]] == [41]
+    assert observed["open_tickets"] == 1
+    assert sorted(reads) == [(f"heartbeat-{COMPANY}", -43), (f"heartbeat-{COMPANY}", -41)]

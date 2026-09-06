@@ -144,7 +144,7 @@ TOOL_GROUPS: dict[str, list[str]] = {
     + tools.REVIEW_TOOLS
     + tools.PLATFORM_TOOLS,
     "issues": tools.ISSUE_TOOLS,
-    "crew": tools.CREW_TOOLS,
+    "architecture": tools.ARCHITECTURE_TOOLS,
 }
 
 
@@ -200,8 +200,8 @@ def cli(_: str | None) -> str:
 # -- the Temporal contract ---------------------------------------------------
 
 _WORKFLOW_CLASSES: dict[str, tuple[type, type]] = {
+    "scope": (workflows.ScopeWorkflow, workflows.ScopeInput),
     "implement": (workflows.ImplementWorkflow, workflows.ImplementInput),
-    "intake": (workflows.IntakeWorkflow, workflows.IntakeInput),
     "review": (workflows.ReviewWorkflow, workflows.ReviewInput),
     "heartbeat": (workflows.HeartbeatWorkflow, workflows.HeartbeatInput),
 }

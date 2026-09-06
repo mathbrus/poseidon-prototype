@@ -156,6 +156,16 @@ class GatewayClient:
             "git.read", {"run_id": run_id, "repo": repo, "number": number}
         )
 
+    async def read_document(
+        self, run_id: str, repo: str, ref: str, path: str
+    ) -> dict[str, Any]:
+        """One file of the repository at `ref` under the platform identity
+        — `{present, text}` — how the company's documents are read at
+        `base_ref` before a tick or a run, never from a sandbox."""
+        return await self._tool(
+            "repo.read_file", {"run_id": run_id, "repo": repo, "ref": ref, "path": path}
+        )
+
     async def read_issue(self, run_id: str, repo: str, number: int) -> dict[str, Any]:
         """One issue by number for the implement workflow — how the
         platform resolves the ticket an issue-driven run implements."""
@@ -274,13 +284,25 @@ class AgentClient:
     async def __aexit__(self, *exc_info: Any) -> None:
         await self._http.aclose()
 
-    async def dispatch(self, run_id: str, procedure: str, task_text: str) -> None:
-        """Ask the agent to run `procedure` on `task_text`. Idempotent under
-        retry: 409 means the agent already has the run (a previous attempt
+    async def dispatch(
+        self,
+        run_id: str,
+        procedure: str,
+        task_text: str,
+        documents: dict[str, str] | None = None,
+    ) -> None:
+        """Ask the agent to run `procedure` on `task_text`, with the
+        company's documents as untrusted context. Idempotent under retry:
+        409 means the agent already has the run (a previous attempt
         dispatched it before the worker died) — the caller proceeds to
         polling either way. No credential rides the dispatch — every pod
         holds its own projected token."""
-        payload = {"run_id": run_id, "procedure": procedure, "task_text": task_text}
+        payload = {
+            "run_id": run_id,
+            "procedure": procedure,
+            "task_text": task_text,
+            "documents": documents or {},
+        }
         resp = await self._http.post("/task", json=payload)
         if resp.status_code not in (202, 409):
             raise AgentError(f"task dispatch failed: {resp.status_code} {resp.text}")
@@ -295,7 +317,11 @@ class AgentClient:
 
 
 async def dispatch_and_poll(
-    url: str, run_id: str, procedure: str, task_text: str
+    url: str,
+    run_id: str,
+    procedure: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Dispatch a procedure to the agent at `url` and poll it to a terminal
     status, heartbeating every poll so a dead worker is noticed fast. The
@@ -303,7 +329,7 @@ async def dispatch_and_poll(
     or the workflow history. Callable outside an activity (unit tests): the
     heartbeat is skipped when there is no activity context."""
     async with AgentClient(url) as agent:
-        await agent.dispatch(run_id, procedure, task_text)
+        await agent.dispatch(run_id, procedure, task_text, documents)
         while True:
             if activity.in_activity():
                 activity.heartbeat()

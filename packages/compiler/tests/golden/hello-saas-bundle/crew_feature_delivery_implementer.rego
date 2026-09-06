@@ -6,6 +6,16 @@ package poseidon.authz.hello_saas
 import rego.v1
 
 # feature-delivery/implementer: ephemeral implementer of the feature-delivery crew.
+allow_rules contains "crew_feature_delivery_implementer_architecture_request" if {
+	input.lifecycle == "ephemeral"
+	input.company == "hello-saas"
+	input.crew_template == "feature-delivery"
+	input.role == "implementer"
+	input.tool == "architecture.request"
+	bound_to_run
+}
+
+# feature-delivery/implementer: ephemeral implementer of the feature-delivery crew.
 allow_rules contains "crew_feature_delivery_implementer_git_open_pr" if {
 	input.lifecycle == "ephemeral"
 	input.company == "hello-saas"

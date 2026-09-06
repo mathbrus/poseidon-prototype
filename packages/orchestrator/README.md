@@ -16,7 +16,7 @@ system.
 
 | Path | Owns |
 |---|---|
-| `workflows/` | `intake`, `implement`, `review`, `heartbeat` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
+| `workflows/` | `scope`, `implement`, `review`, `heartbeat` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
 | `activities/` | The activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
 | `gates/` | `Gate` — a signal-driven wait point with an escalation timer. |
 | `audit.py` | `record_event` — the platform's own audit events, under its identity or an ephemeral agent's, on the shared ingestion contract. |
@@ -67,19 +67,20 @@ Two visible consequences:
 
 ## The four workflows
 
-**intake** — goal text in, tickets and recorded crew intent out:
-`create_run → check_budget → workflow_config → [gate slot] →
-dispatch the conductor's `scope` procedure → teardown`. The
-conductor's address is derived from its converged instance (the operator
-names its Service after the standing name), never configured. The PM does the scoping itself through governed tools
-(`issues.*`, `crew.request`) — files the tickets, records the crew request,
-and comments its summary on each ticket; the workflow never touches GitHub
-or the crew tables directly. This is the injection surface for the standing
-conductor: the goal text is untrusted input handed straight to the PM,
-and containment is the compiled policy's job, not the prompt's. The gate
-slot reads the blueprint's `workflows.intake.gates`: declare
-`gates.intake.resolved_by: human` and the workflow parks on the `intake`
-signal before dispatching (the shipped example declares no intake gate).
+**scope** — the observation in, tickets out: `create_run → check_budget →
+workflow_config → scope_observation → dispatch the conductor's `scope`
+procedure → teardown`. Started by the heartbeat like every run; no human
+hands it a text. The observation is platform-composed — the company's
+documents at the base ref, the open backlog, the delivered PRs, the recent
+runs — and the conductor's address is derived from its converged instance
+(the operator names its Service after the standing name), never
+configured. The PM does the scoping itself through governed tools
+(`issues.*`): files the next slice as tickets, each ending in the `Crew:`
+trailer the implement run routes by, and comments its summary on each;
+filing nothing is a valid outcome. The workflow never touches GitHub
+directly, and no crew is fulfilled. This is the injection surface for the
+standing conductor: the documents are untrusted input handed straight to
+the PM, and containment is the compiled policy's job, not the prompt's.
 
 **implement** — the crew is the only execution path: `create_run →
 check_budget → workflow_config → fetch_workspace → provision_sandbox →
@@ -110,14 +111,18 @@ no merge gate declared, the findings are the deliverable and the
 workflow ends without merging — unattended auto-merge is not a default
 anyone gets implicitly.
 
-**heartbeat** — the company's own cadence, and the one workflow no
-human starts: `heartbeat_config → heartbeat_observe → heartbeat_decide (the
-PM) → heartbeat_authorize → start child run → record_tick → sleep
-→ continue-as-new`. It is not run-shaped: there is exactly one per
-company, `heartbeat-{company}`, and the worker's ensure loop starts it
-whenever the applied blueprint declares a `heartbeat` section. Each tick
-re-reads that section from the registry and stops when it is gone, so
-revoking the heartbeat is a blueprint diff, effective at the next tick.
+**heartbeat** — the company's own cadence, and the workflow that starts
+every other: `heartbeat_config → heartbeat_observe → [heartbeat_bootstrap]
+→ heartbeat_decide (the PM) → heartbeat_authorize → start child run →
+record_tick → sleep → continue-as-new`. It is not run-shaped: there is
+exactly one per company, `heartbeat-{company}`, and the worker's ensure
+loop keeps it running for as long as the company is applied. Each tick
+re-reads the blueprint's `heartbeat` section from the registry and stops
+when the company is gone — deleting the company is how it stops. A
+document absent on the base ref gets its bootstrap ticket filed under the
+platform identity (`activities/documents.py` composes it, routed to the
+stewardship crew) and the tick wakes itself; `scope` is refused until
+both documents exist, and at `max_open_tickets`.
 `heartbeat_observe` gathers the backlog, delivered-but-unreviewed PRs,
 run history, capacity and spend — numbers, titles, URLs and attempt
 counts only; issue bodies are untrusted input the implement run reads
@@ -233,16 +238,16 @@ teardown already swept, the registry raises `ParticipantRevoked` and the
 caller abandons the identity — revocation is final, and a retry that lost
 the race with teardown must not build on it.
 
-`fulfill_crew` composes the whole fulfilment: consume the recorded crew
-request, bind every agent and give each its own pod, hand back the agents
-by crew role. Two details carry the design:
+`fulfill_crew` composes the whole fulfilment: win the compiled
+`crew.request` decision as the conductor, bind every agent and give each
+its own pod, hand back the agents by crew role. Two details carry the
+design:
 
-- **Fulfilment never improvises authority.** Without a recorded,
-  unexpired crew request it refuses. When a workflow records one itself
-  (`record_under_authority`), the recording is allowed only if the
-  compiled decision the `crew.request` *tool* would face allows it: the
-  activity evaluates the same bundle at OPA with the same enriched input
-  (`may_spawn` narrowing, live spawn count, budget headroom).
+- **Fulfilment never improvises authority.** The ticket's `Crew:` trailer
+  names the crew; the activity evaluates the compiled `crew.request`
+  decision at OPA as the conductor, with the enriched input (`may_spawn`
+  narrowing, live spawn count, budget headroom), audits it as
+  `lifecycle.record_request`, and binds nothing on a deny.
 - **Fulfilment provisions; it never dispatches.** Provisioning handles
   any number of agents, but every workflow dispatches exactly one, so a
   crew declaring more is refused before any pod exists. The workflow
@@ -307,9 +312,8 @@ uv run poseidon blueprint compile examples/hello-saas.yaml --out ./bundle
 uv run poseidon blueprint preview examples/hello-saas.yaml
 uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 
-uv run poseidon run examples/task-happy.md               # implement by default
-uv run poseidon run --workflow intake examples/goal-injected-conductor.md
-uv run poseidon review 41                                # review PR #41
+uv run poseidon run 42                                   # implement ticket #42 by hand (an operator's repro)
+uv run poseidon review 41                                # review PR #41 by hand
 uv run poseidon signal <run_id> merge --workflow review  # approve the gate
 uv run poseidon signal <run_id> merge --no-approved --workflow review
 uv run poseidon status <run_id>
@@ -370,10 +374,9 @@ Temporal replays it with nothing leaked.
   audit write goes through an activity.
 - Teardown runs on success, failure, cancel, activity timeout and worker
   death.
-- Fulfillment never improvises authority: without a recorded, unexpired
-  crew request it refuses. When a workflow records one itself, it is
-  allowed only if the compiled decision the `crew.request` *tool* would
-  face allows it — same bundle, same enriched input.
+- Fulfillment never improvises authority: it wins the compiled
+  `crew.request` decision as the conductor before binding anything — the
+  company bundle, the enriched input — and a deny is audited.
 - Ephemeral pod deletes always go through the `{run_id, kind=ephemeral-agent}`
   label selector, so nothing unlabeled — and no sandbox pod sharing the
   run label — can ever be touched.

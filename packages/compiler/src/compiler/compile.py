@@ -86,7 +86,11 @@ def compile_blueprint(
     namespace = company
     repo = Repo(**blueprint["stack"]["repo"])
     company_cr = CompanyCR(
-        name=company, namespace=namespace, mission=company_section["mission"], repo=repo
+        name=company,
+        namespace=namespace,
+        vision=company_section["vision"],
+        repo=repo,
+        documents=dict(sorted(company_section["documents"].items())),
     )
 
     scopes = blueprint.get("tools") or {}
@@ -104,6 +108,7 @@ def compile_blueprint(
             policies=blueprint.get("policies") or {},
             repo_url=repo.url,
             heartbeat=heartbeat,
+            documents=company_cr.documents,
             merge_delegation=_merge_delegation(workflows),
         )
     )
@@ -141,7 +146,7 @@ def _instances(
 ) -> tuple[AgentInstanceCR, ...]:
     """Standing agents only. A `count: 0` placeholder produces no instance —
     that is the whole point of declaring one."""
-    mission = blueprint["company"]["mission"]
+    vision = blueprint["company"]["vision"]
     instances = []
     for standing_name, hire in sorted((blueprint.get("standing") or {}).items()):
         count = hire.get("count", 0)
@@ -166,7 +171,7 @@ def _instances(
                     role=role.name,
                     tools=_scope(role, scopes),
                     repo=repo,
-                    mission=mission,
+                    vision=vision,
                     may_spawn=may_spawn,
                     max_concurrent_spawns=(hire.get("may_spawn") or {}).get(
                         "max_concurrent"
@@ -202,9 +207,7 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
         configs.append(
             WorkflowConfig(
                 name=name,
-                enabled=bool(workflow.get("enabled")),
-                conductor=workflow.get("conductor", ""),
-                crew=workflow.get("crew"),
+                crew=workflow["crew"],
                 # Gate config comes from the blueprint, never hardcoded.
                 gates=dict(sorted((workflow.get("gates") or {}).items())),
                 max_verify_retries=workflow.get("max_verify_retries"),
@@ -224,15 +227,14 @@ def _merge_delegation(workflows: tuple[WorkflowConfig, ...]) -> dict[str, Any] |
     return None
 
 
-def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig | None:
-    heartbeat = blueprint.get("heartbeat")
-    if not heartbeat:
-        return None
+def _heartbeat(blueprint: dict[str, Any]) -> HeartbeatConfig:
+    heartbeat = blueprint["heartbeat"]
     return HeartbeatConfig(
         conductor=heartbeat["conductor"],
         reconcile_minutes=int(heartbeat["reconcile_minutes"]),
         max_concurrent_runs=int(heartbeat["max_concurrent_runs"]),
         max_attempts=int(heartbeat["max_attempts"]),
+        max_open_tickets=int(heartbeat["max_open_tickets"]),
         may_start=tuple(sorted(heartbeat["may_start"])),
         daily_cap_usd=float(heartbeat["daily_cap"]["usd"]),
     )

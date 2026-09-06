@@ -10,6 +10,16 @@ empty document — which would fail closed (every call denied) but silently.
 
 PLATFORM_DECISION_PATH = "poseidon/platform/decision"
 
+# The decisions the platform evaluates itself against a company's bundle.
+# None is a gateway tool: each is the question the orchestrator must win
+# before it acts — starting a workflow on the company's own initiative,
+# recording a crew request under the conductor's authority, merging a
+# pull request without a human. The compiler emits the rules under these
+# names and the orchestrator queries them by the same names.
+HEARTBEAT_START = "heartbeat.start"
+CREW_REQUEST = "crew.request"
+MERGE_RESOLVE = "merge.resolve"
+
 
 def rego_slug(value: str) -> str:
     """A name as a Rego identifier segment: dots, hyphens and slashes become

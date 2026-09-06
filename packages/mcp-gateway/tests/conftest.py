@@ -30,7 +30,6 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
-    InMemoryCrewRequests,
     InMemoryRunParticipants,
     InMemoryRuns,
     InMemorySandboxRegistrations,
@@ -111,6 +110,7 @@ class Backends:
                 return {"allow": False, "rule": "default_deny"}
             if tool in (
                 "repo.archive",
+                "repo.read_file",
                 "/admin/sandboxes",
                 "/admin/sandboxes.delete",
                 "sandbox.run_tests",
@@ -133,17 +133,6 @@ class Backends:
                 "issues.comment",
             ):
                 return {"allow": True, "rule": f"role_pm_{tool}"}
-            if tool == "crew.request" and args.get("crew_template") in (
-                "feature-delivery",
-                "feature-review",
-            ):
-                # The compiled cap and budget denies, reading
-                # the enriched input exactly like the real bundle.
-                if policy_input.get("active_spawns", 0) >= 2:
-                    return {"allow": False, "rule": "crew_request_over_cap"}
-                if policy_input.get("budget_headroom") is False:
-                    return {"allow": False, "rule": "crew_request_no_budget"}
-                return {"allow": True, "rule": "role_pm_crew_request"}
             return {"allow": False, "rule": "default_deny"}
         if (
             policy_input.get("lifecycle") == "ephemeral"
@@ -161,6 +150,17 @@ class Backends:
         ):
             if tool.startswith("sandbox.") and policy_input.get("run_binding_verified"):
                 return {"allow": True, "rule": f"role_implementer_{tool}"}
+            if tool == "architecture.request" and policy_input.get(
+                "run_binding_verified"
+            ):
+                # The compiled per-run cap, reading the enriched count
+                # exactly like the real bundle.
+                if policy_input.get("architecture_requests", 1) >= 1:
+                    return {"allow": False, "rule": "architecture_request_over_cap"}
+                return {
+                    "allow": True,
+                    "rule": f"crew_feature_delivery_implementer_{tool}",
+                }
             if tool == "git.open_pr":
                 branch = args.get("branch", "")
                 if branch.lower() in {"main", "master"}:
@@ -243,6 +243,15 @@ class Backends:
                     200, json=issue(number=8, pull_request={"url": "x"})
                 )
             return httpx.Response(200, json=issue())
+        if method == "GET" and "/contents/" in path:
+            # The company's documents at base_ref: the strategy exists,
+            # anything else does not.
+            if path.endswith("/contents/docs/STRATEGY.md"):
+                content = base64.b64encode(b"# Strategy\n\nShip slugs.\n").decode()
+                return httpx.Response(
+                    200, json={"type": "file", "encoding": "base64", "content": content}
+                )
+            return httpx.Response(404, json={"message": "Not Found"})
         if method == "GET" and path.endswith("/files"):
             return httpx.Response(
                 200,
@@ -328,11 +337,6 @@ def participants() -> InMemoryRunParticipants:
 
 
 @pytest.fixture
-def crew_requests() -> InMemoryCrewRequests:
-    return InMemoryCrewRequests()
-
-
-@pytest.fixture
 def ledger() -> InMemoryBudgetLedger:
     return InMemoryBudgetLedger()
 
@@ -358,8 +362,6 @@ async def app(
     audit: InMemoryAuditStore,
     instances: InMemoryAgentInstances,
     participants: InMemoryRunParticipants,
-    crew_requests: InMemoryCrewRequests,
-    ledger: InMemoryBudgetLedger,
     companies: InMemoryCompanies,
 ):
     stub_client = httpx.AsyncClient(transport=httpx.MockTransport(backends.handler))
@@ -371,8 +373,6 @@ async def app(
         instances=instances,
         participants=participants,
         runs=InMemoryRuns(),
-        crew_requests=crew_requests,
-        ledger=ledger,
         companies=companies,
         token_reviewer=FakeReviewer(),
     )

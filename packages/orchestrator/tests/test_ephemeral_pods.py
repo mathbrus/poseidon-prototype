@@ -5,6 +5,7 @@ label-selector discipline (via a fake provisioner)."""
 import asyncio
 
 import pytest
+from temporalio.exceptions import ApplicationError
 
 from common.topology import EPHEMERAL_KIND, TOKEN_MOUNT_DIR
 from orchestrator.activities.crew import CrewActivities
@@ -19,7 +20,6 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
-    InMemoryCrewRequests,
     InMemoryRunParticipants,
     InMemoryRuns,
 )
@@ -123,12 +123,11 @@ class FakeProvisioner:
         return [pod_name(ephemeral_agent_id("feature-delivery", "implementer", run_id))]
 
 
-def _crew(settings, participants, audit, provisioner=None, requests=None, companies=None):
+def _crew(settings, participants, audit, provisioner=None, companies=None):
     return CrewActivities(
         settings,
         participants,
         audit,
-        requests or InMemoryCrewRequests(),
         companies or _companies(),
         InMemoryBudgetLedger(),
         InMemoryRuns(),
@@ -247,129 +246,12 @@ def _company(agents: list[dict]) -> dict:
     return {
         "namespace": "hello-saas",
         "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-        "mission": "ship it",
+        "vision": "ship it",
         "ephemeralAgents": agents,
     }
 
 
 IMPLEMENTER = {"crew": "feature-delivery", "role": "implementer"}
-
-
-@pytest.fixture
-def fulfill_world(settings, provisioner):
-    from registry.memory import (
-        InMemoryAuditStore,
-        InMemoryCrewRequests,
-        InMemoryRunParticipants,
-    )
-
-    participants = InMemoryRunParticipants()
-    audit = InMemoryAuditStore()
-    requests = InMemoryCrewRequests()
-    companies = _companies()
-    companies.upsert("hello-saas", _company([IMPLEMENTER]))
-    crew = _crew(settings, participants, audit, provisioner, requests, companies)
-    return crew, participants, audit, requests, companies
-
-
-def test_fulfill_binds_and_provisions_the_crew(fulfill_world, provisioner):
-    crew, participants, audit, requests, _ = fulfill_world
-    requests.record("pm-1", "feature-delivery", RUN_ID, "ship ticket 7")
-
-    result = asyncio.run(
-        crew.fulfill_crew(
-            {
-                "run_id": RUN_ID,
-                "company": "hello-saas",
-                "crew_template": "feature-delivery",
-                "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
-                "workflow": "implement",
-            }
-        )
-    )
-
-    # The agent is bound with parentage and got its own pod; the result
-    # names it by role with its identity and dispatch address.
-    implementer_id = ephemeral_agent_id("feature-delivery", "implementer", RUN_ID)
-    assert participants.active(implementer_id)["parent_agent_id"] == "pm-1"
-    assert {p["agent_id"] for p in provisioner.provisioned} == {implementer_id}
-    assert result["agents"] == {
-        "implementer": {
-            "agent_id": implementer_id,
-            "url": f"http://{pod_name(implementer_id)}:8000",
-        }
-    }
-
-    # The request is consumed; a retry converges instead of duplicating.
-    assert requests.rows[list(requests.rows)[0]]["status"] == "fulfilled"
-    again = asyncio.run(
-        crew.fulfill_crew(
-            {
-                "run_id": RUN_ID,
-                "company": "hello-saas",
-                "crew_template": "feature-delivery",
-                "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
-                "workflow": "implement",
-            }
-        )
-    )
-    assert again["agents"]["implementer"]["agent_id"] == implementer_id
-
-    tools = [e.tool for e in audit.events]
-    assert "lifecycle.fulfill" in tools
-
-
-def test_fulfill_refuses_a_crew_with_more_than_one_agent(fulfill_world):
-    """Provisioning handles any number of agents, but no workflow defines
-    a multi-agent dispatch, so a crew declaring two is refused before any
-    pod exists."""
-    crew, participants, _, requests, companies = fulfill_world
-    companies.upsert(
-        "hello-saas",
-        _company([IMPLEMENTER, {**IMPLEMENTER, "role": "second"}]),
-    )
-    requests.record("pm-1", "feature-delivery", RUN_ID, "ship ticket 7")
-    with pytest.raises(RuntimeError, match="declares 2 agents"):
-        asyncio.run(
-            crew.fulfill_crew(
-                {
-                    "run_id": RUN_ID,
-                    "company": "hello-saas",
-                    "crew_template": "feature-delivery",
-                    "conductor": {
-                        "agent_id": "pm-1",
-                        "role": "pm",
-                        "url": "http://pm:8000",
-                    },
-                    "workflow": "implement",
-                }
-            )
-        )
-    assert participants.rows == {}
-
-
-def test_fulfill_without_recorded_intent_refuses(fulfill_world):
-    crew, participants, _, _, _ = fulfill_world
-    with pytest.raises(RuntimeError, match="no recorded crew request"):
-        asyncio.run(
-            crew.fulfill_crew(
-                {
-                    "run_id": RUN_ID,
-                    "company": "hello-saas",
-                    "crew_template": "feature-delivery",
-                    "conductor": {
-                        "agent_id": "pm-1",
-                        "role": "pm",
-                        "url": "http://pm:8000",
-                    },
-                    "workflow": "implement",
-                }
-            )
-        )
-    assert participants.rows == {}  # nothing bound without authority
-
-
-# -- record-under-authority ---------------------------------------------------
 
 
 class FakeOpa:
@@ -400,26 +282,82 @@ class FakeOpa:
         return _Client()
 
 
-def _fulfill_spec():
+@pytest.fixture
+def fulfill_world(settings, provisioner, monkeypatch):
+    """A company with one implementer crew and a compiled decision that
+    allows the PM to have it fulfilled; `opa` captures what was asked."""
+    import orchestrator.opa as opa_module
+    from registry.memory import InMemoryAuditStore, InMemoryRunParticipants
+
+    participants = InMemoryRunParticipants()
+    audit = InMemoryAuditStore()
+    companies = _companies()
+    companies.upsert("hello-saas", _company([IMPLEMENTER]))
+    opa = FakeOpa({"allow": True, "rule": "role_pm_crew_request"})
+    monkeypatch.setattr(opa_module, "httpx", opa)
+    crew = _crew(settings, participants, audit, provisioner, companies)
+    return crew, participants, audit, opa, companies
+
+
+def _fulfill_spec(**overrides):
     return {
         "run_id": RUN_ID,
         "company": "hello-saas",
         "crew_template": "feature-delivery",
         "conductor": {"agent_id": "pm-1", "role": "pm", "url": "http://pm:8000"},
         "workflow": "implement",
-        "record_under_authority": True,
+        **overrides,
     }
 
 
-def test_workflow_path_records_under_conductor_authority(fulfill_world, monkeypatch):
-    """No recorded request + record_under_authority: the same compiled
-    crew.request decision is evaluated at OPA under the conductor's
-    input, the recording is audited, and fulfillment proceeds."""
-    import orchestrator.opa as opa_module
+def test_fulfill_binds_and_provisions_the_crew(fulfill_world, provisioner):
+    crew, participants, audit, _, _ = fulfill_world
 
-    crew, participants, audit, requests, _ = fulfill_world
-    opa = FakeOpa({"allow": True, "rule": "role_pm_crew_request"})
-    monkeypatch.setattr(opa_module, "httpx", opa)
+    result = asyncio.run(crew.fulfill_crew(_fulfill_spec()))
+
+    # The agent is bound with parentage and got its own pod; the result
+    # names it by role with its identity and dispatch address.
+    implementer_id = ephemeral_agent_id("feature-delivery", "implementer", RUN_ID)
+    assert participants.active(implementer_id)["parent_agent_id"] == "pm-1"
+    assert {p["agent_id"] for p in provisioner.provisioned} == {implementer_id}
+    assert result == {
+        "agents": {
+            "implementer": {
+                "agent_id": implementer_id,
+                "url": f"http://{pod_name(implementer_id)}:8000",
+            }
+        }
+    }
+
+    # A retry converges on the same identity instead of duplicating.
+    again = asyncio.run(crew.fulfill_crew(_fulfill_spec()))
+    assert again["agents"]["implementer"]["agent_id"] == implementer_id
+
+    tools = [e.tool for e in audit.events]
+    assert "lifecycle.fulfill" in tools
+
+
+def test_fulfill_refuses_a_crew_with_more_than_one_agent(fulfill_world):
+    """Provisioning handles any number of agents, but no workflow defines
+    a multi-agent dispatch, so a crew declaring two is refused before any
+    pod exists."""
+    crew, participants, _, _, companies = fulfill_world
+    companies.upsert(
+        "hello-saas",
+        _company([IMPLEMENTER, {**IMPLEMENTER, "role": "second"}]),
+    )
+    with pytest.raises(RuntimeError, match="declares 2 agents"):
+        asyncio.run(crew.fulfill_crew(_fulfill_spec()))
+    assert participants.rows == {}
+
+
+# -- the crew.request decision, evaluated as the conductor -------------------
+
+
+def test_fulfilment_wins_the_crew_request_decision_as_the_conductor(fulfill_world):
+    """Before anything is bound, the compiled crew.request decision is
+    evaluated at OPA under the conductor's enriched input, and audited."""
+    crew, participants, audit, opa, _ = fulfill_world
 
     result = asyncio.run(crew.fulfill_crew(_fulfill_spec()))
     assert set(result["agents"]) == {"implementer"}
@@ -436,45 +374,40 @@ def test_workflow_path_records_under_conductor_authority(fulfill_world, monkeypa
     assert decision_input["active_spawns"] == 0
     assert decision_input["budget_headroom"] is True
 
-    # The same row the tool path writes, now fulfilled.
-    row = requests.rows[list(requests.rows)[0]]
-    assert row["conductor"] == "pm-1" and row["status"] == "fulfilled"
-
     event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
     assert event.decision == "allow" and event.rule == "role_pm_crew_request"
     assert event.lifecycle == "standing" and event.agent_id == "pm-1"
 
 
-def test_recording_names_the_calling_workflow(fulfill_world, monkeypatch):
-    """The review workflow records under the same authority with its own
-    name in the decision input — implement stays the default."""
-    import orchestrator.opa as opa_module
-
-    crew, _, _, _, _ = fulfill_world
-    opa = FakeOpa({"allow": True, "rule": "role_pm_crew_request"})
-    monkeypatch.setattr(opa_module, "httpx", opa)
-
-    asyncio.run(crew.fulfill_crew({**_fulfill_spec(), "workflow": "review"}))
+def test_the_decision_names_the_calling_workflow(fulfill_world):
+    """The review workflow fulfils under the same authority with its own
+    name in the decision input."""
+    crew, _, _, opa, _ = fulfill_world
+    asyncio.run(crew.fulfill_crew(_fulfill_spec(workflow="review")))
     ((_, payload),) = opa.calls
     assert payload["input"]["workflow"] == "review"
 
 
-def test_workflow_path_denied_by_the_compiled_decision(fulfill_world, monkeypatch):
+def test_fulfilment_denied_by_the_compiled_decision(fulfill_world, monkeypatch):
+    """A ticket naming a crew outside may_spawn dies here, audited, with
+    nothing bound and nothing provisioned."""
     import orchestrator.opa as opa_module
 
-    crew, participants, audit, requests, _ = fulfill_world
-    opa = FakeOpa({"allow": False, "rule": "crew_request_not_in_may_spawn"})
-    monkeypatch.setattr(opa_module, "httpx", opa)
+    crew, participants, audit, _, _ = fulfill_world
+    monkeypatch.setattr(
+        opa_module, "httpx", FakeOpa({"allow": False, "rule": "default_deny"})
+    )
 
-    with pytest.raises(RuntimeError, match="crew_request_not_in_may_spawn"):
-        asyncio.run(crew.fulfill_crew(_fulfill_spec()))
+    with pytest.raises(ApplicationError, match="default_deny") as caught:
+        asyncio.run(crew.fulfill_crew(_fulfill_spec(crew_template="data-export")))
     assert participants.rows == {}  # nothing bound on a deny
-    assert requests.rows == {}  # and nothing recorded
     event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
     assert event.decision == "deny"
+    # Policy's answer is final: no retry re-asks it.
+    assert caught.value.non_retryable
 
 
-def test_workflow_path_with_no_policy_installed_fails_closed(fulfill_world, monkeypatch):
+def test_fulfilment_with_no_policy_installed_fails_closed(fulfill_world, monkeypatch):
     """An empty OPA answer (no compiled bundle active) must refuse, not
     improvise."""
     import orchestrator.opa as opa_module
@@ -482,9 +415,11 @@ def test_workflow_path_with_no_policy_installed_fails_closed(fulfill_world, monk
     crew, participants, _, _, _ = fulfill_world
     monkeypatch.setattr(opa_module, "httpx", FakeOpa(None))
 
-    with pytest.raises(RuntimeError, match="no_policy_installed"):
+    with pytest.raises(ApplicationError, match="no_policy_installed") as caught:
         asyncio.run(crew.fulfill_crew(_fulfill_spec()))
     assert participants.rows == {}
+    # Policy's answer is final: no retry re-asks it.
+    assert caught.value.non_retryable
 
 
 def test_ephemeral_pod_carries_a_wall_clock_deadline():

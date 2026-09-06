@@ -14,27 +14,6 @@ def blueprint() -> dict:
     return yaml.safe_load(HELLO_SAAS.read_text())
 
 
-# A coherent heartbeat section for the shipped example: the PM decides,
-# implement is the one startable workflow, and the daily cap funds four
-# $5 runs.
-HEARTBEAT_SECTION = {
-    "conductor": "pm",
-    "reconcile_minutes": 30,
-    "max_concurrent_runs": 1,
-    "max_attempts": 2,
-    "may_start": ["implement"],
-    "daily_cap": {"usd": 20},
-}
-
-
-@pytest.fixture
-def heartbeat_blueprint(blueprint: dict) -> dict:
-    """The blueprint with a standing heartbeat declared."""
-    document = copy.deepcopy(blueprint)
-    document["heartbeat"] = copy.deepcopy(HEARTBEAT_SECTION)
-    return document
-
-
 @pytest.fixture
 def standing_implementer(blueprint: dict) -> dict:
     """The blueprint with an implementer hired as a standing agent — the shape

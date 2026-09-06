@@ -91,9 +91,16 @@ Two status-code rules carry real semantics:
 From `hands.py`, verbatim:
 
 ```python
-IMPLEMENT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
-DELIVER_TOOLS = IMPLEMENT_TOOLS + ["open_pr"]
-SCOPE_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
+IMPLEMENT_TOOLS = [
+    "list_dir",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "exec",
+    "request_architecture",
+]
+DELIVER_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec", "open_pr"]
+SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
 REVIEW_TOOLS = [
     "list_dir",
     "read_file",
@@ -268,8 +275,8 @@ uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
 
 `poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and ephemeral
 agents run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
-`MODEL`, `TARGET_REPO` and `MISSION` (the company's repository and
-mission, from its applied blueprint), `ROLE` (the catalog role, which
+`MODEL`, `TARGET_REPO` and `VISION` (the company's repository and
+vision, from its applied blueprint), `ROLE` (the catalog role, which
 bounds the procedures the host accepts) and `GATEWAY_TOKEN_FILE`. Every
 loop bound — the per-procedure step caps and implement's verify cycles —
 is a constant of the host, not a knob of the deployment.

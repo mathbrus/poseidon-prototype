@@ -3,8 +3,6 @@ of the platform does, and waiting for the company to converge — which
 includes policy: OPA must have activated the company's bundle, not just
 the pods be Ready."""
 
-import asyncio
-import contextlib
 import subprocess
 import tempfile
 import time
@@ -13,11 +11,8 @@ from pathlib import Path
 
 import httpx
 import yaml
-from temporalio.client import Client
 
-from orchestrator.workflows.base import workflow_id
-
-from .cluster import COMPANY_NS, kubectl, port_forward, temporal_port_forward
+from .cluster import COMPANY_NS, kubectl, port_forward
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = REPO_ROOT / "examples"
@@ -37,7 +32,7 @@ def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) ->
     """A harness-local variant of an example blueprint: the example's
     document with one declared difference, written to a temp file for
     `apply_blueprint`. The module story stays "the example, minus the
-    piece this module's explicit drive must not race"."""
+    piece this module must not share its lane with"."""
     document = yaml.safe_load(base.read_text())
     mutate(document)
     path = Path(tempfile.mkdtemp(prefix="poseidon-bp-")) / f"{base.stem}-{label}.yaml"
@@ -45,40 +40,40 @@ def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) ->
     return path
 
 
-def heartbeat_variant() -> Path:
-    """`hello-saas.yaml` plus the delegated example's `heartbeat` section:
-    a company that starts its own runs while a human still answers every
-    merge — the middle rung between the two shipped examples, for modules
-    that need the heartbeat without the delegated gate."""
+def may_start(base: Path, *workflows: str) -> Path:
+    """`base` with the heartbeat's initiative narrowed to `workflows`. The
+    one lane every module shares is the standing heartbeat's; what it may
+    start on its own is the blueprint's to say, so a module that must not
+    have its delivered PR reviewed on the next wake, or its ticket
+    implemented before an operator does, declares that — never a company
+    without a heartbeat, which does not compile."""
 
-    def add_heartbeat(document: dict) -> None:
-        document["heartbeat"] = yaml.safe_load(DELEGATED.read_text())["heartbeat"]
+    def narrow(document: dict) -> None:
+        document["heartbeat"]["may_start"] = list(workflows)
 
-    return derived_blueprint(HELLO_SAAS, add_heartbeat, "heartbeat")
-
-
-def delegated_without_heartbeat() -> Path:
-    """The delegated example minus its `heartbeat` section, for modules
-    that drive implement and review runs themselves: with no section
-    declared the ensure loop starts nothing and wakes land on nobody, so
-    the module's explicit arc cannot be raced for its concurrency slot."""
-
-    def drop(document: dict) -> None:
-        document.pop("heartbeat", None)
-
-    return derived_blueprint(DELEGATED, drop, "no-heartbeat")
+    return derived_blueprint(base, narrow, "-".join(workflows))
 
 
-def heartbeat_implement_only() -> Path:
-    """The heartbeat example with `may_start: [implement]`: the company
-    still runs its own backlog, but a delivered PR waits for the outside
-    world instead of being reviewed on the next wake — the declaration a
-    module needs to watch what happens to a PR only a human settles."""
+def single_attempt(path: Path) -> Path:
+    """`path` with `max_attempts: 1`: a run that ends without a conclusion
+    is the company's last word on its item. The loop retries an aborted run
+    on its own, so a module whose run is *meant* to fail declares the
+    one-shot company rather than racing the retry."""
 
-    def implement_only(document: dict) -> None:
-        document["heartbeat"]["may_start"] = ["implement"]
+    def one(document: dict) -> None:
+        document["heartbeat"]["max_attempts"] = 1
 
-    return derived_blueprint(heartbeat_variant(), implement_only, "implement-only")
+    return derived_blueprint(path, one, "one-shot")
+
+
+def pristine_profile() -> Path:
+    """The company every module starts from: `hello-saas.yaml` with review
+    off the heartbeat's own initiative. A delivered PR then waits for the
+    world instead of being reviewed on the next wake — a review parked on
+    the human gate would hold the one concurrency slot and race the
+    fixture closing the PR. Modules whose arc reviews apply the example
+    as shipped."""
+    return may_start(HELLO_SAAS, "scope", "implement")
 
 
 def harness_repo() -> str:
@@ -166,30 +161,15 @@ def bundle_revision_from_cr() -> str:
     )
 
 
-def quiesce_heartbeat() -> None:
-    """Terminate the ensure loop's bare `heartbeat-{company}` heartbeat after
-    the pristine blueprint is back. Revocation-by-diff stops it on its own
-    — the product claim, pinned at the workflow layer — but only at
-    its next tick, up to `reconcile_minutes` away. The campsite rule wants
-    the quiet now: call this after the pristine apply, so the ensure loop has
-    nothing to restart."""
-
-    async def terminate() -> None:
-        with temporal_port_forward() as address:
-            client = await Client.connect(address)
-            handle = client.get_workflow_handle(workflow_id("heartbeat", COMPANY_NS))
-            with contextlib.suppress(Exception):
-                await handle.terminate("suite teardown: pristine blueprint restored")
-
-    asyncio.run(terminate())
-
-
 def restore_pristine() -> None:
-    """Back to `hello-saas.yaml`, converged and quiet — what every module
-    that applied another profile owes the modules after it. Always
+    """Back to the pristine profile, converged and asleep — what every
+    module that applied another profile owes the modules after it. Always
     re-applies and waits for convergence (OPA bundle activation included):
     a restore that skipped the wait could hand the next module a company
-    that never re-converged."""
-    apply_blueprint(HELLO_SAAS)
+    that never re-converged. The standing heartbeat reads the re-applied
+    section on its next tick and keeps running: a company always has one."""
+    from .conftest import await_bare_heartbeat_asleep
+
+    apply_blueprint(pristine_profile())
     wait_for_convergence()
-    quiesce_heartbeat()
+    await_bare_heartbeat_asleep()

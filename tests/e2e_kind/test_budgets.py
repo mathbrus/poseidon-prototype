@@ -1,17 +1,20 @@
 """Budget enforcement, end to end, on kind.
 
-A blueprint edit shrinks hello-saas's per-run cap to a value the mock
-brain's second model call must exceed; the LLM gateway hard-stops the run
-(`budget_exhausted`, audited, never silent), the implement workflow pauses
-into an API-visible `paused-budget_exhausted` state, a rejection signal
-finalizes it, the ledger fully attributes the spend, and the budget events
-sit in the run's one audit story. And the mirror image: a human who
-decides the run is worth more raises the cap (re-applies the real
-blueprint) and approves — the workflow re-dispatches with headroom and
-runs to a delivered PR. Unattributed model calls are rejected outright.
+A blueprint edit shrinks hello-saas's per-run cap to a value the run's
+second implementer call must exceed; the LLM gateway hard-stops the run
+the heartbeat started (`budget_exhausted`, audited, never silent), the
+implement workflow pauses into an API-visible `paused-budget_exhausted`
+state, a rejection signal finalizes it, the ledger fully attributes the
+spend, and the budget events sit in the run's one audit story. And the
+mirror image: a human who decides the run is worth more raises the cap
+(re-applies the real blueprint) and approves — the workflow re-dispatches
+with headroom and runs to a delivered PR. Unattributed model calls are
+rejected outright.
 
-The module finalizer re-applies the pristine blueprint so later suites run
-against the real cap.
+The tiny-cap profile is the one-shot company (`max_attempts: 1`): a run the
+human rejects is the company's last word on its ticket, not a retry the
+loop would start on its own. The module finalizer re-applies the pristine
+profile so later suites run against the real cap.
 """
 
 import asyncio
@@ -21,29 +24,51 @@ from typing import Any
 
 import httpx
 import pytest
-import yaml
 from temporalio.client import Client
 
-from common.ids import new_run_id
+from common.tasks import issue_run_task
 from orchestrator.workflows.base import workflow_id
-from orchestrator.workflows.implement import ImplementInput
 
-from .blueprints import E2E_PAUSE_MINUTES, HELLO_SAAS, apply_blueprint, restore_pristine
+from .blueprints import (
+    E2E_PAUSE_MINUTES,
+    derived_blueprint,
+    pristine_profile,
+    restore_pristine,
+    single_attempt,
+)
 from .cluster import (
     COMPANY_NS,
     audit_story,
+    await_run,
     port_forward,
     projected_token,
     psql_json,
+    run_by_task,
     temporal_port_forward,
 )
-from .conftest import REPO_ROOT, TASK_QUEUE, close_pr_url
+from .conftest import (
+    apply_profile,
+    close_issue,
+    close_pr_url,
+    file_ticket,
+    ticket_body,
+    wake_until_run_started,
+)
 
-# Below one mock completion's reported cost: the mock prices every
-# completion in `x-litellm-response-cost` at $0.002/1K over its
-# deterministic token counts, and the implementer's first completion alone
-# crosses 50 tokens, so the very first metered call exhausts this cap.
-TINY_CAP = 0.0001
+# The mock prices every completion in `x-litellm-response-cost` at
+# $0.002/1K over its deterministic token counts. The heartbeat's own
+# decision is metered under the run it chose (about a thousand prompt
+# tokens, $0.002), and the implementer's first completion costs about twice
+# that: the decision and one implementer call fit under this cap, the
+# second implementer call finds no headroom and is refused.
+TINY_CAP = 0.003
+
+
+def _tiny_cap():
+    def shrink(document: dict) -> None:
+        document["budgets"]["per_run"]["usd"] = TINY_CAP
+
+    return derived_blueprint(single_attempt(pristine_profile()), shrink, "tiny-cap")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -54,17 +79,11 @@ def restore_budget(stack: None):
 
 
 @pytest.fixture
-def tiny_cap_applied(stack: None, tmp_path_factory) -> None:
+def tiny_cap_applied(stack: None, env: dict) -> None:
     """Function-scoped: every test that needs the tiny cap re-applies it, so
     the approve test's mid-body cap-raise cannot leak the real cap into a
     later test — order stops mattering."""
-    document = yaml.safe_load(HELLO_SAAS.read_text())
-    document["budgets"]["per_run"]["usd"] = TINY_CAP
-    edited = tmp_path_factory.mktemp("budget") / "hello-saas-tiny-cap.yaml"
-    edited.write_text(yaml.safe_dump(document, sort_keys=False))
-    apply_blueprint(edited)
-    # The gateway reads budgets from the registry per call — no rollout to
-    # wait for; the operator upsert is complete when apply returns.
+    apply_profile(_tiny_cap(), env)
 
 
 def ledger_entries(run_id: str) -> list[dict[str, Any]]:
@@ -76,79 +95,91 @@ def ledger_entries(run_id: str) -> list[dict[str, Any]]:
     )
 
 
-async def _run_until_paused_then_reject(
-    address: str, run_id: str, task_text: str
-) -> dict:
-    client = await Client.connect(address)
-    handle = await client.start_workflow(
-        "implement",
-        ImplementInput(run_id=run_id, task_text=task_text),
-        id=workflow_id("implement", run_id),
-        task_queue=TASK_QUEUE,
-    )
-    # The budget hard-stop leaves an API-visible pending state.
-    deadline = time.monotonic() + 300
-    while True:
-        state = await handle.query("state")
-        if state == "paused-budget_exhausted":
-            break
-        assert time.monotonic() < deadline, f"never paused (state={state!r})"
-        await asyncio.sleep(2)
-    # The pause *escalates* — a real process-gate audit event fires at
-    # half the declared pause. Wait for it before answering, exactly like
-    # the merge-gate e2e does: the escalation path proves itself on every
-    # run.
-    deadline = time.monotonic() + E2E_PAUSE_MINUTES * 60 - 5
-    while True:
-        escalated = [
-            e
-            for e in audit_story(run_id)
-            if e["source"] == "process-gate" and e["rule"] == "gate_escalated"
-        ]
-        if escalated:
-            break
-        assert time.monotonic() < deadline, (
-            "the budget pause never escalated into the audit store"
-        )
-        await asyncio.sleep(2)
-    # A human answers the escalation: no, this run does not get more budget.
-    await handle.signal("budget", args=[False, "not worth more spend"])
-    return await asyncio.wait_for(handle.result(), timeout=300)
+def _paused_run(env: dict) -> tuple[int, str]:
+    """File the happy ticket, let the heartbeat start it, and wait for the
+    budget hard-stop's API-visible pending state. Returns the ticket and
+    the run the loop minted."""
+    nonce = secrets.token_hex(3)
+    number = file_ticket(env, f"happy ({nonce})", ticket_body("happy", nonce))
+    wake_until_run_started(issue_run_task(number), "implement")
+    run_id = run_by_task(issue_run_task(number), workflow="implement")["run_id"]
+
+    async def wait_for_pause() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = client.get_workflow_handle(workflow_id("implement", run_id))
+            deadline = time.monotonic() + 300
+            while True:
+                state = await handle.query("state")
+                if state == "paused-budget_exhausted":
+                    return
+                assert time.monotonic() < deadline, f"never paused (state={state!r})"
+                await asyncio.sleep(2)
+
+    asyncio.run(wait_for_pause())
+    return number, run_id
+
+
+def _signal_budget(run_id: str, approved: bool, payload: str) -> None:
+    async def send() -> None:
+        with temporal_port_forward() as address:
+            client = await Client.connect(address)
+            handle = client.get_workflow_handle(workflow_id("implement", run_id))
+            await handle.signal("budget", args=[approved, payload])
+
+    asyncio.run(send())
 
 
 def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> None:
-    run_id = new_run_id()
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text()
-    with temporal_port_forward() as address:
-        record = asyncio.run(_run_until_paused_then_reject(address, run_id, task_text))
+    number, run_id = _paused_run(env)
+    try:
+        # The pause *escalates* — a real process-gate audit event fires at
+        # half the declared pause. Wait for it before answering, exactly like
+        # the merge-gate e2e does: the escalation path proves itself on
+        # every run.
+        deadline = time.monotonic() + E2E_PAUSE_MINUTES * 60 - 5
+        while not any(
+            e["source"] == "process-gate" and e["rule"] == "gate_escalated"
+            for e in audit_story(run_id)
+        ):
+            assert time.monotonic() < deadline, (
+                "the budget pause never escalated into the audit store"
+            )
+            time.sleep(2)
+        # A human answers the escalation: no, this run does not get more budget.
+        _signal_budget(run_id, False, "not worth more spend")
+        record = await_run(issue_run_task(number), terminal=True, deadline_s=300)
+    finally:
+        close_issue(env, number)
 
     # The run finalized honestly with the distinguishable budget error.
     assert record["status"] == "failed"
     assert "budget_exhausted" in (record["error"] or "")
 
-    # The ledger fully attributes what was spent before the stop — to the
-    # run's ephemeral implementer, the only identity that spoke to a model.
+    # The ledger fully attributes what was spent before the stop: the
+    # conductor's decision that chose this run, then the run's ephemeral
+    # implementer — the only two identities that spoke to a model.
     from orchestrator.identity import ephemeral_agent_id
 
     implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     entries = ledger_entries(run_id)
-    assert entries, "no ledger rows for the run"
+    assert [e["agent_id"] for e in entries[:2]] == ["pm-1", implementer_id], entries
     for entry in entries:
-        # The full attribution tuple, row by row: {run, parent,
-        # agent, role} plus company and model.
         assert entry["run_id"] == run_id
         assert entry["company"] == "hello-saas"
-        assert entry["agent_id"] == implementer_id
-        assert entry["parent_agent_id"] == "pm-1"
-        assert entry["role"] == "implementer"
         assert entry["model"] == "mock-brain"
         assert entry["prompt_tokens"] > 0
-        # The token breakdown behind the cost reaches Postgres.
-        assert int(entry["cached_tokens"]) > 0
+        if entry["agent_id"] == "pm-1":
+            assert entry["role"] == "pm"
+        else:
+            assert entry["agent_id"] == implementer_id
+            assert entry["parent_agent_id"] == "pm-1"
+            assert entry["role"] == "implementer"
+            assert int(entry["cached_tokens"]) > 0
     assert sum(float(e["usd"]) for e in entries) >= TINY_CAP
 
-    # Budget events are in the one audit story: metered
-    # allows and the hard-stop deny, all source=llm-gateway.
+    # Budget events are in the one audit story: metered allows and the
+    # hard-stop deny, all source=llm-gateway.
     story = audit_story(run_id)
     llm_events = [e for e in story if e["source"] == "llm-gateway"]
     assert any(
@@ -158,8 +189,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
         e["decision"] == "deny" and e["rule"] == "budget_exhausted" for e in llm_events
     ), f"no budget_exhausted deny in the story: {llm_events}"
 
-    # The stop stopped things: no metered model call after the hard-stop —
-    # the ledger's spend all precedes the deny in the story's own ordering.
+    # The stop stopped things: no metered model call after the hard-stop.
     last_deny = max(
         i
         for i, e in enumerate(story)
@@ -199,7 +229,6 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
     assert resp.status_code == 400
     assert resp.json()["error"]["code"] == "llm_unattributed"
 
-    # And with no credential at all: 401 before anything else.
     with port_forward("svc/llm-gateway", 4000) as port:
         resp = httpx.post(
             f"http://127.0.0.1:{port}/chat/completions",
@@ -209,57 +238,24 @@ def test_unattributed_model_call_is_rejected(stack: None) -> None:
     assert resp.status_code == 401
 
 
-async def _run_until_paused_then_approve(
-    address: str, run_id: str, task_text: str
-) -> tuple[dict, float]:
-    """The approval mirror of the rejection driver: park on the budget
-    stop, then — as a human who has decided the run is worth it — raise the
-    cap by re-applying the real blueprint and approve. The workflow
-    re-dispatches with headroom and runs to completion. Returns the terminal
-    record and the ledger total captured at the pause, so the caller can
-    assert the run spent *more* after resuming — a run that resumed but made
-    no further model call would leave that total unchanged."""
-    client = await Client.connect(address)
-    handle = await client.start_workflow(
-        "implement",
-        ImplementInput(run_id=run_id, task_text=task_text),
-        id=workflow_id("implement", run_id),
-        task_queue=TASK_QUEUE,
-    )
-    deadline = time.monotonic() + 300
-    while True:
-        state = await handle.query("state")
-        if state == "paused-budget_exhausted":
-            break
-        assert time.monotonic() < deadline, f"never paused (state={state!r})"
-        await asyncio.sleep(2)
-    spend_at_pause = sum(float(e["usd"]) for e in ledger_entries(run_id))
-    # The human raises the cap: re-apply the real blueprint (the gateway
-    # reads the cap from the registry per call, so the upsert is enough),
-    # then approve — the run may continue.
-    await asyncio.to_thread(apply_blueprint, HELLO_SAAS)
-    await handle.signal("budget", args=[True, "worth the spend"])
-    record = await asyncio.wait_for(handle.result(), timeout=300)
-    return record, spend_at_pause
-
-
 def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) -> None:
     """The run that stopped for money is not the end: with the cap raised
     and the human's approval, the workflow re-dispatches and delivers.
     The approval is a `gate.budget` `gate_approved` process-gate event, the
     run finishes `done` with a PR, and the ledger shows spend past the tiny
     cap — real work the first stop had blocked."""
-    run_id = new_run_id()
-    nonce = secrets.token_hex(3)
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
-        f"\n\nDeliver your work on the branch `feature/slugify-{nonce}`.\n"
-    )
+    number, run_id = _paused_run(env)
     record = None
     try:
-        with temporal_port_forward() as address:
-            record, spend_at_pause = asyncio.run(
-                _run_until_paused_then_approve(address, run_id, task_text)
-            )
+        spend_at_pause = sum(float(e["usd"]) for e in ledger_entries(run_id))
+        # The human raises the cap: re-apply the real blueprint (the gateway
+        # reads the cap from the registry per call, so the upsert is enough),
+        # then approve — the run may continue.
+        from .blueprints import apply_blueprint
+
+        apply_blueprint(single_attempt(pristine_profile()))
+        _signal_budget(run_id, True, "worth the spend")
+        record = await_run(issue_run_task(number), terminal=True, deadline_s=600)
         assert record["status"] == "done", f"the approved run did not finish: {record}"
         assert record["pr_url"], "the approved run delivered no PR"
 
@@ -281,3 +277,4 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
     finally:
         if record is not None:
             close_pr_url(env, record.get("pr_url"))
+        close_issue(env, number)

@@ -43,6 +43,7 @@ from temporalio.exceptions import ApplicationError
 
 from common.audit import args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
+from common.policy import MERGE_RESOLVE
 from common.tasks import ISSUE_TASK_RE
 from common.telemetry import get_logger
 from orchestrator.activities.blueprint import company_repo
@@ -385,7 +386,7 @@ class ReviewActivities:
     ) -> dict[str, Any]:
         """File the failed review's findings back into the backlog as a
         ticket, under the platform identity, and record it on the review
-        run's row (the same `ticket_urls` breadcrumb intake leaves). The
+        run's row (the same `ticket_urls` breadcrumb a scope run leaves). The
         conductor consumes it on a later heartbeat like any other issue.
         Retry honesty: issue creation is not idempotent, so a retried
         create can file a duplicate ticket — a noisy backlog, never a
@@ -468,7 +469,7 @@ class ReviewActivities:
             "role": PLATFORM_ROLE,
             "run_id": run_id,
             "workflow": "review",
-            "tool": "merge.resolve",
+            "tool": MERGE_RESOLVE,
             "args": {
                 "verdict": verdict,
                 "checks_green": checks_green,
@@ -487,7 +488,7 @@ class ReviewActivities:
         allowed = bool(result.get("allow"))
         await self._append_event(
             run_id=run_id,
-            tool="merge.resolve",
+            tool=MERGE_RESOLVE,
             payload=decision_input["args"],
             decision="allow" if allowed else "deny",
             rule=str(result.get("rule") or ""),

@@ -9,14 +9,11 @@
 --
 -- Write ownership (an import-graph convention, enforced by which accessor
 -- a service imports — not by Postgres grants). Seven tables have exactly
--- one writer; the other two are shared by design:
+-- one writer; the eighth is shared by design:
 --   operator      -> companies, agent_instances, policy_bundles
 --   orchestrator  -> runs, run_participants
 --   gateway       -> sandbox_registrations
 --   LLM gateway   -> budget_ledger
---   crew_requests <- orchestrator together with the gateway (the
---                    crew.request tool and the workflow path record the
---                    same row)
 --   audit_events  <- gateway, LLM gateway, egress proxy and orchestrator
 --                    (process-gate, process-lifecycle): many writers, one
 --                    append-only contract
@@ -54,7 +51,9 @@ CREATE TABLE IF NOT EXISTS registry.agent_instances (
 -- implement run concluded when it delivered (pr_url), a review run when
 -- the reviewer reached a verdict (verdict). A run that ended with neither
 -- aborted, and the heartbeat may offer its item again — bounded by the
--- blueprint's attempt cap.
+-- blueprint's attempt cap. pr_settled remembers what the world did with a
+-- delivered PR once the heartbeat has seen it merged or closed on the git
+-- host: observed once, never read again.
 CREATE TABLE IF NOT EXISTS registry.runs (
     run_id      text PRIMARY KEY,
     workflow    text NOT NULL DEFAULT 'implement',
@@ -63,6 +62,7 @@ CREATE TABLE IF NOT EXISTS registry.runs (
     task        text NOT NULL DEFAULT '',
     status      text NOT NULL,
     pr_url      text,
+    pr_settled  text,
     verdict     text,
     ticket_urls jsonb NOT NULL DEFAULT '[]'::jsonb,
     iterations  integer NOT NULL DEFAULT 0,
@@ -152,21 +152,6 @@ CREATE TABLE IF NOT EXISTS registry.budget_ledger (
     usd               numeric(16, 10) NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS budget_ledger_run_id_idx ON registry.budget_ledger (run_id);
-
--- Recorded crew requests: authorization + intent, never fulfillment.
--- Idempotent and expiring; the orchestrator consumes them when it
--- fulfills a crew.
-CREATE TABLE IF NOT EXISTS registry.crew_requests (
-    id            text PRIMARY KEY,
-    run_id        text,
-    conductor     text NOT NULL,
-    crew_template text NOT NULL,
-    reason        text,
-    status        text NOT NULL DEFAULT 'recorded',
-    created_at    timestamptz NOT NULL DEFAULT now(),
-    expires_at    timestamptz,
-    fulfilled_at  timestamptz
-);
 
 -- Compiled policy bundles: the operator persists them here and the
 -- bundle server hands them to OPA over the standard bundle API, which OPA

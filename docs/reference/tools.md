@@ -44,14 +44,21 @@ agent verifiably bound to the very run it names.
 
 ## Issue tools
 
-The ticket surface of the target repository, used chiefly by the PM during
-intake.
+The ticket surface of the target repository: the PM files and comments
+tickets when it scopes, and the platform files rework and bootstrap
+tickets under its own identity.
 
 <!-- gen: tools:issues -->
 
-## Crew tools
+## Architecture requests
 
-<!-- gen: tools:crew -->
+A crew member's one way to change the architecture masterplan: the
+proposal is filed by the platform as a stewardship ticket on the company's
+repository — the caller chooses neither the crew nor the repository — and
+the steward revises the plan on a later tick. One request per run, bound
+to the run like a sandbox call. Asking is not writing.
+
+<!-- gen: tools:architecture -->
 
 ## Not tools: the admin routes
 

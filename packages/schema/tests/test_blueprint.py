@@ -54,7 +54,7 @@ def test_pm_holds_no_implementer_tools(blueprint):
     pm_tools = set(ROLES["pm"].tools)
     assert not any(t.startswith("sandbox.") for t in pm_tools)
     assert "git.open_pr" not in pm_tools
-    assert {"crew.request", "issues.create"} <= pm_tools
+    assert {"issues.create", "issues.read", "issues.comment"} == pm_tools
 
 
 def test_review_merge_gate_is_human_resolved(blueprint):
@@ -331,87 +331,131 @@ def test_the_contract_tree_declares_paths_and_owners_or_nothing(blueprint):
         assert any(field in p for p in problems_of(document))
 
 
-def test_intake_gate_names_its_resolver(blueprint):
-    blueprint["workflows"]["intake"]["gates"] = {
-        "intake": {"resolved_by": "human", "deadline_minutes": 1440}
+def test_a_workflow_names_no_conductor(blueprint):
+    """The conductor is said once, at `heartbeat.conductor`; a workflow
+    node carries only its crew, bounds and gates."""
+    blueprint["workflows"]["implement"]["conductor"] = "pm"
+    (problem,) = [p for p in problems_of(blueprint) if "conductor" in p]
+    assert problem.startswith("workflows.implement:")
+
+
+def test_a_workflow_names_its_crew(blueprint):
+    del blueprint["workflows"]["implement"]["crew"]
+    assert any("workflows.implement" in p and "crew" in p for p in problems_of(blueprint))
+
+
+def test_scope_has_no_workflow_node(blueprint):
+    """Scoping dispatches the conductor directly and configures nothing,
+    so there is nothing to write under `workflows` for it."""
+    blueprint["workflows"]["scope"] = {"crew": "feature-delivery"}
+    assert any("workflows" in p and "scope" in p for p in problems_of(blueprint))
+
+
+# -- the documents -------------------------------------------------
+
+
+def test_documents_are_required(blueprint):
+    """The company writes its strategy and its architecture masterplan
+    for itself; the blueprint names where, and names both."""
+    del blueprint["company"]["documents"]["architecture"]
+    assert any("architecture" in p for p in problems_of(blueprint))
+    del blueprint["company"]["documents"]
+    assert any("documents" in p for p in problems_of(blueprint))
+
+
+def test_document_problems_name_a_missing_document():
+    """The document pass names each absent document itself, so a caller
+    that skips the schema pass (the compiler) fails closed on the same
+    sentence."""
+    from schema.gates import document_problems
+
+    problems = document_problems({"company": {"documents": {"strategy": "docs/S.md"}}})
+    assert problems == [
+        "company.documents.architecture: required — a company names the path of "
+        "both its documents"
+    ]
+
+
+def test_document_paths_are_distinct_and_inside_the_repository(blueprint):
+    blueprint["company"]["documents"]["architecture"] = "docs/STRATEGY.md"
+    assert any("distinct" in p for p in problems_of(blueprint))
+    blueprint["company"]["documents"]["architecture"] = "../ARCHITECTURE.md"
+    assert any("inside the repository" in p for p in problems_of(blueprint))
+    blueprint["company"]["documents"]["architecture"] = "/etc/ARCHITECTURE.md"
+    assert any("company.documents.architecture" in p for p in problems_of(blueprint))
+
+
+def test_a_document_under_a_deny_path_is_refused(blueprint):
+    """A path no PR may touch is a document nobody could ever write."""
+    blueprint["policies"]["deny_paths"] = [".github/workflows/", "docs/"]
+    assert any(
+        "company.documents.strategy" in p and "deny_paths" in p
+        for p in problems_of(blueprint)
+    )
+
+
+def test_a_document_inside_the_contract_tree_is_refused(blueprint):
+    blueprint["policies"]["contract_tests"] = {
+        "paths": ["docs/"],
+        "roles": ["contract-author"],
     }
-    validate_blueprint(blueprint)
-
-
-def test_intake_gate_cannot_be_policy_resolved(blueprint):
-    """Policy cannot judge whether a goal is worth doing; the schema names
-    the only resolver intake has."""
-    blueprint["workflows"]["intake"]["gates"] = {
-        "intake": {"resolved_by": "policy", "deadline_minutes": 1440}
-    }
-    assert any("resolved_by" in p and "policy" in p for p in problems_of(blueprint))
-
-
-def test_a_merge_gate_on_intake_is_not_writable(blueprint):
-    """Each workflow names only the gates it actually parks on."""
-    blueprint["workflows"]["intake"]["gates"] = {
-        "merge": {"resolved_by": "human", "deadline_minutes": 1440}
-    }
-    assert any("merge" in p for p in problems_of(blueprint))
+    assert any(
+        "company.documents.strategy" in p and "contract_tests" in p
+        for p in problems_of(blueprint)
+    )
 
 
 # -- the heartbeat -------------------------------------------------
 
 
-def heartbeat_section() -> dict:
-    return {
-        "conductor": "pm",
-        "reconcile_minutes": 30,
-        "max_concurrent_runs": 1,
-        "max_attempts": 2,
-        "may_start": ["implement", "review"],
-        "daily_cap": {"usd": 20},
-    }
+def test_every_example_declares_a_heartbeat():
+    """No shipped blueprint omits the section: a company always has one."""
+    for example in sorted((REPO_ROOT / "examples").glob("*.yaml")):
+        document = load_blueprint(example)
+        assert "scope" in document["heartbeat"]["may_start"], example.name
 
 
-def test_heartbeat_section_validates(blueprint):
-    blueprint["heartbeat"] = heartbeat_section()
-    validate_blueprint(blueprint)
-
-
-def test_heartbeat_is_optional(blueprint):
-    assert "heartbeat" not in blueprint  # the lean example stays human-started
-    validate_blueprint(blueprint)
+def test_heartbeat_is_required(blueprint):
+    del blueprint["heartbeat"]
+    (problem,) = [p for p in problems_of(blueprint) if "heartbeat" in p]
+    assert "required" in problem
 
 
 def test_heartbeat_declares_every_cap_or_nothing(blueprint):
-    """A defaulted cap is authority nobody wrote down: once the section
-    exists, every field is required."""
-    for field in heartbeat_section():
+    """A defaulted cap is authority nobody wrote down: every field is
+    required."""
+    for field in list(blueprint["heartbeat"]):
         document = copy.deepcopy(blueprint)
-        document["heartbeat"] = heartbeat_section()
         del document["heartbeat"][field]
         assert any("heartbeat" in p and field in p for p in problems_of(document))
 
 
 def test_heartbeat_attempts_start_at_one(blueprint):
     """`max_attempts: 1` is the one-shot company (every run is the only
-    try); zero would mean the heartbeat may start nothing, which is what
-    omitting the section says."""
-    blueprint["heartbeat"] = heartbeat_section()
+    try); zero would mean the heartbeat may start nothing, and a heartbeat
+    that starts nothing is not a company."""
     blueprint["heartbeat"]["max_attempts"] = 0
     assert any("max_attempts" in p for p in problems_of(blueprint))
     blueprint["heartbeat"]["max_attempts"] = 1
     validate_blueprint(blueprint)
 
 
-def test_heartbeat_may_not_start_intake(blueprint):
-    """Goals enter through a human; the heartbeat may never feed itself
-    new goals."""
-    blueprint["heartbeat"] = heartbeat_section()
+def test_open_ticket_cap_starts_at_one(blueprint):
+    """Zero would refuse every scope before the first ticket exists."""
+    blueprint["heartbeat"]["max_open_tickets"] = 0
+    assert any("max_open_tickets" in p for p in problems_of(blueprint))
+
+
+def test_heartbeat_may_start_only_the_three_workflows(blueprint):
     blueprint["heartbeat"]["may_start"] = ["intake"]
     (problem,) = [p for p in problems_of(blueprint) if "intake" in p]
     assert "heartbeat.may_start" in problem
-    assert "'implement'" in problem  # the allowed values are shown
+    assert "'scope'" in problem  # the allowed values are shown
+    blueprint["heartbeat"]["may_start"] = ["scope"]
+    validate_blueprint(blueprint)
 
 
 def test_heartbeat_typo_is_rejected_not_ignored(blueprint):
-    blueprint["heartbeat"] = heartbeat_section()
     blueprint["heartbeat"]["heartbeat_mins"] = 5
     del blueprint["heartbeat"]["reconcile_minutes"]
     problems = problems_of(blueprint)

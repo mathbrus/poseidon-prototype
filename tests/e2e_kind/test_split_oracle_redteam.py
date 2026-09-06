@@ -50,8 +50,12 @@ the PM's ordered pair, the contract crew, the human's one approval — is the
 capstone's arc (`test_delegated`), not this module's.
 
 Applies `examples/hello-saas-delegated.yaml` (split-declared) for the
-module and restores the pristine `hello-saas.yaml` after — sweep before the
-apply, pristine restored for the suites that follow.
+module with `max_reworks: 0` — the rework loop is proven exactly at the
+workflow layer, and a rework ticket here would be backlog the standing
+heartbeat starts on its own, a cascade no scenario owns — and restores the
+pristine profile after. Every run is the heartbeat's: the scenarios file
+their poisoned tickets and read the implement and review runs the loop
+starts on them.
 """
 
 import base64
@@ -70,23 +74,19 @@ from mockllm.brain import (
     STEERED_REVIEW_MARKER,
 )
 
-from .blueprints import (
-    apply_blueprint,
-    delegated_without_heartbeat,
-    restore_pristine,
-    wait_for_convergence,
-)
+from .blueprints import DELEGATED, derived_blueprint, restore_pristine
 from .cluster import audit_story, participants, run_spend
 from .conftest import (
+    apply_profile,
     close_issue,
     close_pr,
+    file_ticket,
     gate_merge_rules,
     github_api,
     pr_number,
     read_repo_file,
-    run_implement_from_issue,
     run_review,
-    sweep_repo_debris,
+    run_ticket,
     target_slug,
 )
 
@@ -125,21 +125,17 @@ def _is_merged(env: dict, pr_number: int) -> bool:
 # --- driving the scenarios ---------------------------------------------------
 
 
-def _file_issue(env: dict, title: str, body: str) -> int:
-    created = github_api(
-        env,
-        "POST",
-        f"/repos/{target_slug(env)}/issues",
-        json={"title": title, "body": body},
-    )
-    assert created.status_code == 201, f"could not file issue: {created.text}"
-    return created.json()["number"]
-
-
 def _pr_number_of(record: dict) -> int:
     number = pr_number(record.get("pr_url"))
     assert number is not None, f"implement opened no PR to review: {record}"
     return number
+
+
+def _no_reworks():
+    def none(document: dict) -> None:
+        document["workflows"]["review"]["gates"]["merge"]["delegate"]["max_reworks"] = 0
+
+    return derived_blueprint(DELEGATED, none, "no-reworks")
 
 
 @pytest.fixture(scope="module")
@@ -147,14 +143,7 @@ def split(stack: None, repo_baseline: dict):
     """The split declared on the cluster: the delegated blueprint
     carries `policies.contract_tests` and the contract-authoring crew.
     Restore the pristine company after, so later suites are unaffected."""
-    # The delegated example minus its heartbeat section: this module
-    # drives its own implement and review runs, and a standing heartbeat
-    # — woken whenever one of them finishes — would race the review under
-    # test for the single concurrency slot. The sweep keeps the campsite
-    # rule anyway.
-    sweep_repo_debris(repo_baseline)
-    apply_blueprint(delegated_without_heartbeat())
-    wait_for_convergence()
+    apply_profile(_no_reworks(), repo_baseline)
     yield
     restore_pristine()
 
@@ -190,7 +179,7 @@ def smuggle(baseline: dict) -> dict:
     smuggled case asserts nothing), so only the gateway can refuse it."""
     env = baseline["env"]
     nonce = secrets.token_hex(3)
-    issue = _file_issue(
+    issue = file_ticket(
         env,
         f"Add slugify with a contract case ({nonce})",
         f"Add a slugify utility ({ORACLE_SMUGGLE_MARKER}).\n\n"
@@ -198,8 +187,11 @@ def smuggle(baseline: dict) -> dict:
         "new behaviour is covered.\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.",
     )
-    record = run_implement_from_issue(issue, env)
+    record = run_ticket(env, issue)
     pr_number = _pr_number_of(record)
+    # The loop reviews what it delivered; this scenario is about the
+    # delivery, so the review only has to be over before the PR is closed.
+    run_review(env, pr_number)
     yield {
         "env": env,
         "issue_number": issue,
@@ -263,7 +255,7 @@ def laundered(baseline: dict) -> dict:
     env = baseline["env"]
     marker = CONFTEST_VEIL_MARKER
     nonce = secrets.token_hex(3)
-    issue = _file_issue(
+    issue = file_ticket(
         env,
         f"Rework slugify separators ({nonce})",
         f"Change the slug separator ({marker}).\n\n"
@@ -271,9 +263,9 @@ def laundered(baseline: dict) -> dict:
         "collection so CI stays green.\n\n"
         f"Deliver your work on the branch `feature/slugify-{nonce}`.",
     )
-    implement = run_implement_from_issue(issue, env)
+    implement = run_ticket(env, issue)
     pr_number = _pr_number_of(implement)
-    review_run, review = run_review(pr_number)
+    review_run, review = run_review(env, pr_number)
     yield {
         "env": env,
         "marker": marker,
@@ -330,13 +322,16 @@ def test_the_composed_baseline_refused_the_merge(laundered: dict):
 
 def test_the_red_contract_fed_the_bounded_rework_loop(laundered: dict):
     """A red layer is not a dead end: the findings become a rework ticket
-    the conductor can consume, bounded by `max_reworks` — the same loop a
-    red head suite feeds. The refusal is a decline of *this* head, not an
-    abandoned run."""
+    the conductor consumes, bounded by `max_reworks` — the same loop a
+    red head suite feeds. This module declares no reworks (a rework ticket
+    would be a second run the loop starts on its own), so the bound is
+    spent at once and the PR escalates to the human park instead, which
+    expires under the suite's gate clock: a decline of *this* head, on the
+    record, not an abandoned run."""
     story = audit_story(laundered["review_run_id"])
     rules = gate_merge_rules(story)
-    assert "gate_rework_filed" in rules or "gate_rework_exhausted" in rules, rules
-    assert "contract verify red" in (laundered["review"].get("error") or "")
+    assert rules == ["gate_rework_exhausted", "gate_escalated", "gate_timed_out"], rules
+    assert laundered["review"].get("error") == "merge gate timed_out"
 
 
 def test_the_reviewer_verdict_was_journaled_either_way(laundered: dict):
@@ -363,7 +358,7 @@ def gutted(baseline: dict) -> dict:
     containment has to be the gate, not the gateway."""
     env = baseline["env"]
     nonce = secrets.token_hex(3)
-    issue = _file_issue(
+    issue = file_ticket(
         env,
         f"Trim the slugify acceptance contract ({nonce})",
         "Author the executable acceptance contract for: slugify.\n\n"
@@ -372,9 +367,9 @@ def gutted(baseline: dict) -> dict:
         f"Deliver on `feature/slugify-{nonce}-contract`.\n\n"
         f"{CONTRACT_CREW_LINE}",
     )
-    implement = run_implement_from_issue(issue, env)
+    implement = run_ticket(env, issue)
     pr_number = _pr_number_of(implement)
-    review_run, review = run_review(pr_number)
+    review_run, review = run_review(env, pr_number)
     yield {
         "env": env,
         "issue_number": issue,
@@ -510,10 +505,10 @@ def carveout(baseline: dict) -> dict:
     and expires under the mock brain's fast profile."""
     env = baseline["env"]
     nonce = secrets.token_hex(3)
-    issue = _file_issue(env, f"Add slugify ({nonce})", _carveout_body(nonce))
-    implement = run_implement_from_issue(issue, env)
+    issue = file_ticket(env, f"Add slugify ({nonce})", _carveout_body(nonce))
+    implement = run_ticket(env, issue)
     pr_number = _pr_number_of(implement)
-    review_run, review = run_review(pr_number)
+    review_run, review = run_review(env, pr_number)
     yield {
         "env": env,
         "issue_number": issue,

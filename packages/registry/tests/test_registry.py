@@ -11,7 +11,6 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
-    CrewRequests,
     ParticipantRevoked,
     PolicyBundles,
     Registry,
@@ -97,6 +96,10 @@ def test_record_artifacts_accumulates(registry: Registry):
     record = runs.get(RUN_ID)
     assert record.ticket_urls == ["https://issues/1"]  # not clobbered
     assert record.pr_url == "https://pr/1"
+    # Tickets accumulate in order, each once: the ticket a run works, then
+    # the ones its dispatches file.
+    runs.record_artifacts(RUN_ID, ticket_urls=["https://issues/2", "https://issues/1"])
+    assert runs.get(RUN_ID).ticket_urls == ["https://issues/1", "https://issues/2"]
 
 
 # -- sandbox registrations ------------------------------------------------
@@ -238,7 +241,7 @@ def test_policy_bundle_round_trips_and_revokes(registry: Registry):
 
 def test_company_rows_and_instance_sweep(registry: Registry):
     companies, instances = Companies(registry), AgentInstances(registry)
-    companies.upsert("test-corp", {"namespace": "test-corp", "mission": "m"})
+    companies.upsert("test-corp", {"namespace": "test-corp", "vision": "m"})
     instances.upsert("tc-pm-1", "test-corp", "pm", "pm", "standard")
     instances.upsert("other-1", "other-corp", "pm", "pm", "standard")
     assert [r["agent_id"] for r in instances.for_company("test-corp")] == ["tc-pm-1"]
@@ -358,113 +361,11 @@ def test_budget_ledger_attributes_and_sums(registry: Registry):
     assert ledger.spent_for_run("run-unmetered") == 0.0
 
 
-def test_crew_request_is_idempotent_and_expiring(registry: Registry):
-    """Same {conductor, crew, run} lands on one row;
-    while recorded a retry refreshes it; once fulfilled it is untouched —
-    a retry must not resurrect consumed intent."""
-    Runs(registry).start(RUN_ID, "task")
-    requests = CrewRequests(registry)
-    first = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it")
-    assert first["status"] == "recorded"
-    assert first["expires_at"] is not None
-
-    again = requests.record("pm-1", "feature-delivery", RUN_ID, "ship it now")
-    assert again["id"] == first["id"]
-    assert again["reason"] == "ship it now"
-
-    registry.execute(
-        "UPDATE registry.crew_requests SET status='fulfilled',"
-        " fulfilled_at=now() WHERE id = %s",
-        (first["id"],),
-    )
-    after = requests.record("pm-1", "feature-delivery", RUN_ID, "retry")
-    assert after["status"] == "fulfilled"
-    assert after["reason"] == "ship it now"  # untouched
-
-
-def test_participant_bind_is_retry_safe_and_sweepable(registry: Registry):
-    """A retried bind (same deterministic agent_id) converges
-    on the same row; the per-run sweep revokes every live participant at
-    once and reports who it swept."""
+def test_spawn_count_is_distinct_live_crews_per_conductor(registry: Registry):
+    """The spawn count is distinct live {run, crew} pairs per conductor —
+    what the compiled concurrency cap reads off the decision input."""
     Runs(registry).start(RUN_ID, "task")
     participants = RunParticipants(registry)
-    participants.add(
-        "feature-delivery-implementer-x",
-        RUN_ID,
-        "pm-1",
-        "feature-delivery",
-        "implementer",
-    )
-    # A retry against the live row converges — one identity, never two.
-    participants.add(
-        "feature-delivery-implementer-x",
-        RUN_ID,
-        "pm-1",
-        "feature-delivery",
-        "implementer",
-    )
-    assert participants.active("feature-delivery-implementer-x") is not None
-
-    participants.add(
-        "feature-review-reviewer-x", RUN_ID, "pm-1", "feature-review", "reviewer"
-    )
-    swept = participants.terminate_for_run(RUN_ID)
-    assert sorted(swept) == [
-        "feature-delivery-implementer-x",
-        "feature-review-reviewer-x",
-    ]
-    assert participants.active("feature-review-reviewer-x") is None
-    assert participants.terminate_for_run(RUN_ID) == []  # idempotent
-
-
-def test_participant_row_resolves_by_service_account(registry: Registry):
-    """The row is the whole ephemeral identity: the gateway looks it up by
-    ServiceAccount name and reads company, catalog template, namespace and
-    the canonical agent_id from it — and the lookup goes dark on
-    termination, which is what makes revocation a registry write."""
-    Runs(registry).start(RUN_ID, "task")
-    participants = RunParticipants(registry)
-    participants.add(
-        "feature-delivery-implementer-X",
-        RUN_ID,
-        "pm-1",
-        "feature-delivery",
-        "implementer",
-        company="hello-saas",
-        namespace="hello-saas",
-        service_account="ephemeral-feature-delivery-implementer-x",
-    )
-    row = participants.by_service_account("ephemeral-feature-delivery-implementer-x")
-    assert row is not None
-    # Lowercasing the SA name is not invertible; the canonical id is
-    # read from the row, never derived from the name.
-    assert row["agent_id"] == "feature-delivery-implementer-X"
-    assert row["company"] == "hello-saas"
-    assert row["role"] == "implementer"  # the catalog role, as written
-    assert row["namespace"] == "hello-saas"
-
-    participants.terminate("feature-delivery-implementer-X")
-    assert (
-        participants.by_service_account("ephemeral-feature-delivery-implementer-x")
-        is None
-    )
-
-
-def test_crew_request_consume_and_spawn_count(registry: Registry):
-    """Consume claims a recorded, unexpired request exactly once (the
-    fulfilling run may re-claim its own after a crash); the spawn count is
-    distinct live {run, crew} pairs per conductor."""
-    Runs(registry).start(RUN_ID, "task")
-    requests = CrewRequests(registry)
-    participants = RunParticipants(registry)
-    recorded = requests.record("pm-1", "feature-delivery", RUN_ID, "go")
-    consumed = requests.consume(recorded["id"], RUN_ID)
-    assert consumed["status"] == "fulfilled"
-    # Idempotent for the same run; a foreign run gets nothing.
-    assert requests.consume(recorded["id"], RUN_ID) is not None
-    assert requests.consume(recorded["id"], "run-other") is None
-    assert requests.consume("crq-missing", RUN_ID) is None
-
     participants.add("fd-impl-1", RUN_ID, "pm-1", "feature-delivery", "implementer")
     participants.add("fd-second-1", RUN_ID, "pm-1", "feature-delivery", "second")
     assert participants.active_spawn_count("pm-1") == 1  # one crew, two agents
@@ -511,15 +412,17 @@ def test_revocation_is_final_and_a_late_mint_cannot_revive_it(registry: Registry
 # -- the heartbeat's observations ----------------------------------
 
 
-def test_active_count_counts_running_delivery_runs(registry: Registry):
+def test_active_count_counts_every_running_run_of_the_company(registry: Registry):
+    """Scope, implement and review runs all occupy the company; another
+    company's runs and finished runs do not."""
     runs = Runs(registry)
     runs.start("run-ac-1", "implement issue #1", "implement", None, "hello-saas")
     runs.start("run-ac-2", "review PR", "review", None, "hello-saas")
-    runs.start("run-ac-3", "a goal", "intake", None, "hello-saas")  # not capacity
+    runs.start("run-ac-3", "scope the next slice", "scope", None, "hello-saas")
     runs.start("run-ac-4", "implement issue #2", "implement", None, "other-co")
     runs.start("run-ac-5", "implement issue #9", "implement", None, "hello-saas")
     runs.finish("run-ac-5", "done")
-    assert Runs(registry).active_count("hello-saas") == 2
+    assert Runs(registry).active_count("hello-saas") == 3
 
 
 def test_issue_attempts_fold_every_run_on_the_ticket(registry: Registry):
@@ -579,6 +482,10 @@ def test_delivered_pr_urls_are_done_implement_runs_only(registry: Registry):
         "https://git.test/r/pull/4",
         "https://git.test/r/pull/9",
     ]
+    # The world settled one: remembered on the run, offered no more.
+    runs.mark_pr_settled("hello-saas", "https://git.test/r/pull/4", "closed")
+    assert Runs(registry).delivered_pr_urls("hello-saas") == ["https://git.test/r/pull/9"]
+    assert runs.get("run-pr-1").pr_settled == "closed"
 
 
 def test_review_attempts_conclude_on_a_recorded_verdict(registry: Registry):

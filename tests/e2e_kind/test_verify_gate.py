@@ -2,9 +2,9 @@
 completion claim is advisory, the platform's own `sandbox.run_tests` is the
 gate of record.
 
-The scripted scenario (examples/task-verify-red.md) plants a
-state-dependent test that greens the implementer's advisory verify and reds
-the platform's re-run — a deterministic stand-in for "the claim no longer
+The scripted scenario (`tickets/verify-red.md`) plants a state-dependent
+test that greens the implementer's advisory verify and reds the
+platform's re-run — a deterministic stand-in for "the claim no longer
 holds when the platform checks it". The workflow must go red at the gate,
 feed the failure back in a bounded re-dispatch, and only release the
 deliver dispatch once its own verify is green.
@@ -15,14 +15,15 @@ import re
 import pytest
 
 from .cluster import audit_story, sandbox_pods
-from .conftest import close_pr_url, run_implement
+from .conftest import close_issue, close_pr_url, run_implement
 
 
 @pytest.fixture(scope="module")
 def verify_red_run(stack: None, env: dict) -> dict:
-    record = run_implement("task-verify-red.md", kill_worker=False, env=env)
+    record = run_implement("verify-red", env)
     yield record
     close_pr_url(env, record.get("pr_url"))
+    close_issue(env, record["issue_number"])
 
 
 def test_red_gate_feeds_back_and_the_run_still_delivers(

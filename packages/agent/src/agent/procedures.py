@@ -59,7 +59,7 @@ from agent.hands import (
     ToolRecords,
     hands,
 )
-from agent.prompting import REPO_INSTRUCTIONS_FILE, repo_instructions, system_prompt
+from agent.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_context
 from common.telemetry import get_logger
 from common.topology import RUN_ID_HEADER
 
@@ -96,10 +96,8 @@ class ProcedureResult(BaseModel):
     pr_url: str | None = None
     iterations: int = 0
     error: str | None = None
-    # Scope: the tickets it filed and the crew intent it recorded — what
-    # an intake run links to the run record.
+    # Scope: the tickets it filed — what the run record links to.
     ticket_urls: list[str] = []
-    crew_request_id: str | None = None
     # The comments a dispatch posted: the reviewer's findings on the PR,
     # or the PM's summary on the ticket(s) it filed.
     comment_urls: list[str] = []
@@ -368,14 +366,21 @@ class Session:
 
 @contextmanager
 def _session(
-    settings: AgentSettings, run_id: str, procedure: str, tools: list[str], max_steps: int
+    settings: AgentSettings,
+    run_id: str,
+    procedure: str,
+    tools: list[str],
+    max_steps: int,
+    documents: dict[str, str] | None = None,
 ) -> Iterator[Session]:
     """One dispatch's machinery: a gateway session under the pod's own
     token, a scratch workspace, and an SDK conversation on the procedure's
     prompt and tool surface. A procedure that holds sandbox tools surveys the
     run's sandbox first, so the conversation opens knowing the tree and
-    the repository's instructions. The records capture every tool result;
-    the conversation is closed on the way out, whatever happened inside."""
+    the repository's instructions; the company's documents the dispatch
+    carries join them as untrusted context. The records capture every tool
+    result; the conversation is closed on the way out, whatever happened
+    inside."""
     token = settings.resolve_gateway_token()
     records = ToolRecords()
     llm = build_llm(settings, run_id, token)
@@ -392,7 +397,7 @@ def _session(
                 ctx,
                 scratch,
                 max_steps=max_steps,
-                agent_context=repo_instructions(workspace.instructions),
+                agent_context=untrusted_context(workspace.instructions, documents or {}),
             )
             try:
                 yield Session(convo, bridge, records, workspace)
@@ -414,16 +419,19 @@ def _completion(llm: LLM, system_prompt: str, user_text: str) -> str:
 
 
 def run_implement(
-    settings: AgentSettings, run_id: str, task_text: str
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """implement: the SDK loop acts (read/write/list/exec, never open_pr),
     the host runs the ADVISORY verify between turns, and advisory green
     ends the dispatch with a completion claim. The gate of record is the
     platform's own `sandbox.run_tests` in the implement workflow."""
     with _session(
-        settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP
+        settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP, documents
     ) as s:
-        convo = s.convo
+        convo, records = s.convo, s.records
         convo.send_message(_act_prompt(task_text, s.workspace.entries))
         iterations = 0
         while True:
@@ -432,6 +440,7 @@ def run_implement(
                 return ProcedureResult(
                     iterations=iterations,
                     error=f"{failure} (after {iterations} verify cycles)",
+                    ticket_urls=records.ticket_urls,
                 )
             iterations += 1
             try:
@@ -444,16 +453,24 @@ def run_implement(
                 # Advisory green = the completion claim: the platform verify
                 # is the gate of record, and the workflow directs delivery
                 # in a separate dispatch.
-                return ProcedureResult(iterations=iterations)
+                return ProcedureResult(
+                    iterations=iterations, ticket_urls=records.ticket_urls
+                )
             if iterations >= VERIFY_CYCLES:
                 return ProcedureResult(
                     iterations=iterations,
                     error=f"tests still failing after {iterations} iterations",
+                    ticket_urls=records.ticket_urls,
                 )
             convo.send_message(_test_report(result) + "\n\nFix the failures.")
 
 
-def run_deliver(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+def run_deliver(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
+) -> ProcedureResult:
     """deliver: the workflow-directed delivery, only ever dispatched after
     the platform verify gate passed. Commit the sandbox's work on the
     task's branch, bundle it, open the PR. A policy denial comes back as
@@ -479,7 +496,12 @@ def run_deliver(settings: AgentSettings, run_id: str, task_text: str) -> Procedu
     return ProcedureResult(pr_url=records.pr_url, iterations=1)
 
 
-def run_review(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+def run_review(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
+) -> ProcedureResult:
     """review: the ephemeral reviewer's dispatch: read the
     diff via git.read, execute the suite in the run's sandbox (provisioned
     from the PR ref), post findings via git.comment, and end with the
@@ -487,64 +509,63 @@ def run_review(settings: AgentSettings, run_id: str, task_text: str) -> Procedur
     record like every other tool result. Read-and-judge
     only: no write_file, no open_pr, and the compiled reviewer scope enforces
     the same at the gateway. A dispatch without posted findings or without
-    a verdict is a failed review."""
-    with _session(settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP) as s:
+    a verdict is a failed review. Whatever the exit, the tickets the
+    reviewer had the platform file (an architecture request) are reported:
+    they are this run's, and the record must carry them."""
+    with _session(
+        settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP, documents
+    ) as s:
         convo, records = s.convo, s.records
         convo.send_message(f"Task:\n{task_text}")
         convo.run()
         failure = _loop_failure(convo)
+    partial = dict(ticket_urls=records.ticket_urls, comment_urls=records.comment_urls)
     if not records.comment_urls:
-        return ProcedureResult(error=failure or "reviewer posted no findings")
+        return ProcedureResult(error=failure or "reviewer posted no findings", **partial)
     if records.verdict is None:
         return ProcedureResult(
-            error=failure or "reviewer finished without a verdict",
-            comment_urls=records.comment_urls,
+            error=failure or "reviewer finished without a verdict", **partial
         )
     log.info(
         "review finished",
         extra={"comments": records.comment_urls, "verdict": records.verdict},
     )
     return ProcedureResult(
-        comment_urls=records.comment_urls,
-        verdict=records.verdict,
-        verdict_summary=records.verdict_summary,
+        verdict=records.verdict, verdict_summary=records.verdict_summary, **partial
     )
 
 
-def run_scope(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
-    """scope: the PM turns a goal into tickets, records crew intent, and
-    leave a one-paragraph summary as a comment on each ticket filed — all
-    through governed tools. No sandbox, no delivery, no private memory: the
-    backlog is the PM's cross-run state, and the summary comment is what a
-    later reader of that backlog finds. A dispatch that filed tickets but
-    posted no summary is a failed dispatch — the tickets are still reported,
-    so they stay linked to the run. Refusing a tool call is the gateway's
-    job; a deny surfaces as a tool observation the model sees."""
+def run_scope(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
+) -> ProcedureResult:
+    """scope: the PM reads the observation — the company's documents and
+    the world as the heartbeat sees it — and files the next slice of work
+    as tickets, leaving a one-paragraph summary as a comment on each; all
+    through governed tools. No sandbox, no delivery, no private memory:
+    the backlog is the PM's cross-run state, and the summary comment is
+    what a later reader of that backlog finds. Filing nothing is a valid
+    outcome (the strategy may be delivered); a dispatch that filed tickets
+    but posted no summary is a failed dispatch — the tickets are still
+    reported, so they stay linked to the run. Refusing a tool call is the
+    gateway's job; a deny surfaces as a tool observation the model sees."""
     with _session(settings, run_id, "scope", SCOPE_TOOLS, SCOPE_STEP_CAP) as s:
         convo, records = s.convo, s.records
-        convo.send_message(f"Goal:\n{task_text}")
+        convo.send_message(task_text)
         convo.run()
         failure = _loop_failure(convo)
-    partial = dict(
-        ticket_urls=records.ticket_urls,
-        crew_request_id=records.crew_request_id,
-        comment_urls=records.comment_urls,
-    )
+    partial = dict(ticket_urls=records.ticket_urls, comment_urls=records.comment_urls)
     if failure:
         return ProcedureResult(error=failure, **partial)
-    if not records.ticket_urls:
-        return ProcedureResult(error="PM filed no ticket for the goal")
-    if not records.comment_urls:
+    if records.ticket_urls and not records.comment_urls:
         return ProcedureResult(
             error="PM filed tickets without posting its summary", **partial
         )
     log.info(
         "pm finished",
-        extra={
-            "tickets": records.ticket_urls,
-            "crew_request": records.crew_request_id,
-            "comments": records.comment_urls,
-        },
+        extra={"tickets": records.ticket_urls, "comments": records.comment_urls},
     )
     return ProcedureResult(**partial)
 
@@ -552,7 +573,9 @@ def run_scope(settings: AgentSettings, run_id: str, task_text: str) -> Procedure
 # The decide contract: exactly one DECISION line and one RATIONALE line.
 # The rationale is required — an unexplained decision is a failed dispatch,
 # because the journal is half the point of asking.
-DECISION_RE = re.compile(r"^DECISION:\s*(?:(implement|review)\s+#(\d+)|(idle))\s*$", re.M)
+DECISION_RE = re.compile(
+    r"^DECISION:\s*(?:(implement|review)\s+#(\d+)|(scope|idle))\s*$", re.M
+)
 RATIONALE_RE = re.compile(r"^RATIONALE:\s*(\S.*)$", re.M)
 
 
@@ -562,15 +585,20 @@ def parse_decision(text: str) -> dict[str, Any] | None:
     rationale = RATIONALE_RE.search(text)
     if decision is None or rationale is None:
         return None
-    action, target, idle = decision.groups()
+    action, target, bare = decision.groups()
     return {
-        "action": action or idle,
+        "action": action or bare,
         "target": int(target) if target else None,
         "rationale": rationale.group(1).strip(),
     }
 
 
-def run_decide(settings: AgentSettings, run_id: str, task_text: str) -> ProcedureResult:
+def run_decide(
+    settings: AgentSettings,
+    run_id: str,
+    task_text: str,
+    documents: dict[str, str] | None = None,
+) -> ProcedureResult:
     """decide: the heartbeat's question. LLM-only — one
     completion, no tools, no gateway session: the observation in the task
     text is everything the PM may consider, and the platform validates the

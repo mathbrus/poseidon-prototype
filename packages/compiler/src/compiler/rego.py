@@ -32,8 +32,15 @@ they query.
 import json
 from typing import Any
 
-from common.policy import company_package, rego_slug
+from common.policy import (
+    CREW_REQUEST,
+    HEARTBEAT_START,
+    MERGE_RESOLVE,
+    company_package,
+    rego_slug,
+)
 from compiler.plan import AgentInstanceCR, EphemeralAgentSpec, HeartbeatConfig
+from schema.catalog import DOCUMENT_ROLE
 from schema.gates import UNDELEGATABLE_PATHS
 from schema.tools import RUN_SCOPED
 
@@ -98,27 +105,58 @@ allow_rules contains "crew_{crew_slug}_{role_slug}_{tool_slug}" if {{
 {extra}}}
 """
 
-# Spawn authority is bounded by the conductor's concurrency cap and the
-# run's budget headroom — both riding the enriched *input* (the gateway
-# counts live spawns and checks the ledger; no OPA data pushes). There is
-# deliberately no child-⊆-parent scope check (see `checks`).
+# The crew.request decision: not a gateway tool but the question the
+# platform must win, as the conductor, before it fulfils a run's crew. The
+# requested template is narrowed to the conductor's may_spawn list; its
+# concurrency cap and the run's budget headroom ride the enriched *input*
+# (the platform counts live spawns and checks the ledger; no OPA data
+# pushes). There is deliberately no child-⊆-parent scope check (see
+# `checks`).
+_CREW_REQUEST_RULE = """
+# {standing_name}: the crews the platform may fulfil under its authority.
+allow_rules contains "role_{standing_slug}_crew_request" if {{
+	input.lifecycle == "standing"
+	input.company == "{company}"
+	input.role == "{role}"
+	input.tool == "{crew_request}"
+	input.args.crew_template in {may_spawn}
+}}
+"""
+
 _OVER_CAP_RULE = """
 # {agent_id}: at most {cap} concurrent crews (spawn denials are
 # first-class governance events).
 deny_rules contains "crew_request_over_cap" if {{
-	input.tool == "crew.request"
+	input.tool == "{crew_request}"
 	input.agent_id == "{agent_id}"
 	input.active_spawns >= {cap}
 }}
 """
 
-_NO_BUDGET_RULE = """
+_NO_BUDGET_RULE = f"""
 # No spawn against an exhausted run budget — headroom is verified by the
-# gateway against the ledger and rides the input.
-deny_rules contains "crew_request_no_budget" if {
-	input.tool == "crew.request"
+# platform against the ledger and rides the input.
+deny_rules contains "crew_request_no_budget" if {{
+	input.tool == "{CREW_REQUEST}"
 	input.budget_headroom == false
-}
+}}
+"""
+
+# A crew member may ask for one architecture revision per run; the count
+# of requests this run already made rides the input, read by the gateway
+# off its own audit trail. Fail-safe: an absent count denies.
+ARCHITECTURE_REQUESTS_PER_RUN = 1
+_ARCHITECTURE_CAP_RULE = f"""
+# At most {ARCHITECTURE_REQUESTS_PER_RUN} architecture request per run.
+deny_rules contains "architecture_request_over_cap" if {{
+	input.tool == "architecture.request"
+	input.architecture_requests >= {ARCHITECTURE_REQUESTS_PER_RUN}
+}}
+
+deny_rules contains "architecture_request_count_missing" if {{
+	input.tool == "architecture.request"
+	not is_number(object.get(input, ["architecture_requests"], null))
+}}
 """
 
 _PLATFORM = """
@@ -137,19 +175,6 @@ def _run_binding(tool: str) -> str:
     allow-list without it reopens cross-run tool use. Membership is
     declared in `schema.tools`, a property of the tool, not a name prefix."""
     return "\tbound_to_run\n" if tool in RUN_SCOPED else ""
-
-
-def _role_extra(tool: str, may_spawn: tuple[str, ...]) -> str:
-    """Per-tool guards beyond the plain allow. `crew.request` narrows the
-    requested template to the conductor's may_spawn list: spawn intent
-    outside it is a rule deny before anything is recorded. Concurrency caps
-    and budget headroom are enforced by separate deny rules."""
-    if tool == "crew.request":
-        return (
-            f"\tinput.args.crew_template in {json.dumps(sorted(may_spawn))}\n"
-            + _run_binding(tool)
-        )
-    return _run_binding(tool)
 
 
 def _decision_file(package: str, *rules: str) -> str:
@@ -181,12 +206,25 @@ def _role_file(
             company=company,
             tool=tool,
             tool_slug=rego_slug(tool),
-            extra=_role_extra(tool, may_spawn),
+            extra=_run_binding(tool),
         )
         for tool in sorted(tools)
     )
-    if max_concurrent_spawns and "crew.request" in tools:
-        body += _OVER_CAP_RULE.format(agent_id=agent_id, cap=int(max_concurrent_spawns))
+    if may_spawn:
+        body += _CREW_REQUEST_RULE.format(
+            standing_name=standing_name,
+            standing_slug=rego_slug(standing_name),
+            role=role,
+            company=company,
+            crew_request=CREW_REQUEST,
+            may_spawn=json.dumps(sorted(may_spawn)),
+        )
+        if max_concurrent_spawns:
+            body += _OVER_CAP_RULE.format(
+                agent_id=agent_id,
+                cap=int(max_concurrent_spawns),
+                crew_request=CREW_REQUEST,
+            )
     return _rego_file(company, body)
 
 
@@ -212,49 +250,62 @@ def _crew_file(company: str, crew: str, role: str, tools: list[str]) -> str:
 def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
     """The heartbeat's start authority. `heartbeat.start` is not a gateway
     tool: it is the decision the heartbeat must win before starting a
-    workflow on its own initiative. No heartbeat section
-    compiles no file, so an unattended start with no declared authority
-    falls to the default deny — revocation is a blueprint diff.
+    workflow on its own initiative; a workflow outside `may_start` falls
+    to the default deny — revocation is a blueprint diff.
 
     The caps are compiled literals and the live counts ride the input,
     verified by the caller — the `active_spawns` idiom: runs in flight,
-    today's spend, and the target item's prior attempts. Fail-safe
-    defaults: absent counts deny, like the changed-paths rules."""
+    today's spend, the target item's prior attempts, and for `scope` the
+    repository's open issues. Fail-safe defaults: absent counts deny,
+    like the changed-paths rules."""
     allows = "".join(
         f'\nallow_rules contains "heartbeat_start_{rego_slug(workflow)}" if {{\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         f'\tinput.args.workflow == "{workflow}"\n'
         "}\n"
         for workflow in sorted(heartbeat.may_start)
     )
     denies = (
         '\ndeny_rules contains "heartbeat_start_over_concurrency" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         f"\tinput.args.active_runs >= {int(heartbeat.max_concurrent_runs)}\n"
         "}\n"
         '\ndeny_rules contains "heartbeat_start_over_daily_cap" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         f"\tinput.args.daily_spent_usd >= {json.dumps(heartbeat.daily_cap_usd)}\n"
         "}\n"
         '\ndeny_rules contains "heartbeat_start_over_attempts" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         f"\tinput.args.attempts >= {int(heartbeat.max_attempts)}\n"
+        "}\n"
+        # Scoping is refused at the open-ticket cap: the conductor may
+        # not flood its own backlog. Only scope reads this count, so only
+        # scope fails closed without it.
+        '\ndeny_rules contains "heartbeat_start_over_open_tickets" if {\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
+        '\tinput.args.workflow == "scope"\n'
+        f"\tinput.args.open_tickets >= {int(heartbeat.max_open_tickets)}\n"
+        "}\n"
+        '\ndeny_rules contains "heartbeat_start_open_tickets_missing" if {\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
+        '\tinput.args.workflow == "scope"\n'
+        '\tnot is_number(object.get(input, ["args", "open_tickets"], null))\n'
         "}\n"
         # object.get, not a bare reference: negating a builtin over an
         # undefined reference never fires, so a bare `not is_number(...)`
         # would fail open on the absent key it exists to catch.
         '\ndeny_rules contains "heartbeat_start_counts_missing" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tnot is_number(object.get(input, ["args", "active_runs"], null))\n'
         "}\n"
         '\ndeny_rules contains "heartbeat_start_spend_missing" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tnot is_number(object.get(input, ["args", "daily_spent_usd"], null))\n'
         "}\n"
         '\ndeny_rules contains "heartbeat_start_attempts_missing" if {\n'
-        '\tinput.tool == "heartbeat.start"\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tnot is_number(object.get(input, ["args", "attempts"], null))\n'
         "}\n"
     )
@@ -298,7 +349,7 @@ def _merge_gate_file(
         # separate from the generic carve-out so the audit row names the
         # class that refused.
         '\ndeny_rules contains "merge_resolve_contract_path" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome contract in {json.dumps(contract_paths)}\n"
         "\tstartswith(path, contract)\n"
@@ -307,7 +358,7 @@ def _merge_gate_file(
         # idiom: object.get so the absent key denies rather than leaving
         # the rule unevaluated.
         '\ndeny_rules contains "merge_resolve_contract_not_green" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tobject.get(input, ["args", "contract_green"], false) != true\n'
         "}\n"
         if contract_paths
@@ -321,7 +372,7 @@ def _merge_gate_file(
         '\nallow_rules contains "merge_resolve_delegated" if {\n'
         '\tinput.lifecycle == "platform"\n'
         f'\tinput.company == "{company}"\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         # The quality layers, verified by the caller and riding the
         # input: the independent reviewer's verdict, the platform's own
         # model-free checks, and the registry-checked independence of the
@@ -339,20 +390,20 @@ def _merge_gate_file(
         # Path rules fail closed, the git.open_pr idiom: without the
         # changed paths in the input the class cannot be checked.
         '\ndeny_rules contains "merge_resolve_paths_missing" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         "\tnot input.args.paths\n"
         "}\n"
         # The undelegatable surfaces as a deny — the belt under the
         # compile-time refusal to delegate them: a changed path under a
         # carve-out denies the resolve whatever the delegated class says.
         '\ndeny_rules contains "merge_resolve_carved_out_path" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tsome carved in {carved}\n"
         "\tstartswith(path, carved)\n"
         "}\n"
         '\ndeny_rules contains "merge_resolve_undelegated_path" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         "\tnot path_delegated(path)\n"
         "}\n"
@@ -361,15 +412,15 @@ def _merge_gate_file(
         # object.get, never a bare reference, so the absent key denies
         # rather than leaving the rule unevaluated.
         + '\ndeny_rules contains "merge_resolve_verdict_not_pass" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tobject.get(input, ["args", "verdict"], "") != "pass"\n'
         "}\n"
         '\ndeny_rules contains "merge_resolve_checks_not_green" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tobject.get(input, ["args", "checks_green"], false) != true\n'
         "}\n"
         '\ndeny_rules contains "merge_resolve_not_independent" if {\n'
-        '\tinput.tool == "merge.resolve"\n'
+        f'\tinput.tool == "{MERGE_RESOLVE}"\n'
         '\tobject.get(input, ["args", "reviewer_independent"], false) != true\n'
         "}\n"
     )
@@ -416,11 +467,14 @@ REPO_TOOLS = (
 )
 
 
-def _policies_file(company: str, policies: dict[str, Any], repo_url: str) -> str:
-    """The declared repository, branch protection, deny paths and the
-    contract tree — enforceable on real arguments because the gateway
-    passes the call's `repo` and bundle-apply already gives policy the
-    changed paths."""
+def _policies_file(
+    company: str, policies: dict[str, Any], repo_url: str, documents: dict[str, str]
+) -> str:
+    """The declared repository, branch protection, deny paths, the
+    contract tree and the company's document paths — enforceable on real
+    arguments because the gateway passes the call's `repo` and
+    bundle-apply already gives policy the changed paths, and which of them
+    already exist on the base ref."""
     protection = policies.get("branch_protection") or {}
     protected = protection.get("protected") or []
     pattern = protection.get("allowed_pattern")
@@ -461,17 +515,17 @@ def _policies_file(company: str, policies: dict[str, Any], repo_url: str) -> str
             f"\tnot regex.match({json.dumps(pattern)}, input.args.branch)\n"
             "}\n"
         )
-    if deny_paths or contract_paths:
-        # Path rules fail closed: without the changed paths in the input
-        # they cannot be evaluated, so the call is denied. The gateway
-        # always supplies args.paths for git.open_pr (bundle-apply
-        # computes them before the policy query).
-        lines.append(
-            '\ndeny_rules contains "git_open_pr_paths_missing" if {\n'
-            '\tinput.tool == "git.open_pr"\n'
-            "\tnot input.args.paths\n"
-            "}\n"
-        )
+    # Path rules fail closed: without the changed paths in the input they
+    # cannot be evaluated, so the call is denied. The gateway always
+    # supplies args.paths for git.open_pr (bundle-apply computes them
+    # before the policy query). Every company has document paths to
+    # fence, so the rule is always emitted.
+    lines.append(
+        '\ndeny_rules contains "git_open_pr_paths_missing" if {\n'
+        '\tinput.tool == "git.open_pr"\n'
+        "\tnot input.args.paths\n"
+        "}\n"
+    )
     if deny_paths:
         lines.append(_open_pr_path_deny("git_open_pr_denied_paths", deny_paths))
     if contract_paths:
@@ -483,6 +537,37 @@ def _policies_file(company: str, policies: dict[str, Any], repo_url: str) -> str
                 "git_open_pr_contract_tree", contract_paths, contract.get("roles") or []
             )
         )
+    # The company's documents have one writer: only the steward may
+    # deliver into either path. The strategy is written once — a delivery
+    # touching it while it already exists on the base ref is denied for
+    # the steward too. Presence is a fact the gateway reads off the base
+    # ref and passes with the changed paths; a strategy delivery without
+    # that fact fails closed. A future standing observer would revise the
+    # strategy; nothing in the catalog grows to fill that gap.
+    strategy = json.dumps(documents["strategy"])
+    lines.append(
+        _open_pr_path_deny(
+            "git_open_pr_architecture_path", [documents["architecture"]], [DOCUMENT_ROLE]
+        )
+    )
+    lines.append(
+        _open_pr_path_deny(
+            "git_open_pr_strategy_path", [documents["strategy"]], [DOCUMENT_ROLE]
+        )
+    )
+    lines.append(
+        '\ndeny_rules contains "git_open_pr_strategy_present" if {\n'
+        '\tinput.tool == "git.open_pr"\n'
+        '\tsome path in object.get(input, ["args", "paths_present"], [])\n'
+        f"\tstartswith(path, {strategy})\n"
+        "}\n"
+        '\ndeny_rules contains "git_open_pr_strategy_presence_missing" if {\n'
+        '\tinput.tool == "git.open_pr"\n'
+        '\tsome path in object.get(input, ["args", "paths"], [])\n'
+        f"\tstartswith(path, {strategy})\n"
+        "\tnot input.args.paths_present\n"
+        "}\n"
+    )
     return "".join(lines)
 
 
@@ -492,13 +577,18 @@ def build_bundle(
     ephemeral_agents: list[EphemeralAgentSpec],
     policies: dict[str, Any],
     repo_url: str,
-    heartbeat: HeartbeatConfig | None = None,
+    heartbeat: HeartbeatConfig,
+    documents: dict[str, str],
     merge_delegation: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """The company bundle: per-role and per-ephemeral-agent files, plus the
     company's decision entrypoint and the blueprint's policy rules — all
     under the company's own package."""
-    files = {"authz.rego": _decision_file(company_package(company), _NO_BUDGET_RULE)}
+    files = {
+        "authz.rego": _decision_file(
+            company_package(company), _NO_BUDGET_RULE, _ARCHITECTURE_CAP_RULE
+        )
+    }
     for instance in instances:
         files[f"role_{rego_slug(instance.standing_name)}.rego"] = _role_file(
             company,
@@ -512,9 +602,8 @@ def build_bundle(
     for agent in ephemeral_agents:
         name = f"crew_{rego_slug(agent.crew)}_{rego_slug(agent.role)}.rego"
         files[name] = _crew_file(company, agent.crew, agent.role, list(agent.tools))
-    files["policies.rego"] = _policies_file(company, policies, repo_url)
-    if heartbeat is not None:
-        files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
+    files["policies.rego"] = _policies_file(company, policies, repo_url, documents)
+    files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
     if merge_delegation is not None:
         files["merge_gate.rego"] = _merge_gate_file(company, merge_delegation, policies)
     return files

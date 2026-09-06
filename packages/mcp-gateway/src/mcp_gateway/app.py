@@ -34,9 +34,7 @@ from mcp_gateway.service import GatewayService, PolicyDenied
 from registry import (
     AgentInstances,
     AuditStore,
-    BudgetLedger,
     Companies,
-    CrewRequests,
     RunParticipants,
     Runs,
     SandboxRegistrations,
@@ -88,8 +86,6 @@ def create_app(
     instances: AgentInstances | None = None,
     participants: RunParticipants | None = None,
     runs: Runs | None = None,
-    crew_requests: CrewRequests | None = None,
-    ledger: BudgetLedger | None = None,
     companies: Companies | None = None,
     token_reviewer: Reviewer | None = None,
 ) -> Starlette:
@@ -103,16 +99,7 @@ def create_app(
     # reads for decision-input enrichment). Injectable so
     # tests need no database — all or none: injecting a subset would still
     # open a real pool for the rest.
-    accessors = (
-        sandboxes,
-        audit,
-        instances,
-        participants,
-        runs,
-        crew_requests,
-        ledger,
-        companies,
-    )
+    accessors = (sandboxes, audit, instances, participants, runs, companies)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -121,8 +108,6 @@ def create_app(
         instances = AgentInstances(registry)
         participants = RunParticipants(registry)
         runs = Runs(registry)
-        crew_requests = CrewRequests(registry)
-        ledger = BudgetLedger(registry)
         companies = Companies(registry)
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
@@ -133,9 +118,6 @@ def create_app(
         sandboxes,
         audit,
         runs,
-        crew_requests,
-        participants,
-        ledger,
         companies,
     )
     authenticator = Authenticator(
@@ -291,6 +273,16 @@ def create_app(
             identity_of(ctx), run_id, repo, ref, overlay_ref, overlay_paths
         )
 
+    @mcp.tool(name="repo.read_file")
+    async def repo_read_file(
+        run_id: str, repo: str, ref: str, path: str, ctx: Context
+    ) -> dict[str, Any]:
+        """One file of the repository at `ref`, as the git host holds it —
+        `{present, text}`. Platform lifecycle only: how the orchestrator
+        reads the company's documents at `base_ref`, never from a sandbox
+        a run could have edited."""
+        return await service.read_file(identity_of(ctx), run_id, repo, ref, path)
+
     @mcp.tool(name="git.open_pr")
     async def git_open_pr(
         run_id: str,
@@ -303,20 +295,37 @@ def create_app(
     ) -> dict[str, Any]:
         """The only path by which code leaves the system. The gateway verifies the
         bundle, applies it to a fresh platform-side clone, extracts the changed
-        paths and feeds them to policy as real arguments (branch protection,
-        `deny_paths`, the contract-tree owner rule), then pushes the branch with
-        its own token and opens the pull request."""
+        paths — and which of them already exist on the base ref — and feeds
+        them to policy as real arguments (branch protection, `deny_paths`, the
+        contract-tree owner rule, the document fences and the write-once
+        strategy), then pushes the branch with its own token and opens the
+        pull request."""
         return await service.open_pr(
             identity_of(ctx), run_id, repo, branch, title, body, bundle_b64
         )
 
     # -- issues, review, merge, crew intent ---------------------------------
 
+    @mcp.tool(name="architecture.request")
+    async def architecture_request(
+        run_id: str, rationale: str, proposal: str, ctx: Context
+    ) -> dict[str, Any]:
+        """Ask for a change to the architecture masterplan. The platform files
+        the proposal as a stewardship ticket on the company's repository — the
+        caller chooses neither the crew nor the repository — and the steward
+        revises the plan on a later tick. One request per run; asking is not
+        writing."""
+        return await service.architecture_request(
+            identity_of(ctx), run_id, rationale, proposal
+        )
+
     @mcp.tool(name="issues.create")
     async def issues_create(
         run_id: str, repo: str, title: str, body: str, ctx: Context
     ) -> dict[str, Any]:
-        """File a new issue — how a goal becomes tickets."""
+        """File a new issue — how the PM turns the next slice of the strategy
+        into tickets, and how the platform files rework and bootstrap
+        tickets."""
         return await service.issues_create(identity_of(ctx), run_id, repo, title, body)
 
     @mcp.tool(name="issues.read")
@@ -332,7 +341,7 @@ def create_app(
     async def issues_comment(
         run_id: str, repo: str, number: int, body: str, ctx: Context
     ) -> dict[str, Any]:
-        """Comment on an issue — how the PM leaves its one-paragraph intake summary
+        """Comment on an issue — how the PM leaves its one-paragraph scoping summary
         on each ticket it files."""
         return await service.issues_comment(identity_of(ctx), run_id, repo, number, body)
 
@@ -359,17 +368,6 @@ def create_app(
         identity alone, and the orchestrator calls it only after the merge gate
         resolved to merge. No blueprint can hand it to an agent role."""
         return await service.git_merge_pr(identity_of(ctx), run_id, repo, number, method)
-
-    @mcp.tool(name="crew.request")
-    async def crew_request(
-        run_id: str, crew_template: str, reason: str, ctx: Context
-    ) -> dict[str, Any]:
-        """Record a conductor's intent to spawn a crew. An allowed request is
-        authorization plus intent, never fulfilment — the implement workflow
-        consumes the recorded row and does the provisioning. The compiled rule
-        narrows `crew_template` to the caller's `may_spawn` list and enforces
-        its `max_concurrent` cap against a live spawn count."""
-        return await service.request_crew(identity_of(ctx), run_id, crew_template, reason)
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])
     async def admin_sandboxes(request: Request) -> Response:

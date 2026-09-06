@@ -38,10 +38,15 @@ crews and what each may spawn are on [Roles and crews](../reference/roles.md).
 
 ## Future: other kinds of agents
 
-An observer that reads the internet, or a support or accounting agent,
-would enter the same way as today's four roles: a catalog role with its
-own tool ceiling and procedures, dispatched by a workflow, contained by
-compiled policy rather than by its prompt. What would have to give way is
+The one future hire the design already names is the **observer**: a
+standing agent that reads the world outside the repository and would be
+the author of strategy revisions — today the strategy is written once by
+the steward and then changed by no current role, a compiled deny rather
+than restraint, and neither the steward, the PM nor the `decide`
+procedure grows to fill that gap. An observer, or a support or accounting
+agent, would enter the same way as today's five roles: a catalog role with
+its own tool ceiling and procedures, dispatched by a workflow, contained
+by compiled policy rather than by its prompt. What would have to give way is
 the gateway's fixed tool catalog (new tools, with their own run-scoping
 rules) and the assumption that every run has a sandbox and a repository.
 None of that exists in the tree today; it is a consideration for later,

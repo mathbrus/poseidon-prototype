@@ -23,6 +23,8 @@ RUN_ID = "run-01TESTULID"
 PR_URL = "https://github.test/example/target/pull/7"
 COMMENT_URL = "https://github.test/example/target/pull/7#issuecomment-1"
 ISSUE_COMMENT_URL = "https://github.test/example/target/issues/7#issuecomment-2"
+# The stewardship ticket the platform files for an architecture request.
+ARCHITECTURE_TICKET_URL = "https://github.test/example/target/issues/9"
 FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 
 _ids = count(1)
@@ -171,6 +173,8 @@ class FakeGateway:
                 return {"url": COMMENT_URL}
             case "issues.comment":
                 return {"url": ISSUE_COMMENT_URL}
+            case "architecture.request":
+                return {"number": 9, "url": ARCHITECTURE_TICKET_URL}
             case "issues.create":
                 return {
                     "number": 7,
@@ -256,5 +260,5 @@ def settings(tmp_path) -> AgentSettings:
         gateway_token_file=str(token),
         role="implementer",
         target_repo="example/target",
-        mission="ship a tiny SaaS under governance",
+        vision="ship a tiny SaaS under governance",
     )

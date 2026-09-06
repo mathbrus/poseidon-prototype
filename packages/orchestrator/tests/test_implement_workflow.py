@@ -17,7 +17,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from orchestrator.workflows.base import FAST_TIMEOUTS
-from orchestrator.workflows.implement import ImplementInput, ImplementWorkflow
+from orchestrator.workflows.implement import (
+    ImplementInput,
+    ImplementWorkflow,
+    architecture_wait,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -39,11 +43,15 @@ class Harness:
     dispatch_hangs: bool = False
 
     dispatches: list[str] = field(default_factory=list)
+    # (procedure, documents) per dispatch: the implement dispatches carry
+    # the company's documents, delivery carries none.
+    carried: list[tuple[str, dict[str, str]]] = field(default_factory=list)
     torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
         default_factory=list
     )
     attempts_recorded: list[str] = field(default_factory=list)
     wakes: int = 0
+    verifies: int = 0
 
     def activities(self) -> list[Any]:
         harness = self
@@ -88,17 +96,25 @@ class Harness:
         @activity.defn(name="fulfill_crew")
         async def fulfill_crew(request: dict[str, Any]) -> dict[str, Any]:
             return {
-                "request_id": "crq-1",
                 "agents": {
                     "implementer": {"agent_id": "fd-impl", "url": "http://crew:8000"}
                 },
             }
 
+        @activity.defn(name="read_documents")
+        async def read_documents(run_id: str) -> dict[str, str]:
+            return {"strategy": "Ship slugs."}
+
         @activity.defn(name="dispatch_agent")
         async def dispatch_agent(
-            run_id: str, url: str, procedure: str, task_text: str
+            run_id: str,
+            url: str,
+            procedure: str,
+            task_text: str,
+            documents: dict[str, str],
         ) -> dict[str, Any]:
             harness.dispatches.append(procedure)
+            harness.carried.append((procedure, documents))
             while harness.dispatch_hangs:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
@@ -107,6 +123,7 @@ class Harness:
 
         @activity.defn(name="platform_verify")
         async def platform_verify(run_id: str) -> dict[str, Any]:
+            harness.verifies += 1
             return {"passed": True, "output": ""}
 
         @activity.defn(name="record_attempts_exhausted")
@@ -142,6 +159,7 @@ class Harness:
             fetch_workspace,
             provision_sandbox,
             fulfill_crew,
+            read_documents,
             dispatch_agent,
             platform_verify,
             record_attempts_exhausted,
@@ -192,6 +210,12 @@ async def test_a_delivered_run_concluded_its_issue(env):
     record = await run_implement(env.client, harness)
     assert record["status"] == "done" and record["pr_url"] == PR_URL
     assert harness.dispatches == ["implement", "deliver"]
+    # The documents ride the implement dispatch as untrusted context and
+    # never the delivery, which only ships what was verified.
+    assert harness.carried == [
+        ("implement", {"strategy": "Ship slugs."}),
+        ("deliver", {}),
+    ]
     assert harness.attempts_recorded == []
     assert harness.wakes == 1  # the delivered PR is the heartbeat's to offer
 
@@ -206,6 +230,26 @@ async def test_an_implementer_that_died_leaves_the_issue_for_another_try(env):
     assert harness.dispatches == ["implement"]
     assert harness.attempts_recorded == [RUN_ID]
     assert harness.wakes == 1  # a failed run frees the slot: still a nudge
+
+
+async def test_an_architecture_request_ends_the_run_without_delivery(env):
+    """The implementer asked for the plan to change instead of deviating:
+    no verify, no delivery dispatch, the run fails by name with the ticket
+    it waits on, the ticket rides the record, and the attempt accounting
+    runs — a later attempt works the ticket against the revised plan."""
+    url = "https://github.test/example/repo/issues/77"
+    harness = Harness(
+        implement={"status": "done", "error": None, "iterations": 1, "ticket_urls": [url]}
+    )
+    record = await run_implement(env.client, harness)
+    assert record["status"] == "failed"
+    assert harness.dispatches == ["implement"]
+    assert harness.verifies == 0
+    (result, error) = harness.torn_down[0]
+    assert error == architecture_wait([url])
+    assert result is not None and result["ticket_urls"] == [url]
+    assert harness.attempts_recorded == [RUN_ID]
+    assert harness.wakes == 1
 
 
 async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):

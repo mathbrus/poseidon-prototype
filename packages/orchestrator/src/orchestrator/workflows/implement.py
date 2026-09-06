@@ -8,9 +8,10 @@ the retry policies re-drive the interrupted activity).
 Activities are referenced by name — the one seam the engine adapter needs:
 this module imports nothing from the activity implementations.
 
-The crew is the only execution path: fulfill_crew stands
-the ephemeral implementer up (recording the crew request under the standing
-conductor's authority when none exists), the implementer is dispatched at its
+The crew is the only execution path: fulfill_crew stands the ephemeral
+implementer up under the standing conductor's authority (the compiled
+crew.request decision, evaluated as the conductor), the implementer is
+dispatched at its
 ephemeral pod with the task text, and its completion claim is advisory — the
 platform verify gate (`platform_verify`, the orchestrator's own run of the
 sandbox tests) is the gate of record. Red verify feeds the failure back for
@@ -33,7 +34,7 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError
 
 from common.tasks import issue_run_task
 from orchestrator.gates import Gate
@@ -45,21 +46,18 @@ from orchestrator.workflows.base import (
 
 @dataclass
 class ImplementInput:
-    """Exactly one of `task_text` (a spec handed in directly) or
-    `issue_number` (a GitHub issue the company already filed — resolved by
-    the platform before dispatch) must be set."""
+    """The ticket the company filed, resolved by the platform before
+    dispatch — the one source of an implement run's text."""
 
     run_id: str
-    task_text: str | None = None
-    # None keeps the generous real-brain defaults.
-    issue_number: int | None = None
+    issue_number: int
 
 
 def issue_task(number: int, title: str, body: str, url: str) -> str:
-    """The dispatch text for an issue-driven run, composed by workflow code
-    from what the platform read — deterministic on replay. The body is
-    untrusted input, exactly like a task file's contents (bodies can run to
-    65k chars; truncation is future work, never done silently)."""
+    """The dispatch text of a run, composed by workflow code from the
+    ticket the platform read — deterministic on replay. The body is
+    untrusted input (bodies can run to 65k chars; truncation is future
+    work, never done silently)."""
     return f"Implement issue #{number} ({url}): {title}\n\n{body}"
 
 
@@ -70,11 +68,18 @@ def issue_task(number: int, title: str, body: str, url: str) -> str:
 TICKET_CREW_RE = re.compile(r"^Crew:\s*([a-z0-9][a-z0-9-]*)\s*$", re.MULTILINE)
 
 
+def architecture_wait(ticket_urls: list[str]) -> str:
+    """The error an implement run ends with when its implementer asked for
+    the plan to change instead of delivering: the stewardship ticket(s)
+    the platform filed, by URL, so the run row says what it waits on."""
+    return "waits on architecture request: " + ", ".join(ticket_urls)
+
+
 def ticket_crew(task_source: str) -> str | None:
     """The crew the task names, parsed deterministically by workflow code.
     The *last* match wins: the trailer is written by whoever filed the
-    ticket, and goal text quoted above it is untrusted input — a poisoned
-    goal must not outrank the filer's own trailer. What the named crew can
+    ticket, and text quoted above it is untrusted input — a poisoned
+    document quoted into a body must not outrank the filer's own trailer. What the named crew can
     actually be is policy's to decide: fulfillment re-evaluates the
     compiled `crew.request` decision, so a ticket naming a template the
     blueprint never granted dies there, audited."""
@@ -118,35 +123,26 @@ class ImplementWorkflow(RunWorkflow):
 
     @workflow.run
     async def run(self, input: ImplementInput) -> dict[str, Any]:
-        if (input.task_text is None) == (input.issue_number is None):
-            raise ApplicationError(
-                "exactly one of task_text or issue_number must be set",
-                non_retryable=True,
-            )
         handle: dict[str, Any] | None = None
         result: dict[str, Any] | None = None
         error: str | None = None
         cancelled = False
         try:
             config = await self.start_run(
-                input.run_id,
-                input.task_text or issue_run_task(input.issue_number),
+                input.run_id, issue_run_task(input.issue_number)
             )
-            # The one source of dispatch truth: the file text handed in, or
-            # the ticket the company already filed — fetched under the
-            # platform identity and composed deterministically here.
-            if input.issue_number is not None:
-                issue = await workflow.execute_activity(
-                    "read_issue",
-                    args=[input.run_id, input.issue_number],
-                    start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
-                    retry_policy=STEP_RETRY,
-                )
-                task_source = issue_task(
-                    issue["number"], issue["title"], issue["body"], issue["url"]
-                )
-            else:
-                task_source = input.task_text
+            # The one source of dispatch truth: the ticket the company
+            # filed, fetched under the platform identity and composed
+            # deterministically here.
+            issue = await workflow.execute_activity(
+                "read_issue",
+                args=[input.run_id, input.issue_number],
+                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                retry_policy=STEP_RETRY,
+            )
+            task_source = issue_task(
+                issue["number"], issue["title"], issue["body"], issue["url"]
+            )
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id],
@@ -167,6 +163,10 @@ class ImplementWorkflow(RunWorkflow):
                 input.run_id, config, crew=ticket_crew(task_source)
             )
 
+            # The company's documents ride the implement dispatches as
+            # untrusted context — the base_ref copy, read by the platform,
+            # never the sandbox's. Delivery reads none of them.
+            documents = await self.read_documents(input.run_id)
             # Implement to a completion claim; the platform verify gate is
             # the gate of record. Red feeds back, bounded by the blueprint.
             verify_failures = 0
@@ -174,9 +174,17 @@ class ImplementWorkflow(RunWorkflow):
             verified = False
             while True:
                 result = await self.dispatch(
-                    input.run_id, implementer["url"], "implement", task_text
+                    input.run_id, implementer["url"], "implement", task_text, documents
                 )
                 if (result or {}).get("error"):
+                    break
+                if (result or {}).get("ticket_urls"):
+                    # The implementer asked for the plan to change rather
+                    # than deviate from it: nothing here is delivered. The
+                    # run fails by name, and the attempt accounting decides
+                    # whether the ticket is offered again — a later attempt
+                    # reads the plan the steward has revised by then.
+                    error = architecture_wait(result["ticket_urls"])
                     break
                 verify = await workflow.execute_activity(
                     "platform_verify",
@@ -209,11 +217,17 @@ class ImplementWorkflow(RunWorkflow):
                 elif not (delivery or {}).get("pr_url"):
                     error = "delivery finished without a PR"
                 # The deliver status carries pr_url; keep the implement
-                # iteration count alongside it.
+                # iteration count alongside it, and every ticket either
+                # dispatch filed — an architecture request is the
+                # implement dispatch's, and delivery must not erase it.
                 merged = dict(result or {})
                 merged.update(
                     {k: v for k, v in (delivery or {}).items() if v is not None}
                 )
+                merged["ticket_urls"] = [
+                    *((result or {}).get("ticket_urls") or []),
+                    *((delivery or {}).get("ticket_urls") or []),
+                ]
                 result = merged
         except asyncio.CancelledError:
             # Cooperative cancel: compensate, then let the cancellation

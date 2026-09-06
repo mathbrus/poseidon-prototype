@@ -209,6 +209,29 @@ async def test_changed_paths_are_part_of_the_policy_input(
     policy_input = backends.policy_inputs[-1]
     assert policy_input["tool"] == "git.open_pr"
     assert sorted(policy_input["args"]["paths"]) == ["docs/notes.md", "src/new_module.py"]
+    # Neither path exists on the base ref yet: the write-once rules read
+    # this fact off the same clone the changed paths came from.
+    assert policy_input["args"]["paths_present"] == []
+
+
+async def test_paths_already_on_the_base_ref_are_reported_present(
+    app, backends, target_repo, tmp_path
+):
+    """A change to a file the base ref already holds rides the policy
+    input as present — how a strategy rewrite is told from its first
+    writing."""
+    bundle = make_bundle(
+        target_repo, tmp_path, "feature/edit-readme", {"README.md": "edited\n"}
+    )
+    await open_pr(
+        app,
+        AGENT_TOKEN,
+        branch="feature/edit-readme",
+        bundle_b64=bundle,
+        repo=target_repo,
+    )
+    args = backends.policy_inputs[-1]["args"]
+    assert args["paths"] == ["README.md"] and args["paths_present"] == ["README.md"]
 
 
 # --- git.open_pr: denies ----------------------------------------------------------

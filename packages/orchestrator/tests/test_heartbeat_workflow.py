@@ -4,8 +4,8 @@ with scripted activities — the tick's sequencing, cap halts, refusals,
 revocation and the wake path are exactly what the activity units cannot see.
 
 Each test scripts a queue of per-tick configs ending in None, so the loop
-always stops itself through the same revocation path production uses —
-every test is therefore also a revocation test. And because the
+always stops itself through the same path a deleted company takes in
+production — every test is therefore also a teardown test. And because the
 time-skipping clock only advances while a result is awaited, every test
 that chains ticks without sending a wake is also a reconcile-backstop
 test: the full wait between those ticks ended by timer, not by signal."""
@@ -31,12 +31,15 @@ pytestmark = pytest.mark.anyio
 COMPANY = "hello-saas"
 
 CONFIG = heartbeat_spec(may_start=["implement", "review"])
+SCOPING = heartbeat_spec(may_start=["implement", "review", "scope"])
 
 
 def observation(**overrides: Any) -> dict[str, Any]:
     observed = {
         "active_runs": 0,
         "daily_spent_usd": 0.0,
+        "open_tickets": 1,
+        "bootstrap": {"pending": [], "exhausted": []},
         "backlog": [
             {"number": 5, "title": "Add slugify", "url": "https://i/5", "attempts": 0}
         ],
@@ -59,8 +62,12 @@ class Harness:
     deny_rules: list[str | None] = field(default_factory=list)
 
     observed_caps: list[int] = field(default_factory=list)
+    bootstrapped: list[list[str]] = field(default_factory=list)
+    # When set, every bootstrap filing raises: the not-idempotent activity
+    # the workflow must never retry.
+    bootstrap_fails: bool = False
     decide_calls: list[tuple[str, list[str]]] = field(default_factory=list)
-    authorized: list[tuple[str, str, int, float, int]] = field(default_factory=list)
+    authorized: list[tuple[str, str, int, float, int, int]] = field(default_factory=list)
     ticks: list[tuple[str, str]] = field(default_factory=list)
     gate_events: list[tuple[str, str, str]] = field(default_factory=list)
 
@@ -83,9 +90,19 @@ class Harness:
             harness.observed_caps.append(max_attempts)
             return harness.observations.pop(0)
 
+        @activity.defn(name="heartbeat_bootstrap")
+        async def heartbeat_bootstrap(names: list[str]) -> list[str]:
+            harness.bootstrapped.append(names)
+            if harness.bootstrap_fails:
+                raise RuntimeError("git host unreachable")
+            return list(names)
+
         @activity.defn(name="heartbeat_decide")
         async def heartbeat_decide(
-            run_id: str, observed: dict[str, Any], may_start: list[str]
+            run_id: str,
+            observed: dict[str, Any],
+            may_start: list[str],
+            max_open_tickets: int,
         ) -> dict[str, Any]:
             harness.decide_calls.append((run_id, may_start))
             return harness.decisions.pop(0)
@@ -97,6 +114,7 @@ class Harness:
             active_runs: int,
             daily_spent: float,
             attempts: int,
+            open_tickets: int,
         ) -> None:
             rule = harness.deny_rules.pop(0) if harness.deny_rules else None
             if rule:
@@ -105,7 +123,7 @@ class Harness:
                     non_retryable=True,
                 )
             harness.authorized.append(
-                (run_id, workflow_name, active_runs, daily_spent, attempts)
+                (run_id, workflow_name, active_runs, daily_spent, attempts, open_tickets)
             )
 
         @activity.defn(name="record_tick")
@@ -121,6 +139,7 @@ class Harness:
         return [
             heartbeat_config,
             heartbeat_observe,
+            heartbeat_bootstrap,
             heartbeat_decide,
             heartbeat_authorize,
             record_tick,
@@ -145,6 +164,13 @@ class StubReview:
     @workflow.run
     async def run(self, input: Any) -> None:
         _CHILDREN.append(("review", dict(input)))
+
+
+@workflow.defn(name="scope", sandboxed=False)
+class StubScope:
+    @workflow.run
+    async def run(self, input: Any) -> None:
+        _CHILDREN.append(("scope", dict(input)))
 
 
 @pytest.fixture(autouse=True)
@@ -175,7 +201,7 @@ async def run_heartbeat(client: Client, harness: Harness) -> dict[str, Any]:
     async with Worker(
         client,
         task_queue=task_queue,
-        workflows=[HeartbeatWorkflow, StubImplement, StubReview],
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview, StubScope],
         activities=harness.activities(),
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -201,15 +227,15 @@ async def test_started_tick_authorizes_then_spawns_the_chosen_child(env):
     # Policy first, then the child — under the same minted run id, with
     # the blueprint's attempt cap having reached the observation.
     assert harness.observed_caps == [CONFIG["max_attempts"]]
-    assert harness.authorized == [(decide_run_id, "implement", 0, 0.0, 0)]
+    assert harness.authorized == [(decide_run_id, "implement", 0, 0.0, 0, 1)]
     (kind, child_input) = harness.children[0]
     assert kind == "implement"
     assert child_input["issue_number"] == 5
     assert child_input["run_id"] == decide_run_id
     assert harness.ticks[0] == ("started", f"implement_5_as_{decide_run_id}")
-    # The config queue ran dry: the loop stopped through revocation.
-    assert harness.ticks[-1] == ("stopped", "heartbeat_section_absent")
-    assert result == {"stopped": "no heartbeat section in the applied blueprint"}
+    # The config queue ran dry: the loop stopped as a deleted company's does.
+    assert harness.ticks[-1] == ("stopped", "blueprint_absent")
+    assert result == {"stopped": "no applied blueprint for the company"}
 
 
 async def test_review_decision_starts_a_review_child(env):
@@ -229,23 +255,107 @@ async def test_review_decision_starts_a_review_child(env):
     assert child_input["pr_number"] == 4
     # The chosen PR's prior attempt rode the policy input: a second review
     # of a PR whose first aborted is bounded by the compiled decision.
-    assert harness.authorized[0][1:] == ("review", 0, 0.0, 1)
+    assert harness.authorized[0][1:] == ("review", 0, 0.0, 1, 1)
 
 
-async def test_an_undeclared_attempt_cap_refuses_the_tick_but_not_the_heartbeat(env):
-    """An applied section without `max_attempts` (a blueprint from before
-    the cap existed) defaults nothing: the tick is refused by name, the
-    observation is never even read, and the loop keeps ticking until a
-    complete section is applied — then stops through revocation like
-    every other test here."""
-    undeclared = heartbeat_spec()
-    del undeclared["max_attempts"]
-    harness = Harness(configs=[undeclared, CONFIG], observations=[observation()])
-    harness.decisions = [{"action": "idle", "target": None, "rationale": "later"}]
+async def test_scope_decision_starts_a_scope_child(env):
+    """Scoping the next slice is a run like any other: authorized with the
+    open-ticket count on the input, started under the minted id, no item
+    and no attempts."""
+    harness = Harness(
+        configs=[SCOPING],
+        observations=[observation(backlog=[], open_tickets=0)],
+        decisions=[{"action": "scope", "target": None, "rationale": "backlog dry"}],
+    )
     await run_heartbeat(env.client, harness)
-    assert harness.ticks[0] == ("refused", "max_attempts_undeclared")
-    assert harness.observed_caps == [CONFIG["max_attempts"]]
-    assert harness.ticks[1] == ("idle", "pm_chose_idle")
+    (decide_run_id, may_start) = harness.decide_calls[0]
+    assert may_start == ["implement", "review", "scope"]
+    assert harness.authorized == [(decide_run_id, "scope", 0, 0.0, 0, 0)]
+    (kind, child_input) = harness.children[0]
+    assert kind == "scope"
+    assert child_input == {"run_id": decide_run_id}
+    assert harness.ticks[0] == ("started", f"scope_as_{decide_run_id}")
+
+
+async def test_an_empty_backlog_still_asks_the_pm_when_scoping_is_open(env):
+    """With nothing to implement or review, the PM is still asked: the
+    next slice may be worth scoping, or not — idle is its call."""
+    harness = Harness(
+        configs=[SCOPING],
+        observations=[observation(backlog=[], reviewable_prs=[], open_tickets=0)],
+        decisions=[{"action": "idle", "target": None, "rationale": "strategy done"}],
+    )
+    await run_heartbeat(env.client, harness)
+    assert len(harness.decide_calls) == 1
+    assert harness.ticks[0] == ("idle", "pm_chose_idle")
+
+
+async def test_an_empty_backlog_at_the_ticket_cap_never_wakes_the_pm(env):
+    """Scoping is closed at `max_open_tickets`, so an empty startable set
+    is an empty world: the PM is not asked."""
+    harness = Harness(
+        configs=[SCOPING],
+        observations=[observation(backlog=[], reviewable_prs=[], open_tickets=5)],
+    )
+    await run_heartbeat(env.client, harness)
+    assert harness.decide_calls == []
+    assert harness.ticks[0] == ("idle", "backlog_empty")
+
+
+async def test_an_absent_document_is_bootstrapped_before_anything_else(env):
+    """A vision-only company: the tick files the bootstrap tickets for the
+    absent documents, asks the PM nothing, and wakes itself so the next
+    tick offers them."""
+    harness = Harness(
+        configs=[CONFIG, CONFIG, None],
+        observations=[
+            observation(
+                backlog=[],
+                bootstrap={"pending": ["strategy", "architecture"], "exhausted": []},
+            ),
+            observation(backlog=[], reviewable_prs=[]),
+        ],
+    )
+    await run_heartbeat(env.client, harness)
+    assert harness.bootstrapped == [["strategy", "architecture"]]
+    assert harness.decide_calls == []
+    assert harness.ticks[0] == ("idle", "bootstrap_filed:strategy,architecture")
+    # The second tick ran under the frozen clock: the tick woke itself.
+    assert harness.ticks[1][0] == "idle"
+
+
+async def test_a_failed_bootstrap_filing_is_never_retried(env):
+    """Filing is not idempotent: a filing that fails is attempted once,
+    the tick is refused by name, and the next tick reads the world for
+    itself — under a retrying policy the harness would count three."""
+    harness = Harness(
+        configs=[CONFIG],
+        observations=[
+            observation(backlog=[], bootstrap={"pending": ["strategy"], "exhausted": []})
+        ],
+        bootstrap_fails=True,
+    )
+    await run_heartbeat(env.client, harness)
+    assert harness.bootstrapped == [["strategy"]]
+    assert harness.ticks[0][0] == "refused"
+    assert "git host unreachable" in harness.ticks[0][1]
+
+
+async def test_an_exhausted_bootstrap_halts_by_name(env):
+    """Every attempt on the bootstrap ticket aborted: the loop refuses to
+    scope forever and records a process-gate halt instead."""
+    harness = Harness(
+        configs=[CONFIG],
+        observations=[
+            observation(backlog=[], bootstrap={"pending": [], "exhausted": ["strategy"]})
+        ],
+    )
+    await run_heartbeat(env.client, harness)
+    assert harness.decide_calls == []
+    assert harness.ticks[0] == ("idle", "bootstrap_exhausted:strategy")
+    assert harness.gate_events == [
+        (f"heartbeat-{COMPANY}", "heartbeat_bootstrap", "halted")
+    ]
 
 
 async def test_second_eligible_issue_waits_at_the_concurrency_cap(env):
@@ -324,10 +434,10 @@ async def test_empty_observation_never_wakes_the_pm(env):
     assert harness.ticks[0] == ("idle", "backlog_empty")
 
 
-async def test_revocation_stops_a_running_loop(env):
-    """The mid-flight diff: tick one runs under a declared section, the
-    section disappears, and the loop's next tick stops it cleanly with the
-    stop recorded — no ensure-loop involvement, no kill."""
+async def test_deleting_the_company_stops_a_running_loop(env):
+    """The mid-flight teardown: tick one runs under an applied company,
+    the company disappears, and the loop's next tick stops it cleanly
+    with the stop recorded — no ensure-loop involvement, no kill."""
     harness = Harness(
         configs=[CONFIG, None],
         observations=[observation()],
@@ -335,8 +445,8 @@ async def test_revocation_stops_a_running_loop(env):
     )
     result = await run_heartbeat(env.client, harness)
     assert harness.ticks[0][0] == "started"
-    assert harness.ticks[1] == ("stopped", "heartbeat_section_absent")
-    assert result["stopped"].startswith("no heartbeat section")
+    assert harness.ticks[1] == ("stopped", "blueprint_absent")
+    assert result["stopped"].startswith("no applied blueprint")
 
 
 async def test_heartbeat_survives_worker_death_between_ticks(env):
@@ -354,7 +464,7 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
         return Worker(
             env.client,
             task_queue=task_queue,
-            workflows=[HeartbeatWorkflow, StubImplement, StubReview],
+            workflows=[HeartbeatWorkflow, StubImplement, StubReview, StubScope],
             activities=harness.activities(),
             workflow_runner=UnsandboxedWorkflowRunner(),
             # No sticky queue: the dead worker's cached-workflow affinity
@@ -378,7 +488,7 @@ async def test_heartbeat_survives_worker_death_between_ticks(env):
 
     async with worker():  # a fresh worker: replay, resume, self-stop
         result = await handle.result()
-    assert result["stopped"].startswith("no heartbeat section")
+    assert result["stopped"].startswith("no applied blueprint")
     assert [t[0] for t in harness.ticks] == ["started", "stopped"]
     assert len(harness.children) == 1  # the replay started nothing twice
 
@@ -396,7 +506,7 @@ async def test_wake_cuts_the_sleep_short(env):
     async with Worker(
         env.client,
         task_queue=task_queue,
-        workflows=[HeartbeatWorkflow, StubImplement, StubReview],
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview, StubScope],
         activities=harness.activities(),
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -413,7 +523,7 @@ async def test_wake_cuts_the_sleep_short(env):
             await asyncio.sleep(0.05)
         result = await handle.result()
     assert [t[0] for t in harness.ticks] == ["idle", "idle", "stopped"]
-    assert result["stopped"].startswith("no heartbeat section")
+    assert result["stopped"].startswith("no applied blueprint")
 
 
 async def test_wakes_mid_tick_coalesce_to_one_extra_tick(env):
@@ -438,7 +548,7 @@ async def test_wakes_mid_tick_coalesce_to_one_extra_tick(env):
     async with Worker(
         env.client,
         task_queue=task_queue,
-        workflows=[HeartbeatWorkflow, StubImplement, StubReview],
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview, StubScope],
         activities=activities,
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -472,7 +582,7 @@ async def test_a_pending_wake_skips_the_first_sleep_then_the_loop_rests(env):
     async with Worker(
         env.client,
         task_queue=task_queue,
-        workflows=[HeartbeatWorkflow, StubImplement, StubReview],
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview, StubScope],
         activities=harness.activities(),
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -489,4 +599,4 @@ async def test_a_pending_wake_skips_the_first_sleep_then_the_loop_rests(env):
         assert await handle.query("state") == "sleeping"
         result = await handle.result()
     assert [t[0] for t in harness.ticks] == ["idle", "idle", "stopped"]
-    assert result["stopped"].startswith("no heartbeat section")
+    assert result["stopped"].startswith("no applied blueprint")

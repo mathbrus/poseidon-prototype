@@ -41,9 +41,16 @@ from common.text import numbered_lines
 # Per-procedure tool surfaces — the structural guarantee: implement has
 # no `open_pr` (delivery before the platform verify gate is impossible by
 # construction); review writes nothing but its findings comment.
-IMPLEMENT_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec"]
-DELIVER_TOOLS = IMPLEMENT_TOOLS + ["open_pr"]
-SCOPE_TOOLS = ["create_issue", "read_issues", "request_crew", "comment_issue"]
+IMPLEMENT_TOOLS = [
+    "list_dir",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "exec",
+    "request_architecture",
+]
+DELIVER_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec", "open_pr"]
+SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
 REVIEW_TOOLS = [
     "list_dir",
     "read_file",
@@ -51,6 +58,7 @@ REVIEW_TOOLS = [
     "run_tests",
     "read_pr",
     "comment_pr",
+    "request_architecture",
     "verdict",
 ]
 # The tools that address the run's sandbox: a procedure holding any of
@@ -71,7 +79,6 @@ class ToolRecords:
 
     pr_url: str | None = None
     ticket_urls: list[str] = field(default_factory=list)
-    crew_request_id: str | None = None
     # The reviewer's findings on the PR, or the PM's summary on its tickets.
     comment_urls: list[str] = field(default_factory=list)
     # Review: the structured verdict. The reviewer *proposes*
@@ -172,9 +179,12 @@ class ReadIssuesAction(Action):
     )
 
 
-class RequestCrewAction(Action):
-    crew_template: str = Field(description="Crew template name, e.g. feature-delivery.")
-    reason: str = Field(description="Why, referencing the ticket(s).")
+class RequestArchitectureAction(Action):
+    rationale: str = Field(
+        description="Why the architecture masterplan is wrong or incomplete for "
+        "this work, grounded in what you found."
+    )
+    proposal: str = Field(description="The change to the masterplan you propose.")
 
 
 class ReadPrAction(Action):
@@ -312,13 +322,17 @@ def _read_issues(ctx: HandsContext, a: ReadIssuesAction) -> dict[str, Any]:
     )
 
 
-def _request_crew(ctx: HandsContext, a: RequestCrewAction) -> dict[str, Any]:
+def _request_architecture(
+    ctx: HandsContext, a: RequestArchitectureAction
+) -> dict[str, Any]:
     result = ctx.bridge.call(
-        "crew.request",
-        {"run_id": ctx.run_id, "crew_template": a.crew_template, "reason": a.reason},
+        "architecture.request",
+        {"run_id": ctx.run_id, "rationale": a.rationale, "proposal": a.proposal},
     )
-    if result.get("id"):
-        ctx.records.crew_request_id = result["id"]
+    # The stewardship ticket the platform filed is a ticket this run
+    # produced: it rides the run record like the PM's.
+    if result.get("url"):
+        ctx.records.ticket_urls.append(result["url"])
     return result
 
 
@@ -441,12 +455,13 @@ _TOOLS: dict[str, ToolSpec] = {
         _read_issues,
         read_only=True,
     ),
-    "request_crew": ToolSpec(
-        "Request an ephemeral crew to carry out scoped work. This records "
-        "intent for the platform to fulfill — it does not start anything "
-        "by itself.",
-        RequestCrewAction,
-        _request_crew,
+    "request_architecture": ToolSpec(
+        "Ask for a change to the architecture masterplan. The platform files "
+        "your proposal as a ticket for the steward; the plan does not change "
+        "in this run, and you may ask once. Use it when the work you were "
+        "given contradicts the plan — then stop rather than deviate.",
+        RequestArchitectureAction,
+        _request_architecture,
     ),
     "read_pr": ToolSpec(
         "Read a pull request: metadata plus the changed files with their patches.",

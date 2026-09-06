@@ -1,6 +1,6 @@
-"""The worker's heartbeat ensure pass: starts the heartbeat exactly when the
-applied blueprint declares one, and treats every failure as a next-pass
-retry — the loop only ever starts, never kills."""
+"""The worker's heartbeat ensure pass: starts the heartbeat exactly when a
+company is applied, and treats every failure as a next-pass retry — the
+loop only ever starts, never kills."""
 
 from typing import Any
 
@@ -56,14 +56,13 @@ def settings(**overrides: Any) -> WorkerSettings:
     )
 
 
-async def test_no_section_starts_nothing():
+async def test_no_applied_company_starts_nothing():
     client, companies = FakeTemporal(), InMemoryCompanies()
-    companies.upsert(COMPANY, {"workflows": []})
     await ensure_heartbeat_once(client, settings(), companies, Quiet())
     assert client.started == []
 
 
-async def test_declared_section_starts_the_heartbeat():
+async def test_an_applied_company_starts_the_heartbeat():
     client, companies = FakeTemporal(), InMemoryCompanies()
     companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
     await ensure_heartbeat_once(client, settings(), companies, Quiet())

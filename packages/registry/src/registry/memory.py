@@ -58,58 +58,6 @@ class InMemoryAuditStore:
         ]
 
 
-class InMemoryCrewRequests:
-    """Recorded spawn intent: idempotent by derived id,
-    refresh-while-recorded, untouched once fulfilled."""
-
-    def __init__(self) -> None:
-        self.rows: dict[str, dict[str, Any]] = {}
-
-    def record(
-        self,
-        conductor: str,
-        crew_template: str,
-        run_id: str,
-        reason: str,
-        ttl_s: int = 3600,
-    ) -> dict[str, Any]:
-        from registry.crews import request_id
-
-        rid = request_id(conductor, crew_template, run_id)
-        existing = self.rows.get(rid)
-        if existing is None:
-            self.rows[rid] = {
-                "id": rid,
-                "run_id": run_id,
-                "conductor": conductor,
-                "crew_template": crew_template,
-                "reason": reason,
-                "status": "recorded",
-                "created_at": "2026-01-01T00:00:00+00:00",
-                "expires_at": "2026-01-01T01:00:00+00:00",
-                "fulfilled_at": None,
-            }
-        elif existing["status"] == "recorded":
-            existing["reason"] = reason
-        return dict(self.rows[rid])
-
-    def get(self, rid: str) -> dict[str, Any] | None:
-        row = self.rows.get(rid)
-        return dict(row) if row else None
-
-    def consume(self, rid: str, run_id: str) -> dict[str, Any] | None:
-        row = self.rows.get(rid)
-        if row is None:
-            return None
-        if row["status"] == "recorded" and row["run_id"] == run_id:
-            row["status"] = "fulfilled"
-            row["fulfilled_at"] = "2026-01-01T00:30:00+00:00"
-            return dict(row)
-        if row["status"] == "fulfilled" and row["run_id"] == run_id:
-            return dict(row)  # the retry after a crash mid-fulfill
-        return None
-
-
 class InMemoryBudgetLedger:
     """The LLM gateway's meter: recorded entries and the
     per-run SUM the hard-stop compares against."""
@@ -394,7 +342,9 @@ class InMemoryRuns:
         if record is None:  # an UPDATE matching zero rows, not a KeyError
             return
         record.pr_url = pr_url or record.pr_url
-        record.ticket_urls = ticket_urls or record.ticket_urls
+        record.ticket_urls = record.ticket_urls + [
+            u for u in ticket_urls or [] if u not in record.ticket_urls
+        ]
 
     def record_verdict(self, run_id: str, verdict: str) -> None:
         record = self.rows.get(run_id)
@@ -427,7 +377,7 @@ class InMemoryRuns:
             for r in self.rows.values()
             if r.company == company
             and r.status == "running"
-            and r.workflow in ("implement", "review")
+            and r.workflow in ("scope", "implement", "review")
         )
 
     def issue_attempts(self, company: str) -> dict[int, Attempts]:
@@ -471,7 +421,13 @@ class InMemoryRuns:
             and r.workflow == "implement"
             and r.status == "done"
             and r.pr_url
+            and r.pr_settled is None
         ]
+
+    def mark_pr_settled(self, company: str, pr_url: str, state: str) -> None:
+        for r in self.rows.values():
+            if r.company == company and r.workflow == "implement" and r.pr_url == pr_url:
+                r.pr_settled = state
 
     def implement_run_for_pr(self, company: str, pr_number: int) -> RunRecord | None:
         candidates = [

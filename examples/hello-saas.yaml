@@ -1,12 +1,20 @@
-# hello-saas — a small company a human runs: one standing PM that scopes
-# goals into tickets, ephemeral crews that implement and review under its
-# authority, and a person who starts each run and answers the merge gate.
+# hello-saas — the smallest company: one standing PM that decides the next
+# action on every heartbeat tick, ephemeral crews that scope, implement and
+# review under its authority, and a person who answers the merge gate.
 apiVersion: poseidon.dev/v1
 
 # --8<-- [start:company]
 company:
   name: hello-saas
-  mission: Ship a small SaaS product with an agent company under governance.
+  vision: >-
+    A small SaaS that turns titles into URL slugs, delivered and kept
+    green by a company of agents that never exceeds its authority.
+  # The two documents the company writes for itself, in its repository:
+  # the strategy (written once from the vision) and the architecture
+  # masterplan (written from the vision and the tree, revised on request).
+  documents:
+    strategy: docs/STRATEGY.md
+    architecture: docs/ARCHITECTURE.md
   # --8<-- [end:company]
 
 # --8<-- [start:stack]
@@ -30,7 +38,7 @@ standing:
     role: pm
     count: 1
     may_spawn:
-      crew: [feature-delivery, feature-review]
+      crew: [feature-delivery, feature-review, stewardship]
       max_concurrent: 2
       # --8<-- [end:standing]
 
@@ -49,21 +57,18 @@ tools:
       - git.read
       - git.comment
       - issues.comment
+      - architecture.request
       # --8<-- [end:tools]
 
+# The two crewed workflows: which crew fulfils each, the bounds it reads
+# and the gates it parks on. Who conducts them, and what the company may
+# start on its own, is the heartbeat's to say.
 # --8<-- [start:workflows]
 workflows:
-  intake:
-    enabled: true
-    conductor: pm
   implement:
-    enabled: true
-    conductor: pm
     crew: feature-delivery
     max_verify_retries: 2
   review:
-    enabled: true
-    conductor: pm
     crew: feature-review
     gates:
       merge:
@@ -88,3 +93,18 @@ budgets:
     # How long a run stopped at the cap waits for someone to raise it.
     pause_minutes: 60
     # --8<-- [end:budgets]
+
+# The company's own initiative: who decides, what it may start on its own,
+# how many at once, how many tries an item gets, how large the backlog may
+# grow before it stops scoping, and the day's hard stop.
+# --8<-- [start:heartbeat]
+heartbeat:
+  conductor: pm
+  reconcile_minutes: 30
+  max_concurrent_runs: 1
+  max_attempts: 2
+  max_open_tickets: 5
+  may_start: [scope, implement, review]
+  daily_cap:
+    usd: 20
+    # --8<-- [end:heartbeat]

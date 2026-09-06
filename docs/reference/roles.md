@@ -18,8 +18,11 @@ at build time.
 A blueprint may **narrow** a role's tool list in its `tools.<role>` section,
 never widen it, and the scope applies to every agent of the role, standing
 or ephemeral. The lean-standing rule is not in the table because it is the
-compiler's: `implementer`, `reviewer` and `contract-author` exist only as
-ephemeral agents, and a blueprint that hires one standing is a compile error.
+compiler's: `implementer`, `reviewer`, `contract-author` and `steward` exist
+only as ephemeral agents, and a blueprint that hires one standing is a
+compile error. The `steward` is the one writer of the company's documents;
+a future standing **observer** would revise the strategy, and is not in
+the catalog.
 
 ## Which role runs which procedure
 

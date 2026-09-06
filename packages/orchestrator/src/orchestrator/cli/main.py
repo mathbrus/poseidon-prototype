@@ -1,15 +1,17 @@
-"""`poseidon run|signal|status` — a thin Temporal client.
+"""`poseidon blueprint|signal|status|run|review` — a thin Temporal client.
 
 Reaches the Temporal frontend via TEMPORAL_ADDRESS (default 127.0.0.1:7233,
 e.g. `kubectl -n poseidon-platform port-forward svc/temporal-frontend
 7233:7233`). Holds no credentials: runs are executed by the in-cluster
 worker; the CLI only starts, signals and inspects workflows.
+
+The company starts its own runs from the heartbeat. `run` and `review`
+start one by hand — an operator reproducing a run, never the loop.
 """
 
 import asyncio
 import json
 import sys
-from pathlib import Path
 
 import typer
 from temporalio.client import Client, WorkflowExecutionStatus
@@ -17,7 +19,7 @@ from temporalio.client import Client, WorkflowExecutionStatus
 from common.ids import new_run_id
 from orchestrator.cli.blueprint import app as blueprint_app
 from orchestrator.config import TemporalSettings
-from orchestrator.workflows import ImplementInput, IntakeInput, ReviewInput
+from orchestrator.workflows import ImplementInput, ReviewInput
 from orchestrator.workflows.base import (
     TASK_QUEUE,
     TEMPORAL_NAMESPACE,
@@ -35,42 +37,19 @@ async def _client(settings: TemporalSettings) -> Client:
 
 @app.command()
 def run(
-    target: str = typer.Argument(
-        ...,
-        help="A task/goal file path, or a GitHub issue number to implement"
-        " the ticket the company already filed (use ./42 for a file"
-        " literally named 42)",
-    ),
+    issue_number: int,
     run_id: str = typer.Option(None, help="Run id (generated when omitted)"),
-    workflow: str = typer.Option(
-        "implement",
-        help="Which workflow to start: implement (a task for an implementer crew)"
-        " or intake (a goal for the PM to scope)",
-    ),
     detach: bool = typer.Option(False, help="Start the workflow and exit"),
 ) -> None:
-    """Start a run for the task or goal in TARGET — a file path, or an
-    issue number to implement the ticket the company already filed."""
+    """Start one implement run by hand on a ticket the company filed — an
+    operator's repro. The heartbeat starts the company's runs on its own."""
     run_id = run_id or new_run_id()
-    if workflow == "implement":
-        source = (
-            {"issue_number": int(target)}
-            if target.isdigit()
-            else {"task_text": Path(target).read_text()}
-        )
-        started_input: object = ImplementInput(run_id=run_id, **source)
-    elif workflow == "intake":
-        if target.isdigit():
-            typer.echo(
-                "an issue number starts an implement run; intake takes a goal file",
-                err=True,
-            )
-            raise typer.Exit(2)
-        started_input = IntakeInput(run_id=run_id, goal_text=Path(target).read_text())
-    else:
-        typer.echo(f"unknown workflow {workflow!r}", err=True)
-        raise typer.Exit(2)
-    _start(workflow, run_id, started_input, detach)
+    _start(
+        "implement",
+        run_id,
+        ImplementInput(run_id=run_id, issue_number=issue_number),
+        detach,
+    )
 
 
 @app.command()
@@ -83,7 +62,8 @@ def review(
         " `poseidon signal <run_id> merge --workflow review` answers",
     ),
 ) -> None:
-    """Start a review run for the pull request."""
+    """Start one review run by hand on a delivered pull request — an
+    operator's repro, like `run`."""
     run_id = run_id or new_run_id()
     started_input = ReviewInput(run_id=run_id, pr_number=pr_number)
     _start("review", run_id, started_input, detach)

@@ -3630,12 +3630,14 @@ name = "schema"
 version = "0.1.0"
 source = { editable = "packages/schema" }
 dependencies = [
+    { name = "common" },
     { name = "jsonschema" },
     { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "common", editable = "packages/common" },
     { name = "jsonschema", specifier = ">=4.20" },
     { name = "pyyaml", specifier = ">=6" },
 ]

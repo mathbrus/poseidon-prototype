@@ -19,7 +19,6 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
-    InMemoryCrewRequests,
     InMemoryRunParticipants,
     InMemoryRuns,
 )
@@ -40,22 +39,14 @@ JOB_HANDLE = {
 APPLIED_SPEC = {
     "namespace": "hello-saas",
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+    "documents": {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"},
     "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
     "contractTests": {"paths": ["tests/contract", "tests/acceptance"]},
-    "heartbeat": {"max_attempts": 2},
+    "heartbeat": {"conductor": "pm", "max_attempts": 2},
     "workflows": [
-        {
-            "name": "implement",
-            "enabled": True,
-            "conductor": "pm",
-            "crew": "feature-delivery",
-            "max_verify_retries": 2,
-        },
-        {"name": "intake", "enabled": True, "conductor": "pm", "crew": None},
+        {"name": "implement", "crew": "feature-delivery", "max_verify_retries": 2},
         {
             "name": "review",
-            "enabled": True,
-            "conductor": "pm",
             "crew": "feature-review",
             "gates": {"merge": {"resolved_by": "human", "deadline_minutes": 1440}},
         },
@@ -211,20 +202,12 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
     assert review["max_verify_retries"] is None
 
 
-def test_intake_binds_no_crew_by_design(activities, companies):
-    """Intake dispatches its conductor directly, so `crew` is None — and
-    its gate slot reads the block like any other gate's."""
-    config = asyncio.run(activities.workflow_config("intake"))
+def test_scope_has_no_node_and_binds_no_crew(activities):
+    """Scope dispatches the conductor directly: nothing under `workflows`
+    configures it, and its shape is the conductor alone."""
+    config = asyncio.run(activities.workflow_config("scope"))
+    assert config["conductor"] == PM
     assert config["crew"] is None and config["gates"] == {}
-
-    spec = companies.get("hello-saas")
-    spec["workflows"][1]["gates"] = {
-        "intake": {"resolved_by": "human", "deadline_minutes": 30}
-    }
-    companies.upsert("hello-saas", spec)
-    assert asyncio.run(activities.workflow_config("intake"))["gates"] == {
-        "intake": {"resolved_by": "human", "deadline_minutes": 30}
-    }
 
 
 def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
@@ -235,14 +218,8 @@ def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
         "hello-saas",
         {
             "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
-            "workflows": [
-                {
-                    "name": "review",
-                    "enabled": True,
-                    "conductor": "pm",
-                    "crew": "feature-review",
-                }
-            ],
+            "heartbeat": {"conductor": "pm", "max_attempts": 2},
+            "workflows": [{"name": "review", "crew": "feature-review"}],
         },
     )
     activities = RunActivities(
@@ -258,7 +235,7 @@ def test_workflow_config_fails_closed_without_a_blueprint(
     activities = RunActivities(
         settings, backend, runs, InMemoryCompanies(), instances, ledger, audit
     )
-    with pytest.raises(RuntimeError, match="no enabled"):
+    with pytest.raises(RuntimeError, match="no applied blueprint"):
         asyncio.run(activities.workflow_config("implement"))
 
 
@@ -275,6 +252,31 @@ def test_workflow_config_fails_closed_without_a_conductor_instance(
 
 
 # -- record_gate_outcome ------------------------------------------------------
+
+
+def test_read_documents_hands_a_run_the_present_ones(
+    activities, monkeypatch, fake_gateway
+):
+    """A dispatch carries the documents present on base_ref by name, read
+    under the run's own id — the base_ref copy, never a sandbox's."""
+    import orchestrator.activities.run as module
+
+    reads = []
+
+    async def read_document(self, run_id, repo, ref, path):
+        reads.append((run_id, repo, ref, path))
+        present = path == "docs/STRATEGY.md"
+        return {"present": present, "text": "Ship slugs." if present else None}
+
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(read_document=read_document)
+    )
+    documents = asyncio.run(activities.read_documents(RUN_ID))
+    assert documents == {"strategy": "Ship slugs."}
+    assert reads == [
+        (RUN_ID, "github.com/example/repo", "main", "docs/STRATEGY.md"),
+        (RUN_ID, "github.com/example/repo", "main", "docs/ARCHITECTURE.md"),
+    ]
 
 
 def test_gate_outcomes_are_process_gate_audit_events(activities, audit):
@@ -343,9 +345,9 @@ def test_teardown_without_sandbox_finalizes_failed(activities, backend):
 
 
 def test_teardown_links_the_tickets_a_run_filed(activities, runs):
-    """Intake's artifacts are tickets, not a PR: the run record carries
+    """A scope run's artifacts are tickets, not a PR: the run record carries
     them the way an implement record carries its pr_url."""
-    asyncio.run(activities.create_run(RUN_ID, "intake", "ship a slug endpoint"))
+    asyncio.run(activities.create_run(RUN_ID, "scope", "scope the next slice"))
     result = {
         "status": "done",
         "ticket_urls": ["https://github.test/i/7"],
@@ -383,9 +385,7 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     sweep runs before the sandbox destroy, on the failure path (no handle)
     and the success path alike."""
     participants = InMemoryRunParticipants()
-    crew = CrewActivities(
-        settings, participants, audit, InMemoryCrewRequests(), companies, ledger, runs
-    )
+    crew = CrewActivities(settings, participants, audit, companies, ledger, runs)
     activities = RunActivities(
         settings, backend, runs, companies, instances, ledger, audit, crew
     )
@@ -544,36 +544,16 @@ def test_a_concluded_item_is_consumed_by_its_conclusion_not_by_exhaustion(
     assert audit.story("run-r2") == [] and comments == []
 
 
-def test_no_heartbeat_section_means_no_attempt_bound(
-    settings, backend, runs, instances, ledger, audit, monkeypatch, fake_gateway
-):
-    """A human-started company has no `max_attempts`: nothing offers work
-    again, so nothing is exhausted — the human decides what to re-run."""
-    comments = _exhaustion_gateway(monkeypatch, fake_gateway)
-    companies = InMemoryCompanies()
-    companies.upsert(
-        "hello-saas", {k: v for k, v in APPLIED_SPEC.items() if k != "heartbeat"}
-    )
-    activities = RunActivities(
-        settings, backend, runs, companies, instances, ledger, audit
-    )
-    _aborted(runs, "run-r1", "review pull request #7", "review")
-    _aborted(runs, "run-r2", "review pull request #7", "review")
-
-    out = asyncio.run(activities.record_attempts_exhausted("run-r2", "review-run-r2"))
-
-    assert out == {"exhausted": False}
-    assert audit.story("run-r2") == [] and comments == []
-
-
-def test_a_task_file_run_is_not_heartbeat_work(
+def test_a_scope_run_has_no_item_to_exhaust(
     activities, runs, audit, monkeypatch, fake_gateway
 ):
+    """A scope run works no ticket and no PR: however it ended, nothing
+    is offered again and nothing is exhausted."""
     comments = _exhaustion_gateway(monkeypatch, fake_gateway)
-    _aborted(runs, "run-t1", "the whole task file text", "implement")
-    _aborted(runs, "run-t2", "the whole task file text", "implement")
+    _aborted(runs, "run-s1", "scope the next slice", "scope")
+    _aborted(runs, "run-s2", "scope the next slice", "scope")
 
-    out = asyncio.run(activities.record_attempts_exhausted("run-t2", "implement-run-t2"))
+    out = asyncio.run(activities.record_attempts_exhausted("run-s2", "scope-run-s2"))
 
     assert out == {"exhausted": False}
-    assert audit.story("run-t2") == [] and comments == []
+    assert audit.story("run-s2") == [] and comments == []

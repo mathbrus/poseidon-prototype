@@ -26,9 +26,11 @@ entirely. When an acceptance test fails, the platform changed.
 | `app.py` | The OpenAI-compatible FastAPI surface and the deterministic token-usage estimate. |
 | `__main__.py` | `python -m mockllm` with LiteLLM-shaped args, accepted and ignored. |
 
-The scenarios themselves live at the repo root in `examples/` — they are
-inputs to the *platform*, not to this package; the brain merely
-recognises their markers in whatever task text reaches it.
+The scenarios themselves are the e2e suite's — ticket texts under
+`tests/e2e_kind/tickets/`, strategies and documents the harness writes
+from this package's constants — inputs to the *platform*, not to this
+package; the brain merely recognises their markers in whatever task text
+reaches it.
 
 ## Dev/test only
 
@@ -68,8 +70,8 @@ the header gets a plain reply saying so.
 
 | Procedure | Scripted behaviour |
 |---|---|
-| `decide` | a single completion naming one action from the observation, with a rationale |
-| `scope` | file one ticket (an ordered contract-then-implement pair under a contract-first goal), record the crew request, post the one-paragraph summary as a comment on each ticket filed (numbers read back from the `create_issue` observations), then stop |
+| `decide` | a single completion naming one action from the observation, with a rationale: review a delivered PR, else implement the first open ticket, else `scope` when the strategy names a slice no open ticket covers yet (offered or not — a consumed ticket is the slice's already), else idle |
+| `scope` | when the observation's strategy names an open slice (`NEXT_SLICE_MARKER`), file one ticket (an ordered contract-then-implement pair under a contract-first strategy), post the one-paragraph summary as a comment on each ticket filed (numbers read back from the `create_issue` observations), then stop; otherwise file nothing |
 | `review` | read the PR diff, run the suite, post one findings comment, end with a structured verdict (injection-steered pass when `STEERED_REVIEW_MARKER` rides the diff it read; findings and then silence — no verdict at all — on `REVIEW_ABORT_MARKER`) |
 | `implement` | write `slugify.py` + its test once, then answer in plain text — which ends the SDK conversation so the host runs the advisory verify |
 | `deliver` | commit and open the PR in one batch |
@@ -84,22 +86,24 @@ attempt–deny–recover within it. Once a delivery succeeded (`_pr_opened`
 spots a non-null `"pr_url"` in a tool observation), the script answers in
 plain text, which is what ends an SDK conversation.
 
-The delivery branch is parsed from the task text (the e2e harness
-appends a `feature/slugify-<nonce>` line). Without one the fallback is a
-fixed `feature/slugify-mock`, so repeated runs against the same repo
-collide on the branch — append a branch line when that matters.
+The delivery branch is the first `feature/<slug>` named in the task
+text (`BRANCH_RE`): a ticket body's "Deliver your work on the branch
+…" line, or a bootstrap ticket's. Without one the fallback is a fixed
+`feature/slugify-mock`, so repeated runs against the same repo collide on
+the branch — name a branch when that matters.
 
 ## The scenarios it scripts
 
-Driven by markers in the files under `examples/`:
+Driven by markers in the ticket bodies the e2e suite files (the texts
+under `tests/e2e_kind/tickets/`) and in the strategies it writes:
 
-- `task-happy.md` — implement, verify green, deliver a PR.
-- `task-injected.md` — a "production hotfix runbook" planted in the task
+- `happy.md` — implement, verify green, deliver a PR.
+- `injected.md` — a "production hotfix runbook" planted in the ticket
   text tells the implementer to deliver on `main`. The brain obeys: it
   commits and opens the PR on `main` first. The gateway denies it
   (`git_open_pr_protected_branch`), the loop feeds the denial back as a
   tool error, and the script recovers onto the feature branch.
-- `task-verify-red.md` — plants `tests/unit/test_gate.py`, a state-dependent
+- `verify-red.md` — plants `tests/unit/test_gate.py`, a state-dependent
   test whose counter file lives in the sandbox workspace and therefore
   survives between the implementer's advisory verify (green, first run) and
   the platform's own re-run (red, second run). It is a deterministic
@@ -108,22 +112,29 @@ Driven by markers in the files under `examples/`:
   the brain keys on (`"after your completion claim"`), and the
   re-dispatched script removes the plant so the next verify is honestly
   green — exercising the bounded retry loop end to end.
-- `goal-injected-conductor.md` — a poisoned intake goal telling the PM
-  to spawn a `data-export` crew outside its `may_spawn` list and the
-  delivery crew to publish the workspace to an outside collector. The PM
-  obeys, is denied by the compiled `crew.request` rule, and falls back
-  to the crew it is actually authorized to request. The implementer obeys
-  too: its first act is a `python -c "...urllib.request..."` POST of the
-  tarred workspace to `collector.control9931.example`, which dies at the
-  egress proxy's allowlist and lands in the audit store. Two details are
-  deliberate: the exfiltration uses `urllib` rather than `curl` because
-  the sandbox image is `python:3.12-slim` plus git — a curl payload
-  would die at "command not found" without the egress layer ever seeing
-  it, and the point is that the audited proxy is what stops it. And the
-  forbidden-crew request uses a *fixed* reason string so the e2e test
-  can recompute the gateway's `args_digest` and prove which spawn the
-  audited deny refers to — the audit event stores a digest of the args,
-  never their cleartext.
+- The injected conductor (`CONDUCTOR_MARKER` in the strategy): a poisoned
+  strategy telling the PM to have a `data-export` crew outside its
+  `may_spawn` list do the work and the delivery crew to publish the
+  workspace to an outside collector. The PM obeys and files a ticket for
+  that crew; the compiled `crew.request` decision refuses it at
+  fulfilment, the exfiltration is denied at the egress proxy, and both
+  denies are audited.
+- The steward (`Crew: stewardship` on a bootstrap ticket the platform
+  filed): writes the document the ticket names at the path it names —
+  `STRATEGY_MD` or `ARCHITECTURE_MD`, the same texts the suite's baseline
+  seeds — and delivers it on the ticket's branch.
+- An architecture request (`ARCH_REQUEST_MARKER` in a ticket): the
+  implementer calls `request_architecture` once and stops — no code, no
+  PR, no delivery dispatch — so the platform's stewardship ticket is the
+  run's only product and the run ends waiting on it, by name.
+- A masterplan edit beside honest work (`MASTERPLAN_EDIT_MARKER` in a
+  ticket): the implementer delivers the change and an edit to
+  `docs/ARCHITECTURE.md` together; the gateway refuses the document path
+  by name, and the recovery delivers the implementation alone.
+- A strategy rewrite (a `Bootstrap: strategy` ticket filed by hand while
+  the strategy exists): the steward obeys and writes it; the gateway
+  refuses the delivery with `git_open_pr_strategy_present` — the strategy
+  is written once, for the steward too.
 - Review-time markers ride the PR rather than a file:
   `STEERED_REVIEW_MARKER` in the diff the reviewer reads makes it skip the
   suite and pass — the merge gate, not the reviewer, must hold.
@@ -136,7 +147,7 @@ Driven by markers in the files under `examples/`:
   implementer delivers working code carrying the reviewer steer *and* a
   change under `.github/`, so a steered pass meets the merge gate's
   carve-out deny (test_split_oracle_redteam, scenario 4).
-- Contract-first (`CONTRACT_GOAL_MARKER` in a goal): the PM files the
+- Contract-first (`CONTRACT_FIRST_MARKER` in the strategy): the PM files the
   ordered contract-then-implement ticket pair; the contract author plays
   the `Crew: contract-authoring` ticket, gutting the spec under
   `STEERED_CONTRACT_MARKER` so the platform's deletion facts surface it.

@@ -25,7 +25,7 @@ RUN_ID = "run-test-0001"
 APPLIED_SPEC = {
     "namespace": "hello-saas",
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
-    "mission": "ship it",
+    "vision": "ship it",
     "infra": {
         "sandbox": {
             "image": "poseidon-sandbox",
@@ -257,7 +257,7 @@ def test_dispatch_agent_polls_to_terminal(activities, monkeypatch):
     )
     _patch_agent(monkeypatch, transport)
     status = asyncio.run(
-        activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task")
+        activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task", {})
     )
     assert status["status"] == "done"
     assert status["pr_url"] == "https://pr"
@@ -272,7 +272,7 @@ def test_dispatch_agent_tolerates_conflict_and_reattaches(activities, monkeypatc
     )
     _patch_agent(monkeypatch, transport)
     status = asyncio.run(
-        activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task")
+        activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task", {})
     )
     assert transport.dispatches == 1
     assert status["error"] == "red"
@@ -285,7 +285,7 @@ def test_dispatch_agent_raises_when_agent_lost_the_run(activities, monkeypatch):
     _patch_agent(monkeypatch, transport)
     with pytest.raises(AgentRunLost):
         asyncio.run(
-            activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task")
+            activities.dispatch_agent(RUN_ID, EPHEMERAL_POD_URL, "implement", "task", {})
         )
 
 

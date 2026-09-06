@@ -375,7 +375,7 @@ def agent_deployment(
                                     "name": "TARGET_REPO",
                                     "value": spec["repo"]["url"],
                                 },
-                                {"name": "MISSION", "value": spec["mission"]},
+                                {"name": "VISION", "value": spec["vision"]},
                                 {
                                     "name": "GATEWAY_TOKEN_FILE",
                                     "value": TOKEN_FILE,

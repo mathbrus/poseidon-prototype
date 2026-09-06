@@ -38,11 +38,12 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
         "metadata": {"name": plan.company.name},
         "spec": {
             "namespace": plan.company.namespace,
-            "mission": plan.company.mission,
+            "vision": plan.company.vision,
             "repo": {
                 "url": plan.company.repo.url,
                 "base_ref": plan.company.repo.base_ref,
             },
+            "documents": dict(plan.company.documents),
             "policyBundle": plan.bundle.files,
             # Compiler-owned and identical from every blueprint; riding the
             # CR keeps the operator the only bundle writer. Every
@@ -52,10 +53,8 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
             "workflows": data["workflows"],
             "budgets": data["budgets"],
             "ephemeralAgents": data["ephemeral_agents"],
-            # Only when declared: an absent heartbeat is a meaningful state
-            # (human-started runs only), not an empty object.
-            **({"heartbeat": data["heartbeat"]} if plan.heartbeat else {}),
-            # Same posture: the contract tree exists only when the
+            "heartbeat": data["heartbeat"],
+            # Only when declared: the contract tree exists only when the
             # blueprint declares one — the review workflow reads the paths
             # to compose the contract-verify baseline.
             **({"contractTests": data["contract_tests"]} if plan.contract_tests else {}),
@@ -75,7 +74,7 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
             "role": instance.role,
             "tools": list(instance.tools),
             "repo": {"url": instance.repo.url, "base_ref": instance.repo.base_ref},
-            "mission": instance.mission,
+            "vision": instance.vision,
             "maySpawn": list(instance.may_spawn),
         },
     }

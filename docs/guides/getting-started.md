@@ -1,7 +1,7 @@
 # Getting started
 
 By the end of this guide you will have a company running on a local
-cluster and watched it turn a goal into a merged pull request on a
+cluster and watched it turn its own strategy into a merged pull request on a
 repository you own. [Hand over the keys](hand-over.md) then lets it start
 its own work on a heartbeat and merge its own passing changes. It costs
 nothing: the default brain is a deterministic mock, so you can learn the
@@ -72,8 +72,8 @@ same company in two profiles:
 
 | Blueprint | Adds | Division of labour |
 |---|---|---|
-| [`hello-saas.yaml`](https://github.com/mathbrus/poseidon-prototype/blob/master/examples/hello-saas.yaml) | — | A human starts every run and answers every merge. |
-| [`hello-saas-delegated.yaml`](https://github.com/mathbrus/poseidon-prototype/blob/master/examples/hello-saas-delegated.yaml) | a `heartbeat` section, a policy-resolved merge gate and a contract tree | The company starts its own runs and merges in-class passing work itself; a human feeds goals in and keeps the carve-outs and the oracle. |
+| [`hello-saas.yaml`](https://github.com/mathbrus/poseidon-prototype/blob/master/examples/hello-saas.yaml) | — | The company scopes, implements and reviews on its own; a human answers every merge. |
+| [`hello-saas-delegated.yaml`](https://github.com/mathbrus/poseidon-prototype/blob/master/examples/hello-saas-delegated.yaml) | a policy-resolved merge gate and a contract tree | The company merges its own in-class passing work too; a human keeps the carve-outs and the oracle. |
 
 Both declare the same company name, so moving between them changes the
 running company in place — and moving back is the same command with the
@@ -86,7 +86,7 @@ uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
 
 `preview` diffs the compiled plan against the live registry, so hiring,
 firing and every authority change are visible before they happen. To make
-the company yours, edit the document — the mission, the sandbox image and
+the company yours, edit the document — the vision, the sandbox image and
 test command, the `egress_allow` list, the budgets, the gate resolvers —
 and re-apply. Mistakes fail at compile time with a readable error: a
 standing implementer, an undeclared tool, or a delegated path overlapping a
@@ -94,12 +94,21 @@ protected surface is refused before anything reaches the cluster.
 
 ## A full run: a small Tetris app
 
-This is intake → implement → review → human-gated merge, against the
-repository the applied blueprint declares (`stack.repo`), with a
-[real model](real-llm.md) already configured. The company is still
-`hello-saas`; the product under construction is whatever that repository
-holds. The engine is standard-library Python on purpose: the sandbox image
-has pytest, and the agent prompt forbids `pip install`.
+This is the whole loop — bootstrap, scope, implement, review, human-gated
+merge — against the repository the applied blueprint declares
+(`stack.repo`), with a [real model](real-llm.md) already configured. The
+company is `hello-saas`; the product under construction is whatever its
+vision says. Nothing goes in but that vision: change it in the blueprint
+to name the product you want, apply, and watch.
+
+```yaml
+company:
+  name: hello-saas
+  vision: >-
+    A playable, self-contained Tetris in Python, standard library only,
+    built engine first — board, tetrominoes, gravity, line clears, a
+    score — with pytest coverage, on a repository the company keeps green.
+```
 
 Leave a Temporal port-forward up for every CLI command. Activity bounds
 come from the deployment's `TIMEOUT_PROFILE`, so a cluster brought up with
@@ -107,88 +116,70 @@ come from the deployment's `TIMEOUT_PROFILE`, so a cluster brought up with
 
 ```bash
 kubectl -n poseidon-platform port-forward svc/temporal-frontend 7233:7233
+uv run poseidon blueprint apply company.yaml --yes
+uv run poseidon status hello-saas --workflow heartbeat
 ```
 
-### 1. Intake
+### 1. Bootstrap
 
-A goal is untrusted text handed to the PM. The PM files tickets, comments
-its summary of the scoping on each, and records a `feature-delivery` crew
-request; it cannot write code.
-[`examples/goal-tetris.md`](https://github.com/mathbrus/poseidon-prototype/blob/master/examples/goal-tetris.md)
-is that goal:
+The repository has no strategy and no architecture masterplan yet. The
+heartbeat's first ticks observe that and file two tickets under the
+platform identity — `Bootstrap: strategy`, `Bootstrap: architecture
+masterplan` — routed to the stewardship crew. The steward writes each
+document from the vision (the masterplan from the tree too) and delivers
+it as a pull request. Under `hello-saas.yaml` those pull requests park on
+your merge gate like any other:
 
 ```bash
-uv run poseidon run --workflow intake examples/goal-tetris.md
+uv run poseidon signal <review run_id> merge --workflow review
 ```
 
-The CLI prints `started intake-<run_id> (run_id …)` on stderr and blocks
-until the run finishes. Success is JSON with `"status": "done"`,
-`"workflow": "intake"`, one or more `ticket_urls`, and a
-`crew_request_id`. The issues are real on `TARGET_REPO`, each with the PM's
-summary as its first comment. hello-saas declares no intake gate, so there
-is no signal to send.
+Until both documents are on `main`, the loop refuses to scope: the first
+thing the company does is decide what it is going to do.
 
-Intake and implement are **separate runs**. Fulfilment keys crew requests
-by `run_id`, so implement does not consume the intake row; a human picks
-which ticket to run — choosing is scheduling — and implement consumes the
-ticket itself.
+### 2. Scope
 
-### 2. Implement
+With the documents in place, the next tick's PM chooses `scope`: the loop
+starts a scope run, the PM reads the strategy and the masterplan and files
+the first slice — the game engine — as tickets on `TARGET_REPO`, each with
+its `Crew:` trailer and the PM's summary as its first comment. The
+observation is untrusted text handed to the PM; it cannot write code, and
+the platform refuses scoping past `max_open_tickets`.
 
-The ticket intake filed *is* the spec — start implement from its issue
-number and the workflow resolves the open issue under the platform
-identity, composes the task from it, and runs the delivery pipeline. The
-issue body is untrusted input, exactly like any task file:
+### 3. Implement
+
+The tickets the company filed *are* the spec. The heartbeat starts an
+implement run on the lowest-numbered one; the workflow resolves the issue
+under the platform identity, composes the task from it, and runs the
+delivery pipeline with the documents beside the ticket. The crew's
+implementer implements the slice, the *platform* runs `pytest -q` as the
+verify gate of record, and only a green verify releases the deliver
+dispatch that opens the pull request. The run record has `"status":
+"done"` and a `pr_url` whose head ref matches `^feature/[a-z0-9-]+$`. A
+push to `main` is a compiled deny; so is a change to the documents by
+anyone but the steward.
+
+To reproduce one run by hand — a ticket that failed, a review you want to
+watch — the operator commands start exactly the run the loop would:
 
 ```bash
 uv run poseidon run 42
-```
-
-A file path still works for ad-hoc tasks that never went through intake —
-[`examples/task-tetris.md`](https://github.com/mathbrus/poseidon-prototype/blob/master/examples/task-tetris.md)
-is such a spec: `tetris.py` plus `tests/test_tetris.py`, on a `feature/*`
-branch. The default workflow is implement:
-
-```bash
-uv run poseidon run examples/task-tetris.md
-```
-
-The crew's implementer implements the task, the
-*platform* runs `pytest -q` as the verify gate of record, and only a
-green verify releases the deliver dispatch that opens the pull request.
-Success JSON has `"status": "done"` and a `pr_url` whose head ref matches
-`^feature/[a-z0-9-]+$`. A push to `main` is a compiled deny.
-
-If the per-run budget (`budgets.per_run.usd: 5` in the blueprint) trips,
-the run parks in `paused-budget_exhausted`. Raise the cap, re-apply, then
-`uv run poseidon signal <run_id> budget --approved --workflow implement`.
-
-### 3. Review and merge
-
-Implement stops at an open PR. Review provisions a fresh sandbox from the
-PR head, dispatches a reviewer that holds no repository-writing tools, and
-parks on the merge gate — so `--detach` is the usual mode. The number is
-the trailing integer of `pr_url`:
-
-```bash
 uv run poseidon review <pr-number> --detach
-# started review-<review_run_id> (run_id …)
-uv run poseidon status <review_run_id> --workflow review
 ```
 
-Wait until findings are posted on the PR and status is paused on the
-gate, then approve or reject. Use the **review** `run_id`, not the
-implement one. Approval merges as the orchestrator, under the platform
-identity; the CLI never touches the repository:
+### 4. Review and merge
+
+The delivered pull request wakes the heartbeat, which starts the review
+run: an ephemeral reviewer reads the diff and the documents, runs the
+suite in its own sandbox, posts findings, judges the change against the
+masterplan, and ends with a verdict. Under `hello-saas.yaml` the merge
+gate is yours:
 
 ```bash
-uv run poseidon signal <review_run_id> merge --workflow review
-# uv run poseidon signal <review_run_id> merge --no-approved --workflow review
+uv run poseidon signal <review run_id> merge --workflow review
 ```
 
-Watch a live run with `kubectl -n poseidon-platform logs -f deploy/orchestrator-worker`
-and `kubectl -n hello-saas get pods -w`. Teardown is guaranteed: on every
-terminal path the crew identities, pods, and sandbox go away.
-
-Every command and flag is on [the CLI reference](../reference/cli.md).
-Next: [hand over the keys](hand-over.md).
+Every step is on the record: `uv run poseidon status <run_id>` for the
+run, and one `run_id` query against the audit store for its whole story.
+[Hand over the keys](hand-over.md) is where the merge becomes the
+company's too.

@@ -19,6 +19,10 @@ from orchestrator.gates import Gate
 BUDGET_MARKER = "budget_exhausted"
 
 STEP_RETRY = RetryPolicy(maximum_attempts=3, backoff_coefficient=2.0)
+# For an activity whose effect is not idempotent and whose caller
+# re-observes the world anyway: a filing, a nudge. A failure is the
+# caller's to notice on its next look, never a second attempt's to repeat.
+SINGLE_ATTEMPT = RetryPolicy(maximum_attempts=1)
 # The agent works for as long as one attempt allows; heartbeats (one per
 # poll) detect a dead worker fast, and the unbounded retry re-attaches to
 # the running agent (dispatch answers 409 → poll). schedule_to_close caps
@@ -30,7 +34,7 @@ TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 # The `heartbeat` workflow is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats
 # above (`dispatch_heartbeat_s`), which are liveness pings on a dispatch.
-WORKFLOWS = ("implement", "intake", "review", "heartbeat")
+WORKFLOWS = ("scope", "implement", "review", "heartbeat")
 
 # Where every workflow above runs: one Temporal namespace, one task queue,
 # shared by the worker that hosts them and every client that starts or
@@ -105,6 +109,11 @@ PROFILES = {"default": Timeouts(), "fast": FAST_TIMEOUTS}
 # (teardown's bookkeeping). A ceiling, never a wait: these activities
 # answer in milliseconds on either profile.
 BOOTSTRAP_S = 30
+# The git host lists a new issue up to a minute after creating it. A
+# bootstrap filing waits that long for its tickets to be listed, so the
+# next tick — its own wake — cannot miss them and file again; the
+# filing's activity bound is a step plus this wait.
+LISTING_SETTLE_S = 60
 
 
 class RunWorkflow:
@@ -165,12 +174,12 @@ class RunWorkflow:
         crew: str | None = None,
     ) -> dict[str, Any]:
         """Stand the run's ephemeral crew up under the conductor's
-        authority — the request is recorded through the same compiled
-        `crew.request` decision an agent-issued request faces — and return
-        the one agent it dispatches, as `{agent_id, url}`. `crew` overrides
-        the workflow's configured crew (a ticket naming its own). Fulfilment
-        returns the crew's agents by role and refuses a crew that declares
-        more than one, so the unpacking cannot fail here."""
+        authority — fulfilment wins the compiled `crew.request` decision as
+        the conductor first — and return the one agent it dispatches, as
+        `{agent_id, url}`. `crew` overrides the workflow's configured crew
+        (a ticket naming its own). Fulfilment returns the crew's agents by
+        role and refuses a crew that declares more than one, so the
+        unpacking cannot fail here."""
         fulfilled = await workflow.execute_activity(
             "fulfill_crew",
             args=[
@@ -180,7 +189,6 @@ class RunWorkflow:
                     "crew_template": crew or config["crew"],
                     "conductor": config["conductor"],
                     "workflow": self.WORKFLOW,
-                    "record_under_authority": True,
                 }
             ],
             start_to_close_timeout=timedelta(seconds=self._bounds.provision_s),
@@ -189,6 +197,16 @@ class RunWorkflow:
         )
         (agent,) = fulfilled["agents"].values()
         return agent
+
+    async def read_documents(self, run_id: str) -> dict[str, str]:
+        """The company's documents as they stand on `base_ref`, read under
+        the run's id for the dispatches that judge work against them."""
+        return await workflow.execute_activity(
+            "read_documents",
+            args=[run_id],
+            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+            retry_policy=STEP_RETRY,
+        )
 
     async def teardown(
         self,
@@ -235,21 +253,25 @@ class RunWorkflow:
     async def wake_heartbeat(self) -> None:
         """Nudge the company's standing heartbeat that this run changed
         the world it watches. Doubly best-effort: the activity swallows
-        its own failures (an absent heartbeat is the normal state), and
-        the guard here means even a wedged connection cannot fail a run
-        that already tore down — a missed nudge costs at most one
-        reconcile interval."""
+        its own failures, and the guard here means even a wedged
+        connection cannot fail a run that already tore down — a missed
+        nudge costs at most one reconcile interval."""
         try:
             await workflow.execute_activity(
                 "wake_heartbeat",
                 start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=SINGLE_ATTEMPT,
             )
         except ActivityError:
             workflow.logger.info("heartbeat wake failed; the reconcile timer covers it")
 
     async def dispatch(
-        self, run_id: str, url: str, procedure: str, task_text: str
+        self,
+        run_id: str,
+        url: str,
+        procedure: str,
+        task_text: str,
+        documents: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """One agent dispatch, budget-pause aware: a `budget_exhausted`
         result parks the workflow on the `budget` signal in an API-visible
@@ -257,11 +279,13 @@ class RunWorkflow:
         approval (the cap was raised) re-dispatches the same text, anything
         else returns the budget-marked result for teardown to finalize.
         Escalation and verdict are process-gate audit events, like the
-        merge gate's — one Gate spine, one audit contract."""
+        merge gate's — one Gate spine, one audit contract. `documents` are
+        the company's documents the procedure reads as untrusted context;
+        a procedure that judges nothing (deliver) carries none."""
         while True:
             result = await workflow.execute_activity(
                 "dispatch_agent",
-                args=[run_id, url, procedure, task_text],
+                args=[run_id, url, procedure, task_text, documents or {}],
                 start_to_close_timeout=timedelta(seconds=self._bounds.dispatch_s),
                 schedule_to_close_timeout=timedelta(
                     seconds=self._bounds.dispatch_schedule_to_close_s

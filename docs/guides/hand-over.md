@@ -1,58 +1,55 @@
 # Hand over the keys
 
-Everything in [Getting started](getting-started.md) had you pressing
-start and answering every merge. This guide grants the company those two
-authorities, one at a time — and takes them back, since each is a diff.
+Everything in [Getting started](getting-started.md) had you answering
+every merge. The company already starts its own runs — every company has
+a heartbeat, and stopping it is deleting the company — so the one
+authority left to grant is the merge, and this guide grants it, narrowly,
+and takes it back, since it is a diff.
 
-## The heartbeat: the company starts its own runs
+## What the heartbeat already does
 
-To let the company run its own backlog, apply a blueprint with a
-`heartbeat` section — the delegated example carries one (and a delegated
-merge gate; drop that block to keep every merge yours):
-
-```bash
-uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
-```
-
-No command starts the heartbeat — that is the point. The orchestrator
-worker notices that the applied blueprint now declares a `heartbeat` section
-and starts one durable workflow, `heartbeat-hello-saas`, on its own. The
-loop is event-triggered: every finished run nudges it awake, and
-`reconcile_minutes` (30 in the example) bounds how long a change only the
-outside world saw — an issue you file by hand, a PR you merge by hand —
+No command starts the heartbeat. The orchestrator worker keeps one durable
+workflow, `heartbeat-hello-saas`, running for as long as the company is
+applied. The loop is event-triggered: every finished run nudges it awake,
+and `reconcile_minutes` (30 in the example) bounds how long a change only
+the outside world saw — an issue you file by hand, a PR you merge by hand —
 waits for a look. Each tick:
 
-1. **Observes** the open backlog, the delivered-but-unreviewed PRs (still
-   open on the git host — one you merged by hand simply drops out), the
-   in-flight runs and today's spend.
-2. **Dispatches the PM's toolless *decide* procedure** for exactly one
-   action — implement a ticket, review a PR, or idle — with a required
-   one-line rationale, journaled as a `heartbeat.decide` audit event.
+1. **Observes** the company's documents at the base ref, the open backlog,
+   the delivered-but-unreviewed PRs (still open on the git host — one you
+   merged by hand simply drops out), the in-flight runs and today's spend.
+2. **Files bootstrap tickets** for a document still absent, and otherwise
+   **dispatches the PM's toolless *decide* procedure** for exactly one
+   action — scope the next slice, implement a ticket, review a PR, or idle
+   — with a required one-line rationale, journaled as a `heartbeat.decide`
+   audit event.
 3. **Starts the chosen run** only if it wins the compiled `heartbeat.start`
    decision: within `max_concurrent_runs`, under the `daily_cap`, on an
-   item fewer than `max_attempts` runs have taken up, and only a workflow
-   on the `may_start` list. `intake` is deliberately not on that list —
-   goals always enter through a human.
+   item fewer than `max_attempts` runs have taken up, only a workflow on
+   the `may_start` list, and — for scoping — under `max_open_tickets`.
 
 A run that dies before concluding anything (the model call timed out, the
 reviewer hit its step cap) does not take its ticket or PR down with it:
 the item is offered again until `max_attempts` runs have tried, and the
-run that spends the last attempt leaves a comment on it saying so.
+run that spends the last attempt leaves a comment on it saying so. A
+bootstrap ticket that exhausts its attempts halts the loop by name
+(`heartbeat_bootstrap`, a process-gate event) instead of scoping without
+a strategy; close the ticket and the loop refiles.
 
-Your job shrinks to two acts: feed goals in
-(`poseidon run --workflow intake …`) and answer merge gates. Watch it work:
+Your job is two acts: keep the charter (edit the blueprint, re-apply) and
+answer merge gates. Watch it work:
 
 ```bash
 uv run poseidon status hello-saas --workflow heartbeat   # the standing workflow
 kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
 ```
 
-To take the keys back, apply a blueprint without the section —
-`hello-saas.yaml` — and the heartbeat stops itself: each tick re-reads the
-applied blueprint and exits when the section is gone, and the compiled
-`heartbeat.start` rules vanish with it. `tests/e2e_kind/test_overnight.py`
-runs this arrangement end to end with exactly two human acts: one goal in,
-one approval out.
+Narrowing `heartbeat.may_start` keeps a step for an operator: a company
+that may not `implement` on its own waits for `poseidon run <number>`.
+Removing the section is not a state — it does not compile. To stop the
+company, delete it: the loop reads no applied blueprint at its next tick
+and stops. `tests/e2e_kind/test_overnight.py` runs the whole arrangement
+end to end with exactly one human act: the approval out.
 
 ## The delegated gate: the company merges its own work
 
@@ -63,17 +60,18 @@ profile delegates it — narrowly:
 uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
 ```
 
-Three things change relative to a heartbeat-only company:
+Three things change relative to the human-gated company:
 
 - `gates.merge.resolved_by` becomes `policy`, with a `delegate` block
   naming the path class the company may merge on its own
-  (`slugify.py`, `tests/unit/`) and a rework bound (`max_reworks: 1`).
+  (`slugify.py`, `tests/unit/`, and `docs/` — the company's own documents)
+  and a rework bound (`max_reworks: 1`).
 - A `policies.contract_tests` block declares the oracle: `tests/contract/`
   holds the acceptance spec delegated merges are graded by, and it can
   never be delegated.
-- A new `contract-authoring` crew — the only role that may deliver into
-  the contract tree — joins the PM's `may_spawn` list, so contract-first
-  work can be sequenced.
+- A `contract-authoring` crew — the only role that may deliver into the
+  contract tree — joins the PM's `may_spawn` list, so contract-first work
+  can be sequenced.
 
 A review run of an in-class PR does not park. When the independent
 verdict passed, the platform's own re-run of the tests and the contract
@@ -87,14 +85,15 @@ layer feeds the bounded rework loop instead.
 
 !!! note
     The delegated class is yours to declare, and the example's is scoped to
-    the acceptance suite's product (`slugify.py`). A Tetris PR from the
-    getting-started walkthrough touches `tetris.py` — out of class, so it
-    declines to your `merge` signal. Edit `delegate.paths` to name the paths
-    you are willing to see merge on green.
+    the acceptance suite's product (`slugify.py`) plus the company's own
+    documents. Delegating `docs/` means the first strategy — the company's
+    reading of your vision — merges on the reviewer's verdict alone; leave
+    it out of `delegate.paths` to read that reading yourself.
+    [What it cannot do](../argument/cannot.md) names the residual.
 
-With both keys handed over, the human surface is a single act:
-`tests/e2e_kind/test_delegated.py` proves the arc — one goal in, and
-the company scopes, implements, reviews and merges its own in-class
-passing work, every decision on the audit record. Taking the merge back is
-the same diff in reverse: re-apply a profile with `resolved_by: human` and
-every merge parks on you again.
+With the merge handed over, the human surface is empty:
+`tests/e2e_kind/test_delegated.py` proves the arc — the company scopes,
+implements, reviews and merges its own in-class passing work, every
+decision on the audit record, and nobody touches anything. Taking the
+merge back is the same diff in reverse: re-apply a profile with
+`resolved_by: human` and every merge parks on you again.

@@ -41,7 +41,7 @@ spec:
           properties:
             spec:
               type: object
-              required: [agentId, company, standingName, role, repo, mission]
+              required: [agentId, company, standingName, role, repo, vision]
               properties:
                 agentId: {type: string}
                 company: {type: string}
@@ -57,7 +57,7 @@ spec:
                   properties:
                     url: {type: string}
                     base_ref: {type: string}
-                mission: {type: string}
+                vision: {type: string}
                 tools:
                   type: array
                   items: {type: string}

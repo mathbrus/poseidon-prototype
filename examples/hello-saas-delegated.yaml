@@ -1,17 +1,24 @@
-# hello-saas-delegated — the company that runs itself: a heartbeat starts
-# its runs from the backlog, and in-class passing work (`slugify.py`, the
-# unit-test tree) merges under compiled policy with no human command. A
-# person still feeds goals in and answers everything the delegation does
-# not cover — carve-outs, out-of-class paths, a declined policy merge, and
-# the acceptance-contract tree the delegation is graded by, which only the
-# contract author may write. Removing the `delegate` block reverts to
-# human-only merge; removing `heartbeat` reverts to human-started runs.
+# hello-saas-delegated — the company that finishes its own work: in-class
+# passing work (`slugify.py`, the unit-test tree) merges under compiled
+# policy with no human command. A person answers everything the
+# delegation does not cover — carve-outs, out-of-class paths, a declined
+# policy merge, and the acceptance-contract tree the delegation is graded
+# by, which only the contract author may write. Removing the `delegate`
+# block reverts to human-only merge.
 
 apiVersion: poseidon.dev/v1
 
 company:
   name: hello-saas
-  mission: Ship a small SaaS product with an agent company under governance.
+  vision: >-
+    A small SaaS that turns titles into URL slugs, delivered and kept
+    green by a company of agents that never exceeds its authority.
+  # The two documents the company writes for itself, in its repository:
+  # the strategy (written once from the vision) and the architecture
+  # masterplan (written from the vision and the tree, revised on request).
+  documents:
+    strategy: docs/STRATEGY.md
+    architecture: docs/ARCHITECTURE.md
 
 stack:
   # The one repository this company works on, and the branch its changes
@@ -31,7 +38,7 @@ standing:
     role: pm
     count: 1
     may_spawn:
-      crew: [contract-authoring, feature-delivery, feature-review]
+      crew: [contract-authoring, feature-delivery, feature-review, stewardship]
       max_concurrent: 2
 
 # The one place a role's scope is narrowed, for standing and ephemeral
@@ -48,20 +55,14 @@ tools:
       - git.read
       - git.comment
       - issues.comment
+      - architecture.request
 
 workflows:
-  intake:
-    enabled: true
-    conductor: pm
   implement:
-    enabled: true
-    conductor: pm
     crew: feature-delivery
     max_verify_retries: 2
   # --8<-- [start:review-delegated]
   review:
-    enabled: true
-    conductor: pm
     crew: feature-review
     gates:
       merge:
@@ -70,8 +71,10 @@ workflows:
         deadline_minutes: 1440
         delegate:
           # The unit-test tree, never the whole of tests/: the contract
-          # tree below is the oracle these merges are graded by.
-          paths: [slugify.py, tests/unit/]
+          # tree below is the oracle these merges are graded by. The
+          # company's documents merge under policy too: the reviewer's
+          # verdict is the only oracle a document has.
+          paths: [slugify.py, tests/unit/, docs/]
           max_reworks: 1
           # --8<-- [end:review-delegated]
 
@@ -96,15 +99,17 @@ budgets:
     # How long a run stopped at the cap waits for someone to raise it.
     pause_minutes: 60
 
-# The company's own initiative: what it may start on its own, how many at
-# once, how many tries an item gets, and the day's hard stop.
+# The company's own initiative: who decides, what it may start on its own,
+# how many at once, how many tries an item gets, how large the backlog may
+# grow before it stops scoping, and the day's hard stop.
 # --8<-- [start:heartbeat]
 heartbeat:
   conductor: pm
   reconcile_minutes: 30
   max_concurrent_runs: 1
   max_attempts: 2
-  may_start: [implement, review]
+  max_open_tickets: 5
+  may_start: [scope, implement, review]
   daily_cap:
     usd: 20
     # --8<-- [end:heartbeat]

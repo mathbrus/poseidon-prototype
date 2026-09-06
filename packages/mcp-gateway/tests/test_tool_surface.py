@@ -1,7 +1,6 @@
 """The whole tool surface through the full gateway pipeline: each
 tool callable by its authorized role and denied (audited) for every other,
-`git.merge_pr` restricted to the platform lifecycle, and `crew.request`
-recording idempotent spawn intent under the conductor identity."""
+and `git.merge_pr` restricted to the platform lifecycle."""
 
 import json
 
@@ -13,6 +12,7 @@ from conftest import (
     WORKER_TOKEN,
     audit_events,
     mcp_session,
+    register_sandbox,
 )
 
 pytestmark = pytest.mark.anyio
@@ -167,6 +167,98 @@ async def test_reviewer_cannot_merge_or_open_issues(app, participants):
     assert merge.isError and create.isError
 
 
+# -- architecture.request (asking is not writing) ----------------------------
+
+
+async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backends, audit):
+    """The bound implementer asks once: the platform files the proposal as
+    a ticket on the company's repository with the stewardship trailer —
+    the caller named neither — and the audit event is the receipt. The
+    second ask in the same run is denied by the compiled cap, read off
+    that receipt."""
+    await register_sandbox(app, RUN_ID)  # the run the caller is bound to
+    async with mcp_session(app, AGENT_TOKEN) as session:
+        first = payload(
+            await session.call_tool(
+                "architecture.request",
+                {
+                    "run_id": RUN_ID,
+                    "rationale": "the plan allows one module",
+                    "proposal": "Allow a second module.\nFor the statistics.",
+                },
+            )
+        )
+        second = await session.call_tool(
+            "architecture.request",
+            {"run_id": RUN_ID, "rationale": "again", "proposal": "again"},
+        )
+    assert first["url"] == "https://github.test/i/7"
+    path, body, _ = backends.github_calls[-1]
+    assert path.endswith("/issues")
+    assert (
+        body["title"] == f"Architecture request from run {RUN_ID}: Allow a second module."
+    )
+    assert body["body"].endswith("Crew: stewardship")
+    assert "the plan allows one module" in body["body"]
+    assert second.isError and "architecture_request_over_cap" in second.content[0].text
+    events = [e for e in audit_events(audit) if e["tool"] == "architecture.request"]
+    assert [e["decision"] for e in events] == ["allow", "deny"]
+    assert backends.policy_inputs[-1]["architecture_requests"] == 1
+
+    async with mcp_session(app, PM_TOKEN) as session:
+        pm = await session.call_tool(
+            "architecture.request", {"run_id": RUN_ID, "rationale": "r", "proposal": "p"}
+        )
+    assert pm.isError, "the PM reached architecture.request"
+
+
+# -- repo.read_file (platform only) ------------------------------------------
+
+
+async def test_reading_a_document_is_platform_only(app, backends, audit):
+    """The company's documents are read at base_ref by the platform —
+    present or honestly absent — and by nobody in the company."""
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        strategy = payload(
+            await session.call_tool(
+                "repo.read_file",
+                {
+                    "run_id": RUN_ID,
+                    "repo": REPO,
+                    "ref": "main",
+                    "path": "docs/STRATEGY.md",
+                },
+            )
+        )
+        masterplan = payload(
+            await session.call_tool(
+                "repo.read_file",
+                {
+                    "run_id": RUN_ID,
+                    "repo": REPO,
+                    "ref": "main",
+                    "path": "docs/ARCHITECTURE.md",
+                },
+            )
+        )
+    assert strategy == {"present": True, "text": "# Strategy\n\nShip slugs.\n"}
+    assert masterplan == {"present": False, "text": None}
+    assert backends.github_calls[-1][0].endswith("/contents/docs/ARCHITECTURE.md")
+
+    for token in (PM_TOKEN, AGENT_TOKEN):
+        async with mcp_session(app, token) as session:
+            result = await session.call_tool(
+                "repo.read_file",
+                {
+                    "run_id": RUN_ID,
+                    "repo": REPO,
+                    "ref": "main",
+                    "path": "docs/STRATEGY.md",
+                },
+            )
+        assert result.isError, "a company role read a document through the platform"
+
+
 # -- git.merge_pr (platform only) -------------------------------------------
 
 
@@ -192,113 +284,3 @@ async def test_merge_is_platform_only(app, backends, audit):
         if e["tool"] == "git.merge_pr" and e["decision"] == "deny"
     ]
     assert len(denies) == 2
-
-
-# -- crew.request (authorization + intent, never fulfillment) ----------------
-
-
-async def test_crew_request_records_idempotent_intent(app, crew_requests, audit):
-    async with mcp_session(app, PM_TOKEN) as session:
-        first = payload(
-            await session.call_tool(
-                "crew.request",
-                {
-                    "run_id": RUN_ID,
-                    "crew_template": "feature-delivery",
-                    "reason": "ticket #7",
-                },
-            )
-        )
-        again = payload(
-            await session.call_tool(
-                "crew.request",
-                {
-                    "run_id": RUN_ID,
-                    "crew_template": "feature-delivery",
-                    "reason": "ticket #7, retried",
-                },
-            )
-        )
-
-    assert first["status"] == "recorded"
-    assert first["conductor"] == "pm-1"
-    assert first["expires_at"]  # expiring: no orphan intent
-    assert again["id"] == first["id"]  # idempotent
-    assert len(crew_requests.rows) == 1
-
-    event = audit_events(audit)[-1]
-    assert event["tool"] == "crew.request" and event["decision"] == "allow"
-
-
-async def test_crew_request_outside_may_spawn_is_denied(app, crew_requests, audit):
-    """The compiled rule narrows the template to the conductor's may_spawn
-    list — an unknown or unauthorized crew is a rule deny, recorded nowhere."""
-    async with mcp_session(app, PM_TOKEN) as session:
-        result = await session.call_tool(
-            "crew.request",
-            {"run_id": RUN_ID, "crew_template": "shadow-ops", "reason": "hm"},
-        )
-    assert result.isError and "default_deny" in result.content[0].text
-    assert crew_requests.rows == {}
-    assert audit_events(audit)[-1]["decision"] == "deny"
-
-
-async def test_implementer_cannot_request_crews(app, crew_requests):
-    async with mcp_session(app, AGENT_TOKEN) as session:
-        result = await session.call_tool(
-            "crew.request",
-            {"run_id": RUN_ID, "crew_template": "feature-delivery", "reason": "r"},
-        )
-    assert result.isError
-    assert crew_requests.rows == {}
-
-
-async def test_over_cap_crew_request_is_denied_and_audited(
-    app, participants, crew_requests, audit
-):
-    """The conductor's live spawn count rides the decision input and
-    the compiled cap denies by rule — a first-class governance event."""
-    participants.add(
-        "fd-implementer-a", "run-a", "pm-1", "feature-delivery", "implementer"
-    )
-    participants.add("fr-reviewer-b", "run-b", "pm-1", "feature-review", "reviewer")
-
-    async with mcp_session(app, PM_TOKEN) as session:
-        result = await session.call_tool(
-            "crew.request",
-            {
-                "run_id": RUN_ID,
-                "crew_template": "feature-delivery",
-                "reason": "a third crew",
-            },
-        )
-    assert result.isError
-    assert "crew_request_over_cap" in result.content[0].text
-    assert crew_requests.rows == {}  # nothing recorded on a rule deny
-    event = audit_events(audit)[-1]
-    assert event["decision"] == "deny" and event["rule"] == "crew_request_over_cap"
-
-
-async def test_exhausted_budget_denies_crew_request(app, ledger, crew_requests, audit):
-    ledger.record(
-        company="hello-saas",
-        run_id=RUN_ID,
-        agent_id="implementer-1",
-        parent_agent_id="",
-        role="implementer",
-        model="mock-brain",
-        prompt_tokens=1,
-        completion_tokens=1,
-        cached_tokens=0,
-        reasoning_tokens=0,
-        usd=5.0,
-    )
-    async with mcp_session(app, PM_TOKEN) as session:
-        result = await session.call_tool(
-            "crew.request",
-            {"run_id": RUN_ID, "crew_template": "feature-delivery", "reason": "r"},
-        )
-    assert result.isError
-    assert "crew_request_no_budget" in result.content[0].text
-    assert crew_requests.rows == {}
-    assert audit_events(audit)[-1]["rule"] == "crew_request_no_budget"

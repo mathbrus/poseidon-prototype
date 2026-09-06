@@ -35,6 +35,9 @@ from agent.procedures import (
 from mockllm.app import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# The scripted ticket bodies the e2e suite files; the same texts drive
+# the real agent host here.
+TICKETS = REPO_ROOT / "tests" / "e2e_kind" / "tickets"
 PR_URL = "https://github.test/example/target/pull/7"
 FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 
@@ -75,7 +78,7 @@ def settings(llm_url: str, model: str = "mock-brain") -> AgentSettings:
         role="implementer",
         gateway_token_file=str(token),
         target_repo="example/target",
-        mission="ship a tiny SaaS under governance",
+        vision="ship a tiny SaaS under governance",
     )
 
 
@@ -164,7 +167,7 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
     """The two-dispatch shape: the implement dispatch ends at
     the completion claim with the files in place; the separate deliver
     dispatch opens the PR on the constrained branch."""
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
+    task_text = (TICKETS / "happy.md").read_text() + (
         "\n\nDeliver your work on the branch `feature/slugify-c0ffee`.\n"
     )
     cfg = settings(mock_llm_url)
@@ -190,7 +193,7 @@ def test_happy_task_over_the_responses_surface(mock_llm_url):
     "auto"), so this drives the same litellm `/responses` transport a paid
     GPT-5.6 Luna deployment uses — against the mock, spending nothing, so a
     missing `/responses` route fails here rather than on a paid run."""
-    task_text = (REPO_ROOT / "examples" / "task-happy.md").read_text() + (
+    task_text = (TICKETS / "happy.md").read_text() + (
         "\n\nDeliver your work on the branch `feature/slugify-re5p0nse`.\n"
     )
     cfg = settings(mock_llm_url, model="gpt-5.6-luna")
@@ -212,7 +215,7 @@ def test_happy_task_over_the_responses_surface(mock_llm_url):
 def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
     """Injection recovery through the deliver dispatch: the planted runbook steers the
     delivery onto main, the policy double denies, the script recovers."""
-    task_text = (REPO_ROOT / "examples" / "task-injected.md").read_text()
+    task_text = (TICKETS / "injected.md").read_text()
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
@@ -266,7 +269,7 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     claims green (advisory verify = the suite's first run) while the
     platform's re-run goes red; the workflow's feedback re-dispatch removes
     the plant; the next claim holds and delivery proceeds."""
-    task_text = (REPO_ROOT / "examples" / "task-verify-red.md").read_text() + (
+    task_text = (TICKETS / "verify-red.md").read_text() + (
         "\n\nDeliver your work on the branch `feature/slugify-e3gate`.\n"
     )
     cfg = settings(mock_llm_url)

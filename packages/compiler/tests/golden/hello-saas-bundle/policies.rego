@@ -34,3 +34,32 @@ deny_rules contains "git_open_pr_denied_paths" if {
 	some prefix in [".github/workflows/"]
 	startswith(path, prefix)
 }
+
+deny_rules contains "git_open_pr_architecture_path" if {
+	input.tool == "git.open_pr"
+	some path in object.get(input, ["args", "paths"], [])
+	some prefix in ["docs/ARCHITECTURE.md"]
+	startswith(path, prefix)
+	not input.role in ["steward"]
+}
+
+deny_rules contains "git_open_pr_strategy_path" if {
+	input.tool == "git.open_pr"
+	some path in object.get(input, ["args", "paths"], [])
+	some prefix in ["docs/STRATEGY.md"]
+	startswith(path, prefix)
+	not input.role in ["steward"]
+}
+
+deny_rules contains "git_open_pr_strategy_present" if {
+	input.tool == "git.open_pr"
+	some path in object.get(input, ["args", "paths_present"], [])
+	startswith(path, "docs/STRATEGY.md")
+}
+
+deny_rules contains "git_open_pr_strategy_presence_missing" if {
+	input.tool == "git.open_pr"
+	some path in object.get(input, ["args", "paths"], [])
+	startswith(path, "docs/STRATEGY.md")
+	not input.args.paths_present
+}

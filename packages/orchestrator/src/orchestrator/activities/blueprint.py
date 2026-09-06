@@ -53,26 +53,30 @@ def workflow_config(
         {company, conductor: {agent_id, role, url}, crew, gates,
          max_verify_retries, budget_pause_minutes, contract_paths}
 
+    The conductor is the company's one, named on the heartbeat section.
     `crew` is the ephemeral crew the workflow executes through, or None
-    for a workflow that dispatches its conductor directly (intake).
+    for `scope`, which dispatches the conductor directly and has no node.
     `gates` is the block as the blueprint wrote it (`{merge: {resolved_by,
     deadline_minutes, delegate?}}`, ...), `max_verify_retries` bounds
     implement's verify loop, `budget_pause_minutes` is how long a run
     stopped at the budget cap waits for a human, and `contract_paths` is
     the declared contract tree ([] when the company declares none) that
     review's deletion facts resolve against.
-    Fail-closed: no applied blueprint, no enabled workflow, or no
-    converged conductor instance each refuse the run before anything is
-    provisioned."""
-    spec = companies.get(company) or {}
+    Fail-closed: no applied blueprint, no node for a crewed workflow, or
+    no converged conductor instance each refuse the run before anything
+    is provisioned."""
+    spec = companies.get(company)
+    if not spec:
+        raise RuntimeError(f"no applied blueprint for company {company!r}")
     config = next((w for w in spec.get("workflows") or [] if w.get("name") == name), None)
-    if config is None or not config.get("enabled", False):
+    if config is None and name != "scope":
         raise RuntimeError(
-            f"company {company!r} has no enabled {name} workflow in its applied blueprint"
+            f"company {company!r} declares no {name} workflow in its applied blueprint"
         )
+    config = config or {}
     return {
         "company": company,
-        "conductor": conductor(instances, company, config["conductor"]),
+        "conductor": conductor(instances, company, spec["heartbeat"]["conductor"]),
         "crew": config.get("crew"),
         "gates": dict(config.get("gates") or {}),
         "max_verify_retries": config.get("max_verify_retries"),

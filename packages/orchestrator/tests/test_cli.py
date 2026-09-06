@@ -10,7 +10,7 @@ from orchestrator.cli.main import _workflow_id
 
 def test_run_shaped_workflows_key_on_run_id():
     assert _workflow_id("implement", "run-1") == "implement-run-1"
-    assert _workflow_id("intake", "run-1") == "intake-run-1"
+    assert _workflow_id("scope", "run-1") == "scope-run-1"
     assert _workflow_id("review", "run-1") == "review-run-1"
 
 
