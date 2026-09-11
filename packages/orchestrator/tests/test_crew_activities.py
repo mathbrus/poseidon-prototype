@@ -45,7 +45,6 @@ def settings(tmp_path) -> WorkerSettings:
         egress_proxy_url="http://127.0.0.1:3128",
         egress_proxy_key="egress-key",
         timeout_profile="default",
-        company="hello-saas",
         temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",

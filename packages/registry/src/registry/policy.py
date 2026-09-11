@@ -103,15 +103,18 @@ class StoredBundle:
 
 
 class PolicyBundles:
+    """The bundles OPA polls, one row per slot (`platform`, `company`).
+    The column is still called `company`: it holds the slot name."""
+
     def __init__(self, registry: Registry) -> None:
         self._db = registry
 
-    def put(self, company: str, files: dict[str, str]) -> str:
+    def put(self, slot: str, files: dict[str, str]) -> str:
         tarball, revision = pack(files)
-        self._store(company, revision, tarball)
+        self._store(slot, revision, tarball)
         return revision
 
-    def _store(self, company: str, revision: str, tarball: bytes) -> None:
+    def _store(self, slot: str, revision: str, tarball: bytes) -> None:
         self._db.execute(
             """
             INSERT INTO registry.policy_bundles (company, revision, tarball, updated_at)
@@ -121,14 +124,14 @@ class PolicyBundles:
                 tarball = EXCLUDED.tarball,
                 updated_at = now()
             """,
-            (company, revision, tarball),
+            (slot, revision, tarball),
         )
 
-    def get(self, company: str) -> StoredBundle | None:
+    def get(self, slot: str) -> StoredBundle | None:
         rows = self._db.query(
             "SELECT company, revision, tarball, updated_at"
             " FROM registry.policy_bundles WHERE company = %s",
-            (company,),
+            (slot,),
         )
         if not rows:
             return None
@@ -140,15 +143,15 @@ class PolicyBundles:
             updated_at=row["updated_at"] or datetime.now(UTC),
         )
 
-    def revoke(self, company: str) -> str | None:
+    def revoke(self, slot: str) -> str | None:
         """Company teardown revokes policy: the stored bundle is replaced by
         a tombstone over the same roots, still served, so a running OPA
         drops the company's rules on its own next poll — no restart — and
         a restarted one activates the same nothing. Returns the tombstone's
         revision, or None when nothing was stored to revoke."""
-        stored = self.get(company)
+        stored = self.get(slot)
         if stored is None:
             return None
         tarball, revision = tombstone(_manifest_roots(stored.tarball))
-        self._store(company, revision, tarball)
+        self._store(slot, revision, tarball)
         return revision

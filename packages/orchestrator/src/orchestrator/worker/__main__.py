@@ -74,14 +74,15 @@ async def ensure_heartbeat_once(
 ) -> None:
     """One ensure pass, isolated so a hiccup never kills the loop."""
     try:
-        if await asyncio.to_thread(companies.get, settings.company):
+        company = await asyncio.to_thread(companies.applied)
+        if company is not None:
             await client.start_workflow(
                 "heartbeat",
-                HeartbeatInput(company=settings.company),
-                id=workflow_id("heartbeat", settings.company),
+                HeartbeatInput(company=company),
+                id=workflow_id("heartbeat", company),
                 task_queue=TASK_QUEUE,
             )
-            log.info("heartbeat started", extra={"company": settings.company})
+            log.info("heartbeat started", extra={"company": company})
     except WorkflowAlreadyStartedError:
         pass  # the heartbeat is already beating — the normal case
     except Exception as exc:  # registry or Temporal hiccup: retry next pass

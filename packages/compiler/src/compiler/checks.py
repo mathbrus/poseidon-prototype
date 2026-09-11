@@ -44,7 +44,6 @@ def check(
     roles = role_catalog or ROLES
     crews = crew_catalog or CREW_TEMPLATES
     problems: list[str] = []
-    problems += _company_name(blueprint)
     # The catalog cross-checks the validate pass also runs — against the
     # *injected* catalog here, so a caller compiling against a different
     # catalog version gets that version's answer. Unknown tool names are
@@ -68,16 +67,6 @@ def check(
     problems += contract_tests_problems(blueprint)
     problems += document_problems(blueprint)
     return problems
-
-
-def _company_name(blueprint: dict[str, Any]) -> list[str]:
-    """`platform` is the bundle key and Rego package the orchestrator's own
-    scope lives under — a company by that name would collide
-    with it at the bundle server and shadow the platform decision path."""
-    name = (blueprint.get("company") or {}).get("name")
-    if name == "platform":
-        return ["company.name: 'platform' is reserved for the platform policy bundle"]
-    return []
 
 
 def _lean_standing(blueprint: dict[str, Any], roles: dict[str, Any]) -> list[str]:

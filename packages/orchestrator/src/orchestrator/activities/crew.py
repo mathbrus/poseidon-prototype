@@ -38,6 +38,7 @@ from common.topology import (
     mcp_gateway_url,
 )
 from orchestrator.activities.blueprint import company_repo
+from orchestrator.activities.company import applied_company
 from orchestrator.audit import record_event
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
@@ -81,9 +82,10 @@ class CrewActivities:
 
     async def _repo(self) -> dict[str, str]:
         """The company's repository, from its applied blueprint."""
-        return await asyncio.to_thread(
-            company_repo, self._companies, self._settings.company
-        )
+        return await asyncio.to_thread(company_repo, self._companies, self._company())
+
+    def _company(self) -> str:
+        return applied_company(self._companies)
 
     @activity.defn(name="bind_participant")
     async def bind_participant(self, spec: dict[str, Any]) -> dict[str, Any]:

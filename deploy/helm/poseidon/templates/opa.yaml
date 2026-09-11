@@ -1,8 +1,9 @@
 # OPA. Operator-installed compiled bundles are the only policy source.
 # OPA *polls* the bundle server — never pushed, so an OPA
 # restart re-fetches the current revision instead of running on whatever it
-# last held. Two bundles: the platform scope (compiler-owned, reserved key)
-# and one per company.
+# last held. Two bundles, under fixed names (`common.policy` spells them
+# too): the platform's own policy and the applied company's. Which company
+# that is, the chart never knows.
 {{- define "poseidon.opaConfig" -}}
 services:
   bundles:
@@ -14,11 +15,9 @@ bundles:
     polling:
       min_delay_seconds: 5
       max_delay_seconds: 15
-  # Keyed and pathed by company *name* (which equals the namespace for
-  # the bootstrap company) — the bundle server keys by company.
-  {{ .Values.company }}:
+  company:
     service: bundles
-    resource: bundles/{{ .Values.company }}/bundle.tar.gz
+    resource: bundles/company/bundle.tar.gz
     polling:
       min_delay_seconds: 5
       max_delay_seconds: 15

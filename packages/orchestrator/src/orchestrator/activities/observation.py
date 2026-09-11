@@ -32,6 +32,7 @@ from temporalio import activity
 from common.telemetry import get_logger
 from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
+from orchestrator.activities.company import applied_company
 from orchestrator.activities.documents import (
     BOOTSTRAP_TITLES,
     company_documents,
@@ -140,14 +141,15 @@ class ObservationActivities:
 
     async def _repo(self) -> dict[str, str]:
         """The company's repository, from its applied blueprint."""
-        return await asyncio.to_thread(
-            company_repo, self._companies, self._settings.company
-        )
+        return await asyncio.to_thread(company_repo, self._companies, self._company())
+
+    def _company(self) -> str:
+        return applied_company(self._companies)
 
     @activity.defn(name="heartbeat_observe")
     async def heartbeat_observe(self, max_attempts: int) -> dict[str, Any]:
         """What the tick decides from, read under the heartbeat's own id."""
-        return await self._observe(max_attempts, heartbeat_run_id(self._settings.company))
+        return await self._observe(max_attempts, heartbeat_run_id(self._company()))
 
     @activity.defn(name="scope_observation")
     async def scope_observation(self, run_id: str) -> str:
@@ -155,7 +157,7 @@ class ObservationActivities:
         rendered for the conductor's scope procedure and read under the
         scope run's own id, so the platform reads it makes are attributed
         to the run that asked."""
-        spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}
+        spec = await asyncio.to_thread(self._companies.get, self._company()) or {}
         observed = await self._observe(int(spec["heartbeat"]["max_attempts"]), run_id)
         return scope_prompt(observed)
 
@@ -183,7 +185,7 @@ class ObservationActivities:
         def read() -> tuple[
             int, float, dict[int, Attempts], list[dict[str, Any]], list[Any]
         ]:
-            company = self._settings.company
+            company = self._company()
             reviews = self._runs.review_attempts(company)
             delivered = []
             for url in self._runs.delivered_pr_urls(company):
@@ -215,7 +217,7 @@ class ObservationActivities:
         reviewable = []
         repo = await self._repo()
         paths = await asyncio.to_thread(
-            company_documents, self._companies, self._settings.company
+            company_documents, self._companies, self._company()
         )
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
@@ -255,7 +257,7 @@ class ObservationActivities:
                     # world did, and no later tick reads this PR again.
                     await asyncio.to_thread(
                         self._runs.mark_pr_settled,
-                        self._settings.company,
+                        self._company(),
                         candidate["number"],
                         settled,
                     )

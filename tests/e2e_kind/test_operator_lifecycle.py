@@ -23,7 +23,7 @@ import httpx
 import pytest
 import yaml
 
-from common.policy import company_decision_path, company_package
+from common.policy import COMPANY_BUNDLE, company_decision_path, company_package
 
 from .blueprints import (
     HELLO_SAAS,
@@ -100,7 +100,7 @@ def test_apply_converges_the_company(stack: None):
     # The bundle server serves that exact revision over the OPA bundle API.
     with port_forward("svc/bundle-server", 8081) as port:
         resp = httpx.get(
-            f"http://127.0.0.1:{port}/bundles/{COMPANY}/bundle.tar.gz", timeout=30
+            f"http://127.0.0.1:{port}/bundles/{COMPANY_BUNDLE}/bundle.tar.gz", timeout=30
         )
         assert resp.status_code == 200
         assert resp.headers["etag"] == f'"{revision}"'
@@ -120,7 +120,7 @@ def test_opa_activated_both_bundles(stack: None):
         # Activation metadata lands in data.system.bundles.<name> (the
         # /v1/status API would need the status plugin enabled).
         manifest = httpx.get(
-            f"{base}/v1/data/system/bundles/{COMPANY}/manifest", timeout=10
+            f"{base}/v1/data/system/bundles/{COMPANY_BUNDLE}/manifest", timeout=10
         ).json()
         assert manifest.get("result", {}).get("revision") == revision
 
@@ -200,7 +200,7 @@ def test_company_delete_revokes(stack: None, env: dict):
     # platform bundle (the platform's, not the company's) is still served.
     with port_forward("svc/bundle-server", 8081) as port:
         resp = httpx.get(
-            f"http://127.0.0.1:{port}/bundles/{COMPANY}/bundle.tar.gz", timeout=30
+            f"http://127.0.0.1:{port}/bundles/{COMPANY_BUNDLE}/bundle.tar.gz", timeout=30
         )
         assert resp.status_code == 200
         with tarfile.open(fileobj=io.BytesIO(resp.content)) as tar:

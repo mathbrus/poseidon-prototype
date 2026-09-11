@@ -111,6 +111,12 @@ jobs:
                       if "kubernetes.io/metadata.name" in ns:
                           selected.add(ns["kubernetes.io/metadata.name"])
           assert selected == {t.COMPANY_NAMESPACE}, selected
+          # OPA polls two bundles under fixed names; the operator stores
+          # them under the same two.
+          from common import policy as pol
+          opa_config = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "opa-config")
+          slots = set(yaml.safe_load(opa_config["data"]["config.yaml"])["bundles"])
+          assert slots == {pol.PLATFORM_BUNDLE, pol.COMPANY_BUNDLE}, slots
           print("chart agrees with common.topology")
           PY
       - name: "A bare install must not deploy placeholder credentials"

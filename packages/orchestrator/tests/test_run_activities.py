@@ -235,7 +235,7 @@ def test_workflow_config_fails_closed_without_a_blueprint(
     activities = RunActivities(
         settings, backend, runs, InMemoryCompanies(), instances, ledger, audit
     )
-    with pytest.raises(RuntimeError, match="no applied blueprint"):
+    with pytest.raises(RuntimeError, match="no company is applied"):
         asyncio.run(activities.workflow_config("implement"))
 
 

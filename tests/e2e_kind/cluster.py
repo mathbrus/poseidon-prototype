@@ -742,7 +742,6 @@ def worker_settings(env: dict, tmp_path: Path, opa_url: str = "http://opa.test:8
         egress_proxy_key="egress-key",
         timeout_profile="default",
         temporal_address="127.0.0.1:7233",
-        company=COMPANY,
         gateway_token_file=str(token_file),
         mcp_gateway_url=gateway_url(env),
         agent_image=agent_image(),

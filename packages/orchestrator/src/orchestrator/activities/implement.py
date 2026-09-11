@@ -24,6 +24,7 @@ from temporalio import activity
 from common.telemetry import get_logger
 from common.topology import SANDBOX_TOOLCHAIN
 from orchestrator.activities.blueprint import company_repo
+from orchestrator.activities.company import applied_company
 from orchestrator.clients import GatewayClient, dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from registry import Companies, Runs
@@ -48,9 +49,10 @@ class ImplementActivities:
 
     async def _repo(self) -> dict[str, str]:
         """The company's repository, from its applied blueprint."""
-        return await asyncio.to_thread(
-            company_repo, self._companies, self._settings.company
-        )
+        return await asyncio.to_thread(company_repo, self._companies, self._company())
+
+    def _company(self) -> str:
+        return applied_company(self._companies)
 
     @activity.defn(name="read_issue")
     async def read_issue(self, run_id: str, issue_number: int) -> dict[str, Any]:
@@ -85,11 +87,11 @@ class ImplementActivities:
         env: the sandbox runs what the company declared, not a default. No applied blueprint means no
         policy — provisioning without one would resurrect hand-authored
         values the compiler exists to replace."""
-        spec = self._companies.get(self._settings.company)
+        spec = self._companies.get(self._company())
         sandbox_ir = ((spec or {}).get("infra") or {}).get("sandbox")
         if not sandbox_ir:
             raise RuntimeError(
-                f"no applied blueprint for company {self._settings.company!r}"
+                f"no applied blueprint for company {self._company()!r}"
                 " — provision_sandbox has no compiled SandboxPolicy source"
             )
         # The platform's own toolchain is named logically in the blueprint;

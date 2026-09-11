@@ -53,7 +53,6 @@ def settings(tmp_path) -> WorkerSettings:
         temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        company=COMPANY,
     )
 
 
@@ -215,7 +214,7 @@ def test_config_returns_the_applied_section(activities, companies):
             "heartbeat": HEARTBEAT_SPEC,
         },
     )
-    assert asyncio.run(activities.heartbeat_config()) == {
+    assert asyncio.run(activities.heartbeat_config(COMPANY)) == {
         **HEARTBEAT_SPEC,
         "timeouts": asdict(Timeouts()),
     }
@@ -225,7 +224,15 @@ def test_config_is_none_without_an_applied_company(activities, companies):
     """The fail-closed half of teardown: a deleted company stops the loop
     at its next tick."""
     companies.delete(COMPANY)
-    assert asyncio.run(activities.heartbeat_config()) is None
+    assert asyncio.run(activities.heartbeat_config(COMPANY)) is None
+
+
+def test_config_is_none_for_a_heartbeat_of_another_company(activities, companies):
+    """A heartbeat that outlived its company must not tick on the next
+    company's blueprint: the config read answers for its own name only."""
+    companies.delete(COMPANY)
+    companies.upsert("other-co", {"heartbeat": HEARTBEAT_SPEC})
+    assert asyncio.run(activities.heartbeat_config(COMPANY)) is None
 
 
 # -- heartbeat_observe -------------------------------------------------------

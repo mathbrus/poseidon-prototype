@@ -3,11 +3,6 @@
 # namespaces are the operator's, created from Company CRs.
 # Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
 
-# The company this installation hosts: the worker's COMPANY and the OPA
-# bundle config key. The console does not read it — it learns the
-# applied company from the registry.
-company: hello-saas
-
 # The namespace the company lives in. The operator creates it from the
 # Company CR, whose compiler wrote the same name from
 # `common.topology.COMPANY_NAMESPACE`; here it is what the platform

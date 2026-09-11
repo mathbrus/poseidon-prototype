@@ -27,10 +27,6 @@ class WorkerSettings(BaseSettings):
     # The workflow-recorded crew-request path evaluates the same compiled
     # decision the crew.request tool faces, directly at OPA.
     opa_url: str
-    # The company this worker executes runs for. One worker serves one
-    # company, and the company's namespace — where its sandbox Jobs and
-    # ephemeral pods land — is the company's name.
-    company: str
     # The platform namespace, for the gateway addresses ephemeral pods get.
     platform_namespace: str
     # The content-addressed image the platform's own sandbox toolchain

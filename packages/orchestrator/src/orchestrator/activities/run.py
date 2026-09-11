@@ -39,6 +39,7 @@ from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from common.telemetry import get_logger
 from common.workflows import workflow_id
 from orchestrator.activities.blueprint import company_repo, workflow_config
+from orchestrator.activities.company import applied_company
 from orchestrator.activities.documents import (
     company_documents,
     present_texts,
@@ -107,9 +108,10 @@ class RunActivities:
 
     async def _repo(self) -> dict[str, str]:
         """The company's repository, from its applied blueprint."""
-        return await asyncio.to_thread(
-            company_repo, self._companies, self._settings.company
-        )
+        return await asyncio.to_thread(company_repo, self._companies, self._company())
+
+    def _company(self) -> str:
+        return applied_company(self._companies)
 
     @activity.defn(name="create_run")
     async def create_run(self, run_id: str, workflow: str, task: str) -> None:
@@ -121,7 +123,7 @@ class RunActivities:
             task,
             workflow,
             workflow_id(workflow, run_id),
-            self._settings.company,
+            self._company(),
         )
         self._log.bind(run_id=run_id).info("run created", extra={"workflow": workflow})
 
@@ -133,7 +135,7 @@ class RunActivities:
         this is the activity-boundary observation of the same ledger."""
 
         def read() -> tuple[float, float]:
-            spec = self._companies.get(self._settings.company) or {}
+            spec = self._companies.get(self._company()) or {}
             cap = float(((spec.get("budgets") or {}).get("per_run_usd")) or 0)
             return cap, self._ledger.spent_for_run(run_id)
 
@@ -160,7 +162,7 @@ class RunActivities:
             workflow_config,
             self._companies,
             self._instances,
-            self._settings.company,
+            self._company(),
             workflow,
             crewless,
         )
@@ -172,7 +174,7 @@ class RunActivities:
         text for the ones present on `base_ref`, read under the run's own
         id — never the sandbox's copy, which the run could have edited."""
         paths = await asyncio.to_thread(
-            company_documents, self._companies, self._settings.company
+            company_documents, self._companies, self._company()
         )
         repo = await self._repo()
         async with GatewayClient(
@@ -199,7 +201,7 @@ class RunActivities:
             decision="allow" if kind in ("approved", "policy_resolved") else "deny",
             rule=f"gate_{kind}",
             source="process-gate",
-            company=self._settings.company,
+            company=self._company(),
             workflow=workflow_id,
         )
         self._log.bind(run_id=run_id).info(
@@ -297,7 +299,7 @@ class RunActivities:
             run = self._runs.get(run_id)
             if run is None:
                 return None
-            spec = self._companies.get(self._settings.company)
+            spec = self._companies.get(self._company())
             if not spec:
                 return None
             max_attempts = spec["heartbeat"]["max_attempts"]
@@ -310,7 +312,7 @@ class RunActivities:
             if not match:
                 return None
             number = int(match.group(1))
-            attempts = aggregate(self._settings.company).get(number)
+            attempts = aggregate(self._company()).get(number)
             if attempts is None or attempts.concluded:
                 return None
             if attempts.count < int(max_attempts):
@@ -331,7 +333,7 @@ class RunActivities:
             decision="deny",
             rule="gate_exhausted",
             source="process-gate",
-            company=self._settings.company,
+            company=self._company(),
             workflow=workflow_id,
         )
         body = attempts_exhausted_comment(kind, count, max_attempts)

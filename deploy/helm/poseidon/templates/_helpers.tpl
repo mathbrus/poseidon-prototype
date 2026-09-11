@@ -1,8 +1,8 @@
 {{/*
 The platform namespace is the release namespace; platform resources omit an
-explicit metadata.namespace and land there. Company resources set
-metadata.namespace to .Values.company (the company's namespace is its
-name) explicitly.
+explicit metadata.namespace and land there. The company's namespace is the
+operator's to create, from the Company CR; the chart only selects it, by
+the fixed name under `companyNamespace`.
 */}}
 
 {{- define "poseidon.labels" -}}

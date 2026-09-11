@@ -36,13 +36,13 @@ def create_app(bundles: PolicyBundles | None = None) -> FastAPI:
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/bundles/{company}/bundle.tar.gz")
-    def bundle(
-        company: str, if_none_match: str | None = Header(default=None)
-    ) -> Response:
-        stored = _store().get(company)
+    @app.get("/bundles/{slot}/bundle.tar.gz")
+    def bundle(slot: str, if_none_match: str | None = Header(default=None)) -> Response:
+        """One bundle per slot: `platform`, and `company` for whatever
+        company is applied — the names OPA's config polls."""
+        stored = _store().get(slot)
         if stored is None:
-            # Nothing was ever stored under this name. A torn-down company
+            # Nothing was ever stored under this slot. A torn-down company
             # is not this case: teardown leaves a tombstone, served like any
             # revision, because OPA keeps serving what it has on a 404 —
             # revocation has to be a bundle it can activate.
