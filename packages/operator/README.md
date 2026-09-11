@@ -42,9 +42,16 @@ Teardown follows the same philosophy: `teardown_company` sweeps registry
 rows at the company level (`AgentInstances.delete_for_company`) rather
 than trusting that an instance-delete event was seen for each standing agent.
 
-One consequence worth naming: the `phase: converged` status means *the
-operator's own work is done* — structure applied, bundle persisted. OPA
-activates the bundle on its own next poll (below), a beat later.
+`phase: converged` means *served*: the operator writes it — and the
+registry row that makes the company live to the platform — only once OPA
+reports that it has activated exactly the bundle revisions stored for
+this apply, the platform's and the company's. OPA polls the bundle server
+on its own schedule, so until it catches up the handler ends with a kopf
+`TemporaryError`, the CR reads `phase: activating`, and kopf re-runs the
+idempotent reconcile a few seconds later. `status.observedGeneration`
+rides every phase so a reader of a re-applied company can tell which
+apply the phase answers for. The read of OPA (`opa.py`) is the one thing
+the operator asks OPA; nothing is pushed.
 
 ## Hard boundaries
 
@@ -69,7 +76,8 @@ cannot execute anything.
 | `resources.py` | Every Kubernetes object the operator owns, as **pure builders** — what the operator *would* apply is testable without a cluster. |
 | `kube.py` | `Cluster`: the intent-level client (`upsert_namespace`, `upsert_deployment`, …), one seam the reconciler tests replace with a fake. |
 | `bundleserver.py` | The OPA bundle server, a separate entry point sharing the package. |
-| `config.py` | `OperatorSettings`: the platform namespace, the agent image and run configuration the builders take as arguments. |
+| `opa.py` | `activated_revision`: the one read the operator makes of OPA — which revision it serves for a bundle — so `converged` and a finished teardown mean what they say. |
+| `config.py` | `OperatorSettings`: the platform namespace, the agent image, the run configuration the builders take as arguments, and where OPA answers. |
 
 ## What one Company converges to
 
@@ -98,7 +106,10 @@ cannot execute anything.
   Revisions are content-addressed and the compiler emits the platform
   bundle identically from every blueprint, so re-applies never churn it.
 - **The registry row** (`companies`), the applied spec minus the bundle —
-  what the orchestrator and gateways read at runtime.
+  what the orchestrator and gateways read at runtime. Written last, and
+  only once OPA serves the bundles above: the worker starts the company's
+  heartbeat the moment this row exists, and a heartbeat that ticks before
+  its authority is live has every read refused as `no_policy_installed`.
 
 ## What one AgentInstance converges to
 
@@ -165,10 +176,16 @@ polls. Three properties fall out of this direction of flow:
 - **Apply stays the single mutation point.** No second code path can
   install policy into a running OPA, so "what is OPA enforcing?" always
   has the same answer as "what was last applied?".
-- **Teardown revokes.** `teardown_company` deletes the stored bundle, and
-  the server answers 404 for a company that was never applied or has been
-  torn down — the honest answer, and the mechanism by which a caller still
-  holding an identity finds no rule left to match. The platform bundle
+- **Teardown revokes, through the same channel.** A running OPA keeps
+  serving what it has when a bundle goes 404, so a deleted row would
+  revoke nothing until OPA restarted. `teardown_company` instead replaces
+  the stored bundle with a **tombstone** — an empty bundle that still
+  declares the company's roots — and waits for OPA to report it served
+  before anything else is torn down. Activation erases everything under
+  the roots the bundle does not supply, so the company's decision path
+  answers no document from then on: a caller still holding an identity
+  finds no rule left to match, on the running OPA, before its namespace
+  goes. Only a name never applied gets a 404. The platform bundle
   survives: it belongs to the platform, not to any company.
 
 Standard bundle semantics keep this cheap: `ETag` carries the
@@ -236,9 +253,11 @@ uv run pytest packages/operator
 
 `test_resources.py` asserts on the built objects directly — no cluster
 needed, which is the payoff of keeping the builders pure.
-`test_reconcile.py` drives the handlers against a fake `Cluster` and fake
-registry accessors, pinning *what the operator does*: which objects it
-converges, what it sweeps at teardown, what status it writes.
+`test_reconcile.py` drives the handlers against a fake `Cluster`, fake
+registry accessors and a fake OPA, pinning *what the operator does*: which
+objects it converges, what it holds back until OPA serves the bundles,
+what it sweeps at teardown and when, what status it writes. `test_opa.py`
+pins the activation read's answers.
 `test_bundleserver.py` exercises the bundle API against an in-memory
 store. The live behaviour (namespaces really created, NetworkPolicies
 really enforced, a fired agent's token really rejected) is proven by
