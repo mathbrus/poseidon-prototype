@@ -4,7 +4,7 @@ from one query. That is literally one query: the gateway and the egress
 proxy both write the registry `audit_events` table.
 """
 
-from .cluster import audit_story
+from .cluster import COMPANY, audit_story
 
 
 def _implementer_id(run_id: str) -> str:
@@ -103,7 +103,7 @@ def test_gateway_events_carry_full_attribution(implement_run: dict) -> None:
     implementer_events = [e for e in story if e["agent_id"] == _implementer_id(run_id)]
     assert implementer_events
     for event in implementer_events:
-        assert event["company"] == "hello-saas"
+        assert event["company"] == COMPANY
         assert event["lifecycle"] == "ephemeral"
         assert event["parent_agent_id"] == "pm-1"
         assert event["workflow"] == "implement"

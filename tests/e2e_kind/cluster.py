@@ -23,8 +23,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from common.topology import (
+    COMPANY_NAMESPACE,
     CONSOLE_TOKEN_AUDIENCE,
     RUN_ID_LABEL,
     TOKEN_AUDIENCE,
@@ -35,7 +37,15 @@ from poseidon_cli import ConsoleClient
 from registry import Registry, open_registry
 
 PLATFORM_NS = "poseidon-platform"  # the chart release namespace kind-up installs into
-COMPANY_NS = "hello-saas"
+# The suite's company is the shipped example. Its name keys everything the
+# platform records (registry rows, workflow ids, audit events, the Rego
+# package); its namespace is the platform's fixed one and names none of it.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+EXAMPLES = REPO_ROOT / "examples"
+HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
+DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
+COMPANY: str = yaml.safe_load(HELLO_SAAS.read_text())["company"]["name"]
+COMPANY_NS = COMPANY_NAMESPACE
 POSTGRES_USER = "poseidon"
 
 # --- kubectl -----------------------------------------------------------------
@@ -732,7 +742,7 @@ def worker_settings(env: dict, tmp_path: Path, opa_url: str = "http://opa.test:8
         egress_proxy_key="egress-key",
         timeout_profile="default",
         temporal_address="127.0.0.1:7233",
-        company=COMPANY_NS,
+        company=COMPANY,
         gateway_token_file=str(token_file),
         mcp_gateway_url=gateway_url(env),
         agent_image=agent_image(),
@@ -776,7 +786,7 @@ def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
     name a run, never to the whole history."""
     return [
         e
-        for e in audit_story(workflow_id("heartbeat", COMPANY_NS))
+        for e in audit_story(workflow_id("heartbeat", COMPANY))
         if e["tool"] == "heartbeat.tick" and e["workflow"] == heartbeat_id
     ]
 
@@ -784,7 +794,7 @@ def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
 def bare_heartbeat_id() -> str:
     """The standing heartbeat's workflow id — the one the ensure loop
     keeps running and the platform's own wakes reach."""
-    return workflow_id("heartbeat", COMPANY_NS)
+    return workflow_id("heartbeat", COMPANY)
 
 
 def wake_bare_heartbeat() -> None:
@@ -820,7 +830,7 @@ def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
     over itself finds the standing heartbeat already waiting. The parked
     loop answers a wake immediately — "sleeping" means ready, never
     dormant."""
-    bare = workflow_id("heartbeat", COMPANY_NS)
+    bare = workflow_id("heartbeat", COMPANY)
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
         # Not started yet, or between runs: keep waiting.

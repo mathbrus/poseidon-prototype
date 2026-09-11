@@ -18,7 +18,10 @@ from typing import Any
 
 import httpx
 
+from common.policy import company_decision_path
+
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     PLATFORM_NS,
     mcp_call,
@@ -27,7 +30,7 @@ from .cluster import (
     psql,
 )
 
-COMPANY_DECISION = "poseidon/authz/hello_saas/decision"
+COMPANY_DECISION = company_decision_path(COMPANY)
 
 
 def _decide(base: str, path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -43,7 +46,7 @@ def implementer(
     *,
     verified: bool = True,
     args: dict | None = None,
-    company: str = "hello-saas",
+    company: str = COMPANY,
 ) -> dict[str, Any]:
     """The crew implementer's input shape — the only execution identity;
     there is no standing implementer."""

@@ -113,6 +113,7 @@ from .blueprints import (
 from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
+    REPO_ROOT,
     await_bare_heartbeat_asleep,
     await_run,
     console,
@@ -126,7 +127,6 @@ from .cluster import (
     wake_bare_heartbeat,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
 
 E2E_KIND_DIR = Path(__file__).resolve().parent

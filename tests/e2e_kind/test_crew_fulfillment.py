@@ -20,8 +20,10 @@ import time
 from urllib.parse import urlparse
 
 from common.ids import new_run_id
+from common.topology import agent_url
 
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     PLATFORM_NS,
     audit_story,
@@ -121,7 +123,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             worker_settings(env, tmp_path, opa_url=f"http://127.0.0.1:{opa_port}"),
             EphemeralPodProvisioner(COMPANY_NS),
         )
-        Runs(client).start(run_id, task_text, "implement", None, "hello-saas")
+        Runs(client).start(run_id, task_text, "implement", None, COMPANY)
         try:
             # 2. The run's single sandbox, exactly as implement provisions
             #    it (the crew works it through the gateway).
@@ -142,12 +144,12 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                     crew.fulfill_crew(
                         {
                             "run_id": run_id,
-                            "company": "hello-saas",
+                            "company": COMPANY,
                             "crew_template": "feature-delivery",
                             "conductor": {
                                 "agent_id": "pm-1",
                                 "role": "pm",
-                                "url": "http://pm.hello-saas.svc.cluster.local:8000",
+                                "url": agent_url("pm", COMPANY_NS),
                             },
                             "workflow": "implement",
                         }

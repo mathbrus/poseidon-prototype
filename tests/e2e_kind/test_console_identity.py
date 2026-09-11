@@ -18,6 +18,7 @@ from common.topology import CONSOLE_TOKEN_AUDIENCE, TOKEN_AUDIENCE, human_servic
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     HUMAN,
     PLATFORM_NS,
@@ -38,7 +39,7 @@ def _console_as(env: dict, token: str) -> ConsoleClient:
 
 def test_the_declared_human_is_known(stack: None, env: dict) -> None:
     who = console(env).whoami()
-    assert who == {"human": HUMAN, "lifecycle": "human", "company": COMPANY_NS}
+    assert who == {"human": HUMAN, "lifecycle": "human", "company": COMPANY}
 
 
 def test_a_humans_token_is_refused_at_the_gateway(stack: None, env: dict) -> None:
@@ -111,13 +112,13 @@ def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
     with pytest.raises(PolicyDenied) as denied:
         auditor.wake()
     assert denied.value.rule == "human_not_recognized"
-    story = audit_story(f"heartbeat-{COMPANY_NS}")
+    story = audit_story(f"heartbeat-{COMPANY}")
     refusals = [
         e for e in story if e["source"] == "console" and e["agent_id"] == "auditor"
     ]
     assert refusals and refusals[-1]["decision"] == "deny"
     assert refusals[-1]["rule"] == "human_not_recognized"
-    assert console(env).wake() == {"company": COMPANY_NS, "woken": True}
+    assert console(env).wake() == {"company": COMPANY, "woken": True}
 
 
 def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:

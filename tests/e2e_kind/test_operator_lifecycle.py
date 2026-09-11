@@ -23,6 +23,8 @@ import httpx
 import pytest
 import yaml
 
+from common.policy import company_decision_path, company_package
+
 from .blueprints import (
     HELLO_SAAS,
     apply_blueprint,
@@ -31,6 +33,7 @@ from .blueprints import (
     wait_for_convergence,
 )
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     gateway_url,
     kubectl,
@@ -60,7 +63,7 @@ def test_apply_converges_the_company(stack: None):
         "labels"
     ]
     assert labels["app.kubernetes.io/managed-by"] == "poseidon-operator"
-    assert labels["poseidon.dev/company"] == COMPANY_NS
+    assert labels["poseidon.dev/company"] == COMPANY
     kubectl("-n", COMPANY_NS, "get", "role", "sandbox-provisioner")
     kubectl("-n", COMPANY_NS, "get", "rolebinding", "sandbox-provisioner")
 
@@ -91,13 +94,13 @@ def test_apply_converges_the_company(stack: None):
     # Status is really written, not pruned by the CRD's status schema.
     revision = bundle_revision_from_cr()
     assert revision, "Company status.bundleRevision is empty"
-    phase = kubectl("get", "company", COMPANY_NS, "-o", "jsonpath={.status.phase}")
+    phase = kubectl("get", "company", COMPANY, "-o", "jsonpath={.status.phase}")
     assert phase == "converged"
 
     # The bundle server serves that exact revision over the OPA bundle API.
     with port_forward("svc/bundle-server", 8081) as port:
         resp = httpx.get(
-            f"http://127.0.0.1:{port}/bundles/{COMPANY_NS}/bundle.tar.gz", timeout=30
+            f"http://127.0.0.1:{port}/bundles/{COMPANY}/bundle.tar.gz", timeout=30
         )
         assert resp.status_code == 200
         assert resp.headers["etag"] == f'"{revision}"'
@@ -117,12 +120,12 @@ def test_opa_activated_both_bundles(stack: None):
         # Activation metadata lands in data.system.bundles.<name> (the
         # /v1/status API would need the status plugin enabled).
         manifest = httpx.get(
-            f"{base}/v1/data/system/bundles/{COMPANY_NS}/manifest", timeout=10
+            f"{base}/v1/data/system/bundles/{COMPANY}/manifest", timeout=10
         ).json()
         assert manifest.get("result", {}).get("revision") == revision
 
         company = httpx.get(
-            f"{base}/v1/data/poseidon/authz/hello_saas/decision", timeout=10
+            f"{base}/v1/data/{company_decision_path(COMPANY)}", timeout=10
         ).json()
         assert company.get("result") == {"allow": False, "rule": "default_deny"}
 
@@ -187,7 +190,7 @@ def test_company_delete_revokes(stack: None, env: dict):
     )
     assert before.status_code != 401, "the pre-teardown credential must work"
 
-    kubectl("delete", "company", COMPANY_NS, "--timeout=120s", timeout=150)
+    kubectl("delete", "company", COMPANY, "--timeout=120s", timeout=150)
     kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s", timeout=200)
 
     # Revocation at the delivery layer: the served bundle is a tombstone —
@@ -197,17 +200,17 @@ def test_company_delete_revokes(stack: None, env: dict):
     # platform bundle (the platform's, not the company's) is still served.
     with port_forward("svc/bundle-server", 8081) as port:
         resp = httpx.get(
-            f"http://127.0.0.1:{port}/bundles/{COMPANY_NS}/bundle.tar.gz", timeout=30
+            f"http://127.0.0.1:{port}/bundles/{COMPANY}/bundle.tar.gz", timeout=30
         )
         assert resp.status_code == 200
         with tarfile.open(fileobj=io.BytesIO(resp.content)) as tar:
             assert tar.getnames() == [".manifest"]
             manifest = json.loads(tar.extractfile(".manifest").read())
-        assert manifest["roots"] == ["poseidon/authz/hello_saas"]
+        assert manifest["roots"] == [company_package(COMPANY).replace(".", "/")]
     with port_forward("svc/opa", 8181) as port:
         base = f"http://127.0.0.1:{port}"
         compiled = httpx.get(
-            f"{base}/v1/data/poseidon/authz/hello_saas/decision", timeout=10
+            f"{base}/v1/data/{company_decision_path(COMPANY)}", timeout=10
         ).json()
         assert "result" not in compiled, "compiled policy survived teardown"
         platform = httpx.get(

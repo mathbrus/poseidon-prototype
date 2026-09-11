@@ -17,6 +17,7 @@ from sandbox.contract import SandboxPolicy
 from sandbox.k8s_jobs import K8sJobsBackend
 
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     PLATFORM_NS,
     audit_story,
@@ -79,7 +80,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
 
     with registry() as client:
         crew = crew_activities(client, worker_settings(env, tmp_path))
-        Runs(client).start(run_id, "registry durability", "implement", None, "hello-saas")
+        Runs(client).start(run_id, "registry durability", "implement", None, COMPANY)
         sa_name = None
         try:
             asyncio.run(register())
@@ -87,7 +88,7 @@ def test_sandbox_registration_survives_a_gateway_restart(
                 crew.bind_participant(
                     {
                         "run_id": run_id,
-                        "company": "hello-saas",
+                        "company": COMPANY,
                         "crew_template": "feature-delivery",
                         "role": "implementer",
                         "parent_agent_id": "pm-1",

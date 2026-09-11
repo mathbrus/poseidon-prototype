@@ -14,6 +14,7 @@ import asyncio
 from common.ids import new_run_id
 
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     PLATFORM_NS,
     agent_image,
@@ -65,9 +66,7 @@ def test_ephemeral_pod_round_trips_and_destroy_is_label_bounded(
         crew = crew_activities(
             client, worker_settings(env, tmp_path), EphemeralPodProvisioner(COMPANY_NS)
         )
-        Runs(client).start(
-            run_id, "ephemeral pod contract", "implement", None, "hello-saas"
-        )
+        Runs(client).start(run_id, "ephemeral pod contract", "implement", None, COMPANY)
         # An unlabeled bystander in the same namespace: the destroy
         # selector must never touch it.
         kubectl(
@@ -87,7 +86,7 @@ def test_ephemeral_pod_round_trips_and_destroy_is_label_bounded(
                 crew.provision_ephemeral_pod(
                     {
                         "run_id": run_id,
-                        "company": "hello-saas",
+                        "company": COMPANY,
                         "crew_template": "feature-delivery",
                         "role": "implementer",
                         "parent_agent_id": "pm-1",

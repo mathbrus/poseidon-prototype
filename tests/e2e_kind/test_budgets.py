@@ -34,6 +34,7 @@ from .blueprints import (
     single_attempt,
 )
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     audit_story,
     await_run,
@@ -148,7 +149,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     assert [e["agent_id"] for e in entries[:2]] == ["pm-1", implementer_id], entries
     for entry in entries:
         assert entry["run_id"] == run_id
-        assert entry["company"] == "hello-saas"
+        assert entry["company"] == COMPANY
         assert entry["model"] == "mock-brain"
         assert entry["prompt_tokens"] > 0
         if entry["agent_id"] == "pm-1":
