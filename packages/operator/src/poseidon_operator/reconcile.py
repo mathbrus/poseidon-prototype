@@ -23,11 +23,12 @@ from poseidon_operator.kube import Cluster
 from poseidon_operator.opa import activated_revision
 from registry import AgentInstances, Companies, PolicyBundles, open_registry
 
-_log = get_logger("operator")
-# How long a reconcile waits before asking OPA again whether it has
-# activated the stored bundles. OPA polls the bundle server every few
+# How long a handler waits before asking OPA again whether it has
+# activated a stored bundle. OPA polls the bundle server every few
 # seconds; asking more often than that buys nothing.
 ACTIVATION_POLL_S = 5
+
+_log = get_logger("operator")
 _registry = None
 _the_cluster = None
 _the_settings = None
