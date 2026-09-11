@@ -68,6 +68,16 @@ case "$BRAIN" in
 *mockllm*) ;;
 *) echo "== PAID brain ($BRAIN): POSEIDON_ALLOW_PAID=1 set, spending deliberately" ;;
 esac
+# The suite's company is the shipped example. A cluster hosts one company
+# and the console refuses another name while one is applied — the suite's
+# first apply would say so — but hearing it here is seconds, not minutes.
+SUITE_COMPANY=$(uv run python -c 'from tests.e2e_kind.cluster import COMPANY; print(COMPANY)')
+HOSTED=$(kubectl get companies -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+if [ -n "$HOSTED" ] && [ "$HOSTED" != "$SUITE_COMPANY" ]; then
+  echo "this cluster hosts '$HOSTED'; the suite applies '$SUITE_COMPANY' — delete it first" >&2
+  echo "  (\`uv run poseidon company delete\`, or bring the cluster up with the default blueprint)" >&2
+  exit 1
+fi
 
 echo "== Acceptance suite against $(kubectl config current-context)"
 uv run pytest tests/e2e_kind -m e2e_kind --durations=25 "$@"
