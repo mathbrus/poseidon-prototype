@@ -5,6 +5,7 @@
 # re-run for image or chart updates.
 #
 # Usage: deploy/kind/kind-up.sh   (needs deploy/kind/.env, see .env.example)
+#        BLUEPRINT=path/to/company.yaml deploy/kind/kind-up.sh
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -13,7 +14,6 @@ cd "$REPO_ROOT"
 
 CLUSTER_NAME=${CLUSTER_NAME:-poseidon}
 PLATFORM_NS=${PLATFORM_NS:-poseidon-platform}
-COMPANY_NS=${COMPANY_NS:-hello-saas}
 ENV_FILE=${ENV_FILE:-$SCRIPT_DIR/.env}
 CALICO_MANIFEST=${CALICO_MANIFEST:-https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/calico.yaml}
 TEMPORAL_CHART_VERSION=${TEMPORAL_CHART_VERSION:-1.6.0}
@@ -25,12 +25,18 @@ fi
 # An explicit invocation-time REAL_LLM must beat the .env: whether a run
 # spends money is a per-invocation decision, and `REAL_LLM=0 kind-up.sh`
 # silently losing to a forgotten REAL_LLM=1 in the file is how a mock test
-# run ends up billing a provider.
+# run ends up billing a provider. The same rule for BLUEPRINT: which
+# company this bring-up applies is the invocation's to say.
 REAL_LLM_ARG=${REAL_LLM-}
+BLUEPRINT_ARG=${BLUEPRINT-}
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
+# The blueprint this cluster applies; the shipped example unless the .env
+# or the invocation names another. A cluster hosts one company, and the
+# blueprint is where its name, its humans and its repository live.
+BLUEPRINT=${BLUEPRINT_ARG:-${BLUEPRINT:-examples/hello-saas.yaml}}
 SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 # The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
 # real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
@@ -46,6 +52,31 @@ else
   : "${MODEL:?REAL_LLM=1 requires MODEL in $ENV_FILE (e.g. gpt-5.6-luna)}"
 fi
 
+echo "==> blueprint"
+# Validated here, before a minute of cluster work: schema, catalog, gates
+# and the compiler's coherence checks — the same set the console applies.
+[ -f "$BLUEPRINT" ] || { echo "error: blueprint $BLUEPRINT not found" >&2; exit 1; }
+uv run python -m compiler "$BLUEPRINT" >/dev/null
+# What the bring-up needs to know from the document: the company, where
+# it lives, who may act on it (the chart's kind humans plus the
+# blueprint's, so everyone it names can `login`), and whom this script
+# applies as — the first name in `company.humans`.
+eval "$(uv run python - "$BLUEPRINT" <<'PY'
+import json, shlex, sys
+import yaml
+from common.topology import COMPANY_NAMESPACE
+document = yaml.safe_load(open(sys.argv[1]))
+kind_humans = yaml.safe_load(open("deploy/helm/poseidon/values-kind.yaml"))["console"]["humans"]
+humans = document["company"]["humans"]
+print("COMPANY=" + shlex.quote(document["company"]["name"]))
+print("COMPANY_NS=" + shlex.quote(COMPANY_NAMESPACE))
+print("FIRST_HUMAN=" + shlex.quote(humans[0]))
+print("HUMANS_JSON=" + shlex.quote(json.dumps(sorted(set(humans) | set(kind_humans)))))
+print("REPO=" + shlex.quote(document["stack"]["repo"]["url"]))
+PY
+)"
+echo "    $BLUEPRINT: company $COMPANY in namespace $COMPANY_NS, repository $REPO, applied as $FIRST_HUMAN"
+
 echo "==> cluster"
 if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
   kind create cluster --config "$SCRIPT_DIR/kind-config.yaml"
@@ -53,6 +84,15 @@ else
   echo "    kind cluster '$CLUSTER_NAME' already exists"
 fi
 kubectl config use-context "kind-$CLUSTER_NAME" >/dev/null
+# A cluster hosts one company. The console is the rule of record — it
+# refuses a blueprint naming another company while one is applied — but
+# hearing that here, before the images and the chart, saves the wait.
+existing=$(kubectl get companies -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+if [ -n "$existing" ] && [ "$existing" != "$COMPANY" ]; then
+  echo "error: this cluster hosts '$existing'; delete it before applying '$COMPANY'" >&2
+  echo "       (\`uv run poseidon company delete\`, or deploy/kind/kind-down.sh for a fresh cluster)" >&2
+  exit 1
+fi
 
 echo "==> CNI (Calico — NetworkPolicy enforcement)"
 kubectl apply -f "$CALICO_MANIFEST"
@@ -147,6 +187,7 @@ helm upgrade --install poseidon deploy/helm/poseidon \
   --namespace "$PLATFORM_NS" --create-namespace \
   -f deploy/helm/poseidon/values-kind.yaml \
   -f "$SECRETS_FILE" \
+  --set-json "console.humans=$HUMANS_JSON" \
   "${MOCK_VALUES[@]}" \
   "${IMAGE_VALUES[@]}"
 
@@ -187,17 +228,17 @@ echo "==> apply the blueprint"
 # The company is declarative from here: the console compiles the blueprint
 # against the live registry and submits the CRs, and the operator converges
 # the namespace, its policies and the standing agents. The apply is a
-# human's act: `owner` is the human the chart declares, and the token is
-# the cluster's own — minted here with the kubeconfig that just installed
-# everything, as any operator would.
+# human's act: the first human the blueprint names, whom the chart just
+# declared, and the token is the cluster's own — minted here with the
+# kubeconfig that just installed everything, as any operator would.
 export POSEIDON_CONSOLE_URL="${POSEIDON_CONSOLE_URL:-http://127.0.0.1:8090}"
 for _ in $(seq 60); do
   curl -sf -o /dev/null "$POSEIDON_CONSOLE_URL/healthz" && break
   sleep 1
 done
-POSEIDON_TOKEN=$(uv run poseidon login owner --namespace "$PLATFORM_NS")
+POSEIDON_TOKEN=$(uv run poseidon login "$FIRST_HUMAN" --namespace "$PLATFORM_NS")
 export POSEIDON_TOKEN
-uv run poseidon blueprint apply examples/hello-saas.yaml --yes
+uv run poseidon blueprint apply "$BLUEPRINT" --yes
 # Every standing agent the applied blueprint hires (execution itself is
 # ephemeral crews, so these are the only long-lived company pods).
 for hire in $(kubectl -n "$COMPANY_NS" get agentinstances -o jsonpath='{.items[*].spec.standingName}'); do
@@ -241,11 +282,11 @@ if [ "$code" != "401" ]; then
   echo "error: console answered $code, expected 401 without a token" >&2
   exit 1
 fi
-if ! uv run poseidon whoami | grep -q '"human": "owner"'; then
-  echo "error: the console did not recognise the owner token" >&2
+if ! uv run poseidon whoami | grep -q "\"human\": \"$FIRST_HUMAN\""; then
+  echo "error: the console did not recognise the token of $FIRST_HUMAN" >&2
   exit 1
 fi
 # Standing agents have no NodePort: they are reached in-cluster
 # by the orchestrator, and the operator gives each standing agent its own Service.
 
-echo "==> up: gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}, console $POSEIDON_CONSOLE_URL"
+echo "==> up: $COMPANY in $COMPANY_NS; gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}, console $POSEIDON_CONSOLE_URL"

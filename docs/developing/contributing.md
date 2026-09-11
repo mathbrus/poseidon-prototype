@@ -10,7 +10,7 @@ Dockerfile         one recipe for every image; deploy/build-images.sh is the mat
 deploy/helm/       the Poseidon chart, plus Temporal's values
 deploy/kind/       kind bootstrap, teardown, .env
 crds/              Company and AgentInstance CustomResourceDefinitions
-examples/          hello-saas.yaml and hello-saas-delegated.yaml (the two company profiles), Tetris, red-team scenarios
+examples/          hello-saas.yaml and hello-saas-delegated.yaml (one company, two profiles), pirate-game.yaml (another company)
 tests/e2e_kind/    the acceptance suite that runs against a live cluster
 ```
 

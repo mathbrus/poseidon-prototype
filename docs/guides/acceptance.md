@@ -23,7 +23,8 @@ console (`MCP_GATEWAY_URL`, `POSEIDON_CONSOLE_URL`) and checks that each
 answers `401` without a token. The suite then acts only through
 [the console](../reference/console.md), as the `owner` the chart
 declares, and observes with psql, kubectl and GitHub — the same door a
-person uses, and no other.
+person uses, and no other. Its company is the shipped example,
+`hello-saas`: bring the cluster up with the default blueprint.
 
 ```bash
 deploy/kind/kind-down.sh    # when you are done

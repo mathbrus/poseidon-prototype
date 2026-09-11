@@ -41,18 +41,21 @@ at collection by design, and the registry suite skips without a Postgres.
 ```bash
 cp deploy/kind/.env.example deploy/kind/.env
 # fill in GIT_TOKEN (a repo-scoped PAT); TARGET_REPO is the disposable
-# repository the e2e suite works on. The company's own repository is a
-# blueprint field: set `stack.repo.url` in the example before applying it.
+# repository the e2e suite works on.
 
-deploy/kind/kind-up.sh
+deploy/kind/kind-up.sh                                    # the shipped example
+BLUEPRINT=path/to/company.yaml deploy/kind/kind-up.sh     # your company
 ```
 
 That script is idempotent — re-run it after changing code or the chart. It
-creates the kind cluster, installs Calico (kind's default CNI does **not**
-enforce NetworkPolicy, which would make containment tests pass vacuously),
-builds and side-loads the nine images, installs the chart and Temporal,
-applies the CRDs, and applies the example blueprint through the console
-as `owner`. Then take a token of your own:
+validates the blueprint first (the compiler's own checks, before any
+cluster work), creates the kind cluster, installs Calico (kind's default
+CNI does **not** enforce NetworkPolicy, which would make containment tests
+pass vacuously), builds and side-loads the nine images, installs the chart
+and Temporal, applies the CRDs, and applies the blueprint through the
+console as the first human it names. A cluster hosts one company, in the
+fixed namespace `poseidon-company`: to bring up another, delete the
+current one first. Then take a token of your own:
 
 ```bash
 export POSEIDON_TOKEN=$(uv run poseidon login owner)
@@ -123,14 +126,17 @@ company:
 ```
 
 Put that `company:` block in place of the example's, in a copy of
-`examples/hello-saas.yaml` saved as `company.yaml`, keeping `humans:
-[owner]` — the name your token carries, and the only one policy will let
-act. Activity bounds come from the deployment's `TIMEOUT_PROFILE`, so a
-cluster brought up with `REAL_LLM=1` already runs the generous profile a
-paid brain needs.
+`examples/hello-saas.yaml` saved as `company.yaml`. The name is yours to
+choose; `humans` names who may act, and the first of them is whom kind-up
+applies as. Activity bounds come from the deployment's `TIMEOUT_PROFILE`,
+so a cluster brought up with `REAL_LLM=1` already runs the generous
+profile a paid brain needs. A third shipped example,
+`examples/pirate-game.yaml`, is a different company altogether — a
+terminal game — and applies the same way.
 
 ```bash
-uv run poseidon blueprint apply company.yaml --yes
+BLUEPRINT=company.yaml deploy/kind/kind-up.sh   # on a fresh cluster, or
+uv run poseidon blueprint apply company.yaml --yes   # on one that hosts this company
 uv run poseidon heartbeat state
 ```
 

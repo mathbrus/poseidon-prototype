@@ -9,8 +9,8 @@ and takes it back, since it is a diff.
 ## What the heartbeat already does
 
 No command starts the heartbeat. The orchestrator worker keeps one durable
-workflow, `heartbeat-hello-saas`, running for as long as the company is
-applied. The loop is event-triggered: every finished run nudges it awake,
+workflow, `heartbeat-<company>` (`heartbeat-hello-saas` for the example),
+running for as long as the company is applied. The loop is event-triggered: every finished run nudges it awake,
 and `reconcile_minutes` (30 in the example) bounds how long a change only
 the outside world saw — an issue you file by hand, a PR you merge by hand —
 waits for a look. Each tick:
