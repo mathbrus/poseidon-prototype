@@ -46,6 +46,25 @@ HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
 DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
 COMPANY: str = yaml.safe_load(HELLO_SAAS.read_text())["company"]["name"]
 COMPANY_NS = COMPANY_NAMESPACE
+
+# The disposable repository the suite opens pull requests on. A company's
+# repository is a blueprint field; this one is the harness's, written into
+# every blueprint the suite applies, and it is named in the environment
+# (`E2E_TARGET_REPO`, the CI secret's name too) rather than in the kind
+# deployment's .env, which the cluster never reads it from.
+TARGET_REPO_VAR = "E2E_TARGET_REPO"
+
+
+def harness_repo_or_fail() -> str:
+    repo = os.environ.get(TARGET_REPO_VAR, "").strip()
+    if not repo:
+        pytest.fail(
+            f"the kind e2e suite needs {TARGET_REPO_VAR}=github.com/<owner>/<disposable-repo>"
+            " in its environment: the repository it opens pull requests on"
+        )
+    return repo
+
+
 POSTGRES_USER = "poseidon"
 
 # --- kubectl -----------------------------------------------------------------

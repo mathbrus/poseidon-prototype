@@ -76,6 +76,10 @@ print("REPO=" + shlex.quote(document["stack"]["repo"]["url"]))
 PY
 )"
 echo "    $BLUEPRINT: company $COMPANY in namespace $COMPANY_NS, repository $REPO, applied as $FIRST_HUMAN"
+case "$REPO" in
+*example-org/*)
+  echo "    warning: $REPO is the example's placeholder — the company finds no repository until a blueprint naming yours is applied" ;;
+esac
 
 echo "==> cluster"
 if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then

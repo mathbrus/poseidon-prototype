@@ -40,8 +40,8 @@ at collection by design, and the registry suite skips without a Postgres.
 
 ```bash
 cp deploy/kind/.env.example deploy/kind/.env
-# fill in GIT_TOKEN (a repo-scoped PAT); TARGET_REPO is the disposable
-# repository the e2e suite works on.
+# fill in GIT_TOKEN (a repo-scoped PAT). The company's repository is a
+# blueprint field, `stack.repo`, and nothing else names it.
 
 deploy/kind/kind-up.sh                                    # the shipped example
 BLUEPRINT=path/to/company.yaml deploy/kind/kind-up.sh     # your company
@@ -161,7 +161,7 @@ thing the company does is decide what it is going to do.
 
 With the documents in place, the next tick's PM chooses `scope`: the loop
 starts a scope run, the PM reads the strategy and the masterplan and files
-the first slice — the game engine — as tickets on `TARGET_REPO`, each with
+the first slice — the game engine — as tickets on the company's repository, each with
 its `Crew:` trailer and the PM's summary as its first comment. The
 observation is untrusted text handed to the PM; it cannot write code, and
 the platform refuses scoping past `max_open_tickets`.

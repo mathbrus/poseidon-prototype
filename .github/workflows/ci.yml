@@ -280,17 +280,17 @@ jobs:
       - name: Bring the cluster up
         env:
           GIT_TOKEN: ${{ secrets.E2E_GIT_TOKEN }}
-          TARGET_REPO: ${{ secrets.E2E_TARGET_REPO }}
         run: |
           install -m 600 /dev/null deploy/kind/.env
           cat >> deploy/kind/.env <<EOF
           GIT_TOKEN=${GIT_TOKEN}
-          TARGET_REPO=${TARGET_REPO}
           MCP_GATEWAY_URL=http://127.0.0.1:8080
           POSEIDON_CONSOLE_URL=http://127.0.0.1:8090
           EOF
           deploy/kind/kind-up.sh
       - run: scripts/acceptance.sh -v
+        env:
+          E2E_TARGET_REPO: ${{ secrets.E2E_TARGET_REPO }}
       - name: Tear the cluster down
         if: always()
         run: deploy/kind/kind-down.sh

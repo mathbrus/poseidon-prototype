@@ -12,11 +12,16 @@
 # session guard both refuse a paid brain (read from the deployed llm-proxy
 # image, never from .env's REAL_LLM claim) unless POSEIDON_ALLOW_PAID=1
 # opts into spending deliberately. Opens real PRs on the disposable
-# TARGET_REPO from deploy/kind/.env; the suite seeds, sweeps, and asserts
-# the repo and cluster quiet itself (tests/e2e_kind/conftest.py documents
-# the contract).
+# repository E2E_TARGET_REPO names (the suite's own variable — a company's
+# repository is a blueprint field, and the cluster never reads this one);
+# the suite seeds, sweeps, and asserts the repo and cluster quiet itself
+# (tests/e2e_kind/conftest.py documents the contract).
+#
+#   E2E_TARGET_REPO=github.com/<owner>/<disposable> scripts/acceptance.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+: "${E2E_TARGET_REPO:?the disposable repository the suite opens pull requests on, e.g. github.com/<owner>/<repo>}"
 
 ENV_FILE=deploy/kind/.env
 GATEWAY_URL=$(grep -E '^MCP_GATEWAY_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)

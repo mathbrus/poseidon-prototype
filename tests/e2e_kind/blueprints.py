@@ -18,6 +18,7 @@ from .cluster import (
     REPO_ROOT,
     await_bare_heartbeat_asleep,
     console,
+    harness_repo_or_fail,
     kubectl,
 )
 
@@ -84,13 +85,10 @@ def pristine_profile() -> Path:
 
 
 def harness_repo() -> str:
-    """The disposable repository this suite works on, from the kind env
-    file — the one value the harness owns rather than the blueprint."""
-    for line in (REPO_ROOT / "deploy" / "kind" / ".env").read_text().splitlines():
-        key, _, value = line.strip().partition("=")
-        if key == "TARGET_REPO" and value:
-            return value.strip()
-    raise AssertionError("deploy/kind/.env names no TARGET_REPO for the suite")
+    """The disposable repository this suite works on — the one value the
+    harness owns rather than the blueprint, so it lives in the suite's own
+    environment variable and not in the deployment's env file."""
+    return harness_repo_or_fail()
 
 
 def suite_document(path: Path) -> Path:
