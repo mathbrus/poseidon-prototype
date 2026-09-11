@@ -15,6 +15,7 @@ from typing import Any
 from poseidon_cli.client import ConsoleClient
 
 POLL_S = 2.0
+RULE_WIDTH = 96
 
 # Rows the heartbeat journals carry its shared run id; a reader wants the
 # word, not the id.
@@ -34,7 +35,10 @@ def render(row: dict[str, Any]) -> str:
     rule = str(row.get("rule") or "")
     verdict = decision
     if rule and (decision == "deny" or run_id.startswith(HEARTBEAT_PREFIX)):
-        verdict = f"{decision} ({rule})"
+        # A refused tick's rule can carry a whole error message; the line
+        # names it, the row (`--json`) has all of it.
+        short = rule if len(rule) <= RULE_WIDTH else rule[: RULE_WIDTH - 1] + "…"
+        verdict = f"{decision} ({short})"
     return f"{when}  {where:<28}  {who:<26}  {row.get('tool', '')}  {verdict}"
 
 

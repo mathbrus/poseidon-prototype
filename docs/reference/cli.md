@@ -20,6 +20,16 @@ uv run poseidon login owner --save                       # or: export POSEIDON_T
 uv run poseidon whoami
 ```
 
+`blueprint new` is the second command that is not a console call: it
+writes a document on your disk by asking you questions, section by
+section, with the shipped example's answers as defaults, and compiles it
+before writing. Nothing is decided by it; applying is.
+
+```bash
+uv run poseidon blueprint new                            # <company-name>.yaml in the current directory
+uv run poseidon blueprint new company.yaml --force       # a path of your own; overwrite
+```
+
 The human's acts are the charter and the gates:
 
 ```bash

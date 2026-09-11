@@ -94,6 +94,20 @@ enforces, you change by editing the document and re-applying it.
 [The blueprint](../reference/blueprint.md) reads the shipped document
 section by section; this guide is about operating it.
 
+The quickest way to a blueprint of your own is to answer questions:
+
+```bash
+uv run poseidon blueprint new            # writes <company-name>.yaml, then say how to apply it
+```
+
+It asks for what is yours to decide — the name, the vision, who may act,
+the repository and its test command, what the sandbox may reach, who
+resolves the merge gate and what policy may merge on its own, the money —
+with the shipped example's answers as defaults, so Enter walks through.
+The shape every company repeats it writes without asking, and it compiles
+the result the way the console would before writing a byte. Every value
+in the file is yours to change afterwards.
+
 The bootstrap applies `examples/hello-saas.yaml` for you. The repo ships the
 same company in two profiles:
 

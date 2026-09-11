@@ -3,9 +3,11 @@
 Every command but `login` is one console call with the human's token:
 the CLI holds no cluster credentials, reaches no workflow engine and no
 database, and performs no act of its own. What it prints is what the
-console answered. `login` mints the token, once, with the kubeconfig the
-caller already holds — printed, or saved where every later command finds
-it when the environment carries none.
+console answered. Two commands touch no console: `login` mints the token,
+once, with the kubeconfig the caller already holds — printed, or saved
+where every later command finds it when the environment carries none —
+and `blueprint new` writes a document on the caller's disk by asking
+questions. Neither is an act on a company.
 """
 
 import json
@@ -27,7 +29,7 @@ from poseidon_cli.follow import follow as follow_events
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 blueprint_app = typer.Typer(
-    no_args_is_help=True, help="Preview and apply company blueprints."
+    no_args_is_help=True, help="Write, preview and apply company blueprints."
 )
 heartbeat_app = typer.Typer(no_args_is_help=True, help="The company's standing loop.")
 company_app = typer.Typer(no_args_is_help=True, help="The company this cluster hosts.")
@@ -127,6 +129,44 @@ def login(
 def whoami() -> None:
     """Who the console takes you for, and which company it hosts."""
     _show(_call(_client().whoami))
+
+
+@blueprint_app.command("new")
+def blueprint_new(
+    path: Path = typer.Argument(
+        None, help="Where to write; default <company-name>.yaml in the current directory"
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing file"),
+) -> None:
+    """Write a blueprint by answering questions, section by section, with
+    the shipped example's answers as defaults. What you decide — the
+    name, the vision, who may act, the repository, the gate, the money —
+    is asked; the shape every company repeats is written; the result is
+    compiled as the console would before a byte lands on disk."""
+    from poseidon_cli import new
+
+    try:
+        answers = new.ask(new.QuestionaryPrompter())
+    except KeyboardInterrupt:
+        typer.echo("nothing written", err=True)
+        raise typer.Exit(130) from None
+    document = new.build(answers)
+    problems = new.problems(document)
+    if problems:
+        typer.echo(
+            "the answers do not compile:\n  - " + "\n  - ".join(problems), err=True
+        )
+        raise typer.Exit(1)
+    target = path or Path(f"{answers.name}.yaml")
+    if target.exists() and not force:
+        typer.echo(f"{target} exists; --force overwrites it", err=True)
+        raise typer.Exit(1)
+    target.write_text(new.render(document))
+    typer.echo(f"wrote {target}")
+    typer.echo(
+        f"next: `poseidon blueprint apply {target}` on a cluster that hosts {answers.name},"
+        f" or `BLUEPRINT={target} deploy/kind/kind-up.sh` for a fresh kind cluster"
+    )
 
 
 @blueprint_app.command()
