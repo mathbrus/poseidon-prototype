@@ -31,7 +31,12 @@ from common.identity import LIFECYCLE_EPHEMERAL, LIFECYCLE_STANDING
 from common.opa import evaluate_decision
 from common.policy import CREW_REQUEST
 from common.telemetry import get_logger
-from common.topology import TOKEN_FILE, llm_gateway_url, mcp_gateway_url
+from common.topology import (
+    COMPANY_NAMESPACE,
+    TOKEN_FILE,
+    llm_gateway_url,
+    mcp_gateway_url,
+)
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.audit import record_event
 from orchestrator.config import WorkerSettings
@@ -129,7 +134,7 @@ class CrewActivities:
             spec["crew_template"],
             spec["role"],
             company=spec["company"],
-            namespace=self._settings.company,
+            namespace=COMPANY_NAMESPACE,
             service_account=service_account_name(agent_id),
         )
 

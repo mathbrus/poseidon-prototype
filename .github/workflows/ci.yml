@@ -99,6 +99,18 @@ jobs:
           worker = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == t.ORCHESTRATOR_SERVICE_ACCOUNT)
           token = worker["spec"]["template"]["spec"]["volumes"][0]["projected"]["sources"][0]["serviceAccountToken"]
           assert token["audience"] == t.TOKEN_AUDIENCE and token["expirationSeconds"] == t.TOKEN_TTL_S, token
+          # The platform NetworkPolicies select the company namespace by the
+          # name the compiler writes into the Company CR.
+          selected = set()
+          for d in docs:
+              if d["kind"] != "NetworkPolicy":
+                  continue
+              for rule in (d["spec"].get("ingress") or []) + (d["spec"].get("egress") or []):
+                  for peer in rule.get("from", []) + rule.get("to", []):
+                      ns = (peer.get("namespaceSelector") or {}).get("matchLabels") or {}
+                      if "kubernetes.io/metadata.name" in ns:
+                          selected.add(ns["kubernetes.io/metadata.name"])
+          assert selected == {t.COMPANY_NAMESPACE}, selected
           print("chart agrees with common.topology")
           PY
       - name: "A bare install must not deploy placeholder credentials"

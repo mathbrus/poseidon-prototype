@@ -9,6 +9,7 @@ import asyncio
 
 import pytest
 
+from common.topology import COMPANY_NAMESPACE
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import service_account_name
@@ -89,7 +90,7 @@ def test_bind_writes_the_whole_identity_row(crew, participants, audit):
     assert row["crew_template"] == "feature-delivery"
     assert row["role"] == "implementer"
     assert row["company"] == "hello-saas"
-    assert row["namespace"] == "hello-saas"
+    assert row["namespace"] == COMPANY_NAMESPACE
     assert row["service_account"] == service_account_name(expected_id)
 
     (event,) = audit.events

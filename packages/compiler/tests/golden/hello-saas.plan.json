@@ -22,7 +22,7 @@
       "strategy": "docs/STRATEGY.md"
     },
     "name": "hello-saas",
-    "namespace": "hello-saas",
+    "namespace": "poseidon-company",
     "repo": {
       "base_ref": "main",
       "url": "github.com/example-org/hello-saas"
@@ -98,7 +98,7 @@
     ],
     "network_policy": {
       "default_deny": true,
-      "namespace": "hello-saas",
+      "namespace": "poseidon-company",
       "sandbox_egress_to": [
         "egress-proxy"
       ],

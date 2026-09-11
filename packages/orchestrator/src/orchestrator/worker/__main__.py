@@ -19,6 +19,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.worker import Worker
 
 from common.telemetry import get_logger
+from common.topology import COMPANY_NAMESPACE
 from common.workflows import TASK_QUEUE, TEMPORAL_NAMESPACE, workflow_id
 from orchestrator.activities import (
     BootstrapActivities,
@@ -90,7 +91,7 @@ async def ensure_heartbeat_once(
 async def main() -> None:
     settings = WorkerSettings()
     log = get_logger("orchestrator.worker")
-    backend = K8sJobsBackend(namespace=settings.company)
+    backend = K8sJobsBackend(namespace=COMPANY_NAMESPACE)
     # Every service migrates at startup under an advisory lock, so the
     # worker needs no ordering guarantee against the other writers.
     registry = open_registry()
@@ -101,7 +102,7 @@ async def main() -> None:
         Companies(registry),
         BudgetLedger(registry),
         Runs(registry),
-        provisioner=EphemeralPodProvisioner(settings.company),
+        provisioner=EphemeralPodProvisioner(COMPANY_NAMESPACE),
     )
     run_activities = RunActivities(
         settings,

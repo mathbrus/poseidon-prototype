@@ -28,7 +28,8 @@ SETTINGS = OperatorSettings(
 
 
 def test_company_namespace_is_labelled_for_its_company():
-    ns = resources.namespace("hello-saas")
+    ns = resources.namespace("poseidon-company", "hello-saas")
+    assert ns["metadata"]["name"] == "poseidon-company"
     assert ns["metadata"]["labels"]["poseidon.dev/company"] == "hello-saas"
 
 

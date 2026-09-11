@@ -38,6 +38,13 @@ PEER_PORTS = {
 # is the release namespace, which every template hands its pod.)
 ORCHESTRATOR_SERVICE_ACCOUNT = "orchestrator-worker"
 
+# The namespace the company lives in: its standing agents, ephemeral
+# agents and sandbox Jobs. A platform hosts one company, so the name is
+# fixed and carries no company name — the chart's NetworkPolicies select
+# it by this literal, the compiler writes it into the Company CR, and the
+# worker puts sandboxes and ephemeral pods here.
+COMPANY_NAMESPACE = "poseidon-company"
+
 # Workload identity: every agent pod and the worker present a kubelet-
 # rotated projected ServiceAccount token scoped to this audience; both
 # gateways verify against it. The token is mounted read-only at this path.

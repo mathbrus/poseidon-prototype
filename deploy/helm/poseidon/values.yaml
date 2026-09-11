@@ -3,11 +3,15 @@
 # namespaces are the operator's, created from Company CRs.
 # Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
 
-# The company this installation hosts. Its namespace is its name (the
-# operator creates it from the Company CR); here it wires the platform
-# side: the worker's COMPANY, the platform NetworkPolicies that select the
-# company namespace, and the OPA bundle config key.
+# The company this installation hosts: the worker's COMPANY and the OPA
+# bundle config key.
 company: hello-saas
+
+# The namespace the company lives in. The operator creates it from the
+# Company CR, whose compiler wrote the same name from
+# `common.topology.COMPANY_NAMESPACE`; here it is what the platform
+# NetworkPolicies select. CI asserts the two spellings agree.
+companyNamespace: poseidon-company
 
 # Every poseidon-* image is built from the root Dockerfile by
 # deploy/build-images.sh. Tags default to `latest` only so the chart installs

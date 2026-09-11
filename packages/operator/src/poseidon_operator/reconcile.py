@@ -82,7 +82,7 @@ def reconcile_company(
     company_ns = spec["namespace"]
     platform_ns = _settings().platform_namespace
 
-    cluster.upsert_namespace(resources.namespace(company_ns))
+    cluster.upsert_namespace(resources.namespace(company_ns, name))
     for policy in (
         resources.default_deny(company_ns),
         resources.agent_egress(company_ns, platform_ns),
