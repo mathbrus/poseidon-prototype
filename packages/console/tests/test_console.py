@@ -453,6 +453,62 @@ async def test_the_reads_need_a_human_and_touch_nothing(client, world):
     assert world.workflows.calls == [] and world.audit.events == []
 
 
+async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, world):
+    """The follower's read: rows above a cursor in id order, the cursor to
+    continue from, the company's spend to date — and one run's when the
+    read is narrowed. Without a company applied there is nothing to
+    follow; without a token, nothing at all."""
+    from common.audit import AuditEvent
+
+    def row(run_id: str, tool: str) -> AuditEvent:
+        return AuditEvent(
+            run_id=run_id,
+            agent_id="pm-1",
+            role="pm",
+            tool=tool,
+            args_digest="d",
+            decision="allow",
+            rule=None,
+            latency_ms=1,
+            backend_status="ok",
+            source="gateway",
+            company=COMPANY,
+        )
+
+    world.audit.append(row(f"heartbeat-{COMPANY}", "heartbeat.tick"))
+    world.audit.append(row(RUN_ID, "sandbox.exec"))
+    world.audit.append(row("run-other", "git.open_pr"))
+    world.ledger.record(
+        company=COMPANY,
+        run_id=RUN_ID,
+        agent_id="implementer-1",
+        parent_agent_id="pm-1",
+        role="implementer",
+        model="mock",
+        prompt_tokens=10,
+        completion_tokens=5,
+        cached_tokens=0,
+        reasoning_tokens=0,
+        usd=0.25,
+    )
+    assert (await client.get("/events")).status_code == 401
+
+    page = (await client.get("/events", headers=as_owner())).json()
+    assert [e["id"] for e in page["events"]] == [1, 2, 3]
+    assert page["next"] == 3 and page["spend"] == {"usd": 0.25}
+    later = (await client.get("/events?after=2", headers=as_owner())).json()
+    assert [e["tool"] for e in later["events"]] == ["git.open_pr"] and later["next"] == 3
+    nothing = (await client.get("/events?after=3", headers=as_owner())).json()
+    assert nothing["events"] == [] and nothing["next"] == 3
+    one_run = (await client.get(f"/events?run={RUN_ID}", headers=as_owner())).json()
+    assert [e["id"] for e in one_run["events"]] == [2]
+    assert one_run["spend"] == {"usd": 0.25, "run_usd": 0.25}
+    assert world.audit.events[-1].tool == "git.open_pr"  # a read: nothing appended
+
+    world.companies.delete(COMPANY)
+    assert (await client.get("/events", headers=as_owner())).status_code == 404
+
+
 async def test_a_story_is_the_runs_events_in_order(client, world):
     a_review_run(world)
     await client.post(

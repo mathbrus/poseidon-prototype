@@ -166,6 +166,14 @@ class ConsoleClient:
     def spend_since(self, since: str | None = None) -> dict[str, Any]:
         return self._call("GET", "/spend", params=_since(since))
 
+    def events(
+        self, after: int = 0, run_id: str | None = None, limit: int = 200
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"after": after, "limit": limit}
+        if run_id:
+            params["run"] = run_id
+        return self._call("GET", "/events", params=params)
+
     def now(self) -> str:
         return self._call("GET", "/now")["now"]
 

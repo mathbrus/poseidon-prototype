@@ -405,6 +405,24 @@ class ConsoleService:
     async def story(self, run_id: str) -> list[dict[str, Any]]:
         return _jsonable(await asyncio.to_thread(self._audit.story, run_id))
 
+    async def events(self, after: int, run_id: str | None, limit: int) -> dict[str, Any]:
+        """The company's audit rows above a cursor, in id order, with the
+        cursor to continue from and the spend to date — what a follower
+        polls. Spend is metered into the budget ledger, not the audit
+        ledger, hence its own figure: the company's total, and the run's
+        when the read is narrowed to one."""
+        company = await self._company()
+        rows = await asyncio.to_thread(self._audit.after, company, after, run_id, limit)
+        total = await asyncio.to_thread(self._ledger.spent_since, company, None)
+        spend: dict[str, float] = {"usd": total["usd"]}
+        if run_id:
+            spend["run_usd"] = await asyncio.to_thread(self._ledger.spent_for_run, run_id)
+        return {
+            "events": _jsonable(rows),
+            "next": rows[-1]["id"] if rows else after,
+            "spend": spend,
+        }
+
     async def spend(self, run_id: str) -> dict[str, Any]:
         usd = await asyncio.to_thread(self._ledger.spent_for_run, run_id)
         entries = await asyncio.to_thread(self._ledger.entries_for_run, run_id)

@@ -23,6 +23,7 @@ from poseidon_cli.client import (
     ConsoleError,
     token_file,
 )
+from poseidon_cli.follow import follow as follow_events
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 blueprint_app = typer.Typer(
@@ -193,29 +194,35 @@ def _start(workflow: str, number: int, detach: bool) -> None:
 
 
 def _await_run(client: ConsoleClient, run_id: str) -> dict[str, Any]:
-    """Poll the run to its end. The worker writes the run's row a moment
-    after the start is accepted, so "no such run" is "not yet" within the
-    grace, and a refusal after it."""
+    """Follow the run to its end, printing its rows as they land. The
+    worker writes the run's row a moment after the start is accepted, so
+    "no such run" is "not yet" within the grace, and a refusal after it."""
     import time
 
     born = time.monotonic()
-    while True:
+    record: dict[str, Any] = {}
+
+    def ended() -> bool:
+        nonlocal record
         try:
             record = client.run(run_id)
         except ConsoleError as exc:
             if exc.status == 422 and time.monotonic() - born < START_GRACE_S:
-                time.sleep(2)
-                continue
+                return False
             raise
         execution = record["execution"]["status"]
         if record["status"] != "running" or execution not in ("RUNNING", "NOT_FOUND"):
-            break
+            return True
         if execution == "NOT_FOUND" and time.monotonic() - born >= START_GRACE_S:
             typer.echo(
                 f"run {run_id} has no workflow after {START_GRACE_S:.0f}s", err=True
             )
             raise typer.Exit(1)
-        time.sleep(5)
+        return False
+
+    follow_events(
+        client, lambda line: typer.echo(line, err=True), run_id=run_id, stop=ended
+    )
     if record.get("status") != "done":
         _show(record)
         sys.exit(1)
@@ -246,6 +253,23 @@ def cancel(run_id: str, reason: str = typer.Option("", help="Why")) -> None:
 def status(run_id: str) -> None:
     """The run's record and its workflow's execution."""
     _show(_call(_client().run, run_id))
+
+
+@app.command()
+def follow(
+    run: str = typer.Option(None, help="Only this run's rows"),
+    after: int = typer.Option(0, help="Resume from this cursor (the last id printed)"),
+    json_lines: bool = typer.Option(
+        False, "--json", help="The rows as stored, one JSON object per line"
+    ),
+) -> None:
+    """Watch the company: every tick, run, dispatch, tool call, decision,
+    gate and verdict as it lands, one line each, and the spend whenever
+    it moves — until you interrupt. Reads only."""
+    client = _client()
+    _call(
+        lambda: follow_events(client, typer.echo, after=after, run_id=run, raw=json_lines)
+    )
 
 
 @app.command()

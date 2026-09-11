@@ -63,27 +63,44 @@ class InMemoryAuditStore:
             "ts": last.ts,
         }
 
-    def story(self, run_id: str, since: str | None = None) -> list[dict[str, Any]]:
+    def after(
+        self, company: str, after: int, run_id: str | None = None, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        # The fake's ids are positions in the append order, from 1.
+        rows = [
+            {"id": index, **self._row(e)}
+            for index, e in enumerate(self.events, start=1)
+            if e.company == company
+            and index > after
+            and (run_id is None or e.run_id == run_id)
+        ]
+        return rows[:limit]
+
+    @staticmethod
+    def _row(e: AuditEvent) -> dict[str, Any]:
         # The same projection and order as AuditStore.story — consumers must
         # not come to depend on extra keys Postgres will never return.
+        return {
+            "ts": e.ts,
+            "run_id": e.run_id,
+            "agent_id": e.agent_id,
+            "role": e.role,
+            "tool": e.tool,
+            "args_digest": e.args_digest,
+            "decision": e.decision,
+            "rule": e.rule,
+            "latency_ms": e.latency_ms,
+            "backend_status": e.backend_status,
+            "source": e.source,
+            "company": e.company,
+            "lifecycle": e.lifecycle,
+            "parent_agent_id": e.parent_agent_id,
+            "workflow": e.workflow,
+        }
+
+    def story(self, run_id: str, since: str | None = None) -> list[dict[str, Any]]:
         return [
-            {
-                "ts": e.ts,
-                "run_id": e.run_id,
-                "agent_id": e.agent_id,
-                "role": e.role,
-                "tool": e.tool,
-                "args_digest": e.args_digest,
-                "decision": e.decision,
-                "rule": e.rule,
-                "latency_ms": e.latency_ms,
-                "backend_status": e.backend_status,
-                "source": e.source,
-                "company": e.company,
-                "lifecycle": e.lifecycle,
-                "parent_agent_id": e.parent_agent_id,
-                "workflow": e.workflow,
-            }
+            self._row(e)
             for e in sorted(
                 (
                     e

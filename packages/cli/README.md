@@ -30,6 +30,8 @@ uv run poseidon story <run_id>
 uv run poseidon heartbeat state
 uv run poseidon run 42                                   # a run by hand on ticket #42
 uv run poseidon review 41                                # or on pull request #41
+uv run poseidon follow                                   # watch every row land, and the spend move
+uv run poseidon follow --run <run_id>                    # one run's rows
 ```
 
 Every command's `--help` is rendered into [the CLI reference](../../docs/reference/cli.md)
@@ -40,7 +42,8 @@ at docs build time; the routes beneath them are on [the console reference](../..
 | Path | Owns |
 |---|---|
 | `client.py` | `ConsoleClient`: one method per console route; `PolicyDenied` (403, with the rule) and `ConsoleError` (everything else). |
-| `main.py` | The typer app: `login`, `whoami`, `blueprint preview\|apply`, `run`, `review`, `signal`, `cancel`, `status`, `story`, `spend`, `heartbeat state\|wake`. |
+| `main.py` | The typer app: `login`, `whoami`, `blueprint preview\|apply`, `run`, `review`, `signal`, `cancel`, `status`, `story`, `spend`, `follow`, `heartbeat state\|wake`. |
+| `follow.py` | The follower: one line per audit row, the serial id as the cursor, spend when it moves; `run` follows its own run through it. |
 
 ## Tests
 

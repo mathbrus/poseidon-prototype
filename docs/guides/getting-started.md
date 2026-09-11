@@ -126,7 +126,13 @@ merge — against the repository the applied blueprint declares
 (`stack.repo`), with a [real model](real-llm.md) already configured. The
 company is `hello-saas`; the product under construction is whatever its
 vision says. Nothing goes in but that vision: change it in the blueprint
-to name the product you want, apply, and watch.
+to name the product you want, apply, and watch — literally, from a second
+terminal, where every tick, run, tool call, decision and verdict lands as
+one line and the spend is printed each time it moves:
+
+```bash
+uv run poseidon follow
+```
 
 ```yaml
 company:

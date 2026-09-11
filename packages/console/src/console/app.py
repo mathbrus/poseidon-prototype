@@ -70,6 +70,12 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
     ),
     ("POST", "/heartbeat/wake", "nudge the loop to look now", "heartbeat.wake"),
     ("GET", "/spend", "the company's spend since a fence", ""),
+    (
+        "GET",
+        "/events",
+        "the company's audit rows after a cursor (`?after=&run=`), with its spend to date",
+        "",
+    ),
     ("GET", "/now", "the registry's clock: the fence to take before acting", ""),
 )
 
@@ -234,6 +240,12 @@ def create_app(
     @app.get("/spend")
     async def spend_since(since: str | None = None) -> dict[str, Any]:
         return await service.spend_since(since)
+
+    @app.get("/events")
+    async def events(
+        after: int = 0, run: str | None = None, limit: int = 200
+    ) -> dict[str, Any]:
+        return await service.events(after, run, max(1, min(limit, 1000)))
 
     @app.get("/now")
     async def now() -> dict[str, str]:

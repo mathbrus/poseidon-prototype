@@ -47,6 +47,20 @@ uv run poseidon story <run_id>                           # the whole audit story
 uv run poseidon heartbeat state                          # the standing loop, and its ticks
 ```
 
+`follow` is the window: the company's audit rows as they land, one line
+each — the time, the run (or `heartbeat`), who acted, the tool, the
+decision, and the rule when a denial or a tick names one — with the
+spend to date printed whenever it moves, until you interrupt. It reads
+the same ledger `story` reads, by the row's serial id, so an interrupted
+follow resumed with `--after` repeats nothing and skips nothing; `--run`
+narrows to one run, and `--json` gives the rows as stored. `run` and
+`review` without `--detach` follow their own run this way.
+
+```bash
+uv run poseidon follow                                   # everything, as it happens
+uv run poseidon follow --run <run_id>                    # one run, with its own spend
+```
+
 Every command's `--help`, rendered from the CLI itself at build time:
 
 <!-- gen: cli -->
