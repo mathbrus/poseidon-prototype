@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Poseidon kind bootstrap: create the cluster, install
 # Calico (kind's default CNI does not enforce NetworkPolicy), build and
-# side-load the images, and install the Helm chart. Idempotent — safe to
-# re-run for image or chart updates.
+# side-load the images, install the Helm chart and Temporal, and apply the
+# blueprint through the console. Idempotent — safe to re-run for image or
+# chart updates.
 #
 # Usage: deploy/kind/kind-up.sh   (needs deploy/kind/.env, see .env.example)
 #        BLUEPRINT=path/to/company.yaml deploy/kind/kind-up.sh
+#        VERBOSE=1 deploy/kind/kind-up.sh   (stream every command's output)
+#
+# What it prints is the progress: one line per step, with the time each
+# took, and one line per fact worth knowing. What the tools print — kind,
+# kubectl, helm, docker — goes to the log (deploy/kind/kind-up.log), whose
+# tail is shown when a step fails.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -15,13 +22,103 @@ cd "$REPO_ROOT"
 CLUSTER_NAME=${CLUSTER_NAME:-poseidon}
 PLATFORM_NS=${PLATFORM_NS:-poseidon-platform}
 ENV_FILE=${ENV_FILE:-$SCRIPT_DIR/.env}
+LOG=${KIND_UP_LOG:-$SCRIPT_DIR/kind-up.log}
+VERBOSE=${VERBOSE:-0}
 CALICO_MANIFEST=${CALICO_MANIFEST:-https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/calico.yaml}
 TEMPORAL_CHART_VERSION=${TEMPORAL_CHART_VERSION:-1.6.0}
 
-if [ ! -f "$ENV_FILE" ]; then
-  echo "error: $ENV_FILE not found — copy $SCRIPT_DIR/.env.example and fill it in" >&2
+# -- progress ------------------------------------------------------------------
+# Nine steps, always nine: conditional work stays inside its step so the
+# count never lies. `step` opens one (closing the previous with its time),
+# `note` adds a fact under it, `run` executes a noisy command into the log
+# and speaks up only when it has been silent for a while.
+STEPS=9
+STEP=0
+STEP_NAME=""
+STEP_STARTED=$SECONDS
+SECRETS_FILE=""
+
+step() {
+  close_step
+  STEP=$((STEP + 1))
+  STEP_NAME=$1
+  STEP_STARTED=$SECONDS
+  printf '[%d/%d] %s\n' "$STEP" "$STEPS" "$STEP_NAME"
+  printf '\n==== [%d/%d] %s\n' "$STEP" "$STEPS" "$STEP_NAME" >>"$LOG"
+}
+
+close_step() {
+  if [ "$STEP" -gt 0 ]; then
+    printf '      done in %ss\n' "$((SECONDS - STEP_STARTED))"
+  fi
+}
+
+note() {
+  printf '      %s\n' "$*"
+}
+
+# `run label command…`: the command's output lands in the log. After 20 s
+# of silence a line says the step is still going, every 15 s. Commands
+# whose stdout is data (the image list, the Python facts) are not wrapped:
+# they are read by the script, and only their stderr belongs in the log.
+run() {
+  local label=$1
+  shift
+  printf '\n### %s: %s\n' "$label" "$*" >>"$LOG"
+  if [ "$VERBOSE" = "1" ]; then
+    "$@" 2>&1 | tee -a "$LOG"
+    return "${PIPESTATUS[0]}"
+  fi
+  "$@" >>"$LOG" 2>&1 &
+  local pid=$! started=$SECONDS spoken=0 waited
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 1
+    waited=$((SECONDS - started))
+    if [ "$waited" -ge 20 ] && [ $((waited - spoken)) -ge 15 ]; then
+      spoken=$waited
+      printf '      … %s (%ss)\n' "$label" "$waited"
+    fi
+  done
+  wait "$pid"
+}
+
+fail() {
+  echo "error: $*" >&2
   exit 1
+}
+
+cleanup() {
+  local status=$?
+  [ -n "$SECRETS_FILE" ] && rm -f "$SECRETS_FILE"
+  if [ "$status" -ne 0 ]; then
+    echo "error: kind-up failed in step $STEP/$STEPS ($STEP_NAME); the last lines of $LOG:" >&2
+    tail -n 40 "$LOG" >&2 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
+
+: >"$LOG"
+STARTED=$SECONDS
+
+# -- 1. preflight ----------------------------------------------------------------
+step "preflight"
+note "log: $LOG"
+missing=()
+for tool in kind kubectl helm docker uv curl; do
+  command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+done
+[ "${#missing[@]}" -eq 0 ] || fail "missing tools: ${missing[*]}"
+docker_root=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null) || fail "docker is not reachable"
+free_gib=$(df -BG --output=avail "$docker_root" 2>/dev/null | tail -1 | tr -dc '0-9')
+if [ -n "$free_gib" ]; then
+  if [ "$free_gib" -lt 10 ]; then
+    note "warning: ${free_gib} GiB free under $docker_root — kind and the images need room (\`docker system df\`, \`docker image prune\`)"
+  else
+    note "docker: ${free_gib} GiB free under $docker_root"
+  fi
 fi
+
+[ -f "$ENV_FILE" ] || fail "$ENV_FILE not found — copy $SCRIPT_DIR/.env.example and fill it in"
 # An explicit invocation-time REAL_LLM must beat the .env: whether a run
 # spends money is a per-invocation decision, and `REAL_LLM=0 kind-up.sh`
 # silently losing to a forgotten REAL_LLM=1 in the file is how a mock test
@@ -51,12 +148,15 @@ else
   : "${LLM_API_KEY:?REAL_LLM=1 requires LLM_API_KEY in $ENV_FILE}"
   : "${MODEL:?REAL_LLM=1 requires MODEL in $ENV_FILE (e.g. gpt-5.6-luna)}"
 fi
+: "${GIT_TOKEN:?GIT_TOKEN missing from $ENV_FILE}"
 
-echo "==> blueprint"
-# Validated here, before a minute of cluster work: schema, catalog, gates
+# The blueprint, validated before any cluster work: schema, catalog, gates
 # and the compiler's coherence checks — the same set the console applies.
-[ -f "$BLUEPRINT" ] || { echo "error: blueprint $BLUEPRINT not found" >&2; exit 1; }
-uv run python -m compiler "$BLUEPRINT" >/dev/null
+[ -f "$BLUEPRINT" ] || fail "blueprint $BLUEPRINT not found"
+if ! problems=$(uv run python -m compiler "$BLUEPRINT" 2>&1 >/dev/null); then
+  fail "$BLUEPRINT does not compile:
+$problems"
+fi
 # What the bring-up needs to know from the document: the company, where
 # it lives, who may act on it (the chart's kind humans plus the
 # blueprint's, so everyone it names can `login`), and whom this script
@@ -71,40 +171,11 @@ humans = document["company"]["humans"]
 print("COMPANY=" + shlex.quote(document["company"]["name"]))
 print("COMPANY_NS=" + shlex.quote(COMPANY_NAMESPACE))
 print("FIRST_HUMAN=" + shlex.quote(humans[0]))
+print("HUMANS=" + shlex.quote(" ".join(sorted(set(humans) | set(kind_humans)))))
 print("HUMANS_JSON=" + shlex.quote(json.dumps(sorted(set(humans) | set(kind_humans)))))
 print("REPO=" + shlex.quote(document["stack"]["repo"]["url"]))
 PY
 )"
-echo "    $BLUEPRINT: company $COMPANY in namespace $COMPANY_NS, repository $REPO, applied as $FIRST_HUMAN"
-case "$REPO" in
-*example-org/*)
-  echo "    warning: $REPO is the example's placeholder — the company finds no repository until a blueprint naming yours is applied" ;;
-esac
-
-echo "==> cluster"
-if ! kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
-  kind create cluster --config "$SCRIPT_DIR/kind-config.yaml"
-else
-  echo "    kind cluster '$CLUSTER_NAME' already exists"
-fi
-kubectl config use-context "kind-$CLUSTER_NAME" >/dev/null
-# A cluster hosts one company. The console is the rule of record — it
-# refuses a blueprint naming another company while one is applied — but
-# hearing that here, before the images and the chart, saves the wait.
-existing=$(kubectl get companies -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
-if [ -n "$existing" ] && [ "$existing" != "$COMPANY" ]; then
-  echo "error: this cluster hosts '$existing'; delete it before applying '$COMPANY'" >&2
-  echo "       (\`uv run poseidon company delete\`, or deploy/kind/kind-down.sh for a fresh cluster)" >&2
-  exit 1
-fi
-
-echo "==> CNI (Calico — NetworkPolicy enforcement)"
-kubectl apply -f "$CALICO_MANIFEST"
-kubectl -n kube-system rollout status daemonset/calico-node --timeout=300s
-kubectl -n kube-system rollout status deployment/calico-kube-controllers --timeout=300s
-kubectl wait --for=condition=Ready node --all --timeout=300s
-
-echo "==> images"
 # Content-addressed tag over everything that lands in an image. This is what
 # makes a code change reach the cluster: with a fixed `:latest` tag, `kind
 # load` replaces the image in the node but helm renders an identical pod
@@ -118,8 +189,49 @@ BUILD_TAG=${BUILD_TAG:-$(
     -not -path '*/__pycache__/*' -not -name '*.pyc' -print0 \
     | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
 )}
-echo "    build tag: $BUILD_TAG"
+note "cluster $CLUSTER_NAME, platform namespace $PLATFORM_NS, build tag $BUILD_TAG"
+note "blueprint $BLUEPRINT: company $COMPANY in namespace $COMPANY_NS"
+note "humans: $HUMANS — applying as $FIRST_HUMAN"
+note "repository: $REPO"
+case "$REPO" in
+*example-org/*)
+  note "warning: that is the example's placeholder — the company finds no repository until a blueprint naming yours is applied" ;;
+esac
+if [ "$REAL_LLM" = "1" ]; then
+  note "brain: PAID — $MODEL through LiteLLM (REAL_LLM=1)"
+else
+  note "brain: mock (poseidon-mockllm), zero spend"
+fi
+note "sandbox image: $SANDBOX_IMAGE:$BUILD_TAG"
 
+# -- 2. cluster ------------------------------------------------------------------
+step "cluster"
+if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
+  note "kind cluster '$CLUSTER_NAME' exists, reused"
+else
+  run "kind create cluster" kind create cluster --config "$SCRIPT_DIR/kind-config.yaml"
+  note "kind cluster '$CLUSTER_NAME' created"
+fi
+kubectl config use-context "kind-$CLUSTER_NAME" >>"$LOG" 2>&1
+# A cluster hosts one company. The console is the rule of record — it
+# refuses a blueprint naming another company while one is applied — but
+# hearing that here, before the images and the chart, saves the wait.
+existing=$(kubectl get companies -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+if [ -n "$existing" ] && [ "$existing" != "$COMPANY" ]; then
+  fail "this cluster hosts '$existing'; delete it before applying '$COMPANY'
+       (\`uv run poseidon company delete\`, or deploy/kind/kind-down.sh for a fresh cluster)"
+fi
+[ -z "$existing" ] || note "the cluster already hosts $existing; this apply updates it"
+
+# -- 3. CNI ----------------------------------------------------------------------
+step "CNI (Calico, so NetworkPolicy is enforced)"
+run "calico apply" kubectl apply -f "$CALICO_MANIFEST"
+run "calico rollout" kubectl -n kube-system rollout status daemonset/calico-node --timeout=300s
+run "calico controllers" kubectl -n kube-system rollout status deployment/calico-kube-controllers --timeout=300s
+run "nodes ready" kubectl wait --for=condition=Ready node --all --timeout=300s
+
+# -- 4. images -------------------------------------------------------------------
+step "images"
 # The mock brain is an image of ours too; with REAL_LLM=1 the llm-proxy
 # runs upstream LiteLLM at its own pinned tag instead.
 NAMES=$(deploy/build-images.sh --list)
@@ -127,13 +239,14 @@ if [ "$REAL_LLM" = "1" ]; then
   NAMES=$(grep -vx poseidon-mockllm <<<"$NAMES")
 fi
 # shellcheck disable=SC2086
-mapfile -t IMAGES < <(deploy/build-images.sh "$BUILD_TAG" $NAMES)
+mapfile -t IMAGES < <(deploy/build-images.sh "$BUILD_TAG" $NAMES 2>>"$LOG")
 # Sandboxes are Kubernetes Jobs in the company namespace, run by the
 # k8s_jobs backend from the image name the worker is configured with.
 if [ "$SANDBOX_IMAGE" != "poseidon-sandbox" ]; then
   docker tag "poseidon-sandbox:$BUILD_TAG" "$SANDBOX_IMAGE:$BUILD_TAG"
   IMAGES+=("$SANDBOX_IMAGE:$BUILD_TAG")
 fi
+note "${#IMAGES[@]} images built at $BUILD_TAG"
 # Every image the chart lists under `images:` that is ours (a poseidon-*
 # repository) gets this build's tag; third-party images keep their pins.
 IMAGE_VALUES=(
@@ -159,56 +272,59 @@ import yaml
 image = yaml.safe_load(open("deploy/helm/poseidon/values.yaml"))["images"]["llmProxy"]
 print(image["repository"] + ":" + image["tag"])
 ')
-  docker pull "$LITELLM_IMAGE"
-  kind load docker-image "$LITELLM_IMAGE" --name "$CLUSTER_NAME"
+  run "docker pull litellm" docker pull "$LITELLM_IMAGE"
+  run "kind load litellm" kind load docker-image "$LITELLM_IMAGE" --name "$CLUSTER_NAME"
 fi
-kind load docker-image "${IMAGES[@]}" --name "$CLUSTER_NAME"
+run "kind load images" kind load docker-image "${IMAGES[@]}" --name "$CLUSTER_NAME"
+note "loaded into the cluster"
 
-echo "==> crds"
+# -- 5. chart --------------------------------------------------------------------
+step "chart (CRDs, then the Poseidon release)"
 # CRDs are cluster-scoped and outlive any release: applied directly rather
 # than templated, so a `helm uninstall` cannot take a company's schema with it.
-kubectl apply -f crds/
-
-echo "==> helm install"
+run "crds" kubectl apply -f crds/
 # Secrets ride a private temp values file, not --set, to keep tokens off the
 # process list.
 SECRETS_FILE=$(mktemp)
-trap 'rm -f "$SECRETS_FILE"' EXIT
-cat > "$SECRETS_FILE" <<EOF
+cat >"$SECRETS_FILE" <<EOF
 secrets:
-  gitToken: "${GIT_TOKEN:?GIT_TOKEN missing from $ENV_FILE}"
-  llmApiKey: "${LLM_API_KEY:?LLM_API_KEY missing from $ENV_FILE}"
+  gitToken: "${GIT_TOKEN}"
+  llmApiKey: "${LLM_API_KEY}"
   postgresPassword: "${POSTGRES_PASSWORD:-poseidon-dev-postgres}"
   egressProxyKey: "${EGRESS_PROXY_KEY:-poseidon-dev-egress-key}"
 run:
-  model: "${MODEL:?MODEL missing from $ENV_FILE}"
+  model: "${MODEL}"
 EOF
 MOCK_VALUES=()
 if [ "$REAL_LLM" != "1" ]; then
   MOCK_VALUES=(-f deploy/helm/poseidon/values-mockllm.yaml)
 fi
-helm upgrade --install poseidon deploy/helm/poseidon \
+run "helm upgrade poseidon" helm upgrade --install poseidon deploy/helm/poseidon \
   --namespace "$PLATFORM_NS" --create-namespace \
   -f deploy/helm/poseidon/values-kind.yaml \
   -f "$SECRETS_FILE" \
   --set-json "console.humans=$HUMANS_JSON" \
   "${MOCK_VALUES[@]}" \
   "${IMAGE_VALUES[@]}"
+note "release poseidon installed; humans declared: $HUMANS"
 
-echo "==> rollout"
+# -- 6. platform rollout -----------------------------------------------------------
+step "platform rollout"
 # Postgres first: every service migrates the registry schema at startup and
 # the bundle server / operator need it reachable before they are useful.
-kubectl -n "$PLATFORM_NS" rollout status statefulset/postgres --timeout=300s
+run "postgres" kubectl -n "$PLATFORM_NS" rollout status statefulset/postgres --timeout=300s
 for deploy in opa llm-proxy llm-gateway mcp-gateway egress-proxy bundle-server poseidon-operator; do
-  kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=300s
+  run "$deploy" kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=300s
 done
+note "postgres, opa, llm-proxy, llm-gateway, mcp-gateway, egress-proxy, bundle-server, operator ready"
 
-echo "==> temporal (chart $TEMPORAL_CHART_VERSION)"
+# -- 7. Temporal ---------------------------------------------------------------------
+step "Temporal (chart $TEMPORAL_CHART_VERSION)"
 # Version-pinned, same values path for kind and real clusters.
 # The schema hook jobs create/migrate both databases against the poseidon
 # chart's Postgres, which is Ready by now.
 if ! helm repo list 2>/dev/null | grep -q go.temporal.io; then
-  helm repo add temporal https://go.temporal.io/helm-charts
+  run "helm repo add temporal" helm repo add temporal https://go.temporal.io/helm-charts
 fi
 TEMPORAL_DEPLOYS=(temporal-frontend temporal-history temporal-matching temporal-worker)
 TEMPORAL_VALUES=()
@@ -216,19 +332,21 @@ if [ "$TEMPORAL_WEB" = "1" ]; then
   TEMPORAL_VALUES=(--set web.enabled=true)
   TEMPORAL_DEPLOYS+=(temporal-web)
 fi
-helm upgrade --install temporal temporal/temporal \
+run "helm upgrade temporal" helm upgrade --install temporal temporal/temporal \
   --version "$TEMPORAL_CHART_VERSION" \
   --namespace "$PLATFORM_NS" \
   -f deploy/helm/temporal-values.yaml \
   "${TEMPORAL_VALUES[@]}" \
   --timeout 15m
 for deploy in "${TEMPORAL_DEPLOYS[@]}"; do
-  kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
+  run "$deploy" kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=600s
 done
-kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeout=300s
-kubectl -n "$PLATFORM_NS" rollout status deployment/console --timeout=300s
+run "orchestrator-worker" kubectl -n "$PLATFORM_NS" rollout status deployment/orchestrator-worker --timeout=300s
+run "console" kubectl -n "$PLATFORM_NS" rollout status deployment/console --timeout=300s
+note "temporal, the orchestrator worker and the console ready"
 
-echo "==> apply the blueprint"
+# -- 8. blueprint ----------------------------------------------------------------------
+step "blueprint"
 # The company is declarative from here: the console compiles the blueprint
 # against the live registry and submits the CRs, and the operator converges
 # the namespace, its policies and the standing agents. The apply is a
@@ -244,15 +362,19 @@ for _ in $(seq 60); do
   sleep 1
 done
 unset POSEIDON_TOKEN
-uv run poseidon login "$FIRST_HUMAN" --namespace "$PLATFORM_NS" --duration 604800 --save
-uv run poseidon blueprint apply "$BLUEPRINT" --yes
+run "login $FIRST_HUMAN" uv run poseidon login "$FIRST_HUMAN" --namespace "$PLATFORM_NS" --duration 604800 --save
+note "token for $FIRST_HUMAN saved (a week)"
+run "apply $BLUEPRINT" uv run poseidon blueprint apply "$BLUEPRINT" --yes
+note "$COMPANY applied through the console"
 # Every standing agent the applied blueprint hires (execution itself is
 # ephemeral crews, so these are the only long-lived company pods).
 for hire in $(kubectl -n "$COMPANY_NS" get agentinstances -o jsonpath='{.items[*].spec.standingName}'); do
-  kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
+  run "rollout $hire" kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
+  note "standing agent $hire ready"
 done
 
-echo "==> image check"
+# -- 9. verify -----------------------------------------------------------------------
+step "verify"
 # Assert every poseidon pod actually runs this build. Without it, a template
 # that forgets the tag value puts stale code back in the cluster and the
 # only symptom is a test failing for a bug you already fixed.
@@ -269,32 +391,25 @@ stale=$(
         $4 ~ /poseidon-[a-z-]*:/ && index($4, tag) == 0 { print $3, $4 }
       '
 )
-if [ -n "$stale" ]; then
-  echo "error: pods not running build $BUILD_TAG:" >&2
-  echo "$stale" >&2
-  exit 1
-fi
-echo "    all poseidon pods run $BUILD_TAG"
-
-echo "==> smoke"
+[ -z "$stale" ] || fail "pods not running build $BUILD_TAG:
+$stale"
+note "every poseidon pod runs $BUILD_TAG"
 # No unauthenticated gateway route exists; 401 proves the server is up.
-code=$(curl -s -o /dev/null -w '%{http_code}' "${MCP_GATEWAY_URL:-http://127.0.0.1:8080}/mcp")
-if [ "$code" != "401" ]; then
-  echo "error: gateway answered $code, expected 401 without a token" >&2
-  exit 1
-fi
+MCP_GATEWAY_URL=${MCP_GATEWAY_URL:-http://127.0.0.1:8080}
+code=$(curl -s -o /dev/null -w '%{http_code}' "$MCP_GATEWAY_URL/mcp")
+[ "$code" = "401" ] || fail "gateway answered $code, expected 401 without a token"
 # The console: a person is refused without a token and known with one.
 code=$(curl -s -o /dev/null -w '%{http_code}' "$POSEIDON_CONSOLE_URL/whoami")
-if [ "$code" != "401" ]; then
-  echo "error: console answered $code, expected 401 without a token" >&2
-  exit 1
-fi
-if ! uv run poseidon whoami | grep -q "\"human\": \"$FIRST_HUMAN\""; then
-  echo "error: the console did not recognise the token of $FIRST_HUMAN" >&2
-  exit 1
-fi
-# Standing agents have no NodePort: they are reached in-cluster
-# by the orchestrator, and the operator gives each standing agent its own Service.
+[ "$code" = "401" ] || fail "console answered $code, expected 401 without a token"
+uv run poseidon whoami 2>>"$LOG" | grep -q "\"human\": \"$FIRST_HUMAN\"" \
+  || fail "the console did not recognise the token of $FIRST_HUMAN"
+note "gateway and console refuse without a token and know $FIRST_HUMAN with one"
+# Standing agents have no NodePort: they are reached in-cluster by the
+# orchestrator, and the operator gives each standing agent its own Service.
+close_step
+STEP=0  # the summary is not a step; nothing to close on exit
 
-echo "==> up: $COMPANY in $COMPANY_NS; gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}, console $POSEIDON_CONSOLE_URL"
-echo "    \`uv run poseidon whoami\` works as $FIRST_HUMAN from here: the token is saved for a week"
+echo "==> up in $((SECONDS - STARTED))s: $COMPANY in $COMPANY_NS"
+echo "    console $POSEIDON_CONSOLE_URL, gateway $MCP_GATEWAY_URL"
+echo "    you are $FIRST_HUMAN for a week: \`uv run poseidon whoami\`, \`uv run poseidon heartbeat state\`"
+echo "    log: $LOG"

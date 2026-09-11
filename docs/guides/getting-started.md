@@ -53,7 +53,11 @@ cluster work), creates the kind cluster, installs Calico (kind's default
 CNI does **not** enforce NetworkPolicy, which would make containment tests
 pass vacuously), builds and side-loads the nine images, installs the chart
 and Temporal, applies the CRDs, and applies the blueprint through the
-console as the first human it names. A cluster hosts one company, in the
+console as the first human it names. It prints nine numbered steps with
+the time each took and the facts that matter — the company, its humans,
+its repository, which brain (the mock, or a paid model marked as such) —
+and keeps what the tools print in `deploy/kind/kind-up.log`, whose tail it
+shows when a step fails; `VERBOSE=1` streams it all instead. A cluster hosts one company, in the
 fixed namespace `poseidon-company`: to bring up another, delete the
 current one first. The token it applied with is saved for you, a week
 long, in your config directory (`~/.config/poseidon/token`), and every

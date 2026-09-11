@@ -288,6 +288,13 @@ jobs:
           POSEIDON_CONSOLE_URL=http://127.0.0.1:8090
           EOF
           deploy/kind/kind-up.sh
+      - name: Keep the bring-up log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-up.log
+          path: deploy/kind/kind-up.log
+          if-no-files-found: ignore
       - run: scripts/acceptance.sh -v
         env:
           E2E_TARGET_REPO: ${{ secrets.E2E_TARGET_REPO }}
