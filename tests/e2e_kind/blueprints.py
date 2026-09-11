@@ -10,19 +10,22 @@ from pathlib import Path
 import yaml
 
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
+    DELEGATED,
+    EXAMPLES,
+    HELLO_SAAS,
+    REPO_ROOT,
     await_bare_heartbeat_asleep,
     console,
+    harness_repo_or_fail,
     kubectl,
 )
 
+__all__ = ["DELEGATED", "EXAMPLES", "HELLO_SAAS", "REPO_ROOT"]
+
 # The suite's derived blueprints, written here and removed with the process.
 _SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLES = REPO_ROOT / "examples"
-HELLO_SAAS = EXAMPLES / "hello-saas.yaml"
-DELEGATED = EXAMPLES / "hello-saas-delegated.yaml"
 
 # The examples declare the waits a real company gives its humans (a working
 # day at the merge gate, an hour at a budget stop). The suite waits those
@@ -82,13 +85,10 @@ def pristine_profile() -> Path:
 
 
 def harness_repo() -> str:
-    """The disposable repository this suite works on, from the kind env
-    file — the one value the harness owns rather than the blueprint."""
-    for line in (REPO_ROOT / "deploy" / "kind" / ".env").read_text().splitlines():
-        key, _, value = line.strip().partition("=")
-        if key == "TARGET_REPO" and value:
-            return value.strip()
-    raise AssertionError("deploy/kind/.env names no TARGET_REPO for the suite")
+    """The disposable repository this suite works on — the one value the
+    harness owns rather than the blueprint, so it lives in the suite's own
+    environment variable and not in the deployment's env file."""
+    return harness_repo_or_fail()
 
 
 def suite_document(path: Path) -> Path:
@@ -114,7 +114,7 @@ def apply_blueprint(path: Path) -> None:
     console compiles it against the live registry, decides, submits the
     CRs; the operator converges them."""
     result = console().apply(suite_document(path).read_text())
-    assert result["company"] == COMPANY_NS, result
+    assert result["company"] == COMPANY, result
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:
@@ -132,7 +132,7 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
         timeout=timeout_s + 30,
     )
     generation = kubectl(
-        "get", "company", COMPANY_NS, "-o", "jsonpath={.metadata.generation}"
+        "get", "company", COMPANY, "-o", "jsonpath={.metadata.generation}"
     )
     for condition in (
         f"jsonpath={{.status.observedGeneration}}={generation}",
@@ -141,7 +141,7 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
         kubectl(
             "wait",
             f"--for={condition}",
-            f"company/{COMPANY_NS}",
+            f"company/{COMPANY}",
             f"--timeout={timeout_s}s",
             timeout=timeout_s + 30,
         )
@@ -157,9 +157,7 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
 
 
 def bundle_revision_from_cr() -> str:
-    return kubectl(
-        "get", "company", COMPANY_NS, "-o", "jsonpath={.status.bundleRevision}"
-    )
+    return kubectl("get", "company", COMPANY, "-o", "jsonpath={.status.bundleRevision}")
 
 
 def restore_pristine() -> None:

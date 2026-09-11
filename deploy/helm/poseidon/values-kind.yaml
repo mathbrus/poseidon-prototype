@@ -12,8 +12,9 @@ console:
   service:
     type: NodePort
     nodePort: 30090
-  # Two humans on kind: `owner`, whom the example blueprint names, and
-  # `auditor`, whom it does not — the acceptance suite's proof that a
+  # The humans kind-up.sh declares are these plus everyone the applied
+  # blueprint names, so each of them can `poseidon login`. `auditor` is
+  # named by no blueprint on purpose: the acceptance suite's proof that a
   # person the console knows is still only what the company's policy
   # lets them be.
   humans:

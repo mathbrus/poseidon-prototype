@@ -34,6 +34,7 @@ from common.policy import HEARTBEAT_START, HEARTBEAT_TICK
 from common.telemetry import get_logger
 from common.workflows import TEMPORAL_NAMESPACE, heartbeat_run_id, workflow_id
 from orchestrator.activities.blueprint import conductor
+from orchestrator.activities.company import applied_company
 from orchestrator.activities.observation import decision_prompt
 from orchestrator.audit import record_event
 from orchestrator.clients import dispatch_and_poll
@@ -100,13 +101,20 @@ class HeartbeatActivities:
         self._audit = audit
         self._log = get_logger("orchestrator.heartbeat")
 
+    def _company(self) -> str:
+        return applied_company(self._companies)
+
     @activity.defn(name="heartbeat_config")
-    async def heartbeat_config(self) -> dict[str, Any] | None:
+    async def heartbeat_config(self, company: str) -> dict[str, Any] | None:
         """The applied blueprint's heartbeat section plus the deployment's
-        timeout profile, or None when no company is applied — the workflow
-        stops on None, which is what makes deleting the company effective
-        at the next tick regardless of what else still believes in it."""
-        spec = await asyncio.to_thread(self._companies.get, self._settings.company) or {}
+        timeout profile, or None when `company` — the one this heartbeat
+        beats for — is not the applied one: deleted, or replaced by another
+        name. The workflow stops on None, which is what makes deleting the
+        company effective at the next tick regardless of what else still
+        believes in it."""
+        if await asyncio.to_thread(self._companies.applied) != company:
+            return None
+        spec = await asyncio.to_thread(self._companies.get, company) or {}
         section = spec.get("heartbeat")
         if not section:
             return None
@@ -131,15 +139,13 @@ class HeartbeatActivities:
         attributed to the work it chose."""
 
         def address() -> str:
-            spec = self._companies.get(self._settings.company) or {}
+            spec = self._companies.get(self._company()) or {}
             standing_name = (spec.get("heartbeat") or {}).get("conductor")
             if not standing_name:
                 raise RuntimeError(
                     "the applied blueprint declares no heartbeat conductor"
                 )
-            return conductor(self._instances, self._settings.company, standing_name)[
-                "url"
-            ]
+            return conductor(self._instances, self._company(), standing_name)["url"]
 
         conductor_url = await asyncio.to_thread(address)
         # Register the decision run before the PM's LLM call can bind to it.
@@ -148,8 +154,8 @@ class HeartbeatActivities:
             run_id,
             DECIDE_TASK,
             WORKFLOW,
-            heartbeat_run_id(self._settings.company),
-            self._settings.company,
+            heartbeat_run_id(self._company()),
+            self._company(),
         )
         terminal, terminal_error = "done", None
         try:
@@ -166,7 +172,7 @@ class HeartbeatActivities:
             )
             rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
             await self._emit(
-                run_id=heartbeat_run_id(self._settings.company),
+                run_id=heartbeat_run_id(self._company()),
                 tool="heartbeat.decide",
                 digest=args_digest(decision),
                 decision="deny" if problem else "allow",
@@ -245,7 +251,7 @@ class HeartbeatActivities:
         flight, today's spend, the runs already made on the target item,
         and the repository's open issues; the decision is audited either
         way; a deny ends the tick."""
-        company = self._settings.company
+        company = self._company()
         decision_input = {
             "company": company,
             "agent_id": ORCHESTRATOR_ID,
@@ -290,7 +296,7 @@ class HeartbeatActivities:
         contract (the gate-outcome idiom): a tick that started work is an
         allow; every other outcome declined or was refused to start."""
         await self._emit(
-            run_id=heartbeat_run_id(self._settings.company),
+            run_id=heartbeat_run_id(self._company()),
             tool=HEARTBEAT_TICK,
             digest=args_digest({"outcome": outcome, "rule": rule}),
             decision="allow" if outcome == "started" else "deny",
@@ -312,7 +318,7 @@ class HeartbeatActivities:
     ) -> None:
         await emit_heartbeat_event(
             self._audit,
-            self._settings.company,
+            self._company(),
             run_id=run_id,
             tool=tool,
             digest=digest,
@@ -332,9 +338,7 @@ class HeartbeatActivities:
             client = await Client.connect(
                 self._settings.temporal_address, namespace=TEMPORAL_NAMESPACE
             )
-            handle = client.get_workflow_handle(
-                workflow_id(WORKFLOW, self._settings.company)
-            )
+            handle = client.get_workflow_handle(workflow_id(WORKFLOW, self._company()))
             await handle.signal("wake")
         except Exception as exc:
             self._log.info("heartbeat wake skipped", extra={"error": str(exc)})

@@ -1,0 +1,122 @@
+apiVersion: poseidon.dev/v1
+
+company:
+  name: pirate-game
+  vision: >-
+    A pirate adventure game in Python that a player can run in a terminal
+    today and that grows richer every week: a captain with a ship, a crew
+    and a purse, sailing an archipelago of ports where they trade, recruit,
+    repair, chase rumours of treasure and fight rival ships in turn-based
+    battles. The game is a proper Python package, playable from a single
+    command, with clean separation between the game model and the terminal
+    interface so that every rule (combat, trade, navigation, the economy)
+    is covered by fast unit tests that run without a screen. No graphics
+    libraries: the terminal is the screen, so the whole game stays testable
+    in a headless sandbox. Every merged change leaves the game playable
+    end to end and the test suite green.
+  humans:
+    - owner
+  # The two documents the company writes for itself, in its repository:
+  # the strategy (written once from the vision) and the architecture
+  # masterplan (written from the vision and the tree, revised on request).
+  documents:
+    strategy: docs/STRATEGY.md
+    architecture: docs/ARCHITECTURE.md
+
+stack:
+  repo:
+    url: github.com/mathbrus/pirate-game
+    base_ref: main
+  toolchain:
+    image: poseidon-sandbox
+    test_command: pytest -q
+    # The entire list of hosts a sandbox may reach: enough to install the
+    # package and its test dependencies, nothing else.
+    egress_allow:
+      - pypi.org
+      - files.pythonhosted.org
+
+standing:
+  pm:
+    role: pm
+    count: 1
+    may_spawn:
+      crew: [contract-authoring, feature-delivery, feature-review, stewardship]
+      max_concurrent: 1
+
+tools:
+  reviewer:
+    allow:
+      - sandbox.read_file
+      - sandbox.list_dir
+      - sandbox.exec
+      - sandbox.run_tests
+      - git.read
+      - git.comment
+      - issues.comment
+      - architecture.request
+
+# The two crewed workflows: which crew fulfils each, the bounds it reads
+# and the gates it parks on. The merge is policy's: a passed review whose
+# every changed path is in the delegated class merges on its own.
+workflows:
+  implement:
+    crew: feature-delivery
+    max_verify_retries: 2
+  review:
+    crew: feature-review
+    gates:
+      merge:
+        resolved_by: policy
+        # The wait when policy declines and the merge parks on a human: a
+        # changed path outside the class, or a review that failed more
+        # than `max_reworks` times. Escalation at half, expiry at the end.
+        deadline_minutes: 1440
+        delegate:
+          # The layout the vision fixes, as path prefixes: the unit-test
+          # tree, never the whole of tests/, because the contract tree
+          # below is the oracle these merges are graded by. A PR that
+          # touches anything else declines to a person.
+          paths:
+            - pirate/
+            - tests/unit/
+            - docs/
+            - pyproject.toml
+            - README.md
+            - .gitignore
+          max_reworks: 2
+
+policies:
+  branch_protection:
+    protected: [main]
+    allowed_pattern: ^feature/[a-z0-9-]+$
+  deny_paths:
+    - .github/workflows/
+  # The split oracle: the acceptance spec delegated merges are graded by
+  # comes from different hands than the code it certifies, so the
+  # implementer cannot rewrite the test that grades its own work. Only the
+  # contract author delivers into this tree, and its pull requests always
+  # park on a person.
+  contract_tests:
+    paths: [tests/contract/]
+    roles: [contract-author]
+
+budgets:
+  per_run:
+    # A hard stop at the LLM gateway, not a warning: a run that reaches it
+    # pauses and waits `pause_minutes` for someone to raise the cap.
+    usd: 3
+    pause_minutes: 60
+
+# The company's own initiative: who decides, what it may start on its own,
+# how many at once, how many tries an item gets, how large the backlog may
+# grow before it stops scoping, and the day's hard stop.
+heartbeat:
+  conductor: pm
+  reconcile_minutes: 30
+  max_concurrent_runs: 1
+  max_attempts: 2
+  max_open_tickets: 5
+  may_start: [scope, implement, review]
+  daily_cap:
+    usd: 25

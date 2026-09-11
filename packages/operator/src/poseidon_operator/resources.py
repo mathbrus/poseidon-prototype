@@ -35,13 +35,14 @@ LABELS = {
 }
 
 
-def namespace(name: str) -> dict[str, Any]:
+def namespace(name: str, company: str) -> dict[str, Any]:
+    """The company's namespace, labelled with the company it hosts."""
     return {
         "apiVersion": "v1",
         "kind": "Namespace",
         "metadata": {
             "name": name,
-            "labels": {**LABELS, COMPANY_LABEL: name},
+            "labels": {**LABELS, COMPANY_LABEL: company},
         },
     }
 

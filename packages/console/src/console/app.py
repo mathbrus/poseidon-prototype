@@ -22,15 +22,22 @@ from common.topology import CONSOLE_TOKEN_AUDIENCE
 from compiler import DeploymentPlan
 from console import crs
 from console.config import ConsoleSettings
-from console.service import ConsoleService, Invalid, PolicyDenied
+from console.service import ConsoleService, Invalid, NoCompany, PolicyDenied
 from console.temporal import TemporalWorkflows, Unavailable, Workflows
-from registry import AgentInstances, AuditStore, BudgetLedger, Runs, open_registry
+from registry import (
+    AgentInstances,
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    Runs,
+    open_registry,
+)
 
 # The routes, for the documentation: method, path, what it does, the
 # decision an act must win (reads decide nothing).
 ROUTES: tuple[tuple[str, str, str, str], ...] = (
     ("GET", "/healthz", "liveness; the one unauthenticated route", ""),
-    ("GET", "/whoami", "the verified human and the company this console hosts", ""),
+    ("GET", "/whoami", "the verified human and the applied company, if any", ""),
     (
         "POST",
         "/blueprint/preview",
@@ -42,6 +49,18 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
         "/blueprint/apply",
         "compile and submit the Company and AgentInstance CRs",
         "blueprint.apply",
+    ),
+    (
+        "GET",
+        "/company",
+        "the applied company's phase, generation and bundle revision, from its CR",
+        "",
+    ),
+    (
+        "DELETE",
+        "/company",
+        "stop the company: cancel its runs, delete its CR, wait for the teardown",
+        "company.delete",
     ),
     ("POST", "/runs", "start one implement or review run by hand", "run.start"),
     ("GET", "/runs", "the company's runs since a fence (`?since=`)", ""),
@@ -63,6 +82,12 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
     ),
     ("POST", "/heartbeat/wake", "nudge the loop to look now", "heartbeat.wake"),
     ("GET", "/spend", "the company's spend since a fence", ""),
+    (
+        "GET",
+        "/events",
+        "the company's audit rows after a cursor (`?after=&run=`), with its spend to date",
+        "",
+    ),
     ("GET", "/now", "the registry's clock: the fence to take before acting", ""),
 )
 
@@ -85,19 +110,26 @@ class CancelRequest(BaseModel):
     reason: str = ""
 
 
+class DeleteRequest(BaseModel):
+    reason: str = ""
+
+
 def create_app(
     settings: ConsoleSettings | None = None,
     audit: AuditStore | None = None,
     runs: Runs | None = None,
     ledger: BudgetLedger | None = None,
     instances: AgentInstances | None = None,
+    companies: Companies | None = None,
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
-    submit_crs: Callable[[DeploymentPlan], tuple[int, int]] | None = None,
+    submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]] | None = None,
+    delete_company: Callable[[str], None] | None = None,
+    read_company: Callable[[], dict[str, Any] | None] | None = None,
     clock: Callable[[], str] | None = None,
 ) -> FastAPI:
     settings = settings or ConsoleSettings()
-    accessors = (audit, runs, ledger, instances)
+    accessors = (audit, runs, ledger, instances, companies)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -105,6 +137,7 @@ def create_app(
         runs = Runs(registry)
         ledger = BudgetLedger(registry)
         instances = AgentInstances(registry)
+        companies = Companies(registry)
         clock = clock or registry.now
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
@@ -125,8 +158,11 @@ def create_app(
         runs,
         ledger,
         instances,
+        companies,
         workflows or TemporalWorkflows(settings.temporal_address),
         submit_crs or crs.submit,
+        delete_company or crs.delete_company,
+        read_company or crs.read_company,
         clock,
     )
 
@@ -146,6 +182,10 @@ def create_app(
     async def invalid(_: Request, exc: Invalid) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=422)
 
+    @app.exception_handler(NoCompany)
+    async def no_company(_: Request, exc: NoCompany) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=404)
+
     @app.exception_handler(Unavailable)
     async def unavailable(_: Request, exc: Unavailable) -> JSONResponse:
         return JSONResponse({"detail": f"temporal unreachable: {exc}"}, status_code=503)
@@ -163,7 +203,7 @@ def create_app(
         return {
             "human": identity.agent_id,
             "lifecycle": identity.lifecycle,
-            "company": settings.company,
+            "company": await service.applied(),
         }
 
     @app.post("/blueprint/preview")
@@ -173,6 +213,16 @@ def create_app(
     @app.post("/blueprint/apply")
     async def apply(request: Request, body: BlueprintRequest) -> dict[str, Any]:
         return await service.apply(identity_of(request), body.blueprint)
+
+    @app.get("/company")
+    async def company() -> dict[str, Any]:
+        return await service.company()
+
+    @app.delete("/company")
+    async def delete_company_route(
+        request: Request, body: DeleteRequest | None = None
+    ) -> dict[str, Any]:
+        return await service.delete(identity_of(request), body.reason if body else "")
 
     @app.post("/runs")
     async def start_run(request: Request, body: StartRunRequest) -> dict[str, Any]:
@@ -220,6 +270,12 @@ def create_app(
     @app.get("/spend")
     async def spend_since(since: str | None = None) -> dict[str, Any]:
         return await service.spend_since(since)
+
+    @app.get("/events")
+    async def events(
+        after: int = 0, run: str | None = None, limit: int = 200
+    ) -> dict[str, Any]:
+        return await service.events(after, run, max(1, min(limit, 1000)))
 
     @app.get("/now")
     async def now() -> dict[str, str]:

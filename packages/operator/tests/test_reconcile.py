@@ -202,19 +202,18 @@ def test_company_reconcile_converges_the_envelope(cluster, stores, opa):
     assert cluster.named("upsert_role") == [("hello-saas", "sandbox-provisioner")]
     assert cluster.named("upsert_role_binding") == [("hello-saas", "sandbox-provisioner")]
 
-    assert "hello-saas" in bundles.stored
-    # The platform scope rides every apply under its reserved key;
-    # identical content, so re-applies never churn the revision.
-    assert "platform" in bundles.stored
+    # Both bundles under their fixed slots — the names OPA polls; the
+    # company's slot never carries the company's name.
+    assert set(bundles.stored) == {"company", "platform"}
     # The registry row records what was applied, minus the bundle (which
     # lives in policy_bundles under its own revision).
     assert "policyBundle" not in companies.rows["hello-saas"]
     assert patch.status["phase"] == "converged"
-    assert patch.status["bundleRevision"] == "rev-hello-saas"
+    assert patch.status["bundleRevision"] == "rev-company"
     # The phase answers for this apply's generation.
     assert patch.status["observedGeneration"] == 1
     # Converged was earned: both revisions were read back from OPA.
-    assert sorted(opa.asked) == ["hello-saas", "platform"]
+    assert sorted(opa.asked) == ["company", "platform"]
 
 
 def test_company_is_activating_until_opa_serves_its_bundle(cluster, stores, opa):
@@ -222,16 +221,16 @@ def test_company_is_activating_until_opa_serves_its_bundle(cluster, stores, opa)
     company is not live to the platform — no registry row for the worker
     to start a heartbeat off — and the CR says why."""
     bundles, _instances, companies = stores
-    opa.lagging = {"hello-saas"}
+    opa.lagging = {"company"}
     patch = kopf.Patch()
-    with pytest.raises(kopf.TemporaryError, match="hello-saas"):
+    with pytest.raises(kopf.TemporaryError, match="company"):
         reconcile.reconcile_company(
             spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=patch
         )
 
     # Stored, so the bundle server can hand it to OPA's next poll...
-    assert "hello-saas" in bundles.stored
-    assert patch.status["bundleRevision"] == "rev-hello-saas"
+    assert "company" in bundles.stored
+    assert patch.status["bundleRevision"] == "rev-company"
     assert patch.status["phase"] == "activating"
     assert patch.status["observedGeneration"] == 1
     # ...but not live.
@@ -276,7 +275,7 @@ def test_company_without_a_bundle_stores_no_company_bundle(cluster, stores, opa)
     spec = {**COMPANY_SPEC, "policyBundle": {}}
     patch = kopf.Patch()
     reconcile.reconcile_company(spec=spec, name="hello-saas", meta=META, patch=patch)
-    assert "hello-saas" not in bundles.stored
+    assert "company" not in bundles.stored
     assert patch.status["bundleRevision"] == ""
     # Only what was stored is waited for.
     assert opa.asked == ["platform"]
@@ -293,8 +292,8 @@ def test_company_teardown_revokes_and_sweeps(cluster, stores, opa):
     reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
 
     # Revoked through policy: the store holds the tombstone OPA polls.
-    assert bundles.revoked == ["hello-saas"]
-    assert bundles.stored["hello-saas"] is TOMBSTONE
+    assert bundles.revoked == ["company"]
+    assert bundles.stored["company"] is TOMBSTONE
     # The platform bundle is the platform's, not the company's.
     assert bundles.stored["platform"] is not TOMBSTONE
     assert cluster.named("delete_namespace") == [("hello-saas",)]
@@ -313,11 +312,11 @@ def test_company_teardown_waits_until_the_revocation_is_served(cluster, stores, 
         spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
     )
     instances.upsert("pm-1", "hello-saas", "pm", "pm", "standard")
-    opa.lagging = {"hello-saas"}
+    opa.lagging = {"company"}
 
     with pytest.raises(kopf.TemporaryError, match="still serves"):
         reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
-    assert bundles.stored["hello-saas"] is TOMBSTONE  # stored, so OPA can poll it
+    assert bundles.stored["company"] is TOMBSTONE  # stored, so OPA can poll it
     assert cluster.named("delete_namespace") == []
     assert "hello-saas" in companies.rows and "pm-1" in instances.rows
 

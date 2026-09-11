@@ -32,6 +32,7 @@ from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
     InMemoryBudgetLedger,
+    InMemoryCompanies,
     InMemoryRuns,
 )
 
@@ -95,16 +96,40 @@ class World:
         self.runs = InMemoryRuns()
         self.ledger = InMemoryBudgetLedger()
         self.instances = InMemoryAgentInstances()
+        # The operator's record of the applied company; the console reads
+        # which company it hosts from here.
+        self.companies = InMemoryCompanies()
+        self.companies.upsert(COMPANY, {"namespace": "poseidon-company"})
         self.workflows = FakeWorkflows()
         self.submitted: list[DeploymentPlan] = []
+        self.deleted: list[str] = []
+        self.cr: dict[str, Any] | None = None
         # What OPA answers, per tool; the default is the rule the compiled
         # bundle would name for the owner.
         self.decisions: dict[str, dict[str, Any]] = {}
         self.asked: list[dict[str, Any]] = []
 
-    def submit(self, plan: DeploymentPlan) -> tuple[int, int]:
+    def submit(self, plan: DeploymentPlan) -> tuple[int, int, int]:
         self.submitted.append(plan)
-        return (1, 0)
+        # What the CR says afterwards: the generation this apply made,
+        # still activating until the fake operator is told otherwise.
+        self.cr = {
+            "company": plan.company.name,
+            "namespace": plan.company.namespace,
+            "generation": len(self.submitted),
+            "phase": "activating",
+            "observedGeneration": 0,
+            "bundleRevision": "",
+            "message": "",
+        }
+        return (1, 0, len(self.submitted))
+
+    def read_company(self) -> dict[str, Any] | None:
+        return self.cr
+
+    def delete(self, company: str) -> None:
+        self.deleted.append(company)
+        self.companies.delete(company)
 
     async def evaluate(self, opa_url: str, company: str, decision_input: dict) -> dict:
         self.asked.append(decision_input)
@@ -133,7 +158,6 @@ def world(monkeypatch) -> World:
 def client(world: World) -> httpx.AsyncClient:
     settings = ConsoleSettings(
         platform_namespace=PLATFORM_NS,
-        company=COMPANY,
         opa_url="http://opa.test:8181",
         temporal_address="temporal.test:7233",
         console_humans="owner",
@@ -144,9 +168,12 @@ def client(world: World) -> httpx.AsyncClient:
         runs=world.runs,
         ledger=world.ledger,
         instances=world.instances,
+        companies=world.companies,
         token_reviewer=FakeReviewer(),
         workflows=world.workflows,
         submit_crs=world.submit,
+        delete_company=world.delete,
+        read_company=world.read_company,
         clock=lambda: "2026-01-01T00:00:00+00:00",
     )
     return httpx.AsyncClient(
@@ -342,7 +369,62 @@ async def test_a_later_apply_is_policys(client, world):
     assert len(world.submitted) == 1
 
 
-async def test_another_companys_blueprint_is_refused(client, world):
+async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
+    client, world
+):
+    """The one stop there is, as a console act: decided under the person's
+    name, its running runs cancelled through the same path a cancel takes,
+    then the Company CR deleted and the teardown waited for."""
+    a_review_run(world)
+    response = await client.request(
+        "DELETE", "/company", json={"reason": "wrong vision"}, headers=as_owner()
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["company"] == COMPANY
+    assert response.json()["runs_cancelled"] == [RUN_ID]
+    assert world.deleted == [COMPANY]
+    assert world.workflows.calls == [("cancel", f"review-{RUN_ID}")]
+    # The delete is recorded before anything is cancelled, and the cancel
+    # under the same name says why.
+    assert world.events == [
+        ("company.delete", "allow", "company_delete"),
+        ("run.cancel", "allow", "run_cancel"),
+    ]
+    assert world.audit.events[0].agent_id == "owner"
+    # Nothing is left to act on.
+    assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
+    again = await client.request("DELETE", "/company", headers=as_owner())
+    assert again.status_code == 404
+
+
+async def test_the_company_read_is_the_crs_phase(client, world):
+    """What `apply` waits on: the CR's phase and the generation it answers
+    for — read from the cluster, since the registry row exists only once
+    the company is converged."""
+    assert (await client.get("/company", headers=as_owner())).status_code == 404
+    applied = await client.post(
+        "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
+    )
+    assert applied.status_code == 200 and applied.json()["generation"] == 1
+    state = (await client.get("/company", headers=as_owner())).json()
+    assert state["company"] == COMPANY and state["phase"] == "activating"
+    assert state["generation"] == 1 and state["observedGeneration"] == 0
+    world.cr.update(phase="converged", observedGeneration=1, bundleRevision="r1")
+    state = (await client.get("/company", headers=as_owner())).json()
+    assert state["phase"] == "converged" and state["bundleRevision"] == "r1"
+
+
+async def test_a_stranger_cannot_delete_the_company(client, world):
+    a_review_run(world)
+    world.decisions["company.delete"] = {"allow": False, "rule": "human_not_recognized"}
+    response = await client.request("DELETE", "/company", headers=as_owner())
+    assert response.status_code == 403
+    assert response.json()["rule"] == "human_not_recognized"
+    assert world.deleted == [] and world.workflows.calls == []
+    assert world.events == [("company.delete", "deny", "human_not_recognized")]
+
+
+async def test_another_companys_blueprint_is_refused_while_one_is_applied(client, world):
     document = yaml.safe_load(HELLO_SAAS)
     document["company"]["name"] = "other-co"
     response = await client.post(
@@ -351,8 +433,35 @@ async def test_another_companys_blueprint_is_refused(client, world):
         headers=as_owner(),
     )
     assert response.status_code == 422
-    assert "other-co" in response.json()["detail"]
+    assert (
+        "other-co" in response.json()["detail"] and COMPANY in response.json()["detail"]
+    )
     assert world.submitted == [] and world.audit.events == []
+
+
+async def test_before_the_first_apply_any_name_applies_and_nothing_else_answers(
+    client, world
+):
+    """A fresh cluster hosts no company: the reads and acts that need one
+    say so, `whoami` names none, and the first apply may bring any name."""
+    world.companies.delete(COMPANY)
+    who = await client.get("/whoami", headers=as_owner())
+    assert who.json()["company"] is None
+    for method, path in (("GET", "/heartbeat"), ("GET", "/spend"), ("GET", "/runs")):
+        response = await client.request(method, path, headers=as_owner())
+        assert response.status_code == 404, (path, response.text)
+    wake = await client.post("/heartbeat/wake", headers=as_owner())
+    assert wake.status_code == 404 and world.audit.events == []
+    document = yaml.safe_load(HELLO_SAAS)
+    document["company"]["name"] = "other-co"
+    applied = await client.post(
+        "/blueprint/apply",
+        json={"blueprint": yaml.safe_dump(document)},
+        headers=as_owner(),
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["company"] == "other-co"
+    assert [e.company for e in world.audit.events] == ["other-co"]
 
 
 async def test_preview_compiles_against_the_live_registry_and_writes_nothing(
@@ -421,6 +530,62 @@ async def test_the_reads_need_a_human_and_touch_nothing(client, world):
     assert world.workflows.calls == [] and world.audit.events == []
 
 
+async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, world):
+    """The follower's read: rows above a cursor in id order, the cursor to
+    continue from, the company's spend to date — and one run's when the
+    read is narrowed. Without a company applied there is nothing to
+    follow; without a token, nothing at all."""
+    from common.audit import AuditEvent
+
+    def row(run_id: str, tool: str) -> AuditEvent:
+        return AuditEvent(
+            run_id=run_id,
+            agent_id="pm-1",
+            role="pm",
+            tool=tool,
+            args_digest="d",
+            decision="allow",
+            rule=None,
+            latency_ms=1,
+            backend_status="ok",
+            source="gateway",
+            company=COMPANY,
+        )
+
+    world.audit.append(row(f"heartbeat-{COMPANY}", "heartbeat.tick"))
+    world.audit.append(row(RUN_ID, "sandbox.exec"))
+    world.audit.append(row("run-other", "git.open_pr"))
+    world.ledger.record(
+        company=COMPANY,
+        run_id=RUN_ID,
+        agent_id="implementer-1",
+        parent_agent_id="pm-1",
+        role="implementer",
+        model="mock",
+        prompt_tokens=10,
+        completion_tokens=5,
+        cached_tokens=0,
+        reasoning_tokens=0,
+        usd=0.25,
+    )
+    assert (await client.get("/events")).status_code == 401
+
+    page = (await client.get("/events", headers=as_owner())).json()
+    assert [e["id"] for e in page["events"]] == [1, 2, 3]
+    assert page["next"] == 3 and page["spend"] == {"usd": 0.25}
+    later = (await client.get("/events?after=2", headers=as_owner())).json()
+    assert [e["tool"] for e in later["events"]] == ["git.open_pr"] and later["next"] == 3
+    nothing = (await client.get("/events?after=3", headers=as_owner())).json()
+    assert nothing["events"] == [] and nothing["next"] == 3
+    one_run = (await client.get(f"/events?run={RUN_ID}", headers=as_owner())).json()
+    assert [e["id"] for e in one_run["events"]] == [2]
+    assert one_run["spend"] == {"usd": 0.25, "run_usd": 0.25}
+    assert world.audit.events[-1].tool == "git.open_pr"  # a read: nothing appended
+
+    world.companies.delete(COMPANY)
+    assert (await client.get("/events", headers=as_owner())).status_code == 404
+
+
 async def test_a_story_is_the_runs_events_in_order(client, world):
     a_review_run(world)
     await client.post(
@@ -439,7 +604,6 @@ def test_the_route_table_matches_the_app():
 
     settings = ConsoleSettings(
         platform_namespace=PLATFORM_NS,
-        company=COMPANY,
         opa_url="http://opa.test:8181",
         temporal_address="temporal.test:7233",
     )
@@ -449,8 +613,10 @@ def test_the_route_table_matches_the_app():
         runs=InMemoryRuns(),
         ledger=InMemoryBudgetLedger(),
         instances=InMemoryAgentInstances(),
+        companies=InMemoryCompanies(),
         workflows=FakeWorkflows(),
-        submit_crs=lambda plan: (0, 0),
+        submit_crs=lambda plan: (0, 0, 1),
+        read_company=lambda: None,
         clock=lambda: "",
     )
     served = {
@@ -466,7 +632,6 @@ def test_the_route_table_matches_the_app():
 def test_settings_split_the_declared_humans():
     settings = ConsoleSettings(
         platform_namespace=PLATFORM_NS,
-        company=COMPANY,
         opa_url="http://opa.test:8181",
         temporal_address="temporal.test:7233",
         console_humans="owner, eval,",

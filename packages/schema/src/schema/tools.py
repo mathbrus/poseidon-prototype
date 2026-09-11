@@ -5,15 +5,21 @@ tool scope names a registered gateway backend"), so a typo fails at compile
 instead of at the first tool call.
 """
 
-SANDBOX_TOOLS = [
+# The sandbox tools that read, and the ones that write — named apart
+# because a blueprint's reviewer scope is exactly "the role's catalog
+# minus the writes": it judges, it does not fix.
+SANDBOX_READ_TOOLS = [
     "sandbox.read_file",
-    "sandbox.write_file",
-    "sandbox.edit_file",
     "sandbox.list_dir",
     "sandbox.exec",
     "sandbox.run_tests",
+]
+SANDBOX_WRITE_TOOLS = [
+    "sandbox.write_file",
+    "sandbox.edit_file",
     "sandbox.git_bundle",
 ]
+SANDBOX_TOOLS = SANDBOX_READ_TOOLS + SANDBOX_WRITE_TOOLS
 GIT_TOOLS = ["git.open_pr"]
 
 ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment"]

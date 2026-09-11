@@ -34,6 +34,7 @@ from typing import Any
 
 from common.policy import (
     BLUEPRINT_APPLY,
+    COMPANY_DELETE,
     CREW_REQUEST,
     GATE_RESOLVE,
     HEARTBEAT_START,
@@ -360,6 +361,7 @@ def _console_file(company: str, humans: tuple[str, ...]) -> str:
     body += act("run_cancel", RUN_CANCEL)
     body += act("heartbeat_wake", HEARTBEAT_WAKE)
     body += act("blueprint_apply", BLUEPRINT_APPLY)
+    body += act("company_delete", COMPANY_DELETE)
     body += (
         '\ndeny_rules contains "human_not_recognized" if {\n'
         '\tinput.lifecycle == "human"\n'

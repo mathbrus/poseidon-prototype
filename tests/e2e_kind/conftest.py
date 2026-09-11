@@ -3,8 +3,9 @@ environment.
 
 These tests run against the kind cluster brought up by
 `deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
-GIT_TOKEN, a disposable TARGET_REPO and the console's address. They open
-real pull requests on that repo. Every run is the company's own: the suite
+GIT_TOKEN and the console's address, and `E2E_TARGET_REPO` in the
+environment naming a disposable repository. They open real pull requests
+on that repo. Every run is the company's own: the suite
 files what the standing heartbeat should find (a ticket, a strategy naming
 a slice), wakes it, and reads the runs it starts — exactly the loop the
 product is. Every *act* on the company is the console's, as the human the
@@ -28,8 +29,9 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   `REAL_LLM=0` beat the file. The suite's waits are fixed wall-clock
   budgets sized for the mock; a paid brain is an opt-in the waits are not
   sized for.
-- **The repo-state contract** (`baseline_env`, autouse): TARGET_REPO@main
-  is suite-managed state with one owner. The baseline seeds the declared
+- **The repo-state contract** (`baseline_env`, autouse): the disposable
+  repository's main branch (`E2E_TARGET_REPO`) is suite-managed state with
+  one owner. The baseline seeds the declared
   shape from the mock brain's own canonical texts — the implementation,
   the unit tree, the acceptance contract, and the two company documents
   with no open slice, so the standing loop at rest observes nothing to
@@ -113,11 +115,13 @@ from .blueprints import (
 from .cluster import (
     COMPANY_NS,
     PLATFORM_NS,
+    REPO_ROOT,
     await_bare_heartbeat_asleep,
     await_run,
     console,
     console_url,
     db_now,
+    harness_repo_or_fail,
     kill_worker_pod,
     kubectl,
     run_by_task,
@@ -126,7 +130,6 @@ from .cluster import (
     wake_bare_heartbeat,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / "deploy" / "kind" / ".env"
 
 E2E_KIND_DIR = Path(__file__).resolve().parent
@@ -189,6 +192,9 @@ def env() -> dict[str, str]:
         if line and not line.startswith("#") and "=" in line:
             key, _, value = line.partition("=")
             values[key.strip()] = value.strip()
+    # The repository is the suite's, not the deployment's: it comes from
+    # the suite's own variable, never from the file.
+    values["TARGET_REPO"] = harness_repo_or_fail()
     return values
 
 
@@ -471,7 +477,7 @@ def scope_via_heartbeat(env: dict, strategy: str, deadline_s: int = 600) -> dict
 
 # --- the repo-state contract ------------------------------------------------
 #
-# TARGET_REPO@main is suite-managed state with one owner: this baseline.
+# The disposable repository's main is suite-managed state with one owner: this baseline.
 # Without it a module's green would depend on residue — a contract tree
 # an *earlier run's* module happened to leave behind — and a fresh
 # disposable repo would carry no contract tree at all. Modules that
@@ -600,7 +606,7 @@ def await_no_runs_in_flight(deadline_s: int = 1200) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def baseline_env(env: dict[str, str]) -> dict[str, str]:
-    """Establish the declared shape of TARGET_REPO@main once per session —
+    """Establish the declared shape of the disposable repository's main once per session —
     autouse, so a standalone module run gets the same contract the full
     suite does and a fresh disposable repo needs no manual seeding.
     Idempotent: a repo already at baseline gets reads, not commits."""

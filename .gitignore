@@ -1,6 +1,7 @@
 runs/
 .claude/
 .env
+deploy/kind/kind-up.log
 __pycache__/
 .venv/
 requirements-audit.txt

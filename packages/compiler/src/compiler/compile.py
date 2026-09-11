@@ -11,6 +11,7 @@ scope; credentials arrive at runtime as projected tokens.
 
 from typing import Any
 
+from common.topology import COMPANY_NAMESPACE
 from compiler.checks import check, referenced_crews
 from compiler.errors import CompileError
 from compiler.infra import build_infra
@@ -82,7 +83,7 @@ def compile_blueprint(
 
     company_section = blueprint["company"]
     company = company_section["name"]
-    namespace = company
+    namespace = COMPANY_NAMESPACE
     repo = Repo(**blueprint["stack"]["repo"])
     company_cr = CompanyCR(
         name=company,

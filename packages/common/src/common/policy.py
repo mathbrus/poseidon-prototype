@@ -10,6 +10,14 @@ empty document — which would fail closed (every call denied) but silently.
 
 PLATFORM_DECISION_PATH = "poseidon/platform/decision"
 
+# The two bundles OPA polls, by the fixed names its config lists them
+# under: the platform's own policy and the applied company's. A platform
+# hosts one company, so the company slot carries no company name — the
+# operator stores whatever company is applied under it, and revokes it
+# with a tombstone at teardown.
+PLATFORM_BUNDLE = "platform"
+COMPANY_BUNDLE = "company"
+
 # The decisions the platform evaluates itself against a company's bundle.
 # None is a gateway tool: each is the question the orchestrator must win
 # before it acts — starting a workflow on the company's own initiative,
@@ -33,6 +41,7 @@ RUN_START = "run.start"
 RUN_CANCEL = "run.cancel"
 HEARTBEAT_WAKE = "heartbeat.wake"
 BLUEPRINT_APPLY = "blueprint.apply"
+COMPANY_DELETE = "company.delete"
 
 
 def verdict_rule(gate: str, approved: bool) -> str:

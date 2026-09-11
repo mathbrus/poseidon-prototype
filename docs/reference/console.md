@@ -20,7 +20,7 @@ chart value `console.humans` — and a token for it is minted through the
 TokenRequest API with the person's own cluster credentials:
 
 ```bash
-export POSEIDON_TOKEN=$(uv run poseidon login owner)
+uv run poseidon login owner --save      # kept for later commands; or export POSEIDON_TOKEN=$(…)
 ```
 
 On a cluster with an identity provider, the API server's own user is the
@@ -49,6 +49,7 @@ company:
 | cancel a run | `run.cancel` | `run_cancel` |
 | wake the heartbeat | `heartbeat.wake` | `heartbeat_wake` |
 | apply the blueprint | `blueprint.apply` | `blueprint_apply` |
+| delete the company | `company.delete` | `company_delete` |
 
 A verified person the company did not name is refused by
 `human_not_recognized`, audited under their name, and nothing happens.
@@ -59,6 +60,22 @@ serves no policy for the company, any verified human may apply, and the
 audit row says `blueprint_apply_bootstrap`. Every later act — including
 every later apply — is policy's. An applier can rewrite `company.humans`;
 that is the residual [What it cannot do](../argument/cannot.md) names.
+
+## Stopping the company is an act
+
+A company always has a heartbeat, so the one stop is deleting the
+company — and that is a console act like any other: `company.delete` is
+decided against the blueprint's humans and audited under the person's
+name, then every running run is cancelled (each its own audited
+`run.cancel`, so none dies with its namespace), then the Company CR is
+deleted and the operator's teardown waited for. The repository and the
+ledgers keep the company's name; applying the same blueprint again
+resumes it. `kubectl delete company` still works, as anything with
+cluster-admin does, but it asks no policy and records no name.
+
+```bash
+uv run poseidon company delete --reason "wrong vision"
+```
 
 ## The verdict is recorded before it is delivered
 
@@ -77,8 +94,9 @@ verdict and releases nothing ([The Temporal contract](temporal.md)).
 JSON in, JSON out, a bearer token on every request but `/healthz`. Acts
 are POSTs and answer `403` with the denying rule when policy says no;
 reads are GETs. `422` names what could not be acted on (an unknown run, a
-blueprint that does not validate or names another company); `503` says
-Temporal was unreachable. Rendered from the console's own route table at
+blueprint that does not validate or names a company other than the
+applied one); `404` says no company is applied yet, for every read and
+act that needs one; `503` says Temporal was unreachable. Rendered from the console's own route table at
 build time:
 
 <!-- gen: console -->

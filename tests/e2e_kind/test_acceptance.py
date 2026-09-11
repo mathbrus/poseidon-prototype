@@ -105,6 +105,7 @@ from .blueprints import (
     suite_document,
 )
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     audit_story,
     console_env,
@@ -160,7 +161,7 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
         env, "blueprint", "preview", str(suite_document(pristine_profile()))
     )
     assert pristine.returncode == 0, pristine.stderr
-    assert "hello-saas: no changes" in pristine.stdout, pristine.stdout
+    assert f"{COMPANY}: no changes" in pristine.stdout, pristine.stdout
     assert "budget:" in pristine.stdout
 
     # Preview of an edit: exactly the edit, nothing else.
@@ -175,7 +176,7 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     edited.write_text(yaml.safe_dump(document, sort_keys=False))
     preview = _poseidon(env, "blueprint", "preview", str(edited))
     assert preview.returncode == 0, preview.stderr
-    assert "hello-saas: 1 change(s)" in preview.stdout, preview.stdout
+    assert f"{COMPANY}: 1 change(s)" in preview.stdout, preview.stdout
     assert "+ lead-1" in preview.stdout
 
     # Compile, scripted and cluster-free (`python -m compiler`, what the CI
@@ -191,7 +192,7 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     assert compiled.returncode == 0, compiled.stderr
     assert list(out.glob("*.rego")), "compile emitted no Rego files"
     plan_dict = json.loads(compiled.stdout)
-    assert plan_dict["company"]["name"] == "hello-saas"
+    assert plan_dict["company"]["name"] == COMPANY
 
     # Compile-is-what's-live: the revision is a content digest (registry
     # `pack`), so equality here means the served policy is exactly what
@@ -258,7 +259,8 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     rows = psql_json(
         "SELECT COALESCE(json_agg(i ORDER BY i.agent_id), '[]'::json) FROM ("
         "SELECT agent_id, standing_name, role, namespace"
-        " FROM registry.agent_instances WHERE company = 'hello-saas') i"
+        " FROM registry.agent_instances WHERE company = :'company') i",
+        company=COMPANY,
     )
     assert [(r["agent_id"], r["role"], r["namespace"]) for r in rows] == [
         ("pm-1", "pm", COMPANY_NS)
@@ -293,14 +295,14 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
 
     with registry() as db:
         crew = crew_activities(db, worker_settings(env, tmp_path))
-        Runs(db).start(run_id, "implementer scope check", "implement", None, "hello-saas")
+        Runs(db).start(run_id, "implementer scope check", "implement", None, COMPANY)
         sa_name = None
         try:
             bound = asyncio.run(
                 crew.bind_participant(
                     {
                         "run_id": run_id,
-                        "company": "hello-saas",
+                        "company": COMPANY,
                         "crew_template": "feature-delivery",
                         "role": "implementer",
                         "parent_agent_id": "pm-1",

@@ -18,12 +18,25 @@ and a real compiled merge gate.
 It spends nothing: the suite refuses to run against a paid brain unless
 `POSEIDON_ALLOW_PAID=1` opts in ([Use a real model](real-llm.md)).
 
-The script's preflight reads `deploy/kind/.env` for the gateway and the
-console (`MCP_GATEWAY_URL`, `POSEIDON_CONSOLE_URL`) and checks that each
-answers `401` without a token. The suite then acts only through
+The suite opens real pull requests on a disposable repository of yours,
+named in its own environment variable — a company's repository is a
+blueprint field, and the suite writes this one into every blueprint it
+applies:
+
+```bash
+E2E_TARGET_REPO=github.com/<you>/<disposable> scripts/acceptance.sh
+```
+
+The script's preflight refuses to start without it, reads
+`deploy/kind/.env` for the gateway and the console (`MCP_GATEWAY_URL`,
+`POSEIDON_CONSOLE_URL`) and checks that each answers `401` without a
+token. The suite then acts only through
 [the console](../reference/console.md), as the `owner` the chart
 declares, and observes with psql, kubectl and GitHub — the same door a
-person uses, and no other.
+person uses, and no other. Its company is the shipped example,
+`hello-saas`: bring the cluster up with the default blueprint. A cluster
+hosting another company is refused by the preflight in seconds, naming
+both.
 
 ```bash
 deploy/kind/kind-down.sh    # when you are done

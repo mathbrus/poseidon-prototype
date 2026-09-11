@@ -79,7 +79,7 @@ class Harness:
         harness = self
 
         @activity.defn(name="heartbeat_config")
-        async def heartbeat_config() -> dict[str, Any] | None:
+        async def heartbeat_config(company: str) -> dict[str, Any] | None:
             config = harness.configs.pop(0) if harness.configs else None
             if config is None:
                 return None

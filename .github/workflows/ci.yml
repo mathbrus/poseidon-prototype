@@ -99,6 +99,26 @@ jobs:
           worker = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == t.ORCHESTRATOR_SERVICE_ACCOUNT)
           token = worker["spec"]["template"]["spec"]["volumes"][0]["projected"]["sources"][0]["serviceAccountToken"]
           assert token["audience"] == t.TOKEN_AUDIENCE and token["expirationSeconds"] == t.TOKEN_TTL_S, token
+          # The platform NetworkPolicies select the company namespace by the
+          # name the compiler writes into the Company CR.
+          selected = set()
+          for d in docs:
+              if d["kind"] != "NetworkPolicy":
+                  continue
+              for rule in (d["spec"].get("ingress") or []) + (d["spec"].get("egress") or []):
+                  for peer in rule.get("from", []) + rule.get("to", []):
+                      ns = (peer.get("namespaceSelector") or {}).get("matchLabels") or {}
+                      if "kubernetes.io/metadata.name" in ns:
+                          selected.add(ns["kubernetes.io/metadata.name"])
+          # kube-system is the other namespace a policy names (DNS); no
+          # company name may appear as one.
+          assert selected == {t.COMPANY_NAMESPACE, "kube-system"}, selected
+          # OPA polls two bundles under fixed names; the operator stores
+          # them under the same two.
+          from common import policy as pol
+          opa_config = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "opa-config")
+          slots = set(yaml.safe_load(opa_config["data"]["config.yaml"])["bundles"])
+          assert slots == {pol.PLATFORM_BUNDLE, pol.COMPANY_BUNDLE}, slots
           print("chart agrees with common.topology")
           PY
       - name: "A bare install must not deploy placeholder credentials"
@@ -262,17 +282,24 @@ jobs:
       - name: Bring the cluster up
         env:
           GIT_TOKEN: ${{ secrets.E2E_GIT_TOKEN }}
-          TARGET_REPO: ${{ secrets.E2E_TARGET_REPO }}
         run: |
           install -m 600 /dev/null deploy/kind/.env
           cat >> deploy/kind/.env <<EOF
           GIT_TOKEN=${GIT_TOKEN}
-          TARGET_REPO=${TARGET_REPO}
           MCP_GATEWAY_URL=http://127.0.0.1:8080
           POSEIDON_CONSOLE_URL=http://127.0.0.1:8090
           EOF
           deploy/kind/kind-up.sh
+      - name: Keep the bring-up log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-up.log
+          path: deploy/kind/kind-up.log
+          if-no-files-found: ignore
       - run: scripts/acceptance.sh -v
+        env:
+          E2E_TARGET_REPO: ${{ secrets.E2E_TARGET_REPO }}
       - name: Tear the cluster down
         if: always()
         run: deploy/kind/kind-down.sh

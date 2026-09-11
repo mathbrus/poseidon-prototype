@@ -8,6 +8,7 @@ console is policy's.
 """
 
 import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -17,6 +18,22 @@ from common.topology import CONSOLE_PORT
 DEFAULT_URL = f"http://127.0.0.1:{CONSOLE_PORT}"
 URL_VAR = "POSEIDON_CONSOLE_URL"
 TOKEN_VAR = "POSEIDON_TOKEN"
+
+
+def token_file() -> Path:
+    """Where `poseidon login --save` keeps a token and the client reads
+    one when the environment carries none: the person's own config
+    directory, since the CLI is the console's client and not a repo
+    tool. The environment variable, when set, always wins."""
+    config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(config_home) / "poseidon" / "token"
+
+
+def saved_token() -> str:
+    try:
+        return token_file().read_text().strip()
+    except OSError:
+        return ""
 
 
 class ConsoleError(Exception):
@@ -43,7 +60,16 @@ class ConsoleClient:
         timeout: float = 600.0,
     ) -> None:
         self.base_url = (base_url or os.environ.get(URL_VAR) or DEFAULT_URL).rstrip("/")
-        self.token = token if token is not None else os.environ.get(TOKEN_VAR, "")
+        # Where the token came from, for the message a refusal deserves:
+        # a saved token that the console refuses is one to save afresh.
+        self.token_source = "argument"
+        if token is None:
+            token = os.environ.get(TOKEN_VAR, "")
+            self.token_source = "environment"
+            if not token:
+                token = saved_token()
+                self.token_source = "file"
+        self.token = token
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         # An apply waits for the operator to create the company namespace,
         # which can take a while on a fresh cluster; connecting must not.
@@ -100,6 +126,12 @@ class ConsoleClient:
     def apply(self, blueprint: str) -> dict[str, Any]:
         return self._call("POST", "/blueprint/apply", json={"blueprint": blueprint})
 
+    def company(self) -> dict[str, Any]:
+        return self._call("GET", "/company")
+
+    def delete_company(self, reason: str = "") -> dict[str, Any]:
+        return self._call("DELETE", "/company", json={"reason": reason})
+
     # -- runs -----------------------------------------------------------------
 
     def start_run(self, workflow: str, number: int) -> dict[str, Any]:
@@ -139,6 +171,14 @@ class ConsoleClient:
 
     def spend_since(self, since: str | None = None) -> dict[str, Any]:
         return self._call("GET", "/spend", params=_since(since))
+
+    def events(
+        self, after: int = 0, run_id: str | None = None, limit: int = 200
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"after": after, "limit": limit}
+        if run_id:
+            params["run"] = run_id
+        return self._call("GET", "/events", params=params)
 
     def now(self) -> str:
         return self._call("GET", "/now")["now"]

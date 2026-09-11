@@ -78,6 +78,13 @@ allow_rules contains "blueprint_apply" if {
 	input.agent_id in ["owner"]
 }
 
+allow_rules contains "company_delete" if {
+	input.lifecycle == "human"
+	input.company == "hello-saas"
+	input.tool == "company.delete"
+	input.agent_id in ["owner"]
+}
+
 deny_rules contains "human_not_recognized" if {
 	input.lifecycle == "human"
 	not input.agent_id in ["owner"]

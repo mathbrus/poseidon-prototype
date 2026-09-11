@@ -53,6 +53,7 @@ from common.tasks import ISSUE_TASK_RE
 from common.telemetry import get_logger
 from common.workflows import MERGE_GATE, workflow_id
 from orchestrator.activities.blueprint import company_repo
+from orchestrator.activities.company import applied_company
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient, pr_settled
 from orchestrator.config import WorkerSettings
@@ -172,9 +173,10 @@ class ReviewActivities:
 
     async def _repo(self) -> dict[str, str]:
         """The company's repository, from its applied blueprint."""
-        return await asyncio.to_thread(
-            company_repo, self._companies, self._settings.company
-        )
+        return await asyncio.to_thread(company_repo, self._companies, self._company())
+
+    def _company(self) -> str:
+        return applied_company(self._companies)
 
     @activity.defn(name="read_pr")
     async def read_pr(
@@ -199,7 +201,7 @@ class ReviewActivities:
             # Learned here, remembered here: no later observation reads
             # this PR again.
             await asyncio.to_thread(
-                self._runs.mark_pr_settled, self._settings.company, pr_number, settled
+                self._runs.mark_pr_settled, self._company(), pr_number, settled
             )
             await self._append_event(
                 run_id=run_id,
@@ -256,7 +258,7 @@ class ReviewActivities:
             decision=decision,
             rule=rule,
             source=source,
-            company=self._settings.company,
+            company=self._company(),
             workflow=workflow_id,
             latency_ms=latency_ms,
         )
@@ -298,7 +300,7 @@ class ReviewActivities:
         for a policy-resolved merge (the human signal still is)."""
 
         def read() -> dict[str, Any]:
-            implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)
+            implement = self._runs.implement_run_for_pr(self._company(), pr_number)
             if implement is None:
                 return {
                     "independent": False,
@@ -358,7 +360,7 @@ class ReviewActivities:
         fear does not exist."""
 
         def lineage_issue() -> int | None:
-            implement = self._runs.implement_run_for_pr(self._settings.company, pr_number)
+            implement = self._runs.implement_run_for_pr(self._company(), pr_number)
             if implement is None:
                 return None
             match = ISSUE_TASK_RE.match(implement.task or "")
@@ -484,7 +486,7 @@ class ReviewActivities:
         routed outcome, not an error: good work outside the delegation
         falls back to the human signal, and an unrecorded human signal
         ends the run unmerged."""
-        company = self._settings.company
+        company = self._company()
         decision_input = {
             "company": company,
             "agent_id": ORCHESTRATOR_ID,

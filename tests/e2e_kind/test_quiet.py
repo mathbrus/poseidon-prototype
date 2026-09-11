@@ -16,7 +16,7 @@ PM deployment is not in scope because it is supposed to exist: quiet
 means no *work* in flight, not no company.
 """
 
-from .cluster import COMPANY_NS, non_terminal_runs, running_workflows
+from .cluster import COMPANY, non_terminal_runs, running_workflows
 
 
 def test_only_the_heartbeat_is_still_running(stack: None):
@@ -26,7 +26,7 @@ def test_only_the_heartbeat_is_still_running(stack: None):
     one — and it is asleep, its last tick idle on an empty backlog."""
     from .cluster import await_bare_heartbeat_asleep, bare_heartbeat_id, heartbeat_ticks
 
-    running = [w for w in running_workflows() if f"heartbeat-{COMPANY_NS}" not in w]
+    running = [w for w in running_workflows() if f"heartbeat-{COMPANY}" not in w]
     assert running == [], "workflows survived the suite; a module left its campsite dirty"
     await_bare_heartbeat_asleep()
     ticks = heartbeat_ticks(bare_heartbeat_id())

@@ -63,8 +63,6 @@ spec:
               value: http://opa:8181
             - name: GATEWAY_TOKEN_FILE
               value: /var/run/poseidon/identity/token
-            - name: COMPANY
-              value: {{ .Values.company | quote }}
             # Deploy-time resolution of the infra IR's logical toolchain
             # image (content-addressed on kind); every other SandboxPolicy
             # value comes from the applied blueprint.

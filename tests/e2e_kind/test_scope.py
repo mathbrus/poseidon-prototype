@@ -29,6 +29,7 @@ from mockllm.brain import NEXT_SLICE_MARKER, PM_SUMMARY
 
 from .blueprints import HELLO_SAAS, derived_blueprint, may_start, restore_pristine
 from .cluster import (
+    COMPANY,
     audit_story,
     bare_heartbeat_id,
     heartbeat_ticks,
@@ -128,7 +129,7 @@ def test_the_strategy_became_a_ticket_with_the_pms_summary(scoped: dict):
     assert {"issues.create", "issues.comment"} <= {e["tool"] for e in pm_story}
     for event in pm_story:
         assert event["lifecycle"] == "standing"
-        assert event["company"] == "hello-saas"
+        assert event["company"] == COMPANY
         assert event["decision"] == "allow"
         assert event["workflow"] == "scope"
 

@@ -12,11 +12,16 @@
 # session guard both refuse a paid brain (read from the deployed llm-proxy
 # image, never from .env's REAL_LLM claim) unless POSEIDON_ALLOW_PAID=1
 # opts into spending deliberately. Opens real PRs on the disposable
-# TARGET_REPO from deploy/kind/.env; the suite seeds, sweeps, and asserts
-# the repo and cluster quiet itself (tests/e2e_kind/conftest.py documents
-# the contract).
+# repository E2E_TARGET_REPO names (the suite's own variable — a company's
+# repository is a blueprint field, and the cluster never reads this one);
+# the suite seeds, sweeps, and asserts the repo and cluster quiet itself
+# (tests/e2e_kind/conftest.py documents the contract).
+#
+#   E2E_TARGET_REPO=github.com/<owner>/<disposable> scripts/acceptance.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+: "${E2E_TARGET_REPO:?the disposable repository the suite opens pull requests on, e.g. github.com/<owner>/<repo>}"
 
 ENV_FILE=deploy/kind/.env
 GATEWAY_URL=$(grep -E '^MCP_GATEWAY_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)
@@ -63,6 +68,16 @@ case "$BRAIN" in
 *mockllm*) ;;
 *) echo "== PAID brain ($BRAIN): POSEIDON_ALLOW_PAID=1 set, spending deliberately" ;;
 esac
+# The suite's company is the shipped example. A cluster hosts one company
+# and the console refuses another name while one is applied — the suite's
+# first apply would say so — but hearing it here is seconds, not minutes.
+SUITE_COMPANY=$(uv run python -c 'from tests.e2e_kind.cluster import COMPANY; print(COMPANY)')
+HOSTED=$(kubectl get companies -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+if [ -n "$HOSTED" ] && [ "$HOSTED" != "$SUITE_COMPANY" ]; then
+  echo "this cluster hosts '$HOSTED'; the suite applies '$SUITE_COMPANY' — delete it first" >&2
+  echo "  (\`uv run poseidon company delete\`, or bring the cluster up with the default blueprint)" >&2
+  exit 1
+fi
 
 echo "== Acceptance suite against $(kubectl config current-context)"
 uv run pytest tests/e2e_kind -m e2e_kind --durations=25 "$@"

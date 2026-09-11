@@ -18,6 +18,7 @@ from common.audit import args_digest
 from common.telemetry import get_logger
 from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
+from orchestrator.activities.company import applied_company
 from orchestrator.activities.documents import (
     BOOTSTRAP_TITLES,
     bootstrap_body,
@@ -40,9 +41,10 @@ class BootstrapActivities:
         self._log = get_logger("orchestrator.heartbeat")
 
     async def _repo(self) -> dict[str, str]:
-        return await asyncio.to_thread(
-            company_repo, self._companies, self._settings.company
-        )
+        return await asyncio.to_thread(company_repo, self._companies, self._company())
+
+    def _company(self) -> str:
+        return applied_company(self._companies)
 
     @activity.defn(name="heartbeat_bootstrap")
     async def heartbeat_bootstrap(self, names: list[str]) -> list[str]:
@@ -57,7 +59,7 @@ class BootstrapActivities:
         is on the registry the moment the gateway created it, so the next
         tick — this one's own wake — reads it before the host lists it."""
         paths = await asyncio.to_thread(
-            company_documents, self._companies, self._settings.company
+            company_documents, self._companies, self._company()
         )
         repo = await self._repo()
         filed: list[str] = []
@@ -65,7 +67,7 @@ class BootstrapActivities:
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             documents = await read_documents(
-                gateway, heartbeat_run_id(self._settings.company), repo, paths
+                gateway, heartbeat_run_id(self._company()), repo, paths
             )
             for name in names:
                 if documents[name]["present"]:
@@ -76,7 +78,7 @@ class BootstrapActivities:
                     continue
                 branch = f"feature/{name}-{secrets.token_hex(3)}"
                 await gateway.create_issue(
-                    heartbeat_run_id(self._settings.company),
+                    heartbeat_run_id(self._company()),
                     repo["url"],
                     BOOTSTRAP_TITLES[name],
                     bootstrap_body(name, paths[name], branch),
@@ -84,8 +86,8 @@ class BootstrapActivities:
                 filed.append(name)
                 await emit_heartbeat_event(
                     self._audit,
-                    self._settings.company,
-                    run_id=heartbeat_run_id(self._settings.company),
+                    self._company(),
+                    run_id=heartbeat_run_id(self._company()),
                     tool="heartbeat.bootstrap",
                     digest=args_digest({"document": name, "path": paths[name]}),
                     decision="allow",

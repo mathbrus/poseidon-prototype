@@ -16,6 +16,7 @@ from typing import Any
 
 import kopf
 
+from common.policy import COMPANY_BUNDLE, PLATFORM_BUNDLE
 from common.telemetry import get_logger
 from poseidon_operator import resources
 from poseidon_operator.config import OperatorSettings
@@ -82,7 +83,7 @@ def reconcile_company(
     company_ns = spec["namespace"]
     platform_ns = _settings().platform_namespace
 
-    cluster.upsert_namespace(resources.namespace(company_ns))
+    cluster.upsert_namespace(resources.namespace(company_ns, name))
     for policy in (
         resources.default_deny(company_ns),
         resources.agent_egress(company_ns, platform_ns),
@@ -105,19 +106,22 @@ def reconcile_company(
     )
 
     revision = ""
-    stored: dict[str, str] = {}  # bundle name -> the revision persisted
+    stored: dict[str, str] = {}  # bundle slot -> the revision persisted
     bundle = spec.get("policyBundle") or {}
     if bundle:
         # Persist, do not push: OPA polls the bundle server for this
         # revision. Nothing installs policy into a running OPA.
-        revision = stored[name] = PolicyBundles(_db()).put(name, dict(bundle))
+        revision = stored[COMPANY_BUNDLE] = PolicyBundles(_db()).put(
+            COMPANY_BUNDLE, dict(bundle)
+        )
         _log.info("policy bundle stored", extra={"company": name, "revision": revision})
     platform_bundle = spec.get("platformBundle") or {}
     if platform_bundle:
-        # Reserved key, never a company name (the compiler refuses one).
         # Content-addressed revision: identical from every apply, so this
         # is a no-op except on a compiler upgrade.
-        stored["platform"] = PolicyBundles(_db()).put("platform", dict(platform_bundle))
+        stored[PLATFORM_BUNDLE] = PolicyBundles(_db()).put(
+            PLATFORM_BUNDLE, dict(platform_bundle)
+        )
 
     # Explicit status writes: kopf handler return values land under
     # status.<handler_id>, which the structural schema prunes. The
@@ -159,8 +163,8 @@ def teardown_company(spec: dict[str, Any], name: str, **_: Any) -> None:
     belongs to the platform, not to any company. Registry rows are swept
     at the company level — correct even if the operator missed individual
     instance-delete events."""
-    revoked = PolicyBundles(_db()).revoke(name)
-    if revoked and activated_revision(_settings().opa_url, name) != revoked:
+    revoked = PolicyBundles(_db()).revoke(COMPANY_BUNDLE)
+    if revoked and activated_revision(_settings().opa_url, COMPANY_BUNDLE) != revoked:
         raise kopf.TemporaryError(
             f"OPA still serves policy for {name}", delay=ACTIVATION_POLL_S
         )

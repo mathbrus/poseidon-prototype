@@ -204,3 +204,6 @@ CREATE TABLE IF NOT EXISTS registry.audit_events (
 );
 CREATE INDEX IF NOT EXISTS audit_events_run_id_ts_idx
     ON registry.audit_events (run_id, ts);
+-- The follower's read: a company's rows above a cursor, in id order.
+CREATE INDEX IF NOT EXISTS audit_events_company_id_idx
+    ON registry.audit_events (company, id);

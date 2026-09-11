@@ -27,9 +27,11 @@ a typo'd key is an error, never a silently ignored line.
 --8<-- "examples/hello-saas.yaml:stack"
 ```
 
-`company.name` becomes the Kubernetes namespace, the Rego package name, and
-the OPA bundle root — which is why two companies can never collide, and why
-`platform` is a reserved name. `company.vision` is the one text a human
+`company.name` becomes the Rego package name and the OPA bundle root, and
+keys everything the platform records about the company: registry rows,
+workflow ids, audit events. It is not the namespace: a cluster hosts one
+company, in a fixed namespace, and learns which company from what was
+applied — the name is never configured anywhere else. `company.vision` is the one text a human
 writes: it reaches every procedure but `deliver` through the static
 prompt, so the PM decides and scopes, and every crew implements and
 reviews, knowing what the company is for — and nobody in the company can

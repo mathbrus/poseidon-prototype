@@ -18,8 +18,10 @@ import time
 import httpx
 
 from common.ids import new_run_id
+from common.policy import company_decision_path
 
 from .cluster import (
+    COMPANY,
     COMPANY_NS,
     audit_story,
     crew_activities,
@@ -42,14 +44,14 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
 
     with registry() as client:
         crew = crew_activities(client, worker_settings(env, tmp_path))
-        Runs(client).start(run_id, "identity contract", "implement", None, "hello-saas")
+        Runs(client).start(run_id, "identity contract", "implement", None, COMPANY)
         sa_name = None
         try:
             bound = asyncio.run(
                 crew.bind_participant(
                     {
                         "run_id": run_id,
-                        "company": "hello-saas",
+                        "company": COMPANY,
                         "crew_template": "feature-delivery",
                         "role": "implementer",
                         "parent_agent_id": "pm-1",
@@ -161,7 +163,7 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
         )
 
         implementer = {
-            "company": "hello-saas",
+            "company": COMPANY,
             "agent_id": "feature-delivery-implementer-x",
             "lifecycle": "ephemeral",
             "parent_agent_id": "pm-1",
@@ -173,12 +175,12 @@ def test_binding_rides_the_input_never_pushed_data(stack: None) -> None:
             "args": {},
         }
         bound = httpx.post(
-            f"{base}/v1/data/poseidon/authz/hello_saas/decision",
+            f"{base}/v1/data/{company_decision_path(COMPANY)}",
             json={"input": {**implementer, "run_binding_verified": True}},
             timeout=10,
         ).json()["result"]
         unbound = httpx.post(
-            f"{base}/v1/data/poseidon/authz/hello_saas/decision",
+            f"{base}/v1/data/{company_decision_path(COMPANY)}",
             json={"input": {**implementer, "run_binding_verified": False}},
             timeout=10,
         ).json()["result"]

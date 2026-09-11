@@ -88,6 +88,29 @@ class AuditStore:
             "ts": row["ts"],
         }
 
+    def after(
+        self, company: str, after: int, run_id: str | None = None, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """The company's rows with an id above `after`, in id order — the
+        read a follower polls with. The serial is the cursor: two rows can
+        share a timestamp, none share an id, so a reader that resumes from
+        the last id it saw repeats nothing and skips nothing. `run_id`
+        narrows to one run's rows."""
+        rows = self._db.query(
+            """
+            SELECT id, ts, run_id, agent_id, role, tool, args_digest,
+                   decision, rule, latency_ms, backend_status,
+                   source, company, lifecycle, parent_agent_id, workflow
+              FROM registry.audit_events
+             WHERE company = %s AND id > %s
+               AND (%s::text IS NULL OR run_id = %s)
+             ORDER BY id
+             LIMIT %s
+            """,
+            (company, after, run_id, run_id, limit),
+        )
+        return rows
+
     def story(self, run_id: str, since: str | None = None) -> list[dict[str, Any]]:
         """Everything the platform decided for this run, in order — across
         every source, from one query; at or after `since` when given (a

@@ -40,30 +40,49 @@ at collection by design, and the registry suite skips without a Postgres.
 
 ```bash
 cp deploy/kind/.env.example deploy/kind/.env
-# fill in GIT_TOKEN (a repo-scoped PAT); TARGET_REPO is the disposable
-# repository the e2e suite works on. The company's own repository is a
-# blueprint field: set `stack.repo.url` in the example before applying it.
+# fill in GIT_TOKEN (a repo-scoped PAT). The company's repository is a
+# blueprint field, `stack.repo`, and nothing else names it.
 
-deploy/kind/kind-up.sh
+deploy/kind/kind-up.sh                                    # the shipped example
+BLUEPRINT=path/to/company.yaml deploy/kind/kind-up.sh     # your company
 ```
 
 That script is idempotent — re-run it after changing code or the chart. It
-creates the kind cluster, installs Calico (kind's default CNI does **not**
-enforce NetworkPolicy, which would make containment tests pass vacuously),
-builds and side-loads the nine images, installs the chart and Temporal,
-applies the CRDs, and applies the example blueprint through the console
-as `owner`. Then take a token of your own:
+validates the blueprint first (the compiler's own checks, before any
+cluster work), creates the kind cluster, installs Calico (kind's default
+CNI does **not** enforce NetworkPolicy, which would make containment tests
+pass vacuously), builds and side-loads the nine images, installs the chart
+and Temporal, applies the CRDs, and applies the blueprint through the
+console as the first human it names, waiting until the company is
+converged. A cluster hosts one company, in the fixed namespace
+`poseidon-company`: to bring up another, delete the current one first
+(`poseidon company delete`).
+
+It prints nine numbered steps with the time each took and the facts that
+matter — the company, its humans, its repository, which brain (the mock,
+or a paid model marked as such) — and keeps what the tools print in
+`deploy/kind/kind-up.log`, whose tail it shows when a step fails;
+`VERBOSE=1` streams it all instead.
+
+The token it applied with is saved for you, a week long, in your config
+directory (`~/.config/poseidon/token`), and every `poseidon` command reads
+it there when `POSEIDON_TOKEN` is unset:
 
 ```bash
-export POSEIDON_TOKEN=$(uv run poseidon login owner)
 uv run poseidon whoami
 ```
 
 Every `poseidon` command from here on is a call to the console — the one
-service a person acts on a company through — under that name. `login`
-mints the token with the kubeconfig you already hold, for the human the
-chart declares (`owner` on kind); nothing else is needed on your machine:
-no port-forward, no database address, no cluster credentials in the CLI.
+service a person acts on a company through — under that name; nothing
+else is needed on your machine: no port-forward, no database address, no
+cluster credentials in the CLI. To act as another human the chart
+declares (on kind: the blueprint's humans, plus `auditor`), mint a token
+of your own with the kubeconfig you already hold and export it; the
+environment wins over the file:
+
+```bash
+export POSEIDON_TOKEN=$(uv run poseidon login auditor)
+```
 
 !!! tip "This costs nothing to run"
     The cluster deploys the deterministic mock brain by default, so the
@@ -78,6 +97,20 @@ policies. There is no second configuration surface: anything the platform
 enforces, you change by editing the document and re-applying it.
 [The blueprint](../reference/blueprint.md) reads the shipped document
 section by section; this guide is about operating it.
+
+The quickest way to a blueprint of your own is to answer questions:
+
+```bash
+uv run poseidon blueprint new            # writes <company-name>.yaml, then say how to apply it
+```
+
+It asks for what is yours to decide — the name, the vision, who may act,
+the repository and its test command, what the sandbox may reach, who
+resolves the merge gate and what policy may merge on its own, the money —
+with the shipped example's answers as defaults, so Enter walks through.
+The shape every company repeats it writes without asking, and it compiles
+the result the way the console would before writing a byte. Every value
+in the file is yours to change afterwards.
 
 The bootstrap applies `examples/hello-saas.yaml` for you. The repo ships the
 same company in two profiles:
@@ -111,7 +144,13 @@ merge — against the repository the applied blueprint declares
 (`stack.repo`), with a [real model](real-llm.md) already configured. The
 company is `hello-saas`; the product under construction is whatever its
 vision says. Nothing goes in but that vision: change it in the blueprint
-to name the product you want, apply, and watch.
+to name the product you want, apply, and watch — literally, from a second
+terminal, where every tick, run, tool call, decision and verdict lands as
+one line and the spend is printed each time it moves:
+
+```bash
+uv run poseidon follow
+```
 
 ```yaml
 company:
@@ -123,14 +162,17 @@ company:
 ```
 
 Put that `company:` block in place of the example's, in a copy of
-`examples/hello-saas.yaml` saved as `company.yaml`, keeping `humans:
-[owner]` — the name your token carries, and the only one policy will let
-act. Activity bounds come from the deployment's `TIMEOUT_PROFILE`, so a
-cluster brought up with `REAL_LLM=1` already runs the generous profile a
-paid brain needs.
+`examples/hello-saas.yaml` saved as `company.yaml`. The name is yours to
+choose; `humans` names who may act, and the first of them is whom kind-up
+applies as. Activity bounds come from the deployment's `TIMEOUT_PROFILE`,
+so a cluster brought up with `REAL_LLM=1` already runs the generous
+profile a paid brain needs. A third shipped example,
+`examples/pirate-game.yaml`, is a different company altogether — a
+terminal game — and applies the same way.
 
 ```bash
-uv run poseidon blueprint apply company.yaml --yes
+BLUEPRINT=company.yaml deploy/kind/kind-up.sh   # on a fresh cluster, or
+uv run poseidon blueprint apply company.yaml --yes   # on one that hosts this company; returns once converged
 uv run poseidon heartbeat state
 ```
 
@@ -155,7 +197,7 @@ thing the company does is decide what it is going to do.
 
 With the documents in place, the next tick's PM chooses `scope`: the loop
 starts a scope run, the PM reads the strategy and the masterplan and files
-the first slice — the game engine — as tickets on `TARGET_REPO`, each with
+the first slice — the game engine — as tickets on the company's repository, each with
 its `Crew:` trailer and the PM's summary as its first comment. The
 observation is untrusted text handed to the PM; it cannot write code, and
 the platform refuses scoping past `max_open_tickets`.

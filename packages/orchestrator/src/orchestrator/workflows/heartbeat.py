@@ -120,6 +120,7 @@ class HeartbeatWorkflow(RunWorkflow):
         # timeout profile for everything that follows.
         config = await workflow.execute_activity(
             "heartbeat_config",
+            input.company,
             start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
             retry_policy=STEP_RETRY,
         )

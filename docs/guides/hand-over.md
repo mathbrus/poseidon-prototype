@@ -9,8 +9,8 @@ and takes it back, since it is a diff.
 ## What the heartbeat already does
 
 No command starts the heartbeat. The orchestrator worker keeps one durable
-workflow, `heartbeat-hello-saas`, running for as long as the company is
-applied. The loop is event-triggered: every finished run nudges it awake,
+workflow, `heartbeat-<company>` (`heartbeat-hello-saas` for the example),
+running for as long as the company is applied. The loop is event-triggered: every finished run nudges it awake,
 and `reconcile_minutes` (30 in the example) bounds how long a change only
 the outside world saw — an issue you file by hand, a PR you merge by hand —
 waits for a look. Each tick:
@@ -47,8 +47,9 @@ kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
 Narrowing `heartbeat.may_start` keeps a step for an operator: a company
 that may not `implement` on its own waits for `poseidon run <number>`.
 Removing the section is not a state — it does not compile. To stop the
-company, delete it: the loop reads no applied blueprint at its next tick
-and stops. `tests/e2e_kind/test_overnight.py` runs the whole arrangement
+company, delete it — `poseidon company delete`, a console act under your
+name that cancels its runs first: the loop reads no applied blueprint at
+its next tick and stops. `tests/e2e_kind/test_overnight.py` runs the whole arrangement
 end to end with exactly one human act: the approval out, through the
 console.
 
