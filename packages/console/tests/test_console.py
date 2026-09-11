@@ -102,6 +102,7 @@ class World:
         self.companies.upsert(COMPANY, {"namespace": "poseidon-company"})
         self.workflows = FakeWorkflows()
         self.submitted: list[DeploymentPlan] = []
+        self.deleted: list[str] = []
         # What OPA answers, per tool; the default is the rule the compiled
         # bundle would name for the owner.
         self.decisions: dict[str, dict[str, Any]] = {}
@@ -110,6 +111,10 @@ class World:
     def submit(self, plan: DeploymentPlan) -> tuple[int, int]:
         self.submitted.append(plan)
         return (1, 0)
+
+    def delete(self, company: str) -> None:
+        self.deleted.append(company)
+        self.companies.delete(company)
 
     async def evaluate(self, opa_url: str, company: str, decision_input: dict) -> dict:
         self.asked.append(decision_input)
@@ -152,6 +157,7 @@ def client(world: World) -> httpx.AsyncClient:
         token_reviewer=FakeReviewer(),
         workflows=world.workflows,
         submit_crs=world.submit,
+        delete_company=world.delete,
         clock=lambda: "2026-01-01T00:00:00+00:00",
     )
     return httpx.AsyncClient(
@@ -345,6 +351,44 @@ async def test_a_later_apply_is_policys(client, world):
     )
     assert denied.status_code == 403
     assert len(world.submitted) == 1
+
+
+async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
+    client, world
+):
+    """The one stop there is, as a console act: decided under the person's
+    name, its running runs cancelled through the same path a cancel takes,
+    then the Company CR deleted and the teardown waited for."""
+    a_review_run(world)
+    response = await client.request(
+        "DELETE", "/company", json={"reason": "wrong vision"}, headers=as_owner()
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["company"] == COMPANY
+    assert response.json()["runs_cancelled"] == [RUN_ID]
+    assert world.deleted == [COMPANY]
+    assert world.workflows.calls == [("cancel", f"review-{RUN_ID}")]
+    # The delete is recorded before anything is cancelled, and the cancel
+    # under the same name says why.
+    assert world.events == [
+        ("company.delete", "allow", "company_delete"),
+        ("run.cancel", "allow", "run_cancel"),
+    ]
+    assert world.audit.events[0].agent_id == "owner"
+    # Nothing is left to act on.
+    assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
+    again = await client.request("DELETE", "/company", headers=as_owner())
+    assert again.status_code == 404
+
+
+async def test_a_stranger_cannot_delete_the_company(client, world):
+    a_review_run(world)
+    world.decisions["company.delete"] = {"allow": False, "rule": "human_not_recognized"}
+    response = await client.request("DELETE", "/company", headers=as_owner())
+    assert response.status_code == 403
+    assert response.json()["rule"] == "human_not_recognized"
+    assert world.deleted == [] and world.workflows.calls == []
+    assert world.events == [("company.delete", "deny", "human_not_recognized")]
 
 
 async def test_another_companys_blueprint_is_refused_while_one_is_applied(client, world):

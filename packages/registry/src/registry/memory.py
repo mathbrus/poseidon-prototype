@@ -459,6 +459,15 @@ class InMemoryRuns:
     def get(self, run_id: str) -> RunRecord | None:
         return self.rows.get(run_id)
 
+    def running(self, company: str) -> list[RunRecord]:
+        return [
+            r
+            for r in self.rows.values()
+            if r.company == company
+            and r.status == "running"
+            and r.workflow != "heartbeat"
+        ]
+
     def active_count(self, company: str) -> int:
         return sum(
             1

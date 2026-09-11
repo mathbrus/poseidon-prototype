@@ -47,8 +47,9 @@ kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
 Narrowing `heartbeat.may_start` keeps a step for an operator: a company
 that may not `implement` on its own waits for `poseidon run <number>`.
 Removing the section is not a state — it does not compile. To stop the
-company, delete it: the loop reads no applied blueprint at its next tick
-and stops. `tests/e2e_kind/test_overnight.py` runs the whole arrangement
+company, delete it — `poseidon company delete`, a console act under your
+name that cancels its runs first: the loop reads no applied blueprint at
+its next tick and stops. `tests/e2e_kind/test_overnight.py` runs the whole arrangement
 end to end with exactly one human act: the approval out, through the
 console.
 

@@ -41,6 +41,7 @@ RUN_START = "run.start"
 RUN_CANCEL = "run.cancel"
 HEARTBEAT_WAKE = "heartbeat.wake"
 BLUEPRINT_APPLY = "blueprint.apply"
+COMPANY_DELETE = "company.delete"
 
 
 def verdict_rule(gate: str, approved: bool) -> str:

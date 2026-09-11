@@ -50,6 +50,12 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
         "compile and submit the Company and AgentInstance CRs",
         "blueprint.apply",
     ),
+    (
+        "DELETE",
+        "/company",
+        "stop the company: cancel its runs, delete its CR, wait for the teardown",
+        "company.delete",
+    ),
     ("POST", "/runs", "start one implement or review run by hand", "run.start"),
     ("GET", "/runs", "the company's runs since a fence (`?since=`)", ""),
     ("GET", "/runs/{run_id}", "the run record and its workflow's execution", ""),
@@ -98,6 +104,10 @@ class CancelRequest(BaseModel):
     reason: str = ""
 
 
+class DeleteRequest(BaseModel):
+    reason: str = ""
+
+
 def create_app(
     settings: ConsoleSettings | None = None,
     audit: AuditStore | None = None,
@@ -108,6 +118,7 @@ def create_app(
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
     submit_crs: Callable[[DeploymentPlan], tuple[int, int]] | None = None,
+    delete_company: Callable[[str], None] | None = None,
     clock: Callable[[], str] | None = None,
 ) -> FastAPI:
     settings = settings or ConsoleSettings()
@@ -143,6 +154,7 @@ def create_app(
         companies,
         workflows or TemporalWorkflows(settings.temporal_address),
         submit_crs or crs.submit,
+        delete_company or crs.delete_company,
         clock,
     )
 
@@ -193,6 +205,12 @@ def create_app(
     @app.post("/blueprint/apply")
     async def apply(request: Request, body: BlueprintRequest) -> dict[str, Any]:
         return await service.apply(identity_of(request), body.blueprint)
+
+    @app.delete("/company")
+    async def delete_company_route(
+        request: Request, body: DeleteRequest | None = None
+    ) -> dict[str, Any]:
+        return await service.delete(identity_of(request), body.reason if body else "")
 
     @app.post("/runs")
     async def start_run(request: Request, body: StartRunRequest) -> dict[str, Any]:

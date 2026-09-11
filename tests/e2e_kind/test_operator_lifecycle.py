@@ -35,6 +35,7 @@ from .blueprints import (
 from .cluster import (
     COMPANY,
     COMPANY_NS,
+    console,
     gateway_url,
     kubectl,
     port_forward,
@@ -190,8 +191,12 @@ def test_company_delete_revokes(stack: None, env: dict):
     )
     assert before.status_code != 401, "the pre-teardown credential must work"
 
-    kubectl("delete", "company", COMPANY, "--timeout=120s", timeout=150)
+    # The stop is a console act: decided, audited under the owner's name,
+    # and the console returns only once the operator's teardown is done.
+    deleted = console(env).delete_company("lifecycle: revocation proof")
+    assert deleted["company"] == COMPANY and deleted["runs_cancelled"] == []
     kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s", timeout=200)
+    assert kubectl("get", "companies", "-o", "name") == ""
 
     # Revocation at the delivery layer: the served bundle is a tombstone —
     # the company's roots and no rules under them. The operator held the

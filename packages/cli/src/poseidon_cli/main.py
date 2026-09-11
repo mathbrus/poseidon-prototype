@@ -30,8 +30,10 @@ blueprint_app = typer.Typer(
     no_args_is_help=True, help="Preview and apply company blueprints."
 )
 heartbeat_app = typer.Typer(no_args_is_help=True, help="The company's standing loop.")
+company_app = typer.Typer(no_args_is_help=True, help="The company this cluster hosts.")
 app.add_typer(blueprint_app, name="blueprint")
 app.add_typer(heartbeat_app, name="heartbeat")
+app.add_typer(company_app, name="company")
 
 DEFAULT_PLATFORM_NAMESPACE = "poseidon-platform"
 
@@ -152,6 +154,32 @@ def apply(
         f"applied {result['company']}: {result['created']} created,"
         f" {result['updated']} updated ({result['rule']})"
     )
+
+
+@company_app.command("delete")
+def company_delete(
+    reason: str = typer.Option("", help="Why, recorded with the act"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation"),
+) -> None:
+    """Stop the company — the one stop there is. The console decides the
+    act under your name, cancels every running run, deletes the Company
+    and waits for the teardown. The repository and the ledgers stay:
+    applying the same blueprint again resumes the company."""
+    client = _client()
+    company = _call(client.whoami).get("company")
+    if not company:
+        typer.echo("no company is applied", err=True)
+        raise typer.Exit(1)
+    running = [r["run_id"] for r in _call(client.runs) if r.get("status") == "running"]
+    typer.echo(
+        f"{company}: {len(running)} running run(s)"
+        + (f" ({', '.join(running)})" if running else "")
+        + " — they will be cancelled",
+        err=True,
+    )
+    if not yes:
+        typer.confirm(f"delete {company}?", abort=True)
+    _show(_call(client.delete_company, reason))
 
 
 @app.command()

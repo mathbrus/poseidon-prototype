@@ -30,6 +30,7 @@ from common.ids import new_run_id
 from common.opa import NO_POLICY_RULE, evaluate_decision
 from common.policy import (
     BLUEPRINT_APPLY,
+    COMPANY_DELETE,
     GATE_RESOLVE,
     HEARTBEAT_TICK,
     HEARTBEAT_WAKE,
@@ -98,6 +99,7 @@ class ConsoleService:
         companies: Companies,
         workflows: Workflows,
         submit_crs: Callable[[DeploymentPlan], tuple[int, int]],
+        delete_company: Callable[[str], None],
         clock: Callable[[], str],
     ) -> None:
         self._settings = settings
@@ -108,6 +110,7 @@ class ConsoleService:
         self._companies = companies
         self._workflows = workflows
         self._submit = submit_crs
+        self._delete = delete_company
         self._clock = clock
         self._log = get_logger("console")
 
@@ -277,6 +280,34 @@ class ConsoleService:
             "updated": updated,
             "diff": diff_plan(plan, snapshot).as_text(),
             "rule": decision["rule"],
+        }
+
+    async def delete(self, identity: Identity, reason: str) -> dict[str, Any]:
+        """Stop the company: the one stop there is. Decided and audited
+        under the person's name first; then every running run is cancelled
+        through the same path `cancel_run` takes, so none dies with its
+        namespace; then the Company CR goes and the operator's teardown —
+        the tombstone served, the rows swept, the namespace deleted — is
+        waited for. The heartbeat stops itself at its next config read.
+        What the company wrote into the world (its repository, its ledger
+        rows) stays: applying the same name again resumes, not restarts."""
+        company = await self._company()
+        started = time.monotonic()
+        await self._act(identity, COMPANY_DELETE, {"reason": reason}, company=company)
+        cancelled = []
+        for record in await asyncio.to_thread(self._runs.running, company):
+            try:
+                await self.cancel_run(
+                    identity, record.run_id, f"company deleted: {reason}"
+                )
+            except Invalid:
+                continue  # a run whose workflow is already gone needs no cancel
+            cancelled.append(record.run_id)
+        await asyncio.to_thread(self._delete, company)
+        return {
+            "company": company,
+            "runs_cancelled": cancelled,
+            "elapsed_s": int(time.monotonic() - started),
         }
 
     # -- runs -----------------------------------------------------------------

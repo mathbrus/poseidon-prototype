@@ -46,6 +46,17 @@ class Console:
             ),
             ("GET", "/runs/run-9"): (422, {"detail": "no run 'run-9'"}),
             ("GET", "/now"): (200, {"now": "2026-01-01T00:00:00+00:00"}),
+            ("GET", "/runs"): (
+                200,
+                [
+                    {"run_id": "run-1", "status": "running"},
+                    {"run_id": "run-0", "status": "done"},
+                ],
+            ),
+            ("DELETE", "/company"): (
+                200,
+                {"company": "hello-saas", "runs_cancelled": ["run-1"], "elapsed_s": 3},
+            ),
             ("POST", "/blueprint/preview"): (
                 200,
                 {"diff": "hello-saas: no changes", "plan": {}},
@@ -164,6 +175,22 @@ def test_a_denied_signal_exits_with_the_rule(runner):
     result = runner.invoke(cli.app, ["signal", "run-2", "merge"])
     assert result.exit_code == 1
     assert "human_not_recognized" in result.output
+
+
+def test_company_delete_names_the_running_runs_then_asks_the_console(runner, console):
+    result = runner.invoke(cli.app, ["company", "delete", "--yes", "--reason", "done"])
+    assert result.exit_code == 0, result.output
+    assert "hello-saas: 1 running run(s) (run-1)" in result.output
+    assert json.loads(result.output[result.output.index("{") :])["runs_cancelled"] == [
+        "run-1"
+    ]
+    assert console.requests[-1][:3] == ("DELETE", "/company", {"reason": "done"})
+
+
+def test_company_delete_asks_before_acting(runner, console):
+    result = runner.invoke(cli.app, ["company", "delete"], input="n\n")
+    assert result.exit_code != 0
+    assert ("DELETE", "/company") not in [(m, p) for m, p, _, _ in console.requests]
 
 
 def test_apply_previews_first_and_applies_with_yes(runner, console, tmp_path):

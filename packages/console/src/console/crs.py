@@ -118,6 +118,40 @@ def submit(
     return created, updated
 
 
+TEARDOWN_TIMEOUT_S = 600.0
+
+
+def delete_company(
+    name: str,
+    api: k8s.CustomObjectsApi | None = None,
+    timeout_s: float = TEARDOWN_TIMEOUT_S,
+) -> None:
+    """Delete the Company CR and wait for the operator's teardown to finish
+    — the CR is gone once the tombstone is served, the rows swept and the
+    namespace deleted. A company that is not there is already deleted."""
+    api = api or _api()
+    try:
+        api.delete_cluster_custom_object(GROUP, VERSION, "companies", name)
+    except k8s.exceptions.ApiException as exc:
+        if exc.status != 404:
+            raise
+        return
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            api.get_cluster_custom_object(GROUP, VERSION, "companies", name)
+        except k8s.exceptions.ApiException as exc:
+            if exc.status == 404:
+                return
+            raise
+        if time.monotonic() >= deadline:
+            raise TimeoutError(
+                f"company {name!r} is still being torn down after {timeout_s:.0f}s"
+                " — see its status, and the poseidon-operator's logs"
+            )
+        time.sleep(2)
+
+
 def _wait_for_namespace(namespace: str, timeout_s: float = NAMESPACE_TIMEOUT_S) -> None:
     """Wait for the operator to create the company namespace. Waiting on the
     namespace rather than Company status keeps this decoupled from kopf's

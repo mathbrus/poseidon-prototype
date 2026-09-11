@@ -61,6 +61,16 @@ uv run poseidon follow                                   # everything, as it hap
 uv run poseidon follow --run <run_id>                    # one run, with its own spend
 ```
 
+Stopping the company is deleting it, and that too is a console act:
+`company delete` is decided against `company.humans`, audited under your
+name, cancels every running run first, then removes the Company and
+waits for the teardown. The repository and the ledgers stay, so applying
+the same blueprint again resumes the company.
+
+```bash
+uv run poseidon company delete --reason "wrong vision"   # asks first; --yes skips the question
+```
+
 Every command's `--help`, rendered from the CLI itself at build time:
 
 <!-- gen: cli -->

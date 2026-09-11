@@ -191,6 +191,16 @@ class Runs:
         rows = self._db.query("SELECT * FROM registry.runs WHERE run_id = %s", (run_id,))
         return RunRecord.from_row(rows[0]) if rows else None
 
+    def running(self, company: str) -> list[RunRecord]:
+        """The company's runs still running — what a delete cancels before
+        the namespace they execute in goes."""
+        rows = self._db.query(
+            "SELECT * FROM registry.runs WHERE company = %s AND status = 'running'"
+            " AND workflow <> 'heartbeat' ORDER BY created_at, run_id",
+            (company,),
+        )
+        return [RunRecord.from_row(row) for row in rows]
+
     def active_count(self, company: str) -> int:
         """Runs currently occupying the company — what the heartbeat
         compares against `max_concurrent_runs`: every run the heartbeat
