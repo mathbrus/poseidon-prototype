@@ -84,4 +84,7 @@ the route table equals the app.
 - The verdict is recorded before it is delivered.
 - The console writes `audit_events` and nothing else in the registry; the
   operator writes `companies` from the CR the console submits.
-- The console hosts one company and refuses a blueprint naming another.
+- A cluster hosts one company. The console learns which from the registry
+  (the operator records the applied Company CR) and refuses a blueprint
+  naming another until that company is deleted; before the first apply,
+  any name applies.

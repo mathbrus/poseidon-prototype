@@ -56,7 +56,14 @@ from compiler import (
 from compiler.errors import CompileError
 from console.config import ConsoleSettings
 from console.temporal import AlreadyStarted, WorkflowNotFound, Workflows
-from registry import AgentInstances, AuditStore, BudgetLedger, RunRecord, Runs
+from registry import (
+    AgentInstances,
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    RunRecord,
+    Runs,
+)
 from schema import validate_blueprint
 from schema.validate import ValidationError
 
@@ -72,7 +79,12 @@ class PolicyDenied(Exception):
 class Invalid(Exception):
     """The request names something that cannot be acted on: an unknown
     run, a gate or workflow that does not exist, a blueprint that does
-    not validate or is another company's."""
+    not validate or names a company other than the applied one."""
+
+
+class NoCompany(Exception):
+    """An act or a read that needs a company, on a cluster where none is
+    applied yet. The blueprint apply is the one act that never raises it."""
 
 
 class ConsoleService:
@@ -83,6 +95,7 @@ class ConsoleService:
         runs: Runs,
         ledger: BudgetLedger,
         instances: AgentInstances,
+        companies: Companies,
         workflows: Workflows,
         submit_crs: Callable[[DeploymentPlan], tuple[int, int]],
         clock: Callable[[], str],
@@ -92,18 +105,37 @@ class ConsoleService:
         self._runs = runs
         self._ledger = ledger
         self._instances = instances
+        self._companies = companies
         self._workflows = workflows
         self._submit = submit_crs
         self._clock = clock
         self._log = get_logger("console")
 
+    # -- the applied company --------------------------------------------------
+
+    async def applied(self) -> str | None:
+        """The company this cluster hosts — the one the operator recorded
+        from the applied Company CR — or None before the first apply."""
+        return await asyncio.to_thread(self._companies.applied)
+
+    async def _company(self) -> str:
+        company = await self.applied()
+        if company is None:
+            raise NoCompany("no company is applied")
+        return company
+
     # -- verify → decide → do → audit ---------------------------------------
 
     async def _decide(
-        self, identity: Identity, tool: str, args: dict[str, Any], run_id: str = ""
+        self,
+        identity: Identity,
+        tool: str,
+        args: dict[str, Any],
+        company: str,
+        run_id: str = "",
     ) -> dict[str, Any]:
         decision_input = {
-            "company": self._settings.company,
+            "company": company,
             "agent_id": identity.agent_id,
             "lifecycle": identity.lifecycle,
             "parent_agent_id": "",
@@ -114,9 +146,7 @@ class ConsoleService:
             "args": args,
             "run_binding_verified": False,
         }
-        return await evaluate_decision(
-            self._settings.opa_url, self._settings.company, decision_input
-        )
+        return await evaluate_decision(self._settings.opa_url, company, decision_input)
 
     async def _record(
         self,
@@ -125,6 +155,7 @@ class ConsoleService:
         args: dict[str, Any],
         decision: dict[str, Any],
         *,
+        company: str,
         run_id: str = "",
         workflow: str = "",
         started: float,
@@ -140,7 +171,7 @@ class ConsoleService:
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=None,
             source="console",
-            company=self._settings.company,
+            company=company,
             lifecycle=identity.lifecycle,
             workflow=workflow,
         )
@@ -153,14 +184,17 @@ class ConsoleService:
         tool: str,
         args: dict[str, Any],
         *,
+        company: str,
         run_id: str = "",
         workflow: str = "",
         bootstrap_rule: str | None = None,
     ) -> dict[str, Any]:
         """Decide the act and audit the answer; raise on deny. Returns the
-        decision so a caller can name the allowing rule."""
+        decision so a caller can name the allowing rule. The company is
+        the caller's to name: every act but the first apply reads it from
+        the registry, and the apply reads it from the plan."""
         started = time.monotonic()
-        decision = await self._decide(identity, tool, args, run_id)
+        decision = await self._decide(identity, tool, args, company, run_id)
         if (
             bootstrap_rule is not None
             and not decision.get("allow")
@@ -172,6 +206,7 @@ class ConsoleService:
             tool,
             args,
             decision,
+            company=company,
             run_id=run_id,
             workflow=workflow,
             started=started,
@@ -194,8 +229,14 @@ class ConsoleService:
         except ValidationError as exc:
             raise Invalid(str(exc)) from exc
         name = document["company"]["name"]
-        if name != self._settings.company:
-            raise Invalid(f"this console hosts {self._settings.company!r}, not {name!r}")
+        applied = self._companies.applied()
+        if applied is not None and name != applied:
+            # A platform hosts one company. The name is not a field to
+            # re-apply into: the namespace, the bundle slot and the
+            # standing agents are the applied company's until it is deleted.
+            raise Invalid(
+                f"this cluster hosts {applied!r}; delete it before applying {name!r}"
+            )
         snapshot = RegistrySnapshot(
             instances=tuple(
                 InstanceSnapshot(
@@ -226,6 +267,7 @@ class ConsoleService:
             identity,
             BLUEPRINT_APPLY,
             {"company": plan.company.name},
+            company=plan.company.name,
             bootstrap_rule=BOOTSTRAP_RULE,
         )
         created, updated = await asyncio.to_thread(self._submit, plan)
@@ -250,12 +292,14 @@ class ConsoleService:
             raise Invalid(
                 f"a human may start {', '.join(HUMAN_STARTABLE)}; not {workflow!r}"
             )
+        company = await self._company()
         run_id = new_run_id()
         wf_id = workflow_id(workflow, run_id)
         await self._act(
             identity,
             RUN_START,
             {"workflow": workflow, "number": number},
+            company=company,
             run_id=run_id,
             workflow=wf_id,
         )
@@ -304,6 +348,7 @@ class ConsoleService:
             identity,
             GATE_RESOLVE,
             {"gate": gate, "run_id": run_id, "approved": approved},
+            company=record.company,
             run_id=run_id,
             workflow=wf_id,
         )
@@ -326,11 +371,12 @@ class ConsoleService:
     async def cancel_run(
         self, identity: Identity, run_id: str, reason: str
     ) -> dict[str, Any]:
-        _, wf_id = await asyncio.to_thread(self._run_of, run_id)
+        record, wf_id = await asyncio.to_thread(self._run_of, run_id)
         await self._act(
             identity,
             RUN_CANCEL,
             {"run_id": run_id, "reason": reason},
+            company=record.company,
             run_id=run_id,
             workflow=wf_id,
         )
@@ -349,7 +395,8 @@ class ConsoleService:
         return {**record.as_dict(), "company": record.company, "execution": execution}
 
     async def runs_since(self, since: str | None) -> list[dict[str, Any]]:
-        records = await asyncio.to_thread(self._runs.since, self._settings.company, since)
+        company = await self._company()
+        records = await asyncio.to_thread(self._runs.since, company, since)
         return [
             {**r.as_dict(), "company": r.company, "workflow_id": r.workflow_id}
             for r in records
@@ -364,9 +411,8 @@ class ConsoleService:
         return {"run_id": run_id, "usd": usd, "entries": _jsonable(entries)}
 
     async def spend_since(self, since: str | None) -> dict[str, Any]:
-        return await asyncio.to_thread(
-            self._ledger.spent_since, self._settings.company, since
-        )
+        company = await self._company()
+        return await asyncio.to_thread(self._ledger.spent_since, company, since)
 
     # -- the heartbeat --------------------------------------------------------
 
@@ -374,7 +420,7 @@ class ConsoleService:
         """The company's standing loop: its execution, and its ticks since
         a fence — the rows the loop journals under the shared heartbeat
         run id, each naming the rule its tick ended on."""
-        company = self._settings.company
+        company = await self._company()
         wf_id = workflow_id("heartbeat", company)
         try:
             execution = await self._workflows.inspect(wf_id)
@@ -390,12 +436,13 @@ class ConsoleService:
         """A nudge that something changed the world the loop watches —
         never an instruction. The tick that results observes, decides and
         is authorized like any other."""
-        company = self._settings.company
+        company = await self._company()
         wf_id = workflow_id("heartbeat", company)
         await self._act(
             identity,
             HEARTBEAT_WAKE,
             {},
+            company=company,
             run_id=heartbeat_run_id(company),
             workflow=wf_id,
         )

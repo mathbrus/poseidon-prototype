@@ -22,15 +22,22 @@ from common.topology import CONSOLE_TOKEN_AUDIENCE
 from compiler import DeploymentPlan
 from console import crs
 from console.config import ConsoleSettings
-from console.service import ConsoleService, Invalid, PolicyDenied
+from console.service import ConsoleService, Invalid, NoCompany, PolicyDenied
 from console.temporal import TemporalWorkflows, Unavailable, Workflows
-from registry import AgentInstances, AuditStore, BudgetLedger, Runs, open_registry
+from registry import (
+    AgentInstances,
+    AuditStore,
+    BudgetLedger,
+    Companies,
+    Runs,
+    open_registry,
+)
 
 # The routes, for the documentation: method, path, what it does, the
 # decision an act must win (reads decide nothing).
 ROUTES: tuple[tuple[str, str, str, str], ...] = (
     ("GET", "/healthz", "liveness; the one unauthenticated route", ""),
-    ("GET", "/whoami", "the verified human and the company this console hosts", ""),
+    ("GET", "/whoami", "the verified human and the applied company, if any", ""),
     (
         "POST",
         "/blueprint/preview",
@@ -91,13 +98,14 @@ def create_app(
     runs: Runs | None = None,
     ledger: BudgetLedger | None = None,
     instances: AgentInstances | None = None,
+    companies: Companies | None = None,
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
     submit_crs: Callable[[DeploymentPlan], tuple[int, int]] | None = None,
     clock: Callable[[], str] | None = None,
 ) -> FastAPI:
     settings = settings or ConsoleSettings()
-    accessors = (audit, runs, ledger, instances)
+    accessors = (audit, runs, ledger, instances, companies)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -105,6 +113,7 @@ def create_app(
         runs = Runs(registry)
         ledger = BudgetLedger(registry)
         instances = AgentInstances(registry)
+        companies = Companies(registry)
         clock = clock or registry.now
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
@@ -125,6 +134,7 @@ def create_app(
         runs,
         ledger,
         instances,
+        companies,
         workflows or TemporalWorkflows(settings.temporal_address),
         submit_crs or crs.submit,
         clock,
@@ -146,6 +156,10 @@ def create_app(
     async def invalid(_: Request, exc: Invalid) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=422)
 
+    @app.exception_handler(NoCompany)
+    async def no_company(_: Request, exc: NoCompany) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=404)
+
     @app.exception_handler(Unavailable)
     async def unavailable(_: Request, exc: Unavailable) -> JSONResponse:
         return JSONResponse({"detail": f"temporal unreachable: {exc}"}, status_code=503)
@@ -163,7 +177,7 @@ def create_app(
         return {
             "human": identity.agent_id,
             "lifecycle": identity.lifecycle,
-            "company": settings.company,
+            "company": await service.applied(),
         }
 
     @app.post("/blueprint/preview")

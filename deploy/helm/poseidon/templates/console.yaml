@@ -80,8 +80,6 @@ spec:
           ports:
             - containerPort: 8090
           env:
-            - name: COMPANY
-              value: {{ .Values.company | quote }}
             - name: OPA_URL
               value: http://opa:8181
             - name: TEMPORAL_ADDRESS

@@ -77,8 +77,9 @@ verdict and releases nothing ([The Temporal contract](temporal.md)).
 JSON in, JSON out, a bearer token on every request but `/healthz`. Acts
 are POSTs and answer `403` with the denying rule when policy says no;
 reads are GETs. `422` names what could not be acted on (an unknown run, a
-blueprint that does not validate or names another company); `503` says
-Temporal was unreachable. Rendered from the console's own route table at
+blueprint that does not validate or names a company other than the
+applied one); `404` says no company is applied yet, for every read and
+act that needs one; `503` says Temporal was unreachable. Rendered from the console's own route table at
 build time:
 
 <!-- gen: console -->

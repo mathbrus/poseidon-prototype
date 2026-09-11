@@ -220,6 +220,11 @@ class InMemoryCompanies:
     def get(self, name: str) -> dict[str, Any] | None:
         return self.rows.get(name)
 
+    def applied(self) -> str | None:
+        if len(self.rows) > 1:
+            raise RuntimeError(f"more than one company is applied: {sorted(self.rows)}")
+        return next(iter(self.rows), None)
+
     def by_namespace(self, namespace: str) -> dict[str, Any] | None:
         for spec in self.rows.values():
             if spec.get("namespace") == namespace:

@@ -36,6 +36,16 @@ class Companies:
         )
         return rows[0]["blueprint"] if rows else None
 
+    def applied(self) -> str | None:
+        """The name of the one applied company, or None before the first
+        apply. A platform hosts one company: a second row is a fault, not
+        a choice, so it is raised rather than picked from."""
+        rows = self._db.query("SELECT name FROM registry.companies ORDER BY name")
+        if len(rows) > 1:
+            names = [row["name"] for row in rows]
+            raise RuntimeError(f"more than one company is applied: {names}")
+        return rows[0]["name"] if rows else None
+
     def by_namespace(self, namespace: str) -> dict[str, Any] | None:
         """Resolve a company namespace back to its applied spec — the egress
         proxy's path from a run's sandbox namespace to the blueprint's

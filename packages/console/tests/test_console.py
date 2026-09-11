@@ -32,6 +32,7 @@ from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
     InMemoryBudgetLedger,
+    InMemoryCompanies,
     InMemoryRuns,
 )
 
@@ -95,6 +96,10 @@ class World:
         self.runs = InMemoryRuns()
         self.ledger = InMemoryBudgetLedger()
         self.instances = InMemoryAgentInstances()
+        # The operator's record of the applied company; the console reads
+        # which company it hosts from here.
+        self.companies = InMemoryCompanies()
+        self.companies.upsert(COMPANY, {"namespace": "poseidon-company"})
         self.workflows = FakeWorkflows()
         self.submitted: list[DeploymentPlan] = []
         # What OPA answers, per tool; the default is the rule the compiled
@@ -133,7 +138,6 @@ def world(monkeypatch) -> World:
 def client(world: World) -> httpx.AsyncClient:
     settings = ConsoleSettings(
         platform_namespace=PLATFORM_NS,
-        company=COMPANY,
         opa_url="http://opa.test:8181",
         temporal_address="temporal.test:7233",
         console_humans="owner",
@@ -144,6 +148,7 @@ def client(world: World) -> httpx.AsyncClient:
         runs=world.runs,
         ledger=world.ledger,
         instances=world.instances,
+        companies=world.companies,
         token_reviewer=FakeReviewer(),
         workflows=world.workflows,
         submit_crs=world.submit,
@@ -342,7 +347,7 @@ async def test_a_later_apply_is_policys(client, world):
     assert len(world.submitted) == 1
 
 
-async def test_another_companys_blueprint_is_refused(client, world):
+async def test_another_companys_blueprint_is_refused_while_one_is_applied(client, world):
     document = yaml.safe_load(HELLO_SAAS)
     document["company"]["name"] = "other-co"
     response = await client.post(
@@ -351,8 +356,35 @@ async def test_another_companys_blueprint_is_refused(client, world):
         headers=as_owner(),
     )
     assert response.status_code == 422
-    assert "other-co" in response.json()["detail"]
+    assert (
+        "other-co" in response.json()["detail"] and COMPANY in response.json()["detail"]
+    )
     assert world.submitted == [] and world.audit.events == []
+
+
+async def test_before_the_first_apply_any_name_applies_and_nothing_else_answers(
+    client, world
+):
+    """A fresh cluster hosts no company: the reads and acts that need one
+    say so, `whoami` names none, and the first apply may bring any name."""
+    world.companies.delete(COMPANY)
+    who = await client.get("/whoami", headers=as_owner())
+    assert who.json()["company"] is None
+    for method, path in (("GET", "/heartbeat"), ("GET", "/spend"), ("GET", "/runs")):
+        response = await client.request(method, path, headers=as_owner())
+        assert response.status_code == 404, (path, response.text)
+    wake = await client.post("/heartbeat/wake", headers=as_owner())
+    assert wake.status_code == 404 and world.audit.events == []
+    document = yaml.safe_load(HELLO_SAAS)
+    document["company"]["name"] = "other-co"
+    applied = await client.post(
+        "/blueprint/apply",
+        json={"blueprint": yaml.safe_dump(document)},
+        headers=as_owner(),
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["company"] == "other-co"
+    assert [e.company for e in world.audit.events] == ["other-co"]
 
 
 async def test_preview_compiles_against_the_live_registry_and_writes_nothing(
@@ -439,7 +471,6 @@ def test_the_route_table_matches_the_app():
 
     settings = ConsoleSettings(
         platform_namespace=PLATFORM_NS,
-        company=COMPANY,
         opa_url="http://opa.test:8181",
         temporal_address="temporal.test:7233",
     )
@@ -449,6 +480,7 @@ def test_the_route_table_matches_the_app():
         runs=InMemoryRuns(),
         ledger=InMemoryBudgetLedger(),
         instances=InMemoryAgentInstances(),
+        companies=InMemoryCompanies(),
         workflows=FakeWorkflows(),
         submit_crs=lambda plan: (0, 0),
         clock=lambda: "",
@@ -466,7 +498,6 @@ def test_the_route_table_matches_the_app():
 def test_settings_split_the_declared_humans():
     settings = ConsoleSettings(
         platform_namespace=PLATFORM_NS,
-        company=COMPANY,
         opa_url="http://opa.test:8181",
         temporal_address="temporal.test:7233",
         console_humans="owner, eval,",
