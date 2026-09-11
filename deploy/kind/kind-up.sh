@@ -234,14 +234,17 @@ echo "==> apply the blueprint"
 # the namespace, its policies and the standing agents. The apply is a
 # human's act: the first human the blueprint names, whom the chart just
 # declared, and the token is the cluster's own — minted here with the
-# kubeconfig that just installed everything, as any operator would.
+# kubeconfig that just installed everything, as any operator would. It is
+# saved where every later `poseidon` command reads it (a week on kind,
+# for a token good at the console and nowhere else), so this script's
+# own apply and smoke run on exactly the token the person is left with.
 export POSEIDON_CONSOLE_URL="${POSEIDON_CONSOLE_URL:-http://127.0.0.1:8090}"
 for _ in $(seq 60); do
   curl -sf -o /dev/null "$POSEIDON_CONSOLE_URL/healthz" && break
   sleep 1
 done
-POSEIDON_TOKEN=$(uv run poseidon login "$FIRST_HUMAN" --namespace "$PLATFORM_NS")
-export POSEIDON_TOKEN
+unset POSEIDON_TOKEN
+uv run poseidon login "$FIRST_HUMAN" --namespace "$PLATFORM_NS" --duration 604800 --save
 uv run poseidon blueprint apply "$BLUEPRINT" --yes
 # Every standing agent the applied blueprint hires (execution itself is
 # ephemeral crews, so these are the only long-lived company pods).
@@ -294,3 +297,4 @@ fi
 # by the orchestrator, and the operator gives each standing agent its own Service.
 
 echo "==> up: $COMPANY in $COMPANY_NS; gateway ${MCP_GATEWAY_URL:-http://127.0.0.1:8080}, console $POSEIDON_CONSOLE_URL"
+echo "    \`uv run poseidon whoami\` works as $FIRST_HUMAN from here: the token is saved for a week"

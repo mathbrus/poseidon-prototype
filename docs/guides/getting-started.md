@@ -55,11 +55,19 @@ pass vacuously), builds and side-loads the nine images, installs the chart
 and Temporal, applies the CRDs, and applies the blueprint through the
 console as the first human it names. A cluster hosts one company, in the
 fixed namespace `poseidon-company`: to bring up another, delete the
-current one first. Then take a token of your own:
+current one first. The token it applied with is saved for you, a week
+long, in your config directory (`~/.config/poseidon/token`), and every
+`poseidon` command reads it there when `POSEIDON_TOKEN` is unset:
 
 ```bash
-export POSEIDON_TOKEN=$(uv run poseidon login owner)
 uv run poseidon whoami
+```
+
+To act as another human the chart declares, mint a token of your own and
+export it; the environment wins over the file:
+
+```bash
+export POSEIDON_TOKEN=$(uv run poseidon login auditor)
 ```
 
 Every `poseidon` command from here on is a call to the console — the one

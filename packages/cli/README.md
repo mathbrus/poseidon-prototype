@@ -9,11 +9,14 @@ CLI prints is what the console answered.
 
 The one thing the CLI does with cluster credentials is `poseidon login`:
 minting the token, through the TokenRequest API with the kubeconfig the
-caller already holds, for a human the chart declared.
+caller already holds, for a human the chart declared — printed, or with
+`--save` kept at `~/.config/poseidon/token` (owner-readable only), where
+every command reads it when `POSEIDON_TOKEN` is unset. The environment
+wins over the file.
 
 ```bash
 export POSEIDON_CONSOLE_URL=http://127.0.0.1:8090       # the kind default
-export POSEIDON_TOKEN=$(uv run poseidon login owner)     # a token for the console's audience
+uv run poseidon login owner --save                       # a token for the console's audience, kept
 
 uv run poseidon whoami
 uv run poseidon blueprint preview examples/hello-saas.yaml

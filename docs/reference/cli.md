@@ -1,17 +1,22 @@
 # The `poseidon` CLI
 
 The CLI is a **thin client of [the console](console.md)**. It holds a
-human's token (`POSEIDON_TOKEN`) and the console's address
-(`POSEIDON_CONSOLE_URL`, on kind `http://127.0.0.1:8090`), and performs no
-act of its own: every act is the console's, decided against the company's
-compiled bundle and audited under the person's name there, and what the
-CLI prints is what the console answered. It reaches no workflow engine
-and no database. The one thing it does with cluster credentials is
-`login`: minting the token, through the TokenRequest API with the
-kubeconfig you already hold, for a human the chart declares.
+human's token and the console's address (`POSEIDON_CONSOLE_URL`, on kind
+`http://127.0.0.1:8090`), and performs no act of its own: every act is the
+console's, decided against the company's compiled bundle and audited
+under the person's name there, and what the CLI prints is what the
+console answered. It reaches no workflow engine and no database. The one
+thing it does with cluster credentials is `login`: minting the token,
+through the TokenRequest API with the kubeconfig you already hold, for a
+human the chart declares. The token is read from `POSEIDON_TOKEN`, or,
+when that is unset, from the file `login --save` keeps in your config
+directory (`~/.config/poseidon/token`, owner-readable only) — which is
+what `kind-up.sh` leaves you with, valid for a week. A week-long token on
+disk is a kind convenience for a token good at the console and nowhere
+else; on a cluster with an identity provider `login` does not apply.
 
 ```bash
-export POSEIDON_TOKEN=$(uv run poseidon login owner)
+uv run poseidon login owner --save                       # or: export POSEIDON_TOKEN=$(uv run poseidon login owner)
 uv run poseidon whoami
 ```
 

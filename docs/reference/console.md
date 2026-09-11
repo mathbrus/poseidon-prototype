@@ -20,7 +20,7 @@ chart value `console.humans` — and a token for it is minted through the
 TokenRequest API with the person's own cluster credentials:
 
 ```bash
-export POSEIDON_TOKEN=$(uv run poseidon login owner)
+uv run poseidon login owner --save      # kept for later commands; or export POSEIDON_TOKEN=$(…)
 ```
 
 On a cluster with an identity provider, the API server's own user is the

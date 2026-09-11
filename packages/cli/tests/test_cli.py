@@ -13,6 +13,14 @@ from poseidon_cli import main as cli
 CONSOLE = "http://console.test"
 
 
+@pytest.fixture(autouse=True)
+def config_home(tmp_path, monkeypatch):
+    """A config directory of the test's own, so no saved token of the
+    person running the suite reaches a test."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    return tmp_path
+
+
 class Console:
     """A scripted console: records every request, answers from a table."""
 
@@ -114,7 +122,19 @@ def test_the_client_reads_its_environment(monkeypatch):
     monkeypatch.setenv("POSEIDON_TOKEN", "t")
     client = ConsoleClient.from_env()
     assert client.base_url == "http://elsewhere:1"
-    assert client.token == "t"
+    assert client.token == "t" and client.token_source == "environment"
+
+
+def test_the_client_falls_back_to_the_saved_token(monkeypatch, config_home):
+    monkeypatch.delenv("POSEIDON_TOKEN", raising=False)
+    path = config_home / "poseidon" / "token"
+    path.parent.mkdir()
+    path.write_text("saved\n")
+    client = ConsoleClient.from_env()
+    assert client.token == "saved" and client.token_source == "file"
+    # The environment wins over the file when both are set.
+    monkeypatch.setenv("POSEIDON_TOKEN", "from-env")
+    assert ConsoleClient.from_env().token == "from-env"
 
 
 # -- the commands -----------------------------------------------------------
@@ -162,7 +182,27 @@ def test_without_a_token_the_cli_says_how_to_get_one(monkeypatch):
     monkeypatch.delenv("POSEIDON_TOKEN", raising=False)
     result = CliRunner().invoke(cli.app, ["whoami"])
     assert result.exit_code == 2
-    assert "poseidon login" in result.output
+    assert "poseidon login" in result.output and "--save" in result.output
+
+
+def test_a_refused_saved_token_says_to_save_a_fresh_one(monkeypatch, config_home):
+    monkeypatch.delenv("POSEIDON_TOKEN", raising=False)
+    monkeypatch.setenv("POSEIDON_CONSOLE_URL", CONSOLE)
+    path = config_home / "poseidon" / "token"
+    path.parent.mkdir()
+    path.write_text("stale\n")
+    refused = httpx.MockTransport(
+        lambda request: httpx.Response(401, json={"detail": "token rejected"})
+    )
+    original = cli.ConsoleClient.__init__
+
+    def scripted(self, base_url=None, token=None, transport=None, timeout=120.0):
+        original(self, base_url, token, refused, timeout)
+
+    monkeypatch.setattr(cli.ConsoleClient, "__init__", scripted)
+    result = CliRunner().invoke(cli.app, ["whoami"])
+    assert result.exit_code == 1
+    assert "token rejected" in result.output and "--save" in result.output
 
 
 def test_login_asks_the_api_server_for_a_console_token(monkeypatch):
@@ -183,3 +223,30 @@ def test_login_asks_the_api_server_for_a_console_token(monkeypatch):
     assert result.exit_code == 0, result.output
     assert result.output.strip() == "tok-123"
     assert minted == [("human-owner", "poseidon-platform", ["poseidon-console"])]
+
+
+def test_login_save_keeps_the_token_for_later_commands(monkeypatch, config_home):
+    import types
+
+    class FakeCore:
+        def create_namespaced_service_account_token(self, name, namespace, body):
+            return types.SimpleNamespace(
+                status=types.SimpleNamespace(
+                    token="tok-saved", expiration_timestamp="2026-09-18T00:00:00Z"
+                )
+            )
+
+    import kubernetes
+
+    monkeypatch.setattr(kubernetes.config, "load_kube_config", lambda: None)
+    monkeypatch.setattr(kubernetes.client, "CoreV1Api", FakeCore)
+    monkeypatch.delenv("POSEIDON_TOKEN", raising=False)
+    result = CliRunner().invoke(
+        cli.app, ["login", "owner", "--save", "--duration", "604800"]
+    )
+    assert result.exit_code == 0, result.output
+    path = config_home / "poseidon" / "token"
+    assert "tok-saved" not in result.output and str(path) in result.output
+    assert path.read_text() == "tok-saved\n"
+    assert oct(path.stat().st_mode & 0o777) == "0o600"
+    assert ConsoleClient.from_env().token == "tok-saved"

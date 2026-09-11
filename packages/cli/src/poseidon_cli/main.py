@@ -4,7 +4,8 @@ Every command but `login` is one console call with the human's token:
 the CLI holds no cluster credentials, reaches no workflow engine and no
 database, and performs no act of its own. What it prints is what the
 console answered. `login` mints the token, once, with the kubeconfig the
-caller already holds.
+caller already holds — printed, or saved where every later command finds
+it when the environment carries none.
 """
 
 import json
@@ -15,7 +16,13 @@ from typing import Any
 import typer
 
 from common.topology import CONSOLE_TOKEN_AUDIENCE, human_service_account
-from poseidon_cli.client import TOKEN_VAR, URL_VAR, ConsoleClient, ConsoleError
+from poseidon_cli.client import (
+    TOKEN_VAR,
+    URL_VAR,
+    ConsoleClient,
+    ConsoleError,
+    token_file,
+)
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 blueprint_app = typer.Typer(
@@ -32,8 +39,9 @@ def _client() -> ConsoleClient:
     client = ConsoleClient.from_env()
     if not client.token:
         typer.echo(
-            f"no token: set {TOKEN_VAR} (`export {TOKEN_VAR}=$(poseidon login <name>)`)"
-            f" and {URL_VAR} if the console is not at {client.base_url}",
+            f"no token: `poseidon login <name> --save` keeps one at {token_file()},"
+            f" or set {TOKEN_VAR} (`export {TOKEN_VAR}=$(poseidon login <name>)`);"
+            f" set {URL_VAR} if the console is not at {client.base_url}",
             err=True,
         )
         raise typer.Exit(2)
@@ -51,6 +59,14 @@ def _call(fn, *args: Any) -> Any:
         detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
         rule = getattr(exc, "rule", None)
         typer.echo(f"{detail}" + (f" (rule: {rule})" if rule else ""), err=True)
+        if exc.status == 401 and getattr(fn, "__self__", None) is not None:
+            client = fn.__self__
+            if getattr(client, "token_source", "") == "file":
+                typer.echo(
+                    f"the saved token at {token_file()} was refused — expired or"
+                    " revoked; `poseidon login <name> --save` writes a fresh one",
+                    err=True,
+                )
         raise typer.Exit(1) from exc
 
 
@@ -61,10 +77,17 @@ def login(
         DEFAULT_PLATFORM_NAMESPACE, help="The platform namespace the chart installed into"
     ),
     duration: int = typer.Option(3600, help="Token lifetime, seconds"),
+    save: bool = typer.Option(
+        False,
+        "--save",
+        help="Keep the token in your config directory instead of printing it;"
+        " every later command reads it there when POSEIDON_TOKEN is unset",
+    ),
 ) -> None:
     """Mint a token for a human the chart declared, with your own cluster
-    credentials, and print it: `export POSEIDON_TOKEN=$(poseidon login owner)`.
-    The token is for the console's audience only — worthless anywhere else."""
+    credentials, and print it (`export POSEIDON_TOKEN=$(poseidon login owner)`)
+    or save it (`poseidon login owner --save`). The token is for the
+    console's audience only — worthless anywhere else."""
     from kubernetes import client as k8s
     from kubernetes import config as k8s_config
 
@@ -85,7 +108,16 @@ def login(
             err=True,
         )
         raise typer.Exit(1) from exc
-    typer.echo(token.status.token)
+    if not save:
+        typer.echo(token.status.token)
+        return
+    path = token_file()
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.touch(mode=0o600, exist_ok=True)
+    path.chmod(0o600)
+    path.write_text(token.status.token + "\n")
+    expires = token.status.expiration_timestamp
+    typer.echo(f"saved a token for {name} at {path}, valid until {expires}", err=True)
 
 
 @app.command()
