@@ -16,3 +16,6 @@ class OperatorSettings(BaseSettings):
     # The model every standing pod is told — the same value the LLM gateway
     # pins.
     model: str
+    # Where the operator reads which bundle revisions OPA has activated. A
+    # read and nothing else: bundles reach OPA by OPA's own polling.
+    opa_url: str

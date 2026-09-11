@@ -98,6 +98,7 @@ def operator_settings(monkeypatch) -> None:
             platform_namespace="poseidon-platform",
             model="mock-brain",
             agent_image="poseidon-agent:abc123",
+            opa_url="http://opa.test:8181",
         ),
     )
 
