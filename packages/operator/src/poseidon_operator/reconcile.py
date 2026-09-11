@@ -20,9 +20,14 @@ from common.telemetry import get_logger
 from poseidon_operator import resources
 from poseidon_operator.config import OperatorSettings
 from poseidon_operator.kube import Cluster
+from poseidon_operator.opa import activated_revision
 from registry import AgentInstances, Companies, PolicyBundles, open_registry
 
 _log = get_logger("operator")
+# How long a reconcile waits before asking OPA again whether it has
+# activated the stored bundles. OPA polls the bundle server every few
+# seconds; asking more often than that buys nothing.
+ACTIVATION_POLL_S = 5
 _registry = None
 _the_cluster = None
 _the_settings = None
@@ -99,25 +104,44 @@ def reconcile_company(
     )
 
     revision = ""
+    stored: dict[str, str] = {}  # bundle name -> the revision persisted
     bundle = spec.get("policyBundle") or {}
     if bundle:
         # Persist, do not push: OPA polls the bundle server for this
         # revision. Nothing installs policy into a running OPA.
-        revision = PolicyBundles(_db()).put(name, dict(bundle))
+        revision = stored[name] = PolicyBundles(_db()).put(name, dict(bundle))
         _log.info("policy bundle stored", extra={"company": name, "revision": revision})
     platform_bundle = spec.get("platformBundle") or {}
     if platform_bundle:
         # Reserved key, never a company name (the compiler refuses one).
         # Content-addressed revision: identical from every apply, so this
         # is a no-op except on a compiler upgrade.
-        PolicyBundles(_db()).put("platform", dict(platform_bundle))
-
-    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k != "policyBundle"})
+        stored["platform"] = PolicyBundles(_db()).put("platform", dict(platform_bundle))
 
     # Explicit status writes: kopf handler return values land under
     # status.<handler_id>, which the structural schema prunes.
-    patch.status["phase"] = "converged"
     patch.status["bundleRevision"] = revision
+
+    # Converged means served. The registry row is what makes the company
+    # live to the platform — the worker starts its heartbeat off it, the
+    # gateways read it — so it is written only once OPA has activated
+    # exactly the revisions stored above. OPA polls on its own schedule;
+    # until it reports them the CR says `activating` and kopf re-runs this
+    # handler, which is idempotent by construction.
+    opa_url = _settings().opa_url
+    lagging = sorted(
+        bundle_name
+        for bundle_name, stored_revision in stored.items()
+        if activated_revision(opa_url, bundle_name) != stored_revision
+    )
+    if lagging:
+        patch.status["phase"] = "activating"
+        raise kopf.TemporaryError(
+            f"OPA has not activated {', '.join(lagging)} yet", delay=ACTIVATION_POLL_S
+        )
+
+    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k != "policyBundle"})
+    patch.status["phase"] = "converged"
 
 
 @kopf.on.delete("poseidon.dev", "v1", "companies")
