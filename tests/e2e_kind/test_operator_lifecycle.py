@@ -1,11 +1,12 @@
 """The declarative company lifecycle on kind, and the full revocation
 claim.
 
-apply converges a live company (namespace, RBAC, standing agents, served bundle);
-a blueprint edit converges as a rollout with no manual steps; deleting the
-Company revokes — namespace gone, bundle 404, a restarted OPA activates
-nothing for the company, and a credential that worked before the teardown
-is refused at the gateway afterwards.
+apply converges a live company (namespace, RBAC, standing agents, served bundle
+— `converged` is written once OPA serves it); a blueprint edit converges as a
+rollout with no manual steps; deleting the Company revokes — the served bundle
+becomes a tombstone the running OPA activates before the namespace goes, and
+a credential that worked before the teardown is refused at the gateway
+afterwards.
 
 The module finalizer always restores `examples/hello-saas.yaml` and waits
 for convergence, so the rest of the suite finds a healthy company whether
@@ -13,6 +14,7 @@ these tests pass or fail.
 """
 
 import io
+import json
 import tarfile
 import time
 from pathlib import Path
@@ -30,7 +32,6 @@ from .blueprints import (
 )
 from .cluster import (
     COMPANY_NS,
-    PLATFORM_NS,
     gateway_url,
     kubectl,
     port_forward,
@@ -189,28 +190,20 @@ def test_company_delete_revokes(stack: None, env: dict):
     kubectl("delete", "company", COMPANY_NS, "--timeout=120s", timeout=150)
     kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s", timeout=200)
 
-    # Revocation at the delivery layer: the bundle is no longer served.
+    # Revocation at the delivery layer: the served bundle is a tombstone —
+    # the company's roots and no rules under them. The operator held the
+    # deletion until the running OPA had activated it, so by the time the
+    # Company is gone the decision path already answers no document; the
+    # platform bundle (the platform's, not the company's) is still served.
     with port_forward("svc/bundle-server", 8081) as port:
         resp = httpx.get(
             f"http://127.0.0.1:{port}/bundles/{COMPANY_NS}/bundle.tar.gz", timeout=30
         )
-        assert resp.status_code == 404
-
-    # Across an OPA restart: a fresh OPA re-polls, gets the 404, and
-    # activates nothing for the company — the platform bundle (which is
-    # the platform's, not the company's) is still served.
-    kubectl(
-        "-n", PLATFORM_NS, "delete", "pod", "-l", "app=opa", "--wait=true", timeout=120
-    )
-    kubectl(
-        "-n",
-        PLATFORM_NS,
-        "rollout",
-        "status",
-        "deployment/opa",
-        "--timeout=180s",
-        timeout=200,
-    )
+        assert resp.status_code == 200
+        with tarfile.open(fileobj=io.BytesIO(resp.content)) as tar:
+            assert tar.getnames() == [".manifest"]
+            manifest = json.loads(tar.extractfile(".manifest").read())
+        assert manifest["roots"] == ["poseidon/authz/hello_saas"]
     with port_forward("svc/opa", 8181) as port:
         base = f"http://127.0.0.1:{port}"
         compiled = httpx.get(

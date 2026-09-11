@@ -36,24 +36,31 @@ class FakeCluster:
         return [call[1:] for call in self.calls if call[0] == method]
 
 
+TOMBSTONE = {}  # what a revoked company's store holds: no files
+
+
 class FakeBundleStore:
     def __init__(self) -> None:
         self.stored: dict[str, dict] = {}
-        self.deleted: list[str] = []
+        self.revoked: list[str] = []
 
     def put(self, company: str, files: dict) -> str:
         self.stored[company] = files
         return f"rev-{company}"
 
-    def delete(self, company: str) -> None:
-        self.deleted.append(company)
-        self.stored.pop(company, None)
+    def revoke(self, company: str) -> str | None:
+        if company not in self.stored:
+            return None
+        self.revoked.append(company)
+        self.stored[company] = TOMBSTONE
+        return f"tomb-{company}"
 
 
 class FakeOpa:
     """OPA's activation record as the operator reads it. By default an
-    OPA that has polled: every stored bundle is served at its stored
-    revision. `lagging` names the bundles it has not caught up on yet."""
+    OPA that has polled: every stored bundle — a tombstone included — is
+    served at its stored revision. `lagging` names the bundles it has not
+    caught up on yet."""
 
     def __init__(self, bundles: FakeBundleStore) -> None:
         self._bundles = bundles
@@ -64,6 +71,8 @@ class FakeOpa:
         self.asked.append(name)
         if name in self.lagging or name not in self._bundles.stored:
             return None
+        if self._bundles.stored[name] is TOMBSTONE:
+            return f"tomb-{name}"
         return f"rev-{name}"
 
 
@@ -283,14 +292,39 @@ def test_company_teardown_revokes_and_sweeps(cluster, stores, opa):
 
     reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
 
-    assert bundles.deleted == ["hello-saas"]
+    # Revoked through policy: the store holds the tombstone OPA polls.
+    assert bundles.revoked == ["hello-saas"]
+    assert bundles.stored["hello-saas"] is TOMBSTONE
     # The platform bundle is the platform's, not the company's.
-    assert "platform" in bundles.stored
+    assert bundles.stored["platform"] is not TOMBSTONE
     assert cluster.named("delete_namespace") == [("hello-saas",)]
     assert "hello-saas" not in companies.rows
     # Swept at the company level — correct even if the operator missed
     # individual instance-delete events; other companies untouched.
     assert list(instances.rows) == ["pm-9"]
+
+
+def test_company_teardown_waits_until_the_revocation_is_served(cluster, stores, opa):
+    """Authority first: nothing is torn down while a running OPA still
+    serves the company's rules. The delete handler retries until OPA
+    reports the tombstone, then sweeps."""
+    bundles, instances, companies = stores
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
+    )
+    instances.upsert("pm-1", "hello-saas", "pm", "pm", "standard")
+    opa.lagging = {"hello-saas"}
+
+    with pytest.raises(kopf.TemporaryError, match="still serves"):
+        reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
+    assert bundles.stored["hello-saas"] is TOMBSTONE  # stored, so OPA can poll it
+    assert cluster.named("delete_namespace") == []
+    assert "hello-saas" in companies.rows and "pm-1" in instances.rows
+
+    opa.lagging.clear()
+    reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
+    assert cluster.named("delete_namespace") == [("hello-saas",)]
+    assert "hello-saas" not in companies.rows and "pm-1" not in instances.rows
 
 
 def test_instance_reconcile_deploys_and_registers(cluster, stores):

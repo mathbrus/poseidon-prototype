@@ -150,12 +150,19 @@ def reconcile_company(
 
 @kopf.on.delete("poseidon.dev", "v1", "companies")
 def teardown_company(spec: dict[str, Any], name: str, **_: Any) -> None:
-    """Teardown revokes: the namespace goes, and the bundle stops being
-    served, so a caller still holding an identity finds no rule to match.
-    The platform bundle stays — it belongs to the platform, not to any
-    company. Registry rows are swept at the company level — correct even if
-    the operator missed individual instance-delete events."""
-    PolicyBundles(_db()).delete(name)
+    """Teardown revokes, authority first. The stored bundle becomes a
+    tombstone over the company's roots, and nothing is torn down until OPA
+    serves it: a running OPA drops the company's rules on its own next
+    poll, no restart, so a caller still holding an identity finds no rule
+    to match before its namespace goes. The platform bundle stays — it
+    belongs to the platform, not to any company. Registry rows are swept
+    at the company level — correct even if the operator missed individual
+    instance-delete events."""
+    revoked = PolicyBundles(_db()).revoke(name)
+    if revoked and activated_revision(_settings().opa_url, name) != revoked:
+        raise kopf.TemporaryError(
+            f"OPA still serves policy for {name}", delay=ACTIVATION_POLL_S
+        )
     AgentInstances(_db()).delete_for_company(name)
     Companies(_db()).delete(name)
     _cluster().delete_namespace(spec["namespace"])

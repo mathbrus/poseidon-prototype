@@ -42,9 +42,10 @@ def create_app(bundles: PolicyBundles | None = None) -> FastAPI:
     ) -> Response:
         stored = _store().get(company)
         if stored is None:
-            # No compiled bundle means no policy: OPA keeps serving what it
-            # has until told otherwise, and a 404 is the honest answer for a
-            # company that was never applied or has been torn down.
+            # Nothing was ever stored under this name. A torn-down company
+            # is not this case: teardown leaves a tombstone, served like any
+            # revision, because OPA keeps serving what it has on a 404 —
+            # revocation has to be a bundle it can activate.
             return Response(status_code=404)
         etag = f'"{stored.revision}"'
         if if_none_match == etag:
