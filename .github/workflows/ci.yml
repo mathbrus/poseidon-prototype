@@ -110,7 +110,9 @@ jobs:
                       ns = (peer.get("namespaceSelector") or {}).get("matchLabels") or {}
                       if "kubernetes.io/metadata.name" in ns:
                           selected.add(ns["kubernetes.io/metadata.name"])
-          assert selected == {t.COMPANY_NAMESPACE}, selected
+          # kube-system is the other namespace a policy names (DNS); no
+          # company name may appear as one.
+          assert selected == {t.COMPANY_NAMESPACE, "kube-system"}, selected
           # OPA polls two bundles under fixed names; the operator stores
           # them under the same two.
           from common import policy as pol
