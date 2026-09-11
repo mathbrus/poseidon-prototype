@@ -75,7 +75,7 @@ def configure(settings: kopf.OperatorSettings, **_: Any) -> None:
 @kopf.on.update("poseidon.dev", "v1", "companies")
 @kopf.on.resume("poseidon.dev", "v1", "companies")
 def reconcile_company(
-    spec: dict[str, Any], name: str, patch: kopf.Patch, **_: Any
+    spec: dict[str, Any], name: str, meta: dict[str, Any], patch: kopf.Patch, **_: Any
 ) -> None:
     cluster = _cluster()
     company_ns = spec["namespace"]
@@ -119,8 +119,12 @@ def reconcile_company(
         stored["platform"] = PolicyBundles(_db()).put("platform", dict(platform_bundle))
 
     # Explicit status writes: kopf handler return values land under
-    # status.<handler_id>, which the structural schema prunes.
+    # status.<handler_id>, which the structural schema prunes. The
+    # generation says which apply the phase below answers for — a reader
+    # of a re-applied company must not take the previous apply's
+    # `converged` for this one's.
     patch.status["bundleRevision"] = revision
+    patch.status["observedGeneration"] = meta["generation"]
 
     # Converged means served. The registry row is what makes the company
     # live to the platform — the worker starts its heartbeat off it, the

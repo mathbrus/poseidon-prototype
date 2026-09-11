@@ -1,14 +1,12 @@
 """Applying the example blueprints to the cluster, exactly as a person
-running the platform does, and waiting for the company to converge — which
-includes policy: OPA must have activated the company's bundle, not just
-the pods be Ready."""
+running the platform does, and waiting for the company to converge — a
+phase the operator writes only once OPA serves the applied policy, not
+when the pods are Ready."""
 
 import tempfile
-import time
 from collections.abc import Callable
 from pathlib import Path
 
-import httpx
 import yaml
 
 from .cluster import (
@@ -16,7 +14,6 @@ from .cluster import (
     await_bare_heartbeat_asleep,
     console,
     kubectl,
-    port_forward,
 )
 
 # The suite's derived blueprints, written here and removed with the process.
@@ -121,11 +118,12 @@ def apply_blueprint(path: Path) -> None:
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:
-    """The company namespace is Active, its one standing agent (the PM) is
-    rolled out, and OPA serves the company's decision document. The last
-    part matters after a teardown + re-apply: OPA needs a poll cycle
-    (5-15s) to activate the bundle, and a test that runs before it would
-    land in a `no_policy_installed` window."""
+    """The company namespace is Active, the Company reads `converged` for
+    the generation just applied — the operator writes that phase only once
+    OPA serves the stored bundle revisions, the platform's and the
+    company's — and its one standing agent (the PM) is rolled out. The
+    generation matters after a re-apply: the CR still carries the previous
+    apply's `converged` until the operator has looked at the new spec."""
     kubectl(
         "wait",
         "--for=jsonpath={.status.phase}=Active",
@@ -133,6 +131,20 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
         f"--timeout={timeout_s}s",
         timeout=timeout_s + 30,
     )
+    generation = kubectl(
+        "get", "company", COMPANY_NS, "-o", "jsonpath={.metadata.generation}"
+    )
+    for condition in (
+        f"jsonpath={{.status.observedGeneration}}={generation}",
+        "jsonpath={.status.phase}=converged",
+    ):
+        kubectl(
+            "wait",
+            f"--for={condition}",
+            f"company/{COMPANY_NS}",
+            f"--timeout={timeout_s}s",
+            timeout=timeout_s + 30,
+        )
     kubectl(
         "-n",
         COMPANY_NS,
@@ -142,19 +154,6 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
         f"--timeout={timeout_s}s",
         timeout=timeout_s + 30,
     )
-    with port_forward("svc/opa", 8181) as port:
-        deadline = time.monotonic() + 120
-        while True:
-            decision = httpx.get(
-                f"http://127.0.0.1:{port}/v1/data/poseidon/authz/hello_saas/decision",
-                timeout=10,
-            ).json()
-            if "result" in decision:
-                return
-            assert time.monotonic() < deadline, (
-                "OPA never activated the re-applied company bundle"
-            )
-            time.sleep(3)
 
 
 def bundle_revision_from_cr() -> str:

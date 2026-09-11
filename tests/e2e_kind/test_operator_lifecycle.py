@@ -107,25 +107,18 @@ def test_apply_converges_the_company(stack: None):
 def test_opa_activated_both_bundles(stack: None):
     """Compiled bundles are the only served policy: the company
     bundle under its own package, the platform bundle under the reserved
-    key — disjoint roots, both active, default-deny entrypoints."""
+    key — disjoint roots, both active, default-deny entrypoints. No
+    waiting: `converged` on the CR is the operator's word that OPA
+    already serves this revision."""
     revision = bundle_revision_from_cr()
     with port_forward("svc/opa", 8181) as port:
         base = f"http://127.0.0.1:{port}"
-        deadline = time.monotonic() + 120  # OPA polls every 5-15s
-        while True:
-            # Activation metadata lands in data.system.bundles.<name>
-            # (the /v1/status API would need the status plugin enabled).
-            manifest = httpx.get(
-                f"{base}/v1/data/system/bundles/{COMPANY_NS}/manifest",
-                timeout=10,
-            ).json()
-            active = manifest.get("result", {}).get("revision")
-            if active == revision:
-                break
-            assert time.monotonic() < deadline, (
-                f"OPA never activated revision {revision!r}; manifest: {active!r}"
-            )
-            time.sleep(3)
+        # Activation metadata lands in data.system.bundles.<name> (the
+        # /v1/status API would need the status plugin enabled).
+        manifest = httpx.get(
+            f"{base}/v1/data/system/bundles/{COMPANY_NS}/manifest", timeout=10
+        ).json()
+        assert manifest.get("result", {}).get("revision") == revision
 
         company = httpx.get(
             f"{base}/v1/data/poseidon/authz/hello_saas/decision", timeout=10
