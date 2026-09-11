@@ -7,7 +7,7 @@ import tarfile
 
 import pytest
 
-from registry import pack
+from registry import pack, tombstone
 
 
 def manifest_of(tarball: bytes) -> dict:
@@ -56,3 +56,29 @@ def test_identical_files_pack_identically():
     second_tar, second_rev = pack(files)
     assert (first_tar, first_rev) == (second_tar, second_rev)
     assert manifest_of(first_tar)["revision"] == first_rev
+
+
+def test_a_tombstone_declares_its_roots_and_nothing_else():
+    """Revocation is a bundle too: the roots it claims, no files under
+    them, so activation erases what the previous revision supplied."""
+    tarball, revision = tombstone(["poseidon/authz/hello_saas"])
+    with tarfile.open(fileobj=io.BytesIO(tarball)) as tar:
+        assert tar.getnames() == [".manifest"]
+    manifest = manifest_of(tarball)
+    assert manifest == {"revision": revision, "roots": ["poseidon/authz/hello_saas"]}
+
+
+def test_a_tombstone_is_its_roots():
+    """Same roots, same revision — a re-run teardown is a 304 for OPA;
+    other roots, another revision."""
+    _, first = tombstone(["poseidon/authz/hello_saas"])
+    _, again = tombstone(["poseidon/authz/hello_saas"])
+    _, other = tombstone(["poseidon/authz/other_corp"])
+    assert first == again != other
+
+
+def test_a_rootless_tombstone_is_refused():
+    """No roots means the whole tree: activating it would erase the
+    platform bundle along with the company's."""
+    with pytest.raises(ValueError, match="roots"):
+        tombstone([])

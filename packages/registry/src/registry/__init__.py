@@ -15,7 +15,7 @@ from registry.db import Registry, dsn, open_registry
 from registry.instances import AgentInstances
 from registry.ledger import BudgetLedger
 from registry.participants import ParticipantRevoked, RunParticipants
-from registry.policy import PolicyBundles, StoredBundle, pack
+from registry.policy import PolicyBundles, StoredBundle, pack, tombstone
 from registry.runs import Attempts, RunRecord, Runs
 from registry.sandboxes import SandboxRegistrations
 from registry.tickets import FiledTickets
@@ -38,4 +38,5 @@ __all__ = [
     "dsn",
     "open_registry",
     "pack",
+    "tombstone",
 ]

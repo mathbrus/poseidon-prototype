@@ -36,18 +36,44 @@ class FakeCluster:
         return [call[1:] for call in self.calls if call[0] == method]
 
 
+TOMBSTONE = {}  # what a revoked company's store holds: no files
+
+
 class FakeBundleStore:
     def __init__(self) -> None:
         self.stored: dict[str, dict] = {}
-        self.deleted: list[str] = []
+        self.revoked: list[str] = []
 
     def put(self, company: str, files: dict) -> str:
         self.stored[company] = files
-        return "rev-fixed"
+        return f"rev-{company}"
 
-    def delete(self, company: str) -> None:
-        self.deleted.append(company)
-        self.stored.pop(company, None)
+    def revoke(self, company: str) -> str | None:
+        if company not in self.stored:
+            return None
+        self.revoked.append(company)
+        self.stored[company] = TOMBSTONE
+        return f"tomb-{company}"
+
+
+class FakeOpa:
+    """OPA's activation record as the operator reads it. By default an
+    OPA that has polled: every stored bundle — a tombstone included — is
+    served at its stored revision. `lagging` names the bundles it has not
+    caught up on yet."""
+
+    def __init__(self, bundles: FakeBundleStore) -> None:
+        self._bundles = bundles
+        self.lagging: set[str] = set()
+        self.asked: list[str] = []
+
+    def activated_revision(self, opa_url: str, name: str) -> str | None:
+        self.asked.append(name)
+        if name in self.lagging or name not in self._bundles.stored:
+            return None
+        if self._bundles.stored[name] is TOMBSTONE:
+            return f"tomb-{name}"
+        return f"rev-{name}"
 
 
 class FakeInstances:
@@ -98,6 +124,7 @@ def operator_settings(monkeypatch) -> None:
             platform_namespace="poseidon-platform",
             model="mock-brain",
             agent_image="poseidon-agent:abc123",
+            opa_url="http://opa.test:8181",
         ),
     )
 
@@ -119,6 +146,13 @@ def stores(monkeypatch) -> tuple[FakeBundleStore, FakeInstances, FakeCompanies]:
     return bundles, instances, companies
 
 
+@pytest.fixture
+def opa(monkeypatch, stores) -> FakeOpa:
+    fake = FakeOpa(stores[0])
+    monkeypatch.setattr(reconcile, "activated_revision", fake.activated_revision)
+    return fake
+
+
 COMPANY_SPEC = {
     "namespace": "hello-saas",
     "vision": "ship it",
@@ -135,6 +169,9 @@ COMPANY_SPEC = {
     "budgets": {},
 }
 
+# What the API server stamps on the CR: the generation of the applied spec.
+META = {"generation": 1}
+
 INSTANCE_SPEC = {
     "agentId": "pm-1",
     "company": "hello-saas",
@@ -146,10 +183,12 @@ INSTANCE_SPEC = {
 }
 
 
-def test_company_reconcile_converges_the_envelope(cluster, stores):
+def test_company_reconcile_converges_the_envelope(cluster, stores, opa):
     bundles, _instances, companies = stores
     patch = kopf.Patch()
-    reconcile.reconcile_company(spec=COMPANY_SPEC, name="hello-saas", patch=patch)
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=patch
+    )
 
     assert cluster.named("upsert_namespace") == [("hello-saas",)]
     assert {name for ns, name in cluster.named("upsert_network_policy")} == {
@@ -171,42 +210,121 @@ def test_company_reconcile_converges_the_envelope(cluster, stores):
     # lives in policy_bundles under its own revision).
     assert "policyBundle" not in companies.rows["hello-saas"]
     assert patch.status["phase"] == "converged"
-    assert patch.status["bundleRevision"] == "rev-fixed"
+    assert patch.status["bundleRevision"] == "rev-hello-saas"
+    # The phase answers for this apply's generation.
+    assert patch.status["observedGeneration"] == 1
+    # Converged was earned: both revisions were read back from OPA.
+    assert sorted(opa.asked) == ["hello-saas", "platform"]
 
 
-def test_company_reconcile_is_idempotent(cluster, stores):
+def test_company_is_activating_until_opa_serves_its_bundle(cluster, stores, opa):
+    """Converged means served. Until OPA reports the stored revision the
+    company is not live to the platform — no registry row for the worker
+    to start a heartbeat off — and the CR says why."""
+    bundles, _instances, companies = stores
+    opa.lagging = {"hello-saas"}
     patch = kopf.Patch()
-    reconcile.reconcile_company(spec=COMPANY_SPEC, name="hello-saas", patch=patch)
+    with pytest.raises(kopf.TemporaryError, match="hello-saas"):
+        reconcile.reconcile_company(
+            spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=patch
+        )
+
+    # Stored, so the bundle server can hand it to OPA's next poll...
+    assert "hello-saas" in bundles.stored
+    assert patch.status["bundleRevision"] == "rev-hello-saas"
+    assert patch.status["phase"] == "activating"
+    assert patch.status["observedGeneration"] == 1
+    # ...but not live.
+    assert "hello-saas" not in companies.rows
+
+    # OPA polls; kopf re-runs the handler; now it converges.
+    opa.lagging.clear()
+    patch = kopf.Patch()
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=patch
+    )
+    assert patch.status["phase"] == "converged"
+    assert "hello-saas" in companies.rows
+
+
+def test_a_lagging_platform_bundle_holds_convergence(cluster, stores, opa):
+    """The platform's own rules are what the heartbeat's first reads run
+    under; a company is not live until those are served either."""
+    _bundles, _instances, companies = stores
+    opa.lagging = {"platform"}
+    with pytest.raises(kopf.TemporaryError, match="platform"):
+        reconcile.reconcile_company(
+            spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
+        )
+    assert "hello-saas" not in companies.rows
+
+
+def test_company_reconcile_is_idempotent(cluster, stores, opa):
+    patch = kopf.Patch()
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=patch
+    )
     first = list(cluster.calls)
-    reconcile.reconcile_company(spec=COMPANY_SPEC, name="hello-saas", patch=kopf.Patch())
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
+    )
     assert cluster.calls == first + first  # same intents, no accumulation
 
 
-def test_company_without_a_bundle_stores_no_company_bundle(cluster, stores):
+def test_company_without_a_bundle_stores_no_company_bundle(cluster, stores, opa):
     bundles, _instances, _companies = stores
     spec = {**COMPANY_SPEC, "policyBundle": {}}
     patch = kopf.Patch()
-    reconcile.reconcile_company(spec=spec, name="hello-saas", patch=patch)
+    reconcile.reconcile_company(spec=spec, name="hello-saas", meta=META, patch=patch)
     assert "hello-saas" not in bundles.stored
     assert patch.status["bundleRevision"] == ""
+    # Only what was stored is waited for.
+    assert opa.asked == ["platform"]
 
 
-def test_company_teardown_revokes_and_sweeps(cluster, stores):
+def test_company_teardown_revokes_and_sweeps(cluster, stores, opa):
     bundles, instances, companies = stores
-    reconcile.reconcile_company(spec=COMPANY_SPEC, name="hello-saas", patch=kopf.Patch())
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
+    )
     instances.upsert("pm-1", "hello-saas", "pm", "pm", "standard")
     instances.upsert("pm-9", "other-corp", "pm", "pm", "standard")
 
     reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
 
-    assert bundles.deleted == ["hello-saas"]
+    # Revoked through policy: the store holds the tombstone OPA polls.
+    assert bundles.revoked == ["hello-saas"]
+    assert bundles.stored["hello-saas"] is TOMBSTONE
     # The platform bundle is the platform's, not the company's.
-    assert "platform" in bundles.stored
+    assert bundles.stored["platform"] is not TOMBSTONE
     assert cluster.named("delete_namespace") == [("hello-saas",)]
     assert "hello-saas" not in companies.rows
     # Swept at the company level — correct even if the operator missed
     # individual instance-delete events; other companies untouched.
     assert list(instances.rows) == ["pm-9"]
+
+
+def test_company_teardown_waits_until_the_revocation_is_served(cluster, stores, opa):
+    """Authority first: nothing is torn down while a running OPA still
+    serves the company's rules. The delete handler retries until OPA
+    reports the tombstone, then sweeps."""
+    bundles, instances, companies = stores
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
+    )
+    instances.upsert("pm-1", "hello-saas", "pm", "pm", "standard")
+    opa.lagging = {"hello-saas"}
+
+    with pytest.raises(kopf.TemporaryError, match="still serves"):
+        reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
+    assert bundles.stored["hello-saas"] is TOMBSTONE  # stored, so OPA can poll it
+    assert cluster.named("delete_namespace") == []
+    assert "hello-saas" in companies.rows and "pm-1" in instances.rows
+
+    opa.lagging.clear()
+    reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
+    assert cluster.named("delete_namespace") == [("hello-saas",)]
+    assert "hello-saas" not in companies.rows and "pm-1" not in instances.rows
 
 
 def test_instance_reconcile_deploys_and_registers(cluster, stores):

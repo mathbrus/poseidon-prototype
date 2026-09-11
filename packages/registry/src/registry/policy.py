@@ -38,32 +38,60 @@ def _roots(files: dict[str, str]) -> list[str]:
     return sorted(roots)
 
 
-def pack(files: dict[str, str]) -> tuple[bytes, str]:
-    """Build an OPA bundle tarball and its revision.
-
-    The revision is a digest of the content, so re-applying an unchanged
-    blueprint is a no-op for OPA and a changed one is unmissable. Tar
-    metadata is fixed for the same reason: identical policy must produce an
-    identical tarball, or the revision would churn on every reconcile.
-    """
-    digest = hashlib.sha256()
-    for name in sorted(files):
-        digest.update(name.encode())
-        digest.update(files[name].encode())
-    revision = digest.hexdigest()[:16]
-
-    manifest = json.dumps({"revision": revision, "roots": _roots(files)}) + "\n"
+def _tarball(files: dict[str, str], manifest: dict[str, object]) -> bytes:
+    """The bundle tarball, with fixed tar metadata: identical content must
+    produce an identical tarball, or the revision would churn on every
+    reconcile."""
+    body = json.dumps(manifest) + "\n"
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz", format=tarfile.GNU_FORMAT) as tar:
-        for name, body in [*sorted(files.items()), (".manifest", manifest)]:
-            payload = body.encode()
+        for name, text in [*sorted(files.items()), (".manifest", body)]:
+            payload = text.encode()
             info = tarfile.TarInfo(name)
             info.size = len(payload)
             info.mtime = 0  # deterministic: content decides the revision
             info.uid = info.gid = 0
             info.uname = info.gname = ""
             tar.addfile(info, io.BytesIO(payload))
-    return buffer.getvalue(), revision
+    return buffer.getvalue()
+
+
+def pack(files: dict[str, str]) -> tuple[bytes, str]:
+    """Build an OPA bundle tarball and its revision.
+
+    The revision is a digest of the content, so re-applying an unchanged
+    blueprint is a no-op for OPA and a changed one is unmissable.
+    """
+    digest = hashlib.sha256()
+    for name in sorted(files):
+        digest.update(name.encode())
+        digest.update(files[name].encode())
+    revision = digest.hexdigest()[:16]
+    return _tarball(files, {"revision": revision, "roots": _roots(files)}), revision
+
+
+def tombstone(roots: list[str]) -> tuple[bytes, str]:
+    """An empty bundle that still declares its roots: how a bundle revokes.
+
+    Activation erases everything under the roots that the bundle does not
+    supply, and a tombstone supplies nothing, so OPA's next poll leaves no
+    rule under them — the decision path answers no document, the same
+    fail-closed default as a company never applied. The roots are the
+    whole content, so they are the revision. An empty roots list would
+    claim the entire tree and erase every other bundle; it is refused.
+    """
+    if not roots:
+        raise ValueError("a tombstone must declare the roots it revokes")
+    digest = hashlib.sha256(b"tombstone")
+    for root in sorted(roots):
+        digest.update(root.encode())
+    revision = digest.hexdigest()[:16]
+    return _tarball({}, {"revision": revision, "roots": sorted(roots)}), revision
+
+
+def _manifest_roots(tarball: bytes) -> list[str]:
+    with tarfile.open(fileobj=io.BytesIO(tarball)) as tar:
+        return json.loads(tar.extractfile(".manifest").read())["roots"]
 
 
 @dataclass(frozen=True)
@@ -80,6 +108,10 @@ class PolicyBundles:
 
     def put(self, company: str, files: dict[str, str]) -> str:
         tarball, revision = pack(files)
+        self._store(company, revision, tarball)
+        return revision
+
+    def _store(self, company: str, revision: str, tarball: bytes) -> None:
         self._db.execute(
             """
             INSERT INTO registry.policy_bundles (company, revision, tarball, updated_at)
@@ -91,7 +123,6 @@ class PolicyBundles:
             """,
             (company, revision, tarball),
         )
-        return revision
 
     def get(self, company: str) -> StoredBundle | None:
         rows = self._db.query(
@@ -109,9 +140,15 @@ class PolicyBundles:
             updated_at=row["updated_at"] or datetime.now(UTC),
         )
 
-    def delete(self, company: str) -> None:
-        """Company teardown revokes policy: the bundle stops being served,
-        so a caller that still holds an identity finds no rule to match."""
-        self._db.execute(
-            "DELETE FROM registry.policy_bundles WHERE company = %s", (company,)
-        )
+    def revoke(self, company: str) -> str | None:
+        """Company teardown revokes policy: the stored bundle is replaced by
+        a tombstone over the same roots, still served, so a running OPA
+        drops the company's rules on its own next poll — no restart — and
+        a restarted one activates the same nothing. Returns the tombstone's
+        revision, or None when nothing was stored to revoke."""
+        stored = self.get(company)
+        if stored is None:
+            return None
+        tarball, revision = tombstone(_manifest_roots(stored.tarball))
+        self._store(company, revision, tarball)
+        return revision

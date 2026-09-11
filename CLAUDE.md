@@ -86,6 +86,8 @@ first.
 | **console** | the human's chokepoint: the one service a person acts on a company through (apply the blueprint, resolve a gate, start or cancel a run, wake the heartbeat) and reads it through; verifies the human, asks policy, acts, audits — nothing else; the `poseidon` CLI is its client | API, front door, dashboard, operator gateway |
 | **human** | a verified person: on kind a ServiceAccount `human-<name>` the chart declares under `console.humans`, elsewhere an identity provider's user; `lifecycle: human`, never a catalog role; `company.humans` names those who may act on a company | operator, user, approver, admin |
 | **verdict** | a human's answer to a gate (`approved` or not), recorded by the console under the human's name before the workflow is signalled; the merge gate is released only on a recorded verdict | approval, signal, decision (a policy result) |
+| **converged** | the Company phase the operator writes once OPA serves the stored bundle revisions, the platform's and the company's; `activating` until then | ready, applied, installed |
+| **tombstone** | the empty bundle over a torn-down company's roots that the bundle server keeps serving, so OPA's next poll erases its rules | deleted bundle, 404 |
 <!-- --8<-- [end:glossary] -->
 
 ## Working rules

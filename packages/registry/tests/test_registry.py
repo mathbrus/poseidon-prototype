@@ -1,5 +1,8 @@
 """What the registry must guarantee for the services that depend on it."""
 
+import io
+import json
+import tarfile
 from datetime import UTC, datetime
 
 import pytest
@@ -239,13 +242,27 @@ def test_unattributable_attempts_are_still_recorded(registry: Registry):
 
 def test_policy_bundle_round_trips_and_revokes(registry: Registry):
     bundles = PolicyBundles(registry)
-    revision = bundles.put("test-corp", {"authz.rego": "package poseidon.authz\n"})
+    revision = bundles.put("test-corp", {"authz.rego": "package poseidon.authz.test\n"})
     stored = bundles.get("test-corp")
     assert stored is not None and stored.revision == revision
     assert stored.tarball  # the bytea comes back as bytes
 
-    bundles.delete("test-corp")
-    assert bundles.get("test-corp") is None
+    # Revoked is still served — as a tombstone over the same roots, so
+    # OPA's next poll erases the rules rather than keeping the last ones.
+    tombstone_revision = bundles.revoke("test-corp")
+    revoked = bundles.get("test-corp")
+    assert revoked is not None and revoked.revision == tombstone_revision != revision
+    with tarfile.open(fileobj=io.BytesIO(revoked.tarball)) as tar:
+        assert tar.getnames() == [".manifest"]
+        manifest = json.loads(tar.extractfile(".manifest").read())
+    assert manifest["roots"] == ["poseidon/authz/test"]
+    # Idempotent: a re-run teardown stores the same tombstone.
+    assert bundles.revoke("test-corp") == tombstone_revision
+
+
+def test_revoking_what_was_never_stored_is_nothing(registry: Registry):
+    assert PolicyBundles(registry).revoke("nobody") is None
+    assert PolicyBundles(registry).get("nobody") is None
 
 
 def test_company_rows_and_instance_sweep(registry: Registry):

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from fastapi.testclient import TestClient
 
 from poseidon_operator.bundleserver import create_app
-from registry import StoredBundle, pack
+from registry import StoredBundle, pack, tombstone
 
 
 def stored(company: str, files: dict[str, str]) -> StoredBundle:
@@ -52,13 +52,21 @@ def test_unchanged_revision_answers_304():
     assert response.status_code == 304
 
 
-def test_torn_down_company_serves_nothing():
-    """Teardown revokes: OPA stops being handed rules for a company that no
-    longer exists."""
-    bundles = FakeBundles(stored("hello-saas", {"a.rego": "package poseidon\n"}))
-    del bundles.stored["hello-saas"]
+def test_torn_down_company_serves_its_tombstone():
+    """Teardown revokes through the same channel policy arrived by: the
+    served bundle is a tombstone, and OPA's next poll activates the
+    nothing it contains."""
+    tarball, revision = tombstone(["poseidon/authz/hello_saas"])
+    bundles = FakeBundles(
+        StoredBundle("hello-saas", revision, tarball, datetime.now(UTC))
+    )
     client = TestClient(create_app(bundles))
-    assert client.get("/bundles/hello-saas/bundle.tar.gz").status_code == 404
+
+    response = client.get("/bundles/hello-saas/bundle.tar.gz")
+    assert response.status_code == 200
+    assert response.headers["etag"] == f'"{revision}"'
+    with tarfile.open(fileobj=io.BytesIO(response.content)) as tar:
+        assert tar.getnames() == [".manifest"]
 
 
 def test_unknown_company_is_404():

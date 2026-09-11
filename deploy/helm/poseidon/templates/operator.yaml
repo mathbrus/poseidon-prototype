@@ -118,6 +118,8 @@ spec:
               value: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
             - name: MODEL
               value: {{ .Values.run.model | quote }}
+            - name: OPA_URL
+              value: http://opa:8181
             {{- include "poseidon.registryDsnEnv" . | nindent 12 }}
           livenessProbe:
             httpGet: {path: /healthz, port: 8080}

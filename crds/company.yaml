@@ -105,4 +105,5 @@ spec:
               properties:
                 phase: {type: string}
                 bundleRevision: {type: string}
+                observedGeneration: {type: integer}
                 message: {type: string}

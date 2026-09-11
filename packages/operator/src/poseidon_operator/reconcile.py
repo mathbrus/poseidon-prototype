@@ -20,7 +20,13 @@ from common.telemetry import get_logger
 from poseidon_operator import resources
 from poseidon_operator.config import OperatorSettings
 from poseidon_operator.kube import Cluster
+from poseidon_operator.opa import activated_revision
 from registry import AgentInstances, Companies, PolicyBundles, open_registry
+
+# How long a handler waits before asking OPA again whether it has
+# activated a stored bundle. OPA polls the bundle server every few
+# seconds; asking more often than that buys nothing.
+ACTIVATION_POLL_S = 5
 
 _log = get_logger("operator")
 _registry = None
@@ -70,7 +76,7 @@ def configure(settings: kopf.OperatorSettings, **_: Any) -> None:
 @kopf.on.update("poseidon.dev", "v1", "companies")
 @kopf.on.resume("poseidon.dev", "v1", "companies")
 def reconcile_company(
-    spec: dict[str, Any], name: str, patch: kopf.Patch, **_: Any
+    spec: dict[str, Any], name: str, meta: dict[str, Any], patch: kopf.Patch, **_: Any
 ) -> None:
     cluster = _cluster()
     company_ns = spec["namespace"]
@@ -99,35 +105,65 @@ def reconcile_company(
     )
 
     revision = ""
+    stored: dict[str, str] = {}  # bundle name -> the revision persisted
     bundle = spec.get("policyBundle") or {}
     if bundle:
         # Persist, do not push: OPA polls the bundle server for this
         # revision. Nothing installs policy into a running OPA.
-        revision = PolicyBundles(_db()).put(name, dict(bundle))
+        revision = stored[name] = PolicyBundles(_db()).put(name, dict(bundle))
         _log.info("policy bundle stored", extra={"company": name, "revision": revision})
     platform_bundle = spec.get("platformBundle") or {}
     if platform_bundle:
         # Reserved key, never a company name (the compiler refuses one).
         # Content-addressed revision: identical from every apply, so this
         # is a no-op except on a compiler upgrade.
-        PolicyBundles(_db()).put("platform", dict(platform_bundle))
-
-    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k != "policyBundle"})
+        stored["platform"] = PolicyBundles(_db()).put("platform", dict(platform_bundle))
 
     # Explicit status writes: kopf handler return values land under
-    # status.<handler_id>, which the structural schema prunes.
-    patch.status["phase"] = "converged"
+    # status.<handler_id>, which the structural schema prunes. The
+    # generation says which apply the phase below answers for — a reader
+    # of a re-applied company must not take the previous apply's
+    # `converged` for this one's.
     patch.status["bundleRevision"] = revision
+    patch.status["observedGeneration"] = meta["generation"]
+
+    # Converged means served. The registry row is what makes the company
+    # live to the platform — the worker starts its heartbeat off it, the
+    # gateways read it — so it is written only once OPA has activated
+    # exactly the revisions stored above. OPA polls on its own schedule;
+    # until it reports them the CR says `activating` and kopf re-runs this
+    # handler, which is idempotent by construction.
+    opa_url = _settings().opa_url
+    lagging = sorted(
+        bundle_name
+        for bundle_name, stored_revision in stored.items()
+        if activated_revision(opa_url, bundle_name) != stored_revision
+    )
+    if lagging:
+        patch.status["phase"] = "activating"
+        raise kopf.TemporaryError(
+            f"OPA has not activated {', '.join(lagging)} yet", delay=ACTIVATION_POLL_S
+        )
+
+    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k != "policyBundle"})
+    patch.status["phase"] = "converged"
 
 
 @kopf.on.delete("poseidon.dev", "v1", "companies")
 def teardown_company(spec: dict[str, Any], name: str, **_: Any) -> None:
-    """Teardown revokes: the namespace goes, and the bundle stops being
-    served, so a caller still holding an identity finds no rule to match.
-    The platform bundle stays — it belongs to the platform, not to any
-    company. Registry rows are swept at the company level — correct even if
-    the operator missed individual instance-delete events."""
-    PolicyBundles(_db()).delete(name)
+    """Teardown revokes, authority first. The stored bundle becomes a
+    tombstone over the company's roots, and nothing is torn down until OPA
+    serves it: a running OPA drops the company's rules on its own next
+    poll, no restart, so a caller still holding an identity finds no rule
+    to match before its namespace goes. The platform bundle stays — it
+    belongs to the platform, not to any company. Registry rows are swept
+    at the company level — correct even if the operator missed individual
+    instance-delete events."""
+    revoked = PolicyBundles(_db()).revoke(name)
+    if revoked and activated_revision(_settings().opa_url, name) != revoked:
+        raise kopf.TemporaryError(
+            f"OPA still serves policy for {name}", delay=ACTIVATION_POLL_S
+        )
     AgentInstances(_db()).delete_for_company(name)
     Companies(_db()).delete(name)
     _cluster().delete_namespace(spec["namespace"])
