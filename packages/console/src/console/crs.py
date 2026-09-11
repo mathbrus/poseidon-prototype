@@ -82,11 +82,17 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
 
 def submit(
     plan: DeploymentPlan, api: k8s.CustomObjectsApi | None = None
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
+    """Submit the plan's CRs. Returns what was created, what was updated,
+    and the Company's generation this apply made — the number the phase
+    a reader waits for must answer for."""
     api = api or _api()
     created = updated = 0
 
-    if _replace_cluster(api, "companies", plan.company.name, company_cr(plan)):
+    existed, generation = _replace_cluster(
+        api, "companies", plan.company.name, company_cr(plan)
+    )
+    if existed:
         updated += 1
     else:
         created += 1
@@ -115,7 +121,32 @@ def submit(
             GROUP, VERSION, namespace, "agentinstances", standing_name
         )
 
-    return created, updated
+    return created, updated, generation
+
+
+def read_company(api: k8s.CustomObjectsApi | None = None) -> dict[str, Any] | None:
+    """The one Company CR, as a reader of its phase sees it, or None when
+    none is applied. Read from the cluster, not the registry: the registry
+    row exists only once the company is converged, and the phase is what
+    says whether it is."""
+    api = api or _api()
+    items = api.list_cluster_custom_object(GROUP, VERSION, "companies").get("items", [])
+    if not items:
+        return None
+    if len(items) > 1:
+        names = sorted(item["metadata"]["name"] for item in items)
+        raise RuntimeError(f"more than one company is applied: {names}")
+    item = items[0]
+    status = item.get("status") or {}
+    return {
+        "company": item["metadata"]["name"],
+        "namespace": item["spec"]["namespace"],
+        "generation": item["metadata"].get("generation", 0),
+        "phase": status.get("phase") or "activating",
+        "observedGeneration": status.get("observedGeneration", 0),
+        "bundleRevision": status.get("bundleRevision", ""),
+        "message": status.get("message", ""),
+    }
 
 
 TEARDOWN_TIMEOUT_S = 600.0
@@ -177,17 +208,19 @@ def _wait_for_namespace(namespace: str, timeout_s: float = NAMESPACE_TIMEOUT_S) 
 
 def _replace_cluster(
     api: k8s.CustomObjectsApi, plural: str, name: str, body: dict[str, Any]
-) -> bool:
+) -> tuple[bool, int]:
+    """Create or replace; whether it existed, and the generation the
+    write produced (a replace that changes nothing keeps the old one)."""
     try:
         existing = api.get_cluster_custom_object(GROUP, VERSION, plural, name)
     except k8s.exceptions.ApiException as exc:
         if exc.status != 404:
             raise
-        api.create_cluster_custom_object(GROUP, VERSION, plural, body)
-        return False
+        made = api.create_cluster_custom_object(GROUP, VERSION, plural, body)
+        return False, int((made.get("metadata") or {}).get("generation", 1))
     body["metadata"]["resourceVersion"] = existing["metadata"]["resourceVersion"]
-    api.replace_cluster_custom_object(GROUP, VERSION, plural, name, body)
-    return True
+    made = api.replace_cluster_custom_object(GROUP, VERSION, plural, name, body)
+    return True, int((made.get("metadata") or {}).get("generation", 0))
 
 
 def _replace_namespaced(

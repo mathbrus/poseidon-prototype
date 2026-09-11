@@ -103,14 +103,29 @@ class World:
         self.workflows = FakeWorkflows()
         self.submitted: list[DeploymentPlan] = []
         self.deleted: list[str] = []
+        self.cr: dict[str, Any] | None = None
         # What OPA answers, per tool; the default is the rule the compiled
         # bundle would name for the owner.
         self.decisions: dict[str, dict[str, Any]] = {}
         self.asked: list[dict[str, Any]] = []
 
-    def submit(self, plan: DeploymentPlan) -> tuple[int, int]:
+    def submit(self, plan: DeploymentPlan) -> tuple[int, int, int]:
         self.submitted.append(plan)
-        return (1, 0)
+        # What the CR says afterwards: the generation this apply made,
+        # still activating until the fake operator is told otherwise.
+        self.cr = {
+            "company": plan.company.name,
+            "namespace": plan.company.namespace,
+            "generation": len(self.submitted),
+            "phase": "activating",
+            "observedGeneration": 0,
+            "bundleRevision": "",
+            "message": "",
+        }
+        return (1, 0, len(self.submitted))
+
+    def read_company(self) -> dict[str, Any] | None:
+        return self.cr
 
     def delete(self, company: str) -> None:
         self.deleted.append(company)
@@ -158,6 +173,7 @@ def client(world: World) -> httpx.AsyncClient:
         workflows=world.workflows,
         submit_crs=world.submit,
         delete_company=world.delete,
+        read_company=world.read_company,
         clock=lambda: "2026-01-01T00:00:00+00:00",
     )
     return httpx.AsyncClient(
@@ -381,6 +397,23 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     assert again.status_code == 404
 
 
+async def test_the_company_read_is_the_crs_phase(client, world):
+    """What `apply` waits on: the CR's phase and the generation it answers
+    for — read from the cluster, since the registry row exists only once
+    the company is converged."""
+    assert (await client.get("/company", headers=as_owner())).status_code == 404
+    applied = await client.post(
+        "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
+    )
+    assert applied.status_code == 200 and applied.json()["generation"] == 1
+    state = (await client.get("/company", headers=as_owner())).json()
+    assert state["company"] == COMPANY and state["phase"] == "activating"
+    assert state["generation"] == 1 and state["observedGeneration"] == 0
+    world.cr.update(phase="converged", observedGeneration=1, bundleRevision="r1")
+    state = (await client.get("/company", headers=as_owner())).json()
+    assert state["phase"] == "converged" and state["bundleRevision"] == "r1"
+
+
 async def test_a_stranger_cannot_delete_the_company(client, world):
     a_review_run(world)
     world.decisions["company.delete"] = {"allow": False, "rule": "human_not_recognized"}
@@ -582,7 +615,8 @@ def test_the_route_table_matches_the_app():
         instances=InMemoryAgentInstances(),
         companies=InMemoryCompanies(),
         workflows=FakeWorkflows(),
-        submit_crs=lambda plan: (0, 0),
+        submit_crs=lambda plan: (0, 0, 1),
+        read_company=lambda: None,
         clock=lambda: "",
     )
     served = {

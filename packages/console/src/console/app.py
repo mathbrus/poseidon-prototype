@@ -51,6 +51,12 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
         "blueprint.apply",
     ),
     (
+        "GET",
+        "/company",
+        "the applied company's phase, generation and bundle revision, from its CR",
+        "",
+    ),
+    (
         "DELETE",
         "/company",
         "stop the company: cancel its runs, delete its CR, wait for the teardown",
@@ -117,8 +123,9 @@ def create_app(
     companies: Companies | None = None,
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
-    submit_crs: Callable[[DeploymentPlan], tuple[int, int]] | None = None,
+    submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]] | None = None,
     delete_company: Callable[[str], None] | None = None,
+    read_company: Callable[[], dict[str, Any] | None] | None = None,
     clock: Callable[[], str] | None = None,
 ) -> FastAPI:
     settings = settings or ConsoleSettings()
@@ -155,6 +162,7 @@ def create_app(
         workflows or TemporalWorkflows(settings.temporal_address),
         submit_crs or crs.submit,
         delete_company or crs.delete_company,
+        read_company or crs.read_company,
         clock,
     )
 
@@ -205,6 +213,10 @@ def create_app(
     @app.post("/blueprint/apply")
     async def apply(request: Request, body: BlueprintRequest) -> dict[str, Any]:
         return await service.apply(identity_of(request), body.blueprint)
+
+    @app.get("/company")
+    async def company() -> dict[str, Any]:
+        return await service.company()
 
     @app.delete("/company")
     async def delete_company_route(

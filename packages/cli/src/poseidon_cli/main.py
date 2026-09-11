@@ -12,6 +12,7 @@ questions. Neither is an act on a company.
 
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -176,13 +177,25 @@ def preview(blueprint: Path) -> None:
     typer.echo(result["diff"])
 
 
+CONVERGE_TIMEOUT_S = 600
+
+
 @blueprint_app.command()
 def apply(
     blueprint: Path,
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the diff confirmation"),
+    wait: bool = typer.Option(
+        True,
+        "--wait/--no-wait",
+        help="Wait until the company is converged — OPA serves its policy — before returning",
+    ),
+    wait_timeout: int = typer.Option(
+        CONVERGE_TIMEOUT_S, help="Seconds to wait for `converged` before giving up"
+    ),
 ) -> None:
     """Apply BLUEPRINT: the console compiles it against the live registry
-    and submits the CRs; the operator converges them."""
+    and submits the CRs; the operator converges them, and this waits until
+    it has — the company is live only once OPA serves its policy."""
     client = _client()
     text = blueprint.read_text()
     diff = _call(client.preview, text)["diff"]
@@ -194,6 +207,39 @@ def apply(
         f"applied {result['company']}: {result['created']} created,"
         f" {result['updated']} updated ({result['rule']})"
     )
+    if wait:
+        _await_converged(client, int(result.get("generation", 0)), wait_timeout)
+
+
+def _await_converged(client: ConsoleClient, generation: int, timeout_s: int) -> None:
+    """Poll the company's phase until it reads `converged` for at least the
+    generation this apply made; say so, with the time it took, or say
+    where to look when it does not come."""
+    started = time.monotonic()
+    said_activating = False
+    while True:
+        state = _call(client.company)
+        if state["phase"] == "converged" and state["observedGeneration"] >= generation:
+            typer.echo(f"converged ({int(time.monotonic() - started)}s)")
+            return
+        if not said_activating:
+            typer.echo("activating …", err=True)
+            said_activating = True
+        if time.monotonic() - started >= timeout_s:
+            typer.echo(
+                f"still {state['phase']} after {timeout_s}s"
+                + (f": {state['message']}" if state.get("message") else "")
+                + " — `poseidon company show`, or `kubectl get company`",
+                err=True,
+            )
+            raise typer.Exit(1)
+        time.sleep(2)
+
+
+@company_app.command("show")
+def company_show() -> None:
+    """The applied company as its CR tells it: phase, generation, bundle."""
+    _show(_call(_client().company))
 
 
 @company_app.command("delete")
@@ -265,8 +311,6 @@ def _await_run(client: ConsoleClient, run_id: str) -> dict[str, Any]:
     """Follow the run to its end, printing its rows as they land. The
     worker writes the run's row a moment after the start is accepted, so
     "no such run" is "not yet" within the grace, and a refusal after it."""
-    import time
-
     born = time.monotonic()
     record: dict[str, Any] = {}
 

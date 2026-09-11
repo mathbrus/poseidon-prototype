@@ -98,8 +98,9 @@ class ConsoleService:
         instances: AgentInstances,
         companies: Companies,
         workflows: Workflows,
-        submit_crs: Callable[[DeploymentPlan], tuple[int, int]],
+        submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]],
         delete_company: Callable[[str], None],
+        read_company: Callable[[], dict[str, Any] | None],
         clock: Callable[[], str],
     ) -> None:
         self._settings = settings
@@ -111,6 +112,7 @@ class ConsoleService:
         self._workflows = workflows
         self._submit = submit_crs
         self._delete = delete_company
+        self._read_company = read_company
         self._clock = clock
         self._log = get_logger("console")
 
@@ -273,14 +275,25 @@ class ConsoleService:
             company=plan.company.name,
             bootstrap_rule=BOOTSTRAP_RULE,
         )
-        created, updated = await asyncio.to_thread(self._submit, plan)
+        created, updated, generation = await asyncio.to_thread(self._submit, plan)
         return {
+            "generation": generation,
             "company": plan.company.name,
             "created": created,
             "updated": updated,
             "diff": diff_plan(plan, snapshot).as_text(),
             "rule": decision["rule"],
         }
+
+    async def company(self) -> dict[str, Any]:
+        """The applied company as the Company CR tells it: its phase
+        (`activating` until OPA serves the stored bundles, `converged`
+        after), the generation that phase answers for, the bundle
+        revision. What `apply` waits on, and what `company show` prints."""
+        state = await asyncio.to_thread(self._read_company)
+        if state is None:
+            raise NoCompany("no company is applied")
+        return state
 
     async def delete(self, identity: Identity, reason: str) -> dict[str, Any]:
         """Stop the company: the one stop there is. Decided and audited

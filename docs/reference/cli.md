@@ -33,11 +33,18 @@ uv run poseidon blueprint new company.yaml --force       # a path of your own; o
 The human's acts are the charter and the gates:
 
 ```bash
-uv run poseidon blueprint apply company.yaml --yes       # the charter: vision, caps, gates, humans
+uv run poseidon blueprint apply company.yaml --yes       # the charter: vision, caps, gates, humans; returns once converged
 uv run poseidon signal <run_id> merge                    # approve a parked merge
 uv run poseidon signal <run_id> merge --no-approved      # reject it
 uv run poseidon signal <run_id> budget                   # raise a cap the run stopped at
 ```
+
+`apply` returns once the company is **converged** — the operator's word
+that OPA serves the policy this apply compiled — printing `activating …`
+while it waits and `converged (Ns)` when it is; `--no-wait` returns after
+the submit, and a company still activating at `--wait-timeout` exits
+non-zero and says where to look. `company show` prints the same phase,
+generation and bundle revision from the Company CR at any time.
 
 A verdict is recorded under your name before it is delivered, and the
 release reads the record: the same command by a person the blueprint's

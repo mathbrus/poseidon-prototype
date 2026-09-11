@@ -68,6 +68,19 @@ class Console:
                     "created": 0,
                     "updated": 1,
                     "rule": "blueprint_apply",
+                    "generation": 3,
+                },
+            ),
+            ("GET", "/company"): (
+                200,
+                {
+                    "company": "hello-saas",
+                    "namespace": "poseidon-company",
+                    "generation": 3,
+                    "phase": "converged",
+                    "observedGeneration": 3,
+                    "bundleRevision": "r3",
+                    "message": "",
                 },
             ),
         }
@@ -193,10 +206,61 @@ def test_company_delete_asks_before_acting(runner, console):
     assert ("DELETE", "/company") not in [(m, p) for m, p, _, _ in console.requests]
 
 
+def test_apply_waits_for_converged_and_says_so(runner, console, tmp_path, monkeypatch):
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+    blueprint = tmp_path / "company.yaml"
+    blueprint.write_text("company: {name: hello-saas}\n")
+    # The first read still says activating for an older generation.
+    stale = dict(
+        console.answers[("GET", "/company")][1], phase="activating", observedGeneration=2
+    )
+    answers = iter([(200, stale), console.answers[("GET", "/company")]])
+    original = console.handler
+
+    def handler(request):
+        if request.url.path == "/company":
+            status, payload = next(answers)
+            console.requests.append(("GET", "/company", None, ""))
+            return httpx.Response(status, json=payload)
+        return original(request)
+
+    monkeypatch.setattr(console, "handler", handler)
+    result = runner.invoke(cli.app, ["blueprint", "apply", str(blueprint), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "activating" in result.output and "converged (" in result.output
+    assert [path for _, path, _, _ in console.requests].count("/company") == 2
+
+
+def test_apply_gives_up_after_the_wait_timeout(runner, console, tmp_path):
+    blueprint = tmp_path / "company.yaml"
+    blueprint.write_text("company: {name: hello-saas}\n")
+    console.answers[("GET", "/company")] = (
+        200,
+        dict(
+            console.answers[("GET", "/company")][1],
+            phase="activating",
+            observedGeneration=0,
+        ),
+    )
+    result = runner.invoke(
+        cli.app, ["blueprint", "apply", str(blueprint), "--yes", "--wait-timeout", "0"]
+    )
+    assert result.exit_code == 1
+    assert "still activating" in result.output and "company show" in result.output
+
+
+def test_company_show_prints_the_crs_phase(runner, console):
+    result = runner.invoke(cli.app, ["company", "show"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["phase"] == "converged"
+
+
 def test_apply_previews_first_and_applies_with_yes(runner, console, tmp_path):
     blueprint = tmp_path / "company.yaml"
     blueprint.write_text("company: {name: hello-saas}\n")
-    result = runner.invoke(cli.app, ["blueprint", "apply", str(blueprint), "--yes"])
+    result = runner.invoke(
+        cli.app, ["blueprint", "apply", str(blueprint), "--yes", "--no-wait"]
+    )
     assert result.exit_code == 0, result.output
     assert [path for _, path, _, _ in console.requests] == [
         "/blueprint/preview",

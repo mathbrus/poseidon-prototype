@@ -53,32 +53,36 @@ cluster work), creates the kind cluster, installs Calico (kind's default
 CNI does **not** enforce NetworkPolicy, which would make containment tests
 pass vacuously), builds and side-loads the nine images, installs the chart
 and Temporal, applies the CRDs, and applies the blueprint through the
-console as the first human it names. It prints nine numbered steps with
-the time each took and the facts that matter — the company, its humans,
-its repository, which brain (the mock, or a paid model marked as such) —
-and keeps what the tools print in `deploy/kind/kind-up.log`, whose tail it
-shows when a step fails; `VERBOSE=1` streams it all instead. A cluster hosts one company, in the
-fixed namespace `poseidon-company`: to bring up another, delete the
-current one first. The token it applied with is saved for you, a week
-long, in your config directory (`~/.config/poseidon/token`), and every
-`poseidon` command reads it there when `POSEIDON_TOKEN` is unset:
+console as the first human it names, waiting until the company is
+converged. A cluster hosts one company, in the fixed namespace
+`poseidon-company`: to bring up another, delete the current one first
+(`poseidon company delete`).
+
+It prints nine numbered steps with the time each took and the facts that
+matter — the company, its humans, its repository, which brain (the mock,
+or a paid model marked as such) — and keeps what the tools print in
+`deploy/kind/kind-up.log`, whose tail it shows when a step fails;
+`VERBOSE=1` streams it all instead.
+
+The token it applied with is saved for you, a week long, in your config
+directory (`~/.config/poseidon/token`), and every `poseidon` command reads
+it there when `POSEIDON_TOKEN` is unset:
 
 ```bash
 uv run poseidon whoami
 ```
 
-To act as another human the chart declares, mint a token of your own and
-export it; the environment wins over the file:
+Every `poseidon` command from here on is a call to the console — the one
+service a person acts on a company through — under that name; nothing
+else is needed on your machine: no port-forward, no database address, no
+cluster credentials in the CLI. To act as another human the chart
+declares (on kind: the blueprint's humans, plus `auditor`), mint a token
+of your own with the kubeconfig you already hold and export it; the
+environment wins over the file:
 
 ```bash
 export POSEIDON_TOKEN=$(uv run poseidon login auditor)
 ```
-
-Every `poseidon` command from here on is a call to the console — the one
-service a person acts on a company through — under that name. `login`
-mints the token with the kubeconfig you already hold, for the human the
-chart declares (`owner` on kind); nothing else is needed on your machine:
-no port-forward, no database address, no cluster credentials in the CLI.
 
 !!! tip "This costs nothing to run"
     The cluster deploys the deterministic mock brain by default, so the
@@ -168,7 +172,7 @@ terminal game — and applies the same way.
 
 ```bash
 BLUEPRINT=company.yaml deploy/kind/kind-up.sh   # on a fresh cluster, or
-uv run poseidon blueprint apply company.yaml --yes   # on one that hosts this company
+uv run poseidon blueprint apply company.yaml --yes   # on one that hosts this company; returns once converged
 uv run poseidon heartbeat state
 ```
 

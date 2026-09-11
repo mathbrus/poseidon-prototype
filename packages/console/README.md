@@ -23,8 +23,8 @@ blueprint's `company.humans`, asked per act.
 | `app.py` | The FastAPI app and its route table (`ROUTES`, rendered into [the console reference](../../docs/reference/console.md)); the shared auth middleware; the error shapes (403 with the denying rule, 422 for what cannot be acted on, 503 when Temporal is unreachable). |
 | `service.py` | Every act as verify → decide → do → audit, and the reads beside them. The bootstrap rule for a company's first apply. |
 | `temporal.py` | The Temporal client: start, signal, cancel, inspect — addressed by `common.workflows`, shared with the worker. |
-| `crs.py` | The blueprint apply: the Company and AgentInstance CRs, and nothing else — every real object is the operator's. |
-| `config.py` | `ConsoleSettings`: the company, OPA, Temporal, the declared humans. |
+| `crs.py` | The console's only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company — every real object is the operator's. |
+| `config.py` | `ConsoleSettings`: OPA, Temporal, the declared humans. Which company the cluster hosts is read from the registry, never configured. |
 
 ## The acts
 

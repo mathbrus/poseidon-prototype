@@ -36,6 +36,7 @@ uv run poseidon run 42                                   # a run by hand on tick
 uv run poseidon review 41                                # or on pull request #41
 uv run poseidon follow                                   # watch every row land, and the spend move
 uv run poseidon follow --run <run_id>                    # one run's rows
+uv run poseidon company show                             # phase, generation, bundle revision, from the CR
 uv run poseidon company delete --reason "why"            # the one stop: cancel runs, delete the company
 ```
 
@@ -48,7 +49,7 @@ at docs build time; the routes beneath them are on [the console reference](../..
 |---|---|
 | `client.py` | `ConsoleClient`: one method per console route; `PolicyDenied` (403, with the rule) and `ConsoleError` (everything else). |
 | `new.py` | `blueprint new`: the questionnaire (a small prompter protocol; questionary on a terminal, a script in tests), the document it builds, the file it renders, the compile it runs first. |
-| `main.py` | The typer app: `login`, `whoami`, `blueprint new\|preview\|apply`, `run`, `review`, `signal`, `cancel`, `status`, `story`, `spend`, `follow`, `heartbeat state\|wake`, `company delete`. |
+| `main.py` | The typer app: `login`, `whoami`, `blueprint new\|preview\|apply`, `run`, `review`, `signal`, `cancel`, `status`, `story`, `spend`, `follow`, `heartbeat state\|wake`, `company show\|delete`; `apply` waits for `converged`. |
 | `follow.py` | The follower: one line per audit row, the serial id as the cursor, spend when it moves; `run` follows its own run through it. |
 
 ## Tests

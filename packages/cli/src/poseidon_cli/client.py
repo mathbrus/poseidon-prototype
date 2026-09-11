@@ -126,6 +126,9 @@ class ConsoleClient:
     def apply(self, blueprint: str) -> dict[str, Any]:
         return self._call("POST", "/blueprint/apply", json={"blueprint": blueprint})
 
+    def company(self) -> dict[str, Any]:
+        return self._call("GET", "/company")
+
     def delete_company(self, reason: str = "") -> dict[str, Any]:
         return self._call("DELETE", "/company", json={"reason": reason})
 
