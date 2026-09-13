@@ -26,7 +26,8 @@ def render(row: dict[str, Any]) -> str:
     """One row, one line: the time, the run (or `heartbeat`), who acted,
     the tool, the decision, and the rule when it names why — a denial,
     or a tick that ended on one. Rows carry a digest of the arguments,
-    never the arguments, so a line names the tool and no more."""
+    never the arguments, so a line names the tool and no more — except
+    the actor's stated rationale, which follows on its own line."""
     when = str(row.get("ts", ""))[11:19] or "--:--:--"
     run_id = str(row.get("run_id", ""))
     where = "heartbeat" if run_id.startswith(HEARTBEAT_PREFIX) else (run_id or "-")
@@ -39,7 +40,9 @@ def render(row: dict[str, Any]) -> str:
         # names it, the row (`--json`) has all of it.
         short = rule if len(rule) <= RULE_WIDTH else rule[: RULE_WIDTH - 1] + "…"
         verdict = f"{decision} ({short})"
-    return f"{when}  {where:<28}  {who:<26}  {row.get('tool', '')}  {verdict}"
+    line = f"{when}  {where:<28}  {who:<26}  {row.get('tool', '')}  {verdict}"
+    rationale = str(row.get("rationale") or "").strip()
+    return f"{line}\n{' ' * 10}{rationale}" if rationale else line
 
 
 def spend_line(spend: dict[str, Any], previous: float | None) -> str | None:

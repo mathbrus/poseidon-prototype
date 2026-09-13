@@ -27,7 +27,7 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
-from common.audit import args_digest
+from common.audit import RATIONALE_LIMIT, args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
 from common.policy import HEARTBEAT_START, HEARTBEAT_TICK
@@ -42,7 +42,12 @@ from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import PROFILES
 from registry import AgentInstances, AuditStore, Companies, Runs
 
-RATIONALE_CLIP = 300
+# The run row's error column is a label for a human reading the runs
+# table, not a log; a failed decision's message is cut to fit.
+ERROR_CLIP = 300
+# The row a valid decision writes: `rule` names that the platform's
+# structural checks passed, the rationale beside it is the PM's own.
+DECISION_VALID = "decision_valid"
 
 # The workflow's name, as the registry, the audit ledger and the policy
 # input all see it.
@@ -67,6 +72,7 @@ async def emit_heartbeat_event(
     digest: str,
     decision: str,
     rule: str,
+    rationale: str | None = None,
     latency_ms: int = 0,
     workflow: str = WORKFLOW,
 ) -> None:
@@ -79,6 +85,7 @@ async def emit_heartbeat_event(
         digest=digest,
         decision=decision,
         rule=rule,
+        rationale=rationale,
         company=company,
         workflow=workflow,
         latency_ms=latency_ms,
@@ -167,23 +174,29 @@ class HeartbeatActivities:
                     f"decide dispatch failed: {status.get('error') or 'no decision'}",
                     non_retryable=True,
                 )
-            problem = self._invalid_reason(
+            refusal = self._invalid_reason(
                 decision, observed, may_start, max_open_tickets
             )
-            rationale = str(decision.get("rationale") or "")[:RATIONALE_CLIP]
+            # The row: a refusal is named by its rule and owes no
+            # rationale; a valid decision carries the PM's own reason.
             await self._emit(
                 run_id=heartbeat_run_id(self._company()),
                 tool="heartbeat.decide",
                 digest=args_digest(decision),
-                decision="deny" if problem else "allow",
-                rule=problem or rationale,
+                decision="deny" if refusal else "allow",
+                rule=refusal[0] if refusal else DECISION_VALID,
+                rationale=None
+                if refusal
+                else str(decision.get("rationale") or "")[:RATIONALE_LIMIT],
             )
-            if problem:
-                raise ApplicationError(f"decision refused: {problem}", non_retryable=True)
+            if refusal:
+                raise ApplicationError(
+                    f"decision refused: {refusal[1]}", non_retryable=True
+                )
             self._log.info("heartbeat decision", extra=decision)
             return decision
         except BaseException as exc:
-            terminal, terminal_error = "failed", str(exc)[:RATIONALE_CLIP]
+            terminal, terminal_error = "failed", str(exc)[:ERROR_CLIP]
             raise
         finally:
             # Tidy the decision row on every exit. A started child reclaims
@@ -200,17 +213,18 @@ class HeartbeatActivities:
         observed: dict[str, Any],
         may_start: list[str],
         max_open_tickets: int,
-    ) -> str | None:
+    ) -> tuple[str, str] | None:
         """Structural containment for the decide reply: a closed action
         set, targets only from the observation, no scoping before the
         documents exist or at the cap. A poisoned ticket title or document
         can steer the choice between candidates, never mint a new one or
-        flood the backlog."""
+        flood the backlog. A refusal is `(rule, message)`: the rule names
+        it on the audit row, the message says it to a reader of the run."""
         action, target = decision.get("action"), decision.get("target")
         if action == "idle":
             return None
         if action not in may_start:
-            return f"action {action!r} is not in may_start"
+            return "not_in_may_start", f"action {action!r} is not in may_start"
         if action == "scope":
             absent = [
                 name
@@ -219,12 +233,14 @@ class HeartbeatActivities:
             ]
             if absent:
                 return (
-                    f"scope refused: {', '.join(sorted(absent))} absent on the base ref"
+                    "documents_absent",
+                    f"scope refused: {', '.join(sorted(absent))} absent on the base ref",
                 )
             if int(observed["open_tickets"]) >= max_open_tickets:
                 return (
+                    "max_open_tickets_reached",
                     f"scope refused: {observed['open_tickets']} open tickets"
-                    f" reach max_open_tickets={max_open_tickets}"
+                    f" reach max_open_tickets={max_open_tickets}",
                 )
             return None
         candidates = {
@@ -232,7 +248,7 @@ class HeartbeatActivities:
             "review": {p["number"] for p in observed.get("reviewable_prs") or []},
         }.get(action, set())
         if target not in candidates:
-            return f"{action} #{target} is not in the observation"
+            return "target_not_observed", f"{action} #{target} is not in the observation"
         return None
 
     @activity.defn(name="heartbeat_authorize")
@@ -313,6 +329,7 @@ class HeartbeatActivities:
         digest: str,
         decision: str,
         rule: str,
+        rationale: str | None = None,
         latency_ms: int = 0,
         workflow: str = WORKFLOW,
     ) -> None:
@@ -324,6 +341,7 @@ class HeartbeatActivities:
             digest=digest,
             decision=decision,
             rule=rule,
+            rationale=rationale,
             latency_ms=latency_ms,
             workflow=workflow,
         )

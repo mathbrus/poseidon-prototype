@@ -57,6 +57,22 @@ def test_a_denial_and_a_tick_say_their_rule():
     assert "  heartbeat  " in tick and tick.endswith("allow (max_concurrent_runs)")
 
 
+def test_a_rationale_follows_its_row_on_its_own_line():
+    """The one cleartext field: the actor's stated reason, under the row."""
+    decided = render(
+        row(
+            run_id="heartbeat-hello-saas",
+            tool="heartbeat.decide",
+            rule="decision_valid",
+            rationale="finish the open review before starting new work",
+        )
+    )
+    first, second = decided.split("\n")
+    assert first.endswith("heartbeat.decide  allow (decision_valid)")
+    assert second.strip() == "finish the open review before starting new work"
+    assert "\n" not in render(row(rationale=None))
+
+
 def test_spend_prints_once_and_then_only_when_it_moves():
     assert spend_line({"usd": 0.0}, None) == "spend   $0.00 total"
     assert spend_line({"usd": 0.0}, 0.0) is None

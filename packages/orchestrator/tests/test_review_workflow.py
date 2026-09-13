@@ -62,7 +62,7 @@ def dispatch_result(**overrides: Any) -> dict[str, Any]:
         "error": None,
         "comment_urls": ["https://pr/41#c-1"],
         "verdict": "pass",
-        "verdict_summary": "Suite green; in scope.",
+        "verdict_rationale": "Suite green; in scope.",
     }
     result.update(overrides)
     return result
@@ -215,9 +215,9 @@ class Harness:
 
         @activity.defn(name="record_verdict")
         async def record_verdict(
-            run_id: str, verdict: str, summary: str, workflow_id: str
+            run_id: str, verdict: str, rationale: str, workflow_id: str
         ) -> None:
-            harness.verdicts.append((verdict, summary))
+            harness.verdicts.append((verdict, rationale))
 
         @activity.defn(name="platform_verify")
         async def platform_verify(
@@ -430,7 +430,7 @@ async def test_green_checks_with_a_fail_verdict_merge_nothing(env):
     short-circuits before the platform spends a verify run on it."""
     harness = Harness(
         merge_gate=POLICY_GATE,
-        dispatch=dispatch_result(verdict="fail", verdict_summary="Blocking."),
+        dispatch=dispatch_result(verdict="fail", verdict_rationale="Blocking."),
     )
     record = await run_review(env.client, harness)
 
@@ -725,7 +725,7 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
     a rejection, which fails the run honestly with nothing merged."""
     harness = Harness(
         merge_gate=POLICY_GATE,
-        dispatch=dispatch_result(verdict="fail", verdict_summary="Still blocking."),
+        dispatch=dispatch_result(verdict="fail", verdict_rationale="Still blocking."),
         depth={"depth": 2, "root_pr": 38},
     )
     worker, handle = await start_review(env.client, harness)

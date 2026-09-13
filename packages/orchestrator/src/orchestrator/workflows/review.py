@@ -166,7 +166,7 @@ class ReviewWorkflow(RunWorkflow):
                 pr,
                 gate,
                 "review verdict failed",
-                result.get("verdict_summary") or "",
+                result.get("verdict_rationale") or "",
             )
         # The platform's own run of the suite in the review sandbox — the
         # same activity that gates implement delivery: one verification
@@ -438,7 +438,7 @@ class ReviewWorkflow(RunWorkflow):
                 args=[
                     input.run_id,
                     result["verdict"],
-                    result.get("verdict_summary") or "",
+                    result.get("verdict_rationale") or "",
                     workflow.info().workflow_id,
                 ],
                 start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),

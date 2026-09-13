@@ -812,7 +812,7 @@ def _review_completion(messages: list[dict[str, Any]]) -> MockCompletion:
                     "verdict",
                     {
                         "verdict": "pass",
-                        "summary": "Prior QA approval on file; no re-run needed.",
+                        "rationale": "Prior QA approval on file; no re-run needed.",
                     },
                 )
             )
@@ -821,7 +821,7 @@ def _review_completion(messages: list[dict[str, Any]]) -> MockCompletion:
                 "verdict",
                 {
                     "verdict": "pass",
-                    "summary": "Suite green in the review sandbox; change "
+                    "rationale": "Suite green in the review sandbox; change "
                     "matches the acceptance criteria.",
                 },
             )

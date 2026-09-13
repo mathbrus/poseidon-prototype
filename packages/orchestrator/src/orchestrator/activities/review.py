@@ -45,7 +45,7 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from common.audit import args_digest
+from common.audit import RATIONALE_LIMIT, args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
 from common.policy import MERGE_RESOLVE
@@ -246,6 +246,7 @@ class ReviewActivities:
         rule: str,
         source: str,
         workflow_id: str,
+        rationale: str | None = None,
         latency_ms: int = 0,
     ) -> None:
         """Append-only, so a retried append duplicates a row, never loses
@@ -257,6 +258,7 @@ class ReviewActivities:
             digest=args_digest(payload),
             decision=decision,
             rule=rule,
+            rationale=rationale,
             source=source,
             company=self._company(),
             workflow=workflow_id,
@@ -265,22 +267,23 @@ class ReviewActivities:
 
     @activity.defn(name="record_verdict")
     async def record_verdict(
-        self, run_id: str, verdict: str, summary: str, workflow_id: str
+        self, run_id: str, verdict: str, rationale: str, workflow_id: str
     ) -> None:
         """One `source=process-lifecycle` audit event journaling the
         reviewer's structured verdict — the heartbeat.decide idiom: the
-        judgement and its one-line why become an append-only row in the
-        run's story, distinct from the gate outcome that acts on it. The
-        verdict also lands on the run row: the fact that this review
-        *concluded*, which is what keeps its PR off the heartbeat's
-        backlog whatever the gate then decides."""
+        judgement and the reviewer's own reason for it become an
+        append-only row in the run's story, distinct from the gate outcome
+        that acts on it. The verdict also lands on the run row: the fact
+        that this review *concluded*, which is what keeps its PR off the
+        heartbeat's backlog whatever the gate then decides."""
         await asyncio.to_thread(self._runs.record_verdict, run_id, verdict)
         await self._append_event(
             run_id=run_id,
             tool="review.verdict",
-            payload={"verdict": verdict, "summary": summary},
+            payload={"verdict": verdict, "rationale": rationale},
             decision="allow" if verdict == "pass" else "deny",
-            rule=summary[:300],
+            rule=f"verdict_{verdict}",
+            rationale=rationale[:RATIONALE_LIMIT],
             source="process-lifecycle",
             workflow_id=workflow_id,
         )

@@ -121,7 +121,7 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
                     body="Suite green in the review sandbox; no findings.",
                 )
             ),
-            calls(tc("verdict", verdict="pass", summary="Suite green; in scope.")),
+            calls(tc("verdict", verdict="pass", rationale="Suite green; in scope.")),
             says("Verdict recorded."),
         ]
     )
@@ -132,7 +132,7 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
     assert result.error is None
     assert result.comment_urls == [COMMENT_URL]
     assert result.verdict == "pass"
-    assert result.verdict_summary == "Suite green; in scope."
+    assert result.verdict_rationale == "Suite green; in scope."
     assert gateway.tools_called() == [
         "sandbox.list_dir",
         "git.read",
@@ -591,7 +591,7 @@ def test_a_reviewers_architecture_request_is_a_ticket_of_the_run(settings, gatew
         result = run_review(settings, RUN_ID, "Review pull request #41")
     assert result.error == "reviewer finished without a verdict"
     assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
-    verdict = tc("verdict", verdict="fail", summary="Contradicts the plan; requested.")
+    verdict = tc("verdict", verdict="fail", rationale="Contradicts the plan; requested.")
     with scripted(
         gateway, ScriptedLLM([calls(request, findings, verdict), says("Done.")])
     ):

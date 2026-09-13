@@ -86,7 +86,7 @@ class ToolRecords:
     # pass/fail; what a verdict releases is the platform's decision, made
     # against compiled policy — never this record's.
     verdict: str | None = None
-    verdict_summary: str | None = None
+    verdict_rationale: str | None = None
 
 
 @dataclass
@@ -209,7 +209,11 @@ class VerdictAction(Action):
     verdict: Literal["pass", "fail"] = Field(
         description="Your judgement of the change: pass or fail."
     )
-    summary: str = Field(description="One line grounding the verdict in your findings.")
+    rationale: str = Field(
+        description="Your reason for the verdict, grounded in your findings: a few "
+        "sentences at most. It is recorded beside the verdict and read back in "
+        "the run's story."
+    )
 
 
 class GatewayObservation(Observation):
@@ -349,7 +353,7 @@ def _verdict(ctx: HandsContext, a: VerdictAction) -> dict[str, Any]:
     side effect, so there is nothing for the gateway to mediate. It is
     captured here like every other record — never parsed out of prose."""
     ctx.records.verdict = a.verdict
-    ctx.records.verdict_summary = a.summary
+    ctx.records.verdict_rationale = a.rationale
     return {"recorded": a.verdict}
 
 
@@ -483,7 +487,7 @@ _TOOLS: dict[str, ToolSpec] = {
     ),
     "verdict": ToolSpec(
         "Deliver your verdict on the pull request after posting your "
-        "findings: pass or fail, with a one-line summary. A review without "
+        "findings: pass or fail, with your rationale. A review without "
         "a verdict is a failed dispatch.",
         VerdictAction,
         _verdict,
