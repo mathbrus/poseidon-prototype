@@ -339,7 +339,13 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
             for tool, args in (
                 (
                     "issues.create",
-                    {"run_id": run_id, "repo": repo, "title": "x", "body": "y"},
+                    {
+                        "run_id": run_id,
+                        "repo": repo,
+                        "title": "x",
+                        "body": "y",
+                        "rationale": "red-team: probing the allowlist",
+                    },
                 ),
                 ("git.merge_pr", {"run_id": run_id, "repo": repo, "number": 1}),
             ):

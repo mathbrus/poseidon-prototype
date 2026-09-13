@@ -232,6 +232,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                     "repo": env["TARGET_REPO"],
                     "title": "x",
                     "body": "x",
+                    "rationale": "red-team: probing the allowlist",
                 },
             )
             assert denied.isError and "default_deny" in denied.content[0].text
