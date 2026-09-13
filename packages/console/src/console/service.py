@@ -474,8 +474,12 @@ class ConsoleService:
             for r in records
         ]
 
-    async def story(self, run_id: str) -> list[dict[str, Any]]:
-        return _jsonable(await asyncio.to_thread(self._audit.story, run_id))
+    async def story(self, run_id: str, decisions: bool = False) -> list[dict[str, Any]]:
+        """The run's audit rows in order; with `decisions`, only those that
+        carry a rationale — the choices and their reasons."""
+        return _jsonable(
+            await asyncio.to_thread(self._audit.story, run_id, None, decisions)
+        )
 
     async def events(self, after: int, run_id: str | None, limit: int) -> dict[str, Any]:
         """The company's audit rows above a cursor, in id order, with the

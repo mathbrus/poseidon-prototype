@@ -40,12 +40,12 @@ Your job is two acts: keep the charter (edit the blueprint, re-apply) and
 answer merge gates. Watch it work:
 
 ```bash
-uv run poseidon heartbeat state                          # the standing workflow and its ticks
+uv run poseidon heartbeat show                           # the standing workflow and its ticks
 kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
 ```
 
 Narrowing `heartbeat.may_start` keeps a step for an operator: a company
-that may not `implement` on its own waits for `poseidon run <number>`.
+that may not `implement` on its own waits for `poseidon start implement <number>`.
 Removing the section is not a state — it does not compile. To stop the
 company, delete it — `poseidon company delete`, a console act under your
 name that cancels its runs first: the loop reads no applied blueprint at

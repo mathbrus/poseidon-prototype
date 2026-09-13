@@ -88,7 +88,7 @@ slice yields no ticket, and that is a valid outcome.
 ## Fulfilment: a crew and a sandbox
 
 The heartbeat starts an implement run on a ticket (an operator can too,
-by hand — `poseidon run <number>` — to reproduce one). Fulfilment then:
+by hand — `poseidon start implement <number>` — to reproduce one). Fulfilment then:
 
 1. **Wins the compiled `crew.request` decision as the conductor.** The
    ticket's `Crew:` trailer names the crew; the decision narrows it to the

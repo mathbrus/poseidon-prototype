@@ -161,7 +161,7 @@ def test_follow_prints_each_row_once_and_resumes_from_the_cursor():
     ]
 
 
-def test_run_follows_its_own_rows_to_the_end(monkeypatch):
+def test_start_follows_its_own_rows_to_the_end(monkeypatch):
     done = {
         "run_id": "run-01J",
         "status": "done",
@@ -180,7 +180,7 @@ def test_run_follows_its_own_rows_to_the_end(monkeypatch):
         original(self, base_url, token, httpx.MockTransport(scripted.handler), timeout)
 
     monkeypatch.setattr(cli.ConsoleClient, "__init__", patched)
-    result = CliRunner().invoke(cli.app, ["run", "42"])
+    result = CliRunner().invoke(cli.app, ["start", "implement", "42"])
     assert result.exit_code == 0, result.output
     assert render(row(id=7)) in result.output and '"status": "done"' in result.output
     assert "/events?after=0&limit=200&run=run-01J" in scripted.asked

@@ -21,6 +21,7 @@ import httpx
 import pytest
 import yaml
 
+from common.audit import AuditEvent
 from common.authn import Principal
 from common.opa import NO_POLICY
 from common.topology import PLATFORM_NAMESPACE
@@ -636,6 +637,41 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
 
     world.companies.delete(COMPANY)
     assert (await client.get("/events", headers=as_owner())).status_code == 404
+
+
+async def test_a_decisions_story_is_the_rows_with_a_rationale(client, world):
+    """`?decisions=true` reads the choices and their reasons alone: the
+    verdict a person recorded, not the tool calls around it."""
+    a_review_run(world)
+    world.audit.append(
+        AuditEvent(
+            ts="2026-01-01T00:00:00+00:00",
+            run_id=RUN_ID,
+            agent_id="reviewer-1",
+            role="reviewer",
+            tool="git.read",
+            args_digest="d",
+            decision="allow",
+            rule="crew_feature_review_reviewer_git.read",
+            latency_ms=1,
+            backend_status="ok",
+            source="gateway",
+            company=COMPANY,
+        )
+    )
+    await client.post(
+        f"/runs/{RUN_ID}/gates/merge",
+        json={"approved": True, "reason": "clean findings"},
+        headers=as_owner(),
+    )
+    everything = (await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())).json()
+    decisions = (
+        await client.get(f"/runs/{RUN_ID}/story?decisions=true", headers=as_owner())
+    ).json()
+    assert [e["tool"] for e in everything] == ["git.read", "gate.resolve"]
+    assert [(e["tool"], e["rationale"]) for e in decisions] == [
+        ("gate.resolve", "clean findings")
+    ]
 
 
 async def test_a_story_is_the_runs_events_in_order(client, world):

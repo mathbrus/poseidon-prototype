@@ -26,14 +26,16 @@ uv run poseidon blueprint new                            # a blueprint of your o
 uv run poseidon blueprint preview examples/hello-saas.yaml
 uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 
-uv run poseidon signal <run_id> merge                    # approve a parked merge
-uv run poseidon signal <run_id> merge --no-approved      # reject it
-uv run poseidon signal <run_id> budget                   # let a run continue past its pause
-uv run poseidon status <run_id>
-uv run poseidon story <run_id>
-uv run poseidon heartbeat state
-uv run poseidon run 42                                   # a run by hand on ticket #42
-uv run poseidon review 41                                # or on pull request #41
+uv run poseidon verdict <run_id> merge approve --reason "…"   # approve a parked merge
+uv run poseidon verdict <run_id> merge reject --reason "…"    # reject it
+uv run poseidon verdict <run_id> budget approve --reason "…"  # let a run continue past its pause
+uv run poseidon runs
+uv run poseidon run show <run_id>
+uv run poseidon run story <run_id> [--decisions]
+uv run poseidon spend [<run_id>]
+uv run poseidon heartbeat show
+uv run poseidon start implement 42                       # a run by hand on ticket #42
+uv run poseidon start review 41                          # or on pull request #41
 uv run poseidon follow                                   # watch every row land, and the spend move
 uv run poseidon follow --run <run_id>                    # one run's rows
 uv run poseidon company show                             # phase, generation, bundle revision, from the CR
@@ -49,8 +51,8 @@ at docs build time; the routes beneath them are on [the console reference](../..
 |---|---|
 | `client.py` | `ConsoleClient`: one method per console route; `PolicyDenied` (403, with the rule) and `ConsoleError` (everything else). |
 | `new.py` | `blueprint new`: the questionnaire (a small prompter protocol; questionary on a terminal, a script in tests), the document it builds, the file it renders, the compile it runs first. |
-| `main.py` | The typer app: `login`, `whoami`, `blueprint new\|preview\|apply`, `run`, `review`, `signal`, `cancel`, `status`, `story`, `spend`, `follow`, `heartbeat state\|wake`, `company show\|delete`; `apply` waits for `converged`. |
-| `follow.py` | The follower: one line per audit row, the serial id as the cursor, spend when it moves; `run` follows its own run through it. |
+| `main.py` | The typer app: `login`, `whoami`, `blueprint new\|preview\|apply`, `company show\|delete`, `heartbeat show\|wake`, `runs`, `run show\|story\|cancel`, `start implement\|review`, `verdict`, `follow`, `spend`; `apply` waits for `converged`. |
+| `follow.py` | The follower: one line per audit row, the serial id as the cursor, spend when it moves; `start` follows its own run through it. |
 
 ## Tests
 

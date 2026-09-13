@@ -178,23 +178,69 @@ def runner(console: Console, monkeypatch) -> CliRunner:
     return CliRunner()
 
 
-def test_signal_prints_the_recorded_verdict(runner, console):
-    result = runner.invoke(cli.app, ["signal", "run-1", "merge", "--reason", "ok"])
+def test_verdict_prints_the_recorded_verdict(runner, console):
+    result = runner.invoke(
+        cli.app, ["verdict", "run-1", "merge", "approve", "--reason", "ok"]
+    )
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["principal"] == "owner"
     assert console.requests[-1][2] == {"approved": True, "reason": "ok"}
 
 
-def test_a_verdict_needs_a_reason(runner, console):
-    result = runner.invoke(cli.app, ["signal", "run-1", "merge"])
-    assert result.exit_code == 2 and "--reason" in result.output
-    assert console.requests == []
+def test_a_verdict_is_approve_or_reject_on_a_known_gate(runner, console):
+    """The words are the glossary's, and the choice is closed: no boolean
+    flag, no gate the console does not have."""
+    console.answers[("POST", "/runs/run-1/gates/budget")] = (
+        200,
+        {"run_id": "run-1", "gate": "budget", "approved": False, "principal": "owner"},
+    )
+    rejected = runner.invoke(
+        cli.app, ["verdict", "run-1", "budget", "reject", "--reason", "no more spend"]
+    )
+    assert rejected.exit_code == 0, rejected.output
+    assert console.requests[-1][:3] == (
+        "POST",
+        "/runs/run-1/gates/budget",
+        {"approved": False, "reason": "no more spend"},
+    )
+    for args in (
+        ["verdict", "run-1", "merge", "maybe", "--reason", "x"],
+        ["verdict", "run-1", "door", "approve", "--reason", "x"],
+        ["verdict", "run-1", "merge", "approve"],
+    ):
+        result = runner.invoke(cli.app, args)
+        assert result.exit_code == 2, (args, result.output)
+    assert len(console.requests) == 1
 
 
-def test_a_denied_signal_exits_with_the_rule(runner):
-    result = runner.invoke(cli.app, ["signal", "run-2", "merge", "--reason", "ok"])
+def test_a_denied_verdict_exits_with_the_rule(runner):
+    result = runner.invoke(
+        cli.app, ["verdict", "run-2", "merge", "approve", "--reason", "ok"]
+    )
     assert result.exit_code == 1
     assert "human_not_recognized" in result.output
+
+
+def test_runs_lists_the_companys_runs(runner, console):
+    result = runner.invoke(cli.app, ["runs"])
+    assert result.exit_code == 0, result.output
+    assert [r["run_id"] for r in json.loads(result.output)] == ["run-1", "run-0"]
+
+
+def test_spend_is_the_companys_without_a_run_and_a_runs_with_one(runner, console):
+    console.answers[("GET", "/spend")] = (200, {"usd": 3.1, "entries": 4})
+    console.answers[("GET", "/runs/run-1/spend")] = (200, {"run_id": "run-1", "usd": 0.5})
+    company = runner.invoke(cli.app, ["spend"])
+    assert company.exit_code == 0 and json.loads(company.output)["usd"] == 3.1
+    one = runner.invoke(cli.app, ["spend", "run-1"])
+    assert one.exit_code == 0 and json.loads(one.output)["run_id"] == "run-1"
+    assert [p for _, p, _, _ in console.requests] == ["/spend", "/runs/run-1/spend"]
+
+
+def test_run_story_can_keep_only_the_decisions(runner, console):
+    console.answers[("GET", "/runs/run-1/story")] = (200, [])
+    runner.invoke(cli.app, ["run", "story", "run-1", "--decisions"])
+    assert console.requests[-1][:2] == ("GET", "/runs/run-1/story")
 
 
 def test_company_delete_names_the_running_runs_then_asks_the_console(runner, console):

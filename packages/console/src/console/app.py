@@ -66,7 +66,13 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
     ("POST", "/runs", "start one implement or review run by hand", "run.start"),
     ("GET", "/runs", "the company's runs since a fence (`?since=`)", ""),
     ("GET", "/runs/{run_id}", "the run record and its workflow's execution", ""),
-    ("GET", "/runs/{run_id}/story", "the run's audit story, every source", ""),
+    (
+        "GET",
+        "/runs/{run_id}/story",
+        "the run's audit story, every source; `?decisions=true` keeps the rows"
+        " carrying a rationale",
+        "",
+    ),
     ("GET", "/runs/{run_id}/spend", "the run's attributed spend", ""),
     (
         "POST",
@@ -244,8 +250,8 @@ def create_app(
         return await service.run(run_id)
 
     @app.get("/runs/{run_id}/story")
-    async def story(run_id: str) -> list[dict[str, Any]]:
-        return await service.story(run_id)
+    async def story(run_id: str, decisions: bool = False) -> list[dict[str, Any]]:
+        return await service.story(run_id, decisions)
 
     @app.get("/runs/{run_id}/spend")
     async def spend(run_id: str) -> dict[str, Any]:

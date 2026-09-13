@@ -35,9 +35,9 @@ The human's acts are the charter and the gates:
 
 ```bash
 uv run poseidon blueprint apply company.yaml --yes       # the charter: vision, caps, gates, humans; returns once converged
-uv run poseidon signal <run_id> merge --reason "…"                # approve a parked merge; the reason is recorded with the verdict
-uv run poseidon signal <run_id> merge --no-approved --reason "…"  # reject it
-uv run poseidon signal <run_id> budget --reason "…"               # let a run stopped at its cap continue
+uv run poseidon verdict <run_id> merge approve --reason "…"   # approve a parked merge; the reason is recorded with the verdict
+uv run poseidon verdict <run_id> merge reject --reason "…"    # reject it
+uv run poseidon verdict <run_id> budget approve --reason "…"  # let a run stopped at its cap continue
 ```
 
 `apply` returns once the company is **converged** — the operator's word
@@ -52,17 +52,22 @@ release reads the record: the same command by a person the blueprint's
 `company.humans` does not name is refused by policy, with the rule in the
 answer.
 
-`run` and `review` start one run by hand — an operator reproducing a run
-on a ticket the company filed or a pull request it delivered. They are not
-how work enters: nothing does, except the company's own documents. A run
-is addressed by its id alone; the run record knows its workflow.
+`start implement` and `start review` start one run by hand — an operator
+reproducing a run on a ticket the company filed or a pull request it
+delivered. They are not how work enters: nothing does, except the
+company's own documents. A run is addressed by its id alone; the run
+record knows its workflow.
 
 ```bash
-uv run poseidon run 42                                   # implement ticket #42, by hand
-uv run poseidon review <pr-number> --detach              # review PR by hand; park on the gate
-uv run poseidon status <run_id>                          # the record and its execution
-uv run poseidon story <run_id>                           # the whole audit story
-uv run poseidon heartbeat state                          # the standing loop, and its ticks
+uv run poseidon start implement 42                       # implement ticket #42, by hand, and follow it
+uv run poseidon start review <pr-number> --no-wait       # review a PR by hand; it parks on the gate
+uv run poseidon runs                                     # the company's runs
+uv run poseidon run show <run_id>                        # one run's record and its execution
+uv run poseidon run story <run_id>                       # its whole audit story
+uv run poseidon run story <run_id> --decisions           # only what was decided, and why
+uv run poseidon run cancel <run_id> --reason "…"         # stop it
+uv run poseidon spend                                    # the company's spend to date; `spend <run_id>` for one run
+uv run poseidon heartbeat show                           # the standing loop, and its ticks
 ```
 
 `follow` is the window: the company's audit rows as they land, one line
@@ -71,8 +76,9 @@ decision, and the rule when a denial or a tick names one — with the
 spend to date printed whenever it moves, until you interrupt. It reads
 the same ledger `story` reads, by the row's serial id, so an interrupted
 follow resumed with `--after` repeats nothing and skips nothing; `--run`
-narrows to one run, and `--json` gives the rows as stored. `run` and
-`review` without `--detach` follow their own run this way.
+narrows to one run, and `--json` gives the rows as stored. `start
+implement` and `start review` without `--no-wait` follow their own run
+this way.
 
 ```bash
 uv run poseidon follow                                   # everything, as it happens

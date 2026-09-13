@@ -192,6 +192,10 @@ def test_a_rationale_is_read_back_in_cleartext(registry: Registry):
         None,
     ]
     assert audit.after("hello-saas", 0)[0]["rationale"] == story[0]["rationale"]
+    # The decisions-only read keeps exactly the rows that state a reason.
+    assert [e["tool"] for e in audit.story(RUN_ID, decisions_only=True)] == [
+        "review.verdict"
+    ]
 
 
 def test_story_spans_every_source(registry: Registry):

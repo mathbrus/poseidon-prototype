@@ -231,7 +231,7 @@ and the authority every crew is fulfilled under.
 the documents, file the next slice as tickets), `implement` (a ticket),
 `review` (a delivered pull request). Narrow it and the rest is an
 operator's act: a company that may not `implement` on its own waits for
-`poseidon run <number>`.
+`poseidon start implement <number>`.
 
 `max_attempts` is what bounds an aborted run. An issue or a delivered PR
 is off the backlog while a run on it is live, once a run *concluded* it

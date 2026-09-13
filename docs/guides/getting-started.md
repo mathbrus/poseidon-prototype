@@ -176,7 +176,7 @@ terminal game — and applies the same way.
 
 ```bash
 uv run poseidon blueprint apply company.yaml --yes   # returns once converged; delete the example's company first if it is applied
-uv run poseidon heartbeat state
+uv run poseidon heartbeat show
 ```
 
 ### 1. Bootstrap
@@ -190,7 +190,7 @@ it as a pull request. Under `hello-saas.yaml` those pull requests park on
 your merge gate like any other:
 
 ```bash
-uv run poseidon signal <review_run_id> merge --reason "the strategy names a slice I want built"
+uv run poseidon verdict <review_run_id> merge approve --reason "the strategy names a slice I want built"
 ```
 
 Until both documents are on `main`, the loop refuses to scope: the first
@@ -222,8 +222,8 @@ To reproduce one run by hand — a ticket that failed, a review you want to
 watch — the operator commands start exactly the run the loop would:
 
 ```bash
-uv run poseidon run 42
-uv run poseidon review <pr-number> --detach
+uv run poseidon start implement 42
+uv run poseidon start review <pr-number> --no-wait
 ```
 
 ### 4. Review and merge
@@ -235,7 +235,7 @@ masterplan, and ends with a verdict. Under `hello-saas.yaml` the merge
 gate is yours:
 
 ```bash
-uv run poseidon signal <review_run_id> merge --reason "engine first, as the vision asks"
+uv run poseidon verdict <review_run_id> merge approve --reason "engine first, as the vision asks"
 ```
 
 The console records that verdict and your reason under your name before
@@ -243,8 +243,8 @@ it delivers the signal, and the release reads the record: policy merges
 on a recorded approval by a person the blueprint names, never on the
 signal alone.
 
-Every step is on the record: `uv run poseidon status <run_id>` for the
-run and `uv run poseidon story <run_id>` for its whole story, every source
+Every step is on the record: `uv run poseidon run show <run_id>` for the
+run and `uv run poseidon run story <run_id>` for its whole story, every source
 in order — your verdict among them.
 [Hand over the keys](hand-over.md) is where the merge becomes the
 company's too.

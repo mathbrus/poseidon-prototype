@@ -16,7 +16,7 @@ What the suite proves, and where:
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
                   leaked no identity row, no ephemeral pod, no registration
   3 SDLC          test_scope + test_review_gate (the strategy scoped into
-                  a ticket, an operator's `poseidon run <number>`, review
+                  a ticket, an operator's `poseidon start implement <number>`, review
                   with parked gate, escalation, API approval, platform
                   merge); test_verify_gate (the platform's own test run, not
                   the implementer's claim, is the gate of record);

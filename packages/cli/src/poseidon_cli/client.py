@@ -143,8 +143,9 @@ class ConsoleClient:
     def run(self, run_id: str) -> dict[str, Any]:
         return self._call("GET", f"/runs/{run_id}")
 
-    def story(self, run_id: str) -> list[dict[str, Any]]:
-        return self._call("GET", f"/runs/{run_id}/story")
+    def story(self, run_id: str, decisions: bool = False) -> list[dict[str, Any]]:
+        params = {"decisions": "true"} if decisions else None
+        return self._call("GET", f"/runs/{run_id}/story", params=params)
 
     def spend(self, run_id: str) -> dict[str, Any]:
         return self._call("GET", f"/runs/{run_id}/spend")
