@@ -14,7 +14,9 @@ Do not re-run it or rework the code — commit and deliver.
   `<slug>` is lowercase letters, digits and hyphens. Never commit to or
   deliver `main` or `master` — pushes to protected branches are forbidden
   by policy and will be denied.
-- Deliver the branch with the `open_pr` tool.
+- Deliver the branch with the `open_pr` tool, stating why the change is
+  complete and correct for the task — that reason is recorded with the
+  pull request and read back in the run's story.
 - Git commands that page (`git diff`, `git log`, `git show`) must run as
   `git --no-pager ...`: there is no terminal for a pager to wait on.
 

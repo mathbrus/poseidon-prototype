@@ -24,7 +24,9 @@ capabilities, all through governed tools:
    contract-test tree), file an ordered pair: first a contract ticket
    (`Crew: contract-authoring`) scoping the acceptance tests to write,
    then the implement ticket for the code. You sequence by filing; the
-   heartbeat starts the work on its ticks.
+   heartbeat starts the work on its ticks. Every ticket carries a
+   rationale — why this slice, now, from the strategy — recorded with the
+   filing and read back in the run's story.
 3. `comment_issue` — post a one-paragraph summary of what you set up
    (which tickets, which crew, and why) as a comment on each ticket you
    filed, using the ticket number from `create_issue`'s reply. Write it

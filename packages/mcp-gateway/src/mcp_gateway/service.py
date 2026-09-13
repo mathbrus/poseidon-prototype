@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 
-from common.audit import AuditEvent, args_digest
+from common.audit import RATIONALE_LIMIT, AuditEvent, args_digest
 from common.identity import (
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_PLATFORM,
@@ -39,7 +39,7 @@ from registry import (
     SandboxRegistrations,
 )
 from schema.catalog import STEWARDSHIP_CREW
-from schema.tools import ARCHITECTURE_REQUEST
+from schema.tools import ARCHITECTURE_REQUEST, RATIONALE_TOOLS
 
 # tool name -> sandbox tool-server route
 SANDBOX_ROUTES = {
@@ -64,6 +64,22 @@ class PolicyDenied(Exception):
 # architecture request; the run id follows, so the requesting run's
 # record and the ticket name each other.
 ARCHITECTURE_REQUEST_TITLE_PREFIX = "Architecture request from run "
+
+
+def stated_rationale(tool: str, args: dict[str, Any]) -> str | None:
+    """The caller's reason for a call that commits the company to
+    something (`RATIONALE_TOOLS`), bounded, or None for every other tool.
+    A committing call without one is malformed — refused before policy is
+    asked, like any missing argument — and the refusal says what is owed."""
+    if tool not in RATIONALE_TOOLS:
+        return None
+    stated = str(args.get("rationale") or "").strip()
+    if not stated:
+        raise ValueError(
+            f"{tool} owes a rationale: say, in a few sentences, why — it is "
+            "recorded with the call in the run's story"
+        )
+    return stated[:RATIONALE_LIMIT]
 
 
 class BackendError(Exception):
@@ -132,6 +148,7 @@ class GatewayService:
     ) -> Any:
         """Authorize `tool(args)` for `identity`, audit, then run `backend`."""
         run_id = str(args.get("run_id", ""))
+        rationale = stated_rationale(tool, args)
         started = time.monotonic()
 
         policy_input = await self._decision_input(identity, tool, args, run_id)
@@ -147,6 +164,7 @@ class GatewayService:
                 "ephemeral_parentage_missing",
                 started,
                 None,
+                rationale=rationale,
             )
             raise PolicyDenied("ephemeral_parentage_missing")
         workflow = policy_input["workflow"]
@@ -168,6 +186,7 @@ class GatewayService:
                 started,
                 None,
                 workflow,
+                rationale=rationale,
             )
             raise PolicyDenied(decision.rule)
 
@@ -184,6 +203,7 @@ class GatewayService:
                 started,
                 "error",
                 workflow,
+                rationale=rationale,
             )
             raise
         await self._audit(
@@ -196,6 +216,7 @@ class GatewayService:
             started,
             "ok",
             workflow,
+            rationale=rationale,
         )
         return result
 
@@ -341,6 +362,7 @@ class GatewayService:
         title: str,
         body: str,
         bundle_b64: str,
+        rationale: str,
     ) -> Any:
         """Verify + apply the bundle, then authorize with the changed paths.
 
@@ -356,6 +378,7 @@ class GatewayService:
             "title": title,
             "body": body,
             "bundle_b64": bundle_b64,
+            "rationale": rationale,
         }
         try:
             # The branch the change is measured and delivered against is the
@@ -432,9 +455,21 @@ class GatewayService:
         return issue
 
     async def issues_create(
-        self, identity: Identity, run_id: str, repo: str, title: str, body: str
+        self,
+        identity: Identity,
+        run_id: str,
+        repo: str,
+        title: str,
+        body: str,
+        rationale: str,
     ) -> Any:
-        args = {"run_id": run_id, "repo": repo, "title": title, "body": body}
+        args = {
+            "run_id": run_id,
+            "repo": repo,
+            "title": title,
+            "body": body,
+            "rationale": rationale,
+        }
         return await self.call(
             identity,
             "issues.create",

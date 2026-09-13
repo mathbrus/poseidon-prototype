@@ -496,7 +496,7 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
 ):
     filed: list[tuple[str, str, str, str]] = []
 
-    async def create_issue(self, run_id, repo, title, body):
+    async def create_issue(self, run_id, repo, title, body, rationale):
         filed.append((run_id, repo, title, body))
         return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
 
@@ -533,7 +533,7 @@ def test_bootstrap_files_nothing_for_a_document_present_on_re_read(
     ticket is filed and nothing is journaled — the next tick reads again."""
     filed: list[str] = []
 
-    async def create_issue(self, run_id, repo, title, body):
+    async def create_issue(self, run_id, repo, title, body, rationale):
         filed.append(title)
         return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
 

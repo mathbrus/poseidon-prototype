@@ -79,6 +79,7 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
                     branch="feature/greet",
                     title="Add greet",
                     body="Adds greet().",
+                    rationale="greet() is what the task asks for; tests green.",
                 ),
             ),
             says("Delivered."),
@@ -253,7 +254,7 @@ def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):
     never a gateway call."""
     llm = ScriptedLLM(
         [
-            calls(tc("open_pr", branch="feature/x", title="t", body="b")),
+            calls(tc("open_pr", branch="feature/x", title="t", body="b", rationale="r")),
             says("Understood — no delivery from here."),
         ]
     )
@@ -302,9 +303,11 @@ def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(settings, gat
     llm = ScriptedLLM(
         [
             # Injected-task behaviour: try to deliver straight to main.
-            calls(tc("open_pr", branch="main", title="t", body="b")),
+            calls(tc("open_pr", branch="main", title="t", body="b", rationale="r")),
             # After seeing the denial, comply with policy.
-            calls(tc("open_pr", branch="feature/greet", title="t", body="b")),
+            calls(
+                tc("open_pr", branch="feature/greet", title="t", body="b", rationale="r")
+            ),
             says("Delivered on the feature branch."),
         ]
     )

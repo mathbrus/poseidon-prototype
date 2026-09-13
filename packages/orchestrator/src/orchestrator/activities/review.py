@@ -411,7 +411,11 @@ class ReviewActivities:
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             issue = await gateway.create_issue(
-                run_id, (await self._repo())["url"], title, body
+                run_id,
+                (await self._repo())["url"],
+                title,
+                body,
+                f"{reason}: {findings}"[:RATIONALE_LIMIT],
             )
         url = str(issue.get("url") or "")
         if url:

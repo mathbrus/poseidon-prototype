@@ -48,6 +48,7 @@ async def open_pr(app, token, *, branch, bundle_b64, repo):
                 "title": "Add greeting",
                 "body": "Adds a greeting function.",
                 "bundle_b64": bundle_b64,
+                "rationale": "Adds the greeting the ticket asks for; tests green.",
             },
         )
 

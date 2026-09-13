@@ -97,6 +97,7 @@ import subprocess
 import yaml
 
 from common.ids import new_run_id
+from schema.tools import RATIONALE_TOOLS
 
 from .blueprints import (
     HELLO_SAAS,
@@ -121,6 +122,17 @@ from .cluster import (
     worker_settings,
 )
 from .conftest import REPO_ROOT
+
+# The decisions that owe a rationale: the actor's stated reason rides the
+# row in cleartext (the glossary's *rationale*).
+COMMITTING_TOOLS = {
+    "heartbeat.decide",
+    "review.verdict",
+    "gate.resolve",
+    "run.cancel",
+    "company.delete",
+    *RATIONALE_TOOLS,
+}
 
 ALL_SOURCES = {
     "gateway",
@@ -388,7 +400,14 @@ def test_all_five_audit_sources_are_real_in_this_suite(
             f"source {source} never correlated to a run"
         )
 
-    # And the store stayed well-formed under everything the suite did.
+    # And the store stayed well-formed under everything the suite did: a
+    # rule name on every row, and the actor's rationale on exactly the rows
+    # that committed the company to something — on every one of those that
+    # was allowed, and never on a refusal's row or a read's.
     for event in events:
         assert event["decision"] in ("allow", "deny"), event
         assert event["rule"], event
+        if event["rationale"]:
+            assert event["tool"] in COMMITTING_TOOLS, event
+        if event["tool"] in COMMITTING_TOOLS and event["decision"] == "allow":
+            assert event["rationale"], event

@@ -29,6 +29,12 @@ REVIEW_TOOLS = ["git.read", "git.comment"]
 # not writing.
 ARCHITECTURE_REQUEST = "architecture.request"
 ARCHITECTURE_TOOLS = [ARCHITECTURE_REQUEST]
+# The tools whose call commits the company to something in the world — a
+# ticket, a pull request, a request to change the architecture — take a
+# `rationale`: the caller's own reason, recorded in cleartext on the
+# call's audit row and read back in the run's story. Every other row
+# carries a digest and nothing more.
+RATIONALE_TOOLS = frozenset(["issues.create", "git.open_pr", ARCHITECTURE_REQUEST])
 # Platform lifecycle only: the archive a run's sandbox is provisioned
 # from, the merge the orchestrator performs after the gate, and the read
 # of the company's documents at `base_ref` before every tick and every

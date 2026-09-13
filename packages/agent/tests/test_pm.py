@@ -35,6 +35,7 @@ def test_pm_files_ticket_and_posts_its_summary(settings, gateway):
                     "create_issue",
                     title="Implement slug endpoint",
                     body="acceptance: ...",
+                    rationale="the strategy's first slice; nothing covers it yet",
                 )
             ),
             calls(tc("comment_issue", number=7, body=SUMMARY)),
@@ -73,7 +74,7 @@ def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
     llm = ScriptedLLM(
         [
             calls(tc("exec", cmd="rm -rf /")),  # not a PM tool at all
-            calls(tc("create_issue", title="t", body="b")),
+            calls(tc("create_issue", title="t", body="b", rationale="r")),
             calls(tc("comment_issue", number=7, body="Filed t.")),
             says("done"),
         ]
@@ -105,7 +106,7 @@ def test_pm_that_files_but_never_summarizes_fails_honestly(settings, gateway):
     ticket is still reported, so the run record keeps its link."""
     llm = ScriptedLLM(
         [
-            calls(tc("create_issue", title="t", body="b")),
+            calls(tc("create_issue", title="t", body="b", rationale="r")),
             says("All set."),
         ]
     )
@@ -127,7 +128,7 @@ def test_pm_summary_comment_denied_is_a_tool_error_then_an_honest_failure(
     gateway.deny = {"issues.comment"}
     llm = ScriptedLLM(
         [
-            calls(tc("create_issue", title="t", body="b")),
+            calls(tc("create_issue", title="t", body="b", rationale="r")),
             calls(tc("comment_issue", number=7, body="Filed t.")),
             says("The platform refused the comment."),
         ]

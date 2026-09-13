@@ -466,7 +466,7 @@ class FakeIssueGateway:
     async def read_issue(self, run_id, repo, number):
         return self.issues[number]
 
-    async def create_issue(self, run_id, repo, title, body):
+    async def create_issue(self, run_id, repo, title, body, rationale):
         self.created.append({"repo": repo, "title": title, "body": body})
         return {
             "url": f"https://git.test/r/issues/{90 + len(self.created)}",
