@@ -37,7 +37,8 @@ LLM_API_KEY=sk-ant-your-anthropic-key
 MODEL=anthropic/claude-sonnet-4-5
 ```
 
-Re-run `kind-up.sh` after every provider or model change. The same file
+Re-run `kind-up.sh` after every provider or model change; the company
+stays applied and its agents re-roll. The same file
 holds `POSEIDON_CONSOLE_URL`, where the `poseidon` CLI reaches the console
 (`http://127.0.0.1:8090` on kind); a provider change does not touch it.
 

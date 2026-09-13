@@ -43,42 +43,46 @@ cp deploy/kind/.env.example deploy/kind/.env
 # fill in GIT_TOKEN (a repo-scoped PAT). The company's repository is a
 # blueprint field, `stack.repo`, and nothing else names it.
 
-deploy/kind/kind-up.sh                                    # the shipped example
-BLUEPRINT=path/to/company.yaml deploy/kind/kind-up.sh     # your company
+deploy/kind/kind-up.sh
 ```
 
-That script is idempotent — re-run it after changing code or the chart. It
-validates the blueprint first (the compiler's own checks, before any
-cluster work), creates the kind cluster, installs Calico (kind's default
+That script installs the platform and knows nothing about any company. It
+is idempotent — re-run it after changing code or the chart; a company
+already applied stays applied and its standing agents re-roll onto the
+new build. It creates the kind cluster, installs Calico (kind's default
 CNI does **not** enforce NetworkPolicy, which would make containment tests
-pass vacuously), builds and side-loads the nine images, installs the chart
-and Temporal, applies the CRDs, and applies the blueprint through the
-console as the first human it names, waiting until the company is
-converged. A cluster hosts one company, in the fixed namespace
-`poseidon-company`: to bring up another, delete the current one first
-(`poseidon company delete`).
+pass vacuously), builds and side-loads the nine images, applies the CRDs,
+installs the chart and Temporal, checks every platform pod runs this
+build, and logs you in.
 
-It prints nine numbered steps with the time each took and the facts that
-matter — the company, its humans, its repository, which brain (the mock,
-or a paid model marked as such) — and keeps what the tools print in
-`deploy/kind/kind-up.log`, whose tail it shows when a step fails;
-`VERBOSE=1` streams it all instead.
+It prints eight numbered steps with the time each took and the facts that
+matter — who you will be, which brain (the mock, or a paid model marked as
+such) — and keeps what the tools print in `deploy/kind/kind-up.log`, whose
+tail it shows when a step fails; `VERBOSE=1` streams it all instead.
 
-The token it applied with is saved for you, a week long, in your config
+The token it logged in with is saved for you, a week long, in your config
 directory (`~/.config/poseidon/token`), and every `poseidon` command reads
-it there when `POSEIDON_TOKEN` is unset:
+it there when `POSEIDON_TOKEN` is unset. Applying a company is your act,
+the one command the bring-up leaves you:
 
 ```bash
+uv run poseidon blueprint apply examples/hello-saas.yaml --yes   # returns once converged
 uv run poseidon whoami
 ```
+
+A cluster hosts one company, in the fixed namespace `poseidon-company`:
+to apply another, delete the current one first (`poseidon company
+delete`). On kind the people a blueprint may name are the chart's
+(`owner` and `auditor`, from `values-kind.yaml`); the console refuses a
+blueprint naming anyone else.
 
 Every `poseidon` command from here on is a call to the console — the one
 service a person acts on a company through — under that name; nothing
 else is needed on your machine: no port-forward, no database address, no
 cluster credentials in the CLI. To act as another human the chart
-declares (on kind: the blueprint's humans, plus `auditor`), mint a token
-of your own with the kubeconfig you already hold and export it; the
-environment wins over the file:
+declares (on kind: `auditor`), mint a token of your own with the
+kubeconfig you already hold and export it; the environment wins over the
+file:
 
 ```bash
 export POSEIDON_TOKEN=$(uv run poseidon login auditor)
@@ -163,16 +167,15 @@ company:
 
 Put that `company:` block in place of the example's, in a copy of
 `examples/hello-saas.yaml` saved as `company.yaml`. The name is yours to
-choose; `humans` names who may act, and the first of them is whom kind-up
-applies as. Activity bounds come from the deployment's `TIMEOUT_PROFILE`,
+choose; `humans` names who may act, drawn from the people the chart
+declares. Activity bounds come from the deployment's `TIMEOUT_PROFILE`,
 so a cluster brought up with `REAL_LLM=1` already runs the generous
 profile a paid brain needs. A third shipped example,
 `examples/pirate-game.yaml`, is a different company altogether — a
 terminal game — and applies the same way.
 
 ```bash
-BLUEPRINT=company.yaml deploy/kind/kind-up.sh   # on a fresh cluster, or
-uv run poseidon blueprint apply company.yaml --yes   # on one that hosts this company; returns once converged
+uv run poseidon blueprint apply company.yaml --yes   # returns once converged; delete the example's company first if it is applied
 uv run poseidon heartbeat state
 ```
 

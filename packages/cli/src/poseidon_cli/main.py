@@ -164,10 +164,7 @@ def blueprint_new(
         raise typer.Exit(1)
     target.write_text(new.render(document))
     typer.echo(f"wrote {target}")
-    typer.echo(
-        f"next: `poseidon blueprint apply {target}` on a cluster that hosts {answers.name},"
-        f" or `BLUEPRINT={target} deploy/kind/kind-up.sh` for a fresh kind cluster"
-    )
+    typer.echo(f"next: `poseidon blueprint apply {target}`")
 
 
 @blueprint_app.command()

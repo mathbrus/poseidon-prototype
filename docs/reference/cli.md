@@ -11,7 +11,8 @@ through the TokenRequest API with the kubeconfig you already hold, for a
 human the chart declares. The token is read from `POSEIDON_TOKEN`, or,
 when that is unset, from the file `login --save` keeps in your config
 directory (`~/.config/poseidon/token`, owner-readable only) — which is
-what `kind-up.sh` leaves you with, valid for a week. A week-long token on
+what `kind-up.sh` leaves you with, valid for a week, so that applying a
+company is the first command you type. A week-long token on
 disk is a kind convenience for a token good at the console and nowhere
 else; on a cluster with an identity provider `login` does not apply.
 

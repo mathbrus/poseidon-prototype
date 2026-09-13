@@ -75,7 +75,7 @@ SUITE_COMPANY=$(uv run python -c 'from tests.e2e_kind.cluster import COMPANY; pr
 HOSTED=$(kubectl get companies -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
 if [ -n "$HOSTED" ] && [ "$HOSTED" != "$SUITE_COMPANY" ]; then
   echo "this cluster hosts '$HOSTED'; the suite applies '$SUITE_COMPANY' — delete it first" >&2
-  echo "  (\`uv run poseidon company delete\`, or bring the cluster up with the default blueprint)" >&2
+  echo "  (\`uv run poseidon company delete\`; the suite applies its own company on an empty cluster)" >&2
   exit 1
 fi
 
