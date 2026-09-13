@@ -69,7 +69,9 @@ def _poseidon(env: dict, *args: str, timeout: int = 1800) -> subprocess.Complete
 def _poseidon_run(env: dict, issue_number: int) -> dict:
     """A run by hand: `poseidon start implement <number>` through the real
     CLI, blocking until the run record prints."""
-    return json.loads(_poseidon(env, "start", "implement", str(issue_number)).stdout)
+    return json.loads(
+        _poseidon(env, "start", "implement", str(issue_number), "--json").stdout
+    )
 
 
 def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:

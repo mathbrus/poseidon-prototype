@@ -52,7 +52,8 @@ at docs build time; the routes beneath them are on [the console reference](../..
 | `client.py` | `ConsoleClient`: one method per console route; `PolicyDenied` (403, with the rule) and `ConsoleError` (everything else). |
 | `new.py` | `blueprint new`: the questionnaire (a small prompter protocol; questionary on a terminal, a script in tests), the document it builds, the file it renders, the compile it runs first. |
 | `main.py` | The typer app: `login`, `whoami`, `blueprint new\|preview\|apply`, `company show\|delete`, `heartbeat show\|wake`, `runs`, `run show\|story\|cancel`, `start implement\|review`, `verdict`, `follow`, `spend`; `apply` waits for `converged`. |
-| `follow.py` | The follower: one line per audit row, the serial id as the cursor, spend when it moves; `start` follows its own run through it. |
+| `render.py` | How the CLI speaks: a record, a table, an act, an error; status colours; time and money formatting; the one line an audit row is. `--json` on every read bypasses it. |
+| `follow.py` | The follower: the serial id as the cursor, spend when it moves; `start` follows its own run through it. |
 
 ## Tests
 

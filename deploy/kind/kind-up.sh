@@ -355,7 +355,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$POSEIDON_CONSOLE_URL/whoami")
 [ "$code" = "401" ] || fail "console answered $code, expected 401 without a token"
 unset POSEIDON_TOKEN
 run "login $KIND_HUMAN" uv run poseidon login "$KIND_HUMAN" --namespace "$PLATFORM_NS" --duration 604800 --save
-uv run poseidon whoami 2>>"$LOG" | grep -q "\"human\": \"$KIND_HUMAN\"" \
+uv run poseidon whoami --json 2>>"$LOG" | grep -q "\"human\": \"$KIND_HUMAN\"" \
   || fail "the console did not recognise the token of $KIND_HUMAN"
 note "gateway and console refuse without a token and know $KIND_HUMAN with one"
 close_step

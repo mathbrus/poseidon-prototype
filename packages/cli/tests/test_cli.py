@@ -28,7 +28,10 @@ class Console:
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, dict | None, str]] = []
         self.answers: dict[tuple[str, str], tuple[int, dict | list]] = {
-            ("GET", "/whoami"): (200, {"human": "owner", "company": "hello-saas"}),
+            ("GET", "/whoami"): (
+                200,
+                {"human": "owner", "lifecycle": "human", "company": "hello-saas"},
+            ),
             ("POST", "/runs/run-1/gates/merge"): (
                 200,
                 {
@@ -183,7 +186,7 @@ def test_verdict_prints_the_recorded_verdict(runner, console):
         cli.app, ["verdict", "run-1", "merge", "approve", "--reason", "ok"]
     )
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["principal"] == "owner"
+    assert "verdict recorded: merge approved for run run-1, by owner" in result.output
     assert console.requests[-1][2] == {"approved": True, "reason": "ok"}
 
 
@@ -222,19 +225,24 @@ def test_a_denied_verdict_exits_with_the_rule(runner):
 
 
 def test_runs_lists_the_companys_runs(runner, console):
-    result = runner.invoke(cli.app, ["runs"])
+    result = runner.invoke(cli.app, ["runs", "--json"])
     assert result.exit_code == 0, result.output
     assert [r["run_id"] for r in json.loads(result.output)] == ["run-1", "run-0"]
+    rendered = runner.invoke(cli.app, ["runs"])
+    assert rendered.exit_code == 0, rendered.output
+    assert "run-1" in rendered.output and "running" in rendered.output
 
 
 def test_spend_is_the_companys_without_a_run_and_a_runs_with_one(runner, console):
     console.answers[("GET", "/spend")] = (200, {"usd": 3.1, "entries": 4})
     console.answers[("GET", "/runs/run-1/spend")] = (200, {"run_id": "run-1", "usd": 0.5})
-    company = runner.invoke(cli.app, ["spend"])
+    company = runner.invoke(cli.app, ["spend", "--json"])
     assert company.exit_code == 0 and json.loads(company.output)["usd"] == 3.1
-    one = runner.invoke(cli.app, ["spend", "run-1"])
+    one = runner.invoke(cli.app, ["spend", "run-1", "--json"])
     assert one.exit_code == 0 and json.loads(one.output)["run_id"] == "run-1"
-    assert [p for _, p, _, _ in console.requests] == ["/spend", "/runs/run-1/spend"]
+    assert "$3.10" in runner.invoke(cli.app, ["spend"]).output
+    assert "$0.50" in runner.invoke(cli.app, ["spend", "run-1"]).output
+    assert [p for _, p, _, _ in console.requests][:2] == ["/spend", "/runs/run-1/spend"]
 
 
 def test_run_story_can_keep_only_the_decisions(runner, console):
@@ -246,10 +254,8 @@ def test_run_story_can_keep_only_the_decisions(runner, console):
 def test_company_delete_names_the_running_runs_then_asks_the_console(runner, console):
     result = runner.invoke(cli.app, ["company", "delete", "--yes", "--reason", "done"])
     assert result.exit_code == 0, result.output
-    assert "hello-saas: 1 running run(s) (run-1)" in result.output
-    assert json.loads(result.output[result.output.index("{") :])["runs_cancelled"] == [
-        "run-1"
-    ]
+    assert "hello-saas: 1 running run(s)" in result.output and "run-1" in result.output
+    assert "hello-saas deleted in 3 s; cancelled run-1" in result.output
     assert console.requests[-1][:3] == ("DELETE", "/company", {"reason": "done"})
 
 
@@ -303,9 +309,71 @@ def test_apply_gives_up_after_the_wait_timeout(runner, console, tmp_path):
 
 
 def test_company_show_prints_the_crs_phase(runner, console):
-    result = runner.invoke(cli.app, ["company", "show"])
+    result = runner.invoke(cli.app, ["company", "show", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["phase"] == "converged"
+    rendered = runner.invoke(cli.app, ["company", "show"])
+    assert rendered.exit_code == 0, rendered.output
+    assert "converged" in rendered.output and "3 (observed 3)" in rendered.output
+
+
+def test_whoami_is_two_lines_for_a_person(runner, console):
+    result = runner.invoke(cli.app, ["whoami"])
+    assert result.exit_code == 0, result.output
+    assert "you are owner (human)" in result.output
+    assert "company: hello-saas · converged" in result.output
+    raw = runner.invoke(cli.app, ["whoami", "--json"])
+    assert json.loads(raw.output)["company"] == "hello-saas"
+
+
+def test_run_show_is_a_record_and_story_is_lines(runner, console):
+    console.answers[("GET", "/runs/run-1")] = (
+        200,
+        {
+            "run_id": "run-1",
+            "task": "Implement #42",
+            "status": "failed",
+            "workflow": "implement",
+            "pr_url": None,
+            "verdict": None,
+            "ticket_urls": [],
+            "iterations": 2,
+            "error": "verify never went green",
+            "created_at": "2026-09-13T10:00:00+00:00",
+            "finished_at": "2026-09-13T10:04:02+00:00",
+            "company": "hello-saas",
+            "execution": {
+                "workflow_id": "implement-run-1",
+                "status": "COMPLETED",
+                "state": None,
+            },
+        },
+    )
+    console.answers[("GET", "/runs/run-1/story")] = (
+        200,
+        [
+            {
+                "ts": "2026-09-13T10:00:01+00:00",
+                "run_id": "run-1",
+                "agent_id": "pm-1",
+                "role": "pm",
+                "tool": "heartbeat.decide",
+                "decision": "allow",
+                "rule": "decision_valid",
+                "rationale": "the slice is next",
+            }
+        ],
+    )
+    shown = runner.invoke(cli.app, ["run", "show", "run-1"])
+    assert shown.exit_code == 0, shown.output
+    for expected in ("Implement #42", "failed", "4 min 02 s", "verify never went green"):
+        assert expected in shown.output, shown.output
+    story = runner.invoke(cli.app, ["run", "story", "run-1"])
+    assert story.exit_code == 0, story.output
+    assert "10:00:01" in story.output and "heartbeat.decide" in story.output
+    assert "the slice is next" in story.output
+    raw = runner.invoke(cli.app, ["run", "story", "run-1", "--json"])
+    assert json.loads(raw.output)[0]["rationale"] == "the slice is next"
 
 
 def test_apply_previews_first_and_applies_with_yes(runner, console, tmp_path):
