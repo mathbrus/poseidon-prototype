@@ -39,7 +39,9 @@ change it. Applying the blueprint again is the only way it changes.
 
 `company.humans` names the people who may act on the company through
 [the console](console.md): apply the document again, answer a gate, start
-or cancel a run by hand, wake the heartbeat. The compiler emits one allow
+or cancel a run by hand, wake the heartbeat. They must be people the
+console can verify — on kind, the chart's `console.humans`; a blueprint
+naming anyone else is refused at apply. The compiler emits one allow
 per person, act and verdict from the list, so the audit row for an act
 names exactly what was granted — and the authority is a diff: add a name
 and re-apply, or remove one and that person's next act is refused by

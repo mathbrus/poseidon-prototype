@@ -24,7 +24,10 @@ uv run poseidon login owner --save      # kept for later commands; or export POS
 ```
 
 On a cluster with an identity provider, the API server's own user is the
-person; nothing needs declaring. Either way the registry is never
+person; nothing needs declaring. Where humans are declared, a blueprint
+may only name them: `company.humans` naming anyone else is refused at
+apply, since that person could never log in to act. The console verifies
+humans; it does not make them. Either way the registry is never
 consulted for who a person is, and the token is worthless anywhere else:
 a human's token fails at both gateways, an agent's fails here, and each
 refusal is an audit row naming the principal.

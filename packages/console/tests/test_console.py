@@ -439,6 +439,22 @@ async def test_another_companys_blueprint_is_refused_while_one_is_applied(client
     assert world.submitted == [] and world.audit.events == []
 
 
+async def test_a_blueprint_naming_a_stranger_is_refused(client, world):
+    """The console verifies humans, it does not make them: where the chart
+    declares who a person can be, a blueprint may only name those people."""
+    document = yaml.safe_load(HELLO_SAAS)
+    document["company"]["humans"] = ["owner", "stranger"]
+    response = await client.post(
+        "/blueprint/preview",
+        json={"blueprint": yaml.safe_dump(document)},
+        headers=as_owner(),
+    )
+    assert response.status_code == 422
+    assert "'stranger'" in response.json()["detail"]
+    assert "declared: owner" in response.json()["detail"]
+    assert world.submitted == [] and world.audit.events == []
+
+
 async def test_before_the_first_apply_any_name_applies_and_nothing_else_answers(
     client, world
 ):

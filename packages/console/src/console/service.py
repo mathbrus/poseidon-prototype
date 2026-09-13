@@ -234,6 +234,18 @@ class ConsoleService:
         except ValidationError as exc:
             raise Invalid(str(exc)) from exc
         name = document["company"]["name"]
+        strangers = sorted(
+            set(document["company"]["humans"]) - set(self._settings.humans)
+        )
+        if strangers and self._settings.humans:
+            # The console verifies humans; it does not make them. Where the
+            # chart declares who a person can be, a blueprint may only name
+            # those people — anyone else could never log in to act.
+            raise Invalid(
+                f"company.humans names {', '.join(repr(s) for s in strangers)}, "
+                f"whom this console cannot verify "
+                f"(declared: {', '.join(sorted(self._settings.humans))})"
+            )
         applied = self._companies.applied()
         if applied is not None and name != applied:
             # A platform hosts one company. The name is not a field to

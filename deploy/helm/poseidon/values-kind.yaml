@@ -12,11 +12,11 @@ console:
   service:
     type: NodePort
     nodePort: 30090
-  # The humans kind-up.sh declares are these plus everyone the applied
-  # blueprint names, so each of them can `poseidon login`. `auditor` is
-  # named by no blueprint on purpose: the acceptance suite's proof that a
-  # person the console knows is still only what the company's policy
-  # lets them be.
+  # The people a kind cluster knows. A blueprint's `company.humans` must
+  # be drawn from this list — the console refuses any other name — and
+  # kind-up.sh logs you in as the first. `auditor` is named by no
+  # blueprint on purpose: the acceptance suite's proof that a person the
+  # console knows is still only what the company's policy lets them be.
   humans:
     - owner
     - auditor
