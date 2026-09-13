@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from common.audit import AuditEvent
+from common.audit import RATIONALE_LIMIT, AuditEvent
 
 
 def make_event(**overrides):
@@ -40,6 +40,7 @@ def test_round_trip_matches_contract():
         "args_digest": "a" * 64,
         "decision": "deny",
         "rule": "branch_must_be_feature",
+        "rationale": None,
         "latency_ms": 12,
         "backend_status": None,
         "source": "gateway",
@@ -61,6 +62,16 @@ def test_attribution_fields_round_trip():
     assert event.source == "sandbox-infra"
     assert event.company == "hello-saas"
     assert event.parent_agent_id == "pm-1"
+
+
+def test_a_rationale_is_bounded():
+    """A stated reason stays a reason: the model refuses one long enough to
+    be a transcript, and a row that decided nothing carries none."""
+    assert make_event().rationale is None
+    stated = make_event(rationale="x" * RATIONALE_LIMIT)
+    assert stated.rationale == "x" * RATIONALE_LIMIT
+    with pytest.raises(ValidationError):
+        make_event(rationale="x" * (RATIONALE_LIMIT + 1))
 
 
 def test_decision_and_backend_status_are_constrained():

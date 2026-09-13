@@ -506,6 +506,7 @@ class GatewayService:
         started: float,
         backend_status: str | None,
         workflow: str = "",
+        rationale: str | None = None,
     ) -> None:
         event = AuditEvent(
             run_id=run_id,
@@ -515,6 +516,7 @@ class GatewayService:
             args_digest=args_digest(args),
             decision=decision,
             rule=rule,
+            rationale=rationale,
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=backend_status,
             # The caller's verified attribution rides every event.

@@ -184,6 +184,9 @@ CREATE TABLE IF NOT EXISTS registry.policy_bundles (
 -- enforcement point. No foreign key on run_id on purpose: an event whose
 -- run_id is a *claim* that failed verification — an unattributable egress
 -- attempt, a stale run binding — is exactly the event worth keeping.
+-- `rule` names the rule policy answered with; `rationale` is the actor's
+-- own stated reason, cleartext and bounded, on the rows that committed
+-- the company to something — the one field that is not a digest.
 CREATE TABLE IF NOT EXISTS registry.audit_events (
     id              bigserial PRIMARY KEY,
     ts              timestamptz NOT NULL,
@@ -194,6 +197,7 @@ CREATE TABLE IF NOT EXISTS registry.audit_events (
     args_digest     text NOT NULL,
     decision        text NOT NULL,
     rule            text,
+    rationale       text,
     latency_ms      integer NOT NULL DEFAULT 0,
     backend_status  text,
     source          text NOT NULL DEFAULT 'gateway',

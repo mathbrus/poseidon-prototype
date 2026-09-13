@@ -172,6 +172,28 @@ def test_story_is_one_run_in_order(registry: Registry):
     assert [e["tool"] for e in story] == ["repo.archive", "sandbox.exec"]
 
 
+def test_a_rationale_is_read_back_in_cleartext(registry: Registry):
+    """The one field that is not a digest: the actor's stated reason rides
+    the row and comes back verbatim from every read; rows that decided
+    nothing carry none."""
+    audit = AuditStore(registry)
+    audit.append(
+        event(
+            tool="review.verdict",
+            rule="verdict_pass",
+            rationale="Suite green; the change matches the acceptance criteria.",
+            ts="2026-01-01T00:00:01+00:00",
+        )
+    )
+    audit.append(event(tool="sandbox.exec", ts="2026-01-01T00:00:02+00:00"))
+    story = audit.story(RUN_ID)
+    assert [e["rationale"] for e in story] == [
+        "Suite green; the change matches the acceptance criteria.",
+        None,
+    ]
+    assert audit.after("hello-saas", 0)[0]["rationale"] == story[0]["rationale"]
+
+
 def test_story_spans_every_source(registry: Registry):
     """Gateway, sandbox-infra, llm-gateway and process-gate events for one
     run answer a single `run_id`-correlated query, attribution included."""

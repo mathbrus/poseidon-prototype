@@ -18,6 +18,7 @@ async def record_event(
     decision: str,
     rule: str,
     company: str,
+    rationale: str | None = None,
     source: Source = "process-lifecycle",
     workflow: str = "",
     latency_ms: int = 0,
@@ -39,6 +40,7 @@ async def record_event(
         args_digest=digest,
         decision=decision,  # type: ignore[arg-type]
         rule=rule,
+        rationale=rationale,
         latency_ms=latency_ms,
         backend_status=backend_status,  # type: ignore[arg-type]
         source=source,

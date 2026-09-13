@@ -4,7 +4,9 @@ Multi-source attribution: `company`, `lifecycle`, `parent_agent_id`,
 `workflow`, and an explicit `source`. One model, one registry table, one
 ingestion contract — every producer writes the same shape and one `run_id`
 query returns the whole story across sources. Args remain digests: audit
-must never become a leak channel.
+must never become a leak channel. The one cleartext field is the
+rationale — the reason an actor stated for a decision that committed the
+company to something — bounded, and never the arguments or the prompt.
 
 Sources: the MCP gateway's decision pipeline; the egress proxy's
 allows/denies (`sandbox-infra`); the LLM gateway; `process-lifecycle`, the
@@ -19,6 +21,10 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+# The most a stated reason may be: long enough to be a reason, too short
+# to become a transcript. Writers clip; the model refuses longer.
+RATIONALE_LIMIT = 1000
 
 Source = Literal[
     "gateway",
@@ -48,6 +54,12 @@ class AuditEvent(BaseModel):
     args_digest: str
     decision: Literal["allow", "deny"]
     rule: str | None
+    # The actor's own reason for a decision that committed the company —
+    # the PM's for what to start, the reviewer's for a verdict, a human's
+    # for a gate answer or a cancel, an agent's for a ticket or a pull
+    # request. None on every row that decided nothing: a refusal's reason
+    # is its rule.
+    rationale: str | None = Field(default=None, max_length=RATIONALE_LIMIT)
     latency_ms: int
     backend_status: Literal["ok", "error"] | None
     # -- attribution -------------------------------------------------------

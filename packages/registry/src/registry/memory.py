@@ -89,6 +89,7 @@ class InMemoryAuditStore:
             "args_digest": e.args_digest,
             "decision": e.decision,
             "rule": e.rule,
+            "rationale": e.rationale,
             "latency_ms": e.latency_ms,
             "backend_status": e.backend_status,
             "source": e.source,

@@ -27,9 +27,9 @@ class AuditStore:
             """
             INSERT INTO registry.audit_events
                 (ts, run_id, agent_id, role, tool, args_digest,
-                 decision, rule, latency_ms, backend_status,
+                 decision, rule, rationale, latency_ms, backend_status,
                  source, company, lifecycle, parent_agent_id, workflow)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s)
             """,
             (
@@ -41,6 +41,7 @@ class AuditStore:
                 event.args_digest,
                 event.decision,
                 event.rule,
+                event.rationale,
                 event.latency_ms,
                 event.backend_status,
                 event.source,
@@ -99,7 +100,7 @@ class AuditStore:
         rows = self._db.query(
             """
             SELECT id, ts, run_id, agent_id, role, tool, args_digest,
-                   decision, rule, latency_ms, backend_status,
+                   decision, rule, rationale, latency_ms, backend_status,
                    source, company, lifecycle, parent_agent_id, workflow
               FROM registry.audit_events
              WHERE company = %s AND id > %s
@@ -119,7 +120,7 @@ class AuditStore:
         return self._db.query(
             """
             SELECT ts, run_id, agent_id, role, tool, args_digest,
-                   decision, rule, latency_ms, backend_status,
+                   decision, rule, rationale, latency_ms, backend_status,
                    source, company, lifecycle, parent_agent_id, workflow
               FROM registry.audit_events
              WHERE run_id = %s
