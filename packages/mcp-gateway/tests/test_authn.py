@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from common.authn import Authenticator, Principal, ServiceAccount
-from common.topology import TOKEN_AUDIENCE
+from common.topology import PLATFORM_NAMESPACE, TOKEN_AUDIENCE
 from mcp_gateway.config import McpGatewaySettings
 from registry.memory import (
     InMemoryAgentInstances,
@@ -26,7 +26,7 @@ from registry.memory import (
 
 pytestmark = pytest.mark.anyio
 
-PLATFORM_NS = "poseidon-platform"
+PLATFORM_NS = PLATFORM_NAMESPACE
 COMPANY_NS = "hello-saas"
 AUD = TOKEN_AUDIENCE
 RUN_ID = "run-01AUTHN"

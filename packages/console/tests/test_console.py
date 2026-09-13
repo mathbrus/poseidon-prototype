@@ -23,6 +23,7 @@ import yaml
 
 from common.authn import Principal
 from common.opa import NO_POLICY
+from common.topology import PLATFORM_NAMESPACE
 from compiler import DeploymentPlan
 from console import service as service_module
 from console.app import create_app
@@ -40,7 +41,7 @@ pytestmark = pytest.mark.anyio
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HELLO_SAAS = (REPO_ROOT / "examples" / "hello-saas.yaml").read_text()
-PLATFORM_NS = "poseidon-platform"
+PLATFORM_NS = PLATFORM_NAMESPACE
 COMPANY = "hello-saas"
 RUN_ID = "run-01CONSOLE"
 

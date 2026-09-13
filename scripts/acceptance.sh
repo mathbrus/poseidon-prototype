@@ -33,7 +33,8 @@ GATEWAY_URL=${GATEWAY_URL:-http://127.0.0.1:8080}
   echo "no $ENV_FILE — copy deploy/kind/.env.example and fill it in" >&2
   exit 1
 }
-kubectl get deployment/orchestrator-worker -n poseidon-platform >/dev/null 2>&1 || {
+PLATFORM_NS=$(uv run python -c 'from common.topology import PLATFORM_NAMESPACE; print(PLATFORM_NAMESPACE)')
+kubectl get deployment/orchestrator-worker -n "$PLATFORM_NS" >/dev/null 2>&1 || {
   echo "cluster unreachable via current kubectl context — deploy/kind/kind-up.sh?" >&2
   exit 1
 }
@@ -53,7 +54,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$CONSOLE_URL/whoami"
 # (tests/e2e_kind/conftest.py, paid_brain_guard) refuses a paid brain too,
 # but failing here is seconds cheaper. One rule of record — the guard's
 # pure function — applied to the *deployment*, never .env's REAL_LLM claim.
-BRAIN=$(kubectl -n poseidon-platform get deployment/llm-proxy \
+BRAIN=$(kubectl -n "$PLATFORM_NS" get deployment/llm-proxy \
   -o 'jsonpath={.spec.template.spec.containers[0].image}' 2>/dev/null || true)
 PROBLEM=$(uv run python -c '
 import sys

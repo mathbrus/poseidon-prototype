@@ -21,7 +21,8 @@ REPO_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd)
 cd "$REPO_ROOT"
 
 CLUSTER_NAME=${CLUSTER_NAME:-poseidon}
-PLATFORM_NS=${PLATFORM_NS:-poseidon-platform}
+# The platform namespace is `common.topology.PLATFORM_NAMESPACE`, read
+# once the tools are known to be present (in the preflight).
 ENV_FILE=${ENV_FILE:-$SCRIPT_DIR/.env}
 LOG=${KIND_UP_LOG:-$SCRIPT_DIR/kind-up.log}
 VERBOSE=${VERBOSE:-0}
@@ -109,6 +110,7 @@ for tool in kind kubectl helm docker uv curl; do
   command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 [ "${#missing[@]}" -eq 0 ] || fail "missing tools: ${missing[*]}"
+PLATFORM_NS=$(uv run python -c 'from common.topology import PLATFORM_NAMESPACE; print(PLATFORM_NAMESPACE)')
 docker_root=$(docker info -f '{{.DockerRootDir}}' 2>/dev/null) || fail "docker is not reachable"
 free_gib=$(df -BG --output=avail "$docker_root" 2>/dev/null | tail -1 | tr -dc '0-9')
 if [ -n "$free_gib" ]; then

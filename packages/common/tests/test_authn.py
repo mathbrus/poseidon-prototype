@@ -23,11 +23,11 @@ from common.identity import (
     LIFECYCLE_PLATFORM,
     LIFECYCLE_STANDING,
 )
-from common.topology import CONSOLE_TOKEN_AUDIENCE, TOKEN_AUDIENCE
+from common.topology import CONSOLE_TOKEN_AUDIENCE, PLATFORM_NAMESPACE, TOKEN_AUDIENCE
 
 pytestmark = pytest.mark.anyio
 
-PLATFORM_NS = "poseidon-platform"
+PLATFORM_NS = PLATFORM_NAMESPACE
 COMPANY_NS = "hello-saas"
 
 

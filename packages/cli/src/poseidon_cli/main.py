@@ -18,7 +18,11 @@ from typing import Any
 
 import typer
 
-from common.topology import CONSOLE_TOKEN_AUDIENCE, human_service_account
+from common.topology import (
+    CONSOLE_TOKEN_AUDIENCE,
+    PLATFORM_NAMESPACE,
+    human_service_account,
+)
 from poseidon_cli.client import (
     TOKEN_VAR,
     URL_VAR,
@@ -37,8 +41,6 @@ company_app = typer.Typer(no_args_is_help=True, help="The company this cluster h
 app.add_typer(blueprint_app, name="blueprint")
 app.add_typer(heartbeat_app, name="heartbeat")
 app.add_typer(company_app, name="company")
-
-DEFAULT_PLATFORM_NAMESPACE = "poseidon-platform"
 
 
 def _client() -> ConsoleClient:
@@ -80,7 +82,7 @@ def _call(fn, *args: Any) -> Any:
 def login(
     name: str,
     namespace: str = typer.Option(
-        DEFAULT_PLATFORM_NAMESPACE, help="The platform namespace the chart installed into"
+        PLATFORM_NAMESPACE, help="The platform namespace the chart installed into"
     ),
     duration: int = typer.Option(3600, help="Token lifetime, seconds"),
     save: bool = typer.Option(

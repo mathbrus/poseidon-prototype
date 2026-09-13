@@ -10,6 +10,7 @@ without a cluster or a database.
 import kopf
 import pytest
 
+from common.topology import PLATFORM_NAMESPACE
 from poseidon_operator import reconcile
 from poseidon_operator.config import OperatorSettings
 
@@ -121,7 +122,7 @@ def operator_settings(monkeypatch) -> None:
         reconcile,
         "_the_settings",
         OperatorSettings(
-            platform_namespace="poseidon-platform",
+            platform_namespace=PLATFORM_NAMESPACE,
             model="mock-brain",
             agent_image="poseidon-agent:abc123",
             opa_url="http://opa.test:8181",

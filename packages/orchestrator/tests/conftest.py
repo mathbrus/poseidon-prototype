@@ -5,6 +5,7 @@ and a factory for gateway doubles."""
 import pytest
 from temporalio.testing import WorkflowEnvironment
 
+from common.topology import PLATFORM_NAMESPACE
 from orchestrator import clients
 from orchestrator.config import WorkerSettings
 
@@ -21,7 +22,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file.write_text("projected-token")
     return WorkerSettings(
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         egress_proxy_url="http://127.0.0.1:3128",
         egress_proxy_key="egress-key",
         timeout_profile="default",

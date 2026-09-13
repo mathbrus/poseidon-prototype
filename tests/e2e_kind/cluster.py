@@ -28,6 +28,7 @@ import yaml
 from common.topology import (
     COMPANY_NAMESPACE,
     CONSOLE_TOKEN_AUDIENCE,
+    PLATFORM_NAMESPACE,
     RUN_ID_LABEL,
     TOKEN_AUDIENCE,
     human_service_account,
@@ -36,7 +37,7 @@ from common.workflows import workflow_id
 from poseidon_cli import ConsoleClient
 from registry import Registry, open_registry
 
-PLATFORM_NS = "poseidon-platform"  # the chart release namespace kind-up installs into
+PLATFORM_NS = PLATFORM_NAMESPACE  # the chart release namespace kind-up installs into
 # The suite's company is the shipped example. Its name keys everything the
 # platform records (registry rows, workflow ids, audit events, the Rego
 # package); its namespace is the platform's fixed one and names none of it.
@@ -755,7 +756,7 @@ def worker_settings(env: dict, tmp_path: Path, opa_url: str = "http://opa.test:8
     token_file.write_text("unused")
     return WorkerSettings(
         opa_url=opa_url,
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NS,
         sandbox_image="poseidon-sandbox:abc123",
         egress_proxy_url="http://127.0.0.1:3128",
         egress_proxy_key="egress-key",

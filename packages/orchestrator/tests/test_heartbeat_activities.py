@@ -12,6 +12,7 @@ from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
 from common.tasks import issue_run_task
+from common.topology import PLATFORM_NAMESPACE
 from orchestrator.activities.bootstrap import BootstrapActivities
 from orchestrator.activities.heartbeat import HeartbeatActivities
 from orchestrator.activities.observation import (
@@ -43,7 +44,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file.write_text("projected-token")
     return WorkerSettings(
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         sandbox_image="poseidon-sandbox:abc123",
         agent_image="poseidon-agent:abc123",
         model="mock-brain",

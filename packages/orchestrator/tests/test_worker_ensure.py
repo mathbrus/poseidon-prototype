@@ -8,6 +8,7 @@ import pytest
 from conftest import heartbeat_spec
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from common.topology import PLATFORM_NAMESPACE
 from orchestrator.config import WorkerSettings
 from orchestrator.worker.__main__ import ensure_heartbeat_once
 from registry.memory import InMemoryCompanies
@@ -42,7 +43,7 @@ def settings(**overrides: Any) -> WorkerSettings:
     return WorkerSettings(
         gateway_token_file="/run/unused-token",
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         sandbox_image="poseidon-sandbox:abc123",
         model="mock-brain",
         egress_proxy_url="http://127.0.0.1:3128",

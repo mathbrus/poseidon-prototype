@@ -21,6 +21,7 @@ from conftest import (
     mcp_session,
 )
 
+from common.topology import PLATFORM_NAMESPACE
 from mcp_gateway.git_backend import repo_slug
 
 pytestmark = pytest.mark.anyio
@@ -115,7 +116,7 @@ async def test_archive_overlay_composes_the_baseline_tree(target_repo, tmp_path)
 
     backend = GitBackend(
         McpGatewaySettings(
-            platform_namespace="poseidon-platform",
+            platform_namespace=PLATFORM_NAMESPACE,
             opa_url="http://opa.test:8181",
             git_token=GIT_TOKEN,
         ),

@@ -22,6 +22,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from common.authn import Principal, ServiceAccount
+from common.topology import PLATFORM_NAMESPACE
 from mcp_gateway.app import create_app
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GITHUB_API_URL
@@ -48,7 +49,7 @@ FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
 
 COMPANY = "hello-saas"
 COMPANY_NS = "hello-saas"
-PLATFORM_NS = "poseidon-platform"
+PLATFORM_NS = PLATFORM_NAMESPACE
 AGENT_ID = "implementer-1"
 COMPANY_DECISION = "/v1/data/poseidon/authz/hello_saas/decision"
 PLATFORM_DECISION = "/v1/data/poseidon/platform/decision"
@@ -304,7 +305,7 @@ def audit() -> InMemoryAuditStore:
 @pytest.fixture
 def settings() -> McpGatewaySettings:
     return McpGatewaySettings(
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         opa_url=OPA_URL,
         git_token=GIT_TOKEN,
     )

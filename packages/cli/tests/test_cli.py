@@ -7,6 +7,7 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
+from common.topology import PLATFORM_NAMESPACE
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 from poseidon_cli import main as cli
 
@@ -319,7 +320,7 @@ def test_login_asks_the_api_server_for_a_console_token(monkeypatch):
     result = CliRunner().invoke(cli.app, ["login", "owner"])
     assert result.exit_code == 0, result.output
     assert result.output.strip() == "tok-123"
-    assert minted == [("human-owner", "poseidon-platform", ["poseidon-console"])]
+    assert minted == [("human-owner", PLATFORM_NAMESPACE, ["poseidon-console"])]
 
 
 def test_login_save_keeps_the_token_for_later_commands(monkeypatch, config_home):

@@ -11,6 +11,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from common.audit import AuditEvent
+from common.topology import PLATFORM_NAMESPACE
 from orchestrator.activities.review import ReviewActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -58,7 +59,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file.write_text("projected-token")
     return WorkerSettings(
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         sandbox_image="poseidon-sandbox:abc123",
         agent_image="poseidon-agent:abc123",
         model="mock-brain",

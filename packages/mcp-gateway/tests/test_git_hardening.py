@@ -4,6 +4,7 @@ alternate transports, or refspec rewrites."""
 
 import pytest
 
+from common.topology import PLATFORM_NAMESPACE
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import (
     GitBackend,
@@ -17,7 +18,7 @@ from mcp_gateway.git_backend import (
 def backend() -> GitBackend:
     return GitBackend(
         McpGatewaySettings(
-            platform_namespace="poseidon-platform",
+            platform_namespace=PLATFORM_NAMESPACE,
             opa_url="http://opa.test:8181",
             git_token="tok-123",
         ),

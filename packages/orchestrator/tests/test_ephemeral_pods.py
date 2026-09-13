@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from common.topology import EPHEMERAL_KIND, TOKEN_MOUNT_DIR
+from common.topology import EPHEMERAL_KIND, PLATFORM_NAMESPACE, TOKEN_MOUNT_DIR
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import (
@@ -140,7 +140,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file.write_text("projected")
     return WorkerSettings(
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         sandbox_image="poseidon-sandbox:abc123",
         egress_proxy_url="http://127.0.0.1:3128",
         egress_proxy_key="egress-key",
@@ -181,8 +181,8 @@ def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisio
     assert env["GATEWAY_TOKEN_FILE"] == f"{TOKEN_MOUNT_DIR}/token"
     assert "GATEWAY_TOKEN" not in env
     # The agent host's wiring, FQDN'd for the company namespace.
-    assert env["MCP_GATEWAY_URL"].startswith("http://mcp-gateway.poseidon-platform")
-    assert env["LLM_PROXY_URL"].startswith("http://llm-gateway.poseidon-platform")
+    assert env["MCP_GATEWAY_URL"].startswith(f"http://mcp-gateway.{PLATFORM_NAMESPACE}")
+    assert env["LLM_PROXY_URL"].startswith(f"http://llm-gateway.{PLATFORM_NAMESPACE}")
 
     # The binding row exists (a provision retry revives it) and carries
     # the SA name the gateway resolves.

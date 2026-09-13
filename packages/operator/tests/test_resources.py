@@ -5,6 +5,7 @@ that matter — the isolation envelope, no credentials in a spec, the
 ownership boundary — are testable here.
 """
 
+from common.topology import PLATFORM_NAMESPACE
 from poseidon_operator import resources
 from poseidon_operator.config import OperatorSettings
 
@@ -18,7 +19,7 @@ SPEC = {
     "vision": "ship it",
 }
 
-PLATFORM = "poseidon-platform"
+PLATFORM = PLATFORM_NAMESPACE
 SETTINGS = OperatorSettings(
     model="mock-brain",
     platform_namespace=PLATFORM,
