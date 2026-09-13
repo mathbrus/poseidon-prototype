@@ -432,15 +432,13 @@ def runs(
     if as_json:
         _json(records)
         return
-    ordered = sorted(
-        records,
-        key=lambda r: (r.get("status") != "running", str(r.get("created_at") or "")),
+    # The runs still going first, then the rest newest first.
+    newest_first = sorted(
+        records, key=lambda r: str(r.get("created_at") or ""), reverse=True
     )
-    ordered = [r for r in ordered if r.get("status") == "running"] + sorted(
-        (r for r in ordered if r.get("status") != "running"),
-        key=lambda r: str(r.get("created_at") or ""),
-        reverse=True,
-    )
+    ordered = [r for r in newest_first if r.get("status") == "running"] + [
+        r for r in newest_first if r.get("status") != "running"
+    ]
     render.table(
         ("run", "workflow", "task", "status", "started", "took"),
         [
