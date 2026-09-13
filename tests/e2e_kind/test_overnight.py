@@ -62,7 +62,17 @@ def _signal_merge(env: dict, run_id: str) -> None:
     """The one human act: `poseidon signal <run> merge`, through the real
     CLI as the human `owner` against the cluster's console."""
     proc = subprocess.run(
-        ["uv", "run", "poseidon", "signal", run_id, "merge", "--approved"],
+        [
+            "uv",
+            "run",
+            "poseidon",
+            "signal",
+            run_id,
+            "merge",
+            "--approved",
+            "--reason",
+            "overnight: the delivered slice reads right",
+        ],
         cwd=REPO_ROOT,
         env=console_env(env),
         capture_output=True,

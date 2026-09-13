@@ -99,7 +99,7 @@ def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:
         "signal",
         run_id,
         "merge",
-        "--payload",
+        "--reason",
         "reviewed: findings are clean",
         timeout=120,
     )

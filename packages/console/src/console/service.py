@@ -164,6 +164,7 @@ class ConsoleService:
         run_id: str = "",
         workflow: str = "",
         started: float,
+        rationale: str | None = None,
     ) -> None:
         event = AuditEvent(
             run_id=run_id,
@@ -173,6 +174,7 @@ class ConsoleService:
             args_digest=args_digest(args),
             decision="allow" if decision.get("allow") else "deny",
             rule=str(decision.get("rule") or ""),
+            rationale=rationale,
             latency_ms=int((time.monotonic() - started) * 1000),
             backend_status=None,
             source="console",
@@ -193,11 +195,14 @@ class ConsoleService:
         run_id: str = "",
         workflow: str = "",
         bootstrap_rule: str | None = None,
+        rationale: str | None = None,
     ) -> dict[str, Any]:
         """Decide the act and audit the answer; raise on deny. Returns the
         decision so a caller can name the allowing rule. The company is
         the caller's to name: every act but the first apply reads it from
-        the registry, and the apply reads it from the plan."""
+        the registry, and the apply reads it from the plan. The rationale
+        is the person's own reason, recorded on the row whatever policy
+        answered."""
         started = time.monotonic()
         decision = await self._decide(identity, tool, args, company, run_id)
         if (
@@ -215,6 +220,7 @@ class ConsoleService:
             run_id=run_id,
             workflow=workflow,
             started=started,
+            rationale=rationale,
         )
         if not decision.get("allow"):
             raise PolicyDenied(str(decision.get("rule") or "default_deny"))
@@ -318,7 +324,13 @@ class ConsoleService:
         rows) stays: applying the same name again resumes, not restarts."""
         company = await self._company()
         started = time.monotonic()
-        await self._act(identity, COMPANY_DELETE, {"reason": reason}, company=company)
+        await self._act(
+            identity,
+            COMPANY_DELETE,
+            {"reason": reason},
+            company=company,
+            rationale=reason,
+        )
         cancelled = []
         for record in await asyncio.to_thread(self._runs.running, company):
             try:
@@ -379,13 +391,15 @@ class ConsoleService:
         run_id: str,
         gate: str,
         approved: bool,
-        payload: str | None,
+        reason: str,
     ) -> dict[str, Any]:
-        """Record the verdict under the person's name, then deliver it. The
-        allowing rule names the gate and the verdict (`gate_resolve_merge_
-        approve`), which is exactly what the workflow reads back. A verdict
-        answers a question that was asked: the run's workflow must have
-        the gate and be parked on it."""
+        """Record the verdict under the person's name, with their reason as
+        the row's rationale, then deliver it. The allowing rule names the
+        gate and the verdict (`gate_resolve_merge_approve`), which is
+        exactly what the workflow reads back; the row is the record, so the
+        signal carries the verdict alone. A verdict answers a question that
+        was asked: the run's workflow must have the gate and be parked on
+        it."""
         if gate not in GATES:
             raise Invalid(f"gates are {', '.join(GATES)}; not {gate!r}")
         record, wf_id = await asyncio.to_thread(self._run_of, run_id)
@@ -407,6 +421,7 @@ class ConsoleService:
             company=record.company,
             run_id=run_id,
             workflow=wf_id,
+            rationale=reason,
         )
         if decision["rule"] != verdict_rule(gate, approved):
             # The compiled allow is the record the workflow reads back; a
@@ -414,7 +429,7 @@ class ConsoleService:
             # readable, so refuse rather than deliver an unreadable verdict.
             raise RuntimeError(f"gate.resolve allowed under {decision['rule']!r}")
         try:
-            await self._workflows.signal(wf_id, gate, [approved, payload])
+            await self._workflows.signal(wf_id, gate, [approved])
         except WorkflowNotFound as exc:
             raise Invalid(f"run {run_id!r} has no workflow to signal") from exc
         return {
@@ -435,6 +450,7 @@ class ConsoleService:
             company=record.company,
             run_id=run_id,
             workflow=wf_id,
+            rationale=reason,
         )
         try:
             await self._workflows.cancel(wf_id)

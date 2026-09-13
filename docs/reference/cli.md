@@ -35,9 +35,9 @@ The human's acts are the charter and the gates:
 
 ```bash
 uv run poseidon blueprint apply company.yaml --yes       # the charter: vision, caps, gates, humans; returns once converged
-uv run poseidon signal <run_id> merge                    # approve a parked merge
-uv run poseidon signal <run_id> merge --no-approved      # reject it
-uv run poseidon signal <run_id> budget                   # raise a cap the run stopped at
+uv run poseidon signal <run_id> merge --reason "…"                # approve a parked merge; the reason is recorded with the verdict
+uv run poseidon signal <run_id> merge --no-approved --reason "…"  # reject it
+uv run poseidon signal <run_id> budget --reason "…"               # let a run stopped at its cap continue
 ```
 
 `apply` returns once the company is **converged** — the operator's word

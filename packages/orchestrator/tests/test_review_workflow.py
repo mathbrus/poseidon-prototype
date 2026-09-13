@@ -582,7 +582,7 @@ async def test_an_oracle_edit_is_surfaced_before_the_human_park(env):
     try:
         await wait_for_park(handle)
         assert harness.warns == [deletions]
-        await handle.signal("merge", args=[True, "deliberate spec change"])
+        await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -628,7 +628,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
         assert harness.reworks == []
         assert harness.gate_events == ["policy_declined"]
         assert harness.merges == []
-        await handle.signal("merge", args=[True, "the spec change is deliberate"])
+        await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -659,7 +659,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
     worker, handle = await start_review(env.client, harness)
     try:
         await wait_for_park(handle)
-        await handle.signal("merge", args=[False, "the trim guts the spec"])
+        await handle.signal("merge", args=[False])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -688,7 +688,7 @@ async def test_a_policy_decline_parks_on_the_human_who_can_release(env):
         await wait_for_park(handle)
         assert harness.gate_events == ["policy_declined"]
         assert harness.merges == []
-        await handle.signal("merge", args=[True, "the carve-out is fine here"])
+        await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -733,7 +733,7 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
         await wait_for_park(handle)
         assert harness.reworks == []
         assert harness.gate_events == ["rework_exhausted"]
-        await handle.signal("merge", args=[False, "not good enough"])
+        await handle.signal("merge", args=[False])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -752,7 +752,7 @@ async def test_a_human_gate_never_touches_the_policy_machinery(env):
     worker, handle = await start_review(env.client, harness)
     try:
         await wait_for_park(handle)
-        await handle.signal("merge", args=[True, "reviewed"])
+        await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -784,7 +784,7 @@ async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
     worker, handle = await start_review(env.client, harness)
     try:
         await wait_for_park(handle)
-        await handle.signal("merge", args=[True, "forged"])
+        await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -807,7 +807,7 @@ async def test_a_signal_contradicting_the_record_merges_nothing(env):
     worker, handle = await start_review(env.client, harness)
     try:
         await wait_for_park(handle)
-        await handle.signal("merge", args=[True, "but the record says no"])
+        await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -828,7 +828,7 @@ async def test_a_policy_decline_released_by_a_human_reads_the_record_too(env):
     worker, handle = await start_review(env.client, harness)
     try:
         await wait_for_park(handle)
-        await handle.signal("merge", args=[True, "the carve-out is fine here"])
+        await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
@@ -891,7 +891,7 @@ async def test_a_verdict_bearing_failure_is_a_conclusion(env):
         try:
             if harness.merge_gate is HUMAN_GATE:
                 await wait_for_park(handle)
-                await handle.signal("merge", args=[False, "no"])
+                await handle.signal("merge", args=[False])
             record = await handle.result()
         finally:
             await worker.__aexit__(None, None, None)

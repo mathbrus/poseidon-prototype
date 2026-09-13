@@ -190,7 +190,7 @@ it as a pull request. Under `hello-saas.yaml` those pull requests park on
 your merge gate like any other:
 
 ```bash
-uv run poseidon signal <review_run_id> merge
+uv run poseidon signal <review_run_id> merge --reason "the strategy names a slice I want built"
 ```
 
 Until both documents are on `main`, the loop refuses to scope: the first
@@ -235,12 +235,13 @@ masterplan, and ends with a verdict. Under `hello-saas.yaml` the merge
 gate is yours:
 
 ```bash
-uv run poseidon signal <review_run_id> merge
+uv run poseidon signal <review_run_id> merge --reason "engine first, as the vision asks"
 ```
 
-The console records that verdict under your name before it delivers the
-signal, and the release reads the record: policy merges on a recorded
-approval by a person the blueprint names, never on the signal alone.
+The console records that verdict and your reason under your name before
+it delivers the signal, and the release reads the record: policy merges
+on a recorded approval by a person the blueprint names, never on the
+signal alone.
 
 Every step is on the record: `uv run poseidon status <run_id>` for the
 run and `uv run poseidon story <run_id>` for its whole story, every source

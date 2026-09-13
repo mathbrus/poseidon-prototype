@@ -85,7 +85,9 @@ uv run poseidon company delete --reason "wrong vision"
 A gate verdict is the act that matters most, and its order is the point.
 The console decides `gate.resolve`, appends the audit row under the
 person's name — `source: console`, `tool: gate.resolve`, the rule naming
-the gate and the verdict — and only then signals the workflow. The review
+the gate and the verdict, the person's reason as the row's rationale (a
+verdict without one is refused, as are a cancel and a delete) — and only
+then signals the workflow, with the verdict alone: the row is the record. The review
 workflow treats the signal as a nudge to look: it reads the console's
 recorded verdict back from the audit store and the compiled
 `merge.resolve` decision releases the merge on that record, or refuses by

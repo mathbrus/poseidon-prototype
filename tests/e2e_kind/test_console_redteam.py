@@ -65,7 +65,7 @@ def _raw_signal(run_id: str) -> None:
         with temporal_port_forward() as address:
             client = await Client.connect(address)
             handle = client.get_workflow_handle(workflow_id("review", run_id))
-            await handle.signal("merge", args=[True, "red-team: past the console"])
+            await handle.signal("merge", args=[True])
 
     asyncio.run(send())
 

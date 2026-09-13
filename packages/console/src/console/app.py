@@ -15,8 +15,9 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from common.audit import RATIONALE_LIMIT
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
 from common.topology import CONSOLE_TOKEN_AUDIENCE
 from compiler import DeploymentPlan
@@ -101,17 +102,23 @@ class StartRunRequest(BaseModel):
     number: int
 
 
+# A person's reason is part of the act: a verdict, a cancel or a delete
+# without one is refused, and the reason is stored beside the row as its
+# rationale.
+Reason = Field(min_length=1, max_length=RATIONALE_LIMIT)
+
+
 class VerdictRequest(BaseModel):
     approved: bool
-    payload: str | None = None
+    reason: str = Reason
 
 
 class CancelRequest(BaseModel):
-    reason: str = ""
+    reason: str = Reason
 
 
 class DeleteRequest(BaseModel):
-    reason: str = ""
+    reason: str = Reason
 
 
 def create_app(
@@ -220,9 +227,9 @@ def create_app(
 
     @app.delete("/company")
     async def delete_company_route(
-        request: Request, body: DeleteRequest | None = None
+        request: Request, body: DeleteRequest
     ) -> dict[str, Any]:
-        return await service.delete(identity_of(request), body.reason if body else "")
+        return await service.delete(identity_of(request), body.reason)
 
     @app.post("/runs")
     async def start_run(request: Request, body: StartRunRequest) -> dict[str, Any]:
@@ -249,15 +256,14 @@ def create_app(
         request: Request, run_id: str, gate: str, body: VerdictRequest
     ) -> dict[str, Any]:
         return await service.resolve_gate(
-            identity_of(request), run_id, gate, body.approved, body.payload
+            identity_of(request), run_id, gate, body.approved, body.reason
         )
 
     @app.post("/runs/{run_id}/cancel")
     async def cancel_run(
-        request: Request, run_id: str, body: CancelRequest | None = None
+        request: Request, run_id: str, body: CancelRequest
     ) -> dict[str, Any]:
-        reason = body.reason if body else ""
-        return await service.cancel_run(identity_of(request), run_id, reason)
+        return await service.cancel_run(identity_of(request), run_id, body.reason)
 
     @app.get("/heartbeat")
     async def heartbeat(since: str | None = None) -> dict[str, Any]:

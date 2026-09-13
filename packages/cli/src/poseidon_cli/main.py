@@ -241,7 +241,7 @@ def company_show() -> None:
 
 @company_app.command("delete")
 def company_delete(
-    reason: str = typer.Option("", help="Why, recorded with the act"),
+    reason: str = typer.Option(..., help="Why, recorded with the act"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation"),
 ) -> None:
     """Stop the company — the one stop there is. The console decides the
@@ -343,17 +343,17 @@ def signal(
     run_id: str,
     gate: str,
     approved: bool = typer.Option(True, help="The verdict: --approved or --no-approved"),
-    payload: str = typer.Option(None, help="A note recorded with the verdict"),
+    reason: str = typer.Option(..., help="Why, recorded with the verdict"),
 ) -> None:
     """Answer a gate a run parked on — `merge` or `budget`. The console
-    records the verdict under your name, then delivers it. Approving a
-    budget pause lets the run continue under its cap as it stands: raise
-    the cap in the blueprint first if it needs more."""
-    _show(_call(_client().resolve, run_id, gate, approved, payload))
+    records the verdict and your reason under your name, then delivers it.
+    Approving a budget pause lets the run continue under its cap as it
+    stands: raise the cap in the blueprint first if it needs more."""
+    _show(_call(_client().resolve, run_id, gate, approved, reason))
 
 
 @app.command()
-def cancel(run_id: str, reason: str = typer.Option("", help="Why")) -> None:
+def cancel(run_id: str, reason: str = typer.Option(..., help="Why")) -> None:
     """Cancel a run; its teardown compensates."""
     _show(_call(_client().cancel, run_id, reason))
 

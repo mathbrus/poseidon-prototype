@@ -46,10 +46,10 @@ class ScopeWorkflow(RunWorkflow):
         self._budget_gate = Gate("budget")
 
     @workflow.signal
-    def budget(self, approved: bool, payload: str | None = None) -> None:
+    def budget(self, approved: bool) -> None:
         """`poseidon signal <run_id> budget --workflow scope`: resolve a
         budget pause, exactly as in implement."""
-        self._budget_gate.resolve(approved, payload)
+        self._budget_gate.resolve(approved)
 
     @workflow.query
     def state(self) -> str:

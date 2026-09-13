@@ -123,13 +123,13 @@ def test_a_verdict_is_one_call(client, console):
     assert console.requests[-1][:3] == (
         "POST",
         "/runs/run-1/gates/merge",
-        {"approved": True, "payload": "reviewed"},
+        {"approved": True, "reason": "reviewed"},
     )
 
 
 def test_a_policy_refusal_names_the_rule(client):
     with pytest.raises(PolicyDenied) as caught:
-        client.resolve("run-2", "merge", True)
+        client.resolve("run-2", "merge", True, "fine by me")
     assert caught.value.rule == "human_not_recognized"
     assert caught.value.status == 403
 
@@ -178,14 +178,20 @@ def runner(console: Console, monkeypatch) -> CliRunner:
 
 
 def test_signal_prints_the_recorded_verdict(runner, console):
-    result = runner.invoke(cli.app, ["signal", "run-1", "merge", "--payload", "ok"])
+    result = runner.invoke(cli.app, ["signal", "run-1", "merge", "--reason", "ok"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["principal"] == "owner"
-    assert console.requests[-1][2] == {"approved": True, "payload": "ok"}
+    assert console.requests[-1][2] == {"approved": True, "reason": "ok"}
+
+
+def test_a_verdict_needs_a_reason(runner, console):
+    result = runner.invoke(cli.app, ["signal", "run-1", "merge"])
+    assert result.exit_code == 2 and "--reason" in result.output
+    assert console.requests == []
 
 
 def test_a_denied_signal_exits_with_the_rule(runner):
-    result = runner.invoke(cli.app, ["signal", "run-2", "merge"])
+    result = runner.invoke(cli.app, ["signal", "run-2", "merge", "--reason", "ok"])
     assert result.exit_code == 1
     assert "human_not_recognized" in result.output
 
