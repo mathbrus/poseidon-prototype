@@ -243,8 +243,10 @@ it delivers the signal, and the release reads the record: policy merges
 on a recorded approval by a person the blueprint names, never on the
 signal alone.
 
-Every step is on the record: `uv run poseidon run show <run_id>` for the
-run and `uv run poseidon run story <run_id>` for its whole story, every source
-in order — your verdict among them.
+Every step is on the record: `uv run poseidon runs` for the company's
+runs, `uv run poseidon run show <run_id>` for one, `uv run poseidon run
+story <run_id> --decisions` for what it decided and why — your verdict
+and its reason among them — and `uv run poseidon follow` to watch it all
+land.
 [Hand over the keys](hand-over.md) is where the merge becomes the
 company's too.

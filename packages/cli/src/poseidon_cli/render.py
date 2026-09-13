@@ -159,6 +159,11 @@ def record(pairs: Iterable[tuple[str, Any]], console: Console = OUT) -> None:
     console.print(grid)
 
 
+# Columns a table never wraps: an id or a name broken across two lines
+# cannot be copied or grepped.
+UNWRAPPED = frozenset({"run", "who", "model", "when", "workflow", "status", "outcome"})
+
+
 def table(
     columns: Sequence[str],
     rows: Iterable[Sequence[Any]],
@@ -175,7 +180,7 @@ def table(
         return
     grid = Table(box=box.SIMPLE_HEAD, show_edge=False, pad_edge=False, header_style=DIM)
     for name in columns:
-        grid.add_column(name, overflow="fold")
+        grid.add_column(name, overflow="fold", no_wrap=name in UNWRAPPED)
     for values in rows:
         grid.add_row(
             *(
