@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Poseidon kind bootstrap: create the cluster, install
-# Calico (kind's default CNI does not enforce NetworkPolicy), build and
-# side-load the images, install the Helm chart and Temporal, and apply the
-# blueprint through the console. Idempotent — safe to re-run for image or
-# chart updates.
+# Poseidon kind bootstrap: create the cluster, install Calico (kind's
+# default CNI does not enforce NetworkPolicy), build and side-load the
+# images, install the Helm chart and Temporal, and log you in. It installs
+# the platform and knows nothing about any company: applying a blueprint is
+# a human's act, done afterwards with `poseidon blueprint apply`. Idempotent
+# — safe to re-run for image or chart updates; a company already applied
+# stays applied, and its standing agents re-roll onto the new build.
 #
 # Usage: deploy/kind/kind-up.sh   (needs deploy/kind/.env, see .env.example)
-#        BLUEPRINT=path/to/company.yaml deploy/kind/kind-up.sh
 #        VERBOSE=1 deploy/kind/kind-up.sh   (stream every command's output)
 #
 # What it prints is the progress: one line per step, with the time each
@@ -28,11 +29,11 @@ CALICO_MANIFEST=${CALICO_MANIFEST:-https://raw.githubusercontent.com/projectcali
 TEMPORAL_CHART_VERSION=${TEMPORAL_CHART_VERSION:-1.6.0}
 
 # -- progress ------------------------------------------------------------------
-# Nine steps, always nine: conditional work stays inside its step so the
+# Eight steps, always eight: conditional work stays inside its step so the
 # count never lies. `step` opens one (closing the previous with its time),
 # `note` adds a fact under it, `run` executes a noisy command into the log
 # and speaks up only when it has been silent for a while.
-STEPS=9
+STEPS=8
 STEP=0
 STEP_NAME=""
 STEP_STARTED=$SECONDS
@@ -59,7 +60,7 @@ note() {
 
 # `run label command…`: the command's output lands in the log. After 20 s
 # of silence a line says the step is still going, every 15 s. Commands
-# whose stdout is data (the image list, the Python facts) are not wrapped:
+# whose stdout is data (the image list, the values reads) are not wrapped:
 # they are read by the script, and only their stderr belongs in the log.
 run() {
   local label=$1
@@ -122,18 +123,12 @@ fi
 # An explicit invocation-time REAL_LLM must beat the .env: whether a run
 # spends money is a per-invocation decision, and `REAL_LLM=0 kind-up.sh`
 # silently losing to a forgotten REAL_LLM=1 in the file is how a mock test
-# run ends up billing a provider. The same rule for BLUEPRINT: which
-# company this bring-up applies is the invocation's to say.
+# run ends up billing a provider.
 REAL_LLM_ARG=${REAL_LLM-}
-BLUEPRINT_ARG=${BLUEPRINT-}
 set -a
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 set +a
-# The blueprint this cluster applies; the shipped example unless the .env
-# or the invocation names another. A cluster hosts one company, and the
-# blueprint is where its name, its humans and its repository live.
-BLUEPRINT=${BLUEPRINT_ARG:-${BLUEPRINT:-examples/hello-saas.yaml}}
 SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 # The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
 # real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
@@ -150,32 +145,15 @@ else
 fi
 : "${GIT_TOKEN:?GIT_TOKEN missing from $ENV_FILE}"
 
-# The blueprint, validated before any cluster work: schema, catalog, gates
-# and the compiler's coherence checks — the same set the console applies.
-[ -f "$BLUEPRINT" ] || fail "blueprint $BLUEPRINT not found"
-if ! problems=$(uv run python -m compiler "$BLUEPRINT" 2>&1 >/dev/null); then
-  fail "$BLUEPRINT does not compile:
-$problems"
-fi
-# What the bring-up needs to know from the document: the company, where
-# it lives, who may act on it (the chart's kind humans plus the
-# blueprint's, so everyone it names can `login`), and whom this script
-# applies as — the first name in `company.humans`.
-eval "$(uv run python - "$BLUEPRINT" <<'PY'
-import json, shlex, sys
+# Who a person can be on this cluster: the chart's kind humans, each a
+# `human-<name>` ServiceAccount the console verifies. The first is who
+# this script logs you in as. A blueprint may only name people from this
+# list; the console refuses any other name at apply.
+read -r -a HUMANS <<<"$(uv run python -c '
 import yaml
-from common.topology import COMPANY_NAMESPACE
-document = yaml.safe_load(open(sys.argv[1]))
-kind_humans = yaml.safe_load(open("deploy/helm/poseidon/values-kind.yaml"))["console"]["humans"]
-humans = document["company"]["humans"]
-print("COMPANY=" + shlex.quote(document["company"]["name"]))
-print("COMPANY_NS=" + shlex.quote(COMPANY_NAMESPACE))
-print("FIRST_HUMAN=" + shlex.quote(humans[0]))
-print("HUMANS=" + shlex.quote(" ".join(sorted(set(humans) | set(kind_humans)))))
-print("HUMANS_JSON=" + shlex.quote(json.dumps(sorted(set(humans) | set(kind_humans)))))
-print("REPO=" + shlex.quote(document["stack"]["repo"]["url"]))
-PY
-)"
+print(" ".join(yaml.safe_load(open("deploy/helm/poseidon/values-kind.yaml"))["console"]["humans"]))
+')"
+KIND_HUMAN=${HUMANS[0]}
 # Content-addressed tag over everything that lands in an image. This is what
 # makes a code change reach the cluster: with a fixed `:latest` tag, `kind
 # load` replaces the image in the node but helm renders an identical pod
@@ -190,13 +168,7 @@ BUILD_TAG=${BUILD_TAG:-$(
     | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
 )}
 note "cluster $CLUSTER_NAME, platform namespace $PLATFORM_NS, build tag $BUILD_TAG"
-note "blueprint $BLUEPRINT: company $COMPANY in namespace $COMPANY_NS"
-note "humans: $HUMANS — applying as $FIRST_HUMAN"
-note "repository: $REPO"
-case "$REPO" in
-*example-org/*)
-  note "warning: that is the example's placeholder — the company finds no repository until a blueprint naming yours is applied" ;;
-esac
+note "humans: ${HUMANS[*]} — you will be $KIND_HUMAN"
 if [ "$REAL_LLM" = "1" ]; then
   note "brain: PAID — $MODEL through LiteLLM (REAL_LLM=1)"
 else
@@ -213,15 +185,11 @@ else
   note "kind cluster '$CLUSTER_NAME' created"
 fi
 kubectl config use-context "kind-$CLUSTER_NAME" >>"$LOG" 2>&1
-# A cluster hosts one company. The console is the rule of record — it
-# refuses a blueprint naming another company while one is applied — but
-# hearing that here, before the images and the chart, saves the wait.
+# A company already applied is none of this script's business; it is
+# only worth a word, since its standing agents will re-roll onto this
+# build once the operator restarts with the new image.
 existing=$(kubectl get companies -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
-if [ -n "$existing" ] && [ "$existing" != "$COMPANY" ]; then
-  fail "this cluster hosts '$existing'; delete it before applying '$COMPANY'
-       (\`uv run poseidon company delete\`, or deploy/kind/kind-down.sh for a fresh cluster)"
-fi
-[ -z "$existing" ] || note "the cluster already hosts $existing; this apply updates it"
+[ -z "$existing" ] || note "the cluster hosts $existing; it stays applied"
 
 # -- 3. CNI ----------------------------------------------------------------------
 step "CNI (Calico, so NetworkPolicy is enforced)"
@@ -303,10 +271,9 @@ run "helm upgrade poseidon" helm upgrade --install poseidon deploy/helm/poseidon
   --namespace "$PLATFORM_NS" --create-namespace \
   -f deploy/helm/poseidon/values-kind.yaml \
   -f "$SECRETS_FILE" \
-  --set-json "console.humans=$HUMANS_JSON" \
   "${MOCK_VALUES[@]}" \
   "${IMAGE_VALUES[@]}"
-note "release poseidon installed; humans declared: $HUMANS"
+note "release poseidon installed; humans declared: ${HUMANS[*]}"
 
 # -- 6. platform rollout -----------------------------------------------------------
 step "platform rollout"
@@ -345,71 +312,59 @@ run "orchestrator-worker" kubectl -n "$PLATFORM_NS" rollout status deployment/or
 run "console" kubectl -n "$PLATFORM_NS" rollout status deployment/console --timeout=300s
 note "temporal, the orchestrator worker and the console ready"
 
-# -- 8. blueprint ----------------------------------------------------------------------
-step "blueprint"
-# The company is declarative from here: the console compiles the blueprint
-# against the live registry and submits the CRs, and the operator converges
-# the namespace, its policies and the standing agents. The apply is a
-# human's act: the first human the blueprint names, whom the chart just
-# declared, and the token is the cluster's own — minted here with the
-# kubeconfig that just installed everything, as any operator would. It is
-# saved where every later `poseidon` command reads it (a week on kind,
-# for a token good at the console and nowhere else), so this script's
-# own apply and smoke run on exactly the token the person is left with.
-export POSEIDON_CONSOLE_URL="${POSEIDON_CONSOLE_URL:-http://127.0.0.1:8090}"
-for _ in $(seq 60); do
-  curl -sf -o /dev/null "$POSEIDON_CONSOLE_URL/healthz" && break
-  sleep 1
-done
-unset POSEIDON_TOKEN
-run "login $FIRST_HUMAN" uv run poseidon login "$FIRST_HUMAN" --namespace "$PLATFORM_NS" --duration 604800 --save
-note "token for $FIRST_HUMAN saved (a week)"
-run "apply $BLUEPRINT" uv run poseidon blueprint apply "$BLUEPRINT" --yes
-note "$COMPANY applied through the console"
-# Every standing agent the applied blueprint hires (execution itself is
-# ephemeral crews, so these are the only long-lived company pods).
-for hire in $(kubectl -n "$COMPANY_NS" get agentinstances -o jsonpath='{.items[*].spec.standingName}'); do
-  run "rollout $hire" kubectl -n "$COMPANY_NS" rollout status "deployment/$hire" --timeout=300s
-  note "standing agent $hire ready"
-done
-
-# -- 9. verify -----------------------------------------------------------------------
+# -- 8. verify -----------------------------------------------------------------------
 step "verify"
-# Assert every poseidon pod actually runs this build. Without it, a template
+# Assert every platform pod actually runs this build. Without it, a template
 # that forgets the tag value puts stale code back in the cluster and the
-# only symptom is a test failing for a bug you already fixed.
-# Pods on their way out (a superseded ReplicaSet still draining) and
-# finished sandbox Jobs are not "running stale code" — only live ones count.
-# Fields are pipe-delimited so an absent deletionTimestamp stays an empty
-# column rather than shifting the row.
+# only symptom is a test failing for a bug you already fixed. Company pods
+# are the applied blueprint's, not this script's: the acceptance suite
+# asserts the same for them once the company has converged.
+# Pods on their way out (a superseded ReplicaSet still draining) are not
+# "running stale code" — only live ones count. Fields are pipe-delimited so
+# an absent deletionTimestamp stays an empty column rather than shifting
+# the row.
 stale=$(
-  kubectl get pods -A \
+  kubectl -n "$PLATFORM_NS" get pods \
     -o jsonpath='{range .items[*]}{.status.phase}|{.metadata.deletionTimestamp}|{.metadata.namespace}/{.metadata.name}|{range .spec.containers[*]}{.image} {end}{"\n"}{end}' \
     | awk -F'|' -v tag=":$BUILD_TAG" '
-        $1 == "Succeeded" || $1 == "Failed" { next }   # finished sandbox Jobs
-        $2 != ""                            { next }   # terminating pods
+        $2 != "" { next }   # terminating pods
         $4 ~ /poseidon-[a-z-]*:/ && index($4, tag) == 0 { print $3, $4 }
       '
 )
 [ -z "$stale" ] || fail "pods not running build $BUILD_TAG:
 $stale"
-note "every poseidon pod runs $BUILD_TAG"
+note "every platform pod runs $BUILD_TAG"
 # No unauthenticated gateway route exists; 401 proves the server is up.
 MCP_GATEWAY_URL=${MCP_GATEWAY_URL:-http://127.0.0.1:8080}
 code=$(curl -s -o /dev/null -w '%{http_code}' "$MCP_GATEWAY_URL/mcp")
 [ "$code" = "401" ] || fail "gateway answered $code, expected 401 without a token"
-# The console: a person is refused without a token and known with one.
+# The console: a person is refused without a token and known with one. The
+# token is the cluster's own — minted with the kubeconfig that just
+# installed everything, as any operator would — and saved where every
+# later `poseidon` command reads it: a week on kind, for a token good at
+# the console and nowhere else. The person is left with one command to
+# type, and it is theirs: applying a company.
+export POSEIDON_CONSOLE_URL="${POSEIDON_CONSOLE_URL:-http://127.0.0.1:8090}"
+for _ in $(seq 60); do
+  curl -sf -o /dev/null "$POSEIDON_CONSOLE_URL/healthz" && break
+  sleep 1
+done
 code=$(curl -s -o /dev/null -w '%{http_code}' "$POSEIDON_CONSOLE_URL/whoami")
 [ "$code" = "401" ] || fail "console answered $code, expected 401 without a token"
-uv run poseidon whoami 2>>"$LOG" | grep -q "\"human\": \"$FIRST_HUMAN\"" \
-  || fail "the console did not recognise the token of $FIRST_HUMAN"
-note "gateway and console refuse without a token and know $FIRST_HUMAN with one"
-# Standing agents have no NodePort: they are reached in-cluster by the
-# orchestrator, and the operator gives each standing agent its own Service.
+unset POSEIDON_TOKEN
+run "login $KIND_HUMAN" uv run poseidon login "$KIND_HUMAN" --namespace "$PLATFORM_NS" --duration 604800 --save
+uv run poseidon whoami 2>>"$LOG" | grep -q "\"human\": \"$KIND_HUMAN\"" \
+  || fail "the console did not recognise the token of $KIND_HUMAN"
+note "gateway and console refuse without a token and know $KIND_HUMAN with one"
 close_step
 STEP=0  # the summary is not a step; nothing to close on exit
 
-echo "==> up in $((SECONDS - STARTED))s: $COMPANY in $COMPANY_NS"
+echo "==> platform up in $((SECONDS - STARTED))s in $PLATFORM_NS"
 echo "    console $POSEIDON_CONSOLE_URL, gateway $MCP_GATEWAY_URL"
-echo "    you are $FIRST_HUMAN for a week: \`uv run poseidon whoami\`, \`uv run poseidon heartbeat state\`"
+echo "    you are $KIND_HUMAN for a week: \`uv run poseidon whoami\`"
+if [ -n "$existing" ]; then
+  echo "    the cluster hosts $existing; \`uv run poseidon company show\`"
+else
+  echo "    next: \`uv run poseidon blueprint apply <blueprint>\` (examples/hello-saas.yaml to try the example)"
+fi
 echo "    log: $LOG"
