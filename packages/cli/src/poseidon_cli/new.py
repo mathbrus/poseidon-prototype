@@ -5,12 +5,14 @@ bound is authority nobody wrote down. Writing one by hand means copying
 an example and knowing which fields are the company's and which are the
 shape every company repeats. The questionnaire asks for the first —
 the name, the vision, the humans, the repository, the gate, the money —
-with the shipped example's answers as defaults, and writes the second
-without asking. What it writes is coherent by construction (the crews a
-workflow needs are spawnable, the stewardship crew is always among them,
-a contract tree brings its author's crew, delegation only under policy)
-and then compiled, the way the console would compile it, before a byte
-lands on disk.
+in the person's words, with the shipped example's answers as defaults
+wherever a default is honest (the vision and the repository have none:
+they are the two answers only the person can give), and writes the
+second without asking. What it writes is coherent by construction (the
+crews a workflow needs are spawnable, the stewardship crew is always
+among them, a contract tree brings its author's crew, delegation only
+under policy) and then compiled, the way the console would compile it,
+before a byte lands on disk.
 
 The prompts are one small protocol, so the questionnaire runs against a
 terminal (questionary) or a script (the tests) alike.
@@ -36,6 +38,9 @@ from schema.validate import ValidationError
 API_VERSION = "poseidon.dev/v1"
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 REPO_PATTERN = re.compile(r"^github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+# The examples' stand-in owner: a company pointed at it finds no
+# repository, so the questionnaire refuses it where a person types.
+PLACEHOLDER_OWNER = "example-org"
 
 # The layout every company repeats, and the bounds the example ships with.
 # A person changes them in the written file; the questionnaire asks only
@@ -53,9 +58,21 @@ EGRESS_PRESETS: dict[str, list[str]] = {
     "none": [],
 }
 
+# What the screen says before the first question, and above each group.
+OPENING = (
+    "A blueprint in about a dozen questions. Enter keeps the answer shown;"
+    " Ctrl+C leaves nothing written."
+)
+SECTIONS = ("Company", "Repository", "Who decides", "Money", "Advanced")
+# How a multi-line answer is finished — said on screen with the prompt,
+# since Enter there adds a line.
+MULTILINE_HINT = "Enter adds a line; Esc then Enter finishes"
+
 
 class Prompter(Protocol):
     """What the questionnaire needs from whoever answers."""
+
+    def say(self, text: str) -> None: ...
 
     def text(
         self,
@@ -81,7 +98,9 @@ class Prompter(Protocol):
 
 @dataclass
 class Answers:
-    """Everything the questionnaire asks, with the example's answers."""
+    """Everything the questionnaire asks, with the example's answers — the
+    vision and the repository included, for `build()`; `ask()` offers
+    neither as a default."""
 
     name: str = "my-company"
     vision: str = (
@@ -89,7 +108,7 @@ class Answers:
         "green by a company of agents that never exceeds its authority."
     )
     humans: list[str] = field(default_factory=lambda: ["owner"])
-    repo_url: str = "github.com/example-org/hello-saas"
+    repo_url: str = f"github.com/{PLACEHOLDER_OWNER}/hello-saas"
     base_ref: str = "main"
     test_command: str = "pytest -q"
     egress: list[str] = field(default_factory=lambda: list(EGRESS_PRESETS["python"]))
@@ -102,10 +121,10 @@ class Answers:
     contract_tree: bool = True
     per_run_usd: float = 5
     daily_cap_usd: float = 20
-    max_concurrent: int = 2
-    # The remaining bounds, behind one "adjust them?" question.
-    reconcile_minutes: int = 30
     max_concurrent_runs: int = 1
+    # The remaining bounds, behind one "fine-tune?" question.
+    max_concurrent: int = 2
+    reconcile_minutes: int = 30
     max_attempts: int = 2
     max_open_tickets: int = 5
     pause_minutes: int = 60
@@ -124,9 +143,17 @@ def valid_name(value: str) -> str | None:
     return None
 
 
+def valid_vision(value: str) -> str | None:
+    if not value.strip():
+        return "a few sentences: what the company should build, and why"
+    return None
+
+
 def valid_repo(value: str) -> str | None:
     if not REPO_PATTERN.match(value):
         return "github.com/<owner>/<repository>"
+    if value.split("/")[1] == PLACEHOLDER_OWNER:
+        return f"{PLACEHOLDER_OWNER} is the examples' stand-in; name your repository"
     return None
 
 
@@ -174,166 +201,202 @@ def _split(value: str) -> list[str]:
 
 
 def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
-    """Section by section, every prompt defaulted so Enter walks through."""
+    """Section by section, in the person's words: what the answer changes
+    for them, with the charter's term once in the help where the file
+    they get will show it. Every prompt but the vision and the repository
+    is defaulted, so Enter walks through."""
     a = defaults or Answers()
+    prompter.say(OPENING)
 
-    # company
+    prompter.say(SECTIONS[0])
     a.name = prompter.text(
         "Company name",
         default=a.name,
-        help="Becomes the Rego package, the workflow ids and every registry row's key",
+        help="short, lowercase, hyphens allowed (e.g. hello-saas); this names the "
+        "company everywhere",
         validate=valid_name,
     )
     # Folded like the examples' `>-` scalars: line breaks typed in the
     # editor are spaces in the vision; a blank line stays a paragraph.
     a.vision = _fold(
         prompter.text(
-            "Vision",
-            default=a.vision,
-            help="The one text a human writes: it reaches every procedure but deliver",
+            "What should this company build, and why?",
+            help="a few sentences; the agents read this before every decision",
+            validate=valid_vision,
             multiline=True,
         )
     )
     a.humans = _split(
         prompter.text(
-            "Humans who may act on the company",
+            "Who may steer the company?",
             default=", ".join(a.humans),
-            help="Answer its gates, start or cancel a run, wake the heartbeat, apply, delete",
+            help="login names, comma-separated; they approve merges, raise budgets "
+            "and can stop the company. On kind: owner, auditor",
             validate=valid_names,
         )
     )
 
-    # stack
+    prompter.say(SECTIONS[1])
     a.repo_url = prompter.text(
-        "Repository",
-        default=a.repo_url,
-        help="The one repository the company works on",
+        "GitHub repository",
+        help="github.com/<owner>/<repo>; the company's code lives here",
         validate=valid_repo,
     )
     a.base_ref = prompter.text(
-        "Base branch",
+        "Main branch",
         default=a.base_ref,
-        help="Changes are measured and delivered against it",
+        help="the branch the company delivers pull requests to; it stays protected",
     )
     a.test_command = prompter.text(
         "Test command",
         default=a.test_command,
-        help="What a sandbox runs to know it is green",
+        help="run from the repository root; a change counts as good only when this "
+        "passes",
     )
     preset = prompter.select(
-        "Egress the sandbox may reach",
+        "Internet access for the agents' workspace",
         [
-            ("python", "Python: pypi.org and files.pythonhosted.org"),
-            ("none", "Nothing"),
+            ("python", "Python packages only (pypi.org, files.pythonhosted.org)"),
+            ("none", "None"),
             ("custom", "Hosts I will list"),
         ],
         default="python" if a.egress == EGRESS_PRESETS["python"] else "custom",
-        help="The entire allowlist; everything else is refused at the egress proxy",
+        help="everything not listed is blocked",
     )
     if preset == "custom":
         a.egress = _split(
-            prompter.text("Hosts", default=", ".join(a.egress), validate=valid_paths)
+            prompter.text(
+                "Hosts",
+                default=", ".join(a.egress),
+                help="host names, comma-separated",
+                validate=valid_paths,
+            )
         )
     else:
         a.egress = list(EGRESS_PRESETS[preset])
 
-    # who may write
-    a.reviewer_writes = prompter.confirm(
-        "May the reviewer write in its sandbox?",
-        default=a.reviewer_writes,
-        help="No: it judges, it does not fix — the example's choice",
+    prompter.say(SECTIONS[2])
+    a.reviewer_writes = (
+        prompter.select(
+            "Should the reviewer fix code, or only judge it?",
+            [("judge", "Judge only (recommended)"), ("fix", "Judge and fix")],
+            default="fix" if a.reviewer_writes else "judge",
+        )
+        == "fix"
     )
-
-    # the merge gate
     a.resolver = prompter.select(
-        "Who resolves the merge gate",
+        "Who decides whether a pull request merges?",
         [
-            ("human", "A human answers every merge"),
-            ("policy", "Policy merges passing in-class work; a human keeps the rest"),
+            ("human", "A person approves every merge"),
+            ("policy", "Routine changes merge on their own; a person approves the rest"),
         ],
         default=a.resolver,
-        help="The one authority a company can be handed, and it is a diff to take back",
+        help="you can change this later by editing the file",
     )
     if a.resolver == "policy":
         a.delegate_paths = _split(
             prompter.text(
-                "Paths policy may merge on its own",
+                "Folders where a change may merge without a person",
                 default=", ".join(a.delegate_paths),
-                help="Prefixes; anything outside them parks on a human",
+                help="anything touching other files waits for approval",
                 validate=valid_paths,
             )
         )
         a.max_reworks = int(
             prompter.text(
-                "Reworks before a failed review parks on a human",
+                "How many times may a rejected change be reworked before a person "
+                "is asked?",
                 default=str(a.max_reworks),
                 validate=valid_integer(0),
             )
         )
         a.contract_tree = prompter.confirm(
-            "Keep an acceptance-contract tree only a contract author may write?",
+            "Keep acceptance tests the code's author may not edit?",
             default=a.contract_tree,
-            help=f"{CONTRACT_PATHS[0]}, graded by different hands than the code",
+            help=f"{CONTRACT_PATHS[0]} is written by a separate agent, so the code "
+            "never grades itself",
         )
 
-    # money and concurrency
+    prompter.say(SECTIONS[3])
     a.per_run_usd = float(
         prompter.text(
-            "Per-run cap, USD", default=_num(a.per_run_usd), validate=valid_number(0.01)
+            "Spending limit per task, USD",
+            default=_num(a.per_run_usd),
+            help="a task stops here and waits for a person",
+            validate=valid_number(0.01),
         )
     )
     a.daily_cap_usd = float(
         prompter.text(
-            "Daily cap, USD",
+            "Spending limit per day, USD",
             default=_num(max(a.daily_cap_usd, a.per_run_usd)),
-            help="The day's hard stop; at least one run's worth",
+            help="the company stops for the day here",
             validate=valid_number(a.per_run_usd),
         )
     )
-    a.max_concurrent = int(
+    a.max_concurrent_runs = int(
         prompter.text(
-            "Crews the PM may run at once",
-            default=str(a.max_concurrent),
+            "How many tasks may the company work on at once?",
+            default=str(a.max_concurrent_runs),
             validate=valid_integer(1),
         )
     )
 
     if prompter.confirm(
-        "Adjust the remaining bounds?",
+        "Fine-tune the advanced settings?",
         default=False,
-        help="Heartbeat cadence and caps, the budget pause, the gate deadline, rework and branch rules",
+        help="how often it checks in, retries, backlog size, waiting times, branch "
+        "rules; the defaults are fine to start",
     ):
+        prompter.say(SECTIONS[4])
         a.reconcile_minutes = _int(
-            prompter, "Reconcile every N minutes", a.reconcile_minutes, 1
-        )
-        a.max_concurrent_runs = _int(
             prompter,
-            "Runs the heartbeat may have going at once",
-            a.max_concurrent_runs,
+            "Minutes between check-ins when nothing else happens",
+            a.reconcile_minutes,
             1,
         )
-        a.max_attempts = _int(prompter, "Attempts per ticket", a.max_attempts, 1)
+        a.max_concurrent = _int(
+            prompter,
+            "Crews one task may have running at the same time",
+            a.max_concurrent,
+            1,
+            help="an implement and its review",
+        )
+        a.max_attempts = _int(
+            prompter, "Tries per ticket before it is given up", a.max_attempts, 1
+        )
         a.max_open_tickets = _int(
-            prompter, "Open tickets before scoping stops", a.max_open_tickets, 1
+            prompter,
+            "Open tickets before the company stops planning new ones",
+            a.max_open_tickets,
+            1,
         )
         a.pause_minutes = _int(
             prompter,
-            "Minutes a run waits at its cap for someone to raise it",
+            "Minutes a task waits at its spending limit for a person",
             a.pause_minutes,
             1,
         )
         a.deadline_minutes = _int(
-            prompter, "Minutes a parked merge waits for a human", a.deadline_minutes, 1
+            prompter,
+            "Minutes a pull request waits for a person's approval",
+            a.deadline_minutes,
+            1,
         )
         a.max_verify_retries = _int(
-            prompter, "Verify retries per implement run", a.max_verify_retries, 0
+            prompter,
+            "Times a task may re-run its tests before giving up",
+            a.max_verify_retries,
+            0,
         )
         a.allowed_pattern = prompter.text(
-            "Branch pattern the company may push", default=a.allowed_pattern
+            "Pattern the company's branch names must match",
+            default=a.allowed_pattern,
+            help="a regular expression",
         )
         a.deny_paths = _split(
             prompter.text(
-                "Paths no role may touch",
+                "Files and folders the company may never change",
                 default=", ".join(a.deny_paths),
                 validate=valid_paths,
             )
@@ -346,14 +409,25 @@ def _fold(text: str) -> str:
     return "\n\n".join(p for p in paragraphs if p)
 
 
-def _int(prompter: Prompter, message: str, current: int, minimum: int) -> int:
+def _int(
+    prompter: Prompter, message: str, current: int, minimum: int, help: str = ""
+) -> int:
     return int(
-        prompter.text(message, default=str(current), validate=valid_integer(minimum))
+        prompter.text(
+            message, default=str(current), help=help, validate=valid_integer(minimum)
+        )
     )
 
 
 def _num(value: float) -> str:
     return f"{value:g}"
+
+
+def instruction(help: str, multiline: bool = False) -> str | None:
+    """What questionary shows beside a prompt: the help, and for a
+    multi-line field how to finish — the one place that hint lives."""
+    parts = [part for part in (help, MULTILINE_HINT if multiline else "") if part]
+    return f"({'; '.join(parts)})" if parts else None
 
 
 # -- the document -------------------------------------------------------------
@@ -446,30 +520,33 @@ def _money(value: float) -> int | float:
     return int(value) if float(value).is_integer() else value
 
 
+# The person's first reading of the file they own: one note per section,
+# saying what it governs for them.
 SECTION_NOTES = {
     "company": (
-        "The company: its name, the vision every procedure reads, the people\n"
-        "who may act on it through the console, and the two documents it\n"
-        "writes for itself in its repository."
+        "Your company: its name, what it should build and why (every agent\n"
+        "reads this before every decision), who may steer it, and the two\n"
+        "documents it writes for itself in its repository."
     ),
-    "stack": "The one repository the company works on, and the sandbox it works in.",
+    "stack": "Where the code lives, and what the agents' workspace may reach and run.",
     "standing": (
-        "The standing PM: decides the next action on every heartbeat tick and\n"
-        "is the authority every crew is fulfilled under."
+        "The company's one permanent agent, the PM: it decides what to work\n"
+        "on next, and which crews it may bring in for a task."
     ),
     "tools": (
-        "Where a role's catalog is narrowed. A role not listed keeps its\n"
-        "catalog tools; the reviewer here drops the writes — it judges."
+        "What each role may do beyond reading. A role not listed keeps its\n"
+        "full set; the reviewer here may judge code, not change it."
     ),
     "workflows": (
-        "The two crewed workflows: the crew that fulfils each, its bounds,\n"
-        "and the gate a review parks on."
+        "How a task is carried out and reviewed: which crew does each, how\n"
+        "many test retries, and who approves a merge."
     ),
-    "policies": "What no run may do, whoever asks.",
-    "budgets": "Spend is a stop, not a warning.",
+    "policies": "What the company may never do, whoever asks.",
+    "budgets": "Spending limits: a task stops here and waits for a person.",
     "heartbeat": (
-        "The company's own initiative: who decides, what it may start, how\n"
-        "many at once, how many tries, how large the backlog, the day's cap."
+        "How the company keeps itself going: how often it checks in, how\n"
+        "much it may run at once, how many tries and open tickets, and the\n"
+        "day's spending limit."
     ),
 }
 
@@ -479,8 +556,9 @@ def render(document: dict[str, Any]) -> str:
     order the reference reads them. Always valid YAML — the values are
     dumped, never templated."""
     parts = [
-        f"# {document['company']['name']} — written by `poseidon blueprint new`;\n"
-        "# every value here is yours to change, then `poseidon blueprint apply`.\n",
+        f"# {document['company']['name']} — written by `poseidon blueprint new`.\n"
+        "# Every value here is yours to change; `poseidon blueprint apply` makes\n"
+        "# it the company's charter.\n",
         yaml.safe_dump({"apiVersion": document["apiVersion"]}, sort_keys=False),
     ]
     for section, note in SECTION_NOTES.items():
@@ -507,7 +585,14 @@ def problems(document: dict[str, Any]) -> list[str]:
 
 class QuestionaryPrompter:
     """The questionnaire on a terminal: arrow-key choices, a multi-line
-    editor for the vision (Esc then Enter, or Alt+Enter, submits)."""
+    editor for the vision with its submit hint on screen, a heading above
+    each group of questions."""
+
+    def say(self, text: str) -> None:
+        import questionary
+
+        style = "bold" if text in SECTIONS else ""
+        questionary.print(("\n" if text in SECTIONS else "") + text, style=style)
 
     def text(
         self,
@@ -527,7 +612,7 @@ class QuestionaryPrompter:
         answer = questionary.text(
             message,
             default=default,
-            instruction=f"({help})" if help else None,
+            instruction=instruction(help, multiline),
             validate=ok,
             multiline=multiline,
         ).unsafe_ask()
@@ -550,7 +635,7 @@ class QuestionaryPrompter:
             message,
             choices=options,
             default=next((o for o in options if o.value == default), None),
-            instruction=f"({help})" if help else None,
+            instruction=instruction(help),
         ).unsafe_ask()
         return answer if answer is not None else default
 
@@ -558,6 +643,6 @@ class QuestionaryPrompter:
         import questionary
 
         answer = questionary.confirm(
-            message, default=default, instruction=f"({help})" if help else None
+            message, default=default, instruction=instruction(help)
         ).unsafe_ask()
         return default if answer is None else bool(answer)

@@ -108,10 +108,12 @@ The quickest way to a blueprint of your own is to answer questions:
 uv run poseidon blueprint new            # writes <company-name>.yaml, then say how to apply it
 ```
 
-It asks for what is yours to decide — the name, the vision, who may act,
-the repository and its test command, what the sandbox may reach, who
-resolves the merge gate and what policy may merge on its own, the money —
-with the shipped example's answers as defaults, so Enter walks through.
+It asks for what is yours to decide — the name, what the company should
+build and why, who may steer it, the repository and its test command,
+what the agents' workspace may reach, who decides whether a pull request
+merges and which folders may merge on their own, the money — in plain
+words, with the shipped example's answers as defaults so Enter walks
+through; only the vision and the repository must be typed.
 The shape every company repeats it writes without asking, and it compiles
 the result the way the console would before writing a byte. Every value
 in the file is yours to change afterwards.
