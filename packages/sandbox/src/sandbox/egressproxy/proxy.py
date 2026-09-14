@@ -26,7 +26,7 @@ import time
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from common.audit import AuditEvent, args_digest
+from common.audit import SANDBOX_EGRESS, AuditEvent, args_digest
 from common.telemetry import get_logger
 from common.topology import EGRESS_PROXY_PORT
 from registry import AuditStore, Companies, SandboxRegistrations
@@ -313,7 +313,7 @@ class EgressProxy:
             # The enforcement point is the `source` field —
             # role is a caller property this producer does not have.
             role="",
-            tool="sandbox.egress",
+            tool=SANDBOX_EGRESS,
             args_digest=args_digest({"host": host, "port": port}),
             decision=decision,
             rule=rule,

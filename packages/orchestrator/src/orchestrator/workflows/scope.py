@@ -27,6 +27,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from common.tasks import SCOPE_TASK
+from common.workflows import BUDGET_GATE
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import STEP_RETRY, RunWorkflow
 
@@ -43,7 +44,7 @@ class ScopeWorkflow(RunWorkflow):
 
     def __init__(self) -> None:
         self._state = "running"
-        self._budget_gate = Gate("budget")
+        self._budget_gate = Gate(BUDGET_GATE)
 
     @workflow.signal
     def budget(self, approved: bool) -> None:

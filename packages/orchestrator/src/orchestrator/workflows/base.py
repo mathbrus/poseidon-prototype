@@ -278,11 +278,11 @@ class RunWorkflow:
             self._state = PARKED_STATE[BUDGET_GATE]
             outcome = await self._budget_gate.wait(
                 **gate_deadline(self._config["budget_pause_minutes"]),
-                on_escalate=lambda: self.record_gate(run_id, "budget", "escalated"),
+                on_escalate=lambda: self.record_gate(run_id, BUDGET_GATE, "escalated"),
             )
             self._state = "running"
-            await self.record_gate(run_id, "budget", outcome.kind)
+            await self.record_gate(run_id, BUDGET_GATE, outcome.kind)
             if outcome.kind != "approved":
                 return result
             # Approved: a fresh gate for any next stop, then re-dispatch.
-            self._budget_gate = Gate("budget")
+            self._budget_gate = Gate(BUDGET_GATE)

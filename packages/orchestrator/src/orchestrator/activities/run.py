@@ -34,10 +34,10 @@ from temporalio import activity
 if TYPE_CHECKING:
     from orchestrator.activities.crew import CrewActivities
 
-from common.audit import args_digest
+from common.audit import args_digest, gate_event
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from common.telemetry import get_logger
-from common.workflows import workflow_id
+from common.workflows import ATTEMPTS_GATE, workflow_id
 from orchestrator.activities.blueprint import company_repo, workflow_config
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.documents import (
@@ -57,12 +57,6 @@ from registry import (
     Runs,
 )
 from sandbox.contract import SandboxBackend, SandboxHandle
-
-# The process-gate event a run writes when it spent the last attempt the
-# blueprint allows on its issue or PR: `gate.heartbeat_attempts` /
-# `gate_exhausted`, the shape of the rework bound's `gate_rework_exhausted`
-# and the daily cap's `gate_halted`.
-ATTEMPTS_GATE = "heartbeat_attempts"
 
 
 def attempts_exhausted_comment(kind: str, count: int, max_attempts: int) -> str:
@@ -196,7 +190,7 @@ class RunActivities:
         await record_event(
             self._audit,
             run_id=run_id,
-            tool=f"gate.{gate}",
+            tool=gate_event(gate),
             digest=args_digest({"gate": gate, "outcome": kind}),
             decision="allow" if kind in ("approved", "policy_resolved") else "deny",
             rule=f"gate_{kind}",
@@ -326,7 +320,7 @@ class RunActivities:
         await record_event(
             self._audit,
             run_id=run_id,
-            tool=f"gate.{ATTEMPTS_GATE}",
+            tool=gate_event(ATTEMPTS_GATE),
             digest=args_digest(
                 {"gate": ATTEMPTS_GATE, "outcome": "exhausted", "attempts": count}
             ),

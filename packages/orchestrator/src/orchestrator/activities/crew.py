@@ -26,7 +26,15 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from common.audit import args_digest
+from common.audit import (
+    LIFECYCLE_BIND,
+    LIFECYCLE_DESTROY_POD,
+    LIFECYCLE_FULFILL,
+    LIFECYCLE_PROVISION_POD,
+    LIFECYCLE_RECORD_REQUEST,
+    LIFECYCLE_REVOKE,
+    args_digest,
+)
 from common.identity import LIFECYCLE_EPHEMERAL, LIFECYCLE_STANDING
 from common.opa import evaluate_decision
 from common.policy import CREW_REQUEST
@@ -110,7 +118,7 @@ class CrewActivities:
             role=spec["role"],
             company=spec["company"],
             parent_agent_id=spec["parent_agent_id"],
-            tool="lifecycle.bind",
+            tool=LIFECYCLE_BIND,
             rule="participant_bound",
             digest=args_digest(spec),
             started=started,
@@ -155,7 +163,7 @@ class CrewActivities:
                 role="",
                 company="",
                 parent_agent_id="",
-                tool="lifecycle.revoke",
+                tool=LIFECYCLE_REVOKE,
                 rule="participant_revoked",
                 digest=args_digest({"run_id": run_id}),
                 started=started,
@@ -216,7 +224,7 @@ class CrewActivities:
             role=spec["role"],
             company=spec["company"],
             parent_agent_id=spec["parent_agent_id"],
-            tool="lifecycle.provision_pod",
+            tool=LIFECYCLE_PROVISION_POD,
             rule="ephemeral_pod_provisioned",
             digest=args_digest(spec),
             started=started,
@@ -276,7 +284,7 @@ class CrewActivities:
                 role="",
                 company="",
                 parent_agent_id="",
-                tool="lifecycle.destroy_pod",
+                tool=LIFECYCLE_DESTROY_POD,
                 rule="ephemeral_pod_destroyed",
                 digest=args_digest({"run_id": run_id}),
                 started=started,
@@ -358,7 +366,7 @@ class CrewActivities:
                 role=agent["role"],
                 company=spec["company"],
                 parent_agent_id=conductor,
-                tool="lifecycle.fulfill",
+                tool=LIFECYCLE_FULFILL,
                 rule="crew_fulfilled",
                 digest=args_digest({"crew_template": crew_template}),
                 started=started,
@@ -414,7 +422,7 @@ class CrewActivities:
             role=conductor_role,
             company=company,
             parent_agent_id="",
-            tool="lifecycle.record_request",
+            tool=LIFECYCLE_RECORD_REQUEST,
             rule=str(result.get("rule") or ""),
             digest=args_digest({"crew_template": crew_template}),
             started=started,
