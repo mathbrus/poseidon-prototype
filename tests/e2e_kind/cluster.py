@@ -25,6 +25,7 @@ from typing import Any
 import pytest
 import yaml
 
+from common.audit import HEARTBEAT_TICK
 from common.topology import (
     COMPANY_NAMESPACE,
     CONSOLE_TOKEN_AUDIENCE,
@@ -806,7 +807,7 @@ def heartbeat_ticks(heartbeat_id: str) -> list[dict[str, Any]]:
     return [
         e
         for e in audit_story(workflow_id("heartbeat", COMPANY))
-        if e["tool"] == "heartbeat.tick" and e["workflow"] == heartbeat_id
+        if e["tool"] == HEARTBEAT_TICK and e["workflow"] == heartbeat_id
     ]
 
 

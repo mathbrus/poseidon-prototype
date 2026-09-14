@@ -97,7 +97,9 @@ import httpx
 import pytest
 import yaml
 
+from common.audit import gate_event
 from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
+from common.workflows import MERGE_GATE
 from mockllm.brain import (
     ARCHITECTURE_MD,
     CONTRACT_TEST_PATH,
@@ -669,7 +671,7 @@ def close_issue(env: dict, number: int | None) -> None:
 
 def gate_merge_rules(story: list[dict]) -> list[str]:
     """The merge-gate rules a run's audit story recorded, in order."""
-    return [e["rule"] for e in story if e["tool"] == "gate.merge"]
+    return [e["rule"] for e in story if e["tool"] == gate_event(MERGE_GATE)]
 
 
 def pr_state(env: dict, pr_url: str | None) -> str:

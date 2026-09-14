@@ -22,6 +22,7 @@ import asyncio
 import pytest
 from temporalio.client import Client
 
+from common.policy import GATE_RESOLVE, MERGE_RESOLVE
 from common.tasks import review_run_task
 from common.workflows import workflow_id
 
@@ -130,7 +131,7 @@ def test_a_signal_past_the_console_releases_nothing(raw_review: dict, delivered)
     story = audit_story(raw_review["run_id"])
     gate_rules = [e["rule"] for e in story if e["source"] == "process-gate"]
     assert gate_rules[-2:] == ["gate_approved", "gate_verdict_unverified"], gate_rules
-    resolves = [e for e in story if e["tool"] == "merge.resolve"]
+    resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "deny"
     assert resolves[-1]["rule"] == "merge_resolve_no_human_verdict"
     assert not any(e["tool"] == "git.merge_pr" for e in story), "a merge was attempted"
@@ -157,12 +158,12 @@ def test_the_same_verdict_through_the_console_merges(raw_review: dict, delivered
 
     story = audit_story(run_id)
     recorded = [
-        e for e in story if e["source"] == "console" and e["tool"] == "gate.resolve"
+        e for e in story if e["source"] == "console" and e["tool"] == GATE_RESOLVE
     ]
     assert [(e["agent_id"], e["rule"]) for e in recorded] == [
         (HUMAN, "gate_resolve_merge_approve")
     ]
-    release = [e for e in story if e["tool"] == "merge.resolve"][-1]
+    release = [e for e in story if e["tool"] == MERGE_RESOLVE][-1]
     assert (release["decision"], release["rule"]) == ("allow", "merge_resolve_human")
     assert any(e["tool"] == "git.merge_pr" and e["decision"] == "allow" for e in story)
     assert _pull(env, number)["merged"] is True

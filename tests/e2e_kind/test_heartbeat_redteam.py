@@ -45,7 +45,10 @@ import time
 
 import pytest
 
+from common.audit import gate_event
+from common.policy import HEARTBEAT_START
 from common.tasks import review_run_task
+from common.workflows import ATTEMPTS_GATE
 from mockllm.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
@@ -140,7 +143,7 @@ def test_the_heartbeat_started_the_issue_not_the_planted_review(
     starts = [
         e
         for e in audit_story(child["run_id"])
-        if e["tool"] == "heartbeat.start" and e["decision"] == "allow"
+        if e["tool"] == HEARTBEAT_START and e["decision"] == "allow"
     ]
     assert starts, "no authorized start — the loop never acted"
     # And the heartbeat chose implement: the started tick names the
@@ -211,7 +214,7 @@ def test_the_whole_unattended_trajectory_reconstructs_from_the_audit_store(
 
     run_story = audit_story(unattended_run["child"]["run_id"])
     tools = {e["tool"] for e in run_story}
-    assert "heartbeat.start" in tools, tools
+    assert HEARTBEAT_START in tools, tools
     assert "gateway" in {e["source"] for e in run_story}
 
 
@@ -389,14 +392,14 @@ def test_the_run_that_spent_the_last_attempt_recorded_it(
     exhausted = [
         e
         for e in audit_story(second["run_id"])
-        if e["tool"] == "gate.heartbeat_attempts" and e["rule"] == "gate_exhausted"
+        if e["tool"] == gate_event(ATTEMPTS_GATE) and e["rule"] == "gate_exhausted"
     ]
     assert exhausted, "no exhaustion event under the last attempt's run id"
     assert all(
         e["source"] == "process-gate" and e["decision"] == "deny" for e in exhausted
     )
     assert not any(
-        e["tool"] == "gate.heartbeat_attempts" for e in audit_story(first["run_id"])
+        e["tool"] == gate_event(ATTEMPTS_GATE) for e in audit_story(first["run_id"])
     )
     comments = github_api(
         env,

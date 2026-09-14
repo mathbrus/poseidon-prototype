@@ -54,7 +54,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from common.tasks import review_run_task
-from common.workflows import MERGE_GATE, PARKED_STATE
+from common.workflows import BUDGET_GATE, MERGE_GATE, PARKED_STATE
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
@@ -88,8 +88,8 @@ class ReviewWorkflow(RunWorkflow):
 
     def __init__(self) -> None:
         self._state = "running"
-        self._budget_gate = Gate("budget")
-        self._merge_gate = Gate("merge")
+        self._budget_gate = Gate(BUDGET_GATE)
+        self._merge_gate = Gate(MERGE_GATE)
 
     @workflow.signal
     def budget(self, approved: bool) -> None:
@@ -141,7 +141,7 @@ class ReviewWorkflow(RunWorkflow):
         then). A head that moves after review re-opens the gap between
         reviewed and merged — recorded, not yet closed: merge_pr does not
         assert the head sha."""
-        gate = config["gates"].get("merge") or {}
+        gate = config["gates"].get(MERGE_GATE) or {}
         contract_paths = config.get("contract_paths") or []
         if any(
             path.startswith(prefix)
@@ -157,7 +157,7 @@ class ReviewWorkflow(RunWorkflow):
             # ones the implementer crew cannot deliver); at bootstrap it
             # also keeps the first contract PR off the composed baseline,
             # which has no tree to run yet. Decline, not failure: park.
-            await self.record_gate(input.run_id, "merge", "policy_declined")
+            await self.record_gate(input.run_id, MERGE_GATE, "policy_declined")
             return {}
         verdict = result["verdict"]
         if verdict != "pass":
@@ -243,7 +243,7 @@ class ReviewWorkflow(RunWorkflow):
             },
         )
         if not resolve.get("allow"):
-            await self.record_gate(input.run_id, "merge", "policy_declined")
+            await self.record_gate(input.run_id, MERGE_GATE, "policy_declined")
             return {}
         return await self._release(input)
 
@@ -270,7 +270,7 @@ class ReviewWorkflow(RunWorkflow):
         )
         limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
         if depth["depth"] >= limit:
-            await self.record_gate(input.run_id, "merge", "rework_exhausted")
+            await self.record_gate(input.run_id, MERGE_GATE, "rework_exhausted")
             return {}
         ticket = await workflow.execute_activity(
             "file_rework",
@@ -288,7 +288,7 @@ class ReviewWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
             retry_policy=STEP_RETRY,
         )
-        await self.record_gate(input.run_id, "merge", "rework_filed")
+        await self.record_gate(input.run_id, MERGE_GATE, "rework_filed")
         return {
             "error": f"policy merge gate: {reason} — rework ticket filed:"
             f" {ticket.get('url')}"
@@ -336,10 +336,10 @@ class ReviewWorkflow(RunWorkflow):
         self._state = PARKED_STATE[MERGE_GATE]
         outcome = await self._merge_gate.wait(
             **gate_deadline(gate["deadline_minutes"]),
-            on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated"),
+            on_escalate=lambda: self.record_gate(input.run_id, MERGE_GATE, "escalated"),
         )
         self._state = "running"
-        await self.record_gate(input.run_id, "merge", outcome.kind)
+        await self.record_gate(input.run_id, MERGE_GATE, outcome.kind)
         if outcome.kind != "approved":
             return {"error": f"merge gate {outcome.kind}"}
         verdict = await workflow.execute_activity(
@@ -352,7 +352,7 @@ class ReviewWorkflow(RunWorkflow):
             input, "human", {"human_verdict": verdict} if verdict else {}
         )
         if not resolve.get("allow"):
-            await self.record_gate(input.run_id, "merge", "verdict_unverified")
+            await self.record_gate(input.run_id, MERGE_GATE, "verdict_unverified")
             return {
                 "error": f"merge gate: no verified human verdict ({resolve.get('rule')})"
             }
@@ -361,7 +361,7 @@ class ReviewWorkflow(RunWorkflow):
     async def _release(self, input: "ReviewInput") -> dict[str, Any]:
         """The policy release: gate outcome first, then the merge — strictly
         after the compiled allow."""
-        await self.record_gate(input.run_id, "merge", "policy_resolved")
+        await self.record_gate(input.run_id, MERGE_GATE, "policy_resolved")
         return {"released": await self._merge_pr(input)}
 
     @workflow.run
@@ -450,7 +450,7 @@ class ReviewWorkflow(RunWorkflow):
             result = dict(result or {})
             result["pr_url"] = pr["url"]
 
-            gate = config["gates"].get("merge") or {}
+            gate = config["gates"].get(MERGE_GATE) or {}
             if not gate:
                 # The blueprint declared no merge gate: the findings are
                 # the deliverable and the workflow ends without merging —

@@ -26,6 +26,14 @@ HUMAN_STARTABLE = ("implement", "review")
 MERGE_GATE = "merge"
 BUDGET_GATE = "budget"
 GATES = (MERGE_GATE, BUDGET_GATE)
+# The stops the heartbeat records in the same shape — a `gate.<name>`
+# process-gate event — but nobody resolves: a run spent the last attempt
+# the blueprint allows on its text, the bootstrap ticket exhausted its
+# attempts and the company cannot write its own documents, or the daily
+# spend cap halted every start until tomorrow.
+ATTEMPTS_GATE = "heartbeat_attempts"
+BOOTSTRAP_GATE = "heartbeat_bootstrap_exhausted"
+DAILY_CAP_GATE = "heartbeat_daily_cap"
 # Which gates each run-shaped workflow has: a verdict on a gate a run
 # cannot park on is refused before policy is asked.
 GATES_OF = {

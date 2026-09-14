@@ -96,6 +96,7 @@ import subprocess
 
 import yaml
 
+from common.audit import RATIONALE_EVENTS, SOURCES
 from common.ids import new_run_id
 from schema.tools import RATIONALE_TOOLS
 
@@ -124,24 +125,11 @@ from .cluster import (
 from .conftest import REPO_ROOT
 
 # The decisions that owe a rationale: the actor's stated reason rides the
-# row in cleartext (the glossary's *rationale*).
-COMMITTING_TOOLS = {
-    "heartbeat.decide",
-    "review.verdict",
-    "gate.resolve",
-    "run.cancel",
-    "company.delete",
-    *RATIONALE_TOOLS,
-}
+# row in cleartext (the glossary's *rationale*) — the platform's own events
+# that commit the company, and the gateway tools that do.
+COMMITTING_TOOLS = RATIONALE_EVENTS | RATIONALE_TOOLS
 
-ALL_SOURCES = {
-    "gateway",
-    "llm-gateway",
-    "sandbox-infra",
-    "process-gate",
-    "process-lifecycle",
-    "console",
-}
+ALL_SOURCES = set(SOURCES)
 
 
 # -- 1 declarative: compile → preview, scripted, against the live cluster ------

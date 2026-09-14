@@ -32,6 +32,7 @@ import secrets
 
 import pytest
 
+from common.audit import HEARTBEAT_BOOTSTRAP
 from mockllm.brain import (
     ARCH_REQUEST_MARKER,
     ARCHITECTURE_MD,
@@ -161,7 +162,7 @@ def test_the_platform_filed_both_bootstrap_tickets_once(bootstrapped: dict):
     filed = [
         e
         for e in audit_story(bootstrapped["heartbeat_id"])
-        if e["tool"] == "heartbeat.bootstrap"
+        if e["tool"] == HEARTBEAT_BOOTSTRAP
     ]
     assert {e["rule"] for e in filed} >= {
         "bootstrap_filed:strategy",

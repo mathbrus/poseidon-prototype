@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 from typer.testing import CliRunner
 
+from common.audit import HEARTBEAT_DECIDE, HEARTBEAT_TICK
 from poseidon_cli import ConsoleClient
 from poseidon_cli import main as cli
 from poseidon_cli.follow import follow, spend_line
@@ -52,7 +53,7 @@ def test_a_denial_and_a_tick_say_their_rule():
                 run_id="heartbeat-hello-saas",
                 agent_id="pm-1",
                 role="pm",
-                tool="heartbeat.tick",
+                tool=HEARTBEAT_TICK,
                 rule="max_concurrent_runs",
             )
         )
@@ -66,7 +67,7 @@ def test_a_rationale_follows_its_row_on_its_own_line():
         render(
             row(
                 run_id="heartbeat-hello-saas",
-                tool="heartbeat.decide",
+                tool=HEARTBEAT_DECIDE,
                 rule="decision_valid",
                 rationale="finish the open review before starting new work",
             )

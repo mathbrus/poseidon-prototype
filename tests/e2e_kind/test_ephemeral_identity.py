@@ -17,6 +17,7 @@ import time
 
 import httpx
 
+from common.audit import LIFECYCLE_BIND, LIFECYCLE_REVOKE
 from common.ids import new_run_id
 from common.policy import company_decision_path
 
@@ -111,8 +112,8 @@ def test_bound_identity_lives_until_the_row_dies(stack: None, env: dict, tmp_pat
                 for e in story
                 if e["source"] == "process-lifecycle"
             ]
-            assert ("lifecycle.bind", "participant_bound") in lifecycle
-            assert ("lifecycle.revoke", "participant_revoked") in lifecycle
+            assert (LIFECYCLE_BIND, "participant_bound") in lifecycle
+            assert (LIFECYCLE_REVOKE, "participant_revoked") in lifecycle
             gateway_events = [
                 e
                 for e in story

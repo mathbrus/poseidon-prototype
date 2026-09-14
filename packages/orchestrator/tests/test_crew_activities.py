@@ -9,6 +9,7 @@ import asyncio
 
 import pytest
 
+from common.audit import LIFECYCLE_BIND, LIFECYCLE_REVOKE
 from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
@@ -94,7 +95,7 @@ def test_bind_writes_the_whole_identity_row(crew, participants, audit):
 
     (event,) = audit.events
     assert event.source == "process-lifecycle"
-    assert event.tool == "lifecycle.bind" and event.rule == "participant_bound"
+    assert event.tool == LIFECYCLE_BIND and event.rule == "participant_bound"
     assert event.agent_id == expected_id and event.run_id == RUN_ID
     assert event.parent_agent_id == "pm-1"
 
@@ -139,8 +140,8 @@ def test_revoke_sweeps_the_run_and_audits_each(crew, participants, audit):
         assert participants.active(agent_id) is None
 
     assert [(e.tool, e.rule, e.decision) for e in audit.events] == [
-        ("lifecycle.revoke", "participant_revoked", "allow"),
-        ("lifecycle.revoke", "participant_revoked", "allow"),
+        (LIFECYCLE_REVOKE, "participant_revoked", "allow"),
+        (LIFECYCLE_REVOKE, "participant_revoked", "allow"),
     ]
     assert {e.agent_id for e in audit.events} == set(swept)
 

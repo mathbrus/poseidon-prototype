@@ -10,7 +10,9 @@ from dataclasses import asdict
 
 import pytest
 
+from common.audit import LIFECYCLE_REVOKE, gate_event
 from common.tasks import issue_run_task
+from common.workflows import ATTEMPTS_GATE, MERGE_GATE
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.activities.run import RunActivities
 from orchestrator.workflows.base import Timeouts
@@ -292,7 +294,7 @@ def test_gate_outcomes_are_process_gate_audit_events(activities, audit):
         ("gate_approved", "allow"),
     ]
     assert all(e.source == "process-gate" for e in events)
-    assert all(e.tool == "gate.merge" for e in events)
+    assert all(e.tool == gate_event(MERGE_GATE) for e in events)
     assert all(e.workflow == f"review-{RUN_ID}" for e in events)
 
 
@@ -400,7 +402,7 @@ def test_teardown_revokes_participants_on_every_terminal_path(
     record = asyncio.run(activities.teardown(RUN_ID, None, None, "early failure"))
     assert record["status"] == "failed"
     assert participants.active("feature-delivery-implementer-" + RUN_ID) is None
-    assert [e.tool for e in audit.events] == ["lifecycle.revoke"]
+    assert [e.tool for e in audit.events] == [LIFECYCLE_REVOKE]
 
     # Success path, with a handle: sweep still runs first.
     participants.add(
@@ -487,7 +489,7 @@ def test_the_last_aborted_review_records_exhaustion_and_tells_the_pr(
 
     assert out == {"exhausted": True, "attempts": 2}
     (event,) = audit.story("run-r2")
-    assert event["tool"] == "gate.heartbeat_attempts"
+    assert event["tool"] == gate_event(ATTEMPTS_GATE)
     assert event["rule"] == "gate_exhausted"
     assert event["decision"] == "deny"
     assert event["source"] == "process-gate"

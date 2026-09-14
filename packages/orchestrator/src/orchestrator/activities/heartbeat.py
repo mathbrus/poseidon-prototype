@@ -27,10 +27,10 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
-from common.audit import RATIONALE_LIMIT, args_digest
+from common.audit import HEARTBEAT_DECIDE, HEARTBEAT_TICK, RATIONALE_LIMIT, args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
-from common.policy import HEARTBEAT_START, HEARTBEAT_TICK
+from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
 from common.workflows import TEMPORAL_NAMESPACE, heartbeat_run_id, workflow_id
 from orchestrator.activities.blueprint import conductor
@@ -181,7 +181,7 @@ class HeartbeatActivities:
             # rationale; a valid decision carries the PM's own reason.
             await self._emit(
                 run_id=heartbeat_run_id(self._company()),
-                tool="heartbeat.decide",
+                tool=HEARTBEAT_DECIDE,
                 digest=args_digest(decision),
                 decision="deny" if refusal else "allow",
                 rule=refusal[0] if refusal else DECISION_VALID,

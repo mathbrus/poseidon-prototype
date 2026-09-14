@@ -69,7 +69,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 from temporalio.workflow import ParentClosePolicy
 
-from common.workflows import workflow_id
+from common.workflows import BOOTSTRAP_GATE, DAILY_CAP_GATE, workflow_id
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
     DISPATCH_RETRY,
@@ -165,7 +165,7 @@ class HeartbeatWorkflow(RunWorkflow):
                 rule = "bootstrap_exhausted:" + ",".join(bootstrap["exhausted"])
                 await self.record_gate(
                     workflow_id("heartbeat", input.company),
-                    "heartbeat_bootstrap_exhausted",
+                    BOOTSTRAP_GATE,
                     "halted",
                 )
             elif observed["active_runs"] >= int(config["max_concurrent_runs"]):
@@ -177,7 +177,7 @@ class HeartbeatWorkflow(RunWorkflow):
                 rule = "daily_cap_reached"
                 await self.record_gate(
                     workflow_id("heartbeat", input.company),
-                    "heartbeat_daily_cap",
+                    DAILY_CAP_GATE,
                     "halted",
                 )
             elif not self._anything_startable(config, observed):

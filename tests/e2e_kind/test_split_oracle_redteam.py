@@ -63,6 +63,9 @@ import secrets
 
 import pytest
 
+from common.audit import REVIEW_CONTRACT_EDIT, REVIEW_VERDICT, gate_event
+from common.policy import MERGE_RESOLVE
+from common.workflows import MERGE_GATE
 from mockllm.brain import (
     CARVEOUT_PATH,
     CONFTEST_VEIL_MARKER,
@@ -339,7 +342,7 @@ def test_the_reviewer_verdict_was_journaled_either_way(laundered: dict):
     own judgement is journaled under this run whatever the split_baseline then
     said, so one run_id reconstructs verdict *and* platform refusal."""
     story = audit_story(laundered["review_run_id"])
-    assert any(e["tool"] == "review.verdict" for e in story), [e["tool"] for e in story]
+    assert any(e["tool"] == REVIEW_VERDICT for e in story), [e["tool"] for e in story]
 
 
 def test_the_laundering_review_stayed_within_its_budget(laundered: dict):
@@ -419,7 +422,7 @@ def test_the_deletion_facts_reached_the_human_before_the_gate(gutted: dict):
     assert "test functions:" in warning and "assertions:" in warning
 
     story = audit_story(gutted["review_run_id"])
-    edits = [e for e in story if e["tool"] == "review.contract_edit"]
+    edits = [e for e in story if e["tool"] == REVIEW_CONTRACT_EDIT]
     assert edits, "no review.contract_edit event"
     rule = edits[-1]["rule"] or ""
     assert "removed_tests=" in rule and "removed_asserts=" in rule, rule
@@ -454,7 +457,7 @@ def test_the_decline_spent_no_layer_on_the_contract_pr(gutted: dict):
     `merge.resolve` evaluation, and no rework ticket for a chain no crew
     could consume (the delivery crew cannot even open a PR into the tree)."""
     story = audit_story(gutted["review_run_id"])
-    assert not any(e["tool"] == "merge.resolve" for e in story), (
+    assert not any(e["tool"] == MERGE_RESOLVE for e in story), (
         "the resolve was evaluated for a PR the carve-out already excludes"
     )
     assert "gate_rework_filed" not in gate_merge_rules(story), gate_merge_rules(story)
@@ -466,11 +469,11 @@ def test_the_whole_gutting_reconstructs_from_one_run_id(gutted: dict):
     the review run_id."""
     story = audit_story(gutted["review_run_id"])
     tools = {e["tool"] for e in story}
-    assert {"review.contract_edit", "review.verdict", "gate.merge"} <= tools, tools
+    assert {REVIEW_CONTRACT_EDIT, REVIEW_VERDICT, gate_event(MERGE_GATE)} <= tools, tools
     assert all(
         e["lifecycle"] == "platform"
         for e in story
-        if e["tool"] in ("review.contract_edit", "review.verdict", "gate.merge")
+        if e["tool"] in (REVIEW_CONTRACT_EDIT, REVIEW_VERDICT, gate_event(MERGE_GATE))
     )
 
 
@@ -536,7 +539,7 @@ def test_the_carveout_reviewer_was_steered_to_pass(carveout: dict):
     worked). That is exactly why the platform, not the reviewer, has to be
     the thing that refuses."""
     verdicts = [
-        e for e in audit_story(carveout["review_run_id"]) if e["tool"] == "review.verdict"
+        e for e in audit_story(carveout["review_run_id"]) if e["tool"] == REVIEW_VERDICT
     ]
     assert verdicts, "no verdict journaled"
     assert verdicts[-1]["decision"] == "allow", "the reviewer was not steered to pass"
@@ -547,7 +550,7 @@ def test_merge_resolve_denied_the_carveout_path(carveout: dict):
     denied on the carve-out path whatever the steered verdict said, the
     gate recorded the decline not an approval, and nothing merged."""
     story = audit_story(carveout["review_run_id"])
-    resolves = [e for e in story if e["tool"] == "merge.resolve"]
+    resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves, "merge.resolve was never evaluated"
     assert all(e["decision"] == "deny" for e in resolves)
     assert any(e["rule"] == "merge_resolve_carved_out_path" for e in resolves)

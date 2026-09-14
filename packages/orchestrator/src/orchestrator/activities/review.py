@@ -45,7 +45,13 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from common.audit import RATIONALE_LIMIT, args_digest
+from common.audit import (
+    RATIONALE_LIMIT,
+    REVIEW_CONTRACT_EDIT,
+    REVIEW_READ_PR,
+    REVIEW_VERDICT,
+    args_digest,
+)
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
 from common.policy import MERGE_RESOLVE
@@ -205,7 +211,7 @@ class ReviewActivities:
             )
             await self._append_event(
                 run_id=run_id,
-                tool="review.read_pr",
+                tool=REVIEW_READ_PR,
                 payload={"number": pr_number, "state": settled},
                 decision="deny",
                 rule=PR_NOT_OPEN,
@@ -279,7 +285,7 @@ class ReviewActivities:
         await asyncio.to_thread(self._runs.record_verdict, run_id, verdict)
         await self._append_event(
             run_id=run_id,
-            tool="review.verdict",
+            tool=REVIEW_VERDICT,
             payload={"verdict": verdict, "rationale": rationale},
             decision="allow" if verdict == "pass" else "deny",
             rule=f"verdict_{verdict}",
@@ -449,7 +455,7 @@ class ReviewActivities:
             )
         await self._append_event(
             run_id=run_id,
-            tool="review.contract_edit",
+            tool=REVIEW_CONTRACT_EDIT,
             payload=deletions,
             decision="allow",
             rule="contract_edit:"

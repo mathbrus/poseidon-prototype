@@ -30,6 +30,7 @@ import subprocess
 
 import pytest
 
+from common.policy import HEARTBEAT_START
 from common.tasks import review_run_task
 from mockllm.brain import NEXT_SLICE_MARKER
 
@@ -167,7 +168,7 @@ def test_the_company_implemented_its_own_ticket_unattended(overnight: dict):
     assert implement["status"] == "done"
     assert implement["pr_url"]
     story = audit_story(implement["run_id"])
-    assert any(e["tool"] == "heartbeat.start" and e["decision"] == "allow" for e in story)
+    assert any(e["tool"] == HEARTBEAT_START and e["decision"] == "allow" for e in story)
     started = [
         t
         for t in heartbeat_ticks(overnight["heartbeat_id"])

@@ -24,6 +24,8 @@ import secrets
 
 import pytest
 
+from common.audit import HEARTBEAT_DECIDE
+from common.policy import HEARTBEAT_START
 from common.tasks import SCOPE_TASK
 from mockllm.brain import NEXT_SLICE_MARKER, PM_SUMMARY
 
@@ -92,7 +94,7 @@ def test_the_loop_started_the_scope_run_itself(scoped: dict):
     assert record["workflow"] == "scope"
     assert record["status"] == "done", f"scope failed: {record}"
     assert any(
-        e["tool"] == "heartbeat.start" and e["decision"] == "allow"
+        e["tool"] == HEARTBEAT_START and e["decision"] == "allow"
         for e in audit_story(record["run_id"])
     )
     assert any(
@@ -164,7 +166,7 @@ def test_the_backlog_cap_refuses_a_second_scope_by_name(at_the_cap: dict):
     refusals = [
         e
         for e in audit_story(scoped["heartbeat_id"])
-        if e["tool"] == "heartbeat.decide" and e["decision"] == "deny"
+        if e["tool"] == HEARTBEAT_DECIDE and e["decision"] == "deny"
     ]
     assert any("max_open_tickets" in (e["rule"] or "") for e in refusals), refusals
     latest = run_by_task(SCOPE_TASK, workflow="scope")

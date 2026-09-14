@@ -24,7 +24,7 @@ from typing import Any
 
 import yaml
 
-from common.audit import AuditEvent, args_digest
+from common.audit import HEARTBEAT_TICK, AuditEvent, args_digest
 from common.identity import Identity
 from common.ids import new_run_id
 from common.opa import NO_POLICY_RULE, evaluate_decision
@@ -32,7 +32,6 @@ from common.policy import (
     BLUEPRINT_APPLY,
     COMPANY_DELETE,
     GATE_RESOLVE,
-    HEARTBEAT_TICK,
     HEARTBEAT_WAKE,
     RUN_CANCEL,
     RUN_START,

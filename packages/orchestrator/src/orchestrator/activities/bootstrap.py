@@ -14,7 +14,7 @@ from typing import Any
 
 from temporalio import activity
 
-from common.audit import args_digest
+from common.audit import HEARTBEAT_BOOTSTRAP, args_digest
 from common.telemetry import get_logger
 from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
@@ -90,7 +90,7 @@ class BootstrapActivities:
                     self._audit,
                     self._company(),
                     run_id=heartbeat_run_id(self._company()),
-                    tool="heartbeat.bootstrap",
+                    tool=HEARTBEAT_BOOTSTRAP,
                     digest=args_digest({"document": name, "path": paths[name]}),
                     decision="allow",
                     rule=f"bootstrap_filed:{name}",

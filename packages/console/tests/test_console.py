@@ -21,9 +21,17 @@ import httpx
 import pytest
 import yaml
 
-from common.audit import AuditEvent
+from common.audit import HEARTBEAT_TICK, AuditEvent
 from common.authn import Principal
 from common.opa import NO_POLICY
+from common.policy import (
+    BLUEPRINT_APPLY,
+    COMPANY_DELETE,
+    GATE_RESOLVE,
+    HEARTBEAT_WAKE,
+    RUN_CANCEL,
+    RUN_START,
+)
 from common.topology import PLATFORM_NAMESPACE
 from compiler import DeploymentPlan
 from console import service as service_module
@@ -139,7 +147,7 @@ class World:
         if tool in self.decisions:
             return dict(self.decisions[tool])
         args = decision_input["args"]
-        if tool == "gate.resolve":
+        if tool == GATE_RESOLVE:
             verdict = "approve" if args["approved"] else "reject"
             return {"allow": True, "rule": f"gate_resolve_{args['gate']}_{verdict}"}
         return {"allow": True, "rule": tool.replace(".", "_")}
@@ -231,7 +239,7 @@ async def test_a_verdict_is_recorded_under_the_humans_name_then_delivered(client
     # The row first, under the rule the workflow reads it back by and with
     # the person's reason as its rationale, then the signal — the verdict
     # alone, the row being the record — and the registry's read agrees.
-    assert world.events == [("gate.resolve", "allow", "gate_resolve_merge_approve")]
+    assert world.events == [(GATE_RESOLVE, "allow", "gate_resolve_merge_approve")]
     event = world.audit.events[0]
     assert (event.agent_id, event.lifecycle, event.run_id, event.workflow) == (
         "owner",
@@ -250,7 +258,7 @@ async def test_a_verdict_is_recorded_under_the_humans_name_then_delivered(client
 
 async def test_a_denied_verdict_is_a_403_that_signals_nothing(client, world):
     a_review_run(world)
-    world.decisions["gate.resolve"] = {"allow": False, "rule": "human_not_recognized"}
+    world.decisions[GATE_RESOLVE] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.post(
         f"/runs/{RUN_ID}/gates/merge",
         json={"approved": True, "reason": "looks fine"},
@@ -258,7 +266,7 @@ async def test_a_denied_verdict_is_a_403_that_signals_nothing(client, world):
     )
     assert response.status_code == 403
     assert response.json()["rule"] == "human_not_recognized"
-    assert world.events == [("gate.resolve", "deny", "human_not_recognized")]
+    assert world.events == [(GATE_RESOLVE, "deny", "human_not_recognized")]
     assert world.workflows.calls == []
     assert world.audit.latest_human_verdict(RUN_ID, "merge") is None
 
@@ -272,7 +280,7 @@ async def test_a_rejection_is_recorded_as_one(client, world):
         headers=as_owner(),
     )
     assert response.status_code == 200
-    assert world.events == [("gate.resolve", "allow", "gate_resolve_budget_reject")]
+    assert world.events == [(GATE_RESOLVE, "allow", "gate_resolve_budget_reject")]
     assert world.workflows.calls[-1] == (
         "signal",
         (f"review-{RUN_ID}", "budget", [False]),
@@ -335,13 +343,13 @@ async def test_starting_a_run_is_decided_then_started(client, world):
     assert response.status_code == 200, response.text
     run_id = response.json()["run_id"]
     assert response.json()["workflow_id"] == f"implement-{run_id}"
-    assert world.asked[0]["tool"] == "run.start"
+    assert world.asked[0]["tool"] == RUN_START
     assert world.asked[0]["args"] == {"workflow": "implement", "number": 42}
     assert world.asked[0]["lifecycle"] == "human"
     assert world.workflows.calls == [
         ("start", ("implement", run_id, {"run_id": run_id, "issue_number": 42}))
     ]
-    assert world.events == [("run.start", "allow", "run_start")]
+    assert world.events == [(RUN_START, "allow", "run_start")]
 
 
 async def test_only_the_human_startable_workflows_can_be_started(client, world):
@@ -364,7 +372,7 @@ async def test_cancel_and_wake_are_decided_acts(client, world):
         ("cancel", f"review-{RUN_ID}"),
         ("signal", (f"heartbeat-{COMPANY}", "wake", [])),
     ]
-    assert [e[0] for e in world.events] == ["run.cancel", "heartbeat.wake"]
+    assert [e[0] for e in world.events] == [RUN_CANCEL, HEARTBEAT_WAKE]
     assert world.audit.events[0].rationale == "enough"
     assert world.audit.events[1].run_id == f"heartbeat-{COMPANY}"
 
@@ -373,7 +381,7 @@ async def test_cancel_and_wake_are_decided_acts(client, world):
 
 
 async def test_the_first_apply_is_the_bootstrap_rule(client, world):
-    world.decisions["blueprint.apply"] = dict(NO_POLICY)
+    world.decisions[BLUEPRINT_APPLY] = dict(NO_POLICY)
     response = await client.post(
         "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )
@@ -381,7 +389,7 @@ async def test_the_first_apply_is_the_bootstrap_rule(client, world):
     assert response.json()["rule"] == "blueprint_apply_bootstrap"
     assert response.json()["created"] == 1
     assert [p.company.name for p in world.submitted] == [COMPANY]
-    assert world.events == [("blueprint.apply", "allow", "blueprint_apply_bootstrap")]
+    assert world.events == [(BLUEPRINT_APPLY, "allow", "blueprint_apply_bootstrap")]
 
 
 async def test_a_later_apply_is_policys(client, world):
@@ -390,7 +398,7 @@ async def test_a_later_apply_is_policys(client, world):
     )
     assert response.status_code == 200
     assert response.json()["rule"] == "blueprint_apply"
-    world.decisions["blueprint.apply"] = {"allow": False, "rule": "human_not_recognized"}
+    world.decisions[BLUEPRINT_APPLY] = {"allow": False, "rule": "human_not_recognized"}
     denied = await client.post(
         "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )
@@ -416,8 +424,8 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     # The delete is recorded before anything is cancelled, and the cancel
     # under the same name says why.
     assert world.events == [
-        ("company.delete", "allow", "company_delete"),
-        ("run.cancel", "allow", "run_cancel"),
+        (COMPANY_DELETE, "allow", "company_delete"),
+        (RUN_CANCEL, "allow", "run_cancel"),
     ]
     assert world.audit.events[0].agent_id == "owner"
     assert [e.rationale for e in world.audit.events] == [
@@ -451,14 +459,14 @@ async def test_the_company_read_is_the_crs_phase(client, world):
 
 async def test_a_stranger_cannot_delete_the_company(client, world):
     a_review_run(world)
-    world.decisions["company.delete"] = {"allow": False, "rule": "human_not_recognized"}
+    world.decisions[COMPANY_DELETE] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.request(
         "DELETE", "/company", json={"reason": "mine now"}, headers=as_owner()
     )
     assert response.status_code == 403
     assert response.json()["rule"] == "human_not_recognized"
     assert world.deleted == [] and world.workflows.calls == []
-    assert world.events == [("company.delete", "deny", "human_not_recognized")]
+    assert world.events == [(COMPANY_DELETE, "deny", "human_not_recognized")]
 
 
 async def test_another_companys_blueprint_is_refused_while_one_is_applied(client, world):
@@ -605,7 +613,7 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
             company=COMPANY,
         )
 
-    world.audit.append(row(f"heartbeat-{COMPANY}", "heartbeat.tick"))
+    world.audit.append(row(f"heartbeat-{COMPANY}", HEARTBEAT_TICK))
     world.audit.append(row(RUN_ID, "sandbox.exec"))
     world.audit.append(row("run-other", "git.open_pr"))
     world.ledger.record(
@@ -668,9 +676,9 @@ async def test_a_decisions_story_is_the_rows_with_a_rationale(client, world):
     decisions = (
         await client.get(f"/runs/{RUN_ID}/story?decisions=true", headers=as_owner())
     ).json()
-    assert [e["tool"] for e in everything] == ["git.read", "gate.resolve"]
+    assert [e["tool"] for e in everything] == ["git.read", GATE_RESOLVE]
     assert [(e["tool"], e["rationale"]) for e in decisions] == [
-        ("gate.resolve", "clean findings")
+        (GATE_RESOLVE, "clean findings")
     ]
 
 
@@ -683,7 +691,7 @@ async def test_a_story_is_the_runs_events_in_order(client, world):
     )
     story = (await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())).json()
     assert [(e["tool"], e["agent_id"], e["source"]) for e in story] == [
-        ("gate.resolve", "owner", "console")
+        (GATE_RESOLVE, "owner", "console")
     ]
 
 

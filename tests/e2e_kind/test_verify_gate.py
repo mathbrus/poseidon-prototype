@@ -14,6 +14,8 @@ import re
 
 import pytest
 
+from common.audit import LIFECYCLE_REVOKE
+
 from .cluster import audit_story, sandbox_pods
 from .conftest import close_issue, close_pr_url, run_implement
 
@@ -64,4 +66,4 @@ def test_red_path_is_bounded_and_clean(verify_red_run: dict) -> None:
     finished instead of spinning) and teardown still swept the crew."""
     assert sandbox_pods(verify_red_run["run_id"]) == []
     story = audit_story(verify_red_run["run_id"])
-    assert any(e["tool"] == "lifecycle.revoke" for e in story)
+    assert any(e["tool"] == LIFECYCLE_REVOKE for e in story)

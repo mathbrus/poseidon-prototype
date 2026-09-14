@@ -7,6 +7,7 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
+from common.audit import HEARTBEAT_DECIDE
 from common.topology import PLATFORM_NAMESPACE
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 from poseidon_cli import main as cli
@@ -357,7 +358,7 @@ def test_run_show_is_a_record_and_story_is_lines(runner, console):
                 "run_id": "run-1",
                 "agent_id": "pm-1",
                 "role": "pm",
-                "tool": "heartbeat.decide",
+                "tool": HEARTBEAT_DECIDE,
                 "decision": "allow",
                 "rule": "decision_valid",
                 "rationale": "the slice is next",
@@ -370,7 +371,7 @@ def test_run_show_is_a_record_and_story_is_lines(runner, console):
         assert expected in shown.output, shown.output
     story = runner.invoke(cli.app, ["run", "story", "run-1"])
     assert story.exit_code == 0, story.output
-    assert "10:00:01" in story.output and "heartbeat.decide" in story.output
+    assert "10:00:01" in story.output and HEARTBEAT_DECIDE in story.output
     assert "the slice is next" in story.output
     raw = runner.invoke(cli.app, ["run", "story", "run-1", "--json"])
     assert json.loads(raw.output)[0]["rationale"] == "the slice is next"

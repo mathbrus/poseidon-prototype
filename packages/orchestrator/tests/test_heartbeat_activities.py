@@ -11,6 +11,8 @@ from conftest import heartbeat_spec
 from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
+from common.audit import HEARTBEAT_BOOTSTRAP, HEARTBEAT_DECIDE, HEARTBEAT_TICK
+from common.policy import HEARTBEAT_START
 from common.tasks import issue_run_task
 from common.topology import PLATFORM_NAMESPACE
 from orchestrator.activities.bootstrap import BootstrapActivities
@@ -521,7 +523,7 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
     assert "`docs/STRATEGY.md`" in body and body.endswith("Crew: stewardship")
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert (
-        event["tool"] == "heartbeat.bootstrap"
+        event["tool"] == HEARTBEAT_BOOTSTRAP
         and event["rule"] == "bootstrap_filed:strategy"
     )
 
@@ -643,7 +645,7 @@ def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
     http = _opa(monkeypatch, allow=True, rule="heartbeat_start_implement")
     asyncio.run(activities.heartbeat_authorize("auto-1", "implement", 0, 3.5, 1, 4))
     assert "/v1/data/poseidon/authz/hello_saas/decision" in http.last.url
-    assert http.last.input["tool"] == "heartbeat.start"
+    assert http.last.input["tool"] == HEARTBEAT_START
     assert http.last.input["lifecycle"] == "platform"
     # Every cap's live count rides the input, the target's attempts too.
     assert http.last.input["args"] == {
@@ -655,7 +657,7 @@ def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
     }
     (event,) = audit.story("auto-1")
     assert event["decision"] == "allow"
-    assert event["tool"] == "heartbeat.start"
+    assert event["tool"] == HEARTBEAT_START
     assert event["rule"] == "heartbeat_start_implement"
 
 
@@ -682,7 +684,7 @@ def test_every_tick_leaves_a_correlated_row(activities, audit):
         "tick_idle:backlog_empty",
         "tick_started:implement_issue_5",
     ]
-    assert {e["tool"] for e in story} == {"heartbeat.tick"}
+    assert {e["tool"] for e in story} == {HEARTBEAT_TICK}
     assert {e["source"] for e in story} == {"process-lifecycle"}
 
 
@@ -759,7 +761,7 @@ def test_decide_dispatches_the_observation_and_journals(
     # rule says the decision passed the platform's checks, the rationale
     # is the PM's own, in cleartext.
     (event,) = audit.story(f"heartbeat-{COMPANY}")
-    assert event["tool"] == "heartbeat.decide"
+    assert event["tool"] == HEARTBEAT_DECIDE
     assert event["decision"] == "allow"
     assert event["rule"] == "decision_valid"
     assert event["rationale"] == "finish before starting"
@@ -778,7 +780,7 @@ def test_decide_refuses_a_target_outside_the_observation(
         )
     assert caught.value.non_retryable
     (event,) = audit.story(f"heartbeat-{COMPANY}")
-    assert event["tool"] == "heartbeat.decide"
+    assert event["tool"] == HEARTBEAT_DECIDE
     assert event["decision"] == "deny"
     # A refusal is named by its rule and owes no rationale; the prose
     # reaches the reader through the failed decision's error.

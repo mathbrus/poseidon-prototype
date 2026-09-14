@@ -7,8 +7,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from common.audit import AuditEvent
+from common.audit import REVIEW_VERDICT, SANDBOX_EGRESS, AuditEvent, gate_event
 from common.policy import GATE_RESOLVE, verdict_rule
+from common.workflows import MERGE_GATE
 from registry import (
     AgentInstances,
     Attempts,
@@ -179,7 +180,7 @@ def test_a_rationale_is_read_back_in_cleartext(registry: Registry):
     audit = AuditStore(registry)
     audit.append(
         event(
-            tool="review.verdict",
+            tool=REVIEW_VERDICT,
             rule="verdict_pass",
             rationale="Suite green; the change matches the acceptance criteria.",
             ts="2026-01-01T00:00:01+00:00",
@@ -194,7 +195,7 @@ def test_a_rationale_is_read_back_in_cleartext(registry: Registry):
     assert audit.after("hello-saas", 0)[0]["rationale"] == story[0]["rationale"]
     # The decisions-only read keeps exactly the rows that state a reason.
     assert [e["tool"] for e in audit.story(RUN_ID, decisions_only=True)] == [
-        "review.verdict"
+        REVIEW_VERDICT
     ]
 
 
@@ -208,7 +209,7 @@ def test_story_spans_every_source(registry: Registry):
             agent_id="egress-proxy",
             role="",
             source="sandbox-infra",
-            tool="sandbox.egress",
+            tool=SANDBOX_EGRESS,
             decision="deny",
             rule="egress_not_allowlisted",
             backend_status=None,
@@ -230,7 +231,7 @@ def test_story_spans_every_source(registry: Registry):
             role="platform",
             lifecycle="platform",
             source="process-gate",
-            tool="gate.merge",
+            tool=gate_event(MERGE_GATE),
             rule="gate_approved",
             ts="2026-01-01T00:00:04+00:00",
         )
@@ -736,7 +737,9 @@ def test_latest_human_verdict_is_the_consoles_last_word(registry: Registry):
 
     assert audit.latest_human_verdict(RUN_ID, "merge") is None
     # The workflow's own process-gate row is not a verdict.
-    audit.append(event(tool="gate.merge", rule="gate_approved", source="process-gate"))
+    audit.append(
+        event(tool=gate_event(MERGE_GATE), rule="gate_approved", source="process-gate")
+    )
     assert audit.latest_human_verdict(RUN_ID, "merge") is None
     verdict(True, ts="2026-01-01T00:00:01+00:00")
     verdict(True, run_id="run-other", ts="2026-01-01T00:00:05+00:00")
