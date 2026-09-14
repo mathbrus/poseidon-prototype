@@ -29,11 +29,6 @@ COMPANY_BUNDLE = "company"
 HEARTBEAT_START = "heartbeat.start"
 CREW_REQUEST = "crew.request"
 MERGE_RESOLVE = "merge.resolve"
-# The heartbeat's journal entry per tick: no decision, only the audit
-# event name a reader of the loop (the console, the acceptance suite)
-# filters on. Here because the compiler's heartbeat rules and the tick
-# rows are read together.
-HEARTBEAT_TICK = "heartbeat.tick"
 
 # The acts a human performs through the console, decided against the
 # company's bundle exactly like the tools above: whether *this* verified

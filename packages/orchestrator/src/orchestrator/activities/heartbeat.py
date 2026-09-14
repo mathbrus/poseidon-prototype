@@ -27,10 +27,10 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
-from common.audit import HEARTBEAT_DECIDE, RATIONALE_LIMIT, args_digest
+from common.audit import HEARTBEAT_DECIDE, HEARTBEAT_TICK, RATIONALE_LIMIT, args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
-from common.policy import HEARTBEAT_START, HEARTBEAT_TICK
+from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
 from common.workflows import TEMPORAL_NAMESPACE, heartbeat_run_id, workflow_id
 from orchestrator.activities.blueprint import conductor

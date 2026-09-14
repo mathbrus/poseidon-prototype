@@ -5,10 +5,9 @@ docs/ carries a line `<!-- gen: NAME -->` wherever a table belongs; this
 script replaces the marker with the table rendered from the catalogs, the
 gateway's tool definitions, the `poseidon` CLI, the console's routes, the
 audit event registry, the Temporal workflows and the blueprint JSON Schema,
-and re-emits the page. Nothing rendered here is
-committed, so nothing here can drift from the code. A marker naming no
-generator, a generator no page uses, or a tool without a description fails
-the build.
+and re-emits the page. Nothing rendered here is committed, so nothing here
+can drift from the code. A marker naming no generator, a generator no page
+uses, or a tool without a description fails the build.
 """
 
 from __future__ import annotations

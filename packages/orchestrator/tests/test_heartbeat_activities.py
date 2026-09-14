@@ -11,8 +11,8 @@ from conftest import heartbeat_spec
 from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
-from common.audit import HEARTBEAT_BOOTSTRAP, HEARTBEAT_DECIDE
-from common.policy import HEARTBEAT_START, HEARTBEAT_TICK
+from common.audit import HEARTBEAT_BOOTSTRAP, HEARTBEAT_DECIDE, HEARTBEAT_TICK
+from common.policy import HEARTBEAT_START
 from common.tasks import issue_run_task
 from common.topology import PLATFORM_NAMESPACE
 from orchestrator.activities.bootstrap import BootstrapActivities

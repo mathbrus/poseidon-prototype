@@ -6,8 +6,7 @@ from typing import Any
 import httpx
 from typer.testing import CliRunner
 
-from common.audit import HEARTBEAT_DECIDE
-from common.policy import HEARTBEAT_TICK
+from common.audit import HEARTBEAT_DECIDE, HEARTBEAT_TICK
 from poseidon_cli import ConsoleClient
 from poseidon_cli import main as cli
 from poseidon_cli.follow import follow, spend_line

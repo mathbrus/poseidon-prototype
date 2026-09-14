@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 import yaml
 
-from common.policy import HEARTBEAT_TICK
+from common.audit import HEARTBEAT_TICK
 from common.topology import (
     COMPANY_NAMESPACE,
     CONSOLE_TOKEN_AUDIENCE,

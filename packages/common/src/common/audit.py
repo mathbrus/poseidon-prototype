@@ -36,7 +36,6 @@ from common.policy import (
     COMPANY_DELETE,
     GATE_RESOLVE,
     HEARTBEAT_START,
-    HEARTBEAT_TICK,
     HEARTBEAT_WAKE,
     MERGE_RESOLVE,
     RUN_CANCEL,
@@ -64,7 +63,8 @@ Source = Literal[
 ]
 SOURCES: tuple[str, ...] = get_args(Source)
 
-# The heartbeat's journal, beyond the start decision and the tick.
+# The heartbeat's journal, beyond the start decision.
+HEARTBEAT_TICK = "heartbeat.tick"
 HEARTBEAT_DECIDE = "heartbeat.decide"
 HEARTBEAT_BOOTSTRAP = "heartbeat.bootstrap"
 # The review's facts, beyond the merge decision.
@@ -180,8 +180,8 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         gate_event(MERGE_GATE),
         "process-gate",
-        "the merge gate's outcome: a human's verdict, policy's resolution,"
-        " an escalation or an expiry",
+        "the merge gate's outcome: a human's verdict, policy's resolution or"
+        " decline, a rework filed or exhausted, an escalation or an expiry",
     ),
     PlatformEvent(
         gate_event(BUDGET_GATE),

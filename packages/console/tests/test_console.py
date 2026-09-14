@@ -21,14 +21,13 @@ import httpx
 import pytest
 import yaml
 
-from common.audit import AuditEvent
+from common.audit import HEARTBEAT_TICK, AuditEvent
 from common.authn import Principal
 from common.opa import NO_POLICY
 from common.policy import (
     BLUEPRINT_APPLY,
     COMPANY_DELETE,
     GATE_RESOLVE,
-    HEARTBEAT_TICK,
     HEARTBEAT_WAKE,
     RUN_CANCEL,
     RUN_START,
