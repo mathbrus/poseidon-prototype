@@ -7,6 +7,13 @@ import asyncio
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from common.audit import (
+    LIFECYCLE_DESTROY_POD,
+    LIFECYCLE_FULFILL,
+    LIFECYCLE_PROVISION_POD,
+    LIFECYCLE_RECORD_REQUEST,
+)
+from common.policy import CREW_REQUEST
 from common.topology import EPHEMERAL_KIND, PLATFORM_NAMESPACE, TOKEN_MOUNT_DIR
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
@@ -192,7 +199,7 @@ def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisio
 
     event = audit.events[-1]
     assert event.source == "process-lifecycle"
-    assert event.tool == "lifecycle.provision_pod"
+    assert event.tool == LIFECYCLE_PROVISION_POD
     assert event.rule == "ephemeral_pod_provisioned"
 
 
@@ -217,7 +224,7 @@ def test_destroy_audits_each_pod(crew, stores, provisioner):
     deleted = asyncio.run(crew.destroy_ephemeral_pods(RUN_ID))
     assert provisioner.destroyed == [RUN_ID]
     assert deleted and all(name.startswith("ephemeral-") for name in deleted)
-    assert [e.tool for e in audit.events] == ["lifecycle.destroy_pod"]
+    assert [e.tool for e in audit.events] == [LIFECYCLE_DESTROY_POD]
     assert audit.events[0].rule == "ephemeral_pod_destroyed"
 
 
@@ -333,7 +340,7 @@ def test_fulfill_binds_and_provisions_the_crew(fulfill_world, provisioner):
     assert again["agents"]["implementer"]["agent_id"] == implementer_id
 
     tools = [e.tool for e in audit.events]
-    assert "lifecycle.fulfill" in tools
+    assert LIFECYCLE_FULFILL in tools
 
 
 def test_fulfill_refuses_a_crew_with_more_than_one_agent(fulfill_world):
@@ -368,12 +375,12 @@ def test_fulfilment_wins_the_crew_request_decision_as_the_conductor(fulfill_worl
     decision_input = payload["input"]
     assert decision_input["agent_id"] == "pm-1"
     assert decision_input["lifecycle"] == "standing"
-    assert decision_input["tool"] == "crew.request"
+    assert decision_input["tool"] == CREW_REQUEST
     assert decision_input["args"] == {"crew_template": "feature-delivery"}
     assert decision_input["active_spawns"] == 0
     assert decision_input["budget_headroom"] is True
 
-    event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
+    event = next(e for e in audit.events if e.tool == LIFECYCLE_RECORD_REQUEST)
     assert event.decision == "allow" and event.rule == "role_pm_crew_request"
     assert event.lifecycle == "standing" and event.agent_id == "pm-1"
 
@@ -400,7 +407,7 @@ def test_fulfilment_denied_by_the_compiled_decision(fulfill_world, monkeypatch):
     with pytest.raises(ApplicationError, match="default_deny") as caught:
         asyncio.run(crew.fulfill_crew(_fulfill_spec(crew_template="data-export")))
     assert participants.rows == {}  # nothing bound on a deny
-    event = next(e for e in audit.events if e.tool == "lifecycle.record_request")
+    event = next(e for e in audit.events if e.tool == LIFECYCLE_RECORD_REQUEST)
     assert event.decision == "deny"
     # Policy's answer is final: no retry re-asks it.
     assert caught.value.non_retryable

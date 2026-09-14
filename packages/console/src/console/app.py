@@ -19,6 +19,14 @@ from pydantic import BaseModel, Field
 
 from common.audit import RATIONALE_LIMIT
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
+from common.policy import (
+    BLUEPRINT_APPLY,
+    COMPANY_DELETE,
+    GATE_RESOLVE,
+    HEARTBEAT_WAKE,
+    RUN_CANCEL,
+    RUN_START,
+)
 from common.topology import CONSOLE_TOKEN_AUDIENCE
 from compiler import DeploymentPlan
 from console import crs
@@ -49,7 +57,7 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
         "POST",
         "/blueprint/apply",
         "compile and submit the Company and AgentInstance CRs",
-        "blueprint.apply",
+        BLUEPRINT_APPLY,
     ),
     (
         "GET",
@@ -61,9 +69,9 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
         "DELETE",
         "/company",
         "stop the company: cancel its runs, delete its CR, wait for the teardown",
-        "company.delete",
+        COMPANY_DELETE,
     ),
-    ("POST", "/runs", "start one implement or review run by hand", "run.start"),
+    ("POST", "/runs", "start one implement or review run by hand", RUN_START),
     ("GET", "/runs", "the company's runs since a fence (`?since=`)", ""),
     ("GET", "/runs/{run_id}", "the run record and its workflow's execution", ""),
     (
@@ -78,16 +86,16 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
         "POST",
         "/runs/{run_id}/gates/{gate}",
         "record a verdict, then deliver it",
-        "gate.resolve",
+        GATE_RESOLVE,
     ),
-    ("POST", "/runs/{run_id}/cancel", "cancel a run; teardown compensates", "run.cancel"),
+    ("POST", "/runs/{run_id}/cancel", "cancel a run; teardown compensates", RUN_CANCEL),
     (
         "GET",
         "/heartbeat",
         "the standing loop's execution and its ticks since a fence",
         "",
     ),
-    ("POST", "/heartbeat/wake", "nudge the loop to look now", "heartbeat.wake"),
+    ("POST", "/heartbeat/wake", "nudge the loop to look now", HEARTBEAT_WAKE),
     ("GET", "/spend", "the company's spend since a fence", ""),
     (
         "GET",

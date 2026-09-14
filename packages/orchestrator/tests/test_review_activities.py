@@ -10,8 +10,16 @@ from typing import Any
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from common.audit import AuditEvent
+from common.audit import (
+    REVIEW_CONTRACT_EDIT,
+    REVIEW_READ_PR,
+    REVIEW_VERDICT,
+    AuditEvent,
+    gate_event,
+)
+from common.policy import GATE_RESOLVE, MERGE_RESOLVE
 from common.topology import PLATFORM_NAMESPACE
+from common.workflows import MERGE_GATE
 from orchestrator.activities.review import ReviewActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -119,7 +127,7 @@ def test_verdicts_are_journaled_audit_events(settings, audit):
         ("deny", "verdict_fail", "Blocking: criteria unmet."),
     ]
     assert all(e.source == "process-lifecycle" for e in events)
-    assert all(e.tool == "review.verdict" for e in events)
+    assert all(e.tool == REVIEW_VERDICT for e in events)
     assert all(e.workflow == f"review-{RUN_ID}" for e in events)
 
 
@@ -214,7 +222,7 @@ def test_warn_contract_edit_posts_and_audits(settings, audit, monkeypatch, fake_
     assert number == 41
     assert "Contract tree edited" in body
     assert "−2" in body and "−5" in body
-    (event,) = [e for e in audit.events if e.tool == "review.contract_edit"]
+    (event,) = [e for e in audit.events if e.tool == REVIEW_CONTRACT_EDIT]
     assert "removed_tests=2" in event.rule
     assert event.source == "process-lifecycle"
 
@@ -261,7 +269,7 @@ def test_read_pr_refuses_a_settled_pr(
     assert str(caught.value).startswith(f"pr_not_open: pull request #41 is {settled}")
     (event,) = [e for e in audit.events if e.run_id == RUN_ID]
     assert (event.tool, event.decision, event.rule) == (
-        "review.read_pr",
+        REVIEW_READ_PR,
         "deny",
         "pr_not_open",
     )
@@ -423,11 +431,11 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
 
     # The decision input carries the caller-verified facts, platform-shaped,
     # and names the path being decided.
-    assert seen[0]["tool"] == "merge.resolve"
+    assert seen[0]["tool"] == MERGE_RESOLVE
     assert seen[0]["lifecycle"] == "platform"
     assert seen[0]["args"] == {"resolver": "policy", **facts, "paths": ["src/a.py"]}
 
-    events = [e for e in audit.events if e.tool == "merge.resolve"]
+    events = [e for e in audit.events if e.tool == MERGE_RESOLVE]
     assert [(e.decision, e.rule) for e in events] == [
         ("allow", "merge_resolve_delegated"),
         ("deny", "merge_resolve_undelegated_path"),
@@ -621,7 +629,7 @@ def _console_verdict(run_id: str, approved: bool, principal: str, ts: str) -> Au
         run_id=run_id,
         agent_id=principal,
         role="human",
-        tool="gate.resolve",
+        tool=GATE_RESOLVE,
         args_digest="d",
         decision="allow",
         rule=f"gate_resolve_merge_{'approve' if approved else 'reject'}",
@@ -643,7 +651,7 @@ def test_read_human_verdict_is_none_until_the_console_answered(settings, audit):
             run_id=RUN_ID,
             agent_id="orchestrator",
             role="platform",
-            tool="gate.merge",
+            tool=gate_event(MERGE_GATE),
             args_digest="d",
             decision="allow",
             rule="gate_approved",
