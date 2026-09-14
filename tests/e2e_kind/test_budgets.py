@@ -107,10 +107,10 @@ def _paused_run(env: dict) -> tuple[int, str]:
     return number, run_id
 
 
-def _signal_budget(run_id: str, approved: bool, payload: str) -> None:
+def _signal_budget(run_id: str, approved: bool, reason: str) -> None:
     """The human's answer to the budget pause, through the console: the
-    verdict is recorded under their name, then delivered."""
-    console().resolve(run_id, "budget", approved, payload)
+    verdict and the reason are recorded under their name, then delivered."""
+    console().resolve(run_id, "budget", approved, reason)
 
 
 def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> None:

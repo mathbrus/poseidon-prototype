@@ -25,6 +25,14 @@ Three things to keep in mind while reading the signatures:
   holds the tool before a blueprint narrows it. A tool no role holds
   belongs to the platform lifecycle alone.
 
+Three tools commit the company to something in the world — a ticket
+(`issues.create`), a pull request (`git.open_pr`), a request to change the
+architecture (`architecture.request`) — and take a `rationale`: the
+caller's own reason, in a few sentences. The gateway refuses the call
+without one and records it in cleartext on the call's audit row, the one
+field of the ledger that is not a digest; `poseidon run story` reads it back
+under the row. Every other tool's row carries a digest and nothing more.
+
 The tables are rendered from the gateway's tool definitions in
 `packages/mcp-gateway/src/mcp_gateway/app.py` and the catalog in
 `packages/schema/src/schema/tools.py` at build time; a tool present in one

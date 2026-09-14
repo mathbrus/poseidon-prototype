@@ -51,7 +51,13 @@ async def test_pm_runs_the_issue_lifecycle(app, backends, audit, filed):
         created = payload(
             await session.call_tool(
                 "issues.create",
-                {"run_id": RUN_ID, "repo": REPO, "title": "ship slugs", "body": "spec"},
+                {
+                    "run_id": RUN_ID,
+                    "repo": REPO,
+                    "title": "ship slugs",
+                    "body": "spec",
+                    "rationale": "the strategy's next slice",
+                },
             )
         )
         assert created["number"] == 7 and created["state"] == "open"
@@ -75,6 +81,12 @@ async def test_pm_runs_the_issue_lifecycle(app, backends, audit, filed):
         ("issues.create", "allow"),
         ("issues.read", "allow"),
         ("issues.comment", "allow"),
+    ]
+    # The filing carries the PM's own reason in cleartext; the reads do not.
+    assert [e["rationale"] for e in audit_events(audit)] == [
+        "the strategy's next slice",
+        None,
+        None,
     ]
     assert all(e["agent_id"] == "pm-1" for e in audit_events(audit))
     # The ticket is on the registry the moment the host created it, under
@@ -109,11 +121,27 @@ async def test_single_issue_read_refuses_a_pull_request(app, backends):
     assert result.isError and "pull request" in result.content[0].text
 
 
+async def test_a_ticket_without_a_rationale_is_refused_before_policy(
+    app, audit, backends
+):
+    """A committing call owes the caller's reason: without one the call is
+    malformed — refused with what is owed, nothing decided, nothing
+    recorded, nothing reaching GitHub."""
+    async with mcp_session(app, PM_TOKEN) as session:
+        for args in (
+            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b"},
+            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b", "rationale": " "},
+        ):
+            result = await session.call_tool("issues.create", args)
+            assert result.isError and "rationale" in result.content[0].text
+    assert audit_events(audit) == [] and not backends.github_calls
+
+
 async def test_implementer_is_denied_the_pm_surface(app, audit, backends):
     async with mcp_session(app, AGENT_TOKEN) as session:
         result = await session.call_tool(
             "issues.create",
-            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b"},
+            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b", "rationale": "r"},
         )
     assert result.isError and "default_deny" in result.content[0].text
     event = audit_events(audit)[-1]
@@ -165,7 +193,7 @@ async def test_reviewer_cannot_merge_or_open_issues(app, participants):
         )
         create = await session.call_tool(
             "issues.create",
-            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b"},
+            {"run_id": RUN_ID, "repo": REPO, "title": "t", "body": "b", "rationale": "r"},
         )
     assert merge.isError and create.isError
 

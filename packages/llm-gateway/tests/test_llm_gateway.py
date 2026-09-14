@@ -12,6 +12,7 @@ import pytest
 
 from common.audit import args_digest
 from common.authn import Principal, ServiceAccount
+from common.topology import PLATFORM_NAMESPACE
 from llm_gateway.app import create_app
 from llm_gateway.config import LlmGatewaySettings
 from registry.memory import (
@@ -183,7 +184,7 @@ def stores() -> Stores:
 @pytest.fixture
 def app(stores, upstream):
     settings = LlmGatewaySettings(
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         upstream_url="http://upstream.test",
         model="big-model",
     )

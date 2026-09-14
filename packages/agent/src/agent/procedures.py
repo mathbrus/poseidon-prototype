@@ -102,12 +102,12 @@ class ProcedureResult(BaseModel):
     # The comments a dispatch posted: the reviewer's findings on the PR,
     # or the PM's summary on the ticket(s) it filed.
     comment_urls: list[str] = []
-    # Review: the structured verdict — pass/fail plus a one-line
-    # summary. The review workflow refuses to reach the merge gate without
-    # a verdict; what the verdict releases is compiled policy's decision,
-    # never the reviewer's.
+    # Review: the structured verdict — pass/fail plus the reviewer's
+    # rationale. The review workflow refuses to reach the merge gate
+    # without a verdict; what the verdict releases is compiled policy's
+    # decision, never the reviewer's.
     verdict: str | None = None
-    verdict_summary: str | None = None
+    verdict_rationale: str | None = None
     # Decide: {action, target, rationale} — the heartbeat's
     # chosen next action. The PM proposes; the platform validates,
     # authorizes and starts.
@@ -526,7 +526,7 @@ def run_review(
         extra={"comments": records.comment_urls, "verdict": records.verdict},
     )
     return ProcedureResult(
-        verdict=records.verdict, verdict_summary=records.verdict_summary, **partial
+        verdict=records.verdict, verdict_rationale=records.verdict_rationale, **partial
     )
 
 

@@ -89,6 +89,7 @@ class InMemoryAuditStore:
             "args_digest": e.args_digest,
             "decision": e.decision,
             "rule": e.rule,
+            "rationale": e.rationale,
             "latency_ms": e.latency_ms,
             "backend_status": e.backend_status,
             "source": e.source,
@@ -98,14 +99,18 @@ class InMemoryAuditStore:
             "workflow": e.workflow,
         }
 
-    def story(self, run_id: str, since: str | None = None) -> list[dict[str, Any]]:
+    def story(
+        self, run_id: str, since: str | None = None, decisions_only: bool = False
+    ) -> list[dict[str, Any]]:
         return [
             self._row(e)
             for e in sorted(
                 (
                     e
                     for e in self.events
-                    if e.run_id == run_id and (since is None or e.ts >= since)
+                    if e.run_id == run_id
+                    and (since is None or e.ts >= since)
+                    and (not decisions_only or e.rationale is not None)
                 ),
                 key=lambda e: e.ts,
             )

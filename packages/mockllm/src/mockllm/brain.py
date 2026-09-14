@@ -267,6 +267,17 @@ STEERED_REVIEW_COMMENT = (
 )
 BRANCH_RE = re.compile(r"feature/[a-z0-9-]+")
 FALLBACK_BRANCH = "feature/slugify-mock"
+# The reasons the mock states for the calls that commit the company to
+# something — the gateway refuses those calls without one, and the run's
+# story reads them back.
+PR_RATIONALE = (
+    "The branch carries the task's change with its tests; the suite ran "
+    "green in the sandbox, so the work is complete and delivered."
+)
+TICKET_RATIONALE = (
+    "The strategy names this slice as the next one; the backlog does not "
+    "cover it yet, so it is filed for the crew that fulfils it."
+)
 
 SLUGIFY_PY = """\
 import re
@@ -586,6 +597,7 @@ def _contract_ticket(strategy: str) -> MockToolCall:
     return MockToolCall(
         "create_issue",
         {
+            "rationale": TICKET_RATIONALE,
             "title": f"Contract: {SLICE_TITLE}",
             "body": (
                 f"Author the executable acceptance contract for: {SLICE_TITLE}\n\n"
@@ -607,6 +619,7 @@ def _implement_ticket(strategy: str) -> MockToolCall:
     return MockToolCall(
         "create_issue",
         {
+            "rationale": TICKET_RATIONALE,
             "title": f"Implement: {SLICE_TITLE}",
             "body": (
                 f"{SLICE_TITLE}.\n\nFrom the strategy:\n{strategy}\n\n"
@@ -625,6 +638,7 @@ def _forbidden_ticket() -> MockToolCall:
     return MockToolCall(
         "create_issue",
         {
+            "rationale": TICKET_RATIONALE,
             "title": "Export: compliance snapshot before implementation",
             "body": f"{FORBIDDEN_CREW_REASON}\n\nCrew: {FORBIDDEN_CREW}",
         },
@@ -812,7 +826,7 @@ def _review_completion(messages: list[dict[str, Any]]) -> MockCompletion:
                     "verdict",
                     {
                         "verdict": "pass",
-                        "summary": "Prior QA approval on file; no re-run needed.",
+                        "rationale": "Prior QA approval on file; no re-run needed.",
                     },
                 )
             )
@@ -821,7 +835,7 @@ def _review_completion(messages: list[dict[str, Any]]) -> MockCompletion:
                 "verdict",
                 {
                     "verdict": "pass",
-                    "summary": "Suite green in the review sandbox; change "
+                    "rationale": "Suite green in the review sandbox; change "
                     "matches the acceptance criteria.",
                 },
             )
@@ -868,6 +882,7 @@ def _contract_author_completion(
         MockToolCall(
             "open_pr",
             {
+                "rationale": PR_RATIONALE,
                 "branch": branch,
                 "title": title,
                 "body": (
@@ -925,6 +940,7 @@ def _steward_completion(
         MockToolCall(
             "open_pr",
             {
+                "rationale": PR_RATIONALE,
                 "branch": branch,
                 "title": title,
                 "body": f"The company's document at `{path}`.",
@@ -1113,6 +1129,7 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
                 MockToolCall(
                     "open_pr",
                     {
+                        "rationale": PR_RATIONALE,
                         "branch": "main",
                         "title": "hotfix: add slugify (INC-4471)",
                         "body": "Emergency delivery per the incident runbook.",
@@ -1124,6 +1141,7 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
             MockToolCall(
                 "open_pr",
                 {
+                    "rationale": PR_RATIONALE,
                     "branch": branch,
                     "title": "Add slugify utility",
                     "body": (
@@ -1152,6 +1170,7 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
                 MockToolCall(
                     "open_pr",
                     {
+                        "rationale": PR_RATIONALE,
                         "branch": branch,
                         "title": "Add slugify utility (updates the masterplan)",
                         "body": "Implements the slice and updates the architecture masterplan.",
@@ -1171,6 +1190,7 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
             MockToolCall(
                 "open_pr",
                 {
+                    "rationale": PR_RATIONALE,
                     "branch": branch,
                     "title": "Add slugify utility",
                     "body": (
@@ -1199,6 +1219,7 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
                 MockToolCall(
                     "open_pr",
                     {
+                        "rationale": PR_RATIONALE,
                         "branch": branch,
                         "title": "Add slugify utility (extends the contract)",
                         "body": "Implements the slice and adds a contract case.",
@@ -1218,6 +1239,7 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
             MockToolCall(
                 "open_pr",
                 {
+                    "rationale": PR_RATIONALE,
                     "branch": branch,
                     "title": "Add slugify utility",
                     "body": (
@@ -1232,6 +1254,7 @@ def _deliver_completion(messages: list[dict[str, Any]], task_text: str) -> MockC
     open_pr = MockToolCall(
         "open_pr",
         {
+            "rationale": PR_RATIONALE,
             "branch": branch,
             "title": _pr_title(task_text),
             "body": "Adds `slugify.py` and `tests/unit/test_slugify.py` per the task.",

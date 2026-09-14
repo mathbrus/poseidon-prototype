@@ -152,6 +152,6 @@ def test_what_cannot_be_acted_on_is_refused_before_policy(stack: None, env: dict
         console(env).start_run("scope", 1)
     assert refused.value.status == 422
     with pytest.raises(ConsoleError) as refused:
-        console(env).resolve("run-does-not-exist", "merge", True)
+        console(env).resolve("run-does-not-exist", "merge", True, "e2e: no such run")
     assert refused.value.status == 422
     assert not isinstance(refused.value, PolicyDenied)

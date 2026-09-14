@@ -39,7 +39,9 @@ change it. Applying the blueprint again is the only way it changes.
 
 `company.humans` names the people who may act on the company through
 [the console](console.md): apply the document again, answer a gate, start
-or cancel a run by hand, wake the heartbeat. The compiler emits one allow
+or cancel a run by hand, wake the heartbeat. They must be people the
+console can verify — on kind, the chart's `console.humans`; a blueprint
+naming anyone else is refused at apply. The compiler emits one allow
 per person, act and verdict from the list, so the audit row for an act
 names exactly what was granted — and the authority is a diff: add a name
 and re-apply, or remove one and that person's next act is refused by
@@ -229,7 +231,7 @@ and the authority every crew is fulfilled under.
 the documents, file the next slice as tickets), `implement` (a ticket),
 `review` (a delivered pull request). Narrow it and the rest is an
 operator's act: a company that may not `implement` on its own waits for
-`poseidon run <number>`.
+`poseidon start implement <number>`.
 
 `max_attempts` is what bounds an aborted run. An issue or a delivered PR
 is off the backlog while a run on it is live, once a run *concluded* it

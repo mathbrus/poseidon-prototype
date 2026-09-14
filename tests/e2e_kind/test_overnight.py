@@ -5,7 +5,7 @@ you operate and becomes a company you supervise. Nothing goes in: the
 company's strategy names the next slice, and the whole run has exactly
 one human act:
 
-  1. `poseidon signal <run> merge --approved` — one approval out.
+  1. `poseidon verdict <run> merge approve` — one approval out.
 
 Everything before is the standing heartbeat's: it reads the documents,
 scopes the slice into a ticket, implements it (a PR appears), sees the
@@ -59,17 +59,27 @@ from .conftest import (
 
 
 def _signal_merge(env: dict, run_id: str) -> None:
-    """The one human act: `poseidon signal <run> merge`, through the real
+    """The one human act: `poseidon verdict <run> merge approve`, through the real
     CLI as the human `owner` against the cluster's console."""
     proc = subprocess.run(
-        ["uv", "run", "poseidon", "signal", run_id, "merge", "--approved"],
+        [
+            "uv",
+            "run",
+            "poseidon",
+            "verdict",
+            run_id,
+            "merge",
+            "approve",
+            "--reason",
+            "overnight: the delivered slice reads right",
+        ],
         cwd=REPO_ROOT,
         env=console_env(env),
         capture_output=True,
         text=True,
         timeout=120,
     )
-    assert proc.returncode == 0, f"poseidon signal merge: {proc.stderr}"
+    assert proc.returncode == 0, f"poseidon verdict merge approve: {proc.stderr}"
 
 
 @pytest.fixture(scope="module")

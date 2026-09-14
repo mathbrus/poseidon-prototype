@@ -270,6 +270,7 @@ def create_app(
         title: str,
         body: str,
         bundle_b64: str,
+        rationale: str,
         ctx: Context,
     ) -> dict[str, Any]:
         """The only path by which code leaves the system. The gateway verifies the
@@ -278,9 +279,10 @@ def create_app(
         them to policy as real arguments (branch protection, `deny_paths`, the
         contract-tree owner rule, the document fences and the write-once
         strategy), then pushes the branch with its own token and opens the
-        pull request."""
+        pull request. The rationale — why the change is complete and correct
+        for its task — is recorded with the call in the run's story."""
         return await service.open_pr(
-            identity_of(ctx), run_id, repo, branch, title, body, bundle_b64
+            identity_of(ctx), run_id, repo, branch, title, body, bundle_b64, rationale
         )
 
     # -- issues, review, merge, crew intent ---------------------------------
@@ -293,19 +295,22 @@ def create_app(
         the proposal as a stewardship ticket on the company's repository — the
         caller chooses neither the crew nor the repository — and the steward
         revises the plan on a later tick. One request per run; asking is not
-        writing."""
+        writing. The rationale is recorded with the call in the run's story."""
         return await service.architecture_request(
             identity_of(ctx), run_id, rationale, proposal
         )
 
     @mcp.tool(name="issues.create")
     async def issues_create(
-        run_id: str, repo: str, title: str, body: str, ctx: Context
+        run_id: str, repo: str, title: str, body: str, rationale: str, ctx: Context
     ) -> dict[str, Any]:
         """File a new issue — how the PM turns the next slice of the strategy
         into tickets, and how the platform files rework and bootstrap
-        tickets."""
-        return await service.issues_create(identity_of(ctx), run_id, repo, title, body)
+        tickets. The rationale — why this ticket, now — is recorded with the
+        call in the run's story."""
+        return await service.issues_create(
+            identity_of(ctx), run_id, repo, title, body, rationale
+        )
 
     @mcp.tool(name="issues.read")
     async def issues_read(

@@ -324,7 +324,7 @@ def test_review_dispatch_reads_executes_and_posts_findings(mock_llm_url):
     assert result.error is None
     assert result.comment_urls == [f"{PR_URL}#issuecomment-1"]
     assert result.verdict == "pass"
-    assert result.verdict_summary
+    assert result.verdict_rationale
     # The verdict is a local record, never a gateway call.
     tools = [tool for tool, _ in gateway.calls]
     assert tools == ["sandbox.list_dir", "git.read", "sandbox.run_tests", "git.comment"]

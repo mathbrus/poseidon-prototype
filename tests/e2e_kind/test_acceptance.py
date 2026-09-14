@@ -16,7 +16,7 @@ What the suite proves, and where:
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
                   leaked no identity row, no ephemeral pod, no registration
   3 SDLC          test_scope + test_review_gate (the strategy scoped into
-                  a ticket, an operator's `poseidon run <number>`, review
+                  a ticket, an operator's `poseidon start implement <number>`, review
                   with parked gate, escalation, API approval, platform
                   merge); test_verify_gate (the platform's own test run, not
                   the implementer's claim, is the gate of record);
@@ -97,6 +97,7 @@ import subprocess
 import yaml
 
 from common.ids import new_run_id
+from schema.tools import RATIONALE_TOOLS
 
 from .blueprints import (
     HELLO_SAAS,
@@ -121,6 +122,17 @@ from .cluster import (
     worker_settings,
 )
 from .conftest import REPO_ROOT
+
+# The decisions that owe a rationale: the actor's stated reason rides the
+# row in cleartext (the glossary's *rationale*).
+COMMITTING_TOOLS = {
+    "heartbeat.decide",
+    "review.verdict",
+    "gate.resolve",
+    "run.cancel",
+    "company.delete",
+    *RATIONALE_TOOLS,
+}
 
 ALL_SOURCES = {
     "gateway",
@@ -327,7 +339,13 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
             for tool, args in (
                 (
                     "issues.create",
-                    {"run_id": run_id, "repo": repo, "title": "x", "body": "y"},
+                    {
+                        "run_id": run_id,
+                        "repo": repo,
+                        "title": "x",
+                        "body": "y",
+                        "rationale": "red-team: probing the allowlist",
+                    },
                 ),
                 ("git.merge_pr", {"run_id": run_id, "repo": repo, "number": 1}),
             ):
@@ -388,7 +406,14 @@ def test_all_five_audit_sources_are_real_in_this_suite(
             f"source {source} never correlated to a run"
         )
 
-    # And the store stayed well-formed under everything the suite did.
+    # And the store stayed well-formed under everything the suite did: a
+    # rule name on every row, and the actor's rationale on exactly the rows
+    # that committed the company to something — on every one of those that
+    # was allowed, and never on a refusal's row or a read's.
     for event in events:
         assert event["decision"] in ("allow", "deny"), event
         assert event["rule"], event
+        if event["rationale"]:
+            assert event["tool"] in COMMITTING_TOOLS, event
+        if event["tool"] in COMMITTING_TOOLS and event["decision"] == "allow":
+            assert event["rationale"], event

@@ -21,8 +21,10 @@ import httpx
 import pytest
 import yaml
 
+from common.audit import AuditEvent
 from common.authn import Principal
 from common.opa import NO_POLICY
+from common.topology import PLATFORM_NAMESPACE
 from compiler import DeploymentPlan
 from console import service as service_module
 from console.app import create_app
@@ -40,7 +42,7 @@ pytestmark = pytest.mark.anyio
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HELLO_SAAS = (REPO_ROOT / "examples" / "hello-saas.yaml").read_text()
-PLATFORM_NS = "poseidon-platform"
+PLATFORM_NS = PLATFORM_NAMESPACE
 COMPANY = "hello-saas"
 RUN_ID = "run-01CONSOLE"
 
@@ -221,13 +223,14 @@ async def test_a_verdict_is_recorded_under_the_humans_name_then_delivered(client
     a_review_run(world)
     response = await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "payload": "reviewed"},
+        json={"approved": True, "reason": "reviewed: findings are clean"},
         headers=as_owner(),
     )
     assert response.status_code == 200, response.text
     assert response.json()["principal"] == "owner"
-    # The row first, under the rule the workflow reads it back by, then
-    # the signal — and the registry's own read agrees.
+    # The row first, under the rule the workflow reads it back by and with
+    # the person's reason as its rationale, then the signal — the verdict
+    # alone, the row being the record — and the registry's read agrees.
     assert world.events == [("gate.resolve", "allow", "gate_resolve_merge_approve")]
     event = world.audit.events[0]
     assert (event.agent_id, event.lifecycle, event.run_id, event.workflow) == (
@@ -236,9 +239,8 @@ async def test_a_verdict_is_recorded_under_the_humans_name_then_delivered(client
         RUN_ID,
         f"review-{RUN_ID}",
     )
-    assert world.workflows.calls == [
-        ("signal", (f"review-{RUN_ID}", "merge", [True, "reviewed"]))
-    ]
+    assert event.rationale == "reviewed: findings are clean"
+    assert world.workflows.calls == [("signal", (f"review-{RUN_ID}", "merge", [True]))]
     assert world.audit.latest_human_verdict(RUN_ID, "merge") == {
         "principal": "owner",
         "approved": True,
@@ -250,7 +252,9 @@ async def test_a_denied_verdict_is_a_403_that_signals_nothing(client, world):
     a_review_run(world)
     world.decisions["gate.resolve"] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.post(
-        f"/runs/{RUN_ID}/gates/merge", json={"approved": True}, headers=as_owner()
+        f"/runs/{RUN_ID}/gates/merge",
+        json={"approved": True, "reason": "looks fine"},
+        headers=as_owner(),
     )
     assert response.status_code == 403
     assert response.json()["rule"] == "human_not_recognized"
@@ -263,14 +267,36 @@ async def test_a_rejection_is_recorded_as_one(client, world):
     a_review_run(world)
     world.workflows.running[f"review-{RUN_ID}"] = "paused-budget_exhausted"
     response = await client.post(
-        f"/runs/{RUN_ID}/gates/budget", json={"approved": False}, headers=as_owner()
+        f"/runs/{RUN_ID}/gates/budget",
+        json={"approved": False, "reason": "not worth more spend"},
+        headers=as_owner(),
     )
     assert response.status_code == 200
     assert world.events == [("gate.resolve", "allow", "gate_resolve_budget_reject")]
     assert world.workflows.calls[-1] == (
         "signal",
-        (f"review-{RUN_ID}", "budget", [False, None]),
+        (f"review-{RUN_ID}", "budget", [False]),
     )
+    assert world.audit.events[0].rationale == "not worth more spend"
+
+
+async def test_an_act_without_a_reason_is_refused_before_anything_happens(client, world):
+    """A person's reason is part of the act: a verdict, a cancel and a
+    delete without one are 422s that ask no policy, record nothing and
+    signal nothing."""
+    a_review_run(world)
+    attempts = (
+        ("POST", f"/runs/{RUN_ID}/gates/merge", {"approved": True}),
+        ("POST", f"/runs/{RUN_ID}/gates/merge", {"approved": True, "reason": ""}),
+        ("POST", f"/runs/{RUN_ID}/cancel", None),
+        ("POST", f"/runs/{RUN_ID}/cancel", {"reason": ""}),
+        ("DELETE", "/company", None),
+        ("DELETE", "/company", {"reason": "x" * 1001}),
+    )
+    for method, path, body in attempts:
+        response = await client.request(method, path, json=body, headers=as_owner())
+        assert response.status_code == 422, (method, path, body, response.text)
+    assert world.audit.events == [] and world.workflows.calls == []
 
 
 async def test_a_verdict_answers_only_a_question_that_was_asked(client, world):
@@ -290,7 +316,9 @@ async def test_a_verdict_answers_only_a_question_that_was_asked(client, world):
     ]
     for run_id, gate in refusals:
         response = await client.post(
-            f"/runs/{run_id}/gates/{gate}", json={"approved": True}, headers=as_owner()
+            f"/runs/{run_id}/gates/{gate}",
+            json={"approved": True, "reason": "yes"},
+            headers=as_owner(),
         )
         assert response.status_code == 422, (run_id, gate, response.text)
     assert world.audit.events == []
@@ -337,6 +365,7 @@ async def test_cancel_and_wake_are_decided_acts(client, world):
         ("signal", (f"heartbeat-{COMPANY}", "wake", [])),
     ]
     assert [e[0] for e in world.events] == ["run.cancel", "heartbeat.wake"]
+    assert world.audit.events[0].rationale == "enough"
     assert world.audit.events[1].run_id == f"heartbeat-{COMPANY}"
 
 
@@ -391,9 +420,15 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
         ("run.cancel", "allow", "run_cancel"),
     ]
     assert world.audit.events[0].agent_id == "owner"
+    assert [e.rationale for e in world.audit.events] == [
+        "wrong vision",
+        "company deleted: wrong vision",
+    ]
     # Nothing is left to act on.
     assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
-    again = await client.request("DELETE", "/company", headers=as_owner())
+    again = await client.request(
+        "DELETE", "/company", json={"reason": "again"}, headers=as_owner()
+    )
     assert again.status_code == 404
 
 
@@ -417,7 +452,9 @@ async def test_the_company_read_is_the_crs_phase(client, world):
 async def test_a_stranger_cannot_delete_the_company(client, world):
     a_review_run(world)
     world.decisions["company.delete"] = {"allow": False, "rule": "human_not_recognized"}
-    response = await client.request("DELETE", "/company", headers=as_owner())
+    response = await client.request(
+        "DELETE", "/company", json={"reason": "mine now"}, headers=as_owner()
+    )
     assert response.status_code == 403
     assert response.json()["rule"] == "human_not_recognized"
     assert world.deleted == [] and world.workflows.calls == []
@@ -436,6 +473,22 @@ async def test_another_companys_blueprint_is_refused_while_one_is_applied(client
     assert (
         "other-co" in response.json()["detail"] and COMPANY in response.json()["detail"]
     )
+    assert world.submitted == [] and world.audit.events == []
+
+
+async def test_a_blueprint_naming_a_stranger_is_refused(client, world):
+    """The console verifies humans, it does not make them: where the chart
+    declares who a person can be, a blueprint may only name those people."""
+    document = yaml.safe_load(HELLO_SAAS)
+    document["company"]["humans"] = ["owner", "stranger"]
+    response = await client.post(
+        "/blueprint/preview",
+        json={"blueprint": yaml.safe_dump(document)},
+        headers=as_owner(),
+    )
+    assert response.status_code == 422
+    assert "'stranger'" in response.json()["detail"]
+    assert "declared: owner" in response.json()["detail"]
     assert world.submitted == [] and world.audit.events == []
 
 
@@ -586,10 +639,47 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
     assert (await client.get("/events", headers=as_owner())).status_code == 404
 
 
+async def test_a_decisions_story_is_the_rows_with_a_rationale(client, world):
+    """`?decisions=true` reads the choices and their reasons alone: the
+    verdict a person recorded, not the tool calls around it."""
+    a_review_run(world)
+    world.audit.append(
+        AuditEvent(
+            ts="2026-01-01T00:00:00+00:00",
+            run_id=RUN_ID,
+            agent_id="reviewer-1",
+            role="reviewer",
+            tool="git.read",
+            args_digest="d",
+            decision="allow",
+            rule="crew_feature_review_reviewer_git.read",
+            latency_ms=1,
+            backend_status="ok",
+            source="gateway",
+            company=COMPANY,
+        )
+    )
+    await client.post(
+        f"/runs/{RUN_ID}/gates/merge",
+        json={"approved": True, "reason": "clean findings"},
+        headers=as_owner(),
+    )
+    everything = (await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())).json()
+    decisions = (
+        await client.get(f"/runs/{RUN_ID}/story?decisions=true", headers=as_owner())
+    ).json()
+    assert [e["tool"] for e in everything] == ["git.read", "gate.resolve"]
+    assert [(e["tool"], e["rationale"]) for e in decisions] == [
+        ("gate.resolve", "clean findings")
+    ]
+
+
 async def test_a_story_is_the_runs_events_in_order(client, world):
     a_review_run(world)
     await client.post(
-        f"/runs/{RUN_ID}/gates/merge", json={"approved": True}, headers=as_owner()
+        f"/runs/{RUN_ID}/gates/merge",
+        json={"approved": True, "reason": "reviewed"},
+        headers=as_owner(),
     )
     story = (await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())).json()
     assert [(e["tool"], e["agent_id"], e["source"]) for e in story] == [

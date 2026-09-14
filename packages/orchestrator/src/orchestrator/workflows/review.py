@@ -92,17 +92,17 @@ class ReviewWorkflow(RunWorkflow):
         self._merge_gate = Gate("merge")
 
     @workflow.signal
-    def budget(self, approved: bool, payload: str | None = None) -> None:
+    def budget(self, approved: bool) -> None:
         """The console's budget verdict: resolve a budget pause, exactly as
         in implement."""
-        self._budget_gate.resolve(approved, payload)
+        self._budget_gate.resolve(approved)
 
     @workflow.signal
-    def merge(self, approved: bool, payload: str | None = None) -> None:
+    def merge(self, approved: bool) -> None:
         """The console's merge verdict, the signal the merge gate parks on.
         A nudge to look, not the verdict itself: the release reads the
         verdict the console recorded under the human's name."""
-        self._merge_gate.resolve(approved, payload)
+        self._merge_gate.resolve(approved)
 
     @workflow.query
     def state(self) -> str:
@@ -166,7 +166,7 @@ class ReviewWorkflow(RunWorkflow):
                 pr,
                 gate,
                 "review verdict failed",
-                result.get("verdict_summary") or "",
+                result.get("verdict_rationale") or "",
             )
         # The platform's own run of the suite in the review sandbox — the
         # same activity that gates implement delivery: one verification
@@ -438,7 +438,7 @@ class ReviewWorkflow(RunWorkflow):
                 args=[
                     input.run_id,
                     result["verdict"],
-                    result.get("verdict_summary") or "",
+                    result.get("verdict_rationale") or "",
                     workflow.info().workflow_id,
                 ],
                 start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),

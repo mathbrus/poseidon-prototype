@@ -7,6 +7,7 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
+from common.topology import PLATFORM_NAMESPACE
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 from poseidon_cli import main as cli
 
@@ -27,7 +28,10 @@ class Console:
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, dict | None, str]] = []
         self.answers: dict[tuple[str, str], tuple[int, dict | list]] = {
-            ("GET", "/whoami"): (200, {"human": "owner", "company": "hello-saas"}),
+            ("GET", "/whoami"): (
+                200,
+                {"human": "owner", "lifecycle": "human", "company": "hello-saas"},
+            ),
             ("POST", "/runs/run-1/gates/merge"): (
                 200,
                 {
@@ -123,13 +127,13 @@ def test_a_verdict_is_one_call(client, console):
     assert console.requests[-1][:3] == (
         "POST",
         "/runs/run-1/gates/merge",
-        {"approved": True, "payload": "reviewed"},
+        {"approved": True, "reason": "reviewed"},
     )
 
 
 def test_a_policy_refusal_names_the_rule(client):
     with pytest.raises(PolicyDenied) as caught:
-        client.resolve("run-2", "merge", True)
+        client.resolve("run-2", "merge", True, "fine by me")
     assert caught.value.rule == "human_not_recognized"
     assert caught.value.status == 403
 
@@ -177,26 +181,81 @@ def runner(console: Console, monkeypatch) -> CliRunner:
     return CliRunner()
 
 
-def test_signal_prints_the_recorded_verdict(runner, console):
-    result = runner.invoke(cli.app, ["signal", "run-1", "merge", "--payload", "ok"])
+def test_verdict_prints_the_recorded_verdict(runner, console):
+    result = runner.invoke(
+        cli.app, ["verdict", "run-1", "merge", "approve", "--reason", "ok"]
+    )
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["principal"] == "owner"
-    assert console.requests[-1][2] == {"approved": True, "payload": "ok"}
+    assert "verdict recorded: merge approved for run run-1, by owner" in result.output
+    assert console.requests[-1][2] == {"approved": True, "reason": "ok"}
 
 
-def test_a_denied_signal_exits_with_the_rule(runner):
-    result = runner.invoke(cli.app, ["signal", "run-2", "merge"])
+def test_a_verdict_is_approve_or_reject_on_a_known_gate(runner, console):
+    """The words are the glossary's, and the choice is closed: no boolean
+    flag, no gate the console does not have."""
+    console.answers[("POST", "/runs/run-1/gates/budget")] = (
+        200,
+        {"run_id": "run-1", "gate": "budget", "approved": False, "principal": "owner"},
+    )
+    rejected = runner.invoke(
+        cli.app, ["verdict", "run-1", "budget", "reject", "--reason", "no more spend"]
+    )
+    assert rejected.exit_code == 0, rejected.output
+    assert console.requests[-1][:3] == (
+        "POST",
+        "/runs/run-1/gates/budget",
+        {"approved": False, "reason": "no more spend"},
+    )
+    for args in (
+        ["verdict", "run-1", "merge", "maybe", "--reason", "x"],
+        ["verdict", "run-1", "door", "approve", "--reason", "x"],
+        ["verdict", "run-1", "merge", "approve"],
+    ):
+        result = runner.invoke(cli.app, args)
+        assert result.exit_code == 2, (args, result.output)
+    assert len(console.requests) == 1
+
+
+def test_a_denied_verdict_exits_with_the_rule(runner):
+    result = runner.invoke(
+        cli.app, ["verdict", "run-2", "merge", "approve", "--reason", "ok"]
+    )
     assert result.exit_code == 1
     assert "human_not_recognized" in result.output
+
+
+def test_runs_lists_the_companys_runs(runner, console):
+    result = runner.invoke(cli.app, ["runs", "--json"])
+    assert result.exit_code == 0, result.output
+    assert [r["run_id"] for r in json.loads(result.output)] == ["run-1", "run-0"]
+    rendered = runner.invoke(cli.app, ["runs"])
+    assert rendered.exit_code == 0, rendered.output
+    assert "run-1" in rendered.output and "running" in rendered.output
+
+
+def test_spend_is_the_companys_without_a_run_and_a_runs_with_one(runner, console):
+    console.answers[("GET", "/spend")] = (200, {"usd": 3.1, "entries": 4})
+    console.answers[("GET", "/runs/run-1/spend")] = (200, {"run_id": "run-1", "usd": 0.5})
+    company = runner.invoke(cli.app, ["spend", "--json"])
+    assert company.exit_code == 0 and json.loads(company.output)["usd"] == 3.1
+    one = runner.invoke(cli.app, ["spend", "run-1", "--json"])
+    assert one.exit_code == 0 and json.loads(one.output)["run_id"] == "run-1"
+    assert "$3.10" in runner.invoke(cli.app, ["spend"]).output
+    assert "$0.50" in runner.invoke(cli.app, ["spend", "run-1"]).output
+    assert [p for _, p, _, _ in console.requests][:2] == ["/spend", "/runs/run-1/spend"]
+
+
+def test_run_story_can_keep_only_the_decisions(runner, console):
+    console.answers[("GET", "/runs/run-1/story")] = (200, [])
+    runner.invoke(cli.app, ["run", "story", "run-1", "--decisions"])
+    assert console.requests[-1][:2] == ("GET", "/runs/run-1/story")
 
 
 def test_company_delete_names_the_running_runs_then_asks_the_console(runner, console):
     result = runner.invoke(cli.app, ["company", "delete", "--yes", "--reason", "done"])
     assert result.exit_code == 0, result.output
-    assert "hello-saas: 1 running run(s) (run-1)" in result.output
-    assert json.loads(result.output[result.output.index("{") :])["runs_cancelled"] == [
-        "run-1"
-    ]
+    assert "hello-saas: 1 running run(s)" in result.output and "run-1" in result.output
+    assert "hello-saas deleted in 3 s; cancelled run-1" in result.output
     assert console.requests[-1][:3] == ("DELETE", "/company", {"reason": "done"})
 
 
@@ -250,9 +309,71 @@ def test_apply_gives_up_after_the_wait_timeout(runner, console, tmp_path):
 
 
 def test_company_show_prints_the_crs_phase(runner, console):
-    result = runner.invoke(cli.app, ["company", "show"])
+    result = runner.invoke(cli.app, ["company", "show", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["phase"] == "converged"
+    rendered = runner.invoke(cli.app, ["company", "show"])
+    assert rendered.exit_code == 0, rendered.output
+    assert "converged" in rendered.output and "3 (observed 3)" in rendered.output
+
+
+def test_whoami_is_two_lines_for_a_person(runner, console):
+    result = runner.invoke(cli.app, ["whoami"])
+    assert result.exit_code == 0, result.output
+    assert "you are owner (human)" in result.output
+    assert "company: hello-saas · converged" in result.output
+    raw = runner.invoke(cli.app, ["whoami", "--json"])
+    assert json.loads(raw.output)["company"] == "hello-saas"
+
+
+def test_run_show_is_a_record_and_story_is_lines(runner, console):
+    console.answers[("GET", "/runs/run-1")] = (
+        200,
+        {
+            "run_id": "run-1",
+            "task": "Implement #42",
+            "status": "failed",
+            "workflow": "implement",
+            "pr_url": None,
+            "verdict": None,
+            "ticket_urls": [],
+            "iterations": 2,
+            "error": "verify never went green",
+            "created_at": "2026-09-13T10:00:00+00:00",
+            "finished_at": "2026-09-13T10:04:02+00:00",
+            "company": "hello-saas",
+            "execution": {
+                "workflow_id": "implement-run-1",
+                "status": "COMPLETED",
+                "state": None,
+            },
+        },
+    )
+    console.answers[("GET", "/runs/run-1/story")] = (
+        200,
+        [
+            {
+                "ts": "2026-09-13T10:00:01+00:00",
+                "run_id": "run-1",
+                "agent_id": "pm-1",
+                "role": "pm",
+                "tool": "heartbeat.decide",
+                "decision": "allow",
+                "rule": "decision_valid",
+                "rationale": "the slice is next",
+            }
+        ],
+    )
+    shown = runner.invoke(cli.app, ["run", "show", "run-1"])
+    assert shown.exit_code == 0, shown.output
+    for expected in ("Implement #42", "failed", "4 min 02 s", "verify never went green"):
+        assert expected in shown.output, shown.output
+    story = runner.invoke(cli.app, ["run", "story", "run-1"])
+    assert story.exit_code == 0, story.output
+    assert "10:00:01" in story.output and "heartbeat.decide" in story.output
+    assert "the slice is next" in story.output
+    raw = runner.invoke(cli.app, ["run", "story", "run-1", "--json"])
+    assert json.loads(raw.output)[0]["rationale"] == "the slice is next"
 
 
 def test_apply_previews_first_and_applies_with_yes(runner, console, tmp_path):
@@ -313,7 +434,7 @@ def test_login_asks_the_api_server_for_a_console_token(monkeypatch):
     result = CliRunner().invoke(cli.app, ["login", "owner"])
     assert result.exit_code == 0, result.output
     assert result.output.strip() == "tok-123"
-    assert minted == [("human-owner", "poseidon-platform", ["poseidon-console"])]
+    assert minted == [("human-owner", PLATFORM_NAMESPACE, ["poseidon-console"])]
 
 
 def test_login_save_keeps_the_token_for_later_commands(monkeypatch, config_home):

@@ -82,6 +82,8 @@ class BootstrapActivities:
                     repo["url"],
                     BOOTSTRAP_TITLES[name],
                     bootstrap_body(name, paths[name], branch),
+                    f"the blueprint names {paths[name]} and it is absent on the "
+                    "base ref; the company cannot scope work without it",
                 )
                 filed.append(name)
                 await emit_heartbeat_event(

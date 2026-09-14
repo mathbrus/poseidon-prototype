@@ -77,7 +77,7 @@ async def test_task_lifecycle_running_then_done():
             "ticket_urls": [],
             "comment_urls": [],
             "verdict": None,
-            "verdict_summary": None,
+            "verdict_rationale": None,
             "decision": None,
         }
 
@@ -92,7 +92,7 @@ async def test_task_lifecycle_running_then_done():
         "ticket_urls": [],
         "comment_urls": [],
         "verdict": None,
-        "verdict_summary": None,
+        "verdict_rationale": None,
         "decision": None,
     }
     # The documents reach the runner by name; a dispatch without any
@@ -229,7 +229,7 @@ async def test_review_verdict_flows_through_the_status_api():
         return ProcedureResult(
             comment_urls=["https://pr/1#c-1"],
             verdict="pass",
-            verdict_summary="Suite green; in scope.",
+            verdict_rationale="Suite green; in scope.",
         )
 
     async with client(app_for("reviewer", review=fake_review)) as http:
@@ -239,4 +239,4 @@ async def test_review_verdict_flows_through_the_status_api():
     assert status["status"] == "done"
     assert status["comment_urls"] == ["https://pr/1#c-1"]
     assert status["verdict"] == "pass"
-    assert status["verdict_summary"] == "Suite green; in scope."
+    assert status["verdict_rationale"] == "Suite green; in scope."

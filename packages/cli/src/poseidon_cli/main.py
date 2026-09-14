@@ -3,22 +3,38 @@
 Every command but `login` is one console call with the human's token:
 the CLI holds no cluster credentials, reaches no workflow engine and no
 database, and performs no act of its own. What it prints is what the
-console answered. Two commands touch no console: `login` mints the token,
-once, with the kubeconfig the caller already holds — printed, or saved
-where every later command finds it when the environment carries none —
-and `blueprint new` writes a document on the caller's disk by asking
-questions. Neither is an act on a company.
+console answered — rendered for a person by default, verbatim with
+`--json` on every read. Two commands touch no console: `login` mints the
+token, once, with the kubeconfig the caller already holds — printed, or
+saved where every later command finds it when the environment carries
+none — and `blueprint new` writes a document on the caller's disk by
+asking questions. Neither is an act on a company.
+
+The tree is the glossary's nouns: the blueprint, the company, its
+heartbeat, its runs; one verb per meaning (`show` to read, `start` to
+begin a run by hand, `verdict` to answer a gate); `--reason` on every act
+that commits the company to something; `--no-wait` wherever a command
+would otherwise wait for the cluster.
 """
 
 import json
 import sys
 import time
+from datetime import UTC, datetime
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Any
 
 import typer
+from rich.text import Text
 
-from common.topology import CONSOLE_TOKEN_AUDIENCE, human_service_account
+from common.topology import (
+    CONSOLE_TOKEN_AUDIENCE,
+    PLATFORM_NAMESPACE,
+    human_service_account,
+)
+from common.workflows import GATES
+from poseidon_cli import render
 from poseidon_cli.client import (
     TOKEN_VAR,
     URL_VAR,
@@ -28,72 +44,110 @@ from poseidon_cli.client import (
 )
 from poseidon_cli.follow import follow as follow_events
 
-app = typer.Typer(no_args_is_help=True, add_completion=False)
-blueprint_app = typer.Typer(
-    no_args_is_help=True, help="Write, preview and apply company blueprints."
+app = typer.Typer(
+    no_args_is_help=True,
+    add_completion=False,
+    help="Act on the company this cluster hosts, and read it, through the console.",
 )
-heartbeat_app = typer.Typer(no_args_is_help=True, help="The company's standing loop.")
-company_app = typer.Typer(no_args_is_help=True, help="The company this cluster hosts.")
+blueprint_app = typer.Typer(
+    no_args_is_help=True, help="Write, preview and apply a company blueprint."
+)
+company_app = typer.Typer(
+    no_args_is_help=True, help="The company this cluster hosts: show it, or delete it."
+)
+heartbeat_app = typer.Typer(
+    no_args_is_help=True, help="The company's standing loop: show it, or wake it."
+)
+run_app = typer.Typer(
+    no_args_is_help=True, help="One run: show it, read its story, cancel it."
+)
+start_app = typer.Typer(
+    no_args_is_help=True,
+    help="Start a run by hand, on a ticket or a pull request. An operator's tool:"
+    " the heartbeat starts the company's runs on its own.",
+)
 app.add_typer(blueprint_app, name="blueprint")
-app.add_typer(heartbeat_app, name="heartbeat")
 app.add_typer(company_app, name="company")
+app.add_typer(heartbeat_app, name="heartbeat")
+app.add_typer(run_app, name="run")
+app.add_typer(start_app, name="start")
 
-DEFAULT_PLATFORM_NAMESPACE = "poseidon-platform"
+
+class Verdict(StrEnum):
+    approve = "approve"
+    reject = "reject"
+
+
+# The gates a run can park on, as an argument's closed choice list.
+Gate = Enum("Gate", {gate: gate for gate in GATES}, type=str)
+
+REASON_OPTION = typer.Option(
+    ..., "--reason", help="Why. Recorded with the act, under your name."
+)
+NO_WAIT_OPTION = typer.Option(
+    False, "--no-wait", help="Return as soon as the console has accepted the request."
+)
+JSON_OPTION = typer.Option(
+    False, "--json", help="Print exactly what the console answered, as JSON."
+)
 
 
 def _client() -> ConsoleClient:
     client = ConsoleClient.from_env()
     if not client.token:
-        typer.echo(
+        render.error(
             f"no token: `poseidon login <name> --save` keeps one at {token_file()},"
             f" or set {TOKEN_VAR} (`export {TOKEN_VAR}=$(poseidon login <name>)`);"
-            f" set {URL_VAR} if the console is not at {client.base_url}",
-            err=True,
+            f" set {URL_VAR} if the console is not at {client.base_url}"
         )
         raise typer.Exit(2)
     return client
 
 
-def _show(payload: Any) -> None:
+def _json(payload: Any) -> None:
+    """The console's answer, verbatim."""
     typer.echo(json.dumps(payload, indent=2))
 
 
-def _call(fn, *args: Any) -> Any:
+def _call(fn, *args: Any, **kwargs: Any) -> Any:
     try:
-        return fn(*args)
+        return fn(*args, **kwargs)
     except ConsoleError as exc:
         detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
-        rule = getattr(exc, "rule", None)
-        typer.echo(f"{detail}" + (f" (rule: {rule})" if rule else ""), err=True)
+        render.error(detail, getattr(exc, "rule", None))
         if exc.status == 401 and getattr(fn, "__self__", None) is not None:
             client = fn.__self__
             if getattr(client, "token_source", "") == "file":
-                typer.echo(
+                render.error(
                     f"the saved token at {token_file()} was refused — expired or"
-                    " revoked; `poseidon login <name> --save` writes a fresh one",
-                    err=True,
+                    " revoked; `poseidon login <name> --save` writes a fresh one"
                 )
         raise typer.Exit(1) from exc
 
 
+# -- you -----------------------------------------------------------------------
+
+
 @app.command()
 def login(
-    name: str,
-    namespace: str = typer.Option(
-        DEFAULT_PLATFORM_NAMESPACE, help="The platform namespace the chart installed into"
+    name: str = typer.Argument(
+        ..., help="A human the chart declares (on kind: owner, auditor)."
     ),
-    duration: int = typer.Option(3600, help="Token lifetime, seconds"),
+    namespace: str = typer.Option(
+        PLATFORM_NAMESPACE, help="The namespace the platform is installed into."
+    ),
+    duration: int = typer.Option(3600, help="How long the token lives, in seconds."),
     save: bool = typer.Option(
         False,
         "--save",
-        help="Keep the token in your config directory instead of printing it;"
-        " every later command reads it there when POSEIDON_TOKEN is unset",
+        help="Save the token in your config directory instead of printing it;"
+        " every later command reads it there when POSEIDON_TOKEN is unset.",
     ),
 ) -> None:
-    """Mint a token for a human the chart declared, with your own cluster
-    credentials, and print it (`export POSEIDON_TOKEN=$(poseidon login owner)`)
-    or save it (`poseidon login owner --save`). The token is for the
-    console's audience only — worthless anywhere else."""
+    """Mint a console token for a human the chart declares, with the
+    kubeconfig you already hold (a kind cluster; elsewhere your identity
+    provider signs you in). Prints the token, or saves it with --save.
+    """
     from kubernetes import client as k8s
     from kubernetes import config as k8s_config
 
@@ -108,10 +162,9 @@ def login(
             human_service_account(name), namespace, request
         )
     except k8s.ApiException as exc:
-        typer.echo(
+        render.error(
             f"could not mint a token for {human_service_account(name)!r} in"
-            f" {namespace!r}: {exc.reason}",
-            err=True,
+            f" {namespace!r}: {exc.reason}"
         )
         raise typer.Exit(1) from exc
     if not save:
@@ -123,58 +176,70 @@ def login(
     path.chmod(0o600)
     path.write_text(token.status.token + "\n")
     expires = token.status.expiration_timestamp
-    typer.echo(f"saved a token for {name} at {path}, valid until {expires}", err=True)
+    render.act(f"saved a token for {name} at {path}, valid until {expires}", render.ERR)
 
 
 @app.command()
-def whoami() -> None:
+def whoami(as_json: bool = JSON_OPTION) -> None:
     """Who the console takes you for, and which company it hosts."""
-    _show(_call(_client().whoami))
+    client = _client()
+    who = _call(client.whoami)
+    if as_json:
+        _json(who)
+        return
+    render.act(f"you are {who.get('human')} ({who.get('lifecycle')})")
+    company = who.get("company")
+    if not company:
+        render.act(Text("no company applied", style=render.DIM))
+        return
+    try:
+        state = client.company()
+    except ConsoleError:
+        render.act(f"company: {company}")
+        return
+    render.act(Text.assemble(f"company: {company} · ", render.status(state.get("phase"))))
+
+
+# -- the blueprint -------------------------------------------------------------
 
 
 @blueprint_app.command("new")
 def blueprint_new(
     path: Path = typer.Argument(
-        None, help="Where to write; default <company-name>.yaml in the current directory"
+        None, help="Where to write; default <company-name>.yaml in the current directory."
     ),
-    force: bool = typer.Option(False, "--force", help="Overwrite an existing file"),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing file."),
 ) -> None:
-    """Write a blueprint by answering questions, section by section, with
-    the shipped example's answers as defaults. What you decide — the
-    name, the vision, who may act, the repository, the gate, the money —
-    is asked; the shape every company repeats is written; the result is
-    compiled as the console would before a byte lands on disk."""
+    """Write a blueprint by answering questions, section by section.
+    Compiles the answers before writing; prints the file written and the
+    command that applies it. Nothing reaches the cluster."""
     from poseidon_cli import new
 
     try:
         answers = new.ask(new.QuestionaryPrompter())
     except KeyboardInterrupt:
-        typer.echo("nothing written", err=True)
+        render.error("nothing written")
         raise typer.Exit(130) from None
     document = new.build(answers)
     problems = new.problems(document)
     if problems:
-        typer.echo(
-            "the answers do not compile:\n  - " + "\n  - ".join(problems), err=True
-        )
+        render.error("the answers do not compile:\n  - " + "\n  - ".join(problems))
         raise typer.Exit(1)
     target = path or Path(f"{answers.name}.yaml")
     if target.exists() and not force:
-        typer.echo(f"{target} exists; --force overwrites it", err=True)
+        render.error(f"{target} exists; --force overwrites it")
         raise typer.Exit(1)
     target.write_text(new.render(document))
-    typer.echo(f"wrote {target}")
-    typer.echo(
-        f"next: `poseidon blueprint apply {target}` on a cluster that hosts {answers.name},"
-        f" or `BLUEPRINT={target} deploy/kind/kind-up.sh` for a fresh kind cluster"
-    )
+    render.act(f"wrote {target}")
+    render.act(Text(f"next: poseidon blueprint apply {target}", style=render.DIM))
 
 
 @blueprint_app.command()
-def preview(blueprint: Path) -> None:
-    """Show what applying BLUEPRINT would change, and what it would cost."""
+def preview(blueprint: Path = typer.Argument(..., help="The blueprint file.")) -> None:
+    """Show what applying BLUEPRINT would change — the diff against what
+    the cluster hosts, and the budget. Changes nothing."""
     result = _call(_client().preview, blueprint.read_text())
-    typer.echo(result["diff"])
+    render.diff(result["diff"])
 
 
 CONVERGE_TIMEOUT_S = 600
@@ -182,32 +247,31 @@ CONVERGE_TIMEOUT_S = 600
 
 @blueprint_app.command()
 def apply(
-    blueprint: Path,
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the diff confirmation"),
-    wait: bool = typer.Option(
-        True,
-        "--wait/--no-wait",
-        help="Wait until the company is converged — OPA serves its policy — before returning",
-    ),
+    blueprint: Path = typer.Argument(..., help="The blueprint file."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Apply without asking."),
+    no_wait: bool = NO_WAIT_OPTION,
     wait_timeout: int = typer.Option(
-        CONVERGE_TIMEOUT_S, help="Seconds to wait for `converged` before giving up"
+        CONVERGE_TIMEOUT_S, help="Seconds to wait for the company to converge."
     ),
 ) -> None:
-    """Apply BLUEPRINT: the console compiles it against the live registry
-    and submits the CRs; the operator converges them, and this waits until
-    it has — the company is live only once OPA serves its policy."""
+    """Apply BLUEPRINT: shows the diff, asks, applies through the console,
+    then waits until the company is converged — live, its policy served —
+    and says how long that took. Prints what was created and updated."""
     client = _client()
     text = blueprint.read_text()
     diff = _call(client.preview, text)["diff"]
-    typer.echo(diff, err=True)
+    render.diff(diff, render.ERR)
     if not yes and "no changes" not in diff:
         typer.confirm("apply?", abort=True)
     result = _call(client.apply, text)
-    typer.echo(
-        f"applied {result['company']}: {result['created']} created,"
-        f" {result['updated']} updated ({result['rule']})"
+    render.act(
+        Text.assemble(
+            f"applied {result['company']}: {result['created']} created,"
+            f" {result['updated']} updated ",
+            render.dim(f"({result['rule']})"),
+        )
     )
-    if wait:
+    if not no_wait:
         _await_converged(client, int(result.get("generation", 0)), wait_timeout)
 
 
@@ -220,77 +284,279 @@ def _await_converged(client: ConsoleClient, generation: int, timeout_s: int) -> 
     while True:
         state = _call(client.company)
         if state["phase"] == "converged" and state["observedGeneration"] >= generation:
-            typer.echo(f"converged ({int(time.monotonic() - started)}s)")
+            render.act(
+                Text.assemble(
+                    render.status("converged"),
+                    render.dim(f" ({render.duration(time.monotonic() - started)})"),
+                )
+            )
             return
         if not said_activating:
-            typer.echo("activating …", err=True)
+            render.act(Text.assemble(render.status("activating"), " …"), render.ERR)
             said_activating = True
         if time.monotonic() - started >= timeout_s:
-            typer.echo(
+            render.error(
                 f"still {state['phase']} after {timeout_s}s"
                 + (f": {state['message']}" if state.get("message") else "")
-                + " — `poseidon company show`, or `kubectl get company`",
-                err=True,
+                + " — `poseidon company show`, or `kubectl get company`"
             )
             raise typer.Exit(1)
         time.sleep(2)
 
 
+# -- the company ---------------------------------------------------------------
+
+
 @company_app.command("show")
-def company_show() -> None:
-    """The applied company as its CR tells it: phase, generation, bundle."""
-    _show(_call(_client().company))
+def company_show(as_json: bool = JSON_OPTION) -> None:
+    """The applied company: its name, phase (`activating` until its policy
+    is served, `converged` after), generation and bundle revision."""
+    state = _call(_client().company)
+    if as_json:
+        _json(state)
+        return
+    render.record(
+        [
+            ("company", state.get("company")),
+            ("phase", render.status(state.get("phase"))),
+            (
+                "generation",
+                f"{state.get('generation')} (observed {state.get('observedGeneration')})",
+            ),
+            ("bundle", render.dim(state.get("bundleRevision") or "")),
+            ("namespace", render.dim(state.get("namespace") or "")),
+            ("message", state.get("message")),
+        ]
+    )
 
 
 @company_app.command("delete")
 def company_delete(
-    reason: str = typer.Option("", help="Why, recorded with the act"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation"),
+    reason: str = REASON_OPTION,
+    yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking."),
 ) -> None:
-    """Stop the company — the one stop there is. The console decides the
-    act under your name, cancels every running run, deletes the Company
-    and waits for the teardown. The repository and the ledgers stay:
-    applying the same blueprint again resumes the company."""
+    """Delete the company: cancels its running runs, removes it and waits
+    for the teardown. Asks first, naming the runs it will cancel. The one
+    way to stop a company; applying its blueprint again resumes it."""
     client = _client()
     company = _call(client.whoami).get("company")
     if not company:
-        typer.echo("no company is applied", err=True)
+        render.error("no company is applied")
         raise typer.Exit(1)
-    running = [r["run_id"] for r in _call(client.runs) if r.get("status") == "running"]
-    typer.echo(
+    running = [r for r in _call(client.runs) if r.get("status") == "running"]
+    render.act(
         f"{company}: {len(running)} running run(s)"
-        + (f" ({', '.join(running)})" if running else "")
-        + " — they will be cancelled",
-        err=True,
+        + (" — they will be cancelled:" if running else ""),
+        render.ERR,
     )
+    if running:
+        render.table(
+            ("run", "workflow", "task"),
+            [(r["run_id"], r.get("workflow", ""), r.get("task", "")) for r in running],
+            render.ERR,
+        )
     if not yes:
         typer.confirm(f"delete {company}?", abort=True)
-    _show(_call(client.delete_company, reason))
+    result = _call(client.delete_company, reason)
+    cancelled = result.get("runs_cancelled") or []
+    render.act(
+        f"{result.get('company', company)} deleted"
+        + (f" in {render.duration(result['elapsed_s'])}" if "elapsed_s" in result else "")
+        + (f"; cancelled {', '.join(cancelled)}" if cancelled else "")
+    )
 
 
-@app.command()
-def run(
-    issue_number: int,
-    detach: bool = typer.Option(False, help="Start the run and exit"),
+# -- the heartbeat -------------------------------------------------------------
+
+
+@heartbeat_app.command("show")
+def heartbeat_show(
+    since: str = typer.Option(None, help="Only ticks at or after this timestamp."),
+    as_json: bool = JSON_OPTION,
 ) -> None:
-    """Start one implement run by hand on a ticket the company filed — a
-    person reproducing a run. The heartbeat starts the company's runs on
-    its own."""
-    _start("implement", issue_number, detach)
+    """The standing loop: its execution, and every tick — what it saw and
+    what it started, or why it did nothing."""
+    state = _call(_client().heartbeat, since)
+    if as_json:
+        _json(state)
+        return
+    execution = state.get("execution") or {}
+    ticks = state.get("ticks") or []
+    line = Text.assemble("heartbeat ", render.status(execution.get("status")))
+    if execution.get("state"):
+        line.append(f" ({execution['state']})", style=render.DIM)
+    if ticks:
+        line.append(f", last tick {render.ago(ticks[-1].get('ts'))}")
+    render.act(line)
+    render.table(
+        ("when", "outcome", "detail"),
+        [_tick_row(tick) for tick in reversed(ticks)],
+        empty="no ticks yet",
+    )
+
+
+def _tick_row(tick: dict[str, Any]) -> tuple[Any, ...]:
+    """A tick's rule reads `tick_<outcome>:<detail>`; the outcome is the
+    coloured word, the detail says what (or why not)."""
+    rule = str(tick.get("rule") or "")
+    outcome, _, detail = rule.removeprefix("tick_").partition(":")
+    return (render.dim(render.ago(tick.get("ts"))), render.status(outcome), detail)
+
+
+@heartbeat_app.command()
+def wake() -> None:
+    """Ask the loop to look now instead of at its next check-in. It
+    decides for itself what, if anything, to start."""
+    _call(_client().wake)
+    render.act("heartbeat woken")
+
+
+# -- runs ------------------------------------------------------------------------
+
+
+def _elapsed(record: dict[str, Any]) -> str:
+    started = render.parse_ts(record.get("created_at"))
+    if started is None:
+        return ""
+    ended = render.parse_ts(record.get("finished_at")) or datetime.now(UTC)
+    return render.duration((ended - started).total_seconds())
 
 
 @app.command()
-def review(
-    pr_number: int,
-    detach: bool = typer.Option(
+def runs(
+    since: str = typer.Option(None, help="Only runs started at or after this timestamp."),
+    as_json: bool = JSON_OPTION,
+) -> None:
+    """The company's runs, newest first: id, workflow, task, status, when."""
+    records = _call(_client().runs, since)
+    if as_json:
+        _json(records)
+        return
+    # The runs still going first, then the rest newest first.
+    newest_first = sorted(
+        records, key=lambda r: str(r.get("created_at") or ""), reverse=True
+    )
+    ordered = [r for r in newest_first if r.get("status") == "running"] + [
+        r for r in newest_first if r.get("status") != "running"
+    ]
+    render.table(
+        ("run", "workflow", "task", "status", "started", "took"),
+        [
+            (
+                r.get("run_id", ""),
+                r.get("workflow", ""),
+                r.get("task", ""),
+                render.status(r.get("status")),
+                render.dim(render.ago(r.get("created_at"))),
+                render.dim(_elapsed(r)),
+            )
+            for r in ordered
+        ],
+        empty="no runs yet",
+    )
+
+
+@run_app.command("show")
+def run_show(
+    run_id: str = typer.Argument(..., help="The run's id."), as_json: bool = JSON_OPTION
+) -> None:
+    """One run: its record — task, status, iterations, what it delivered —
+    and its workflow's execution."""
+    record = _call(_client().run, run_id)
+    if as_json:
+        _json(record)
+        return
+    _render_run(record)
+
+
+def _render_run(record: dict[str, Any]) -> None:
+    execution = record.get("execution") or {}
+    workflow_line = Text.assemble(
+        "workflow ",
+        render.status(execution.get("status")),
+        render.dim(f" {execution.get('workflow_id', '')}"),
+    )
+    if execution.get("state"):
+        workflow_line.append(f" ({execution['state']})", style=render.DIM)
+    error = record.get("error")
+    render.record(
+        [
+            ("run", record.get("run_id")),
+            ("workflow", record.get("workflow")),
+            ("task", record.get("task")),
+            ("status", render.status(record.get("status"))),
+            ("started", render.dim(render.ago(record.get("created_at")))),
+            ("took", render.dim(_elapsed(record))),
+            ("iterations", record.get("iterations") or None),
+            ("pull request", record.get("pr_url")),
+            ("tickets", ", ".join(record.get("ticket_urls") or []) or None),
+            (
+                "verdict",
+                render.status(record["verdict"]) if record.get("verdict") else None,
+            ),
+            ("error", Text(str(error), style="red") if error else None),
+            ("execution", workflow_line),
+        ]
+    )
+
+
+@run_app.command("story")
+def run_story(
+    run_id: str = typer.Argument(..., help="The run's id."),
+    decisions: bool = typer.Option(
         False,
-        help="Start the run and exit — the merge gate parks it until"
-        " `poseidon signal <run_id> merge` answers",
+        "--decisions",
+        help="Only the rows that carry a rationale: what was decided, and why.",
     ),
+    as_json: bool = JSON_OPTION,
 ) -> None:
-    """Start one review run by hand on a delivered pull request — a person
-    reproducing a run, like `run`."""
-    _start("review", pr_number, detach)
+    """The run's story: every audit row, from every source, in order —
+    each tool call, decision, gate and verdict, with the actor's rationale
+    where one was stated."""
+    rows = _call(_client().story, run_id, decisions)
+    if as_json:
+        _json(rows)
+        return
+    if not rows:
+        render.act(Text("no rows yet", style=render.DIM))
+    for event in rows:
+        render.OUT.print(render.row(event))
+
+
+@run_app.command("cancel")
+def run_cancel(
+    run_id: str = typer.Argument(..., help="The run's id."),
+    reason: str = REASON_OPTION,
+) -> None:
+    """Cancel a run. The console records the act and your reason under
+    your name, then stops the workflow; the run's sandbox and agents are
+    torn down."""
+    result = _call(_client().cancel, run_id, reason)
+    render.act(f"run {result.get('run_id', run_id)} cancelled")
+
+
+@start_app.command("implement")
+def start_implement(
+    ticket: int = typer.Argument(..., help="The ticket's number on the repository."),
+    no_wait: bool = NO_WAIT_OPTION,
+    as_json: bool = JSON_OPTION,
+) -> None:
+    """Start an implement run on a ticket and follow it to its end,
+    printing its rows as they land and then its record; exits non-zero if
+    the run fails."""
+    _start("implement", ticket, no_wait, as_json)
+
+
+@start_app.command("review")
+def start_review(
+    pr: int = typer.Argument(..., help="The pull request's number on the repository."),
+    no_wait: bool = NO_WAIT_OPTION,
+    as_json: bool = JSON_OPTION,
+) -> None:
+    """Start a review run on a pull request and follow it to its end. The
+    run parks on its merge gate until `poseidon verdict <run_id> merge
+    approve|reject` answers, or policy merges on its own."""
+    _start("review", pr, no_wait, as_json)
 
 
 # How long a just-started run may take to have a row and a running
@@ -298,13 +564,26 @@ def review(
 START_GRACE_S = 120.0
 
 
-def _start(workflow: str, number: int, detach: bool) -> None:
+def _start(workflow: str, number: int, no_wait: bool, as_json: bool) -> None:
     client = _client()
     started = _call(client.start_run, workflow, number)
-    typer.echo(f"started {started['workflow_id']} (run_id {started['run_id']})", err=True)
-    if detach:
+    render.act(
+        Text.assemble(
+            f"started {started['workflow_id']} ", render.dim(f"(run {started['run_id']})")
+        ),
+        render.ERR,
+    )
+    if no_wait:
+        if as_json:
+            _json(started)
         return
-    _show(_await_run(client, started["run_id"]))
+    record = _await_run(client, started["run_id"])
+    if as_json:
+        _json(record)
+    else:
+        _render_run(record)
+    if record.get("status") != "done":
+        sys.exit(1)
 
 
 def _await_run(client: ConsoleClient, run_id: str) -> dict[str, Any]:
@@ -326,88 +605,104 @@ def _await_run(client: ConsoleClient, run_id: str) -> dict[str, Any]:
         if record["status"] != "running" or execution not in ("RUNNING", "NOT_FOUND"):
             return True
         if execution == "NOT_FOUND" and time.monotonic() - born >= START_GRACE_S:
-            typer.echo(
-                f"run {run_id} has no workflow after {START_GRACE_S:.0f}s", err=True
-            )
+            render.error(f"run {run_id} has no workflow after {START_GRACE_S:.0f}s")
             raise typer.Exit(1)
         return False
 
-    follow_events(
-        client, lambda line: typer.echo(line, err=True), run_id=run_id, stop=ended
-    )
-    if record.get("status") != "done":
-        _show(record)
-        sys.exit(1)
+    follow_events(client, render.ERR.print, run_id=run_id, stop=ended)
     return record
 
 
+# -- the human's answer --------------------------------------------------------
+
+
 @app.command()
-def signal(
-    run_id: str,
-    gate: str,
-    approved: bool = typer.Option(True, help="The verdict: --approved or --no-approved"),
-    payload: str = typer.Option(None, help="A note recorded with the verdict"),
+def verdict(
+    run_id: str = typer.Argument(..., help="The run parked on the gate."),
+    gate: Gate = typer.Argument(..., help="The gate: merge, or budget."),
+    verdict: Verdict = typer.Argument(..., help="approve or reject."),
+    reason: str = REASON_OPTION,
 ) -> None:
-    """Answer a gate a run parked on — `merge` or `budget`. The console
-    records the verdict under your name, then delivers it. Approving a
-    budget pause lets the run continue under its cap as it stands: raise
-    the cap in the blueprint first if it needs more."""
-    _show(_call(_client().resolve, run_id, gate, approved, payload))
+    """Answer a gate a run parked on. The console records the verdict and
+    your reason under your name, then delivers it. Approving a budget pause
+    lets the run continue under its cap as it stands."""
+    approved = verdict is Verdict.approve
+    result = _call(_client().resolve, run_id, gate.value, approved, reason)
+    render.act(
+        Text.assemble(
+            "verdict recorded: ",
+            f"{result.get('gate', gate.value)} ",
+            render.status("approved" if result.get("approved", approved) else "rejected"),
+            f" for run {result.get('run_id', run_id)}, by {result.get('principal', '')}",
+        )
+    )
 
 
-@app.command()
-def cancel(run_id: str, reason: str = typer.Option("", help="Why")) -> None:
-    """Cancel a run; its teardown compensates."""
-    _show(_call(_client().cancel, run_id, reason))
-
-
-@app.command()
-def status(run_id: str) -> None:
-    """The run's record and its workflow's execution."""
-    _show(_call(_client().run, run_id))
+# -- the window ------------------------------------------------------------------
 
 
 @app.command()
 def follow(
-    run: str = typer.Option(None, help="Only this run's rows"),
-    after: int = typer.Option(0, help="Resume from this cursor (the last id printed)"),
+    run: str = typer.Option(None, help="Only this run's rows."),
+    after: int = typer.Option(0, help="Resume from this cursor (the last id printed)."),
     json_lines: bool = typer.Option(
-        False, "--json", help="The rows as stored, one JSON object per line"
+        False, "--json", help="The rows as stored, one JSON object per line."
     ),
 ) -> None:
-    """Watch the company: every tick, run, dispatch, tool call, decision,
-    gate and verdict as it lands, one line each, and the spend whenever
-    it moves — until you interrupt. Reads only."""
+    """Watch the company: every audit row as it lands — ticks, runs, tool
+    calls, decisions, gates, verdicts — one line each, the spend whenever
+    it moves, until you interrupt."""
     client = _client()
-    _call(
-        lambda: follow_events(client, typer.echo, after=after, run_id=run, raw=json_lines)
-    )
+    sink = typer.echo if json_lines else render.OUT.print
+    _call(lambda: follow_events(client, sink, after=after, run_id=run, raw=json_lines))
 
 
 @app.command()
-def story(run_id: str) -> None:
-    """The run's audit story — every decision, every source, in order."""
-    _show(_call(_client().story, run_id))
-
-
-@app.command()
-def spend(run_id: str) -> None:
-    """The run's attributed spend."""
-    _show(_call(_client().spend, run_id))
-
-
-@heartbeat_app.command()
-def state(
-    since: str = typer.Option(None, help="Ticks at or after this timestamp"),
+def spend(
+    run_id: str = typer.Argument(None, help="A run's id; omit for the company's."),
+    since: str = typer.Option(
+        None, help="Company-wide: only spend at or after this timestamp."
+    ),
+    as_json: bool = JSON_OPTION,
 ) -> None:
-    """The standing loop's execution and its ticks."""
-    _show(_call(_client().heartbeat, since))
-
-
-@heartbeat_app.command()
-def wake() -> None:
-    """Nudge the loop to look now — never an instruction."""
-    _show(_call(_client().wake))
+    """Spend to date: the company's, or one run's with RUN_ID — the
+    total, and every model call behind it."""
+    client = _client()
+    if not run_id:
+        total = _call(client.spend_since, since)
+        if as_json:
+            _json(total)
+            return
+        render.act(
+            Text.assemble(
+                f"spent {render.usd(total.get('usd'))}",
+                render.dim(
+                    f"  ({total.get('prompt_tokens', 0):,} prompt,"
+                    f" {total.get('completion_tokens', 0):,} completion tokens)"
+                ),
+            )
+        )
+        return
+    result = _call(client.spend, run_id)
+    if as_json:
+        _json(result)
+        return
+    render.act(f"run {result.get('run_id', run_id)}: {render.usd(result.get('usd'))}")
+    render.table(
+        ("when", "who", "model", "tokens in / cached / out", "cost"),
+        [
+            (
+                render.dim(render.clock(e.get("ts"))),
+                "/".join(p for p in (e.get("role"), e.get("agent_id")) if p),
+                e.get("model", ""),
+                f"{e.get('prompt_tokens', 0):,} / {e.get('cached_tokens', 0):,}"
+                f" / {e.get('completion_tokens', 0):,}",
+                render.usd(e.get("usd")),
+            )
+            for e in result.get("entries") or []
+        ],
+        empty="no model calls",
+    )
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from common.audit import AuditEvent
+from common.topology import PLATFORM_NAMESPACE
 from orchestrator.activities.review import ReviewActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -58,7 +59,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file.write_text("projected-token")
     return WorkerSettings(
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         sandbox_image="poseidon-sandbox:abc123",
         agent_image="poseidon-agent:abc123",
         model="mock-brain",
@@ -92,7 +93,8 @@ def _activities(settings, spec, instances, audit=None, runs=None, participants=N
 def test_verdicts_are_journaled_audit_events(settings, audit):
     """The reviewer's structured verdict becomes an append-only
     process-lifecycle row — the heartbeat.decide idiom: pass maps to allow,
-    fail to deny, and the one-line summary rides the rule field."""
+    fail to deny, the rule names the verdict, and the reviewer's own reason
+    rides the rationale column in cleartext."""
     runs = InMemoryRuns()
     runs.start(RUN_ID, "review pull request #41", "review", company="hello-saas")
     activities = _activities(
@@ -112,9 +114,9 @@ def test_verdicts_are_journaled_audit_events(settings, audit):
         )
     )
     events = [e for e in audit.events if e.run_id == RUN_ID]
-    assert [(e.decision, e.rule) for e in events] == [
-        ("allow", "Suite green; in scope."),
-        ("deny", "Blocking: criteria unmet."),
+    assert [(e.decision, e.rule, e.rationale) for e in events] == [
+        ("allow", "verdict_pass", "Suite green; in scope."),
+        ("deny", "verdict_fail", "Blocking: criteria unmet."),
     ]
     assert all(e.source == "process-lifecycle" for e in events)
     assert all(e.tool == "review.verdict" for e in events)
@@ -465,7 +467,7 @@ class FakeIssueGateway:
     async def read_issue(self, run_id, repo, number):
         return self.issues[number]
 
-    async def create_issue(self, run_id, repo, title, body):
+    async def create_issue(self, run_id, repo, title, body, rationale):
         self.created.append({"repo": repo, "title": title, "body": body})
         return {
             "url": f"https://git.test/r/issues/{90 + len(self.created)}",

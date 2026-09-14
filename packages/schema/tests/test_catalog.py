@@ -5,7 +5,7 @@ assumes it can rely on.
 """
 
 from schema.catalog import CREW_TEMPLATES, PROCEDURES, ROLES, STEWARD_ROLE
-from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
+from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY, RATIONALE_TOOLS
 
 
 def test_catalog_covers_the_mvp_roles():
@@ -103,3 +103,7 @@ def test_the_steward_is_a_distinct_deliver_capable_role():
     assert steward.procedures == ("implement", "deliver")
     assert not steward.may_spawn
     assert STEWARD_ROLE not in CREW_TEMPLATES["feature-delivery"].roles
+
+
+def test_the_tools_that_owe_a_rationale_are_gateway_tools():
+    assert RATIONALE_TOOLS <= KNOWN_TOOLS

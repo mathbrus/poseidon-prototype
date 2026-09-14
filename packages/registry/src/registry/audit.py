@@ -27,9 +27,9 @@ class AuditStore:
             """
             INSERT INTO registry.audit_events
                 (ts, run_id, agent_id, role, tool, args_digest,
-                 decision, rule, latency_ms, backend_status,
+                 decision, rule, rationale, latency_ms, backend_status,
                  source, company, lifecycle, parent_agent_id, workflow)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s)
             """,
             (
@@ -41,6 +41,7 @@ class AuditStore:
                 event.args_digest,
                 event.decision,
                 event.rule,
+                event.rationale,
                 event.latency_ms,
                 event.backend_status,
                 event.source,
@@ -99,7 +100,7 @@ class AuditStore:
         rows = self._db.query(
             """
             SELECT id, ts, run_id, agent_id, role, tool, args_digest,
-                   decision, rule, latency_ms, backend_status,
+                   decision, rule, rationale, latency_ms, backend_status,
                    source, company, lifecycle, parent_agent_id, workflow
               FROM registry.audit_events
              WHERE company = %s AND id > %s
@@ -111,20 +112,25 @@ class AuditStore:
         )
         return rows
 
-    def story(self, run_id: str, since: str | None = None) -> list[dict[str, Any]]:
+    def story(
+        self, run_id: str, since: str | None = None, decisions_only: bool = False
+    ) -> list[dict[str, Any]]:
         """Everything the platform decided for this run, in order — across
         every source, from one query; at or after `since` when given (a
         registry timestamp), so a reader of a standing run's long story
-        asks only for its own window."""
+        asks only for its own window. `decisions_only` keeps the rows that
+        carry a rationale: what was decided, and why, without the tool
+        calls between."""
         return self._db.query(
             """
             SELECT ts, run_id, agent_id, role, tool, args_digest,
-                   decision, rule, latency_ms, backend_status,
+                   decision, rule, rationale, latency_ms, backend_status,
                    source, company, lifecycle, parent_agent_id, workflow
               FROM registry.audit_events
              WHERE run_id = %s
                AND (%s::timestamptz IS NULL OR ts >= %s::timestamptz)
+               AND (NOT %s OR rationale IS NOT NULL)
              ORDER BY ts, id
             """,
-            (run_id, since, since),
+            (run_id, since, since, decisions_only),
         )

@@ -60,7 +60,7 @@ The orchestrator's workflows drive this host through one small API.
 runs the procedure on a background task; `GET /task/{run_id}` reports
 `status` plus every field of the `ProcedureResult` (`pr_url`,
 `iterations`, `error`, `ticket_urls`, `comment_urls`, `verdict`,
-`verdict_summary`, `decision`) — the HTTP shape is derived
+`verdict_rationale`, `decision`) — the HTTP shape is derived
 from the result type, so a new field cannot be dropped at the
 boundary. The workflow polls — the host owns no
 process-level retries, timeouts or cancellation, because Temporal already

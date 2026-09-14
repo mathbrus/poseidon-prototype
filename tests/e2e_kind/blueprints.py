@@ -16,6 +16,7 @@ from .cluster import (
     EXAMPLES,
     HELLO_SAAS,
     REPO_ROOT,
+    agent_image,
     await_bare_heartbeat_asleep,
     console,
     harness_repo_or_fail,
@@ -154,6 +155,36 @@ def wait_for_convergence(timeout_s: int = 300) -> None:
         f"--timeout={timeout_s}s",
         timeout=timeout_s + 30,
     )
+    assert_company_pods_run_this_build()
+
+
+def assert_company_pods_run_this_build() -> None:
+    """Every live company pod built from one of our images carries the
+    build the worker was deployed with. kind-up.sh asserts this for the
+    platform's pods; the company's exist only once a blueprint is applied,
+    so the suite asserts it here, at convergence. Without it a stale
+    `:latest` standing agent keeps executing code you already fixed, and
+    the only symptom is a test failing for no visible reason. Finished
+    sandbox Jobs and pods on their way out are not running stale code."""
+    tag = agent_image().rsplit(":", 1)[-1]
+    rows = kubectl(
+        "-n",
+        COMPANY_NS,
+        "get",
+        "pods",
+        "-o",
+        "jsonpath={range .items[*]}{.status.phase}|{.metadata.deletionTimestamp}"
+        '|{.metadata.name}|{range .spec.containers[*]}{.image} {end}{"\\n"}{end}',
+    )
+    stale = []
+    for row in rows.splitlines():
+        phase, deleting, name, images = row.split("|", 3)
+        if phase in ("Succeeded", "Failed") or deleting:
+            continue
+        ours = [i for i in images.split() if "poseidon-" in i]
+        if any(not i.endswith(f":{tag}") for i in ours):
+            stale.append(f"{name}: {' '.join(ours)}")
+    assert not stale, f"company pods not running build {tag}:\n" + "\n".join(stale)
 
 
 def bundle_revision_from_cr() -> str:

@@ -129,7 +129,7 @@ class ConsoleClient:
     def company(self) -> dict[str, Any]:
         return self._call("GET", "/company")
 
-    def delete_company(self, reason: str = "") -> dict[str, Any]:
+    def delete_company(self, reason: str) -> dict[str, Any]:
         return self._call("DELETE", "/company", json={"reason": reason})
 
     # -- runs -----------------------------------------------------------------
@@ -143,22 +143,23 @@ class ConsoleClient:
     def run(self, run_id: str) -> dict[str, Any]:
         return self._call("GET", f"/runs/{run_id}")
 
-    def story(self, run_id: str) -> list[dict[str, Any]]:
-        return self._call("GET", f"/runs/{run_id}/story")
+    def story(self, run_id: str, decisions: bool = False) -> list[dict[str, Any]]:
+        params = {"decisions": "true"} if decisions else None
+        return self._call("GET", f"/runs/{run_id}/story", params=params)
 
     def spend(self, run_id: str) -> dict[str, Any]:
         return self._call("GET", f"/runs/{run_id}/spend")
 
     def resolve(
-        self, run_id: str, gate: str, approved: bool, payload: str | None = None
+        self, run_id: str, gate: str, approved: bool, reason: str
     ) -> dict[str, Any]:
         return self._call(
             "POST",
             f"/runs/{run_id}/gates/{gate}",
-            json={"approved": approved, "payload": payload},
+            json={"approved": approved, "reason": reason},
         )
 
-    def cancel(self, run_id: str, reason: str = "") -> dict[str, Any]:
+    def cancel(self, run_id: str, reason: str) -> dict[str, Any]:
         return self._call("POST", f"/runs/{run_id}/cancel", json={"reason": reason})
 
     # -- the company ------------------------------------------------------------

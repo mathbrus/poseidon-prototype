@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from common.tasks import issue_run_task
+from common.topology import PLATFORM_NAMESPACE
 from orchestrator.activities.implement import ImplementActivities
 from orchestrator.config import WorkerSettings
 from registry.memory import (
@@ -69,7 +70,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file.write_text("projected-token")
     return WorkerSettings(
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         agent_image="poseidon-agent:abc123",
         model="mock-brain",
         egress_proxy_url="http://127.0.0.1:3128",

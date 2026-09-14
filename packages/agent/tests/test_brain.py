@@ -79,6 +79,7 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
                     branch="feature/greet",
                     title="Add greet",
                     body="Adds greet().",
+                    rationale="greet() is what the task asks for; tests green.",
                 ),
             ),
             says("Delivered."),
@@ -121,7 +122,7 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
                     body="Suite green in the review sandbox; no findings.",
                 )
             ),
-            calls(tc("verdict", verdict="pass", summary="Suite green; in scope.")),
+            calls(tc("verdict", verdict="pass", rationale="Suite green; in scope.")),
             says("Verdict recorded."),
         ]
     )
@@ -132,7 +133,7 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
     assert result.error is None
     assert result.comment_urls == [COMMENT_URL]
     assert result.verdict == "pass"
-    assert result.verdict_summary == "Suite green; in scope."
+    assert result.verdict_rationale == "Suite green; in scope."
     assert gateway.tools_called() == [
         "sandbox.list_dir",
         "git.read",
@@ -253,7 +254,7 @@ def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):
     never a gateway call."""
     llm = ScriptedLLM(
         [
-            calls(tc("open_pr", branch="feature/x", title="t", body="b")),
+            calls(tc("open_pr", branch="feature/x", title="t", body="b", rationale="r")),
             says("Understood — no delivery from here."),
         ]
     )
@@ -302,9 +303,11 @@ def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(settings, gat
     llm = ScriptedLLM(
         [
             # Injected-task behaviour: try to deliver straight to main.
-            calls(tc("open_pr", branch="main", title="t", body="b")),
+            calls(tc("open_pr", branch="main", title="t", body="b", rationale="r")),
             # After seeing the denial, comply with policy.
-            calls(tc("open_pr", branch="feature/greet", title="t", body="b")),
+            calls(
+                tc("open_pr", branch="feature/greet", title="t", body="b", rationale="r")
+            ),
             says("Delivered on the feature branch."),
         ]
     )
@@ -591,7 +594,7 @@ def test_a_reviewers_architecture_request_is_a_ticket_of_the_run(settings, gatew
         result = run_review(settings, RUN_ID, "Review pull request #41")
     assert result.error == "reviewer finished without a verdict"
     assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
-    verdict = tc("verdict", verdict="fail", summary="Contradicts the plan; requested.")
+    verdict = tc("verdict", verdict="fail", rationale="Contradicts the plan; requested.")
     with scripted(
         gateway, ScriptedLLM([calls(request, findings, verdict), says("Done.")])
     ):

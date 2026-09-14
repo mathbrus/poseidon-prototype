@@ -175,14 +175,21 @@ class GatewayClient:
         return result["issues"][0]
 
     async def create_issue(
-        self, run_id: str, repo: str, title: str, body: str
+        self, run_id: str, repo: str, title: str, body: str, rationale: str
     ) -> dict[str, Any]:
         """File a ticket under the platform identity — the rework loop's
-        write: a failed policy-gated review puts its findings back into
-        the same backlog the conductor already consumes."""
+        write (a failed policy-gated review puts its findings back into the
+        same backlog the conductor already consumes) and the bootstrap's.
+        The rationale is the platform's reason, recorded with the call."""
         return await self._tool(
             "issues.create",
-            {"run_id": run_id, "repo": repo, "title": title, "body": body},
+            {
+                "run_id": run_id,
+                "repo": repo,
+                "title": title,
+                "body": body,
+                "rationale": rationale,
+            },
         )
 
     async def read_open_issues(self, run_id: str, repo: str) -> list[dict[str, Any]]:

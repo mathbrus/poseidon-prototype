@@ -24,7 +24,10 @@ uv run poseidon login owner --save      # kept for later commands; or export POS
 ```
 
 On a cluster with an identity provider, the API server's own user is the
-person; nothing needs declaring. Either way the registry is never
+person; nothing needs declaring. Where humans are declared, a blueprint
+may only name them: `company.humans` naming anyone else is refused at
+apply, since that person could never log in to act. The console verifies
+humans; it does not make them. Either way the registry is never
 consulted for who a person is, and the token is worthless anywhere else:
 a human's token fails at both gateways, an agent's fails here, and each
 refusal is an audit row naming the principal.
@@ -82,7 +85,9 @@ uv run poseidon company delete --reason "wrong vision"
 A gate verdict is the act that matters most, and its order is the point.
 The console decides `gate.resolve`, appends the audit row under the
 person's name — `source: console`, `tool: gate.resolve`, the rule naming
-the gate and the verdict — and only then signals the workflow. The review
+the gate and the verdict, the person's reason as the row's rationale (a
+verdict without one is refused, as are a cancel and a delete) — and only
+then signals the workflow, with the verdict alone: the row is the record. The review
 workflow treats the signal as a nudge to look: it reads the console's
 recorded verdict back from the audit store and the compiled
 `merge.resolve` decision releases the merge on that record, or refuses by

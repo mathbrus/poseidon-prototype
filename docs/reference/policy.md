@@ -91,6 +91,10 @@ One model, one registry table, one ingestion contract: every producer
 writes the same `AuditEvent` shape (`packages/common/src/common/audit.py`)
 and one `run_id` query returns the whole story across sources. Arguments
 are stored only as a digest — audit must never become a leak channel.
+The one cleartext field is `rationale`: the reason an actor stated for a
+decision that committed the company to something, at most 1000
+characters, beside the row's `rule` (which names only what policy
+answered with). A refusal carries none — its rule is the reason.
 
 | `source` | Written by | For |
 |---|---|---|

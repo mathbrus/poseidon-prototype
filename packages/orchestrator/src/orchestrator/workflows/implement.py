@@ -89,11 +89,11 @@ class ImplementWorkflow(RunWorkflow):
         self._budget_gate = Gate("budget")
 
     @workflow.signal
-    def budget(self, approved: bool, payload: str | None = None) -> None:
+    def budget(self, approved: bool) -> None:
         """`poseidon signal <run_id> budget --approved/--no-approved`:
         resolve a budget pause — approved means the cap was raised and the
         run may continue; rejected finalizes it."""
-        self._budget_gate.resolve(approved, payload)
+        self._budget_gate.resolve(approved)
 
     @workflow.query
     def state(self) -> str:

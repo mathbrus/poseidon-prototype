@@ -8,7 +8,8 @@ from typer.testing import CliRunner
 
 from poseidon_cli import ConsoleClient
 from poseidon_cli import main as cli
-from poseidon_cli.follow import follow, render, spend_line
+from poseidon_cli.follow import follow, spend_line
+from poseidon_cli.render import row as render
 
 CONSOLE = "http://console.test"
 
@@ -36,33 +37,53 @@ def row(**overrides: Any) -> dict[str, Any]:
 
 
 def test_a_row_renders_as_one_line_naming_the_tool_and_the_decision():
-    line = render(row())
+    line = str(render(row()))
     assert line.startswith("12:04:10  run-01J")
     assert "implementer/implementer-01J" in line
     assert line.endswith("sandbox.run_tests  allow")  # an allow keeps its rule to itself
 
 
 def test_a_denial_and_a_tick_say_their_rule():
-    denied = render(row(decision="deny", rule="tool_not_in_scope"))
+    denied = str(render(row(decision="deny", rule="tool_not_in_scope")))
     assert denied.endswith("deny (tool_not_in_scope)")
-    tick = render(
-        row(
-            run_id="heartbeat-hello-saas",
-            agent_id="pm-1",
-            role="pm",
-            tool="heartbeat.tick",
-            rule="max_concurrent_runs",
+    tick = str(
+        render(
+            row(
+                run_id="heartbeat-hello-saas",
+                agent_id="pm-1",
+                role="pm",
+                tool="heartbeat.tick",
+                rule="max_concurrent_runs",
+            )
         )
     )
     assert "  heartbeat  " in tick and tick.endswith("allow (max_concurrent_runs)")
 
 
+def test_a_rationale_follows_its_row_on_its_own_line():
+    """The one cleartext field: the actor's stated reason, under the row."""
+    decided = str(
+        render(
+            row(
+                run_id="heartbeat-hello-saas",
+                tool="heartbeat.decide",
+                rule="decision_valid",
+                rationale="finish the open review before starting new work",
+            )
+        )
+    )
+    first, second = decided.split("\n")
+    assert first.endswith("heartbeat.decide  allow (decision_valid)")
+    assert second.strip() == "finish the open review before starting new work"
+    assert "\n" not in str(render(row(rationale=None)))
+
+
 def test_spend_prints_once_and_then_only_when_it_moves():
-    assert spend_line({"usd": 0.0}, None) == "spend   $0.00 total"
+    assert str(spend_line({"usd": 0.0}, None)) == "spend   $0.00 total"
     assert spend_line({"usd": 0.0}, 0.0) is None
-    assert spend_line({"usd": 1.42}, 1.38) == "spend   $1.42 total  (+$0.04)"
+    assert str(spend_line({"usd": 1.42}, 1.38)) == "spend   $1.42 total  (+$0.04)"
     assert (
-        spend_line({"usd": 1.42, "run_usd": 0.3}, 1.38)
+        str(spend_line({"usd": 1.42, "run_usd": 0.3}, 1.38))
         == "spend   run $0.30 of $1.42 total  (+$0.04)"
     )
 
@@ -123,14 +144,17 @@ def test_follow_prints_each_row_once_and_resumes_from_the_cursor():
     polls = iter(range(3))
 
     cursor = follow(
-        client, lines.append, stop=lambda: next(polls) == 2, sleep=lambda s: None
+        client,
+        lambda line: lines.append(str(line)),
+        stop=lambda: next(polls) == 2,
+        sleep=lambda s: None,
     )
 
     assert cursor == 3
     assert [line for line in lines if line.startswith("12:04:10")] == [
-        render(row(id=1)),
-        render(row(id=2, tool="git.open_pr")),
-        render(row(id=3, decision="deny", rule="tool_not_in_scope")),
+        str(render(row(id=1))),
+        str(render(row(id=2, tool="git.open_pr"))),
+        str(render(row(id=3, decision="deny", rule="tool_not_in_scope"))),
     ]
     assert [line for line in lines if line.startswith("spend")] == [
         "spend   $0.00 total",
@@ -145,7 +169,7 @@ def test_follow_prints_each_row_once_and_resumes_from_the_cursor():
     ]
 
 
-def test_run_follows_its_own_rows_to_the_end(monkeypatch):
+def test_start_follows_its_own_rows_to_the_end(monkeypatch):
     done = {
         "run_id": "run-01J",
         "status": "done",
@@ -164,7 +188,7 @@ def test_run_follows_its_own_rows_to_the_end(monkeypatch):
         original(self, base_url, token, httpx.MockTransport(scripted.handler), timeout)
 
     monkeypatch.setattr(cli.ConsoleClient, "__init__", patched)
-    result = CliRunner().invoke(cli.app, ["run", "42"])
+    result = CliRunner().invoke(cli.app, ["start", "implement", "42", "--json"])
     assert result.exit_code == 0, result.output
-    assert render(row(id=7)) in result.output and '"status": "done"' in result.output
+    assert str(render(row(id=7))) in result.output and '"status": "done"' in result.output
     assert "/events?after=0&limit=200&run=run-01J" in scripted.asked

@@ -12,6 +12,7 @@ from temporalio.exceptions import ApplicationError
 
 import orchestrator.clients as clients
 from common.tasks import issue_run_task
+from common.topology import PLATFORM_NAMESPACE
 from orchestrator.activities.bootstrap import BootstrapActivities
 from orchestrator.activities.heartbeat import HeartbeatActivities
 from orchestrator.activities.observation import (
@@ -43,7 +44,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file.write_text("projected-token")
     return WorkerSettings(
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         sandbox_image="poseidon-sandbox:abc123",
         agent_image="poseidon-agent:abc123",
         model="mock-brain",
@@ -496,7 +497,7 @@ def test_bootstrap_files_the_ticket_under_the_platform_and_journals_it(
 ):
     filed: list[tuple[str, str, str, str]] = []
 
-    async def create_issue(self, run_id, repo, title, body):
+    async def create_issue(self, run_id, repo, title, body, rationale):
         filed.append((run_id, repo, title, body))
         return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
 
@@ -533,7 +534,7 @@ def test_bootstrap_files_nothing_for_a_document_present_on_re_read(
     ticket is filed and nothing is journaled — the next tick reads again."""
     filed: list[str] = []
 
-    async def create_issue(self, run_id, repo, title, body):
+    async def create_issue(self, run_id, repo, title, body, rationale):
         filed.append(title)
         return {"number": 9, "url": "https://github.test/example/repo/issues/9"}
 
@@ -754,11 +755,14 @@ def test_decide_dispatches_the_observation_and_journals(
     assert "Delivered pull requests awaiting review:" in prompt and "#4 —" in prompt
     assert "Startable actions: implement, review, idle" in prompt
     assert "Open tickets on the repository: 2." in prompt
-    # The journal: why the company did what it did, as an audit row.
+    # The journal: why the company did what it did, as an audit row — the
+    # rule says the decision passed the platform's checks, the rationale
+    # is the PM's own, in cleartext.
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["tool"] == "heartbeat.decide"
     assert event["decision"] == "allow"
-    assert event["rule"] == "finish before starting"
+    assert event["rule"] == "decision_valid"
+    assert event["rationale"] == "finish before starting"
 
 
 def test_decide_refuses_a_target_outside_the_observation(
@@ -776,7 +780,10 @@ def test_decide_refuses_a_target_outside_the_observation(
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["tool"] == "heartbeat.decide"
     assert event["decision"] == "deny"
-    assert "not in the observation" in event["rule"]
+    # A refusal is named by its rule and owes no rationale; the prose
+    # reaches the reader through the failed decision's error.
+    assert event["rule"] == "target_not_observed" and event["rationale"] is None
+    assert "not in the observation" in str(caught.value)
 
 
 def test_decide_refuses_an_action_outside_may_start(
@@ -788,7 +795,7 @@ def test_decide_refuses_an_action_outside_may_start(
         asyncio.run(activities.heartbeat_decide("auto-3", OBSERVED, ["implement"], 5))
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "deny"
-    assert "may_start" in event["rule"]
+    assert event["rule"] == "not_in_may_start"
 
 
 def test_decide_idle_needs_no_target(activities, companies, audit, monkeypatch):
@@ -844,8 +851,9 @@ def test_decide_refuses_scope_while_a_document_is_absent(
             activities.heartbeat_decide("auto-8", absent, ["implement", "scope"], 5)
         )
     assert caught.value.non_retryable
+    assert "architecture absent" in str(caught.value)
     (event,) = audit.story(f"heartbeat-{COMPANY}")
-    assert event["decision"] == "deny" and "architecture absent" in event["rule"]
+    assert event["decision"] == "deny" and event["rule"] == "documents_absent"
 
 
 def test_decide_refuses_scope_at_the_open_ticket_cap(
@@ -901,9 +909,10 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
             activities.heartbeat_decide("auto-x", poisoned, ["implement", "review"], 5)
         )
     assert caught.value.non_retryable
+    assert "not in the observation" in str(caught.value)
     (event,) = audit.story(f"heartbeat-{COMPANY}")
     assert event["decision"] == "deny"
-    assert "not in the observation" in event["rule"]
+    assert event["rule"] == "target_not_observed"
 
 
 def test_decision_prompt_shape_is_the_contract_the_brains_parse():

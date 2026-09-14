@@ -1,5 +1,5 @@
 """Review on the live cluster: the full chain — the strategy scoped into a
-ticket, a person's `poseidon run <number>` implementing it by hand (the
+ticket, a person's `poseidon start implement <number>` implementing it by hand (the
 repro command: no human retypes the spec, and the loop yields the ticket
 to the operator), reviewer findings posted, merge gate parked, timer
 escalation observable, API approval, gateway merge — every step correlated
@@ -15,7 +15,7 @@ forgets to answer.
 
 Applies the example with `may_start: [scope, review]`: the company scopes
 and reviews on its own, and implementing is the operator's act here —
-which is what makes `poseidon run <number>` a repro rather than a race.
+which is what makes `poseidon start implement <number>` a repro rather than a race.
 """
 
 import json
@@ -67,15 +67,18 @@ def _poseidon(env: dict, *args: str, timeout: int = 1800) -> subprocess.Complete
 
 
 def _poseidon_run(env: dict, issue_number: int) -> dict:
-    """A run by hand: `poseidon run <number>` through the real CLI,
-    blocking until the run record prints."""
-    return json.loads(_poseidon(env, "run", str(issue_number)).stdout)
+    """A run by hand: `poseidon start implement <number>` through the real
+    CLI, blocking until the run record prints."""
+    return json.loads(
+        _poseidon(env, "start", "implement", str(issue_number), "--json").stdout
+    )
 
 
 def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:
     """Watch the loop's review park on the merge gate, wait for the
     escalation to land in the audit store, then approve through the real
-    CLI — the exact HITL sequence `poseidon signal <run> merge` answers —
+    CLI — the exact HITL sequence `poseidon verdict <run> merge approve`
+    answers —
     and read the run to its end."""
     await_gate(run_id, "paused-merge_gate")
 
@@ -96,10 +99,11 @@ def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:
     # their name, then delivered — and the release reads the record.
     _poseidon(
         env,
-        "signal",
+        "verdict",
         run_id,
         "merge",
-        "--payload",
+        "approve",
+        "--reason",
         "reviewed: findings are clean",
         timeout=120,
     )

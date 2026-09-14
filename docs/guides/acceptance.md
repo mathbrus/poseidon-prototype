@@ -34,9 +34,9 @@ token. The suite then acts only through
 [the console](../reference/console.md), as the `owner` the chart
 declares, and observes with psql, kubectl and GitHub — the same door a
 person uses, and no other. Its company is the shipped example,
-`hello-saas`: bring the cluster up with the default blueprint. A cluster
-hosting another company is refused by the preflight in seconds, naming
-both.
+`hello-saas`, which the suite applies itself: the cluster may host
+nothing, or `hello-saas` already. A cluster hosting another company is
+refused by the preflight in seconds, naming both.
 
 ```bash
 deploy/kind/kind-down.sh    # when you are done

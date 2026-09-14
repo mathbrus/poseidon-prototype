@@ -326,13 +326,13 @@ CLI as its client:
 ```
 export POSEIDON_TOKEN=$(uv run poseidon login owner)
 
-uv run poseidon run 42                                   # implement ticket #42 by hand (an operator's repro)
-uv run poseidon review 41                                # review PR #41 by hand
-uv run poseidon signal <run_id> merge                    # approve the gate: the verdict is recorded, then delivered
-uv run poseidon signal <run_id> merge --no-approved
-uv run poseidon status <run_id>
-uv run poseidon story <run_id>
-uv run poseidon heartbeat state
+uv run poseidon start implement 42                       # implement ticket #42 by hand (an operator's repro)
+uv run poseidon start review 41                          # review PR #41 by hand
+uv run poseidon verdict <run_id> merge approve --reason "…"   # approve the gate: the verdict is recorded, then delivered
+uv run poseidon verdict <run_id> merge reject --reason "…"
+uv run poseidon run show <run_id>
+uv run poseidon run story <run_id>
+uv run poseidon heartbeat show
 ```
 
 Every one of those is a console call: the console decides the act

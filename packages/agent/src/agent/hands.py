@@ -86,7 +86,7 @@ class ToolRecords:
     # pass/fail; what a verdict releases is the platform's decision, made
     # against compiled policy — never this record's.
     verdict: str | None = None
-    verdict_summary: str | None = None
+    verdict_rationale: str | None = None
 
 
 @dataclass
@@ -167,11 +167,20 @@ class OpenPrAction(Action):
     branch: str = Field(description="Branch to deliver, e.g. feature/add-parser.")
     title: str = Field(description="Pull request title.")
     body: str = Field(description="Pull request description.")
+    rationale: str = Field(
+        description="Why this change is complete and correct for its task, in a "
+        "few sentences. Recorded with the pull request in the run's story."
+    )
 
 
 class CreateIssueAction(Action):
     title: str = Field(description="Short, specific ticket title.")
     body: str = Field(description="The scoped work: context, acceptance criteria.")
+    rationale: str = Field(
+        description="Why this ticket, now: how it follows from the strategy and "
+        "the masterplan, in a few sentences. Recorded with the filing in the "
+        "run's story."
+    )
 
 
 class ReadIssuesAction(Action):
@@ -209,7 +218,11 @@ class VerdictAction(Action):
     verdict: Literal["pass", "fail"] = Field(
         description="Your judgement of the change: pass or fail."
     )
-    summary: str = Field(description="One line grounding the verdict in your findings.")
+    rationale: str = Field(
+        description="Your reason for the verdict, grounded in your findings: a few "
+        "sentences at most. It is recorded beside the verdict and read back in "
+        "the run's story."
+    )
 
 
 class GatewayObservation(Observation):
@@ -293,6 +306,7 @@ def _open_pr(ctx: HandsContext, a: OpenPrAction) -> dict[str, Any]:
             "title": a.title,
             "body": a.body,
             "bundle_b64": bundle["bundle_b64"],
+            "rationale": a.rationale,
         },
     )
     if result.get("pr_url"):
@@ -309,6 +323,7 @@ def _create_issue(ctx: HandsContext, a: CreateIssueAction) -> dict[str, Any]:
             "repo": ctx.settings.target_repo,
             "title": a.title,
             "body": a.body,
+            "rationale": a.rationale,
         },
     )
     if result.get("url"):
@@ -349,7 +364,7 @@ def _verdict(ctx: HandsContext, a: VerdictAction) -> dict[str, Any]:
     side effect, so there is nothing for the gateway to mediate. It is
     captured here like every other record — never parsed out of prose."""
     ctx.records.verdict = a.verdict
-    ctx.records.verdict_summary = a.summary
+    ctx.records.verdict_rationale = a.rationale
     return {"recorded": a.verdict}
 
 
@@ -439,14 +454,15 @@ _TOOLS: dict[str, ToolSpec] = {
     ),
     "open_pr": ToolSpec(
         "Deliver the finished work: bundle the given branch and open a pull "
-        "request against the target repository. Commit your changes on the "
-        "branch first (via exec).",
+        "request against the target repository, saying why the change is "
+        "complete and correct. Commit your changes on the branch first (via "
+        "exec).",
         OpenPrAction,
         _open_pr,
     ),
     "create_issue": ToolSpec(
-        "File a ticket on the target repository's issue tracker. Use one "
-        "ticket per well-scoped piece of work.",
+        "File a ticket on the target repository's issue tracker, saying why "
+        "this slice, now. Use one ticket per well-scoped piece of work.",
         CreateIssueAction,
         _create_issue,
     ),
@@ -483,7 +499,7 @@ _TOOLS: dict[str, ToolSpec] = {
     ),
     "verdict": ToolSpec(
         "Deliver your verdict on the pull request after posting your "
-        "findings: pass or fail, with a one-line summary. A review without "
+        "findings: pass or fail, with your rationale. A review without "
         "a verdict is a failed dispatch.",
         VerdictAction,
         _verdict,

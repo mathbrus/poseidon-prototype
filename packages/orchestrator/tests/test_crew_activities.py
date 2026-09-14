@@ -9,7 +9,7 @@ import asyncio
 
 import pytest
 
-from common.topology import COMPANY_NAMESPACE
+from common.topology import COMPANY_NAMESPACE, PLATFORM_NAMESPACE
 from orchestrator.activities.crew import CrewActivities
 from orchestrator.config import WorkerSettings
 from orchestrator.ephemeral_pods import service_account_name
@@ -38,7 +38,7 @@ def settings(tmp_path) -> WorkerSettings:
     token_file.write_text("projected")
     return WorkerSettings(
         opa_url="http://opa.test:8181",
-        platform_namespace="poseidon-platform",
+        platform_namespace=PLATFORM_NAMESPACE,
         sandbox_image="poseidon-sandbox:abc123",
         agent_image="poseidon-agent:abc123",
         model="mock-brain",

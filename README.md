@@ -66,7 +66,8 @@ It costs nothing: the default brain is a deterministic mock.
 uv sync
 for p in packages/*/; do uv run pytest "$p" -q; done   # thirteen suites, no cluster needed
 cp deploy/kind/.env.example deploy/kind/.env            # fill in GIT_TOKEN
-deploy/kind/kind-up.sh                                  # cluster, images, chart, the company (BLUEPRINT=… for yours); saves your token
+deploy/kind/kind-up.sh                                  # the platform: cluster, images, chart; saves your token
+uv run poseidon blueprint apply examples/hello-saas.yaml --yes   # the company, your act; returns once converged
 uv run poseidon whoami                                  # you, to the console
 E2E_TARGET_REPO=github.com/you/disposable scripts/acceptance.sh   # the whole suite, zero LLM spend
 ```

@@ -34,9 +34,15 @@ PEER_PORTS = {
 }
 
 # The ServiceAccount the orchestrator worker acts as — the one caller the
-# gateways treat as the platform identity. (The platform namespace itself
-# is the release namespace, which every template hands its pod.)
+# gateways treat as the platform identity.
 ORCHESTRATOR_SERVICE_ACCOUNT = "orchestrator-worker"
+
+# The namespace the platform is installed into: the chart's release
+# namespace, which every template hands its pod. In-cluster nothing needs
+# the literal — but the installer, the console's CLI (which mints a
+# human's token from the ServiceAccount the chart declared there) and the
+# acceptance harness must agree on it, so it is spelled once.
+PLATFORM_NAMESPACE = "poseidon-platform"
 
 # The namespace the company lives in: its standing agents, ephemeral
 # agents and sandbox Jobs. A platform hosts one company, so the name is

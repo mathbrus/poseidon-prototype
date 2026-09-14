@@ -24,7 +24,6 @@ from temporalio import workflow
 class GateOutcome:
     gate: str
     kind: Literal["approved", "rejected", "timed_out", "escalated"]
-    payload: str | None = None
 
 
 class Gate:
@@ -35,8 +34,8 @@ class Gate:
         gate = Gate("merge")
 
         @workflow.signal
-        def merge(self, approved: bool, payload: str | None = None) -> None:
-            gate.resolve(approved, payload)
+        def merge(self, approved: bool) -> None:
+            gate.resolve(approved)
 
         outcome = await gate.wait(timeout=..., escalate_after=...)
     """
@@ -45,12 +44,12 @@ class Gate:
         self.name = name
         self._outcome: GateOutcome | None = None
 
-    def resolve(self, approved: bool, payload: str | None = None) -> None:
+    def resolve(self, approved: bool) -> None:
+        """The verdict alone: the person's reason is on the console's audit
+        row, which is the record the release reads back."""
         if self._outcome is None:  # first signal wins
             self._outcome = GateOutcome(
-                gate=self.name,
-                kind="approved" if approved else "rejected",
-                payload=payload,
+                gate=self.name, kind="approved" if approved else "rejected"
             )
 
     async def wait(

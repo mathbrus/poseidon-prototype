@@ -2,10 +2,11 @@
 environment.
 
 These tests run against the kind cluster brought up by
-`deploy/kind/kind-up.sh`, with `deploy/kind/.env` filled with a real
-GIT_TOKEN and the console's address, and `E2E_TARGET_REPO` in the
-environment naming a disposable repository. They open real pull requests
-on that repo. Every run is the company's own: the suite
+`deploy/kind/kind-up.sh` — the platform alone; the suite applies its own
+company, `hello-saas`, and the cluster may host nothing or that name —
+with `deploy/kind/.env` filled with a real GIT_TOKEN and the console's
+address, and `E2E_TARGET_REPO` in the environment naming a disposable
+repository. They open real pull requests on that repo. Every run is the company's own: the suite
 files what the standing heartbeat should find (a ticket, a strategy naming
 a slice), wakes it, and reads the runs it starts — exactly the loop the
 product is. Every *act* on the company is the console's, as the human the
