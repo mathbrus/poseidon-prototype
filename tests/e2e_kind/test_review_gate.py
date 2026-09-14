@@ -26,7 +26,17 @@ import time
 
 import pytest
 
+from common.audit import (
+    LIFECYCLE_BIND,
+    LIFECYCLE_FULFILL,
+    LIFECYCLE_PROVISION_POD,
+    LIFECYCLE_RECORD_REQUEST,
+    LIFECYCLE_REVOKE,
+    gate_event,
+)
+from common.policy import GATE_RESOLVE, MERGE_RESOLVE
 from common.tasks import issue_run_task, review_run_task
+from common.workflows import MERGE_GATE
 from mockllm.brain import NEXT_SLICE_MARKER
 
 from .blueprints import E2E_GATE_MINUTES, HELLO_SAAS, may_start, restore_pristine
@@ -232,7 +242,7 @@ def test_the_crew_was_fulfilled_under_conductor_authority(review_chain: dict) ->
     one audited `lifecycle.record_request` allow under the standing pm-1
     before the crew was bound."""
     run_id = review_chain["review_run_id"]
-    recorded = [e for e in audit_story(run_id) if e["tool"] == "lifecycle.record_request"]
+    recorded = [e for e in audit_story(run_id) if e["tool"] == LIFECYCLE_RECORD_REQUEST]
     assert len(recorded) == 1
     assert recorded[0]["decision"] == "allow"
     assert recorded[0]["agent_id"] == "pm-1"
@@ -247,7 +257,7 @@ def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
     rules = [e["rule"] for e in gate_events]
     assert rules == ["gate_escalated", "gate_approved"]
     for event in gate_events:
-        assert event["tool"] == "gate.merge"
+        assert event["tool"] == gate_event(MERGE_GATE)
         assert event["workflow"] == f"review-{run_id}"
     escalated, approved = gate_events
     assert escalated["decision"] == "deny"
@@ -264,7 +274,7 @@ def test_the_release_read_the_recorded_verdict(review_chain: dict) -> None:
     verdicts = [
         (i, e)
         for i, e in enumerate(story)
-        if e["source"] == "console" and e["tool"] == "gate.resolve"
+        if e["source"] == "console" and e["tool"] == GATE_RESOLVE
     ]
     assert len(verdicts) == 1, verdicts
     index, verdict = verdicts[0]
@@ -275,7 +285,7 @@ def test_the_release_read_the_recorded_verdict(review_chain: dict) -> None:
     )
     assert verdict["rule"] == "gate_resolve_merge_approve"
     assert verdict["workflow"] == f"review-{run_id}"
-    resolves = [(i, e) for i, e in enumerate(story) if e["tool"] == "merge.resolve"]
+    resolves = [(i, e) for i, e in enumerate(story) if e["tool"] == MERGE_RESOLVE]
     assert resolves, "the merge was never decided"
     release_index, release = resolves[-1]
     assert (release["decision"], release["rule"]) == ("allow", "merge_resolve_human")
@@ -319,11 +329,11 @@ def test_one_story_spans_every_review_source(review_chain: dict) -> None:
     )
     tools = [e["tool"] for e in story]
     for lifecycle_step in (
-        "lifecycle.record_request",
-        "lifecycle.bind",
-        "lifecycle.provision_pod",
-        "lifecycle.fulfill",
-        "lifecycle.revoke",
+        LIFECYCLE_RECORD_REQUEST,
+        LIFECYCLE_BIND,
+        LIFECYCLE_PROVISION_POD,
+        LIFECYCLE_FULFILL,
+        LIFECYCLE_REVOKE,
     ):
         assert lifecycle_step in tools, f"{lifecycle_step} missing from the story"
     assert all(e["run_id"] == run_id for e in story)

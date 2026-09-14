@@ -24,7 +24,9 @@ from typing import Any
 import httpx
 import pytest
 
+from common.audit import gate_event
 from common.tasks import issue_run_task
+from common.workflows import BUDGET_GATE
 
 from .blueprints import (
     E2E_PAUSE_MINUTES,
@@ -191,7 +193,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     gate_rules = [
         e["rule"]
         for e in story
-        if e["source"] == "process-gate" and e["tool"] == "gate.budget"
+        if e["source"] == "process-gate" and e["tool"] == gate_event(BUDGET_GATE)
     ]
     assert gate_rules == ["gate_escalated", "gate_rejected"], gate_rules
     gate_events = [e for e in story if e["source"] == "process-gate"]
@@ -245,7 +247,7 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
         gate_rules = [
             e["rule"]
             for e in audit_story(run_id)
-            if e["source"] == "process-gate" and e["tool"] == "gate.budget"
+            if e["source"] == "process-gate" and e["tool"] == gate_event(BUDGET_GATE)
         ]
         assert "gate_approved" in gate_rules, gate_rules
 

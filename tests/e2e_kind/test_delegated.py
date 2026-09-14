@@ -35,6 +35,8 @@ import secrets
 
 import pytest
 
+from common.audit import REVIEW_VERDICT
+from common.policy import HEARTBEAT_START, MERGE_RESOLVE
 from common.tasks import review_run_task
 from mockllm.brain import CONTRACT_FIRST_MARKER, CONTRACT_TEST_PATH, NEXT_SLICE_MARKER
 
@@ -161,7 +163,7 @@ def test_the_merge_was_released_by_policy_not_a_human(delegated_overnight: dict)
     gate_rules = gate_merge_rules(story)
     assert "gate_policy_resolved" in gate_rules, gate_rules
     assert "gate_approved" not in gate_rules, "a human approval sneaked in"
-    resolves = [e for e in story if e["tool"] == "merge.resolve"]
+    resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "allow", resolves
     assert resolves[-1]["rule"] == "merge_resolve_delegated"
     assert any(e["tool"] == "git.merge_pr" for e in story), "no merge tool call"
@@ -172,9 +174,9 @@ def test_both_quality_layers_were_recorded(delegated_overnight: dict):
     journaled (allow) and the platform's own decision saw the real facts —
     the run_id ties findings, verdict, checks and merge into one story."""
     story = audit_story(delegated_overnight["review"]["run_id"])
-    verdicts = [e for e in story if e["tool"] == "review.verdict"]
+    verdicts = [e for e in story if e["tool"] == REVIEW_VERDICT]
     assert verdicts and verdicts[-1]["decision"] == "allow", verdicts
-    assert any(e["tool"] == "heartbeat.start" and e["decision"] == "allow" for e in story)
+    assert any(e["tool"] == HEARTBEAT_START and e["decision"] == "allow" for e in story)
 
 
 def test_delegated_arc_had_no_human_act(delegated_overnight: dict):
@@ -319,7 +321,7 @@ def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict
     assert "gate_approved" not in gate_rules, (
         "a human approval sneaked into the implement merge"
     )
-    resolves = [e for e in story if e["tool"] == "merge.resolve"]
+    resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "allow", resolves
     assert resolves[-1]["rule"] == "merge_resolve_delegated", resolves[-1]
 

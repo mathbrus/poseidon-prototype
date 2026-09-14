@@ -19,6 +19,7 @@ import secrets
 import time
 from urllib.parse import urlparse
 
+from common.audit import LIFECYCLE_DESTROY_POD, LIFECYCLE_RECORD_REQUEST, LIFECYCLE_REVOKE
 from common.ids import new_run_id
 from common.topology import agent_url
 
@@ -160,7 +161,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 recorded = [
                     e
                     for e in audit_story(run_id)
-                    if e["tool"] == "lifecycle.record_request"
+                    if e["tool"] == LIFECYCLE_RECORD_REQUEST
                 ]
                 assert recorded and recorded[-1]["decision"] == "allow", recorded
                 assert recorded[-1]["agent_id"] == "pm-1"
@@ -307,8 +308,8 @@ def test_worker_kill_leaks_no_crew(stack: None, env: dict) -> None:
         time.sleep(3)
 
     story = audit_story(run_id)
-    assert any(e["tool"] == "lifecycle.revoke" for e in story)
-    assert any(e["tool"] == "lifecycle.destroy_pod" for e in story)
+    assert any(e["tool"] == LIFECYCLE_REVOKE for e in story)
+    assert any(e["tool"] == LIFECYCLE_DESTROY_POD for e in story)
 
 
 # -- plumbing ----------------------------------------------------------------

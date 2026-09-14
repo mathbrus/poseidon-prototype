@@ -11,6 +11,7 @@ process-lifecycle events in the run's story.
 
 import asyncio
 
+from common.audit import LIFECYCLE_DESTROY_POD, LIFECYCLE_PROVISION_POD
 from common.ids import new_run_id
 
 from .cluster import (
@@ -129,8 +130,8 @@ def test_ephemeral_pod_round_trips_and_destroy_is_label_bounded(
                 for e in audit_story(run_id)
                 if e["source"] == "process-lifecycle"
             ]
-            assert ("lifecycle.provision_pod", "ephemeral_pod_provisioned") in lifecycle
-            assert ("lifecycle.destroy_pod", "ephemeral_pod_destroyed") in lifecycle
+            assert (LIFECYCLE_PROVISION_POD, "ephemeral_pod_provisioned") in lifecycle
+            assert (LIFECYCLE_DESTROY_POD, "ephemeral_pod_destroyed") in lifecycle
         finally:
             run_kubectl(
                 "-n",

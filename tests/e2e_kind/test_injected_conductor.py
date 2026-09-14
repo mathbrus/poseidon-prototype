@@ -30,8 +30,15 @@ import secrets
 
 import pytest
 
-from common.audit import args_digest
+from common.audit import (
+    LIFECYCLE_BIND,
+    LIFECYCLE_FULFILL,
+    LIFECYCLE_RECORD_REQUEST,
+    args_digest,
+    gate_event,
+)
 from common.tasks import issue_run_task
+from common.workflows import ATTEMPTS_GATE
 from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST, FORBIDDEN_CREW
 
 from .blueprints import pristine_profile, restore_pristine, single_attempt
@@ -129,7 +136,7 @@ def test_the_forbidden_crew_is_refused_at_fulfilment(poisoned: dict):
     denies = [
         e
         for e in audit_story(run["run_id"])
-        if e["tool"] == "lifecycle.record_request" and e["decision"] == "deny"
+        if e["tool"] == LIFECYCLE_RECORD_REQUEST and e["decision"] == "deny"
     ]
     assert len(denies) == 1, denies
     assert denies[0]["rule"] == "default_deny"
@@ -144,7 +151,7 @@ def test_the_forbidden_crew_is_never_minted(poisoned: dict):
     assert participants(run["run_id"]) == []
     assert not run["pr_url"]
     story = audit_story(run["run_id"])
-    assert not any(e["tool"] in ("lifecycle.bind", "lifecycle.fulfill") for e in story)
+    assert not any(e["tool"] in (LIFECYCLE_BIND, LIFECYCLE_FULFILL) for e in story)
 
 
 def test_the_one_shot_company_stopped_trying(poisoned: dict):
@@ -154,7 +161,7 @@ def test_the_one_shot_company_stopped_trying(poisoned: dict):
 
     run = poisoned["forbidden_run"]
     assert any(
-        e["tool"] == "gate.heartbeat_attempts" and e["rule"] == "gate_exhausted"
+        e["tool"] == gate_event(ATTEMPTS_GATE) and e["rule"] == "gate_exhausted"
         for e in audit_story(run["run_id"])
     ), "no exhaustion event under the refused run"
     assert len(runs_by_task(issue_run_task(poisoned["forbidden_issue"]))) == 1
@@ -209,7 +216,7 @@ def test_one_run_id_query_reconstructs_the_whole_containment(poisoned: dict):
     them."""
     forbidden_story = audit_story(poisoned["forbidden_run"]["run_id"])
     assert any(
-        e["tool"] == "lifecycle.record_request" and e["decision"] == "deny"
+        e["tool"] == LIFECYCLE_RECORD_REQUEST and e["decision"] == "deny"
         for e in forbidden_story
     )
     real_story = audit_story(poisoned["real_run"]["run_id"])

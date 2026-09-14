@@ -4,6 +4,14 @@ from one query. That is literally one query: the gateway and the egress
 proxy both write the registry `audit_events` table.
 """
 
+from common.audit import (
+    LIFECYCLE_BIND,
+    LIFECYCLE_FULFILL,
+    LIFECYCLE_PROVISION_POD,
+    LIFECYCLE_RECORD_REQUEST,
+    LIFECYCLE_REVOKE,
+)
+
 from .cluster import COMPANY, audit_story
 
 
@@ -26,16 +34,16 @@ def test_story_covers_the_whole_run(implement_run: dict) -> None:
     assert {
         "/admin/sandboxes",
         "repo.archive",
-        "lifecycle.record_request",
-        "lifecycle.bind",
-        "lifecycle.provision_pod",
-        "lifecycle.fulfill",
+        LIFECYCLE_RECORD_REQUEST,
+        LIFECYCLE_BIND,
+        LIFECYCLE_PROVISION_POD,
+        LIFECYCLE_FULFILL,
         "sandbox.write_file",
         "sandbox.exec",
         "sandbox.run_tests",
         "sandbox.git_bundle",
         "git.open_pr",
-        "lifecycle.revoke",
+        LIFECYCLE_REVOKE,
     } <= tools, f"story is missing steps: {sorted(tools)}"
 
 
