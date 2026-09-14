@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 from pydantic import ValidationError
@@ -83,3 +84,38 @@ def test_decision_and_backend_status_are_constrained():
     # as a silently unqueryable source.
     with pytest.raises(ValidationError):
         make_event(source="side-channel")
+
+
+def test_platform_event_names_are_spelled_once():
+    """The registry is closed: one row per name, every source a real one,
+    every dotted name the module or the policy contract defines listed —
+    except the crew request, which is a decision the platform evaluates and
+    records under `lifecycle.record_request`, never a row's own name."""
+    from common import audit, policy
+    from common.audit import PLATFORM_EVENTS, RATIONALE_EVENTS, SOURCES, gate_event
+    from common.workflows import ATTEMPTS_GATE, BOOTSTRAP_GATE, DAILY_CAP_GATE, GATES
+
+    names = [event.name for event in PLATFORM_EVENTS]
+    assert len(names) == len(set(names))
+    assert {event.source for event in PLATFORM_EVENTS} <= set(SOURCES)
+    assert "gateway" not in {event.source for event in PLATFORM_EVENTS}
+
+    registered = set(names)
+    dotted = {
+        value
+        for module in (audit, policy)
+        for key, value in vars(module).items()
+        if key.isupper()
+        and isinstance(value, str)
+        and re.fullmatch(r"[a-z]+\.[a-z_]+", value)
+    }
+    assert dotted - registered == {policy.CREW_REQUEST}
+    for gate in (*GATES, ATTEMPTS_GATE, BOOTSTRAP_GATE, DAILY_CAP_GATE):
+        assert gate_event(gate) in registered
+    assert RATIONALE_EVENTS == {
+        audit.HEARTBEAT_DECIDE,
+        audit.REVIEW_VERDICT,
+        policy.GATE_RESOLVE,
+        policy.RUN_CANCEL,
+        policy.COMPANY_DELETE,
+    }
