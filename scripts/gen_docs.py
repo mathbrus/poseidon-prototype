@@ -4,7 +4,8 @@ mkdocs-gen-files runs this at build time (see mkdocs.yml). A page under
 docs/ carries a line `<!-- gen: NAME -->` wherever a table belongs; this
 script replaces the marker with the table rendered from the catalogs, the
 gateway's tool definitions, the `poseidon` CLI, the console's routes, the
-Temporal workflows and the blueprint JSON Schema, and re-emits the page. Nothing rendered here is
+audit event registry, the Temporal workflows and the blueprint JSON Schema,
+and re-emits the page. Nothing rendered here is
 committed, so nothing here can drift from the code. A marker naming no
 generator, a generator no page uses, or a tool without a description fails
 the build.
@@ -23,6 +24,7 @@ from typing import Any
 import mkdocs_gen_files
 import typer.main
 
+from common.audit import PLATFORM_EVENTS
 from common.workflows import WORKFLOWS, workflow_id
 from console.app import ROUTES
 from orchestrator import workflows
@@ -213,6 +215,16 @@ def console_routes(_: str | None) -> str:
     return table(["Route", "What it does", "Decision"], rows)
 
 
+def audit_events(_: str | None) -> str:
+    """The platform's own event names, from the registry every writer and
+    reader spells them from."""
+    rows = [
+        [code(e.name), code(e.source), e.meaning, "yes" if e.rationale else "—"]
+        for e in PLATFORM_EVENTS
+    ]
+    return table(["Event", "Source", "What the row records", "Owes a rationale"], rows)
+
+
 # -- the Temporal contract ---------------------------------------------------
 
 _WORKFLOW_CLASSES: dict[str, tuple[type, type]] = {
@@ -346,6 +358,7 @@ GENERATORS: dict[str, Callable[[str | None], str]] = {
     "tool-count": tool_count,
     "cli": cli,
     "console": console_routes,
+    "audit-events": audit_events,
     "workflows": workflow_table,
     "signals": signal_table,
     "blueprint-fields": blueprint_fields,

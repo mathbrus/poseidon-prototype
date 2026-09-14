@@ -101,9 +101,16 @@ answered with). A refusal carries none — its rule is the reason.
 | `gateway` | the MCP gateway | every tool call: decision, rule, backend outcome |
 | `llm-gateway` | the LLM gateway | every model call and its metered cost; budget stops |
 | `sandbox-infra` | the egress proxy | every allowed and denied egress attempt (`egress_not_allowlisted`) |
-| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget pauses, `gate.heartbeat_attempts` exhaustion, the daily-cap halt, the `heartbeat_bootstrap_exhausted` halt |
-| `process-lifecycle` | the orchestrator | crew fulfilment: `lifecycle.bind`, `lifecycle.revoke`, pod provisioning and destruction; review facts (`review.verdict`, `merge.resolve`); heartbeat decisions (`heartbeat.decide`, `heartbeat.start`, `heartbeat.tick`, `heartbeat.bootstrap`) |
-| `console` | the console | every human act, under the person's name: `gate.resolve` (the recorded verdict the merge release reads), `run.start`, `run.cancel`, `heartbeat.wake`, `blueprint.apply`; and every token it refused |
+| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget pauses, and the stops nobody resolves — attempts spent, bootstrap exhausted, the daily cap |
+| `process-lifecycle` | the orchestrator | crew fulfilment, the review's facts, the heartbeat's journal |
+| `console` | the console | every human act, under the person's name; and every token it refused |
+
+The gateway's rows name the tool that was called ([tools](tools.md)).
+Every other row carries a name the platform invents, spelled once in
+`common.audit` and read from there by the console, the acceptance suite
+and this table:
+
+<!-- gen: audit-events -->
 
 Every event carries `company`, `lifecycle`, `parent_agent_id` and
 `workflow` so attribution never has to be inferred from naming

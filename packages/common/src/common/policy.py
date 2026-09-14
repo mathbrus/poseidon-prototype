@@ -23,12 +23,16 @@ COMPANY_BUNDLE = "company"
 # before it acts — starting a workflow on the company's own initiative,
 # recording a crew request under the conductor's authority, merging a
 # pull request without a human. The compiler emits the rules under these
-# names and the orchestrator queries them by the same names.
+# names and the orchestrator queries them by the same names. The audit
+# rows those queries leave carry the same name in their `tool` column, so
+# `common.audit` lists these among the platform's event names.
 HEARTBEAT_START = "heartbeat.start"
 CREW_REQUEST = "crew.request"
 MERGE_RESOLVE = "merge.resolve"
-# The heartbeat's journal entry per tick — the audit tool name a reader of
-# the loop (the console, the acceptance suite) filters on.
+# The heartbeat's journal entry per tick: no decision, only the audit
+# event name a reader of the loop (the console, the acceptance suite)
+# filters on. Here because the compiler's heartbeat rules and the tick
+# rows are read together.
 HEARTBEAT_TICK = "heartbeat.tick"
 
 # The acts a human performs through the console, decided against the
