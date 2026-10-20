@@ -1230,24 +1230,32 @@ def test_a_human_may_resolve_the_merge_gate(decide):
     assert budget == {"allow": True, "rule": "gate_resolve_budget_approve"}
 
 
-def test_a_human_may_start_cancel_wake_and_apply(decide):
+def test_a_human_may_start_cancel_wake_pause_resume_apply_and_delete(decide):
     start = decide(**human("owner", "run.start", workflow="implement", number=4))
     scope = decide(**human("owner", "run.start", workflow="scope"))
     cancel = decide(**human("owner", "run.cancel", run_id="run-1"))
     wake = decide(**human("owner", "heartbeat.wake"))
+    pause = decide(**human("owner", "heartbeat.pause", reason="reading the ledger"))
+    resume = decide(**human("owner", "heartbeat.resume", reason="read"))
     apply = decide(**human("owner", "blueprint.apply"))
+    delete = decide(**human("owner", "company.delete", reason="done"))
     assert start == {"allow": True, "rule": "run_start_implement"}
     assert scope == {"allow": False, "rule": "default_deny"}
     assert cancel == {"allow": True, "rule": "run_cancel"}
     assert wake == {"allow": True, "rule": "heartbeat_wake"}
+    assert pause == {"allow": True, "rule": "heartbeat_pause"}
+    assert resume == {"allow": True, "rule": "heartbeat_resume"}
     assert apply == {"allow": True, "rule": "blueprint_apply"}
+    assert delete == {"allow": True, "rule": "company_delete"}
 
 
 def test_an_unlisted_human_is_denied_by_name(decide):
     """A verified person the company did not name is refused by a rule that
-    says so — an audit row, not an unfired allow."""
+    says so — an audit row, not an unfired allow — whatever the act."""
     decision = decide(**human("stranger", "gate.resolve", gate="merge", approved=True))
     assert decision == {"allow": False, "rule": "human_not_recognized"}
+    pause = decide(**human("stranger", "heartbeat.pause", reason="mine now"))
+    assert pause == {"allow": False, "rule": "human_not_recognized"}
 
 
 def test_an_agent_cannot_claim_human_authority(decide):

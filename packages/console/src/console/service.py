@@ -32,6 +32,8 @@ from common.policy import (
     BLUEPRINT_APPLY,
     COMPANY_DELETE,
     GATE_RESOLVE,
+    HEARTBEAT_PAUSE,
+    HEARTBEAT_RESUME,
     HEARTBEAT_WAKE,
     RUN_CANCEL,
     RUN_START,
@@ -306,14 +308,17 @@ class ConsoleService:
         """The applied company as the Company CR tells it: its phase
         (`activating` until OPA serves the stored bundles, `converged`
         after), the generation that phase answers for, the bundle
-        revision. What `apply` waits on, and what `company show` prints."""
+        revision; and the pause as the registry tells it (`{by, at}`, or
+        None). What `apply` waits on, and what `company show` prints."""
         state = await asyncio.to_thread(self._read_company)
         if state is None:
             raise NoCompany("no company is applied")
-        return state
+        paused = await asyncio.to_thread(self._companies.paused, state["company"])
+        return {**state, "paused": paused}
 
     async def delete(self, identity: Identity, reason: str) -> dict[str, Any]:
-        """Stop the company: the one stop there is. Decided and audited
+        """Stop the company: the one stop there is (a pause is not one —
+        the company stays, held). Decided and audited
         under the person's name first; then every running run is cancelled
         through the same path `cancel_run` takes, so none dies with its
         namespace; then the Company CR goes and the operator's teardown —
@@ -544,6 +549,55 @@ class ConsoleService:
         except WorkflowNotFound as exc:
             raise Invalid(f"no heartbeat is running for {company!r}") from exc
         return {"company": company, "woken": True}
+
+    async def pause(self, identity: Identity, reason: str) -> dict[str, Any]:
+        """Freeze the loop under the person's name. The order is the
+        verdict's: decided and audited first, then the pause written where
+        every tick reads it, then a wake so the loop records the pause now
+        and `heartbeat show` says `paused`. Runs in flight are not the
+        loop's and are not touched. A heartbeat not running yet is no
+        failure: the worker starts it, and it reads the pause then."""
+        company = await self._company()
+        if await asyncio.to_thread(self._companies.paused, company):
+            raise Invalid(f"{company!r} is already paused")
+        await self._hold(identity, HEARTBEAT_PAUSE, reason, company)
+        await asyncio.to_thread(self._companies.pause, company, identity.agent_id)
+        await self._nudge(company)
+        paused = await asyncio.to_thread(self._companies.paused, company)
+        return {"company": company, "paused": paused}
+
+    async def resume(self, identity: Identity, reason: str) -> dict[str, Any]:
+        """Lift the pause: decided and audited, the registry cleared, the
+        loop woken so its next tick looks at the world at once."""
+        company = await self._company()
+        if not await asyncio.to_thread(self._companies.paused, company):
+            raise Invalid(f"{company!r} is not paused")
+        await self._hold(identity, HEARTBEAT_RESUME, reason, company)
+        await asyncio.to_thread(self._companies.resume, company)
+        await self._nudge(company)
+        return {"company": company, "paused": None}
+
+    async def _hold(
+        self, identity: Identity, act: str, reason: str, company: str
+    ) -> None:
+        """A pause or a resume as an act on the heartbeat's own story."""
+        await self._act(
+            identity,
+            act,
+            {"reason": reason},
+            company=company,
+            run_id=heartbeat_run_id(company),
+            workflow=workflow_id("heartbeat", company),
+            rationale=reason,
+        )
+
+    async def _nudge(self, company: str) -> None:
+        """Wake the loop if it runs; a loop not running reads the registry
+        when the worker starts it."""
+        try:
+            await self._workflows.signal(workflow_id("heartbeat", company), "wake", [])
+        except WorkflowNotFound:
+            pass
 
     async def now(self) -> dict[str, str]:
         """The registry's clock — the fence a reader takes before acting so

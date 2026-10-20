@@ -37,6 +37,8 @@ from common.policy import (
     COMPANY_DELETE,
     CREW_REQUEST,
     GATE_RESOLVE,
+    HEARTBEAT_PAUSE,
+    HEARTBEAT_RESUME,
     HEARTBEAT_START,
     HEARTBEAT_WAKE,
     MERGE_RESOLVE,
@@ -371,6 +373,8 @@ def _console_file(company: str, humans: tuple[str, ...]) -> str:
     )
     body += act("run_cancel", RUN_CANCEL)
     body += act("heartbeat_wake", HEARTBEAT_WAKE)
+    body += act("heartbeat_pause", HEARTBEAT_PAUSE)
+    body += act("heartbeat_resume", HEARTBEAT_RESUME)
     body += act("blueprint_apply", BLUEPRINT_APPLY)
     body += act("company_delete", COMPANY_DELETE)
     body += (

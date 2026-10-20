@@ -23,6 +23,8 @@ from common.policy import (
     BLUEPRINT_APPLY,
     COMPANY_DELETE,
     GATE_RESOLVE,
+    HEARTBEAT_PAUSE,
+    HEARTBEAT_RESUME,
     HEARTBEAT_WAKE,
     RUN_CANCEL,
     RUN_START,
@@ -62,7 +64,8 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
     (
         "GET",
         "/company",
-        "the applied company's phase, generation and bundle revision, from its CR",
+        "the applied company's phase, generation and bundle revision from its CR,"
+        " and its pause from the registry",
         "",
     ),
     (
@@ -96,6 +99,13 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
         "",
     ),
     ("POST", "/heartbeat/wake", "nudge the loop to look now", HEARTBEAT_WAKE),
+    (
+        "POST",
+        "/heartbeat/pause",
+        "freeze the loop: it starts nothing until resumed; runs in flight finish",
+        HEARTBEAT_PAUSE,
+    ),
+    ("POST", "/heartbeat/resume", "lift the pause and wake the loop", HEARTBEAT_RESUME),
     ("GET", "/spend", "the company's spend since a fence", ""),
     (
         "GET",
@@ -116,9 +126,9 @@ class StartRunRequest(BaseModel):
     number: int
 
 
-# A person's reason is part of the act: a verdict, a cancel or a delete
-# without one is refused, and the reason is stored beside the row as its
-# rationale.
+# A person's reason is part of the act: a verdict, a cancel, a pause, a
+# resume or a delete without one is refused, and the reason is stored
+# beside the row as its rationale.
 Reason = Field(min_length=1, max_length=RATIONALE_LIMIT)
 
 
@@ -132,6 +142,10 @@ class CancelRequest(BaseModel):
 
 
 class DeleteRequest(BaseModel):
+    reason: str = Reason
+
+
+class HoldRequest(BaseModel):
     reason: str = Reason
 
 
@@ -286,6 +300,14 @@ def create_app(
     @app.post("/heartbeat/wake")
     async def wake(request: Request) -> dict[str, Any]:
         return await service.wake(identity_of(request))
+
+    @app.post("/heartbeat/pause")
+    async def pause(request: Request, body: HoldRequest) -> dict[str, Any]:
+        return await service.pause(identity_of(request), body.reason)
+
+    @app.post("/heartbeat/resume")
+    async def resume(request: Request, body: HoldRequest) -> dict[str, Any]:
+        return await service.resume(identity_of(request), body.reason)
 
     @app.get("/spend")
     async def spend_since(since: str | None = None) -> dict[str, Any]:
