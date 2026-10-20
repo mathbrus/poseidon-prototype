@@ -117,5 +117,7 @@ def test_platform_event_names_are_spelled_once():
         audit.REVIEW_VERDICT,
         policy.GATE_RESOLVE,
         policy.RUN_CANCEL,
+        policy.HEARTBEAT_PAUSE,
+        policy.HEARTBEAT_RESUME,
         policy.COMPANY_DELETE,
     }

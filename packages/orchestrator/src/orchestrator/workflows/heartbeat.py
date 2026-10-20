@@ -69,7 +69,15 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 from temporalio.workflow import ParentClosePolicy
 
-from common.workflows import BOOTSTRAP_GATE, DAILY_CAP_GATE, workflow_id
+from common.workflows import (
+    BOOTSTRAP_GATE,
+    DAILY_CAP_GATE,
+    TICK_IDLE,
+    TICK_REFUSED,
+    TICK_STARTED,
+    TICK_STOPPED,
+    workflow_id,
+)
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
     DISPATCH_RETRY,
@@ -125,12 +133,12 @@ class HeartbeatWorkflow(RunWorkflow):
             retry_policy=STEP_RETRY,
         )
         if not config:
-            await self._record("stopped", "blueprint_absent")
+            await self._record(TICK_STOPPED, "blueprint_absent")
             return {"stopped": "no applied blueprint for the company"}
         self._bounds = Timeouts(**config["timeouts"])
         step = timedelta(seconds=self._bounds.step_s)
 
-        outcome, rule = "idle", "nothing_startable"
+        outcome, rule = TICK_IDLE, ""
         try:
             observed = await workflow.execute_activity(
                 "heartbeat_observe",
@@ -188,7 +196,7 @@ class HeartbeatWorkflow(RunWorkflow):
             # A refused or failed tick never kills the heartbeat; the
             # refusal is already audited where it happened, and the tick's
             # own record carries the summary.
-            outcome = "refused"
+            outcome = TICK_REFUSED
             rule = str(exc.cause or exc.message)[:200]
 
         await self._record(outcome, rule)
@@ -259,7 +267,7 @@ class HeartbeatWorkflow(RunWorkflow):
         )
         action = decision["action"]
         if action == "idle":
-            return "idle", "pm_chose_idle"
+            return TICK_IDLE, "pm_chose_idle"
         target = decision.get("target")
         # The chosen item's prior attempts ride the policy input like the
         # other counts; the decide activity already confined the target
@@ -305,7 +313,7 @@ class HeartbeatWorkflow(RunWorkflow):
             parent_close_policy=ParentClosePolicy.ABANDON,
         )
         item = "" if action == "scope" else f"_{target}"
-        return "started", f"{action}{item}_as_{child_run_id}"
+        return TICK_STARTED, f"{action}{item}_as_{child_run_id}"
 
     async def _record(self, outcome: str, rule: str) -> None:
         await workflow.execute_activity(

@@ -33,7 +33,7 @@ from common.topology import (
     PLATFORM_NAMESPACE,
     human_service_account,
 )
-from common.workflows import GATES
+from common.workflows import GATES, parse_tick_rule
 from poseidon_cli import render
 from poseidon_cli.client import (
     TOKEN_VAR,
@@ -398,8 +398,7 @@ def heartbeat_show(
 def _tick_row(tick: dict[str, Any]) -> tuple[Any, ...]:
     """A tick's rule reads `tick_<outcome>:<detail>`; the outcome is the
     coloured word, the detail says what (or why not)."""
-    rule = str(tick.get("rule") or "")
-    outcome, _, detail = rule.removeprefix("tick_").partition(":")
+    outcome, detail = parse_tick_rule(str(tick.get("rule") or ""))
     return (render.dim(render.ago(tick.get("ts"))), render.status(outcome), detail)
 
 

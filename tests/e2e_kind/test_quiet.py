@@ -16,6 +16,8 @@ PM deployment is not in scope because it is supposed to exist: quiet
 means no *work* in flight, not no company.
 """
 
+from common.workflows import TICK_STARTED, parse_tick_rule
+
 from .cluster import COMPANY, non_terminal_runs, running_workflows
 
 
@@ -31,7 +33,7 @@ def test_only_the_heartbeat_is_still_running(stack: None):
     await_bare_heartbeat_asleep()
     ticks = heartbeat_ticks(bare_heartbeat_id())
     assert ticks and ticks[-1]["decision"] == "deny", ticks[-1:]
-    assert "tick_started" not in (ticks[-1]["rule"] or ""), ticks[-1]
+    assert parse_tick_rule(ticks[-1]["rule"] or "")[0] != TICK_STARTED, ticks[-1]
 
 
 def test_no_run_is_left_non_terminal(stack: None):

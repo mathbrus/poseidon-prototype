@@ -32,7 +32,13 @@ from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
 from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
-from common.workflows import TEMPORAL_NAMESPACE, heartbeat_run_id, workflow_id
+from common.workflows import (
+    TEMPORAL_NAMESPACE,
+    TICK_STARTED,
+    heartbeat_run_id,
+    tick_rule,
+    workflow_id,
+)
 from orchestrator.activities.blueprint import conductor
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.observation import decision_prompt
@@ -315,8 +321,8 @@ class HeartbeatActivities:
             run_id=heartbeat_run_id(self._company()),
             tool=HEARTBEAT_TICK,
             digest=args_digest({"outcome": outcome, "rule": rule}),
-            decision="allow" if outcome == "started" else "deny",
-            rule=f"tick_{outcome}:{rule}",
+            decision="allow" if outcome == TICK_STARTED else "deny",
+            rule=tick_rule(outcome, rule),
             workflow=workflow_id,
         )
         self._log.info("heartbeat tick", extra={"outcome": outcome, "rule": rule})

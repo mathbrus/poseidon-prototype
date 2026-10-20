@@ -27,6 +27,7 @@ import pytest
 from common.audit import HEARTBEAT_DECIDE
 from common.policy import HEARTBEAT_START
 from common.tasks import SCOPE_TASK
+from common.workflows import TICK_IDLE, tick_rule
 from mockllm.brain import NEXT_SLICE_MARKER, PM_SUMMARY
 
 from .blueprints import HELLO_SAAS, derived_blueprint, may_start, restore_pristine
@@ -181,4 +182,4 @@ def test_a_strategy_naming_no_slice_leaves_the_loop_idle(scoped: dict):
     restore_strategy(env)
     apply_profile(_scope_only(5), env)
     (tick,) = wake_and_await_ticks(1)
-    assert tick["rule"] == "tick_idle:pm_chose_idle", tick
+    assert tick["rule"] == tick_rule(TICK_IDLE, "pm_chose_idle"), tick

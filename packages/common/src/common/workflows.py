@@ -46,6 +46,34 @@ GATES_OF = {
 # ever given to a question that was asked.
 PARKED_STATE = {MERGE_GATE: "parked-merge_gate", BUDGET_GATE: "parked-budget_exhausted"}
 
+# What a heartbeat tick records about itself: one outcome and a detail,
+# written on the tick's audit row as `tick_<outcome>:<detail>` by the
+# orchestrator and read back by the CLI. A tick started work, was idle
+# (and the detail says why), was refused (by policy or a failed step),
+# stopped because the company is gone, or found the company paused (the
+# detail names who paused it).
+TICK_STARTED = "started"
+TICK_IDLE = "idle"
+TICK_REFUSED = "refused"
+TICK_STOPPED = "stopped"
+TICK_PAUSED = "paused"
+TICK_OUTCOMES = (TICK_STARTED, TICK_IDLE, TICK_REFUSED, TICK_STOPPED, TICK_PAUSED)
+_TICK_PREFIX = "tick_"
+
+
+def tick_rule(outcome: str, detail: str) -> str:
+    """The rule a tick's audit row carries."""
+    if outcome not in TICK_OUTCOMES:
+        raise ValueError(f"not a tick outcome: {outcome!r}")
+    return f"{_TICK_PREFIX}{outcome}:{detail}"
+
+
+def parse_tick_rule(rule: str) -> tuple[str, str]:
+    """`(outcome, detail)` from a tick row's rule."""
+    outcome, _, detail = rule.removeprefix(_TICK_PREFIX).partition(":")
+    return outcome, detail
+
+
 # One Temporal namespace, one task queue.
 TEMPORAL_NAMESPACE = "default"
 TASK_QUEUE = "poseidon-orchestrator"
