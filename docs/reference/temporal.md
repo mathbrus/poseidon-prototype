@@ -7,7 +7,7 @@ person, wins the compiled decision, records the act — and Temporal
 carries it out; the real contract is the workflow surface the
 orchestrator registers, and this page writes it down. The tables are
 rendered from the workflow classes at build time. Nothing integrates
-here directly: a dashboard, a chat-ops bot or the acceptance suite is a
+here directly: a web UI, a chat-ops bot or the acceptance suite is a
 client of the console, and the raw surface below it is fenced.
 
 All workflows run on task queue `poseidon-orchestrator` and are named
@@ -35,11 +35,13 @@ hosts, and each workflow learns it from its first config activity.
 
 Signals are how verdicts reach a parked workflow — and a signal is a
 nudge to look, never the verdict itself. The gate signals share one
-signature, `(approved: bool, payload: str | None)`, which is what the
-console sends after it has recorded the verdict under the person's name.
-The heartbeat's `wake` carries nothing at all, because it decides
-nothing: it ends the wait to the next tick, which observes, decides and
-is authorized like any other.
+signature, `(approved: bool)`, which is what the console sends after it
+has recorded the verdict under the person's name. The heartbeat's `wake`
+carries nothing at all, because it decides nothing: it ends the wait to
+the next tick, which observes, decides and is authorized like any other.
+The pause is not a signal: the console records it in the registry and
+the loop reads it on every tick (and again at authorize time), so the
+`wake` a pause or a resume sends only makes the loop look now.
 
 <!-- gen: signals -->
 
@@ -88,7 +90,8 @@ stand in for it.
   fails the run — the compiled `merge.resolve` decision reads the record,
   not the signal — so the road that stays open releases nothing.
   `tests/e2e_kind/test_console_redteam.py` walks it on every acceptance
-  run.
+  run. A `wake` by that road buys one tick, authorized like any other;
+  it cannot pause or resume the loop, which reads the registry's record.
 
 Under a delegated gate an in-class merge needs no signal at all — the
 compiled decision releases it, and its authority is exactly that decision

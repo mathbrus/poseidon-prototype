@@ -1,12 +1,12 @@
 # The console
 
-The console is the one door a person acts on a company through — the
-counterpart of the MCP gateway for agents. A gateway asks "may this
+The console is the human's chokepoint: the one service a person acts on
+a company through — the counterpart of the MCP gateway for agents. A gateway asks "may this
 workload call this tool?"; the console asks "may this person perform this
 act?". Both get the answer from the same compiled bundle, write it to the
 same audit store, and do nothing without it. The `poseidon` CLI is its
 client ([the CLI](cli.md)); so is the acceptance suite, and so would be a
-dashboard or a chat-ops bot — none of them integrates anywhere else.
+web UI or a chat-ops bot — none of them integrates anywhere else.
 
 ## Who a human is
 
@@ -45,14 +45,10 @@ company:
     - owner
 ```
 
-| Act | Decision | Rule on allow |
-|---|---|---|
-| resolve a gate | `gate.resolve` | `gate_resolve_<gate>_approve` / `_reject` |
-| start a run by hand | `run.start` | `run_start_implement` / `run_start_review` |
-| cancel a run | `run.cancel` | `run_cancel` |
-| wake the heartbeat | `heartbeat.wake` | `heartbeat_wake` |
-| apply the blueprint | `blueprint.apply` | `blueprint_apply` |
-| delete the company | `company.delete` | `company_delete` |
+The acts, rendered from the audit registry (`common.audit`) at build
+time — the one list every writer and reader spells them from:
+
+<!-- gen: console-acts -->
 
 A verified person the company did not name is refused by
 `human_not_recognized`, audited under their name, and nothing happens.
@@ -64,17 +60,36 @@ audit row says `blueprint_apply_bootstrap`. Every later act — including
 every later apply — is policy's. An applier can rewrite `company.humans`;
 that is the residual [What it cannot do](../argument/cannot.md) names.
 
-## Stopping the company is an act
+## Pausing the company is an act, and so is stopping it
 
-A company always has a heartbeat, so the one stop is deleting the
-company — and that is a console act like any other: `company.delete` is
-decided against the blueprint's humans and audited under the person's
-name, then every running run is cancelled (each its own audited
-`run.cancel`, so none dies with its namespace), then the Company CR is
-deleted and the operator's teardown waited for. The repository and the
-ledgers keep the company's name; applying the same blueprint again
-resumes it. `kubectl delete company` still works, as anything with
-cluster-admin does, but it asks no policy and records no name.
+A company always has a heartbeat. To hold it still without ending it,
+pause it: `heartbeat.pause` is decided against the blueprint's humans,
+audited under the person's name with the reason, then recorded in the
+registry where every tick reads it, then the loop is woken so it says so
+at once. A paused tick observes nothing, asks the PM nothing and starts
+nothing; it records `tick_paused` with the person's name and waits like
+any other. Runs already in flight finish; a human may still start a run
+by hand, answer a gate or cancel. The compiled `heartbeat.start` decision
+reads the pause again at authorize time, so a pause that lands mid-tick
+refuses the start by `heartbeat_start_while_paused`. `heartbeat.resume`
+lifts it the same way. A blueprint re-apply leaves a pause in place; only
+a resume ends it. The pause is a recorded fact the loop reads, not a
+signal it trusts.
+
+```bash
+uv run poseidon pause --reason "reading the ledger with nothing moving"
+uv run poseidon resume --reason "read it"
+```
+
+The one stop is deleting the company — and that is a console act like
+any other: `company.delete` is decided against the blueprint's humans and
+audited under the person's name, then every running run is cancelled
+(each its own audited `run.cancel`, so none dies with its namespace),
+then the Company CR is deleted and the operator's teardown waited for.
+The repository and the ledgers keep the company's name; applying the
+same blueprint again brings the company back. `kubectl delete company`
+still works, as anything with cluster-admin does, but it asks no policy
+and records no name.
 
 ```bash
 uv run poseidon company delete --reason "wrong vision"
@@ -106,8 +121,9 @@ build time:
 
 <!-- gen: console -->
 
-`since` is a registry timestamp: take one from `/now` before acting, and
-the runs, spend and ticks you read back are your own.
+`since` is a registry timestamp: a client that acts and then reads takes
+one from `/now` first, and the runs, spend and ticks it reads back are
+its own.
 
 ## What it holds, and what it reaches
 

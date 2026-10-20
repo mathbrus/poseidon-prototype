@@ -39,7 +39,8 @@ change it. Applying the blueprint again is the only way it changes.
 
 `company.humans` names the people who may act on the company through
 [the console](console.md): apply the document again, answer a gate, start
-or cancel a run by hand, wake the heartbeat. They must be people the
+or cancel a run by hand, wake, pause or resume the heartbeat, delete the
+company. They must be people the
 console can verify — on kind, the chart's `console.humans`; a blueprint
 naming anyone else is refused at apply. The compiler emits one allow
 per person, act and verdict from the list, so the audit row for an act
@@ -121,9 +122,9 @@ The two crewed workflows of the SDLC in
 [Anatomy of a run](../argument/anatomy.md): which crew fulfils each, the
 bounds it reads and the gates it parks on, nothing else. `scope` has no
 node — it dispatches the conductor directly and configures nothing — and
-no workflow names a conductor or an `enabled` flag: who conducts the
-company's runs is `heartbeat.conductor`, and what it may start on its own
-is `heartbeat.may_start`, each said once. `max_verify_retries` bounds how
+no workflow names a conductor: who conducts the company's runs is
+`heartbeat.conductor`, and what it may start on its own is
+`heartbeat.may_start`, each said once. `max_verify_retries` bounds how
 many times a red verify re-dispatches the implementer before the run
 fails.
 

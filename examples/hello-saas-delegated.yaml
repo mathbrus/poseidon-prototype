@@ -14,8 +14,9 @@ company:
     A small SaaS that turns titles into URL slugs, delivered and kept
     green by a company of agents that never exceeds its authority.
   # The people who may act on this company through the console: answer
-  # its gates, start or cancel a run by hand, wake the heartbeat, apply
-  # this document again. On kind, `owner` is the human the chart declares.
+  # its gates, start or cancel a run by hand, wake, pause or resume the
+  # heartbeat, apply this document again, delete the company. On kind,
+  # `owner` is the human the chart declares.
   humans:
     - owner
   # The two documents the company writes for itself, in its repository:

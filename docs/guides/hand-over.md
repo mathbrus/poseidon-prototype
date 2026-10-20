@@ -2,9 +2,9 @@
 
 Everything in [Getting started](getting-started.md) had you answering
 every merge. The company already starts its own runs — every company has
-a heartbeat, and stopping it is deleting the company — so the one
-authority left to grant is the merge, and this guide grants it, narrowly,
-and takes it back, since it is a diff.
+a heartbeat; `poseidon pause` holds it, and stopping it is deleting the
+company — so the one authority left to grant is the merge, and this
+guide grants it, narrowly, and takes it back, since it is a diff.
 
 ## What the heartbeat already does
 
@@ -44,18 +44,21 @@ uv run poseidon heartbeat show                           # the standing workflow
 kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
 ```
 
-Narrowing `heartbeat.may_start` keeps a step for an operator: a company
+Narrowing `heartbeat.may_start` keeps a step for a person: a company
 that may not `implement` on its own waits for `poseidon start implement <number>`.
-Removing the section is not a state — it does not compile. To stop the
-company, delete it — `poseidon company delete`, a console act under your
-name that cancels its runs first: the loop reads no applied blueprint at
-its next tick and stops. `tests/e2e_kind/test_overnight.py` runs the whole arrangement
-end to end with exactly one human act: the approval out, through the
-console.
+Removing the section is not a state — it does not compile. To hold the
+company still, pause it — `poseidon pause --reason "…"`, a console act
+under your name: the loop records the pause at its next tick and starts
+nothing until `poseidon resume`, while every run in flight finishes and
+everything stays to be read. To stop the company, delete it —
+`poseidon company delete`, a console act that cancels its runs first:
+the loop reads no applied blueprint at its next tick and stops.
+`tests/e2e_kind/test_overnight.py` runs the whole arrangement end to end
+with exactly one human act: the verdict out, through the console.
 
 ## The delegated gate: the company merges its own work
 
-The one human act each run still needs is the merge approval. The flagship
+The one human act each run still needs is the merge verdict. The flagship
 profile delegates it — narrowly:
 
 ```bash
@@ -94,7 +97,7 @@ layer feeds the bounded rework loop instead.
     [What it cannot do](../argument/cannot.md) names the residual.
 
 With the merge handed over, no human act remains. The human surface —
-the console — still stands, idle; every approval you did give is on the
+the console — still stands, idle; every verdict you did give is on the
 record under your name. `tests/e2e_kind/test_delegated.py` proves the arc
 — the company scopes, implements, reviews and merges its own in-class
 passing work, every decision on the audit record, and nobody touches

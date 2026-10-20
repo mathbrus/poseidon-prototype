@@ -87,7 +87,7 @@ slice yields no ticket, and that is a valid outcome.
 
 ## Fulfilment: a crew and a sandbox
 
-The heartbeat starts an implement run on a ticket (an operator can too,
+The heartbeat starts an implement run on a ticket (a person can too,
 by hand — `poseidon start implement <number>` — to reproduce one). Fulfilment then:
 
 1. **Wins the compiled `crew.request` decision as the conductor.** The
@@ -213,7 +213,7 @@ verifies who they are, asks the compiled bundle whether `company.humans`
 names them, records the verdict under their name, and only then signals.
 The signal is a nudge to look: the workflow reads the recorded verdict
 back and the same `merge.resolve` decision releases the merge on it — a
-recorded approval by one of the company's humans — or refuses by name,
+recorded approving verdict by one of the company's humans — or refuses by name,
 and a signal that arrived by any other road ends the run unmerged. Nobody
 home is a recorded outcome, not a hang — an escalation fires at half the
 deadline, and the gate expires at the end.
@@ -290,8 +290,11 @@ only the outside world saw may grow. Each tick it:
 The PM proposes; the platform disposes; the human declares the backstop
 cadence and the caps and answers the merge gate. Nothing about a run
 changes — the same fulfilment, verify, delivery, review and gate above —
-only that nobody pressed start. Stopping the company is deleting it;
-there is no company without a heartbeat.
+only that nobody pressed start. Pausing the company (`poseidon pause`)
+freezes the heartbeat and nothing else: a paused tick starts nothing and
+says who holds it, runs in flight finish, and everything stays to be
+read until `poseidon resume`. Stopping the company is deleting it; there
+is no company without a heartbeat.
 
 What the heartbeat offers is bounded too. An issue or a delivered PR is
 off the backlog while a run on it is live, once a run *concluded* it (a
@@ -305,7 +308,7 @@ issue. The company never silently abandons finished work after one flaky
 call, and never retries forever.
 
 `tests/e2e_kind/test_overnight.py` runs the whole arc with exactly one
-human act: the merge approval. When the blueprint also delegates the
+human act: the merge verdict. When the blueprint also delegates the
 merge gate, that act drops too: `tests/e2e_kind/test_delegated.py` runs
 the same arc with no human act at all, and the company merges its own
 in-class passing work. [Hand over the keys](../guides/hand-over.md) is

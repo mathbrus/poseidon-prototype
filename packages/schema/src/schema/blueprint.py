@@ -41,8 +41,9 @@ _REPO_PATH = {"type": "string", "minLength": 1, "pattern": r"^[^\s/][^\s]*$"}
 # The company's name, its vision — the one text a human writes — the
 # humans who may act on it, and the paths of the two documents the
 # company writes for itself. The humans are the people the console lets
-# resolve a gate, start or cancel a run by hand, wake the heartbeat and
-# re-apply this document: named here so that authority is a diff, and
+# resolve a gate, start or cancel a run by hand, wake, pause or resume
+# the heartbeat, re-apply this document and delete the company: named
+# here so that authority is a diff, and
 # required because every company has at least one gate only a person can
 # answer (the budget park; a policy-resolved merge falls back to one).
 # The vision
@@ -247,8 +248,8 @@ _POLICIES = {
             },
         },
         "deny_paths": {"type": "array", "items": _REPO_PATH, "uniqueItems": True},
-        # The contract tree: the contract/acceptance tests and the role
-        # templates that may deliver into it. Compiles to a `git.open_pr`
+        # The contract tree: the contract/acceptance tests and the roles
+        # that may deliver into it. Compiles to a `git.open_pr`
         # deny for every other role and joins the merge carve-outs — the
         # code that certifies a change never auto-merges with it, and the
         # implementer cannot rewrite the spec its own work is graded by.

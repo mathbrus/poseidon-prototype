@@ -173,7 +173,7 @@ choose; `humans` names who may act, drawn from the people the chart
 declares. Activity bounds come from the deployment's `TIMEOUT_PROFILE`,
 so a cluster brought up with `REAL_LLM=1` already runs the generous
 profile a paid brain needs. A third shipped example,
-`examples/pirate-game.yaml`, is a different company altogether — a
+`examples/pirate-fight.yaml`, is a different company altogether — a
 terminal game — and applies the same way.
 
 ```bash
@@ -242,8 +242,8 @@ uv run poseidon verdict <review_run_id> merge approve --reason "engine first, as
 
 The console records that verdict and your reason under your name before
 it delivers the signal, and the release reads the record: policy merges
-on a recorded approval by a person the blueprint names, never on the
-signal alone.
+on a recorded approving verdict by a person the blueprint names, never
+on the signal alone.
 
 Every step is on the record: `uv run poseidon runs` for the company's
 runs, `uv run poseidon run show <run_id>` for one, `uv run poseidon run

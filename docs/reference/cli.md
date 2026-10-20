@@ -31,16 +31,19 @@ company: hello-saas · converged
 
 The commands are the glossary's nouns — the blueprint, the company, its
 heartbeat, its runs — with one verb per meaning: `show` reads, `start`
-begins a run by hand, `verdict` answers a gate. Every act that commits the
-company to something takes `--reason`, recorded with it under your name;
-every command that would wait for the cluster takes `--no-wait`.
+begins a run by hand, `verdict` answers a gate, `pause` and `resume` hold
+the company and let it go. Every act that owes a rationale (a verdict, a
+cancel, a pause, a resume, a delete — the acts table on
+[the console](console.md)) takes `--reason`, recorded with it under your
+name; every command that would wait for the cluster takes `--no-wait`.
 
 ```text
 poseidon login <name> [--save]
 poseidon whoami
 poseidon blueprint new | preview | apply [--no-wait]
-poseidon company show | delete --reason
+poseidon company show | delete --reason [--no-wait]
 poseidon heartbeat show | wake
+poseidon pause --reason | resume --reason
 poseidon runs
 poseidon run show | story [--decisions] | cancel --reason   <run_id>
 poseidon start implement <ticket> | review <pr>  [--no-wait]
@@ -135,7 +138,7 @@ the acceptance suite read that, never the rendering.
 
 ## Starting a run by hand
 
-`start implement` and `start review` start one run by hand — an operator
+`start implement` and `start review` start one run by hand — a person
 reproducing a run on a ticket the company filed or a pull request it
 delivered — and follow it to its end, printing its rows as they land and
 then its record; `--no-wait` returns after the start. They are not how
@@ -167,13 +170,27 @@ uv run poseidon follow --run <run_id>                    # one run, with its own
 uv run poseidon heartbeat show
 ```
 
-## Stopping the company
+## Pausing the company, and stopping it
+
+`pause` holds the company still without ending it: the heartbeat starts
+nothing until `resume`, and everything stays where it is to be read —
+the runs, the spend, the story, the agents. Runs already in flight
+finish; you may still start a run, answer a gate or cancel by hand. Both
+are console acts under your name with your reason; `company show` says
+who holds the heartbeat, `heartbeat show` says `paused`, and every
+paused tick is on the record with your name.
+
+```bash
+uv run poseidon pause --reason "reading the ledger with nothing moving"
+uv run poseidon company show                             # heartbeat   paused by owner, 2 min ago
+uv run poseidon resume --reason "read it"
+```
 
 Stopping the company is deleting it, and that too is a console act:
 `company delete` is decided against `company.humans`, audited under your
 name with your reason, cancels every running run first, then removes the
 Company and waits for the teardown. The repository and the ledgers stay,
-so applying the same blueprint again resumes the company.
+so applying the same blueprint again brings the company back.
 
 ```bash
 uv run poseidon company delete --reason "wrong vision"   # asks first, naming the runs it will cancel; --yes skips the question

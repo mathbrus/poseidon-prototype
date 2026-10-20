@@ -23,7 +23,7 @@ blueprint's `company.humans`, asked per act.
 | `app.py` | The FastAPI app and its route table (`ROUTES`, rendered into [the console reference](../../docs/reference/console.md)); the shared auth middleware; the error shapes (403 with the denying rule, 422 for what cannot be acted on, 503 when Temporal is unreachable). |
 | `service.py` | Every act as verify → decide → do → audit, and the reads beside them. The bootstrap rule for a company's first apply. |
 | `temporal.py` | The Temporal client: start, signal, cancel, inspect — addressed by `common.workflows`, shared with the worker. |
-| `crs.py` | The console's only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company — every real object is the operator's. |
+| `crs.py` | The console's only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company — every real object is the operator's. The pause is a registry write, not a cluster one. |
 | `config.py` | `ConsoleSettings`: OPA, Temporal, the declared humans. Which company the cluster hosts is read from the registry, never configured. |
 
 ## The acts
@@ -35,6 +35,12 @@ blueprint's `company.humans`, asked per act.
 | start a run by hand | `run.start` | decide, start `implement`/`review` on a ticket or pull request the company produced |
 | cancel a run | `run.cancel` | decide, cancel the workflow; teardown compensates |
 | wake the heartbeat | `heartbeat.wake` | decide, nudge the standing loop; the tick that follows is authorized like any other |
+| pause the heartbeat | `heartbeat.pause` | decide, **record the pause under the person's name** in the registry, then wake the loop so it says `paused` now; runs in flight finish |
+| resume the heartbeat | `heartbeat.resume` | decide, clear the pause, wake the loop |
+| delete the company | `company.delete` | decide, cancel every running run (each its own audited act), delete the Company CR, wait for the teardown |
+
+The one list of record is `common.audit.PLATFORM_EVENTS` (the console's
+rows), rendered into [the console reference](../../docs/reference/console.md).
 
 The verdict row comes before the signal, on purpose: it is the artifact
 the review workflow reads back (`read_human_verdict`) and `merge.resolve`
