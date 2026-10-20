@@ -242,6 +242,25 @@ class ReviewActivities:
         )
         return shaped
 
+    @activity.defn(name="contract_tree")
+    async def contract_tree(self, run_id: str, contract_paths: list[str]) -> list[str]:
+        """The declared contract paths the base ref actually holds — the
+        tree the composed verify replays. Read by the platform from the
+        git host, never from a sandbox: a company that has not written its
+        contract yet has nothing to replay, and the review must know that
+        from the world, not from a run that collected nothing."""
+        repo = await self._repo()
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            present = await gateway.present_paths(
+                run_id, repo["url"], repo["base_ref"], contract_paths
+            )
+        self._log.bind(run_id=run_id).info(
+            "contract tree", extra={"declared": contract_paths, "present": present}
+        )
+        return present
+
     async def _append_event(
         self,
         *,
@@ -558,6 +577,7 @@ class ReviewActivities:
     def all(self) -> list[Any]:
         return [
             self.read_pr,
+            self.contract_tree,
             self.record_verdict,
             self.reviewer_independent,
             self.warn_contract_edit,

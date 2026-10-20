@@ -171,7 +171,9 @@ of the same ledger.
 
 The implementer's completion claim is *advisory* — nothing depends on it.
 The gate of record is `platform_verify`: the orchestrator's own
-`sandbox.run_tests` call under its own identity. Red verify composes the
+`sandbox.run_tests` call under its own identity, read by the one rule in
+`common.verify` (an empty collection is green for the whole-tree run,
+red for the contract run that names its paths). Red verify composes the
 task plus the failing output into a re-dispatch (`verify_feedback`),
 bounded by the blueprint's `max_verify_retries`. Only then, in workflow
 code, does delivery become reachable:

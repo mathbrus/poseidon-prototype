@@ -166,6 +166,18 @@ class GatewayClient:
             "repo.read_file", {"run_id": run_id, "repo": repo, "ref": ref, "path": path}
         )
 
+    async def present_paths(
+        self, run_id: str, repo: str, ref: str, paths: list[str]
+    ) -> list[str]:
+        """The subset of `paths` the repository holds at `ref`, under the
+        platform identity — how the review learns whether the declared
+        contract tree exists on `base_ref` before composing a run on it."""
+        result = await self._tool(
+            "repo.present",
+            {"run_id": run_id, "repo": repo, "ref": ref, "paths": paths},
+        )
+        return list(result.get("present") or [])
+
     async def read_issue(self, run_id: str, repo: str, number: int) -> dict[str, Any]:
         """One issue by number for the implement workflow — how the
         platform resolves the ticket an issue-driven run implements."""

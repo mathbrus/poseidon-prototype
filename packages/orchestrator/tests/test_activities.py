@@ -291,7 +291,7 @@ def test_dispatch_agent_raises_when_agent_lost_the_run(activities, monkeypatch):
 
 def test_platform_verify_maps_exit_code(activities, monkeypatch, fake_gateway):
     """The gate of record: green is exit_code 0 from the platform's own
-    sandbox.run_tests call, anything else is red with the output kept."""
+    sandbox.run_tests call, a failure is red with the output kept."""
     import orchestrator.activities.implement as module
 
     async def run_tests(self, run_id, paths=None):
@@ -300,3 +300,20 @@ def test_platform_verify_maps_exit_code(activities, monkeypatch, fake_gateway):
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(run_tests=run_tests))
     verdict = asyncio.run(activities.platform_verify(RUN_ID))
     assert verdict == {"passed": False, "output": "1 failed"}
+
+
+def test_platform_verify_reads_an_empty_suite_by_scope(
+    activities, monkeypatch, fake_gateway
+):
+    """A tree with no tests is green for the unscoped run — a fresh
+    repository's first deliveries are documents — and red for the contract
+    run, whose named paths must hold the tests the gate relies on."""
+    import orchestrator.activities.implement as module
+
+    async def run_tests(self, run_id, paths=None):
+        return {"exit_code": 5, "stdout": "no tests ran in 0.00s", "stderr": ""}
+
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(run_tests=run_tests))
+    assert asyncio.run(activities.platform_verify(RUN_ID))["passed"] is True
+    contract = asyncio.run(activities.platform_verify(RUN_ID, ["tests/contract/"]))
+    assert contract == {"passed": False, "output": "no tests ran in 0.00s"}

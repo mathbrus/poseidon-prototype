@@ -353,6 +353,17 @@ class GatewayService:
             identity, "repo.read_file", args, lambda: self._git.read_file(repo, ref, path)
         )
 
+    async def present_paths(
+        self, identity: Identity, run_id: str, repo: str, ref: str, paths: list[str]
+    ) -> Any:
+        args = {"run_id": run_id, "repo": repo, "ref": ref, "paths": paths}
+        return await self.call(
+            identity,
+            "repo.present",
+            args,
+            lambda: self._git.present_paths(repo, ref, paths),
+        )
+
     async def open_pr(
         self,
         identity: Identity,

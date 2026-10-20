@@ -158,6 +158,32 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(
     assert pr["contract_deletions"] is None
 
 
+def test_contract_tree_is_what_the_base_ref_holds(settings, monkeypatch, fake_gateway):
+    """The declared contract paths are asked of the git host at base_ref,
+    under the platform identity; what comes back is the tree the composed
+    verify replays."""
+    import orchestrator.activities.review as module
+
+    asked: list[tuple[str, str, list[str]]] = []
+
+    async def present_paths(self, run_id, repo, ref, paths):
+        asked.append((repo, ref, list(paths)))
+        return [p for p in paths if p == "tests/contract/"]
+
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(present_paths=present_paths)
+    )
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    tree = asyncio.run(
+        activities.contract_tree(RUN_ID, ["tests/contract/", "tests/acceptance/"])
+    )
+    assert tree == ["tests/contract/"]
+    assert len(asked) == 1 and asked[0][1:] == (
+        "main",
+        ["tests/contract/", "tests/acceptance/"],
+    )
+
+
 def test_contract_deletions_counts_straight_off_the_patch():
     """The model-free deletion facts: test functions and assertions
     removed/added on the contract tree, plain string counting — diff

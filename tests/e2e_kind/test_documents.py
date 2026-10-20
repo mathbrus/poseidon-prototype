@@ -5,11 +5,14 @@ the bootstrap wrote, an implementer's edit of that revised plan is
 refused, a hand-filed rewrite of the bootstrapped strategy is refused —
 so each later fixture reads the world the earlier one left.
 
-- **Bootstrap.** A vision-only repository: the heartbeat observes both
-  documents absent, files the two bootstrap tickets under its own
-  identity (once — the second tick finds them open), the stewardship crew
-  writes each document from the vision, and the pull requests merge like
-  any other in-class change. Scoping waits until both exist.
+- **Bootstrap.** A vision-only repository — a README and nothing else,
+  no code, no tests, no contract tree, the shape every company starts
+  from: the heartbeat observes both documents absent, files the two
+  bootstrap tickets under its own identity (once — the second tick finds
+  them open), the stewardship crew writes each document from the vision,
+  and the pull requests merge like any other in-class change — a suite
+  that collects nothing is not red, and a declared contract tree the base
+  ref does not hold replays nothing. Scoping waits until both exist.
 - **An architecture request.** An implementer whose ticket contradicts the
   masterplan records a request and stops; the platform files a stewardship
   ticket from it; a later tick implements it and the steward revises the
@@ -54,6 +57,7 @@ from .cluster import (
 )
 from .conftest import (
     DOCUMENT_PATHS,
+    REPO_BASELINE,
     apply_profile,
     close_issue,
     close_pr,
@@ -69,6 +73,15 @@ from .conftest import (
     run_ticket,
     target_slug,
 )
+
+# What the baseline holds beside the documents — the code, the unit tree,
+# the contract tree — put back once the company has written its documents
+# on the bare tree.
+CODE_AND_TESTS: dict[str, str] = {
+    path: content
+    for path, content in REPO_BASELINE.items()
+    if path not in DOCUMENT_PATHS.values()
+}
 
 
 def _document(env: dict, name: str) -> str | None:
@@ -104,13 +117,13 @@ def one_shot_delegated(stack: None, baseline_env: dict):
 
 @pytest.fixture(scope="module")
 def bootstrapped(one_shot_delegated: dict) -> dict:
-    """Delete both documents (the declared deviation), wake the loop, and
-    let it write them back through the stewardship crew."""
+    """Strip main to a README (the declared deviation: every baseline
+    file goes), wake the loop, and let it write the documents back through
+    the stewardship crew. The code and the tests return with the fixture;
+    the documents stay as the company wrote them."""
     env = one_shot_delegated
-    for name in ("strategy", "architecture"):
-        delete_repo_file(
-            env, DOCUMENT_PATHS[name], f"e2e: vision-only repository ({name})"
-        )
+    for path in REPO_BASELINE:
+        delete_repo_file(env, path, f"e2e: vision-only repository ({path})")
     heartbeat_id = bare_heartbeat_id()
     since = db_now()
     filing = wake_and_await_ticks(1)
@@ -147,6 +160,8 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
                 close_issue(env, number)
         for run in runs.values():
             close_pr(env, run["pr"])
+        for path, content in CODE_AND_TESTS.items():
+            put_repo_file(env, path, content, f"e2e: code and tests back ({path})")
 
 
 def test_the_platform_filed_both_bootstrap_tickets_once(bootstrapped: dict):

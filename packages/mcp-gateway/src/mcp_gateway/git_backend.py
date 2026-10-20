@@ -356,17 +356,32 @@ class GitBackend:
         """One file at `ref` from the git host — `{present, text}`; a
         missing file is `present: false`, never an error, because a
         document the company has not written yet is an ordinary state."""
-        _require_safe_ref("ref", ref)
-        _require_safe_overlay_path(path)
-        entry = await self._github(
-            "GET",
-            f"/repos/{repo_slug(repo)}/contents/{path}?ref={ref}",
-            missing_ok=True,
-        )
-        if entry is None or entry.get("type") != "file":
+        entry = await self._contents(repo, ref, path)
+        if not isinstance(entry, dict) or entry.get("type") != "file":
             return {"present": False, "text": None}
         text = base64.b64decode(entry.get("content") or "").decode("utf-8", "replace")
         return {"present": True, "text": text}
+
+    async def present_paths(
+        self, repo: str, ref: str, paths: list[str]
+    ) -> dict[str, Any]:
+        """`{present: [...]}`: the subset of `paths` the git host holds at
+        `ref`, a file or a directory each. An absent path is an ordinary
+        answer: a declared tree the company has not written yet is a
+        state, not an error."""
+        present = [p for p in paths if await self._contents(repo, ref, p) is not None]
+        return {"present": present}
+
+    async def _contents(self, repo: str, ref: str, path: str) -> Any:
+        """The git host's entry at `path` on `ref` — a file's record, a
+        directory's listing — or None where there is none."""
+        _require_safe_ref("ref", ref)
+        _require_safe_overlay_path(path)
+        return await self._github(
+            "GET",
+            f"/repos/{repo_slug(repo)}/contents/{path.strip('/')}?ref={ref}",
+            missing_ok=True,
+        )
 
     async def create_issue(self, repo: str, title: str, body: str) -> dict[str, Any]:
         issue = await self._github(

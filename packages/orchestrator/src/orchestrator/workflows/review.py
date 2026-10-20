@@ -185,18 +185,29 @@ class ReviewWorkflow(RunWorkflow):
                 "platform verify red",
                 (verify.get("output") or "")[-1000:],
             )
-        # The contract layer, when the company declares a contract tree:
-        # the platform composes head code with the contract tree as it
-        # stands on the base ref and runs exactly those tests. The head
-        # suite (hygiene, above) can be weakened by the PR; nothing in
-        # this baseline came from the PR, so it cannot. Re-provisioning
-        # replaces the reviewer's finished sandbox in place — the same
-        # deterministic name, so teardown's compensation is unchanged.
+        # The contract layer, when the company declares a contract tree
+        # and the base ref holds it (`contract_tree`): the platform
+        # composes head code with the contract tree as it stands on the
+        # base ref and runs exactly those tests. The head suite (hygiene,
+        # above) can be weakened by the PR; nothing in this baseline came
+        # from the PR, so it cannot. A declared tree not yet on the base
+        # ref replays nothing and leaves the fact vacuously true.
+        # Re-provisioning replaces the reviewer's finished sandbox in
+        # place — the same deterministic name, so teardown's compensation
+        # is unchanged.
         contract_green = True
+        contract_tree: list[str] = []
         if contract_paths:
+            contract_tree = await workflow.execute_activity(
+                "contract_tree",
+                args=[input.run_id, contract_paths],
+                start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
+                retry_policy=STEP_RETRY,
+            )
+        if contract_tree:
             composed = await workflow.execute_activity(
                 "fetch_workspace",
-                args=[input.run_id, pr["head"], contract_paths],
+                args=[input.run_id, pr["head"], contract_tree],
                 start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
@@ -208,7 +219,7 @@ class ReviewWorkflow(RunWorkflow):
             )
             contract = await workflow.execute_activity(
                 "platform_verify",
-                args=[input.run_id, contract_paths],
+                args=[input.run_id, contract_tree],
                 start_to_close_timeout=timedelta(seconds=self._bounds.verify_s),
                 retry_policy=STEP_RETRY,
             )

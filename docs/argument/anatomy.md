@@ -129,7 +129,10 @@ done.
 The orchestrator runs the sandbox's test suite *itself*, under its own
 platform identity. This is the gate of record. If it is red, the failure is
 fed back and the implementer is re-dispatched, a bounded number of times
-(`max_verify_retries`).
+(`max_verify_retries`). A tree with no tests is green here: a change cannot
+have weakened a suite that was already empty, and a company's first
+deliveries, its own documents, land on exactly such a tree. The contract
+verify, which names the paths it expects tests under, stays strict.
 
 ## Delivery: a bundle, not a push
 
@@ -244,7 +247,10 @@ baseline came from the PR, so a head suite weakened to green, a skip
 marker, or a `conftest` that neuters collection launders nothing: the code
 either satisfies the spec the human already approved, or it does not
 merge. (The head suite still runs, as hygiene; the contract run is the
-gate.) On any PR that edits the contract tree,
+gate.) A declared tree the base ref does not hold yet is no oracle: the
+platform reads that from the git host, replays nothing, and the fact stays
+vacuously true until a human merges the first contract pull request — the
+one delivery policy never delegates. On any PR that edits the contract tree,
 the platform also posts model-free deletion facts — test functions and
 assertions removed, counted off the diff — so a gutted spec cannot be
 approved silently.

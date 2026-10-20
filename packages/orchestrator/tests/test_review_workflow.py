@@ -79,6 +79,8 @@ class Harness:
         default_factory=lambda: ["src/slugify.py", "tests/test_slugify.py"]
     )
     contract_paths: list[str] = field(default_factory=list)
+    # What the base ref holds of the declared tree; None means all of it.
+    contract_tree: list[str] | None = None
     contract_verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
     deletions: dict[str, int] | None = None
     # "merged" / "closed" makes read_pr refuse the PR as the real activity
@@ -173,6 +175,12 @@ class Harness:
             run_id: str, pr_number: int, deletions: dict[str, int], workflow_id: str
         ) -> None:
             harness.warns.append(deletions)
+
+        @activity.defn(name="contract_tree")
+        async def contract_tree(run_id: str, contract_paths: list[str]) -> list[str]:
+            if harness.contract_tree is None:
+                return list(contract_paths)
+            return list(harness.contract_tree)
 
         @activity.defn(name="fetch_workspace")
         async def fetch_workspace(
@@ -319,6 +327,7 @@ class Harness:
             check_budget,
             workflow_config,
             read_pr,
+            contract_tree,
             warn_contract_edit,
             fetch_workspace,
             provision_sandbox,
@@ -551,6 +560,25 @@ async def test_a_green_contract_verify_rides_the_resolve(env):
             },
         ]
     ]
+    assert harness.merges == [PR]
+    assert record["merged"] is True
+
+
+async def test_a_declared_tree_the_base_ref_lacks_replays_nothing(env):
+    """A company declares its contract tree before it has written one:
+    its first deliveries are documents on a tree with no tests. With
+    nothing on the base ref to replay, no composed run is built and the
+    fact rides the resolve vacuously true — as it would undeclared —
+    until a human merges the first contract pull request."""
+    harness = Harness(
+        merge_gate=POLICY_GATE, contract_paths=["tests/contract/"], contract_tree=[]
+    )
+    record = await run_review(env.client, harness)
+
+    assert harness.fetches == [["feature/slugify-x", None]]
+    assert harness.provisions == 1
+    assert harness.scoped_verifies == []
+    assert harness.resolve_args[0][1]["contract_green"] is True
     assert harness.merges == [PR]
     assert record["merged"] is True
 

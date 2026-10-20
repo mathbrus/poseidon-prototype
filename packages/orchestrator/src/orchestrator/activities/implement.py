@@ -23,6 +23,7 @@ from temporalio import activity
 
 from common.telemetry import get_logger
 from common.topology import SANDBOX_TOOLCHAIN
+from common.verify import suite_green
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
 from orchestrator.clients import GatewayClient, dispatch_and_poll
@@ -194,13 +195,13 @@ class ImplementActivities:
         delivery hangs on. One verification concept, parameterized by
         scope: no `paths` runs the whole suite (implement's verify loop,
         review's hygiene run); with `paths` the run is pinned to those
-        test paths — the contract verify, where collecting nothing from a
-        named path is a red exit, not a silent pass."""
+        test paths — the contract verify. What the exit means by scope is
+        `common.verify`'s rule."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             result = await gateway.run_tests(run_id, paths)
-        passed = result.get("exit_code") == 0
+        passed = suite_green(result.get("exit_code"), scoped=bool(paths))
         output = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".strip()
         self._log.bind(run_id=run_id).info(
             "platform verify", extra={"passed": passed, "paths": paths}
