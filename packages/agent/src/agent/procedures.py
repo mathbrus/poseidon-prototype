@@ -59,6 +59,7 @@ from agent.hands import (
     ToolRecords,
     hands,
 )
+from agent.models import family_of
 from agent.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_context
 from common.telemetry import get_logger
 from common.text import clip_tail
@@ -175,10 +176,12 @@ def build_llm(settings: AgentSettings, run_id: str, token: str) -> LLM:
     """The LLM gateway client, SDK-shaped: authenticated with the workload
     credential, every call attributed to its run via the header. The model
     name is the deployment's `MODEL`, the same one the gateway pins on every
-    call; here it also selects the SDK's wire shape (Responses vs chat) and
-    its prompt guidance. litellm needs a provider prefix to route to the
-    custom base_url; the wire model name stays the bare setting."""
+    call; here it also selects the wire shape (Responses vs chat) and the
+    reasoning knob through the model table, and the SDK's prompt guidance.
+    litellm needs a provider prefix to route to the custom base_url; the
+    wire model name stays the bare setting."""
     model = settings.model if "/" in settings.model else f"openai/{settings.model}"
+    family = family_of(settings.model)
     return LLM(
         model=model,
         base_url=settings.llm_proxy_url,
@@ -186,6 +189,9 @@ def build_llm(settings: AgentSettings, run_id: str, token: str) -> LLM:
         extra_headers={RUN_ID_HEADER: run_id},
         num_retries=1,  # the workflow owns retries; budget 429s surface now
         usage_id=run_id,
+        # A model no row names keeps the SDK's own guess.
+        api_mode=family.api_mode if family else "auto",
+        capability_overrides=family.capability_overrides if family else {},
     )
 
 
