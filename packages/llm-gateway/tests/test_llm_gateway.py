@@ -405,7 +405,7 @@ def test_zero_cost_is_a_price_and_is_recorded(app, stores, upstream):
 
 # ---------------------------------------------------------------------------
 # The OpenAI Responses surface: same chokepoint pipeline, different wire
-# shape (SDKs auto-select it for models that list it, e.g. gpt-5*).
+# shape (the agent's model table sends current OpenAI families over it).
 # ---------------------------------------------------------------------------
 
 

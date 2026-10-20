@@ -23,6 +23,7 @@ from typing import Any
 import mkdocs_gen_files
 import typer.main
 
+from agent.models import MODEL_FAMILIES
 from common.audit import PLATFORM_EVENTS
 from common.workflows import WORKFLOWS, workflow_id
 from console.app import ROUTES
@@ -234,6 +235,19 @@ _WORKFLOW_CLASSES: dict[str, tuple[type, type]] = {
 }
 
 
+def models(_: str | None) -> str:
+    rows = [
+        [
+            family.name,
+            codes(family.examples),
+            "Responses" if family.api_mode == "responses" else "chat completions",
+            "yes" if family.reasoning_effort else "no",
+        ]
+        for family in MODEL_FAMILIES
+    ]
+    return table(["Family", "Names, for example", "Wire shape", "Reasoning effort"], rows)
+
+
 def _handlers(cls: type, kind: str) -> list[tuple[str, str, str]]:
     """(name, arguments, first sentence of the docstring) for every
     `@workflow.signal` / `@workflow.query` on the class."""
@@ -358,6 +372,7 @@ GENERATORS: dict[str, Callable[[str | None], str]] = {
     "cli": cli,
     "console": console_routes,
     "audit-events": audit_events,
+    "models": models,
     "workflows": workflow_table,
     "signals": signal_table,
     "blueprint-fields": blueprint_fields,

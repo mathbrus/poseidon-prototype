@@ -42,6 +42,25 @@ stays applied and its agents re-roll. The same file
 holds `POSEIDON_CONSOLE_URL`, where the `poseidon` CLI reaches the console
 (`http://127.0.0.1:8090` on kind); a provider change does not touch it.
 
+## Which models work
+
+The agent host picks the wire shape (OpenAI Responses or chat
+completions) and whether to send a reasoning effort from a table by
+model **family**, `agent.models`, so a new release in a known family
+needs no change anywhere. Poseidon speaks one reasoning knob,
+`reasoning_effort`; LiteLLM translates it per provider. A model no row
+names keeps the OpenHands SDK's own guess, as the mock brain does.
+
+<!-- gen: models -->
+
+The provider prefix (`openai/`, `anthropic/`) routes the call and is not
+part of the match. One more thing has to know the model: the `llm-proxy`
+must price it, because the gateway meters the cost LiteLLM reports and
+withholds a call it cannot price (`llm_cost_unreported`). LiteLLM fetches
+its price table when it starts, so the pinned image usually knows a
+model newer than itself; if a run fails on that error, bump
+`images.llmProxy.tag` in the chart values.
+
 !!! warning "The acceptance suite refuses a paid brain"
     Do not point `scripts/acceptance.sh` at a paid provider: the suite
     asserts mock-brain behaviour, not model quality, and against a live

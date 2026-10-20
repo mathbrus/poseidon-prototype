@@ -112,8 +112,9 @@ first.
   acceptance suite is `scripts/acceptance.sh`; `test_acceptance.py` is its
   index and capstone.
 - **Responses API surface**: llm-gateway and mockllm both speak the
-  OpenAI Responses API (`gpt-5*` models auto-select it). Any new LLM
-  API surface must land in both services.
+  OpenAI Responses API; the agent's model table (`agent.models`) picks
+  it per model family. Any new LLM API surface must land in both
+  services.
 - **Cluster**: the target environment is kind. Beware that `kind-up`
   can fill the disk, and that `:latest` image tags can leave stale
   pods running old code — check what's actually deployed.
