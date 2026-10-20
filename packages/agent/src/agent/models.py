@@ -32,8 +32,9 @@ ApiMode = Literal["chat", "responses"]
 class ModelFamily:
     name: str
     # Matched at the start of the bare model name (provider prefix
-    # stripped, lower-cased); the family's version digits, then a
-    # separator or the end, so `gpt-5` never claims `gpt-50`.
+    # stripped, lower-cased): the family's major versions, then a
+    # separator or the end, so a family claims its releases and nothing
+    # that merely starts with the same letters.
     pattern: str
     api_mode: ApiMode
     reasoning_effort: bool
@@ -90,11 +91,7 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
 )
 
 
-def bare_name(model: str) -> str:
-    """`openai/gpt-6-luna` and `GPT-6-Luna` are the same model."""
-    return model.rsplit("/", 1)[-1].strip().lower()
-
-
 def family_of(model: str) -> ModelFamily | None:
-    bare = bare_name(model)
+    """`openai/gpt-6-luna` and `GPT-6-Luna` are the same model."""
+    bare = model.rsplit("/", 1)[-1].strip().lower()
     return next((f for f in MODEL_FAMILIES if f.matches(bare)), None)
