@@ -80,6 +80,11 @@ What the suite proves, and where:
                   merges and names the person); test_review_gate (the release
                   read the recorded verdict); HERE: the console's rows are
                   among the six sources.
+ 13 the pause    test_pause (`poseidon pause` freezes the heartbeat and
+                  nothing else: a paused tick on a startable backlog starts
+                  nothing and names the person, a wake leaves it paused, a
+                  stranger cannot lift it, a resume starts the held work,
+                  and a run in flight outlives a pause).
 
 The suite's own discipline is proved too: test_brain_guard (the session
 refuses a paid brain without the explicit opt-in) and test_quiet (the exit

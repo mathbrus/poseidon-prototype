@@ -53,8 +53,11 @@ state, enforced stops, verified quiet — via four session-level guarantees:
   sweeps BEFORE it applies a profile and waits for the loop to be asleep
   on the swept backlog (`apply_profile`), so the ticks it counts from
   there are its own; and a run that is *meant* to fail runs under
-  `blueprints.single_attempt`, or the loop retries it. The session
-  sweeper catches whatever a failure path dropped.
+  `blueprints.single_attempt`, or the loop retries it. A module that
+  pauses the heartbeat resumes it before it ends — a paused loop never
+  reports asleep, so the next profile apply would wait forever. The
+  session sweeper catches whatever a failure path dropped, a pause
+  included.
 - **Read your own writes** (`file_ticket`, `scope_via_heartbeat`,
   `run_ticket`): the git host lists a new issue up to a minute after
   creating it, and the loop reads that listing. The platform reads the
@@ -693,9 +696,19 @@ def apply_profile(path: Path, env: dict) -> None:
     forward, and `cluster.wake_and_await_ticks` stands in for the outside
     world."""
     sweep_repo_debris(env)
+    lift_pause(env)
     apply_blueprint(path)
     wait_for_convergence()
     await_bare_heartbeat_asleep()
+
+
+def lift_pause(env: dict) -> None:
+    """Resume a heartbeat a module left paused — through the console, as
+    the owner, so the resume is on the record like any other. A loop
+    nobody paused needs nothing."""
+    with contextlib.suppress(Exception):
+        if console(env).company().get("paused"):
+            console(env).resume("harness: the module that paused is over")
 
 
 def sweep_repo_debris(env: dict) -> None:
@@ -744,11 +757,12 @@ def repo_sweeper(env: dict[str, str]):
     """The session's last word on repo debris: whatever ran, the disposable
     repo exits with no open PRs, no feature/* branches and no open issues
     — so debris never grows across runs, and the next session's standing
-    heartbeat finds no backlog to steal. Then the loop is given its idle
-    tick on that empty backlog, so `test_quiet`'s successor session starts
-    from rest."""
+    heartbeat finds no backlog to steal — and no pause a module left is
+    still holding it. Then the loop is given its idle tick on that empty
+    backlog, so `test_quiet`'s successor session starts from rest."""
     yield
     sweep_repo_debris(env)
+    lift_pause(env)
     with contextlib.suppress(Exception):
         wake_bare_heartbeat()
         await_bare_heartbeat_asleep()
