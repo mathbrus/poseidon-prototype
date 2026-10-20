@@ -243,6 +243,35 @@ async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backend
     assert pm.isError, "the PM reached architecture.request"
 
 
+# -- repo.present (platform only) --------------------------------------------
+
+
+async def test_which_declared_paths_the_base_ref_holds_is_platform_only(
+    app, backends, audit
+):
+    """The contract tree a review replays is read at base_ref by the
+    platform: present where the host holds it, honestly absent where the
+    company has not written it yet — and by nobody in the company."""
+    args = {
+        "run_id": RUN_ID,
+        "repo": REPO,
+        "ref": "main",
+        "paths": ["tests/contract/", "tests/acceptance/"],
+    }
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        answer = payload(await session.call_tool("repo.present", args))
+    assert answer == {"present": ["tests/contract/"]}
+    assert [c[0] for c in backends.github_calls[-2:]] == [
+        "/repos/example/target/contents/tests/contract",
+        "/repos/example/target/contents/tests/acceptance",
+    ]
+
+    for token in (PM_TOKEN, AGENT_TOKEN):
+        async with mcp_session(app, token) as session:
+            result = await session.call_tool("repo.present", args)
+        assert result.isError, "a company role read the base ref through the platform"
+
+
 # -- repo.read_file (platform only) ------------------------------------------
 
 

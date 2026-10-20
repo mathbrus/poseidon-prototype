@@ -185,18 +185,32 @@ class ReviewWorkflow(RunWorkflow):
                 "platform verify red",
                 (verify.get("output") or "")[-1000:],
             )
-        # The contract layer, when the company declares a contract tree:
-        # the platform composes head code with the contract tree as it
-        # stands on the base ref and runs exactly those tests. The head
-        # suite (hygiene, above) can be weakened by the PR; nothing in
-        # this baseline came from the PR, so it cannot. Re-provisioning
-        # replaces the reviewer's finished sandbox in place — the same
-        # deterministic name, so teardown's compensation is unchanged.
+        # The contract layer, when the company declares a contract tree
+        # and the base ref holds it: the platform composes head code with
+        # the contract tree as it stands on the base ref and runs exactly
+        # those tests. The head suite (hygiene, above) can be weakened by
+        # the PR; nothing in this baseline came from the PR, so it cannot.
+        # A declared tree the base ref does not hold yet is no contract:
+        # there is nothing to replay, and the fact stays vacuously true
+        # until a human merges the first contract pull request — the one
+        # delivery policy never delegates. Re-provisioning replaces the
+        # reviewer's finished sandbox in place — the same deterministic
+        # name, so teardown's compensation is unchanged.
         contract_green = True
-        if contract_paths:
+        contract_tree = (
+            await workflow.execute_activity(
+                "contract_tree",
+                args=[input.run_id, contract_paths],
+                start_to_close_timeout=timedelta(seconds=BOOTSTRAP_S),
+                retry_policy=STEP_RETRY,
+            )
+            if contract_paths
+            else []
+        )
+        if contract_tree:
             composed = await workflow.execute_activity(
                 "fetch_workspace",
-                args=[input.run_id, pr["head"], contract_paths],
+                args=[input.run_id, pr["head"], contract_tree],
                 start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
                 retry_policy=STEP_RETRY,
             )
@@ -208,7 +222,7 @@ class ReviewWorkflow(RunWorkflow):
             )
             contract = await workflow.execute_activity(
                 "platform_verify",
-                args=[input.run_id, contract_paths],
+                args=[input.run_id, contract_tree],
                 start_to_close_timeout=timedelta(seconds=self._bounds.verify_s),
                 retry_policy=STEP_RETRY,
             )
@@ -236,8 +250,9 @@ class ReviewWorkflow(RunWorkflow):
                 "reviewer_independent": bool(independence.get("independent")),
                 # The composed-baseline fact: the contract tree as it
                 # stands on the base ref, run against this PR's head.
-                # Vacuously true only when no contract tree is declared —
-                # the compiled rule then never reads it.
+                # Vacuously true when no contract tree is declared (the
+                # compiled rule then never reads it) or when the base ref
+                # does not hold the declared one yet.
                 "contract_green": contract_green,
                 "paths": pr.get("paths") or [],
             },

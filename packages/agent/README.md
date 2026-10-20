@@ -136,6 +136,9 @@ conversation with the task plus the workspace survey (below), then runs
 an *advisory* verify — its own `sandbox.run_tests`
 call between conversation turns — feeding failures back until green or
 `VERIFY_CYCLES` (a cap of the host, beside the per-procedure step caps).
+Green is `common.verify`'s word, the same the gate of record uses, so a
+tree with no tests ends the loop instead of pushing the model to invent
+one.
 Advisory green ends the dispatch with nothing but a
 claim; the gate of record is the platform's own verify in the workflow.
 Only after that is green does the workflow issue a separate `deliver`

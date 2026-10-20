@@ -368,6 +368,24 @@ class GitBackend:
         text = base64.b64decode(entry.get("content") or "").decode("utf-8", "replace")
         return {"present": True, "text": text}
 
+    async def present_paths(self, repo: str, ref: str, paths: list[str]) -> list[str]:
+        """The subset of `paths` the git host holds at `ref` — a file or a
+        directory, by the host's word, one read each. An absent path is an
+        ordinary answer: a declared tree the company has not written yet
+        is a state, not an error."""
+        _require_safe_ref("ref", ref)
+        present = []
+        for path in paths:
+            _require_safe_overlay_path(path)
+            entry = await self._github(
+                "GET",
+                f"/repos/{repo_slug(repo)}/contents/{path.strip('/')}?ref={ref}",
+                missing_ok=True,
+            )
+            if entry is not None:
+                present.append(path)
+        return present
+
     async def create_issue(self, repo: str, title: str, body: str) -> dict[str, Any]:
         issue = await self._github(
             "POST",

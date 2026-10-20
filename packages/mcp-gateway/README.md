@@ -140,7 +140,8 @@ so the gateway cannot query a document the compiler never wrote.
 
 The tools — the sandbox tools proxied to the run's registered tool
 server, `repo.archive` and `git.open_pr` backed by platform-side clones,
-`repo.read_file` for the company's documents at the base ref, the issue
+`repo.read_file` for the company's documents at the base ref, `repo.present`
+for which declared paths the base ref holds, the issue
 and review tools, `architecture.request`, and platform-only `git.merge_pr`
 — are documented one by one, with arguments, on
 [Tools](../../docs/reference/tools.md), rendered from this package's
