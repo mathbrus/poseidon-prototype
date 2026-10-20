@@ -5,11 +5,14 @@ the bootstrap wrote, an implementer's edit of that revised plan is
 refused, a hand-filed rewrite of the bootstrapped strategy is refused —
 so each later fixture reads the world the earlier one left.
 
-- **Bootstrap.** A vision-only repository: the heartbeat observes both
-  documents absent, files the two bootstrap tickets under its own
-  identity (once — the second tick finds them open), the stewardship crew
-  writes each document from the vision, and the pull requests merge like
-  any other in-class change. Scoping waits until both exist.
+- **Bootstrap.** A vision-only repository — a README and nothing else,
+  no code, no tests, no contract tree, the shape every company starts
+  from: the heartbeat observes both documents absent, files the two
+  bootstrap tickets under its own identity (once — the second tick finds
+  them open), the stewardship crew writes each document from the vision,
+  and the pull requests merge like any other in-class change — a suite
+  that collects nothing is not red, and a declared contract tree the base
+  ref does not hold replays nothing. Scoping waits until both exist.
 - **An architecture request.** An implementer whose ticket contradicts the
   masterplan records a request and stops; the platform files a stewardship
   ticket from it; a later tick implements it and the steward revises the
@@ -36,9 +39,13 @@ from common.audit import HEARTBEAT_BOOTSTRAP
 from mockllm.brain import (
     ARCH_REQUEST_MARKER,
     ARCHITECTURE_MD,
+    CONTRACT_TEST_PATH,
+    CONTRACT_TESTS_PY,
     MASTERPLAN_EDIT_MARKER,
     REVISED_ARCHITECTURE_MD,
+    SLUGIFY_PY,
     STRATEGY_MD,
+    TEST_SLUGIFY_PY,
 )
 from orchestrator.activities.documents import BOOTSTRAP_TITLES, bootstrap_body
 from orchestrator.workflows.implement import architecture_wait
@@ -69,6 +76,15 @@ from .conftest import (
     run_ticket,
     target_slug,
 )
+
+# What a vision-only repository lacks beside its documents: the suite's
+# baseline code, unit tree and contract tree, put back once the company
+# has written its documents on the bare tree.
+VISION_ONLY_STRIPS: dict[str, str] = {
+    "slugify.py": SLUGIFY_PY,
+    "tests/unit/test_slugify.py": TEST_SLUGIFY_PY,
+    CONTRACT_TEST_PATH: CONTRACT_TESTS_PY,
+}
 
 
 def _document(env: dict, name: str) -> str | None:
@@ -104,13 +120,18 @@ def one_shot_delegated(stack: None, baseline_env: dict):
 
 @pytest.fixture(scope="module")
 def bootstrapped(one_shot_delegated: dict) -> dict:
-    """Delete both documents (the declared deviation), wake the loop, and
-    let it write them back through the stewardship crew."""
+    """Strip main to a README (the declared deviation: both documents, the
+    code, the unit tree and the contract tree go), wake the loop, and let
+    it write the documents back through the stewardship crew. The code
+    and the tests return with the fixture; the documents stay as the
+    company wrote them."""
     env = one_shot_delegated
     for name in ("strategy", "architecture"):
         delete_repo_file(
             env, DOCUMENT_PATHS[name], f"e2e: vision-only repository ({name})"
         )
+    for path in VISION_ONLY_STRIPS:
+        delete_repo_file(env, path, f"e2e: vision-only repository ({path})")
     heartbeat_id = bare_heartbeat_id()
     since = db_now()
     filing = wake_and_await_ticks(1)
@@ -147,6 +168,8 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
                 close_issue(env, number)
         for run in runs.values():
             close_pr(env, run["pr"])
+        for path, content in VISION_ONLY_STRIPS.items():
+            put_repo_file(env, path, content, f"e2e: code and tests back ({path})")
 
 
 def test_the_platform_filed_both_bootstrap_tickets_once(bootstrapped: dict):
