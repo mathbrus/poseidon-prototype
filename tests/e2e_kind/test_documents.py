@@ -36,6 +36,7 @@ import secrets
 import pytest
 
 from common.audit import HEARTBEAT_BOOTSTRAP
+from common.workflows import TICK_IDLE, tick_rule
 from mockllm.brain import (
     ARCH_REQUEST_MARKER,
     ARCHITECTURE_MD,
@@ -167,9 +168,8 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
 def test_the_platform_filed_both_bootstrap_tickets_once(bootstrapped: dict):
     """The tick that saw the documents absent filed exactly one ticket per
     document, under the heartbeat's own identity, and said so."""
-    assert (
-        bootstrapped["filing_tick"]["rule"]
-        == "tick_idle:bootstrap_filed:strategy,architecture"
+    assert bootstrapped["filing_tick"]["rule"] == tick_rule(
+        TICK_IDLE, "bootstrap_filed:strategy,architecture"
     )
     assert all(len(numbers) == 1 for numbers in bootstrapped["tickets"].values()), (
         bootstrapped["tickets"]
@@ -212,9 +212,9 @@ def test_the_loop_files_nothing_twice_and_idles_on_a_resting_strategy(bootstrapp
     a bootstrap ticket nor scopes — the PM chose idle. The one ticket per
     document is still the one the filing tick made; delivery consumed it
     without closing it, and the loop reads it as taken."""
-    assert bootstrapped["after"]["rule"] == "tick_idle:pm_chose_idle", bootstrapped[
-        "after"
-    ]
+    assert bootstrapped["after"]["rule"] == tick_rule(TICK_IDLE, "pm_chose_idle"), (
+        bootstrapped["after"]
+    )
     for name in BOOTSTRAP_TITLES:
         assert (
             _open_issue_numbers(bootstrapped["env"], BOOTSTRAP_TITLES[name])

@@ -1301,7 +1301,7 @@ def test_merge_resolve_fails_closed_without_a_resolver(decide):
 
 
 def test_a_human_release_ignores_delegation_facts(decide_delegated):
-    """The human override: a recorded approval releases a change the
+    """The human override: a recorded approving verdict releases a change the
     delegated class would refuse — a carve-out, an undelegated path, red
     checks — because the person, not the class, is the authority."""
     decision = decide_delegated(

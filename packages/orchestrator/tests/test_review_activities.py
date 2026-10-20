@@ -690,7 +690,7 @@ def test_read_human_verdict_is_none_until_the_console_answered(settings, audit):
 
 
 def test_read_human_verdict_reads_the_latest_console_row(settings, audit):
-    """Latest wins: an approval followed by a rejection reads as rejected,
+    """Latest wins: an approving verdict followed by a rejecting one reads as rejected,
     and another run's verdict is never this run's."""
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), audit)
     audit.append(_console_verdict(RUN_ID, True, "owner", "2026-01-01T00:00:01+00:00"))

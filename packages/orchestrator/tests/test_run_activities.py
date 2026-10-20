@@ -311,7 +311,7 @@ def test_gate_outcomes_are_process_gate_audit_events(activities, audit):
 
 def test_policy_gate_outcomes_map_to_decisions(activities, audit):
     """policy_resolved released a merge (allow); policy_declined fell back
-    to the human signal (deny) — distinguishable from human approvals
+    to the human signal (deny) — distinguishable from human verdicts
     forever."""
     for kind in ("policy_resolved", "policy_declined"):
         asyncio.run(

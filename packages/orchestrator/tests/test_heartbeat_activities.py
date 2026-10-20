@@ -15,6 +15,7 @@ from common.audit import HEARTBEAT_BOOTSTRAP, HEARTBEAT_DECIDE, HEARTBEAT_TICK
 from common.policy import HEARTBEAT_START
 from common.tasks import issue_run_task
 from common.topology import PLATFORM_NAMESPACE
+from common.workflows import TICK_IDLE, TICK_STARTED, tick_rule
 from orchestrator.activities.bootstrap import BootstrapActivities
 from orchestrator.activities.heartbeat import HeartbeatActivities
 from orchestrator.activities.observation import (
@@ -707,8 +708,8 @@ def test_every_tick_leaves_a_correlated_row(activities, audit):
     # The gate-outcome idiom: started is the tick's allow, idle its deny.
     assert [e["decision"] for e in story] == ["deny", "allow"]
     assert [e["rule"] for e in story] == [
-        "tick_idle:backlog_empty",
-        "tick_started:implement_issue_5",
+        tick_rule(TICK_IDLE, "backlog_empty"),
+        tick_rule(TICK_STARTED, "implement_issue_5"),
     ]
     assert {e["tool"] for e in story} == {HEARTBEAT_TICK}
     assert {e["source"] for e in story} == {"process-lifecycle"}
