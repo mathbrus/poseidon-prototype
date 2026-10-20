@@ -37,10 +37,10 @@ reaches it.
 This is not a production component. It impersonates the LiteLLM proxy —
 same service name, same port, same `/chat/completions` route (plus the
 `/v1`-prefixed alias so standard OpenAI clients work too), same OpenAI
-Responses routes (`/responses` plus the `/v1` alias — SDKs auto-select
-that surface for models whose metadata lists it, e.g. gpt-5\*; the
-routes are a wire-shape adapter over the same brain, so scenario logic
-never forks), same `/health/liveliness` probe the `llm-proxy` Deployment
+Responses routes (`/responses` plus the `/v1` alias — the agent's model
+table sends current OpenAI families over that surface; the routes are a
+wire-shape adapter over the same brain, so scenario logic never
+forks), same `/health/liveliness` probe the `llm-proxy` Deployment
 expects — so the `values-mockllm.yaml` swap is a pod-template change and
 nothing else.
 That overlay also resolves every model tier (`frontier`, `standard`,

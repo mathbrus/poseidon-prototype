@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS registry.runs (
 );
 -- One live implement run per issue. The canonical issue-run task is the
 -- key and the constraint is structural: the heartbeat, a replayed
--- workflow and a human `poseidon run <n>` cannot race their way into two
+-- workflow and a human `poseidon start implement <n>` cannot race their way into two
 -- live runs for the same ticket — the second insert dies here, not in a
 -- check-then-act. Only running issue-shaped implement runs are
 -- constrained; free-form task runs and finished runs are not.
@@ -82,7 +82,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_issue_run
       AND task LIKE 'implement issue #%';  -- common.tasks.issue_run_task
 -- One live review run per pull request, by the same construction: the
 -- canonical review-run task is the key, so a heartbeat re-offering an
--- aborted review and a human `poseidon run` cannot review one PR twice
+-- aborted review and a human `poseidon start review` cannot review one PR twice
 -- at once.
 CREATE UNIQUE INDEX IF NOT EXISTS runs_one_live_review_run
     ON registry.runs (company, task)

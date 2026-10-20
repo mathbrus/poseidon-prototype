@@ -68,8 +68,8 @@ def attempts_exhausted_comment(kind: str, count: int, max_attempts: int) -> str:
         f" — no {'verdict' if kind == 'review' else 'pull request'} was"
         f" reached. That is the blueprint's `heartbeat.max_attempts`"
         f" ({max_attempts}), so the heartbeat will not start another on its"
-        f" own. A human can: `poseidon {'review' if kind == 'review' else 'run'}"
-        f" <number>`."
+        f" own. A human can: `poseidon start"
+        f" {'review' if kind == 'review' else 'implement'} <number>`."
     )
 
 

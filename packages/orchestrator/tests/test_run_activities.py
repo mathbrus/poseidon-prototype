@@ -14,7 +14,7 @@ from common.audit import LIFECYCLE_REVOKE, gate_event
 from common.tasks import issue_run_task
 from common.workflows import ATTEMPTS_GATE, MERGE_GATE
 from orchestrator.activities.crew import CrewActivities
-from orchestrator.activities.run import RunActivities
+from orchestrator.activities.run import RunActivities, attempts_exhausted_comment
 from orchestrator.workflows.base import Timeouts
 from registry.memory import (
     InMemoryAgentInstances,
@@ -135,6 +135,17 @@ def test_create_run_names_the_owning_workflow(activities, runs):
     assert runs.get(RUN_ID).workflow_id == f"review-{RUN_ID}"
 
 
+def test_exhausted_notice_names_the_verb_a_human_can_run():
+    """The notice left on an abandoned item is the human's next step; it
+    must name the CLI verb that exists, for the item's kind."""
+    assert "`poseidon start implement <number>`" in attempts_exhausted_comment(
+        "implement", 2, 2
+    )
+    assert "`poseidon start review <number>`" in attempts_exhausted_comment(
+        "review", 1, 1
+    )
+
+
 def test_create_run_is_retry_safe(activities, runs):
     asyncio.run(activities.create_run(RUN_ID, "implement", "attempt one"))
     asyncio.run(activities.create_run(RUN_ID, "implement", "attempt two"))
@@ -143,7 +154,7 @@ def test_create_run_is_retry_safe(activities, runs):
 
 def test_create_run_refuses_a_second_live_run_for_the_same_issue(activities, runs):
     """One live implement run per issue — the registry constraint surfaces
-    here, so neither a heartbeat tick nor a human `poseidon run <n>` can
+    here, so neither a heartbeat tick nor a human `poseidon start implement <n>` can
     duplicate work already in flight."""
     asyncio.run(activities.create_run(RUN_ID, "implement", issue_run_task(42)))
     with pytest.raises(RuntimeError, match="one live run per work item"):

@@ -188,11 +188,11 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
 
 
 def test_happy_task_over_the_responses_surface(mock_llm_url):
-    """The real-LLM wire shape, rehearsed for free: a gpt-5* model name
-    makes the SDK auto-select the OpenAI Responses API (`api_mode` stays
-    "auto"), so this drives the same litellm `/responses` transport a paid
-    GPT-5.6 Luna deployment uses — against the mock, spending nothing, so a
-    missing `/responses` route fails here rather than on a paid run."""
+    """The real-LLM wire shape, rehearsed for free: a GPT-5 family name
+    makes the model table pick the OpenAI Responses API, so this drives
+    the same litellm `/responses` transport a paid GPT-5.6 Luna deployment
+    uses — against the mock, spending nothing, so a missing `/responses`
+    route fails here rather than on a paid run."""
     task_text = (TICKETS / "happy.md").read_text() + (
         "\n\nDeliver your work on the branch `feature/slugify-re5p0nse`.\n"
     )

@@ -41,13 +41,12 @@ concrete model served is the *deployment's* choice, not the agent's.
 To the agent all of this is invisible. The gateway speaks plain OpenAI
 on port 4000 — the port agents already expect for model access — on
 **both** OpenAI surfaces: chat completions and the Responses API
-(`/responses`, `/v1/responses`). SDKs auto-select Responses for models
-whose metadata lists it (gpt-5\*, with OpenHands' default
-`api_mode="auto"`), so the second surface is what keeps "pointing an
-off-the-shelf SDK at governed model access is a URL change and nothing
-else" true for current OpenAI models. The agent host builds an ordinary
-LiteLLM-style client whose `base_url` points here
-(`agent.procedures.build_llm`).
+(`/responses`, `/v1/responses`). The agent's model table
+(`agent.models`) sends every current OpenAI family over Responses, so
+the second surface is what keeps "pointing an off-the-shelf SDK at
+governed model access is a URL change and nothing else" true for those
+models. The agent host builds an ordinary LiteLLM-style client whose
+`base_url` points here (`agent.procedures.build_llm`).
 
 ## The pipeline
 

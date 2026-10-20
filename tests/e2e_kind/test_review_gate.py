@@ -123,7 +123,7 @@ def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:
 @pytest.fixture(scope="module")
 def review_chain(stack: None, baseline_env: dict) -> dict:
     """The whole arc: the strategy becomes a ticket (the loop's scope run),
-    the ticket becomes a PR (the operator's `poseidon run`), the PR becomes
+    the ticket becomes a PR (the operator's `poseidon start implement`), the PR becomes
     reviewer findings, a parked gate, an escalation, an approval, and a
     gateway merge (the loop's review run)."""
     env = baseline_env

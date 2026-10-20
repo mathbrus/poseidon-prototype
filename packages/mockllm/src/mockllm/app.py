@@ -3,8 +3,8 @@
 Impersonates the LiteLLM proxy for free e2e runs: same service name, port,
 `/chat/completions` route (the agent's AsyncOpenAI client posts without the
 `/v1` prefix; the alias keeps standard clients working), the OpenAI
-Responses routes (`/responses`, `/v1/responses` — SDKs auto-select that
-surface for models that list it, e.g. gpt-5*) and the
+Responses routes (`/responses`, `/v1/responses` — the agent's model
+table sends current OpenAI families over that surface) and the
 `/health/liveliness` probe the llm-proxy Deployment template expects.
 Requests are not authenticated — the real proxy ignores the agent's
 placeholder bearer token too, and this service never leaves the dev cluster.
