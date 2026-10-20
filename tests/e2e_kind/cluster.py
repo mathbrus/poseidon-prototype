@@ -671,7 +671,7 @@ def console(env: dict | None = None, name: str = HUMAN) -> ConsoleClient:
 
 def console_env(env: dict | None = None) -> dict[str, str]:
     """The environment the real CLI needs to act as `owner` — a fresh
-    token that outlives the longest command (`poseidon run` waits for a
+    token that outlives the longest command (`poseidon start implement` waits for a
     whole implement run): for the modules that exercise `poseidon …`
     itself."""
     return {

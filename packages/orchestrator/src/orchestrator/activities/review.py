@@ -194,7 +194,7 @@ class ReviewActivities:
 
         The PR must still be open. The heartbeat offers only open PRs, but
         the world moves between its observation and this read — and a
-        human's `poseidon run` can name any number — so the state is the
+        human's `poseidon start review` can name any number — so the state is the
         git host's word at the moment of the read. A settled PR is a
         refusal with a named rule, journaled in the run's story, never a
         crash further down at a branch that no longer exists."""
