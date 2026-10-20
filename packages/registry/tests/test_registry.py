@@ -374,6 +374,24 @@ def test_company_spec_reads(registry: Registry):
     assert companies.by_namespace("nowhere") is None
 
 
+def test_the_pause_is_a_company_fact_that_survives_a_re_apply(registry: Registry):
+    """The console pauses under a name, the heartbeat reads who and when;
+    a blueprint re-apply leaves the pause alone; resume clears it; an
+    unapplied company is simply not paused."""
+    companies = Companies(registry)
+    assert companies.paused("hello-saas") is None
+    companies.upsert("hello-saas", {"namespace": "hello-saas"})
+    assert companies.paused("hello-saas") is None
+    companies.pause("hello-saas", "owner")
+    paused = companies.paused("hello-saas")
+    assert paused is not None and paused["by"] == "owner" and paused["at"]
+    companies.upsert("hello-saas", {"namespace": "hello-saas", "vision": "v2"})
+    assert companies.paused("hello-saas") == paused
+    assert companies.get("hello-saas")["vision"] == "v2"
+    companies.resume("hello-saas")
+    assert companies.paused("hello-saas") is None
+
+
 def test_budget_ledger_attributes_and_sums(registry: Registry):
     """One ledger with dimensions: every entry fully attributed,
     the per-run SUM is what the LLM gateway's hard-stop compares against."""

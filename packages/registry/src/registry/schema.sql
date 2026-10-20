@@ -24,6 +24,12 @@ CREATE SCHEMA IF NOT EXISTS registry;
 CREATE TABLE IF NOT EXISTS registry.companies (
     name        text PRIMARY KEY,
     blueprint   jsonb,
+    -- The pause: who froze the heartbeat and when, written by the console
+    -- under a human's act and read by the heartbeat on every tick. NULL
+    -- means the loop may start work. The reason lives on the act's audit
+    -- row, like every rationale.
+    paused_by   text,
+    paused_at   timestamptz,
     created_at  timestamptz NOT NULL DEFAULT now(),
     updated_at  timestamptz NOT NULL DEFAULT now()
 );

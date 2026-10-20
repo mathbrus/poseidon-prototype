@@ -1,5 +1,7 @@
-"""`companies` — written by the operator: the registry's record of what has
-been applied, upserted on reconcile and cleared on teardown.
+"""`companies` — the registry's record of what has been applied: the
+blueprint, written by the operator on reconcile and cleared on teardown;
+and the pause, written by the console under a human's act and read by
+the heartbeat on every tick.
 """
 
 from typing import Any
@@ -10,13 +12,15 @@ from registry.db import Registry
 
 
 class Companies:
-    """The companies table — the registry's record of what has been applied,
-    written by the operator on reconcile and cleared on teardown."""
+    """The companies table — the applied blueprint and the pause."""
 
     def __init__(self, registry: Registry) -> None:
         self._db = registry
 
     def upsert(self, name: str, spec: dict[str, Any]) -> None:
+        """The applied spec, replaced on every reconcile. The pause columns
+        are not touched: a paused company whose blueprint is applied again
+        stays paused until a human resumes it."""
         self._db.execute(
             """
             INSERT INTO registry.companies (name, blueprint, updated_at)
@@ -27,6 +31,33 @@ class Companies:
             """,
             (name, Jsonb(spec)),
         )
+
+    def pause(self, name: str, by: str) -> None:
+        """Freeze the heartbeat under `by`'s name; the time is the registry's."""
+        self._db.execute(
+            "UPDATE registry.companies SET paused_by = %s, paused_at = now()"
+            " WHERE name = %s",
+            (by, name),
+        )
+
+    def resume(self, name: str) -> None:
+        self._db.execute(
+            "UPDATE registry.companies SET paused_by = NULL, paused_at = NULL"
+            " WHERE name = %s",
+            (name,),
+        )
+
+    def paused(self, name: str) -> dict[str, Any] | None:
+        """`{by, at}` while the company is paused (`at` ISO-8601), else None —
+        also None for a company that is not applied."""
+        rows = self._db.query(
+            "SELECT paused_by, paused_at FROM registry.companies"
+            " WHERE name = %s AND paused_by IS NOT NULL",
+            (name,),
+        )
+        if not rows:
+            return None
+        return {"by": rows[0]["paused_by"], "at": rows[0]["paused_at"].isoformat()}
 
     def get(self, name: str) -> dict[str, Any] | None:
         """The applied spec (the Company CR spec minus the bundle) — what the
