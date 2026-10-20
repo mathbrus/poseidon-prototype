@@ -170,6 +170,12 @@ class ConsoleClient:
     def wake(self) -> dict[str, Any]:
         return self._call("POST", "/heartbeat/wake")
 
+    def pause(self, reason: str) -> dict[str, Any]:
+        return self._call("POST", "/heartbeat/pause", json={"reason": reason})
+
+    def resume(self, reason: str) -> dict[str, Any]:
+        return self._call("POST", "/heartbeat/resume", json={"reason": reason})
+
     def spend_since(self, since: str | None = None) -> dict[str, Any]:
         return self._call("GET", "/spend", params=_since(since))
 

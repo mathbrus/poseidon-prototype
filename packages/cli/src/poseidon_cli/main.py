@@ -56,7 +56,8 @@ company_app = typer.Typer(
     no_args_is_help=True, help="The company this cluster hosts: show it, or delete it."
 )
 heartbeat_app = typer.Typer(
-    no_args_is_help=True, help="The company's standing loop: show it, or wake it."
+    no_args_is_help=True,
+    help="The company's standing loop: show it, or wake it. `poseidon pause` holds it.",
 )
 run_app = typer.Typer(
     no_args_is_help=True, help="One run: show it, read its story, cancel it."
@@ -310,11 +311,13 @@ def _await_converged(client: ConsoleClient, generation: int, timeout_s: int) -> 
 @company_app.command("show")
 def company_show(as_json: bool = JSON_OPTION) -> None:
     """The applied company: its name, phase (`activating` until its policy
-    is served, `converged` after), generation and bundle revision."""
+    is served, `converged` after), generation and bundle revision, and who
+    holds its heartbeat paused, if anyone."""
     state = _call(_client().company)
     if as_json:
         _json(state)
         return
+    paused = state.get("paused") or {}
     render.record(
         [
             ("company", state.get("company")),
@@ -325,6 +328,15 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
             ),
             ("bundle", render.dim(state.get("bundleRevision") or "")),
             ("namespace", render.dim(state.get("namespace") or "")),
+            (
+                "heartbeat",
+                Text.assemble(
+                    render.status("paused"),
+                    f" by {paused['by']}, {render.ago(paused['at'])}",
+                )
+                if paused
+                else render.status("running"),
+            ),
             ("message", state.get("message")),
         ]
     )
@@ -337,7 +349,8 @@ def company_delete(
 ) -> None:
     """Delete the company: cancels its running runs, removes it and waits
     for the teardown. Asks first, naming the runs it will cancel. The one
-    way to stop a company; applying its blueprint again resumes it."""
+    way to stop a company (`pause` holds it instead); applying its
+    blueprint again brings it back."""
     client = _client()
     company = _call(client.whoami).get("company")
     if not company:
@@ -408,6 +421,26 @@ def wake() -> None:
     decides for itself what, if anything, to start."""
     _call(_client().wake)
     render.act("heartbeat woken")
+
+
+@app.command()
+def pause(reason: str = REASON_OPTION) -> None:
+    """Hold the company: its heartbeat starts nothing until `resume`, and
+    everything stays where it is to be read. Runs already in flight
+    finish; you may still start a run, answer a gate or cancel by hand.
+    Recorded under your name with your reason."""
+    result = _call(_client().pause, reason)
+    paused = result.get("paused") or {}
+    render.act(f"heartbeat paused by {paused.get('by', '')}")
+
+
+@app.command()
+def resume(reason: str = REASON_OPTION) -> None:
+    """Lift the pause: the heartbeat looks at the world at once and
+    decides for itself what to start. Recorded under your name with your
+    reason."""
+    _call(_client().resume, reason)
+    render.act("heartbeat resumed")
 
 
 # -- runs ------------------------------------------------------------------------
