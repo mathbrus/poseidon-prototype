@@ -1,6 +1,6 @@
 """What the workflows share: the activity bounds, the retry policies,
 deterministic workflow naming, and — for the workflow classes — the run's
-birth, crew fulfilment, the budget pause, the gate audit trail and
+birth, crew fulfilment, the budget park, the gate audit trail and
 teardown.
 """
 
@@ -95,7 +95,7 @@ class RunWorkflow:
     """The base of the run-shaped workflow classes: the run's birth
     (row, budget headroom, shape from the applied blueprint), crew
     fulfilment, the API-visible phase, gate transitions recorded as
-    `process-gate` audit events, the budget-pause loop around an agent
+    `process-gate` audit events, the budget-park loop around an agent
     dispatch, and teardown.
 
     Subclasses name their `WORKFLOW`, set `_state` and `_budget_gate`, and
@@ -253,9 +253,9 @@ class RunWorkflow:
         task_text: str,
         documents: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """One agent dispatch, budget-pause aware: a `budget_exhausted`
+        """One agent dispatch, budget-park aware: a `budget_exhausted`
         result parks the workflow on the `budget` signal in an API-visible
-        state for the blueprint's `budgets.per_run.pause_minutes`;
+        state for the blueprint's `budgets.per_run.deadline_minutes`;
         approval (the cap was raised) re-dispatches the same text, anything
         else returns the budget-marked result for teardown to finalize.
         Escalation and verdict are process-gate audit events, like the
@@ -277,7 +277,7 @@ class RunWorkflow:
                 return result
             self._state = PARKED_STATE[BUDGET_GATE]
             outcome = await self._budget_gate.wait(
-                **gate_deadline(self._config["budget_pause_minutes"]),
+                **gate_deadline(self._config["budget_deadline_minutes"]),
                 on_escalate=lambda: self.record_gate(run_id, BUDGET_GATE, "escalated"),
             )
             self._state = "running"

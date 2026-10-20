@@ -186,7 +186,7 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         gate_event(BUDGET_GATE),
         "process-gate",
-        "the budget pause's outcome: approved, rejected, escalated or expired",
+        "the budget park's outcome: approved, rejected, escalated or expired",
     ),
     PlatformEvent(
         gate_event(ATTEMPTS_GATE),

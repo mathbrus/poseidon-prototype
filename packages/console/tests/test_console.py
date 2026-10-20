@@ -197,7 +197,7 @@ def as_owner() -> dict[str, str]:
 
 def a_review_run(world: World) -> None:
     world.runs.start(RUN_ID, "Review PR #41", "review", f"review-{RUN_ID}", COMPANY)
-    world.workflows.running[f"review-{RUN_ID}"] = "paused-merge_gate"
+    world.workflows.running[f"review-{RUN_ID}"] = "parked-merge_gate"
 
 
 # -- the door ----------------------------------------------------------------
@@ -273,7 +273,7 @@ async def test_a_denied_verdict_is_a_403_that_signals_nothing(client, world):
 
 async def test_a_rejection_is_recorded_as_one(client, world):
     a_review_run(world)
-    world.workflows.running[f"review-{RUN_ID}"] = "paused-budget_exhausted"
+    world.workflows.running[f"review-{RUN_ID}"] = "parked-budget_exhausted"
     response = await client.post(
         f"/runs/{RUN_ID}/gates/budget",
         json={"approved": False, "reason": "not worth more spend"},
@@ -576,7 +576,7 @@ async def test_the_reads_need_a_human_and_touch_nothing(client, world):
     assert run["execution"] == {
         "workflow_id": f"review-{RUN_ID}",
         "status": "RUNNING",
-        "state": "paused-merge_gate",
+        "state": "parked-merge_gate",
     }
     runs = (await client.get("/runs", headers=as_owner())).json()
     assert [r["run_id"] for r in runs] == [RUN_ID]

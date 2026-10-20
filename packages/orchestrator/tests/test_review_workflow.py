@@ -146,7 +146,7 @@ class Harness:
                 "crew": "feature-review",
                 "gates": {"merge": harness.merge_gate} if harness.merge_gate else {},
                 "max_verify_retries": 0,
-                "budget_pause_minutes": 1,
+                "budget_deadline_minutes": 1,
                 "contract_paths": list(harness.contract_paths),
                 "timeouts": asdict(FAST_TIMEOUTS),
             }
@@ -403,7 +403,7 @@ async def wait_for_park(handle: WorkflowHandle) -> None:
     park is reached in real time and the gate timers stay unfired until
     the test awaits the result."""
     for _ in range(200):
-        if await handle.query("state") == "paused-merge_gate":
+        if await handle.query("state") == "parked-merge_gate":
             return
         await asyncio.sleep(0.05)
     raise AssertionError("the review workflow never parked on the merge gate")

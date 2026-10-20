@@ -21,7 +21,7 @@ WORKFLOWS = ("scope", "implement", "review", "heartbeat")
 HUMAN_STARTABLE = ("implement", "review")
 
 # The gates a run parks on for a human: the merge gate of a review, and
-# the budget pause of any run that hit its cap. A human resolves either
+# the budget park of any run that hit its cap. A human resolves either
 # through the console; the compiler emits one rule per gate and verdict.
 MERGE_GATE = "merge"
 BUDGET_GATE = "budget"
@@ -44,7 +44,7 @@ GATES_OF = {
 # The API-visible state a workflow reports while parked on a gate — what
 # the console requires before it records a verdict, so an answer is only
 # ever given to a question that was asked.
-PARKED_STATE = {MERGE_GATE: "paused-merge_gate", BUDGET_GATE: "paused-budget_exhausted"}
+PARKED_STATE = {MERGE_GATE: "parked-merge_gate", BUDGET_GATE: "parked-budget_exhausted"}
 
 # One Temporal namespace, one task queue.
 TEMPORAL_NAMESPACE = "default"

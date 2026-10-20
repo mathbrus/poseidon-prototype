@@ -101,7 +101,7 @@ answered with). A refusal carries none — its rule is the reason.
 | `gateway` | the MCP gateway | every tool call: decision, rule, backend outcome |
 | `llm-gateway` | the LLM gateway | every model call and its metered cost; budget stops |
 | `sandbox-infra` | the egress proxy | every allowed and denied egress attempt (`egress_not_allowlisted`) |
-| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget pauses, and the stops nobody resolves — attempts spent, bootstrap exhausted, the daily cap |
+| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget parks, and the stops nobody resolves — attempts spent, bootstrap exhausted, the daily cap |
 | `process-lifecycle` | the orchestrator | crew fulfilment, the review's facts, the heartbeat's journal |
 | `console` | the console | every human act, under the person's name; and every token it refused |
 

@@ -264,7 +264,7 @@ def _heartbeat_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> l
 
 def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
     """A run cap must exist and be positive, or the first hard-stop check
-    has nothing to compare against; and the pause a stopped run waits out
+    has nothing to compare against; and the park a stopped run waits out
     must be declared, or the workflow would park with no deadline."""
     problems = []
     per_run = (blueprint.get("budgets") or {}).get("per_run") or {}
@@ -273,9 +273,9 @@ def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
             "budgets.per_run.usd: every run needs a per-run cap "
             "(the LLM gateway hard-stops against it)"
         )
-    if not per_run.get("pause_minutes"):
+    if not per_run.get("deadline_minutes"):
         problems.append(
-            "budgets.per_run.pause_minutes: a run stopped at the cap needs a "
+            "budgets.per_run.deadline_minutes: a run stopped at the cap needs a "
             "declared wait for the human who may raise it"
         )
     return problems

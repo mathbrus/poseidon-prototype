@@ -1,6 +1,6 @@
 {
   "budgets": {
-    "pause_minutes": 60,
+    "deadline_minutes": 60,
     "per_run_usd": 5.0
   },
   "bundle": {

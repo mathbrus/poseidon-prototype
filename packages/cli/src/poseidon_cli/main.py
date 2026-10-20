@@ -624,7 +624,7 @@ def verdict(
     reason: str = REASON_OPTION,
 ) -> None:
     """Answer a gate a run parked on. The console records the verdict and
-    your reason under your name, then delivers it. Approving a budget pause
+    your reason under your name, then delivers it. Approving a budget park
     lets the run continue under its cap as it stands."""
     approved = verdict is Verdict.approve
     result = _call(_client().resolve, run_id, gate.value, approved, reason)

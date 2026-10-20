@@ -2,7 +2,7 @@
 
 The review workflow wires a real merge gate on this framework (configured
 from the blueprint's compiled plan), and the implement workflow parks its
-budget pause on the same primitives. The merge gate is the sole owner of
+budget park on the same primitives. The merge gate is the sole owner of
 the merge guarantee: approvals are workflow state, and `git.merge_pr` is
 only ever called after the gate approves.
 

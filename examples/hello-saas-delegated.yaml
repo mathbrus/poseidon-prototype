@@ -102,7 +102,7 @@ budgets:
   per_run:
     usd: 5
     # How long a run stopped at the cap waits for someone to raise it.
-    pause_minutes: 60
+    deadline_minutes: 60
 
 # The company's own initiative: who decides, what it may start on its own,
 # how many at once, how many tries an item gets, how large the backlog may

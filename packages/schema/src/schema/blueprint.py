@@ -44,7 +44,7 @@ _REPO_PATH = {"type": "string", "minLength": 1, "pattern": r"^[^\s/][^\s]*$"}
 # resolve a gate, start or cancel a run by hand, wake the heartbeat and
 # re-apply this document: named here so that authority is a diff, and
 # required because every company has at least one gate only a person can
-# answer (the budget pause; a policy-resolved merge falls back to one).
+# answer (the budget park; a policy-resolved merge falls back to one).
 # The vision
 # reaches every procedure but `deliver` through the static prompt and
 # changes only when the blueprint is applied again; the cap keeps it a
@@ -337,16 +337,16 @@ _BUDGETS = {
     "additionalProperties": False,
     "required": ["per_run"],
     "properties": {
-        # `usd` is the hard stop at the LLM gateway; `pause_minutes` is how
+        # `usd` is the hard stop at the LLM gateway; `deadline_minutes` is how
         # long a run stopped by it waits for a human to raise the cap
         # (escalation at half, then the run fails).
         "per_run": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["usd", "pause_minutes"],
+            "required": ["usd", "deadline_minutes"],
             "properties": {
                 "usd": {"type": "number", "exclusiveMinimum": 0},
-                "pause_minutes": {"type": "integer", "minimum": 1},
+                "deadline_minutes": {"type": "integer", "minimum": 1},
             },
         },
     },

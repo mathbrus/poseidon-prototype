@@ -28,7 +28,7 @@ uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 
 uv run poseidon verdict <run_id> merge approve --reason "…"   # approve a parked merge
 uv run poseidon verdict <run_id> merge reject --reason "…"    # reject it
-uv run poseidon verdict <run_id> budget approve --reason "…"  # let a run continue past its pause
+uv run poseidon verdict <run_id> budget approve --reason "…"  # let a run continue past its budget park
 uv run poseidon runs
 uv run poseidon run show <run_id>
 uv run poseidon run story <run_id> [--decisions]

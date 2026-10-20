@@ -127,8 +127,8 @@ class Answers:
     reconcile_minutes: int = 30
     max_attempts: int = 2
     max_open_tickets: int = 5
-    pause_minutes: int = 60
-    deadline_minutes: int = 1440
+    budget_deadline_minutes: int = 60
+    merge_deadline_minutes: int = 1440
     max_verify_retries: int = 2
     allowed_pattern: str = "^feature/[a-z0-9-]+$"
     deny_paths: list[str] = field(default_factory=lambda: [".github/workflows/"])
@@ -371,16 +371,16 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
             a.max_open_tickets,
             1,
         )
-        a.pause_minutes = _int(
+        a.budget_deadline_minutes = _int(
             prompter,
             "Minutes a task waits at its spending limit for a person",
-            a.pause_minutes,
+            a.budget_deadline_minutes,
             1,
         )
-        a.deadline_minutes = _int(
+        a.merge_deadline_minutes = _int(
             prompter,
-            "Minutes a pull request waits for a person's approval",
-            a.deadline_minutes,
+            "Minutes a pull request waits for a person's verdict",
+            a.merge_deadline_minutes,
             1,
         )
         a.max_verify_retries = _int(
@@ -448,7 +448,7 @@ def build(a: Answers) -> dict[str, Any]:
     }
     merge: dict[str, Any] = {
         "resolved_by": a.resolver,
-        "deadline_minutes": a.deadline_minutes,
+        "deadline_minutes": a.merge_deadline_minutes,
     }
     if a.resolver == "policy":
         merge["delegate"] = {
@@ -497,7 +497,10 @@ def build(a: Answers) -> dict[str, Any]:
         },
         "policies": policies,
         "budgets": {
-            "per_run": {"usd": _money(a.per_run_usd), "pause_minutes": a.pause_minutes}
+            "per_run": {
+                "usd": _money(a.per_run_usd),
+                "deadline_minutes": a.budget_deadline_minutes,
+            }
         },
         "heartbeat": {
             "conductor": PM,

@@ -90,7 +90,7 @@ def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:
     CLI — the exact HITL sequence `poseidon verdict <run> merge approve`
     answers —
     and read the run to its end."""
-    await_gate(run_id, "paused-merge_gate")
+    await_gate(run_id, "parked-merge_gate")
 
     # Nobody answers: the timer escalates at half the declared deadline and
     # the escalation is a real process-gate row — observable, not a log line.

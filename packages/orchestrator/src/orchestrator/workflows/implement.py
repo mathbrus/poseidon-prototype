@@ -21,9 +21,9 @@ the PR. Delivery before verify is structurally impossible: the implement
 procedure's toolset has no `git.open_pr`, and the deliver dispatch is
 sequenced strictly after the gate.
 
-The budget pause (`RunWorkflow.dispatch`) rides the same Gate skeleton as
+The budget park (`RunWorkflow.dispatch`) rides the same Gate skeleton as
 the review workflow's merge gate: it parks the workflow on the `budget`
-signal in an API-visible `paused-budget_exhausted` state whenever a
+signal in an API-visible `parked-budget_exhausted` state whenever a
 dispatch comes back with the LLM gateway's `budget_exhausted` marker.
 """
 
@@ -92,7 +92,7 @@ class ImplementWorkflow(RunWorkflow):
     @workflow.signal
     def budget(self, approved: bool) -> None:
         """`poseidon signal <run_id> budget --approved/--no-approved`:
-        resolve a budget pause — approved means the cap was raised and the
+        resolve a budget park — approved means the cap was raised and the
         run may continue; rejected finalizes it."""
         self._budget_gate.resolve(approved)
 

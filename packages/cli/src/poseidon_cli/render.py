@@ -58,7 +58,7 @@ STATUS_STYLE = {
 }
 DIM = "dim"
 # A run whose state starts with this is parked on a gate.
-PARKED_PREFIX = "paused-"
+PARKED_PREFIX = "parked-"
 
 
 def status(word: Any) -> Text:

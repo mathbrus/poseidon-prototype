@@ -404,7 +404,7 @@ def run_review(
     wake_until_run_started(task, "review")
     run_id = run_by_task(task, workflow="review")["run_id"]
     if approve is not None:
-        await_gate(run_id, "paused-merge_gate")
+        await_gate(run_id, "parked-merge_gate")
         console().resolve(run_id, "merge", approve, "e2e: human verdict")
     return run_id, await_run(
         task, terminal=True, deadline_s=deadline_s, workflow="review"

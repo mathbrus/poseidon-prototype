@@ -81,7 +81,7 @@ class WorkflowConfig:
 class BudgetRegistration:
     per_run_usd: float
     # How long a run stopped at the cap waits for a human to raise it.
-    pause_minutes: int
+    deadline_minutes: int
 
 
 @dataclass(frozen=True)

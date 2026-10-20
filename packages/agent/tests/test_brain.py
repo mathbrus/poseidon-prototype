@@ -371,7 +371,7 @@ def test_deliver_without_pr_fails_the_run(settings, gateway):
 
 def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
     """The LLM gateway's hard stop is a 429 with the budget_exhausted
-    marker; the dispatch surfaces it (the workflow keys its pause on the
+    marker; the dispatch surfaces it (the workflow keys its park on the
     substring) after a single attempt — the SDK must not retry into it."""
     from litellm.exceptions import RateLimitError
 

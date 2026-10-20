@@ -199,10 +199,10 @@ def test_the_advanced_settings_are_asked_only_on_request():
     )
     built = new.build(new.ask(prompter))
     assert built["heartbeat"]["max_attempts"] == 3
-    assert "Minutes a pull request waits for a person's approval" in prompter.asked
+    assert "Minutes a pull request waits for a person's verdict" in prompter.asked
     quiet = example_answers()
     new.ask(quiet)
-    assert "Minutes a pull request waits for a person's approval" not in quiet.asked
+    assert "Minutes a pull request waits for a person's verdict" not in quiet.asked
 
 
 def test_the_validators_refuse_what_the_schema_would():

@@ -93,7 +93,7 @@ class ReviewWorkflow(RunWorkflow):
 
     @workflow.signal
     def budget(self, approved: bool) -> None:
-        """The console's budget verdict: resolve a budget pause, exactly as
+        """The console's budget verdict: resolve a budget park, exactly as
         in implement."""
         self._budget_gate.resolve(approved)
 

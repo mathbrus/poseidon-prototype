@@ -17,7 +17,7 @@ a person is required before code leaves the system.
 
 | Path | Owns |
 |---|---|
-| `workflows/` | `scope`, `implement`, `review`, `heartbeat` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
+| `workflows/` | `scope`, `implement`, `review`, `heartbeat` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget park and the gate audit trail). Deterministic replay code; no I/O. |
 | `activities/` | The activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
 | `gates/` | `Gate` — a signal-driven wait point with an escalation timer. |
 | `audit.py` | `record_event` — the platform's own audit events, under its identity or an ephemeral agent's, on the shared ingestion contract. |
@@ -214,7 +214,7 @@ three transitions — escalated, verdict (approved/rejected), timed out —
 are `source=process-gate` audit events, written by
 the `record_gate_outcome` *activity*, because workflow code cannot reach
 the registry. The park itself is API-visible through the `state` query
-(`paused-merge_gate`, `paused-budget_exhausted`), so a waiting gate is
+(`parked-merge_gate`, `parked-budget_exhausted`), so a waiting gate is
 never a silent hang.
 
 The merge gate is the only human gate the shipped blueprint enables, and
@@ -231,7 +231,7 @@ is a first-class audit row, and the merge itself is a gateway-audited
 Gate config comes from the compiled plan (`workflows.<name>.gates`),
 never hardcoded.
 
-The budget pause rides the same spine: when a dispatch returns the LLM
+The budget park rides the same spine: when a dispatch returns the LLM
 gateway's `budget_exhausted` marker, the workflow parks on the `budget`
 signal rather than silently retrying against an exhausted cap. Approval
 means the cap was raised — the same text is re-dispatched; anything else

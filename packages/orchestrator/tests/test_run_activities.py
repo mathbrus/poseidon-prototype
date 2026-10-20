@@ -42,7 +42,7 @@ APPLIED_SPEC = {
     "namespace": "hello-saas",
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "documents": {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"},
-    "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
+    "budgets": {"per_run_usd": 5.0, "deadline_minutes": 60},
     "contractTests": {"paths": ["tests/contract", "tests/acceptance"]},
     "heartbeat": {"conductor": "pm", "max_attempts": 2},
     "workflows": [
@@ -203,7 +203,7 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
         "crew": "feature-delivery",
         "gates": {},
         "max_verify_retries": 2,
-        "budget_pause_minutes": 60,
+        "budget_deadline_minutes": 60,
         "contract_paths": ["tests/acceptance", "tests/contract"],
         "timeouts": asdict(Timeouts()),
     }
@@ -230,7 +230,7 @@ def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
     companies.upsert(
         "hello-saas",
         {
-            "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
+            "budgets": {"per_run_usd": 5.0, "deadline_minutes": 60},
             "heartbeat": {"conductor": "pm", "max_attempts": 2},
             "workflows": [{"name": "review", "crew": "feature-review"}],
         },

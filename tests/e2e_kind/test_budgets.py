@@ -3,7 +3,7 @@
 A blueprint edit shrinks hello-saas's per-run cap to a value the run's
 second implementer call must exceed; the LLM gateway hard-stops the run
 the heartbeat started (`budget_exhausted`, audited, never silent), the
-implement workflow pauses into an API-visible `paused-budget_exhausted`
+implement workflow parks into an API-visible `parked-budget_exhausted`
 state, a rejection signal finalizes it, the ledger fully attributes the
 spend, and the budget events sit in the run's one audit story. And the
 mirror image: a human who decides the run is worth more raises the cap
@@ -29,7 +29,7 @@ from common.tasks import issue_run_task
 from common.workflows import BUDGET_GATE
 
 from .blueprints import (
-    E2E_PAUSE_MINUTES,
+    E2E_DEADLINE_MINUTES,
     derived_blueprint,
     pristine_profile,
     restore_pristine,
@@ -96,7 +96,7 @@ def ledger_entries(run_id: str) -> list[dict[str, Any]]:
     )
 
 
-def _paused_run(env: dict) -> tuple[int, str]:
+def _parked_run(env: dict) -> tuple[int, str]:
     """File the happy ticket, let the heartbeat start it, and wait for the
     budget hard-stop's API-visible pending state. Returns the ticket and
     the run the loop minted."""
@@ -105,30 +105,30 @@ def _paused_run(env: dict) -> tuple[int, str]:
     wake_until_run_started(issue_run_task(number), "implement")
     run_id = run_by_task(issue_run_task(number), workflow="implement")["run_id"]
 
-    await_gate(run_id, "paused-budget_exhausted", deadline_s=300)
+    await_gate(run_id, "parked-budget_exhausted", deadline_s=300)
     return number, run_id
 
 
 def _signal_budget(run_id: str, approved: bool, reason: str) -> None:
-    """The human's answer to the budget pause, through the console: the
+    """The human's answer to the budget park, through the console: the
     verdict and the reason are recorded under their name, then delivered."""
     console().resolve(run_id, "budget", approved, reason)
 
 
-def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> None:
-    number, run_id = _paused_run(env)
+def test_tiny_cap_hard_stops_parks_and_attributes(tiny_cap_applied, env) -> None:
+    number, run_id = _parked_run(env)
     try:
-        # The pause *escalates* — a real process-gate audit event fires at
-        # half the declared pause. Wait for it before answering, exactly like
+        # The park *escalates* — a real process-gate audit event fires at
+        # half the declared deadline. Wait for it before answering, exactly like
         # the merge-gate e2e does: the escalation path proves itself on
         # every run.
-        deadline = time.monotonic() + E2E_PAUSE_MINUTES * 60 - 5
+        deadline = time.monotonic() + E2E_DEADLINE_MINUTES * 60 - 5
         while not any(
             e["source"] == "process-gate" and e["rule"] == "gate_escalated"
             for e in audit_story(run_id)
         ):
             assert time.monotonic() < deadline, (
-                "the budget pause never escalated into the audit store"
+                "the budget park never escalated into the audit store"
             )
             time.sleep(2)
         # A human answers the escalation: no, this run does not get more budget.
@@ -187,7 +187,7 @@ def test_tiny_cap_hard_stops_pauses_and_attributes(tiny_cap_applied, env) -> Non
     ]
     assert late_allows == [], f"model calls after the hard-stop: {late_allows}"
 
-    # And the pause is in the story as first-class gate outcomes: the
+    # And the park is in the story as first-class gate outcomes: the
     # escalation at half-deadline, then the human's rejection — same
     # process-gate contract as the merge gate.
     gate_rules = [
@@ -229,10 +229,10 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
     The approval is a `gate.budget` `gate_approved` process-gate event, the
     run finishes `done` with a PR, and the ledger shows spend past the tiny
     cap — real work the first stop had blocked."""
-    number, run_id = _paused_run(env)
+    number, run_id = _parked_run(env)
     record = None
     try:
-        spend_at_pause = sum(float(e["usd"]) for e in ledger_entries(run_id))
+        spend_at_park = sum(float(e["usd"]) for e in ledger_entries(run_id))
         # The human raises the cap: re-apply the real blueprint (the gateway
         # reads the cap from the registry per call, so the upsert is enough),
         # then approve — the run may continue.
@@ -251,12 +251,12 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
         ]
         assert "gate_approved" in gate_rules, gate_rules
 
-        # The run spent *more* after the cap was raised: the pre-pause total
+        # The run spent *more* after the cap was raised: the pre-park total
         # already exceeds TINY_CAP by construction, so only a strictly larger
         # final total proves the approval actually resumed real model work.
         final_spend = sum(float(e["usd"]) for e in ledger_entries(run_id))
-        assert final_spend > spend_at_pause, (
-            f"no spend past the raised cap ({final_spend} == {spend_at_pause}) — "
+        assert final_spend > spend_at_park, (
+            f"no spend past the raised cap ({final_spend} == {spend_at_park}) — "
             "the run never resumed real work"
         )
     finally:

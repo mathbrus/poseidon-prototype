@@ -57,7 +57,7 @@ Read it as the answer to "what do I actually get?"
   out-of-scope tools; an injected conductor refused when it tries to spawn
   outside `may_spawn`; egress containment with the attempt audited; six
   distinct audit sources correlated by one `run_id`.
-- **Budget enforcement.** A per-run hard stop that pauses the run visibly,
+- **Budget enforcement.** A per-run hard stop that parks the run visibly,
   escalates as a real gate event, and attributes every dollar to
   `{run, parent, agent, role}`.
 - **Sandbox containment.** No mounted service-account token, no reachable

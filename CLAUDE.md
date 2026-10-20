@@ -88,6 +88,8 @@ first.
 | **human** | a verified person: on kind a ServiceAccount `human-<name>` the chart declares under `console.humans`, elsewhere an identity provider's user; `lifecycle: human`, never a catalog role; `company.humans` names those who may act on a company | operator, user, approver, admin |
 | **rationale** | the reason an actor states for a decision at the moment it commits the company to something, recorded in cleartext (`audit_events.rationale`, at most 1000 characters) beside the decision's row; owed by every commitment, by no refusal — the rule is the reason; the CLI asks for it as `--reason` | reason (as a field name), note, payload, summary, rule (why policy answered) |
 | **verdict** | a human's answer to a gate (`approved` or not), recorded by the console under the human's name before the workflow is signalled; the merge gate is released only on a recorded verdict | approval, signal, decision (a policy result) |
+| **parked** | a run waiting on a gate for a human's verdict, in the API-visible state `parked-<gate>` (`parked-merge_gate`, `parked-budget_exhausted`); it waits the gate's `deadline_minutes`, escalates at half and expires at the end | paused, blocked, waiting, suspended |
+| **pause** | the human act that freezes the heartbeat: `heartbeat.pause` through the console, lifted by `heartbeat.resume` (`poseidon pause` / `poseidon resume`); a paused loop ticks, records `tick_paused` and starts nothing; runs in flight finish; not a stop — the company stays, deleting it is the one stop | freeze, halt, suspend, stop, sleep |
 | **converged** | the Company phase the operator writes once OPA serves the stored bundle revisions, the platform's and the company's; `activating` until then | ready, applied, installed |
 | **tombstone** | the empty bundle over a torn-down company's roots that the bundle server keeps serving, so OPA's next poll erases its rules | deleted bundle, 404 |
 <!-- --8<-- [end:glossary] -->
@@ -96,7 +98,9 @@ first.
 
 - **A company always has a heartbeat**: a blueprint without one does not
   compile, work originates only from its ticks, and stopping the company
-  is deleting it. There is no human-started mode and no goal file.
+  is deleting it. Pausing it (`poseidon pause`) freezes the heartbeat and
+  nothing else: runs in flight finish, the company stays. There is no
+  human-started mode and no goal file.
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.
   Never set `REAL_LLM=1` or use a paid provider without explicit
   opt-in from the user. The harness now enforces this: the e2e suite
