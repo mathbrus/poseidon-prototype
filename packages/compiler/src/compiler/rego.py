@@ -263,9 +263,9 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
 
     The caps are compiled literals and the live counts ride the input,
     verified by the caller — the `active_spawns` idiom: runs in flight,
-    today's spend, the target item's prior attempts, and for `scope` the
-    repository's open issues. Fail-safe defaults: absent counts deny,
-    like the changed-paths rules."""
+    today's spend, the target item's prior attempts, for `scope` the
+    repository's open issues, and whether a human holds the loop paused.
+    Fail-safe defaults: absent facts deny, like the changed-paths rules."""
     allows = "".join(
         f'\nallow_rules contains "heartbeat_start_{rego_slug(workflow)}" if {{\n'
         '\tinput.lifecycle == "platform"\n'
@@ -315,6 +315,17 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
         '\ndeny_rules contains "heartbeat_start_attempts_missing" if {\n'
         f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tnot is_number(object.get(input, ["args", "attempts"], null))\n'
+        "}\n"
+        # A human holds the loop: the caller read the pause fresh and
+        # says so; a start while paused is refused, and so is one that
+        # does not say.
+        '\ndeny_rules contains "heartbeat_start_while_paused" if {\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
+        "\tinput.args.paused == true\n"
+        "}\n"
+        '\ndeny_rules contains "heartbeat_start_paused_missing" if {\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
+        '\tnot is_boolean(object.get(input, ["args", "paused"], null))\n'
         "}\n"
     )
     return _rego_file(company, allows + denies)

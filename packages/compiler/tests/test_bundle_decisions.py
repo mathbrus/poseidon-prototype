@@ -512,12 +512,13 @@ def test_crew_request_without_budget_headroom_is_denied(decide):
 
 def heartbeat_start(workflow: str, **args) -> dict:
     """A platform heartbeat.start input. The target's prior attempts ride
-    it like the other counts; a fresh item has none."""
+    it like the other counts; a fresh item has none; the loop is not
+    paused unless the test says so."""
     return {
         "company": "hello-saas",
         "lifecycle": "platform",
         "tool": "heartbeat.start",
-        "args": {"workflow": workflow, "attempts": 0, **args},
+        "args": {"workflow": workflow, "attempts": 0, "paused": False, **args},
     }
 
 
@@ -599,6 +600,20 @@ def test_heartbeat_start_fails_closed_without_the_counts(decide_heartbeat):
     decision = decide_heartbeat(**absent_attempts)
     assert decision["allow"] is False
     assert decision["rule"] == "heartbeat_start_attempts_missing"
+
+
+def test_a_paused_loop_starts_nothing_and_must_say_whether_it_is(decide_heartbeat):
+    """The pause is a fact the caller reads fresh and rides on the input:
+    true refuses the start by name, and an input that omits it refuses
+    too — the absent fact is the dangerous one."""
+    paused = decide_heartbeat(
+        **heartbeat_start("implement", active_runs=0, daily_spent_usd=0, paused=True)
+    )
+    assert paused == {"allow": False, "rule": "heartbeat_start_while_paused"}
+    unsaid = heartbeat_start("implement", active_runs=0, daily_spent_usd=0)
+    del unsaid["args"]["paused"]
+    decision = decide_heartbeat(**unsaid)
+    assert decision == {"allow": False, "rule": "heartbeat_start_paused_missing"}
 
 
 def test_agents_cannot_claim_heartbeat_authority(decide_heartbeat):

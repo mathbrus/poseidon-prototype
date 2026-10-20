@@ -497,6 +497,60 @@ def _quiet(n: int) -> list[dict[str, Any]]:
     return [observation(backlog=[], reviewable_prs=[]) for _ in range(n)]
 
 
+PAUSED = {**CONFIG, "paused": {"by": "owner", "at": "2026-10-20T12:00:00+00:00"}}
+
+
+async def test_a_paused_tick_looks_at_nothing_and_a_resumed_one_starts_work(env):
+    """While a human holds the loop a tick records the pause with their
+    name and neither observes, decides nor starts; the first tick after
+    the pause is lifted works like any other, with no human restart."""
+    harness = Harness(
+        configs=[PAUSED, PAUSED, CONFIG],
+        observations=[observation()],
+        decisions=[{"action": "implement", "target": 5, "rationale": "resumed"}],
+    )
+    await run_heartbeat(env.client, harness)
+    assert harness.ticks[:2] == [("paused", "owner"), ("paused", "owner")]
+    assert harness.ticks[2][0] == "started"
+    # One observation, one decision: the paused ticks asked for neither.
+    assert harness.observed_caps == [CONFIG["max_attempts"]]
+    assert len(harness.decide_calls) == 1
+    assert len(harness.children) == 1
+
+
+async def test_a_paused_loop_says_so_and_a_wake_leaves_it_paused(env):
+    """`heartbeat show` reads `paused` from the state query, and a wake
+    (a finished run, a human's nudge) ticks once more without starting
+    anything — the pause is the registry's fact, not the signal's."""
+    harness = Harness(configs=[PAUSED, PAUSED, None])
+    task_queue = f"tq-{uuid.uuid4().hex[:8]}"
+    async with Worker(
+        env.client,
+        task_queue=task_queue,
+        workflows=[HeartbeatWorkflow, StubImplement, StubReview, StubScope],
+        activities=harness.activities(),
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await env.client.start_workflow(
+            "heartbeat",
+            HeartbeatInput(company=COMPANY),
+            id=f"heartbeat-{COMPANY}-{uuid.uuid4().hex[:8]}",
+            task_queue=task_queue,
+        )
+        while await handle.query("state") != "paused":
+            await asyncio.sleep(0.05)
+        await handle.signal("wake")
+        while len(harness.ticks) < 2:
+            await asyncio.sleep(0.05)
+        await handle.result()
+    assert harness.ticks == [
+        ("paused", "owner"),
+        ("paused", "owner"),
+        ("stopped", "blueprint_absent"),
+    ]
+    assert harness.children == []
+
+
 async def test_wake_cuts_the_sleep_short(env):
     """While no result is awaited the test clock is frozen, so the
     reconcile timer cannot fire: the second tick below can only have been

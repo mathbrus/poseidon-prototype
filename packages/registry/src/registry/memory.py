@@ -230,14 +230,24 @@ class InMemorySandboxRegistrations:
 
 
 class InMemoryCompanies:
-    """The operator's writes, plus the read side the worker and egress
-    proxy consume the infra IR through."""
+    """The operator's writes, the read side the worker and egress proxy
+    consume the infra IR through, and the console's pause."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
+        self.pauses: dict[str, dict[str, Any]] = {}
 
     def upsert(self, name: str, spec: dict[str, Any]) -> None:
         self.rows[name] = dict(spec)
+
+    def pause(self, name: str, by: str) -> None:
+        self.pauses[name] = {"by": by, "at": datetime.now(UTC).isoformat()}
+
+    def resume(self, name: str) -> None:
+        self.pauses.pop(name, None)
+
+    def paused(self, name: str) -> dict[str, Any] | None:
+        return self.pauses.get(name) if name in self.rows else None
 
     def get(self, name: str) -> dict[str, Any] | None:
         return self.rows.get(name)
@@ -255,6 +265,7 @@ class InMemoryCompanies:
 
     def delete(self, name: str) -> None:
         self.rows.pop(name, None)
+        self.pauses.pop(name, None)
 
 
 class InMemoryAgentInstances:

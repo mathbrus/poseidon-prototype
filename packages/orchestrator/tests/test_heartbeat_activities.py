@@ -219,8 +219,20 @@ def test_config_returns_the_applied_section(activities, companies):
     )
     assert asyncio.run(activities.heartbeat_config(COMPANY)) == {
         **HEARTBEAT_SPEC,
+        "paused": None,
         "timeouts": asdict(Timeouts()),
     }
+
+
+def test_config_carries_the_pause(activities, companies):
+    """A human's pause rides the config read, so a paused tick needs no
+    other read to know it must start nothing — and who held it."""
+    companies.upsert(COMPANY, {"heartbeat": HEARTBEAT_SPEC})
+    companies.pause(COMPANY, "owner")
+    config = asyncio.run(activities.heartbeat_config(COMPANY))
+    assert config["paused"]["by"] == "owner" and config["paused"]["at"]
+    companies.resume(COMPANY)
+    assert asyncio.run(activities.heartbeat_config(COMPANY))["paused"] is None
 
 
 def test_config_is_none_without_an_applied_company(activities, companies):
@@ -654,11 +666,25 @@ def test_authorize_allow_is_audited_and_returns(activities, audit, monkeypatch):
         "daily_spent_usd": 3.5,
         "attempts": 1,
         "open_tickets": 4,
+        "paused": False,
     }
     (event,) = audit.story("auto-1")
     assert event["decision"] == "allow"
     assert event["tool"] == HEARTBEAT_START
     assert event["rule"] == "heartbeat_start_implement"
+
+
+def test_authorize_reads_the_pause_fresh(activities, companies, audit, monkeypatch):
+    """A pause that lands after the tick's config read still reaches
+    policy: the fact is read at authorize time, not carried from the
+    tick's start."""
+    http = _opa(monkeypatch, allow=False, rule="heartbeat_start_while_paused")
+    companies.pause(COMPANY, "owner")
+    with pytest.raises(ApplicationError):
+        asyncio.run(activities.heartbeat_authorize("auto-3", "implement", 0, 0.0, 0, 1))
+    assert http.last.input["args"]["paused"] is True
+    (event,) = audit.story("auto-3")
+    assert event["rule"] == "heartbeat_start_while_paused"
 
 
 def test_authorize_deny_raises_nonretryable_and_audits(activities, audit, monkeypatch):

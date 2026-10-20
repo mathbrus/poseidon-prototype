@@ -49,6 +49,16 @@ a step cap — leaves its item for another try; the run that spends the
 last attempt records the exhaustion as a process-gate event and tells the
 world on the PR or issue.
 
+A human may hold the loop: `poseidon pause` records the pause under
+their name in the registry, and a tick that reads it starts nothing,
+observes nothing and asks the PM nothing — it records `tick_paused` with
+the name and waits like any other tick, so the loop stays visible
+(`heartbeat show` says `paused`) and a resume takes effect at once. Runs
+already in flight are not the loop's: they finish on their own. The
+compiled `heartbeat.start` decision reads the pause again at authorize
+time, so one that lands mid-tick still refuses the start. A pause is not
+a stop: the company stays, and deleting it is the one stop.
+
 The choice itself is the PM's: `heartbeat_decide` dispatches the standing
 conductor with the whole observation (backlog, delivered-but-unreviewed
 PRs, run history, capacity and spend) and gets back one action with a
@@ -73,6 +83,7 @@ from common.workflows import (
     BOOTSTRAP_GATE,
     DAILY_CAP_GATE,
     TICK_IDLE,
+    TICK_PAUSED,
     TICK_REFUSED,
     TICK_STARTED,
     TICK_STOPPED,
@@ -117,6 +128,7 @@ class HeartbeatWorkflow(RunWorkflow):
 
     @workflow.query
     def state(self) -> str:
+        """`ticking`, `sleeping`, or `paused` while a human holds the loop."""
         return self._state
 
     @workflow.run
@@ -136,8 +148,46 @@ class HeartbeatWorkflow(RunWorkflow):
             await self._record(TICK_STOPPED, "blueprint_absent")
             return {"stopped": "no applied blueprint for the company"}
         self._bounds = Timeouts(**config["timeouts"])
-        step = timedelta(seconds=self._bounds.step_s)
 
+        if config.get("paused"):
+            # A human holds the loop: nothing is observed, decided or
+            # started; the row says who, and the wait below is the usual
+            # one, so a resume (which wakes) or the backstop ends it.
+            outcome, rule = TICK_PAUSED, str(config["paused"]["by"])
+        else:
+            outcome, rule = await self._tick(input, config)
+        await self._record(outcome, rule)
+
+        self._state = "paused" if outcome == TICK_PAUSED else "sleeping"
+        # A wake that landed during the tick skips the wait: one more tick
+        # services it, however many wakes coalesced into the flag. The
+        # reset before continue-as-new consumes the wake this run answers
+        # for; one arriving between the reset and the continue rides
+        # `pending_wake` into the successor instead of being dropped.
+        woke_early, self._woken = self._woken, False
+        if not woke_early:
+            try:
+                await workflow.wait_condition(
+                    lambda: self._woken,
+                    timeout=timedelta(seconds=int(config["reconcile_minutes"]) * 60),
+                )
+            except TimeoutError:
+                pass
+            self._woken = False
+        workflow.continue_as_new(
+            HeartbeatInput(
+                company=input.company,
+                pending_wake=self._woken,
+            )
+        )
+
+    async def _tick(
+        self, input: HeartbeatInput, config: dict[str, Any]
+    ) -> tuple[str, str]:
+        """One look at the world and, when there is something to do and
+        policy allows it, one child run started. Returns the tick's
+        (outcome, rule)."""
+        step = timedelta(seconds=self._bounds.step_s)
         outcome, rule = TICK_IDLE, ""
         try:
             observed = await workflow.execute_activity(
@@ -198,31 +248,7 @@ class HeartbeatWorkflow(RunWorkflow):
             # own record carries the summary.
             outcome = TICK_REFUSED
             rule = str(exc.cause or exc.message)[:200]
-
-        await self._record(outcome, rule)
-
-        self._state = "sleeping"
-        # A wake that landed during the tick skips the wait: one more tick
-        # services it, however many wakes coalesced into the flag. The
-        # reset before continue-as-new consumes the wake this run answers
-        # for; one arriving between the reset and the continue rides
-        # `pending_wake` into the successor instead of being dropped.
-        woke_early, self._woken = self._woken, False
-        if not woke_early:
-            try:
-                await workflow.wait_condition(
-                    lambda: self._woken,
-                    timeout=timedelta(seconds=int(config["reconcile_minutes"]) * 60),
-                )
-            except TimeoutError:
-                pass
-            self._woken = False
-        workflow.continue_as_new(
-            HeartbeatInput(
-                company=input.company,
-                pending_wake=self._woken,
-            )
-        )
+        return outcome, rule
 
     @staticmethod
     def _anything_startable(config: dict[str, Any], observed: dict[str, Any]) -> bool:
