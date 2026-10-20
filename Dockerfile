@@ -26,7 +26,7 @@ FROM ${BASE} AS build
 ARG PACKAGE
 ARG SRC
 ARG EXTRA=""
-COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
 WORKDIR /src
 COPY pyproject.toml uv.lock ./
 COPY --from=manifests /packages packages
