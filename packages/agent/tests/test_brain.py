@@ -61,6 +61,32 @@ def test_happy_path_ends_in_a_completion_claim(settings, gateway):
     assert all(args["run_id"] == RUN_ID for _, args in gateway.calls)
 
 
+def test_a_tree_with_no_tests_is_advisory_green(settings, gateway):
+    """A fresh repository has no suite to run; its first deliveries are
+    documents. The host reads the empty collection the way the gate of
+    record does — green — so the model is not sent back to "fix" a suite
+    that has nothing in it, nor pushed to invent a test to get out."""
+    gateway.default_test_result = {
+        "exit_code": 5,
+        "stdout": "no tests ran in 0.00s",
+        "stderr": "",
+    }
+    llm = ScriptedLLM(
+        [
+            calls(tc("write_file", path="docs/STRATEGY.md", content="# Strategy")),
+            says("The document is written."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = run_implement(settings, RUN_ID, TASK)
+
+    assert result.error is None
+    assert result.iterations == 1
+    assert llm.script == []
+    assert gateway.tools_called().count("sandbox.run_tests") == 1
+
+
 def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
     """The workflow-directed delivery (the deliver procedure): commit, bundle, PR —
     and the bundle base64 never enters the model context."""

@@ -15,7 +15,9 @@ judge the work; you do not fix it.
   their patches.
 - Execute the repository's test suite in your sandbox with `run_tests`. Use
   `exec` for targeted inspection (running a single test file, checking the
-  tree).
+  tree). A repository with no tests yet collects nothing; that is not a
+  finding against a change that adds none — a document, for instance —
+  but a change that should come with tests and does not is.
 - Post your findings with `comment_pr` — one comment covering what you
   checked and what you found. You must post a comment even when there are
   no findings; a review that posts nothing is a failed dispatch.

@@ -64,6 +64,7 @@ from agent.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_con
 from common.telemetry import get_logger
 from common.text import clip_tail
 from common.topology import RUN_ID_HEADER
+from common.verify import suite_green
 
 # Step caps per procedure — engineering limits on how long one SDK loop
 # may run; money is bounded by the per-run cap either way.
@@ -427,8 +428,11 @@ def run_implement(
 ) -> ProcedureResult:
     """implement: the SDK loop acts (read/write/list/exec, never open_pr),
     the host runs the ADVISORY verify between turns, and advisory green
-    ends the dispatch with a completion claim. The gate of record is the
-    platform's own `sandbox.run_tests` in the implement workflow."""
+    ends the dispatch with a completion claim. Green is what the gate of
+    record calls green (`common.verify`): a tree with no tests is green,
+    so the model is never pushed to invent a test to get out of the loop.
+    The gate of record is the platform's own `sandbox.run_tests` in the
+    implement workflow."""
     with _session(
         settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP, documents
     ) as s:
@@ -448,7 +452,7 @@ def run_implement(
                 result = s.bridge.call("sandbox.run_tests", {"run_id": run_id})
             except ToolCallError as exc:
                 result = {"exit_code": -1, "stdout": "", "stderr": str(exc)}
-            passed = result.get("exit_code") == 0
+            passed = suite_green(result.get("exit_code"), scoped=False)
             log.info("verify", extra={"iteration": iterations, "passed": passed})
             if passed:
                 # Advisory green = the completion claim: the platform verify
