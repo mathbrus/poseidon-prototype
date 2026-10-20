@@ -208,7 +208,7 @@ def create_app(
         digest_fields: Callable[[dict[str, Any]], dict[str, Any]],
     ) -> Any:
         """The one pipeline behind every completion surface: attribution,
-        budget, tier routing, forward, meter, audit. The surfaces differ
+        budget, the deployment's model pinned, forward, meter, audit. The surfaces differ
         only in the upstream path and in how a body is digested."""
         identity: Identity = request.state.identity
         started = time.monotonic()
@@ -248,7 +248,7 @@ def create_app(
             return await deny(400, f"missing {RUN_ID_HEADER}", "llm_unattributed")
         if identity.lifecycle == LIFECYCLE_EPHEMERAL and identity.run_id != run_id:
             return await deny(
-                403, "not a participant of this run", "llm_foreign_run", run_id
+                403, "not an ephemeral agent of this run", "llm_foreign_run", run_id
             )
         run = await asyncio.to_thread(runs.get, run_id)
         if run is None or (

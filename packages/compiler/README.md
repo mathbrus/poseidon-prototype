@@ -189,7 +189,7 @@ must win before merging — on either of two paths named by
 `input.args.resolver`. The human path (every gate): the verdict the
 console recorded under the person's name rides the input, read back from
 the audit store by the platform, and `merge_resolve_human` releases on a
-recorded approval by one of the company's humans and nothing else
+recorded approving verdict by one of the company's humans and nothing else
 (`merge_resolve_no_human_verdict`, `merge_resolve_human_rejected`,
 `merge_resolve_not_a_human` and `merge_resolve_resolver_missing` name
 the refusals). A human may release what policy never could — a carve-out,

@@ -432,7 +432,7 @@ class GatewayService:
     async def architecture_request(
         self, identity: Identity, run_id: str, rationale: str, proposal: str
     ) -> Any:
-        """Record a crew member's proposal for the architecture masterplan
+        """Record an ephemeral agent's proposal for the architecture masterplan
         as a stewardship ticket, filed by the platform on the company's
         repository: the caller chooses neither the crew nor the repository,
         and the ticket is the record — the audit event its receipt."""

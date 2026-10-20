@@ -230,8 +230,8 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
         prompter.text(
             "Who may steer the company?",
             default=", ".join(a.humans),
-            help="login names, comma-separated; they approve merges, raise budgets "
-            "and can stop the company. On kind: owner, auditor",
+            help="login names, comma-separated; they answer merge and budget gates, "
+            "pause the company and can delete it. On kind: owner, auditor",
             validate=valid_names,
         )
     )
@@ -298,7 +298,7 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
             prompter.text(
                 "Folders where a change may merge without a person",
                 default=", ".join(a.delegate_paths),
-                help="anything touching other files waits for approval",
+                help="anything touching other files waits for a person's verdict",
                 validate=valid_paths,
             )
         )
@@ -357,10 +357,10 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
         )
         a.max_concurrent = _int(
             prompter,
-            "Crews one task may have running at the same time",
+            "Crews the company may have running at the same time, across its tasks",
             a.max_concurrent,
             1,
-            help="an implement and its review",
+            help="an implement crew on one ticket and a review crew on another",
         )
         a.max_attempts = _int(
             prompter, "Tries per ticket before it is given up", a.max_attempts, 1
@@ -538,11 +538,11 @@ SECTION_NOTES = {
     ),
     "tools": (
         "What each role may do beyond reading. A role not listed keeps its\n"
-        "full set; the reviewer here may judge code, not change it."
+        "full set{reviewer}."
     ),
     "workflows": (
         "How a task is carried out and reviewed: which crew does each, how\n"
-        "many test retries, and who approves a merge."
+        "many test retries, and who answers a merge."
     ),
     "policies": "What the company may never do, whoever asks.",
     "budgets": "Spending limits: a task stops here and waits for a person.",
@@ -567,6 +567,14 @@ def render(document: dict[str, Any]) -> str:
     for section, note in SECTION_NOTES.items():
         if section not in document:
             continue
+        if section == "tools":
+            # The note says what the section does: a reviewer narrowed to
+            # judging, or nothing narrowed at all.
+            note = note.format(
+                reviewer="; the reviewer here may judge code, not change it"
+                if "reviewer" in document["tools"]
+                else ""
+            )
         commented = "\n".join(f"# {line}" for line in note.splitlines())
         body = yaml.safe_dump({section: document[section]}, sort_keys=False, width=88)
         parts.append(f"\n{commented}\n{body}")

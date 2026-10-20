@@ -450,7 +450,7 @@ def test_revoke_failure_is_loud_but_not_masking(
     )
     assert backend.destroyed == [JOB_HANDLE["job_name"]]
     assert record["status"] == "failed"
-    assert "participant revoke failed" in record["error"]
+    assert "ephemeral agent revoke failed" in record["error"]
 
 
 # -- record_attempts_exhausted ------------------------------------------------

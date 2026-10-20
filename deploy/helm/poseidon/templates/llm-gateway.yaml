@@ -1,5 +1,5 @@
-# The LLM gateway: the workload-authenticated, metered,
-# tier-routing route to any model. Verifies the same projected tokens as
+# The LLM gateway: the workload-authenticated, metered route to the
+# deployment's one model. Verifies the same projected tokens as
 # the MCP gateway (TokenReview -> auth-delegator); holds no provider keys —
 # the upstream llm-proxy does, and NetworkPolicy seals it so nothing but
 # this gateway reaches it.

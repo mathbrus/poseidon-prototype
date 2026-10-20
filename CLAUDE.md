@@ -78,7 +78,7 @@ first.
 | **vision** | the human's statement of purpose in the charter, `company.vision`; reaches every procedure but `deliver` through the static prompt; changed only by applying the blueprint again | mission, goal, purpose |
 | **strategy** | the document at `company.documents.strategy` on `base_ref`; the steward writes it once from the vision; no current role may change it afterwards (a future observer would) | roadmap, plan |
 | **architecture masterplan** | the document at `company.documents.architecture` on `base_ref`; the steward writes it at bootstrap and revises it only to fulfil an architecture request; `architecture` in identifiers | ADR, design doc, `AGENTS.md` |
-| **architecture request** | a proposal a crew member records with `architecture.request`; the platform turns it into a stewardship ticket | change request, RFC |
+| **architecture request** | a proposal an ephemeral agent records with `architecture.request`; the platform turns it into a stewardship ticket | change request, RFC |
 | **bootstrap ticket** | the ticket the platform files for a document absent on `base_ref` (`Bootstrap: strategy`, `Bootstrap: architecture masterplan`); a stewardship crew fulfils it | seed |
 | **steward** | the catalog role that writes the two documents; ephemeral only; its crew is `stewardship` | librarian, architect |
 | **observer** | a future standing hire that would revise the strategy; not in the catalog; named in comments and docs only | — |

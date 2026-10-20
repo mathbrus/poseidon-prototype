@@ -186,9 +186,15 @@ def test_concurrency_is_one_question_in_the_main_flow():
     built = new.build(new.ask(quiet))
     assert built["heartbeat"]["max_concurrent_runs"] == 3
     assert built["standing"]["pm"]["may_spawn"]["max_concurrent"] == 2
-    assert "Crews one task may have running at the same time" not in quiet.asked
+    assert (
+        "Crews the company may have running at the same time, across its tasks"
+        not in quiet.asked
+    )
     tuned = example_answers(
-        **{ADVANCED: True, "Crews one task may have running at the same time": "4"}
+        **{
+            ADVANCED: True,
+            "Crews the company may have running at the same time, across its tasks": "4",
+        }
     )
     assert new.build(new.ask(tuned))["standing"]["pm"]["may_spawn"]["max_concurrent"] == 4
 

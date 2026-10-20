@@ -5,8 +5,9 @@ and touches no cluster: apply is the operator's job, and keeping the
 mutation in exactly one place is what makes "the blueprint is the source
 of truth" checkable rather than aspirational.
 
-Secrets never enter a plan. Agent specs carry a role, a tier and a tool
-scope; credentials arrive at runtime as projected tokens.
+Secrets never enter a plan. Agent specs carry a role and a tool scope;
+credentials arrive at runtime as projected tokens, and the model is the
+deployment's.
 """
 
 from typing import Any

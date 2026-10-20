@@ -18,7 +18,12 @@ that addresses them.
 
 ## Workflows
 
-<!-- gen: workflows -->
+| Workflow | Workflow id | Input | Signals | Queries |
+|---|---|---|---|---|
+| `scope` | `scope-{run_id}` | `ScopeInput(run_id)` | `budget` | `state` |
+| `implement` | `implement-{run_id}` | `ImplementInput(run_id, issue_number)` | `budget` | `state` |
+| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number)` | `budget`, `merge` | `state` |
+| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, pending_wake=False)` | `wake` | `state` |
 
 `implement` takes the number of a ticket the company filed; the platform
 resolves the open issue first and composes the task from it. `scope`
@@ -43,14 +48,20 @@ The pause is not a signal: the console records it in the registry and
 the loop reads it on every tick (and again at authorize time), so the
 `wake` a pause or a resume sends only makes the loop look now.
 
-<!-- gen: signals -->
+| Workflow | Signal | Arguments | What it resolves |
+|---|---|---|---|
+| `scope` | `budget` | `approved` | `poseidon signal <run_id> budget --workflow scope`: resolve a budget park, exactly as in implement. |
+| `implement` | `budget` | `approved` | `poseidon signal <run_id> budget --approved/--no-approved`: resolve a budget park — approved means the cap was raised and the run may continue; rejected finalizes it. |
+| `review` | `budget` | `approved` | The console's budget verdict: resolve a budget park, exactly as in implement. |
+| `review` | `merge` | `approved` | The console's merge verdict, the signal the merge gate parks on. A nudge to look, not the verdict itself: the release reads the verdict the console recorded under the human's name. |
+| `heartbeat` | `wake` | — | A nudge that something changed the world this loop watches — never an instruction. The sleeping wait ends (or the running tick is followed by one more), and the tick that results observes, decides and is authorized like any other. |
 
 The merge gate's release is not the `merge` signal. After the gate
 approves, the review workflow reads the console's recorded verdict back
 from the audit store (`read_human_verdict`) and the compiled
 `merge.resolve` decision releases the merge on its human path —
-`merge_resolve_human`, a recorded approval by one of the company's
-humans — or refuses by name: `merge_resolve_no_human_verdict` when no
+`merge_resolve_human`, a recorded approving verdict by one of the
+company's humans — or refuses by name: `merge_resolve_no_human_verdict` when no
 verdict was recorded, `merge_resolve_human_rejected` when the latest one
 rejects, `merge_resolve_not_a_human` when its author is not in
 `company.humans`. A refusal records `gate_verdict_unverified` and ends the
@@ -60,7 +71,7 @@ human path, verified the same way, so the override survives delegation.
 
 The budget gate is decided and recorded by the console like the merge
 gate, but the workflow does not read its record back: a forged budget
-approval only re-dispatches under the per-run cap the LLM gateway
+verdict only re-dispatches under the per-run cap the LLM gateway
 enforces from the ledger, and cannot spend past the stop.
 
 ## Queries

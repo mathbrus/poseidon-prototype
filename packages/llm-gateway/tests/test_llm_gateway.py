@@ -1,6 +1,6 @@
 """The LLM gateway pipeline against in-memory doubles
 and a stubbed upstream: unattributed calls rejected, run attribution
-verified, tier routing applied, every forwarded call metered to the ledger
+verified, the deployment's model pinned, every forwarded call metered to the ledger
 and audited (source=llm-gateway), and the per-run cap a hard stop with a
 distinguishable error."""
 

@@ -125,7 +125,7 @@ class CrewActivities:
             workflow=spec.get("workflow", ""),
         )
         self._log.bind(run_id=spec["run_id"]).info(
-            "participant bound", extra={"agent_id": agent_id}
+            "ephemeral agent bound", extra={"agent_id": agent_id}
         )
         return {
             "agent_id": agent_id,
@@ -150,7 +150,7 @@ class CrewActivities:
 
     @activity.defn(name="revoke_participants")
     async def revoke_participants(self, run_id: str) -> list[str]:
-        """Terminate every live participant of the run — the terminal-path
+        """Terminate every live ephemeral agent of the run — the terminal-path
         sweep. From these writes on, the gateways find no live rows and
         every crew identity of the run is dead, whatever its projected
         tokens' remaining validity."""
@@ -169,7 +169,7 @@ class CrewActivities:
                 started=started,
             )
         self._log.bind(run_id=run_id).info(
-            "participants revoked", extra={"agent_ids": swept}
+            "ephemeral agents revoked", extra={"agent_ids": swept}
         )
         return swept
 

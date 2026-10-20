@@ -2,9 +2,8 @@
 crews that fulfil a run.
 
 A blueprint names roles and crews; the compiler resolves them into agent
-specs and per-agent Rego bundles. A role carries its tool ceiling, model
-tier, spawn authority and the procedures it may run — never counts, never
-secrets: how many of a role a company hires is the blueprint's business,
+specs and per-agent Rego bundles. A role carries its tool ceiling, spawn
+authority and the procedures it may run — never counts, never secrets: how many of a role a company hires is the blueprint's business,
 and credentials never enter a spec at all.
 
 One rule the catalog encodes rather than documents: `implementer`,

@@ -255,9 +255,11 @@ class RunWorkflow:
     ) -> dict[str, Any]:
         """One agent dispatch, budget-park aware: a `budget_exhausted`
         result parks the workflow on the `budget` signal in an API-visible
-        state for the blueprint's `budgets.per_run.deadline_minutes`;
-        approval (the cap was raised) re-dispatches the same text, anything
-        else returns the budget-marked result for teardown to finalize.
+        state for the blueprint's `budgets.per_run.deadline_minutes`; an
+        approving verdict re-dispatches the same text under the cap as the
+        applied blueprint states it (a cap not raised parks it again),
+        anything else returns the budget-marked result for teardown to
+        finalize.
         Escalation and verdict are process-gate audit events, like the
         merge gate's — one Gate spine, one audit contract. `documents` are
         the company's documents the procedure reads as untrusted context;

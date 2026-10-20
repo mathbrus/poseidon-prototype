@@ -42,7 +42,7 @@ one job — and after it exists no current role may change it: the gateway
 knows which changed paths already exist on the base ref, and a delivery
 over the existing strategy is denied for the steward too. The
 **architecture masterplan** is written from the vision and the tree, and
-revised only through an **architecture request**: a crew member records a
+revised only through an **architecture request**: an ephemeral agent records a
 proposal, the platform files it as a stewardship ticket, and the steward
 revises the plan on a later tick. Asking is not writing.
 

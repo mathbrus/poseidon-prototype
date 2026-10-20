@@ -152,7 +152,7 @@ deny_rules contains "crew_request_no_budget" if {{
 }}
 """
 
-# A crew member may ask for one architecture revision per run; the count
+# An ephemeral agent may ask for one architecture revision per run; the count
 # of requests this run already made rides the input, read by the gateway
 # off its own audit trail. Fail-safe: an absent count denies.
 ARCHITECTURE_REQUESTS_PER_RUN = 1
@@ -398,8 +398,8 @@ def _merge_gate_file(
 
     The human path (every gate): the verdict the console recorded under
     the person's name rides the input, read back from the audit store by
-    the platform — the release needs a recorded approval by one of the
-    company's humans, and nothing else. A signal that reached the workflow
+    the platform — the release needs a recorded approving verdict by one
+    of the company's humans, and nothing else. A signal that reached the workflow
     without a recorded verdict is refused by name. A human may release a
     change policy never could (a carve-out, the contract tree): that is
     the override the gate promises.

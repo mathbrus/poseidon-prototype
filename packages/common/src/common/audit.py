@@ -166,7 +166,7 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         LIFECYCLE_FULFILL,
         "process-lifecycle",
-        "a crew member fulfilled: bound and running",
+        "an ephemeral agent fulfilled: bound and running",
     ),
     PlatformEvent(
         LIFECYCLE_DESTROY_POD,
