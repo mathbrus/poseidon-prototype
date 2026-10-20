@@ -18,12 +18,7 @@ that addresses them.
 
 ## Workflows
 
-| Workflow | Workflow id | Input | Signals | Queries |
-|---|---|---|---|---|
-| `scope` | `scope-{run_id}` | `ScopeInput(run_id)` | `budget` | `state` |
-| `implement` | `implement-{run_id}` | `ImplementInput(run_id, issue_number)` | `budget` | `state` |
-| `review` | `review-{run_id}` | `ReviewInput(run_id, pr_number)` | `budget`, `merge` | `state` |
-| `heartbeat` | `heartbeat-{company}` | `HeartbeatInput(company, pending_wake=False)` | `wake` | `state` |
+<!-- gen: workflows -->
 
 `implement` takes the number of a ticket the company filed; the platform
 resolves the open issue first and composes the task from it. `scope`
@@ -48,13 +43,7 @@ The pause is not a signal: the console records it in the registry and
 the loop reads it on every tick (and again at authorize time), so the
 `wake` a pause or a resume sends only makes the loop look now.
 
-| Workflow | Signal | Arguments | What it resolves |
-|---|---|---|---|
-| `scope` | `budget` | `approved` | `poseidon signal <run_id> budget --workflow scope`: resolve a budget park, exactly as in implement. |
-| `implement` | `budget` | `approved` | `poseidon signal <run_id> budget --approved/--no-approved`: resolve a budget park — approved means the cap was raised and the run may continue; rejected finalizes it. |
-| `review` | `budget` | `approved` | The console's budget verdict: resolve a budget park, exactly as in implement. |
-| `review` | `merge` | `approved` | The console's merge verdict, the signal the merge gate parks on. A nudge to look, not the verdict itself: the release reads the verdict the console recorded under the human's name. |
-| `heartbeat` | `wake` | — | A nudge that something changed the world this loop watches — never an instruction. The sleeping wait ends (or the running tick is followed by one more), and the tick that results observes, decides and is authorized like any other. |
+<!-- gen: signals -->
 
 The merge gate's release is not the `merge` signal. After the gate
 approves, the review workflow reads the console's recorded verdict back

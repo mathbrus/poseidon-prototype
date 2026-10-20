@@ -13,13 +13,7 @@ at build time.
 
 ## Roles
 
-| Role | What it is | Procedures | May spawn | Tools |
-|---|---|---|---|---|
-| `pm` | Standing conductor: decides the company's next action on every heartbeat tick, scopes the next slice of work into tickets, and is the authority every crew is fulfilled under. Holds no coding tools — the PM cannot open a pull request or write in a sandbox. | `scope`, `decide` | `contract-authoring`, `feature-delivery`, `feature-review`, `stewardship` | `issues.create`, `issues.read`, `issues.comment` |
-| `implementer` | Implements a scoped task in the run's sandbox and delivers it as a pull request. Ephemeral agents only; standing counts are a compile error. | `implement`, `deliver` | — | `sandbox.read_file`, `sandbox.list_dir`, `sandbox.exec`, `sandbox.run_tests`, `sandbox.write_file`, `sandbox.edit_file`, `sandbox.git_bundle`, `architecture.request`, `git.open_pr` |
-| `reviewer` | Reads the diff, runs the tests, posts findings, gives a verdict. | `review` | — | `sandbox.read_file`, `sandbox.list_dir`, `sandbox.exec`, `sandbox.run_tests`, `sandbox.write_file`, `sandbox.edit_file`, `sandbox.git_bundle`, `git.read`, `git.comment`, `architecture.request`, `issues.comment` |
-| `contract-author` | Writes the contract/acceptance tests a slice is graded by. Ephemeral agents only, like the implementer. | `implement`, `deliver` | — | `sandbox.read_file`, `sandbox.list_dir`, `sandbox.exec`, `sandbox.run_tests`, `sandbox.write_file`, `sandbox.edit_file`, `sandbox.git_bundle`, `architecture.request`, `git.open_pr` |
-| `steward` | Writes the company's strategy once and its architecture masterplan at bootstrap and on request. Ephemeral agents only, like the implementer. | `implement`, `deliver` | — | `sandbox.read_file`, `sandbox.list_dir`, `sandbox.exec`, `sandbox.run_tests`, `sandbox.write_file`, `sandbox.edit_file`, `sandbox.git_bundle`, `git.open_pr` |
+<!-- gen: roles -->
 
 A blueprint may **narrow** a role's tool list in its `tools.<role>` section,
 never widen it, and the scope applies to every agent of the role, standing
@@ -35,22 +29,11 @@ the catalog.
 A **procedure** is the agent host's unit of work. A dispatch names one; the
 host refuses any the role does not declare before a model call is made.
 
-| Procedure | Run by |
-|---|---|
-| `scope` | `pm` |
-| `decide` | `pm` |
-| `implement` | `implementer`, `contract-author`, `steward` |
-| `deliver` | `implementer`, `contract-author`, `steward` |
-| `review` | `reviewer` |
+<!-- gen: procedures -->
 
 ## Crews
 
-| Crew | What it is | Roles |
-|---|---|---|
-| `feature-delivery` | One implementer for an implement run. | `implementer` |
-| `feature-review` | One reviewer for a review run, against a sandbox from the PR ref. | `reviewer` |
-| `contract-authoring` | One contract author delivering the acceptance tests for a slice. | `contract-author` |
-| `stewardship` | One steward delivering a company document. | `steward` |
+<!-- gen: crews -->
 
 A blueprint names the crews it puts to work in a hire's `may_spawn` and a
 workflow's `crew`, never their members. Spawn authority is authority to

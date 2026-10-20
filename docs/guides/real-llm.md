@@ -51,12 +51,7 @@ needs no change anywhere. Poseidon speaks one reasoning knob,
 `reasoning_effort`; LiteLLM translates it per provider. A model no row
 names keeps the OpenHands SDK's own guess, as the mock brain does.
 
-| Family | Names, for example | Wire shape | Reasoning effort |
-|---|---|---|---|
-| OpenAI GPT-5 and later | `gpt-5.6-luna`, `gpt-5.4-mini`, `gpt-6-luna`, `gpt-6-sol` | Responses | yes |
-| OpenAI GPT-4 family | `gpt-4.1`, `gpt-4o`, `gpt-4.5` | Responses | no |
-| Anthropic Claude 4 and later | `claude-sonnet-4-5`, `claude-opus-4-6`, `claude-haiku-5-5`, `claude-opus-5-5`, `claude-fable-5-1` | chat completions | yes |
-| Anthropic Claude 3 | `claude-3-5-sonnet-latest`, `claude-3-7-sonnet-20250219` | chat completions | no |
+<!-- gen: models -->
 
 The provider prefix (`openai/`, `anthropic/`) routes the call and is not
 part of the match. One more thing has to know the model: the `llm-proxy`
