@@ -8,7 +8,7 @@ dependencies = [
     "fastapi>=0.115",
     "httpx>=0.27",
     "mcp>=1.12",
-    "openhands-sdk==1.43.1",
+    "openhands-sdk==1.56.0",
     "schema",
     "uvicorn>=0.30",
 ]
