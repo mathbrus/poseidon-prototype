@@ -174,7 +174,7 @@ class GatewayClient:
         contract tree exists on `base_ref` before composing a run on it."""
         result = await self._tool(
             "repo.present",
-            {"run_id": run_id, "repo": repo, "ref": ref, "paths": list(paths)},
+            {"run_id": run_id, "repo": repo, "ref": ref, "paths": paths},
         )
         return list(result.get("present") or [])
 

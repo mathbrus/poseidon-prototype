@@ -194,11 +194,9 @@ class ImplementActivities:
         identity. The implementer's claim is advisory; this result is what
         delivery hangs on. One verification concept, parameterized by
         scope: no `paths` runs the whole suite (implement's verify loop,
-        review's hygiene run), where a tree with no tests is green — the
-        change cannot have weakened a suite that was already empty; with
-        `paths` the run is pinned to those test paths — the contract
-        verify, where collecting nothing from a named path is a red exit,
-        not a silent pass. `common.verify` holds the rule."""
+        review's hygiene run); with `paths` the run is pinned to those
+        test paths — the contract verify. What the exit means by scope is
+        `common.verify`'s rule."""
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:

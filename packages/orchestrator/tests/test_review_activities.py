@@ -161,7 +161,7 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(
 def test_contract_tree_is_what_the_base_ref_holds(settings, monkeypatch, fake_gateway):
     """The declared contract paths are asked of the git host at base_ref,
     under the platform identity; what comes back is the tree the composed
-    verify replays. Nothing declared: nothing asked."""
+    verify replays."""
     import orchestrator.activities.review as module
 
     asked: list[tuple[str, str, list[str]]] = []
@@ -182,8 +182,6 @@ def test_contract_tree_is_what_the_base_ref_holds(settings, monkeypatch, fake_ga
         "main",
         ["tests/contract/", "tests/acceptance/"],
     )
-    assert asyncio.run(activities.contract_tree(RUN_ID, [])) == []
-    assert len(asked) == 1
 
 
 def test_contract_deletions_counts_straight_off_the_patch():

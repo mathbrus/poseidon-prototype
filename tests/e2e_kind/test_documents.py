@@ -39,13 +39,9 @@ from common.audit import HEARTBEAT_BOOTSTRAP
 from mockllm.brain import (
     ARCH_REQUEST_MARKER,
     ARCHITECTURE_MD,
-    CONTRACT_TEST_PATH,
-    CONTRACT_TESTS_PY,
     MASTERPLAN_EDIT_MARKER,
     REVISED_ARCHITECTURE_MD,
-    SLUGIFY_PY,
     STRATEGY_MD,
-    TEST_SLUGIFY_PY,
 )
 from orchestrator.activities.documents import BOOTSTRAP_TITLES, bootstrap_body
 from orchestrator.workflows.implement import architecture_wait
@@ -61,6 +57,7 @@ from .cluster import (
 )
 from .conftest import (
     DOCUMENT_PATHS,
+    REPO_BASELINE,
     apply_profile,
     close_issue,
     close_pr,
@@ -77,13 +74,13 @@ from .conftest import (
     target_slug,
 )
 
-# What a vision-only repository lacks beside its documents: the suite's
-# baseline code, unit tree and contract tree, put back once the company
-# has written its documents on the bare tree.
-VISION_ONLY_STRIPS: dict[str, str] = {
-    "slugify.py": SLUGIFY_PY,
-    "tests/unit/test_slugify.py": TEST_SLUGIFY_PY,
-    CONTRACT_TEST_PATH: CONTRACT_TESTS_PY,
+# What the baseline holds beside the documents — the code, the unit tree,
+# the contract tree — put back once the company has written its documents
+# on the bare tree.
+CODE_AND_TESTS: dict[str, str] = {
+    path: content
+    for path, content in REPO_BASELINE.items()
+    if path not in DOCUMENT_PATHS.values()
 }
 
 
@@ -120,17 +117,12 @@ def one_shot_delegated(stack: None, baseline_env: dict):
 
 @pytest.fixture(scope="module")
 def bootstrapped(one_shot_delegated: dict) -> dict:
-    """Strip main to a README (the declared deviation: both documents, the
-    code, the unit tree and the contract tree go), wake the loop, and let
-    it write the documents back through the stewardship crew. The code
-    and the tests return with the fixture; the documents stay as the
-    company wrote them."""
+    """Strip main to a README (the declared deviation: every baseline
+    file goes), wake the loop, and let it write the documents back through
+    the stewardship crew. The code and the tests return with the fixture;
+    the documents stay as the company wrote them."""
     env = one_shot_delegated
-    for name in ("strategy", "architecture"):
-        delete_repo_file(
-            env, DOCUMENT_PATHS[name], f"e2e: vision-only repository ({name})"
-        )
-    for path in VISION_ONLY_STRIPS:
+    for path in REPO_BASELINE:
         delete_repo_file(env, path, f"e2e: vision-only repository ({path})")
     heartbeat_id = bare_heartbeat_id()
     since = db_now()
@@ -168,7 +160,7 @@ def bootstrapped(one_shot_delegated: dict) -> dict:
                 close_issue(env, number)
         for run in runs.values():
             close_pr(env, run["pr"])
-        for path, content in VISION_ONLY_STRIPS.items():
+        for path, content in CODE_AND_TESTS.items():
             put_repo_file(env, path, content, f"e2e: code and tests back ({path})")
 
 

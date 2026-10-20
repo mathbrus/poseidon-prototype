@@ -249,8 +249,6 @@ class ReviewActivities:
         git host, never from a sandbox: a company that has not written its
         contract yet has nothing to replay, and the review must know that
         from the world, not from a run that collected nothing."""
-        if not contract_paths:
-            return []
         repo = await self._repo()
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()

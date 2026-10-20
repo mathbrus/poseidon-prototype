@@ -428,11 +428,9 @@ def run_implement(
 ) -> ProcedureResult:
     """implement: the SDK loop acts (read/write/list/exec, never open_pr),
     the host runs the ADVISORY verify between turns, and advisory green
-    ends the dispatch with a completion claim. Green is what the gate of
-    record calls green (`common.verify`): a tree with no tests is green,
-    so the model is never pushed to invent a test to get out of the loop.
-    The gate of record is the platform's own `sandbox.run_tests` in the
-    implement workflow."""
+    ends the dispatch with a completion claim — green by `common.verify`'s
+    rule, the same the gate of record reads. The gate of record is the
+    platform's own `sandbox.run_tests` in the implement workflow."""
     with _session(
         settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP, documents
     ) as s:

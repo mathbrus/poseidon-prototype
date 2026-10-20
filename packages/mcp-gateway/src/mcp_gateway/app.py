@@ -267,11 +267,9 @@ def create_app(
         run_id: str, repo: str, ref: str, paths: list[str], ctx: Context
     ) -> dict[str, Any]:
         """Which of `paths` the repository holds at `ref` — `{present:
-        [...]}`, a file or a directory each, an absent one simply left
-        out. Platform lifecycle only; the review workflow asks it of the
-        declared contract tree at `base_ref`, so a tree the company has
-        not written yet is replayed against nothing instead of failing
-        every pull request for lack of it."""
+        [...]}`, a file or a directory each, an absent one left out.
+        Platform lifecycle only; the review workflow asks it of the
+        declared contract tree at `base_ref` before composing a run on it."""
         return await service.present_paths(identity_of(ctx), run_id, repo, ref, paths)
 
     @mcp.tool(name="git.open_pr")

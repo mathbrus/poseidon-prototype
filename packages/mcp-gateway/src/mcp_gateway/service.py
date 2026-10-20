@@ -356,16 +356,13 @@ class GatewayService:
     async def present_paths(
         self, identity: Identity, run_id: str, repo: str, ref: str, paths: list[str]
     ) -> Any:
-        args = {"run_id": run_id, "repo": repo, "ref": ref, "paths": list(paths)}
+        args = {"run_id": run_id, "repo": repo, "ref": ref, "paths": paths}
         return await self.call(
             identity,
             "repo.present",
             args,
-            lambda: self._present(repo, ref, paths),
+            lambda: self._git.present_paths(repo, ref, paths),
         )
-
-    async def _present(self, repo: str, ref: str, paths: list[str]) -> dict[str, Any]:
-        return {"present": await self._git.present_paths(repo, ref, paths)}
 
     async def open_pr(
         self,
