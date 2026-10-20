@@ -47,8 +47,13 @@ GATES_OF = {
 }
 # The API-visible state a workflow reports while parked on a gate — what
 # the console requires before it records a verdict, so an answer is only
-# ever given to a question that was asked.
-PARKED_STATE = {MERGE_GATE: "parked-merge_gate", BUDGET_GATE: "parked-budget_exhausted"}
+# ever given to a question that was asked. One prefix, so a reader knows
+# a parked run by its state's first word.
+PARKED_PREFIX = "parked-"
+PARKED_STATE = {
+    MERGE_GATE: f"{PARKED_PREFIX}merge_gate",
+    BUDGET_GATE: f"{PARKED_PREFIX}budget_exhausted",
+}
 
 # What a heartbeat tick records about itself: one outcome and a detail,
 # written on the tick's audit row as `tick_<outcome>:<detail>` by the

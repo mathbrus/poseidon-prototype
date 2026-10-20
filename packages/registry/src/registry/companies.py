@@ -32,13 +32,17 @@ class Companies:
             (name, Jsonb(spec)),
         )
 
-    def pause(self, name: str, by: str) -> None:
-        """Freeze the heartbeat under `by`'s name; the time is the registry's."""
+    def pause(self, name: str, by: str) -> dict[str, Any]:
+        """Freeze the heartbeat under `by`'s name; the time is the
+        registry's. Returns the fact as `paused` reads it."""
         self._db.execute(
             "UPDATE registry.companies SET paused_by = %s, paused_at = now()"
             " WHERE name = %s",
             (by, name),
         )
+        paused = self.paused(name)
+        assert paused is not None, f"no company {name!r} to pause"
+        return paused
 
     def resume(self, name: str) -> None:
         self._db.execute(

@@ -22,7 +22,7 @@ from rich.text import Text
 
 from common.workflows import (
     HEARTBEAT_WORKFLOW,
-    PARKED_STATE,
+    PARKED_PREFIX,
     TICK_IDLE,
     TICK_PAUSED,
     TICK_REFUSED,
@@ -70,9 +70,6 @@ STATUS_STYLE = {
     "sleeping": "dim",
 }
 DIM = "dim"
-# A run whose state starts with this is parked on a gate: the one prefix
-# every parked state in `common.workflows` shares.
-(PARKED_PREFIX,) = {state.split("-", 1)[0] + "-" for state in PARKED_STATE.values()}
 
 
 def status(word: Any) -> Text:

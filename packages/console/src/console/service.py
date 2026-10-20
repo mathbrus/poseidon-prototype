@@ -564,9 +564,10 @@ class ConsoleService:
         if await asyncio.to_thread(self._companies.paused, company):
             raise Invalid(f"{company!r} is already paused")
         await self._hold(identity, HEARTBEAT_PAUSE, reason, company)
-        await asyncio.to_thread(self._companies.pause, company, identity.agent_id)
+        paused = await asyncio.to_thread(
+            self._companies.pause, company, identity.agent_id
+        )
         await self._nudge(company)
-        paused = await asyncio.to_thread(self._companies.paused, company)
         return {"company": company, "paused": paused}
 
     async def resume(self, identity: Identity, reason: str) -> dict[str, Any]:

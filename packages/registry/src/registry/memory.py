@@ -241,8 +241,9 @@ class InMemoryCompanies:
     def upsert(self, name: str, spec: dict[str, Any]) -> None:
         self.rows[name] = dict(spec)
 
-    def pause(self, name: str, by: str) -> None:
+    def pause(self, name: str, by: str) -> dict[str, Any]:
         self.pauses[name] = {"by": by, "at": datetime.now(UTC).isoformat()}
+        return self.pauses[name]
 
     def resume(self, name: str) -> None:
         self.pauses.pop(name, None)
