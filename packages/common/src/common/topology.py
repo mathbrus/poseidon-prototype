@@ -18,6 +18,11 @@ EGRESS_PROXY_PORT = 3128
 BUNDLE_PORT = 8081
 CONSOLE_PORT = 8090
 
+# How long a company delete waits for the operator's teardown (the
+# tombstone served, the rows swept, the namespace gone) before it is an
+# error. The console waits this long; its clients wait longer than it.
+TEARDOWN_TIMEOUT_S = 600
+
 # Platform Service names, as the chart names them.
 MCP_GATEWAY = "mcp-gateway"
 LLM_GATEWAY = "llm-gateway"

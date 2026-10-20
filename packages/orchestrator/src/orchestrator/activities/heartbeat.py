@@ -36,6 +36,7 @@ from common.opa import evaluate_decision
 from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
 from common.workflows import (
+    HEARTBEAT_WORKFLOW,
     TEMPORAL_NAMESPACE,
     TICK_STARTED,
     heartbeat_run_id,
@@ -60,7 +61,7 @@ DECISION_VALID = "decision_valid"
 
 # The workflow's name, as the registry, the audit ledger and the policy
 # input all see it.
-WORKFLOW = "heartbeat"
+WORKFLOW = HEARTBEAT_WORKFLOW
 # The decision's own run row. The decide dispatch is an LLM call, and the
 # LLM gateway binds every call to a registry run — so the row must exist
 # before the PM speaks, or every tick dies `llm_unknown_run`. It carries

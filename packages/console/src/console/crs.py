@@ -15,6 +15,7 @@ from typing import Any
 from kubernetes import client as k8s
 from kubernetes import config as k8s_config
 
+from common.topology import TEARDOWN_TIMEOUT_S
 from compiler import DeploymentPlan
 
 GROUP = "poseidon.dev"
@@ -149,23 +150,24 @@ def read_company(api: k8s.CustomObjectsApi | None = None) -> dict[str, Any] | No
     }
 
 
-TEARDOWN_TIMEOUT_S = 600.0
-
-
 def delete_company(
     name: str,
+    wait: bool = True,
     api: k8s.CustomObjectsApi | None = None,
     timeout_s: float = TEARDOWN_TIMEOUT_S,
 ) -> None:
-    """Delete the Company CR and wait for the operator's teardown to finish
-    — the CR is gone once the tombstone is served, the rows swept and the
-    namespace deleted. A company that is not there is already deleted."""
+    """Delete the Company CR and, unless told not to, wait for the
+    operator's teardown to finish — the CR is gone once the tombstone is
+    served, the rows swept and the namespace deleted. A company that is
+    not there is already deleted."""
     api = api or _api()
     try:
         api.delete_cluster_custom_object(GROUP, VERSION, "companies", name)
     except k8s.exceptions.ApiException as exc:
         if exc.status != 404:
             raise
+        return
+    if not wait:
         return
     deadline = time.monotonic() + timeout_s
     while True:

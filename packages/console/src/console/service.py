@@ -100,7 +100,7 @@ class ConsoleService:
         companies: Companies,
         workflows: Workflows,
         submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]],
-        delete_company: Callable[[str], None],
+        delete_company: Callable[[str, bool], None],
         read_company: Callable[[], dict[str, Any] | None],
         clock: Callable[[], str],
     ) -> None:
@@ -316,16 +316,19 @@ class ConsoleService:
         paused = await asyncio.to_thread(self._companies.paused, state["company"])
         return {**state, "paused": paused}
 
-    async def delete(self, identity: Identity, reason: str) -> dict[str, Any]:
+    async def delete(
+        self, identity: Identity, reason: str, wait: bool = True
+    ) -> dict[str, Any]:
         """Stop the company: the one stop there is (a pause is not one —
-        the company stays, held). Decided and audited
-        under the person's name first; then every running run is cancelled
-        through the same path `cancel_run` takes, so none dies with its
-        namespace; then the Company CR goes and the operator's teardown —
-        the tombstone served, the rows swept, the namespace deleted — is
-        waited for. The heartbeat stops itself at its next config read.
-        What the company wrote into the world (its repository, its ledger
-        rows) stays: applying the same name again resumes, not restarts."""
+        the company stays, held). Decided and audited under the person's
+        name first; then every running run is cancelled through the same
+        path `cancel_run` takes, so none dies with its namespace; then the
+        Company CR goes and the operator's teardown — the tombstone served,
+        the rows swept, the namespace deleted — is waited for unless the
+        caller said not to (it proceeds either way). The heartbeat stops
+        itself at its next config read. What the company wrote into the
+        world (its repository, its ledger rows) stays: applying the same
+        name again brings it back."""
         company = await self._company()
         started = time.monotonic()
         await self._act(
@@ -344,7 +347,7 @@ class ConsoleService:
             except Invalid:
                 continue  # a run whose workflow is already gone needs no cancel
             cancelled.append(record.run_id)
-        await asyncio.to_thread(self._delete, company)
+        await asyncio.to_thread(self._delete, company, wait)
         return {
             "company": company,
             "runs_cancelled": cancelled,

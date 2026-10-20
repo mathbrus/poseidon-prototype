@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from common.topology import CONSOLE_PORT
+from common.topology import CONSOLE_PORT, TEARDOWN_TIMEOUT_S
 
 DEFAULT_URL = f"http://127.0.0.1:{CONSOLE_PORT}"
 URL_VAR = "POSEIDON_CONSOLE_URL"
@@ -57,7 +57,9 @@ class ConsoleClient:
         base_url: str | None = None,
         token: str | None = None,
         transport: httpx.BaseTransport | None = None,
-        timeout: float = 600.0,
+        # Long enough to outlast the console's own longest wait, the
+        # teardown a delete sits through.
+        timeout: float = TEARDOWN_TIMEOUT_S + 60,
     ) -> None:
         self.base_url = (base_url or os.environ.get(URL_VAR) or DEFAULT_URL).rstrip("/")
         # Where the token came from, for the message a refusal deserves:
@@ -107,13 +109,7 @@ class ConsoleClient:
             raise ConsoleError(response.status_code, body.get("detail", body))
         return response.json()
 
-    # -- the door -------------------------------------------------------------
-
-    def healthy(self) -> bool:
-        try:
-            return self._http.get("/healthz").status_code == 200
-        except httpx.HTTPError:
-            return False
+    # -- the chokepoint -------------------------------------------------------------
 
     def whoami(self) -> dict[str, Any]:
         return self._call("GET", "/whoami")
@@ -129,8 +125,8 @@ class ConsoleClient:
     def company(self) -> dict[str, Any]:
         return self._call("GET", "/company")
 
-    def delete_company(self, reason: str) -> dict[str, Any]:
-        return self._call("DELETE", "/company", json={"reason": reason})
+    def delete_company(self, reason: str, wait: bool = True) -> dict[str, Any]:
+        return self._call("DELETE", "/company", json={"reason": reason, "wait": wait})
 
     # -- runs -----------------------------------------------------------------
 
@@ -186,9 +182,6 @@ class ConsoleClient:
         if run_id:
             params["run"] = run_id
         return self._call("GET", "/events", params=params)
-
-    def now(self) -> str:
-        return self._call("GET", "/now")["now"]
 
 
 def _since(since: str | None) -> dict[str, str]:

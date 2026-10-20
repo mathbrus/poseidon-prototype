@@ -12,9 +12,10 @@ asking questions. Neither is an act on a company.
 
 The tree is the glossary's nouns: the blueprint, the company, its
 heartbeat, its runs; one verb per meaning (`show` to read, `start` to
-begin a run by hand, `verdict` to answer a gate); `--reason` on every act
-that commits the company to something; `--no-wait` wherever a command
-would otherwise wait for the cluster.
+begin a run by hand, `verdict` to answer a gate, `pause` and `resume` to
+hold the company and let it go); `--reason` on every act that owes a
+rationale (the console's acts table says which); `--no-wait` wherever a
+command would otherwise wait for the cluster.
 """
 
 import json
@@ -64,7 +65,7 @@ run_app = typer.Typer(
 )
 start_app = typer.Typer(
     no_args_is_help=True,
-    help="Start a run by hand, on a ticket or a pull request. An operator's tool:"
+    help="Start a run by hand, on a ticket or a pull request. A person's tool:"
     " the heartbeat starts the company's runs on its own.",
 )
 app.add_typer(blueprint_app, name="blueprint")
@@ -346,6 +347,7 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
 def company_delete(
     reason: str = REASON_OPTION,
     yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking."),
+    no_wait: bool = NO_WAIT_OPTION,
 ) -> None:
     """Delete the company: cancels its running runs, removes it and waits
     for the teardown. Asks first, naming the runs it will cancel. The one
@@ -370,7 +372,7 @@ def company_delete(
         )
     if not yes:
         typer.confirm(f"delete {company}?", abort=True)
-    result = _call(client.delete_company, reason)
+    result = _call(client.delete_company, reason, wait=not no_wait)
     cancelled = result.get("runs_cancelled") or []
     render.act(
         f"{result.get('company', company)} deleted"

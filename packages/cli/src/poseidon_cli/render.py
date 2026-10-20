@@ -20,6 +20,17 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from common.workflows import (
+    HEARTBEAT_WORKFLOW,
+    PARKED_STATE,
+    TICK_IDLE,
+    TICK_PAUSED,
+    TICK_REFUSED,
+    TICK_STARTED,
+    TICK_STOPPED,
+    workflow_id,
+)
+
 OUT = Console(highlight=False, soft_wrap=True)
 ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 
@@ -27,11 +38,12 @@ ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 STATUS_STYLE = {
     "running": "blue",
     "RUNNING": "blue",
-    "started": "blue",
+    "ticking": "blue",
+    TICK_STARTED: "blue",
     "activating": "yellow",
-    "parked": "yellow",
-    "paused": "yellow",
+    TICK_PAUSED: "yellow",
     "escalated": "yellow",
+    "halted": "yellow",
     "timed_out": "yellow",
     "done": "green",
     "COMPLETED": "green",
@@ -41,7 +53,6 @@ STATUS_STYLE = {
     "allow": "green",
     "pass": "green",
     "ok": "green",
-    "merged": "green",
     "failed": "red",
     "FAILED": "red",
     "deny": "red",
@@ -52,13 +63,16 @@ STATUS_STYLE = {
     "cancelled": "red",
     "CANCELED": "red",
     "TERMINATED": "red",
+    TICK_REFUSED: "red",
+    TICK_STOPPED: "red",
     "NOT_FOUND": "dim",
-    "idle": "dim",
+    TICK_IDLE: "dim",
     "sleeping": "dim",
 }
 DIM = "dim"
-# A run whose state starts with this is parked on a gate.
-PARKED_PREFIX = "parked-"
+# A run whose state starts with this is parked on a gate: the one prefix
+# every parked state in `common.workflows` shares.
+(PARKED_PREFIX,) = {state.split("-", 1)[0] + "-" for state in PARKED_STATE.values()}
 
 
 def status(word: Any) -> Text:
@@ -218,7 +232,7 @@ def diff(text: str, console: Console = OUT) -> None:
 
 # -- an audit row as a line ---------------------------------------------------------
 
-HEARTBEAT_PREFIX = "heartbeat-"
+HEARTBEAT_PREFIX = workflow_id(HEARTBEAT_WORKFLOW, "")
 RULE_WIDTH = 96
 
 

@@ -143,6 +143,9 @@ class CancelRequest(BaseModel):
 
 class DeleteRequest(BaseModel):
     reason: str = Reason
+    # Whether to wait for the operator's teardown before answering; the
+    # act is the same either way, and the teardown proceeds regardless.
+    wait: bool = True
 
 
 class HoldRequest(BaseModel):
@@ -159,7 +162,7 @@ def create_app(
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
     submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]] | None = None,
-    delete_company: Callable[[str], None] | None = None,
+    delete_company: Callable[[str, bool], None] | None = None,
     read_company: Callable[[], dict[str, Any] | None] | None = None,
     clock: Callable[[], str] | None = None,
 ) -> FastAPI:
@@ -257,7 +260,7 @@ def create_app(
     async def delete_company_route(
         request: Request, body: DeleteRequest
     ) -> dict[str, Any]:
-        return await service.delete(identity_of(request), body.reason)
+        return await service.delete(identity_of(request), body.reason, body.wait)
 
     @app.post("/runs")
     async def start_run(request: Request, body: StartRunRequest) -> dict[str, Any]:

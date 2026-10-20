@@ -48,8 +48,8 @@ class ScopeWorkflow(RunWorkflow):
 
     @workflow.signal
     def budget(self, approved: bool) -> None:
-        """`poseidon signal <run_id> budget --workflow scope`: resolve a
-        budget park, exactly as in implement."""
+        """The console's budget verdict: resolve a budget park, exactly as
+        in implement."""
         self._budget_gate.resolve(approved)
 
     @workflow.query

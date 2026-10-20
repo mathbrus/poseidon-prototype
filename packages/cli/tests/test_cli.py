@@ -50,7 +50,6 @@ class Console:
                 },
             ),
             ("GET", "/runs/run-9"): (422, {"detail": "no run 'run-9'"}),
-            ("GET", "/now"): (200, {"now": "2026-01-01T00:00:00+00:00"}),
             ("GET", "/runs"): (
                 200,
                 [
@@ -118,7 +117,7 @@ def client(console: Console) -> ConsoleClient:
 
 def test_every_call_carries_the_token(client, console):
     assert client.whoami()["human"] == "owner"
-    assert client.now() == "2026-01-01T00:00:00+00:00"
+    assert client.company()["phase"] == "converged"
     assert {auth for _, _, _, auth in console.requests} == {"Bearer t-owner"}
 
 
@@ -257,7 +256,16 @@ def test_company_delete_names_the_running_runs_then_asks_the_console(runner, con
     assert result.exit_code == 0, result.output
     assert "hello-saas: 1 running run(s)" in result.output and "run-1" in result.output
     assert "hello-saas deleted in 3 s; cancelled run-1" in result.output
-    assert console.requests[-1][:3] == ("DELETE", "/company", {"reason": "done"})
+    assert console.requests[-1][:3] == (
+        "DELETE",
+        "/company",
+        {"reason": "done", "wait": True},
+    )
+    quick = runner.invoke(
+        cli.app, ["company", "delete", "--yes", "--no-wait", "--reason", "done"]
+    )
+    assert quick.exit_code == 0, quick.output
+    assert console.requests[-1][2] == {"reason": "done", "wait": False}
 
 
 def test_company_delete_asks_before_acting(runner, console):

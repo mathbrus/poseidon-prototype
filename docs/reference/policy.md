@@ -111,7 +111,36 @@ Every other row carries a name the platform invents, spelled once in
 `common.audit` and read from there by the console, the acceptance suite
 and this table:
 
-<!-- gen: audit-events -->
+| Event | Source | What the row records | Owes a rationale |
+|---|---|---|---|
+| `heartbeat.tick` | `process-lifecycle` | every tick: started work, idle and why, refused and why, or paused by whom | — |
+| `heartbeat.decide` | `process-lifecycle` | the conductor's decision on what to start next, with its reason; an invalid decision is refused by rule | yes |
+| `heartbeat.start` | `process-lifecycle` | policy's answer on starting a workflow on the company's own initiative | — |
+| `heartbeat.bootstrap` | `process-lifecycle` | a bootstrap ticket filed for a document absent on the base ref | — |
+| `review.read_pr` | `process-lifecycle` | a review found its pull request already merged or closed, and declined | — |
+| `review.verdict` | `process-lifecycle` | the reviewer's verdict on the pull request, with its reason | yes |
+| `review.contract_edit` | `process-lifecycle` | the pull request deletes contract tests; the counts, for the human | — |
+| `merge.resolve` | `process-lifecycle` | policy's answer on merging: released by a human's verdict or delegated | — |
+| `lifecycle.record_request` | `process-lifecycle` | the conductor's crew request, as policy answered it | — |
+| `lifecycle.bind` | `process-lifecycle` | an ephemeral agent's identity bound to its run | — |
+| `lifecycle.provision_pod` | `process-lifecycle` | an ephemeral agent's pod provisioned in the company namespace | — |
+| `lifecycle.fulfill` | `process-lifecycle` | a crew member fulfilled: bound and running | — |
+| `lifecycle.destroy_pod` | `process-lifecycle` | an ephemeral agent's pod destroyed at the run's teardown | — |
+| `lifecycle.revoke` | `process-lifecycle` | an ephemeral agent's identity revoked at the run's teardown; final | — |
+| `gate.merge` | `process-gate` | the merge gate's outcome: a human's verdict, policy's resolution or decline, a rework filed or exhausted, an escalation or an expiry | — |
+| `gate.budget` | `process-gate` | the budget park's outcome: approved, rejected, escalated or expired | — |
+| `gate.heartbeat_attempts` | `process-gate` | a run spent the last attempt the blueprint allows on its text | — |
+| `gate.heartbeat_bootstrap_exhausted` | `process-gate` | every attempt on a bootstrap ticket aborted: the company cannot write its own documents | — |
+| `gate.heartbeat_daily_cap` | `process-gate` | the daily spend cap reached: nothing starts until tomorrow | — |
+| `sandbox.egress` | `sandbox-infra` | one sandbox egress attempt, allowed by the blueprint's hosts or denied | — |
+| `gate.resolve` | `console` | a human's verdict on a gate, recorded before the workflow hears it | yes |
+| `run.start` | `console` | a human started a run by hand | — |
+| `run.cancel` | `console` | a human cancelled a run | yes |
+| `heartbeat.wake` | `console` | a human nudged the loop to look now | — |
+| `heartbeat.pause` | `console` | a human froze the loop: it starts nothing until resumed | yes |
+| `heartbeat.resume` | `console` | a human lifted the pause | yes |
+| `blueprint.apply` | `console` | a human applied the blueprint | — |
+| `company.delete` | `console` | a human deleted the company | yes |
 
 Every event carries `company`, `lifecycle`, `parent_agent_id` and
 `workflow` so attribution never has to be inferred from naming

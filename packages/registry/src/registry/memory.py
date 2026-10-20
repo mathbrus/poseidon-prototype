@@ -22,6 +22,7 @@ from typing import Any
 from common.audit import AuditEvent
 from common.policy import GATE_RESOLVE, verdict_rule
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
+from common.workflows import HEARTBEAT_WORKFLOW, RUN_WORKFLOWS
 from registry.participants import ParticipantRevoked
 from registry.runs import Attempts, RunRecord
 
@@ -282,7 +283,7 @@ class InMemoryAgentInstances:
         standing_name: str,
         role: str,
         namespace: str | None = None,
-        status: str = "ready",
+        status: str = "converged",
     ) -> None:
         self.rows[agent_id] = {
             "agent_id": agent_id,
@@ -327,7 +328,7 @@ class InMemoryRunParticipants:
         existing = self.rows.get(agent_id)
         if existing is not None and existing["status"] != "active":
             raise ParticipantRevoked(
-                f"participant {agent_id} was revoked; it is not revivable"
+                f"ephemeral agent {agent_id} was revoked; it is not revivable"
             )
         self.rows[agent_id] = {
             "agent_id": agent_id,
@@ -481,7 +482,7 @@ class InMemoryRuns:
             for r in self.rows.values()
             if r.company == company
             and r.status == "running"
-            and r.workflow != "heartbeat"
+            and r.workflow != HEARTBEAT_WORKFLOW
         ]
 
     def active_count(self, company: str) -> int:
@@ -490,7 +491,7 @@ class InMemoryRuns:
             for r in self.rows.values()
             if r.company == company
             and r.status == "running"
-            and r.workflow in ("scope", "implement", "review")
+            and r.workflow in RUN_WORKFLOWS
         )
 
     def issue_attempts(self, company: str) -> dict[int, Attempts]:
@@ -563,7 +564,7 @@ class InMemoryRuns:
             r
             for r in self.rows.values()
             if r.company == company
-            and r.workflow != "heartbeat"
+            and r.workflow != HEARTBEAT_WORKFLOW
             and (since is None or (r.created_at or "") >= since)
         ]
 
@@ -574,6 +575,6 @@ class InMemoryRuns:
         work = [
             r
             for r in self.rows.values()
-            if r.company == company and r.workflow != "heartbeat"
+            if r.company == company and r.workflow != HEARTBEAT_WORKFLOW
         ]
         return work[-limit:][::-1]

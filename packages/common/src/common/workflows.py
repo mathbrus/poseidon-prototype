@@ -12,7 +12,11 @@ on a different id than the one the loop writes would be empty.
 # The `heartbeat` workflow is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats,
 # which are liveness pings on a dispatch.
-WORKFLOWS = ("scope", "implement", "review", "heartbeat")
+# The standing loop's workflow name — the `workflow` column of its runs
+# and rows — and the run-shaped three it starts.
+HEARTBEAT_WORKFLOW = "heartbeat"
+RUN_WORKFLOWS = ("scope", "implement", "review")
+WORKFLOWS = (*RUN_WORKFLOWS, HEARTBEAT_WORKFLOW)
 
 # The run-shaped workflows a human may start by hand on a text the company
 # produced: an implement run on a ticket, a review run on a pull request.

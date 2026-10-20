@@ -115,6 +115,7 @@ class World:
         self.workflows = FakeWorkflows()
         self.submitted: list[DeploymentPlan] = []
         self.deleted: list[str] = []
+        self.waited: list[bool] = []
         self.cr: dict[str, Any] | None = None
         # What OPA answers, per tool; the default is the rule the compiled
         # bundle would name for the owner.
@@ -139,8 +140,9 @@ class World:
     def read_company(self) -> dict[str, Any] | None:
         return self.cr
 
-    def delete(self, company: str) -> None:
+    def delete(self, company: str, wait: bool = True) -> None:
         self.deleted.append(company)
+        self.waited.append(wait)
         self.companies.delete(company)
 
     async def evaluate(self, opa_url: str, company: str, decision_input: dict) -> dict:
@@ -202,7 +204,7 @@ def a_review_run(world: World) -> None:
     world.workflows.running[f"review-{RUN_ID}"] = "parked-merge_gate"
 
 
-# -- the door ----------------------------------------------------------------
+# -- the chokepoint ----------------------------------------------------------------
 
 
 async def test_the_health_probe_is_the_only_open_route(client, world):
@@ -534,6 +536,16 @@ async def test_the_company_read_is_the_crs_phase(client, world):
     world.cr.update(phase="converged", observedGeneration=1, bundleRevision="r1")
     state = (await client.get("/company", headers=as_owner())).json()
     assert state["phase"] == "converged" and state["bundleRevision"] == "r1"
+
+
+async def test_a_delete_may_decline_to_wait_for_the_teardown(client, world):
+    """`wait: false` is the CLI's `--no-wait`: the act and the teardown
+    are the same, only the answer comes before the namespace is gone."""
+    response = await client.request(
+        "DELETE", "/company", json={"reason": "quick", "wait": False}, headers=as_owner()
+    )
+    assert response.status_code == 200, response.text
+    assert world.deleted == [COMPANY] and world.waited == [False]
 
 
 async def test_a_stranger_cannot_delete_the_company(client, world):

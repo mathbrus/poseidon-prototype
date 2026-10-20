@@ -91,9 +91,9 @@ class ImplementWorkflow(RunWorkflow):
 
     @workflow.signal
     def budget(self, approved: bool) -> None:
-        """`poseidon signal <run_id> budget --approved/--no-approved`:
-        resolve a budget park — approved means the cap was raised and the
-        run may continue; rejected finalizes it."""
+        """The console's budget verdict: resolve a budget park — an
+        approving verdict re-dispatches under the cap as the applied
+        blueprint states it, a rejecting one finalizes the run."""
         self._budget_gate.resolve(approved)
 
     @workflow.query

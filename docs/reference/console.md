@@ -48,7 +48,16 @@ company:
 The acts, rendered from the audit registry (`common.audit`) at build
 time — the one list every writer and reader spells them from:
 
-<!-- gen: console-acts -->
+| Act | Decision | Rule on allow | Owes a rationale |
+|---|---|---|---|
+| a human's verdict on a gate, recorded before the workflow hears it | `gate.resolve` | `gate_resolve_<gate>_approve` / `_reject` | yes |
+| a human started a run by hand | `run.start` | `run_start_<workflow>` | — |
+| a human cancelled a run | `run.cancel` | `run_cancel` | yes |
+| a human nudged the loop to look now | `heartbeat.wake` | `heartbeat_wake` | — |
+| a human froze the loop: it starts nothing until resumed | `heartbeat.pause` | `heartbeat_pause` | yes |
+| a human lifted the pause | `heartbeat.resume` | `heartbeat_resume` | yes |
+| a human applied the blueprint | `blueprint.apply` | `blueprint_apply` | — |
+| a human deleted the company | `company.delete` | `company_delete` | yes |
 
 A verified person the company did not name is refused by
 `human_not_recognized`, audited under their name, and nothing happens.
@@ -119,7 +128,28 @@ applied one); `404` says no company is applied yet, for every read and
 act that needs one; `503` says Temporal was unreachable. Rendered from the console's own route table at
 build time:
 
-<!-- gen: console -->
+| Route | What it does | Decision |
+|---|---|---|
+| `GET /healthz` | liveness; the one unauthenticated route | — |
+| `GET /whoami` | the verified human and the applied company, if any | — |
+| `POST /blueprint/preview` | compile against the live registry; the diff and the plan | — |
+| `POST /blueprint/apply` | compile and submit the Company and AgentInstance CRs | `blueprint.apply` |
+| `GET /company` | the applied company's phase, generation and bundle revision from its CR, and its pause from the registry | — |
+| `DELETE /company` | stop the company: cancel its runs, delete its CR, wait for the teardown | `company.delete` |
+| `POST /runs` | start one implement or review run by hand | `run.start` |
+| `GET /runs` | the company's runs since a fence (`?since=`) | — |
+| `GET /runs/{run_id}` | the run record and its workflow's execution | — |
+| `GET /runs/{run_id}/story` | the run's audit story, every source; `?decisions=true` keeps the rows carrying a rationale | — |
+| `GET /runs/{run_id}/spend` | the run's attributed spend | — |
+| `POST /runs/{run_id}/gates/{gate}` | record a verdict, then deliver it | `gate.resolve` |
+| `POST /runs/{run_id}/cancel` | cancel a run; teardown compensates | `run.cancel` |
+| `GET /heartbeat` | the standing loop's execution and its ticks since a fence | — |
+| `POST /heartbeat/wake` | nudge the loop to look now | `heartbeat.wake` |
+| `POST /heartbeat/pause` | freeze the loop: it starts nothing until resumed; runs in flight finish | `heartbeat.pause` |
+| `POST /heartbeat/resume` | lift the pause and wake the loop | `heartbeat.resume` |
+| `GET /spend` | the company's spend since a fence | — |
+| `GET /events` | the company's audit rows after a cursor (`?after=&run=`), with its spend to date | — |
+| `GET /now` | the registry's clock: the fence to take before acting | — |
 
 `since` is a registry timestamp: a client that acts and then reads takes
 one from `/now` first, and the runs, spend and ticks it reads back are
