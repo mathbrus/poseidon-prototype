@@ -71,6 +71,20 @@ allow_rules contains "heartbeat_wake" if {
 	input.agent_id in ["owner"]
 }
 
+allow_rules contains "heartbeat_pause" if {
+	input.lifecycle == "human"
+	input.company == "hello-saas"
+	input.tool == "heartbeat.pause"
+	input.agent_id in ["owner"]
+}
+
+allow_rules contains "heartbeat_resume" if {
+	input.lifecycle == "human"
+	input.company == "hello-saas"
+	input.tool == "heartbeat.resume"
+	input.agent_id in ["owner"]
+}
+
 allow_rules contains "blueprint_apply" if {
 	input.lifecycle == "human"
 	input.company == "hello-saas"

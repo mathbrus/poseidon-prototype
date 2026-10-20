@@ -122,7 +122,7 @@ def overnight(stack: None, baseline_env: dict) -> dict:
         wake_until_run_started(review_run_task(number), "review")
         review = await_run(review_run_task(number), False)
         result["review"] = review
-        await_gate(review["run_id"], "paused-merge_gate")
+        await_gate(review["run_id"], "parked-merge_gate")
         result["parked_pr"] = github_api(
             env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
         ).json()

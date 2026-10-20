@@ -4,7 +4,8 @@ audit row and the wake. The observation the loop decides on lives in
 `observation`; the bootstrap filing in `bootstrap`.
 
 Retry safety, per activity:
-    heartbeat_config    — read-only; safe.
+    heartbeat_config    — read-only; safe. Carries the pause beside the
+                          section, so a paused tick needs no other read.
     heartbeat_decide    — dispatches the conductor's decide procedure and polls to
                           terminal; the PM answers 409 while running
                           (re-attach) like every dispatch. The chosen
@@ -16,6 +17,8 @@ Retry safety, per activity:
                           was asked. A deny is non-retryable by construction.
     record_tick         — append-only audit write; a duplicate row is a
                           duplicate heartbeat line, never a wrong one.
+    wake_heartbeat      — one signal, best-effort; every failure is
+                          swallowed, so a retry is at most a second nudge.
 """
 
 import asyncio
@@ -32,7 +35,14 @@ from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
 from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
-from common.workflows import TEMPORAL_NAMESPACE, heartbeat_run_id, workflow_id
+from common.workflows import (
+    HEARTBEAT_WORKFLOW,
+    TEMPORAL_NAMESPACE,
+    TICK_STARTED,
+    heartbeat_run_id,
+    tick_rule,
+    workflow_id,
+)
 from orchestrator.activities.blueprint import conductor
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.observation import decision_prompt
@@ -51,7 +61,7 @@ DECISION_VALID = "decision_valid"
 
 # The workflow's name, as the registry, the audit ledger and the policy
 # input all see it.
-WORKFLOW = "heartbeat"
+WORKFLOW = HEARTBEAT_WORKFLOW
 # The decision's own run row. The decide dispatch is an LLM call, and the
 # LLM gateway binds every call to a registry run — so the row must exist
 # before the PM speaks, or every tick dies `llm_unknown_run`. It carries
@@ -113,19 +123,22 @@ class HeartbeatActivities:
 
     @activity.defn(name="heartbeat_config")
     async def heartbeat_config(self, company: str) -> dict[str, Any] | None:
-        """The applied blueprint's heartbeat section plus the deployment's
-        timeout profile, or None when `company` — the one this heartbeat
-        beats for — is not the applied one: deleted, or replaced by another
+        """The applied blueprint's heartbeat section, the pause (`{by, at}`
+        while a human holds the loop, else None) and the deployment's
+        timeout profile — or None when `company`, the one this heartbeat
+        beats for, is not the applied one: deleted, or replaced by another
         name. The workflow stops on None, which is what makes deleting the
         company effective at the next tick regardless of what else still
-        believes in it."""
+        believes in it. The schema requires the section, so an applied
+        company always has one."""
         if await asyncio.to_thread(self._companies.applied) != company:
             return None
         spec = await asyncio.to_thread(self._companies.get, company) or {}
-        section = spec.get("heartbeat")
-        if not section:
-            return None
-        return {**section, "timeouts": asdict(PROFILES[self._settings.timeout_profile])}
+        return {
+            **spec["heartbeat"],
+            "paused": await asyncio.to_thread(self._companies.paused, company),
+            "timeouts": asdict(PROFILES[self._settings.timeout_profile]),
+        }
 
     @activity.defn(name="heartbeat_decide")
     async def heartbeat_decide(
@@ -265,9 +278,12 @@ class HeartbeatActivities:
         startable set bind here as policy, not as this module's opinion.
         The live counts ride the input (the active_spawns idiom): runs in
         flight, today's spend, the runs already made on the target item,
-        and the repository's open issues; the decision is audited either
-        way; a deny ends the tick."""
+        the repository's open issues, and whether a human holds the loop —
+        read fresh here, so a pause that landed while the PM was deciding
+        still refuses the start; the decision is audited either way; a
+        deny ends the tick."""
         company = self._company()
+        paused = await asyncio.to_thread(self._companies.paused, company)
         decision_input = {
             "company": company,
             "agent_id": ORCHESTRATOR_ID,
@@ -283,6 +299,7 @@ class HeartbeatActivities:
                 "daily_spent_usd": daily_spent_usd,
                 "attempts": attempts,
                 "open_tickets": open_tickets,
+                "paused": paused is not None,
             },
             "run_binding_verified": False,
         }
@@ -315,8 +332,8 @@ class HeartbeatActivities:
             run_id=heartbeat_run_id(self._company()),
             tool=HEARTBEAT_TICK,
             digest=args_digest({"outcome": outcome, "rule": rule}),
-            decision="allow" if outcome == "started" else "deny",
-            rule=f"tick_{outcome}:{rule}",
+            decision="allow" if outcome == TICK_STARTED else "deny",
+            rule=tick_rule(outcome, rule),
             workflow=workflow_id,
         )
         self._log.info("heartbeat tick", extra={"outcome": outcome, "rule": rule})

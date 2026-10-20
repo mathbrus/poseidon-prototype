@@ -7,7 +7,7 @@ person, wins the compiled decision, records the act — and Temporal
 carries it out; the real contract is the workflow surface the
 orchestrator registers, and this page writes it down. The tables are
 rendered from the workflow classes at build time. Nothing integrates
-here directly: a dashboard, a chat-ops bot or the acceptance suite is a
+here directly: a web UI, a chat-ops bot or the acceptance suite is a
 client of the console, and the raw surface below it is fenced.
 
 All workflows run on task queue `poseidon-orchestrator` and are named
@@ -35,11 +35,13 @@ hosts, and each workflow learns it from its first config activity.
 
 Signals are how verdicts reach a parked workflow — and a signal is a
 nudge to look, never the verdict itself. The gate signals share one
-signature, `(approved: bool, payload: str | None)`, which is what the
-console sends after it has recorded the verdict under the person's name.
-The heartbeat's `wake` carries nothing at all, because it decides
-nothing: it ends the wait to the next tick, which observes, decides and
-is authorized like any other.
+signature, `(approved: bool)`, which is what the console sends after it
+has recorded the verdict under the person's name. The heartbeat's `wake`
+carries nothing at all, because it decides nothing: it ends the wait to
+the next tick, which observes, decides and is authorized like any other.
+The pause is not a signal: the console records it in the registry and
+the loop reads it on every tick (and again at authorize time), so the
+`wake` a pause or a resume sends only makes the loop look now.
 
 <!-- gen: signals -->
 
@@ -47,8 +49,8 @@ The merge gate's release is not the `merge` signal. After the gate
 approves, the review workflow reads the console's recorded verdict back
 from the audit store (`read_human_verdict`) and the compiled
 `merge.resolve` decision releases the merge on its human path —
-`merge_resolve_human`, a recorded approval by one of the company's
-humans — or refuses by name: `merge_resolve_no_human_verdict` when no
+`merge_resolve_human`, a recorded approving verdict by one of the
+company's humans — or refuses by name: `merge_resolve_no_human_verdict` when no
 verdict was recorded, `merge_resolve_human_rejected` when the latest one
 rejects, `merge_resolve_not_a_human` when its author is not in
 `company.humans`. A refusal records `gate_verdict_unverified` and ends the
@@ -58,14 +60,14 @@ human path, verified the same way, so the override survives delegation.
 
 The budget gate is decided and recorded by the console like the merge
 gate, but the workflow does not read its record back: a forged budget
-approval only re-dispatches under the per-run cap the LLM gateway
+verdict only re-dispatches under the per-run cap the LLM gateway
 enforces from the ledger, and cannot spend past the stop.
 
 ## Queries
 
 Every workflow exposes a `state` query returning the current state as a
 string — the mechanism behind the claim that a parked gate or a budget
-stop is "an API-visible paused state, never a silent hang." The console
+stop is "an API-visible parked state, never a silent hang." The console
 surfaces it when a run is read, and requires the parked state before it
 records a verdict on that gate.
 
@@ -88,7 +90,8 @@ stand in for it.
   fails the run — the compiled `merge.resolve` decision reads the record,
   not the signal — so the road that stays open releases nothing.
   `tests/e2e_kind/test_console_redteam.py` walks it on every acceptance
-  run.
+  run. A `wake` by that road buys one tick, authorized like any other;
+  it cannot pause or resume the loop, which reads the registry's record.
 
 Under a delegated gate an in-class merge needs no signal at all — the
 compiled decision releases it, and its authority is exactly that decision

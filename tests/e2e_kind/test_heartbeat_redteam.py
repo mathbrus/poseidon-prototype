@@ -48,7 +48,7 @@ import pytest
 from common.audit import gate_event
 from common.policy import HEARTBEAT_START
 from common.tasks import review_run_task
-from common.workflows import ATTEMPTS_GATE
+from common.workflows import ATTEMPTS_GATE, TICK_IDLE, TICK_STARTED, tick_rule
 from mockllm.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
@@ -275,7 +275,7 @@ def test_a_pr_merged_by_a_human_is_not_reviewed(merged_by_hand: dict):
     `git checkout feature/…` — was ever started or paid for."""
     ticks = merged_by_hand["ticks"]
     assert ticks, "the woken heartbeat left no ticks"
-    assert {t["rule"] for t in ticks} == {"tick_idle:backlog_empty"}, ticks
+    assert {t["rule"] for t in ticks} == {tick_rule(TICK_IDLE, "backlog_empty")}, ticks
     assert all(t["decision"] == "deny" for t in ticks)
     number = merged_by_hand["pr_number"]
     assert run_by_task(review_run_task(number), workflow="review") is None, (
@@ -375,8 +375,8 @@ def test_an_aborted_review_is_offered_again(abandoned_review: dict):
         if t["decision"] == "allow" and f"review_{number}_as_" in (t["rule"] or "")
     ]
     assert [t["rule"] for t in started] == [
-        f"tick_started:review_{number}_as_{first['run_id']}",
-        f"tick_started:review_{number}_as_{second['run_id']}",
+        tick_rule(TICK_STARTED, f"review_{number}_as_{first['run_id']}"),
+        tick_rule(TICK_STARTED, f"review_{number}_as_{second['run_id']}"),
     ]
 
 
@@ -423,5 +423,6 @@ def test_no_third_attempt_and_the_loop_goes_idle(abandoned_review: dict):
     last_start = max(i for i, t in enumerate(ticks) if t["decision"] == "allow")
     after = [t["rule"] for t in ticks[last_start + 1 :]]
     assert after, "no ticks after the last start"
-    assert set(after) <= {"tick_idle:runs_in_flight", "tick_idle:pm_chose_idle"}, after
-    assert after[-1] == "tick_idle:pm_chose_idle", after
+    idle = {tick_rule(TICK_IDLE, why) for why in ("runs_in_flight", "pm_chose_idle")}
+    assert set(after) <= idle, after
+    assert after[-1] == tick_rule(TICK_IDLE, "pm_chose_idle"), after

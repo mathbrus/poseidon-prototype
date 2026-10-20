@@ -87,7 +87,7 @@ def test_one_query_spans_the_runs_real_sources(implement_run: dict) -> None:
     happy crewed implement legitimately produces exactly these three
     sources (no gate parks, nothing attempts egress); the sources a happy
     run *cannot* produce are proven on the runs that do produce them —
-    process-gate on the review chain and the budget pause, sandbox-infra
+    process-gate on the review chain and the budget park, sandbox-infra
     on the egress/red-team runs — and all five together, still with no
     seeding, in test_acceptance."""
     run_id = implement_run["run_id"]

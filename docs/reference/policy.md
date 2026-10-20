@@ -76,7 +76,8 @@ say why without a lookup.
 | `heartbeat_start_over_concurrency`, `heartbeat_start_over_daily_cap`, `heartbeat_start_over_attempts` | A declared cap reached. |
 | `heartbeat_start_counts_missing`, `heartbeat_start_spend_missing`, `heartbeat_start_attempts_missing` | The live counts absent from the input — absence denies. |
 | `gate_resolve_<gate>_approve`, `gate_resolve_<gate>_reject` | A human the company names answers a gate through the console; the rule names the verdict, which is how the workflow reads it back. |
-| `run_start_<workflow>`, `run_cancel`, `heartbeat_wake`, `blueprint_apply` | The other human acts, for a human the company names. |
+| `heartbeat_start_while_paused`, `heartbeat_start_paused_missing` | A start while a human holds the loop paused, or one that does not say whether it is (fail closed). |
+| `run_start_<workflow>`, `run_cancel`, `heartbeat_wake`, `heartbeat_pause`, `heartbeat_resume`, `blueprint_apply`, `company_delete` | The other human acts, for a human the company names ([the console](console.md) lists them). |
 | `human_not_recognized` | A verified person the blueprint's `company.humans` does not name. |
 | `merge_resolve_human` | The human path of the merge gate: a verdict the console recorded, approving, by one of the company's humans. |
 | `merge_resolve_no_human_verdict`, `merge_resolve_human_rejected`, `merge_resolve_not_a_human`, `merge_resolve_resolver_missing` | No recorded verdict (a signal by another road), the latest one rejects, its author is not a company human, or the path was not named. |
@@ -101,7 +102,7 @@ answered with). A refusal carries none — its rule is the reason.
 | `gateway` | the MCP gateway | every tool call: decision, rule, backend outcome |
 | `llm-gateway` | the LLM gateway | every model call and its metered cost; budget stops |
 | `sandbox-infra` | the egress proxy | every allowed and denied egress attempt (`egress_not_allowlisted`) |
-| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget pauses, and the stops nobody resolves — attempts spent, bootstrap exhausted, the daily cap |
+| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget parks, and the stops nobody resolves — attempts spent, bootstrap exhausted, the daily cap |
 | `process-lifecycle` | the orchestrator | crew fulfilment, the review's facts, the heartbeat's journal |
 | `console` | the console | every human act, under the person's name; and every token it refused |
 

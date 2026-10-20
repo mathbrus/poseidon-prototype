@@ -35,6 +35,8 @@ from common.policy import (
     BLUEPRINT_APPLY,
     COMPANY_DELETE,
     GATE_RESOLVE,
+    HEARTBEAT_PAUSE,
+    HEARTBEAT_RESUME,
     HEARTBEAT_START,
     HEARTBEAT_WAKE,
     MERGE_RESOLVE,
@@ -104,7 +106,7 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         HEARTBEAT_TICK,
         "process-lifecycle",
-        "every tick: started work, idle and why, or refused and why",
+        "every tick: started work, idle and why, refused and why, or paused by whom",
     ),
     PlatformEvent(
         HEARTBEAT_DECIDE,
@@ -164,7 +166,7 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         LIFECYCLE_FULFILL,
         "process-lifecycle",
-        "a crew member fulfilled: bound and running",
+        "an ephemeral agent fulfilled: bound and running",
     ),
     PlatformEvent(
         LIFECYCLE_DESTROY_POD,
@@ -186,7 +188,7 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         gate_event(BUDGET_GATE),
         "process-gate",
-        "the budget pause's outcome: approved, rejected, escalated or expired",
+        "the budget park's outcome: approved, rejected, escalated or expired",
     ),
     PlatformEvent(
         gate_event(ATTEMPTS_GATE),
@@ -220,6 +222,15 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(RUN_START, "console", "a human started a run by hand"),
     PlatformEvent(RUN_CANCEL, "console", "a human cancelled a run", rationale=True),
     PlatformEvent(HEARTBEAT_WAKE, "console", "a human nudged the loop to look now"),
+    PlatformEvent(
+        HEARTBEAT_PAUSE,
+        "console",
+        "a human froze the loop: it starts nothing until resumed",
+        rationale=True,
+    ),
+    PlatformEvent(
+        HEARTBEAT_RESUME, "console", "a human lifted the pause", rationale=True
+    ),
     PlatformEvent(BLUEPRINT_APPLY, "console", "a human applied the blueprint"),
     PlatformEvent(
         COMPANY_DELETE, "console", "a human deleted the company", rationale=True

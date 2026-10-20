@@ -152,7 +152,7 @@ async def test_duplicate_run_id_is_409():
 
 async def test_terminal_run_restarts_on_redispatch():
     """409 is for runs in flight (crash-resume re-attach); a terminal run
-    re-dispatched restarts — the budget-pause resume path
+    re-dispatched restarts — the budget-park resume path
     would otherwise poll the stale failure forever."""
     attempts: list[str] = []
 

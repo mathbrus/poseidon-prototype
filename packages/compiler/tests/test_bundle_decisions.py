@@ -512,12 +512,13 @@ def test_crew_request_without_budget_headroom_is_denied(decide):
 
 def heartbeat_start(workflow: str, **args) -> dict:
     """A platform heartbeat.start input. The target's prior attempts ride
-    it like the other counts; a fresh item has none."""
+    it like the other counts; a fresh item has none; the loop is not
+    paused unless the test says so."""
     return {
         "company": "hello-saas",
         "lifecycle": "platform",
         "tool": "heartbeat.start",
-        "args": {"workflow": workflow, "attempts": 0, **args},
+        "args": {"workflow": workflow, "attempts": 0, "paused": False, **args},
     }
 
 
@@ -599,6 +600,20 @@ def test_heartbeat_start_fails_closed_without_the_counts(decide_heartbeat):
     decision = decide_heartbeat(**absent_attempts)
     assert decision["allow"] is False
     assert decision["rule"] == "heartbeat_start_attempts_missing"
+
+
+def test_a_paused_loop_starts_nothing_and_must_say_whether_it_is(decide_heartbeat):
+    """The pause is a fact the caller reads fresh and rides on the input:
+    true refuses the start by name, and an input that omits it refuses
+    too — the absent fact is the dangerous one."""
+    paused = decide_heartbeat(
+        **heartbeat_start("implement", active_runs=0, daily_spent_usd=0, paused=True)
+    )
+    assert paused == {"allow": False, "rule": "heartbeat_start_while_paused"}
+    unsaid = heartbeat_start("implement", active_runs=0, daily_spent_usd=0)
+    del unsaid["args"]["paused"]
+    decision = decide_heartbeat(**unsaid)
+    assert decision == {"allow": False, "rule": "heartbeat_start_paused_missing"}
 
 
 def test_agents_cannot_claim_heartbeat_authority(decide_heartbeat):
@@ -1215,24 +1230,32 @@ def test_a_human_may_resolve_the_merge_gate(decide):
     assert budget == {"allow": True, "rule": "gate_resolve_budget_approve"}
 
 
-def test_a_human_may_start_cancel_wake_and_apply(decide):
+def test_a_human_may_start_cancel_wake_pause_resume_apply_and_delete(decide):
     start = decide(**human("owner", "run.start", workflow="implement", number=4))
     scope = decide(**human("owner", "run.start", workflow="scope"))
     cancel = decide(**human("owner", "run.cancel", run_id="run-1"))
     wake = decide(**human("owner", "heartbeat.wake"))
+    pause = decide(**human("owner", "heartbeat.pause", reason="reading the ledger"))
+    resume = decide(**human("owner", "heartbeat.resume", reason="read"))
     apply = decide(**human("owner", "blueprint.apply"))
+    delete = decide(**human("owner", "company.delete", reason="done"))
     assert start == {"allow": True, "rule": "run_start_implement"}
     assert scope == {"allow": False, "rule": "default_deny"}
     assert cancel == {"allow": True, "rule": "run_cancel"}
     assert wake == {"allow": True, "rule": "heartbeat_wake"}
+    assert pause == {"allow": True, "rule": "heartbeat_pause"}
+    assert resume == {"allow": True, "rule": "heartbeat_resume"}
     assert apply == {"allow": True, "rule": "blueprint_apply"}
+    assert delete == {"allow": True, "rule": "company_delete"}
 
 
 def test_an_unlisted_human_is_denied_by_name(decide):
     """A verified person the company did not name is refused by a rule that
-    says so — an audit row, not an unfired allow."""
+    says so — an audit row, not an unfired allow — whatever the act."""
     decision = decide(**human("stranger", "gate.resolve", gate="merge", approved=True))
     assert decision == {"allow": False, "rule": "human_not_recognized"}
+    pause = decide(**human("stranger", "heartbeat.pause", reason="mine now"))
+    assert pause == {"allow": False, "rule": "human_not_recognized"}
 
 
 def test_an_agent_cannot_claim_human_authority(decide):
@@ -1278,7 +1301,7 @@ def test_merge_resolve_fails_closed_without_a_resolver(decide):
 
 
 def test_a_human_release_ignores_delegation_facts(decide_delegated):
-    """The human override: a recorded approval releases a change the
+    """The human override: a recorded approving verdict releases a change the
     delegated class would refuse — a carve-out, an undelegated path, red
     checks — because the person, not the class, is the authority."""
     decision = decide_delegated(

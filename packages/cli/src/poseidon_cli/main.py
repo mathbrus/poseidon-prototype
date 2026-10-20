@@ -12,9 +12,10 @@ asking questions. Neither is an act on a company.
 
 The tree is the glossary's nouns: the blueprint, the company, its
 heartbeat, its runs; one verb per meaning (`show` to read, `start` to
-begin a run by hand, `verdict` to answer a gate); `--reason` on every act
-that commits the company to something; `--no-wait` wherever a command
-would otherwise wait for the cluster.
+begin a run by hand, `verdict` to answer a gate, `pause` and `resume` to
+hold the company and let it go); `--reason` on every act that owes a
+rationale (the console's acts table says which); `--no-wait` wherever a
+command would otherwise wait for the cluster.
 """
 
 import json
@@ -33,7 +34,7 @@ from common.topology import (
     PLATFORM_NAMESPACE,
     human_service_account,
 )
-from common.workflows import GATES
+from common.workflows import GATES, parse_tick_rule
 from poseidon_cli import render
 from poseidon_cli.client import (
     TOKEN_VAR,
@@ -56,14 +57,15 @@ company_app = typer.Typer(
     no_args_is_help=True, help="The company this cluster hosts: show it, or delete it."
 )
 heartbeat_app = typer.Typer(
-    no_args_is_help=True, help="The company's standing loop: show it, or wake it."
+    no_args_is_help=True,
+    help="The company's standing loop: show it, or wake it. `poseidon pause` holds it.",
 )
 run_app = typer.Typer(
     no_args_is_help=True, help="One run: show it, read its story, cancel it."
 )
 start_app = typer.Typer(
     no_args_is_help=True,
-    help="Start a run by hand, on a ticket or a pull request. An operator's tool:"
+    help="Start a run by hand, on a ticket or a pull request. A person's tool:"
     " the heartbeat starts the company's runs on its own.",
 )
 app.add_typer(blueprint_app, name="blueprint")
@@ -310,11 +312,13 @@ def _await_converged(client: ConsoleClient, generation: int, timeout_s: int) -> 
 @company_app.command("show")
 def company_show(as_json: bool = JSON_OPTION) -> None:
     """The applied company: its name, phase (`activating` until its policy
-    is served, `converged` after), generation and bundle revision."""
+    is served, `converged` after), generation and bundle revision, and who
+    holds its heartbeat paused, if anyone."""
     state = _call(_client().company)
     if as_json:
         _json(state)
         return
+    paused = state.get("paused") or {}
     render.record(
         [
             ("company", state.get("company")),
@@ -325,6 +329,15 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
             ),
             ("bundle", render.dim(state.get("bundleRevision") or "")),
             ("namespace", render.dim(state.get("namespace") or "")),
+            (
+                "heartbeat",
+                Text.assemble(
+                    render.status("paused"),
+                    f" by {paused['by']}, {render.ago(paused['at'])}",
+                )
+                if paused
+                else render.status("running"),
+            ),
             ("message", state.get("message")),
         ]
     )
@@ -334,10 +347,12 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
 def company_delete(
     reason: str = REASON_OPTION,
     yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking."),
+    no_wait: bool = NO_WAIT_OPTION,
 ) -> None:
     """Delete the company: cancels its running runs, removes it and waits
     for the teardown. Asks first, naming the runs it will cancel. The one
-    way to stop a company; applying its blueprint again resumes it."""
+    way to stop a company (`pause` holds it instead); applying its
+    blueprint again brings it back."""
     client = _client()
     company = _call(client.whoami).get("company")
     if not company:
@@ -357,7 +372,7 @@ def company_delete(
         )
     if not yes:
         typer.confirm(f"delete {company}?", abort=True)
-    result = _call(client.delete_company, reason)
+    result = _call(client.delete_company, reason, wait=not no_wait)
     cancelled = result.get("runs_cancelled") or []
     render.act(
         f"{result.get('company', company)} deleted"
@@ -398,8 +413,7 @@ def heartbeat_show(
 def _tick_row(tick: dict[str, Any]) -> tuple[Any, ...]:
     """A tick's rule reads `tick_<outcome>:<detail>`; the outcome is the
     coloured word, the detail says what (or why not)."""
-    rule = str(tick.get("rule") or "")
-    outcome, _, detail = rule.removeprefix("tick_").partition(":")
+    outcome, detail = parse_tick_rule(str(tick.get("rule") or ""))
     return (render.dim(render.ago(tick.get("ts"))), render.status(outcome), detail)
 
 
@@ -409,6 +423,26 @@ def wake() -> None:
     decides for itself what, if anything, to start."""
     _call(_client().wake)
     render.act("heartbeat woken")
+
+
+@app.command()
+def pause(reason: str = REASON_OPTION) -> None:
+    """Hold the company: its heartbeat starts nothing until `resume`, and
+    everything stays where it is to be read. Runs already in flight
+    finish; you may still start a run, answer a gate or cancel by hand.
+    Recorded under your name with your reason."""
+    result = _call(_client().pause, reason)
+    paused = result.get("paused") or {}
+    render.act(f"heartbeat paused by {paused.get('by', '')}")
+
+
+@app.command()
+def resume(reason: str = REASON_OPTION) -> None:
+    """Lift the pause: the heartbeat looks at the world at once and
+    decides for itself what to start. Recorded under your name with your
+    reason."""
+    _call(_client().resume, reason)
+    render.act("heartbeat resumed")
 
 
 # -- runs ------------------------------------------------------------------------
@@ -624,7 +658,7 @@ def verdict(
     reason: str = REASON_OPTION,
 ) -> None:
     """Answer a gate a run parked on. The console records the verdict and
-    your reason under your name, then delivers it. Approving a budget pause
+    your reason under your name, then delivers it. Approving a budget park
     lets the run continue under its cap as it stands."""
     approved = verdict is Verdict.approve
     result = _call(_client().resolve, run_id, gate.value, approved, reason)

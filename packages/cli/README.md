@@ -28,18 +28,20 @@ uv run poseidon blueprint apply examples/hello-saas.yaml --yes
 
 uv run poseidon verdict <run_id> merge approve --reason "…"   # approve a parked merge
 uv run poseidon verdict <run_id> merge reject --reason "…"    # reject it
-uv run poseidon verdict <run_id> budget approve --reason "…"  # let a run continue past its pause
+uv run poseidon verdict <run_id> budget approve --reason "…"  # let a run continue past its budget park
 uv run poseidon runs
 uv run poseidon run show <run_id>
 uv run poseidon run story <run_id> [--decisions]
 uv run poseidon spend [<run_id>]
 uv run poseidon heartbeat show
+uv run poseidon pause --reason "…"                       # hold the company: the heartbeat starts nothing until resume
+uv run poseidon resume --reason "…"
 uv run poseidon start implement 42                       # a run by hand on ticket #42
 uv run poseidon start review 41                          # or on pull request #41
 uv run poseidon follow                                   # watch every row land, and the spend move
 uv run poseidon follow --run <run_id>                    # one run's rows
-uv run poseidon company show                             # phase, generation, bundle revision, from the CR
-uv run poseidon company delete --reason "why"            # the one stop: cancel runs, delete the company
+uv run poseidon company show                             # phase, generation, bundle revision, who holds the heartbeat
+uv run poseidon company delete --reason "why"            # the one stop (a pause is not one): cancel runs, delete the company
 ```
 
 Every command's `--help` is rendered into [the CLI reference](../../docs/reference/cli.md)
@@ -51,7 +53,7 @@ at docs build time; the routes beneath them are on [the console reference](../..
 |---|---|
 | `client.py` | `ConsoleClient`: one method per console route; `PolicyDenied` (403, with the rule) and `ConsoleError` (everything else). |
 | `new.py` | `blueprint new`: the questionnaire (a small prompter protocol; questionary on a terminal, a script in tests), the document it builds, the file it renders, the compile it runs first. |
-| `main.py` | The typer app: `login`, `whoami`, `blueprint new\|preview\|apply`, `company show\|delete`, `heartbeat show\|wake`, `runs`, `run show\|story\|cancel`, `start implement\|review`, `verdict`, `follow`, `spend`; `apply` waits for `converged`. |
+| `main.py` | The typer app: `login`, `whoami`, `blueprint new\|preview\|apply`, `company show\|delete`, `heartbeat show\|wake`, `pause`, `resume`, `runs`, `run show\|story\|cancel`, `start implement\|review`, `verdict`, `follow`, `spend`; `apply` waits for `converged`. |
 | `render.py` | How the CLI speaks: a record, a table, an act, an error; status colours; time and money formatting; the one line an audit row is. `--json` on every read bypasses it. |
 | `follow.py` | The follower: the serial id as the cursor, spend when it moves; `start` follows its own run through it. |
 

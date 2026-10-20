@@ -133,14 +133,14 @@ point every model call passes through; there is no Temporal client in
 this service. The orchestrator observes the stop through the error the
 agent host surfaces: the implement workflow matches the `budget_exhausted`
 marker in the dispatch result, parks on a `budget` signal in an
-API-visible `paused-budget_exhausted` state, fires an escalation at half
+API-visible `parked-budget_exhausted` state, fires an escalation at half
 the gate deadline, and records every transition as a `process-gate`
 audit event. `poseidon verdict <run_id> budget approve` (after raising the cap
 — the console decides and audits the verdict under the person's name,
 then delivers it) re-dispatches; anything else finalizes the run with
 the budget error. Never a quietly smaller model, never a truncated
 context — exhaustion is a distinguishable error, an audit event, an
-escalation, and a visible paused state.
+escalation, and a visible parked state.
 
 Two edges keep the semantics honest. A cap of zero (or none) means
 *uncapped*: the call flows and metering continues, because metering and
@@ -210,7 +210,7 @@ read — a real model legitimately thinks for minutes.
 - `agent` builds its LLM client against this service and injects the
   run header (`agent.procedures.build_llm`).
 - `orchestrator` turns the surfaced `budget_exhausted` error into the
-  paused state, escalation, and `process-gate` audit events.
+  parked state, escalation, and `process-gate` audit events.
 - [`mockllm`](../mockllm/README.md) is the upstream in development;
   LiteLLM is the upstream in a real deployment. Neither is reachable
   except from here.

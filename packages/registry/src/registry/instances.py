@@ -18,7 +18,7 @@ class AgentInstances:
         standing_name: str,
         role: str,
         namespace: str | None = None,
-        status: str = "ready",
+        status: str = "converged",
     ) -> None:
         self._db.execute(
             """

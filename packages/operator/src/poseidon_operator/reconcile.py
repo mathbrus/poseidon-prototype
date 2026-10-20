@@ -203,7 +203,7 @@ def reconcile_instance(
         namespace=namespace,
     )
     _log.info("instance converged", extra={"agent_id": spec["agentId"]})
-    patch.status["phase"] = "ready"
+    patch.status["phase"] = "converged"
 
 
 @kopf.on.delete("poseidon.dev", "v1", "agentinstances")

@@ -127,8 +127,8 @@ class Answers:
     reconcile_minutes: int = 30
     max_attempts: int = 2
     max_open_tickets: int = 5
-    pause_minutes: int = 60
-    deadline_minutes: int = 1440
+    budget_deadline_minutes: int = 60
+    merge_deadline_minutes: int = 1440
     max_verify_retries: int = 2
     allowed_pattern: str = "^feature/[a-z0-9-]+$"
     deny_paths: list[str] = field(default_factory=lambda: [".github/workflows/"])
@@ -230,8 +230,8 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
         prompter.text(
             "Who may steer the company?",
             default=", ".join(a.humans),
-            help="login names, comma-separated; they approve merges, raise budgets "
-            "and can stop the company. On kind: owner, auditor",
+            help="login names, comma-separated; they answer merge and budget gates, "
+            "pause the company and can delete it. On kind: owner, auditor",
             validate=valid_names,
         )
     )
@@ -298,7 +298,7 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
             prompter.text(
                 "Folders where a change may merge without a person",
                 default=", ".join(a.delegate_paths),
-                help="anything touching other files waits for approval",
+                help="anything touching other files waits for a person's verdict",
                 validate=valid_paths,
             )
         )
@@ -357,10 +357,10 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
         )
         a.max_concurrent = _int(
             prompter,
-            "Crews one task may have running at the same time",
+            "Crews the company may have running at the same time, across its tasks",
             a.max_concurrent,
             1,
-            help="an implement and its review",
+            help="an implement crew on one ticket and a review crew on another",
         )
         a.max_attempts = _int(
             prompter, "Tries per ticket before it is given up", a.max_attempts, 1
@@ -371,16 +371,16 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
             a.max_open_tickets,
             1,
         )
-        a.pause_minutes = _int(
+        a.budget_deadline_minutes = _int(
             prompter,
             "Minutes a task waits at its spending limit for a person",
-            a.pause_minutes,
+            a.budget_deadline_minutes,
             1,
         )
-        a.deadline_minutes = _int(
+        a.merge_deadline_minutes = _int(
             prompter,
-            "Minutes a pull request waits for a person's approval",
-            a.deadline_minutes,
+            "Minutes a pull request waits for a person's verdict",
+            a.merge_deadline_minutes,
             1,
         )
         a.max_verify_retries = _int(
@@ -448,7 +448,7 @@ def build(a: Answers) -> dict[str, Any]:
     }
     merge: dict[str, Any] = {
         "resolved_by": a.resolver,
-        "deadline_minutes": a.deadline_minutes,
+        "deadline_minutes": a.merge_deadline_minutes,
     }
     if a.resolver == "policy":
         merge["delegate"] = {
@@ -497,7 +497,10 @@ def build(a: Answers) -> dict[str, Any]:
         },
         "policies": policies,
         "budgets": {
-            "per_run": {"usd": _money(a.per_run_usd), "pause_minutes": a.pause_minutes}
+            "per_run": {
+                "usd": _money(a.per_run_usd),
+                "deadline_minutes": a.budget_deadline_minutes,
+            }
         },
         "heartbeat": {
             "conductor": PM,
@@ -535,11 +538,11 @@ SECTION_NOTES = {
     ),
     "tools": (
         "What each role may do beyond reading. A role not listed keeps its\n"
-        "full set; the reviewer here may judge code, not change it."
+        "full set{reviewer}."
     ),
     "workflows": (
         "How a task is carried out and reviewed: which crew does each, how\n"
-        "many test retries, and who approves a merge."
+        "many test retries, and who answers a merge."
     ),
     "policies": "What the company may never do, whoever asks.",
     "budgets": "Spending limits: a task stops here and waits for a person.",
@@ -564,6 +567,14 @@ def render(document: dict[str, Any]) -> str:
     for section, note in SECTION_NOTES.items():
         if section not in document:
             continue
+        if section == "tools":
+            # The note says what the section does: a reviewer narrowed to
+            # judging, or nothing narrowed at all.
+            note = note.format(
+                reviewer="; the reviewer here may judge code, not change it"
+                if "reviewer" in document["tools"]
+                else ""
+            )
         commented = "\n".join(f"# {line}" for line in note.splitlines())
         body = yaml.safe_dump({section: document[section]}, sort_keys=False, width=88)
         parts.append(f"\n{commented}\n{body}")

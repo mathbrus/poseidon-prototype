@@ -113,10 +113,11 @@ postgres:
 mcpGateway:
   service:
     type: ClusterIP
-    # Set (with type NodePort) to give the host-side runner a stable port.
+    # Set (with type NodePort) to give a client on the host a stable port.
     nodePort: null
 
-# The console: the one door a person acts on the company through.
+# The console: the human's chokepoint — the one service a person acts on
+# the company through.
 console:
   service:
     type: ClusterIP
@@ -138,10 +139,3 @@ networkPolicies:
   clusterCidrs:
     - 10.244.0.0/16
     - 10.96.0.0/12
-  # Where the host-side runner's dispatch/status calls enter the agent pod
-  # from (NodePort traffic is SNAT'd to a node address). 172.16.0.0/12 covers
-  # any Docker bridge subnet (Docker picks one per host), plus the pod CIDR
-  # for node addresses on the overlay.
-  runnerIngressCidrs:
-    - 172.16.0.0/12
-    - 10.244.0.0/16

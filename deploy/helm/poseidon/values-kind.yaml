@@ -1,7 +1,7 @@
 # kind overrides: a NodePort gateway behind the kind extraPortMapping
-# (deploy/kind/kind-config.yaml maps host 127.0.0.1:8080 -> 30080) so the
-# host-side runner keeps the familiar URL. Everything else is identical to
-# a real cluster.
+# (deploy/kind/kind-config.yaml maps host 127.0.0.1:8080 -> 30080) so a
+# client on the host keeps the familiar URL. Everything else is identical
+# to a real cluster.
 
 mcpGateway:
   service:
@@ -27,12 +27,7 @@ console:
 
 networkPolicies:
   # kind-config.yaml pins podSubnet to Calico's default pool; the service
-  # CIDR is kind's default. NodePort traffic from the host runner arrives
-  # SNAT'd to a node address — on the Docker network the node sits on (a
-  # per-host subnet somewhere in 172.16.0.0/12) or the pod overlay.
+  # CIDR is kind's default.
   clusterCidrs:
     - 192.168.0.0/16
     - 10.96.0.0/12
-  runnerIngressCidrs:
-    - 172.16.0.0/12
-    - 192.168.0.0/16

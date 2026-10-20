@@ -218,17 +218,17 @@ class RunActivities:
         also the workflow's result."""
         log = self._log.bind(run_id=run_id)
         # Handle-independent on purpose: bind precedes provision, so
-        # participants can exist even when no sandbox ever did.
+        # ephemeral agents can exist even when no sandbox ever did.
         if self._crew is not None:
             try:
                 swept = await self._crew.revoke_participants(run_id)
                 if swept:
-                    log.info("participants revoked", extra={"agent_ids": swept})
+                    log.info("ephemeral agents revoked", extra={"agent_ids": swept})
             except Exception as exc:
                 # A stale binding row is a governance problem, not a run
                 # failure — but never a silent one.
-                log.info("participant revoke failed", extra={"error": str(exc)})
-                error = error or f"teardown: participant revoke failed: {exc}"
+                log.info("ephemeral agent revoke failed", extra={"error": str(exc)})
+                error = error or f"teardown: ephemeral agent revoke failed: {exc}"
             try:
                 gone = await self._crew.destroy_ephemeral_pods(run_id)
                 if gone:

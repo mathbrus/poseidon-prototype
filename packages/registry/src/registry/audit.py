@@ -68,8 +68,8 @@ class AuditStore:
     def latest_human_verdict(self, run_id: str, gate: str) -> dict[str, Any] | None:
         """The console's most recent verdict on this run's gate —
         `{principal, approved, ts}` — or None when no human ever answered
-        through the console. Latest wins: an approval followed by a
-        rejection reads as rejected."""
+        through the console. Latest wins: an approving verdict followed
+        by a rejecting one reads as rejected."""
         rows = self._db.query(
             """
             SELECT ts, agent_id, rule FROM registry.audit_events

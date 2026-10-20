@@ -42,7 +42,7 @@ APPLIED_SPEC = {
     "namespace": "hello-saas",
     "repo": {"url": "github.com/example/repo", "base_ref": "main"},
     "documents": {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"},
-    "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
+    "budgets": {"per_run_usd": 5.0, "deadline_minutes": 60},
     "contractTests": {"paths": ["tests/contract", "tests/acceptance"]},
     "heartbeat": {"conductor": "pm", "max_attempts": 2},
     "workflows": [
@@ -203,7 +203,7 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
         "crew": "feature-delivery",
         "gates": {},
         "max_verify_retries": 2,
-        "budget_pause_minutes": 60,
+        "budget_deadline_minutes": 60,
         "contract_paths": ["tests/acceptance", "tests/contract"],
         "timeouts": asdict(Timeouts()),
     }
@@ -230,7 +230,7 @@ def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
     companies.upsert(
         "hello-saas",
         {
-            "budgets": {"per_run_usd": 5.0, "pause_minutes": 60},
+            "budgets": {"per_run_usd": 5.0, "deadline_minutes": 60},
             "heartbeat": {"conductor": "pm", "max_attempts": 2},
             "workflows": [{"name": "review", "crew": "feature-review"}],
         },
@@ -311,7 +311,7 @@ def test_gate_outcomes_are_process_gate_audit_events(activities, audit):
 
 def test_policy_gate_outcomes_map_to_decisions(activities, audit):
     """policy_resolved released a merge (allow); policy_declined fell back
-    to the human signal (deny) — distinguishable from human approvals
+    to the human signal (deny) — distinguishable from human verdicts
     forever."""
     for kind in ("policy_resolved", "policy_declined"):
         asyncio.run(
@@ -450,7 +450,7 @@ def test_revoke_failure_is_loud_but_not_masking(
     )
     assert backend.destroyed == [JOB_HANDLE["job_name"]]
     assert record["status"] == "failed"
-    assert "participant revoke failed" in record["error"]
+    assert "ephemeral agent revoke failed" in record["error"]
 
 
 # -- record_attempts_exhausted ------------------------------------------------

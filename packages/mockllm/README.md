@@ -43,9 +43,9 @@ wire-shape adapter over the same brain, so scenario logic never
 forks), same `/health/liveliness` probe the `llm-proxy` Deployment
 expects — so the `values-mockllm.yaml` swap is a pod-template change and
 nothing else.
-That overlay also resolves every model tier (`frontier`, `standard`,
-`small`) to `mock-brain`, so the LLM gateway's ledger records what was
-actually served rather than a paid model name nothing answered as.
+That overlay also pins the deployment's model (`run.model`) to
+`mock-brain`, so the LLM gateway's ledger records what was actually
+served rather than a paid model name nothing answered as.
 
 Requests are not authenticated. That matches the real proxy, which
 ignores the agent's placeholder bearer token too, and neither service is

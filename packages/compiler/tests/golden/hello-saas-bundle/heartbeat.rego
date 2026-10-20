@@ -67,3 +67,13 @@ deny_rules contains "heartbeat_start_attempts_missing" if {
 	input.tool == "heartbeat.start"
 	not is_number(object.get(input, ["args", "attempts"], null))
 }
+
+deny_rules contains "heartbeat_start_while_paused" if {
+	input.tool == "heartbeat.start"
+	input.args.paused == true
+}
+
+deny_rules contains "heartbeat_start_paused_missing" if {
+	input.tool == "heartbeat.start"
+	not is_boolean(object.get(input, ["args", "paused"], null))
+}

@@ -6,7 +6,7 @@ Layout:
                 gateway, SandboxBackend and agent HTTP
     gates/      process gates (signal handler, escalation timer,
                 audit-event shaping) — the review workflow's merge gate
-                and the implement workflow's budget pause ride these
+                and the implement workflow's budget park ride these
     worker/     the worker process (Deployment in the platform namespace)
 
 The worker holds no GIT_TOKEN and no provider keys; its gateway identity

@@ -32,9 +32,9 @@ _SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")
 # day at the merge gate, an hour at a budget stop). The suite waits those
 # gates out to watch them escalate and expire, so every document it applies
 # carries these instead: escalation lands at half a minute, and the budget
-# approve path has time to re-apply a blueprint before its pause ends.
+# approve path has time to re-apply a blueprint before its park ends.
 E2E_GATE_MINUTES = 1
-E2E_PAUSE_MINUTES = 2
+E2E_DEADLINE_MINUTES = 2
 
 
 def derived_blueprint(base: Path, mutate: Callable[[dict], None], label: str) -> Path:
@@ -96,14 +96,14 @@ def suite_document(path: Path) -> Path:
     """The document at `path` as the suite applies it: the disposable
     repository in place of the example's, and the suite's gate waits in
     place of the human-scale ones — every gate's `deadline_minutes` and the
-    budget `pause_minutes`. Nothing else changes: the suite applies the
+    budget `deadline_minutes`. Nothing else changes: the suite applies the
     example's authority, on the suite's repository and clock."""
     document = yaml.safe_load(path.read_text())
     document["stack"]["repo"]["url"] = harness_repo()
     for node in (document.get("workflows") or {}).values():
         for gate in (node.get("gates") or {}).values():
             gate["deadline_minutes"] = E2E_GATE_MINUTES
-    document["budgets"]["per_run"]["pause_minutes"] = E2E_PAUSE_MINUTES
+    document["budgets"]["per_run"]["deadline_minutes"] = E2E_DEADLINE_MINUTES
     out = Path(_SCRATCH.name) / f"{path.stem}-e2e.yaml"
     out.write_text(yaml.safe_dump(document, sort_keys=False))
     return out

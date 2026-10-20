@@ -19,6 +19,7 @@ from typing import Any
 from psycopg.errors import UniqueViolation
 
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
+from common.workflows import HEARTBEAT_WORKFLOW, RUN_WORKFLOWS
 from registry.db import Registry
 
 
@@ -196,8 +197,8 @@ class Runs:
         the namespace they execute in goes."""
         rows = self._db.query(
             "SELECT * FROM registry.runs WHERE company = %s AND status = 'running'"
-            " AND workflow <> 'heartbeat' ORDER BY created_at, run_id",
-            (company,),
+            " AND workflow <> %s ORDER BY created_at, run_id",
+            (company, HEARTBEAT_WORKFLOW),
         )
         return [RunRecord.from_row(row) for row in rows]
 
@@ -209,8 +210,8 @@ class Runs:
         rows = self._db.query(
             "SELECT COUNT(*) AS n FROM registry.runs"
             " WHERE company = %s AND status = 'running'"
-            "   AND workflow IN ('scope', 'implement', 'review')",
-            (company,),
+            "   AND workflow = ANY(%s)",
+            (company, list(RUN_WORKFLOWS)),
         )
         return int(rows[0]["n"])
 
@@ -299,10 +300,10 @@ class Runs:
         none is given), oldest first — a reader's window onto what the
         company did after it took its clock."""
         rows = self._db.query(
-            "SELECT * FROM registry.runs WHERE company = %s AND workflow <> 'heartbeat'"
+            "SELECT * FROM registry.runs WHERE company = %s AND workflow <> %s"
             " AND (%s::timestamptz IS NULL OR created_at >= %s::timestamptz)"
             " ORDER BY created_at, run_id",
-            (company, since, since),
+            (company, HEARTBEAT_WORKFLOW, since, since),
         )
         return [RunRecord.from_row(row) for row in rows]
 
@@ -311,12 +312,10 @@ class Runs:
         history."""
         # Heartbeat decision rows exist only so the heartbeat's LLM call can
         # bind; they are not work the company did, so they never enter the
-        # observation's run history. The workflow name is the
-        # orchestrator's (`orchestrator.activities.heartbeat.WORKFLOW`),
-        # spelled here because this package cannot import it.
+        # observation's run history.
         rows = self._db.query(
-            "SELECT * FROM registry.runs WHERE company = %s AND workflow <> 'heartbeat'"
+            "SELECT * FROM registry.runs WHERE company = %s AND workflow <> %s"
             " ORDER BY created_at DESC LIMIT %s",
-            (company, limit),
+            (company, HEARTBEAT_WORKFLOW, limit),
         )
         return [RunRecord.from_row(row) for row in rows]

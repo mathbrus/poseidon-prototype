@@ -4,8 +4,8 @@ A cursor poll over the ledger, not a stream: the serial id is a lossless
 cursor, so a follower never repeats or skips a row, and an interrupted
 follow resumes from the last id it printed. Spend rides along from the
 budget ledger and is said only when it moves. The rows themselves are
-rendered by `render.row`, the one line shape `runs`, `run story` and
-this share.
+rendered by `render.row`, the one line shape `run story` and this
+share.
 """
 
 import time

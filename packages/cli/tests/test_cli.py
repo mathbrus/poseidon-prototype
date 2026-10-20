@@ -50,7 +50,6 @@ class Console:
                 },
             ),
             ("GET", "/runs/run-9"): (422, {"detail": "no run 'run-9'"}),
-            ("GET", "/now"): (200, {"now": "2026-01-01T00:00:00+00:00"}),
             ("GET", "/runs"): (
                 200,
                 [
@@ -118,7 +117,7 @@ def client(console: Console) -> ConsoleClient:
 
 def test_every_call_carries_the_token(client, console):
     assert client.whoami()["human"] == "owner"
-    assert client.now() == "2026-01-01T00:00:00+00:00"
+    assert client.company()["phase"] == "converged"
     assert {auth for _, _, _, auth in console.requests} == {"Bearer t-owner"}
 
 
@@ -257,7 +256,16 @@ def test_company_delete_names_the_running_runs_then_asks_the_console(runner, con
     assert result.exit_code == 0, result.output
     assert "hello-saas: 1 running run(s)" in result.output and "run-1" in result.output
     assert "hello-saas deleted in 3 s; cancelled run-1" in result.output
-    assert console.requests[-1][:3] == ("DELETE", "/company", {"reason": "done"})
+    assert console.requests[-1][:3] == (
+        "DELETE",
+        "/company",
+        {"reason": "done", "wait": True},
+    )
+    quick = runner.invoke(
+        cli.app, ["company", "delete", "--yes", "--no-wait", "--reason", "done"]
+    )
+    assert quick.exit_code == 0, quick.output
+    assert console.requests[-1][2] == {"reason": "done", "wait": False}
 
 
 def test_company_delete_asks_before_acting(runner, console):
@@ -309,13 +317,63 @@ def test_apply_gives_up_after_the_wait_timeout(runner, console, tmp_path):
     assert "still activating" in result.output and "company show" in result.output
 
 
-def test_company_show_prints_the_crs_phase(runner, console):
+def test_company_show_prints_the_crs_phase_and_the_pause(runner, console):
     result = runner.invoke(cli.app, ["company", "show", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["phase"] == "converged"
     rendered = runner.invoke(cli.app, ["company", "show"])
     assert rendered.exit_code == 0, rendered.output
     assert "converged" in rendered.output and "3 (observed 3)" in rendered.output
+    assert "heartbeat" in rendered.output and "running" in rendered.output
+    status, payload = console.answers[("GET", "/company")]
+    console.answers[("GET", "/company")] = (
+        status,
+        {**payload, "paused": {"by": "owner", "at": "2026-01-01T00:00:00+00:00"}},
+    )
+    held = runner.invoke(cli.app, ["company", "show"])
+    assert "paused by owner" in held.output, held.output
+
+
+def test_pause_and_resume_carry_the_reason_and_wake_carries_none(runner, console):
+    console.answers[("POST", "/heartbeat/pause")] = (
+        200,
+        {
+            "company": "hello-saas",
+            "paused": {"by": "owner", "at": "2026-01-01T00:00:00Z"},
+        },
+    )
+    console.answers[("POST", "/heartbeat/resume")] = (
+        200,
+        {"company": "hello-saas", "paused": None},
+    )
+    console.answers[("POST", "/heartbeat/wake")] = (
+        200,
+        {"company": "hello-saas", "woken": True},
+    )
+    paused = runner.invoke(cli.app, ["pause", "--reason", "reading the ledger"])
+    assert paused.exit_code == 0, paused.output
+    assert "heartbeat paused by owner" in paused.output
+    assert console.requests[-1][:3] == (
+        "POST",
+        "/heartbeat/pause",
+        {"reason": "reading the ledger"},
+    )
+    resumed = runner.invoke(cli.app, ["resume", "--reason", "read it"])
+    assert resumed.exit_code == 0, resumed.output
+    assert "heartbeat resumed" in resumed.output
+    assert console.requests[-1][:3] == (
+        "POST",
+        "/heartbeat/resume",
+        {"reason": "read it"},
+    )
+    woken = runner.invoke(cli.app, ["heartbeat", "wake"])
+    assert woken.exit_code == 0, woken.output
+    assert "heartbeat woken" in woken.output
+    assert console.requests[-1][:3] == ("POST", "/heartbeat/wake", None)
+    # No reason, no act: the CLI refuses before the console hears.
+    silent = runner.invoke(cli.app, ["pause"])
+    assert silent.exit_code != 0
+    assert console.requests[-1][:2] == ("POST", "/heartbeat/wake")
 
 
 def test_whoami_is_two_lines_for_a_person(runner, console):

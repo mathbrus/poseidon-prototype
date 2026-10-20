@@ -114,7 +114,7 @@ def raw_review(delivered: dict) -> dict:
     task = review_run_task(number)
     wake_until_run_started(task, "review")
     run_id = run_by_task(task, workflow="review")["run_id"]
-    await_gate(run_id, "paused-merge_gate")
+    await_gate(run_id, "parked-merge_gate")
     _raw_signal(run_id)
     record = await_run(task, terminal=True, deadline_s=600, workflow="review")
     return {"run_id": run_id, "record": record, "pr_number": number}
@@ -150,7 +150,7 @@ def test_the_same_verdict_through_the_console_merges(raw_review: dict, delivered
     wake_until_run_started(task, "review")
     run_id = run_by_task(task, workflow="review")["run_id"]
     assert run_id != raw_review["run_id"]
-    await_gate(run_id, "paused-merge_gate")
+    await_gate(run_id, "parked-merge_gate")
     verdict = console(env).resolve(run_id, "merge", True, "red-team: the real road")
     assert verdict["principal"] == HUMAN
     record = await_run(task, terminal=True, deadline_s=600, workflow="review")

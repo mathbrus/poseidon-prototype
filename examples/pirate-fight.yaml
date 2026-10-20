@@ -1,0 +1,96 @@
+# pirate-fight — written by `poseidon blueprint new`.
+# Every value here is yours to change; `poseidon blueprint apply` makes
+# it the company's charter.
+apiVersion: poseidon.dev/v1
+
+# Your company: its name, what it should build and why (every agent
+# reads this before every decision), who may steer it, and the two
+# documents it writes for itself in its repository.
+company:
+  name: pirate-fight
+  vision: A single player pirate fighting adventure game playable from the CLI. Offers a list
+    of missions and modes so that the game stays interesting long term.
+  humans:
+  - owner
+  documents:
+    strategy: docs/STRATEGY.md
+    architecture: docs/ARCHITECTURE.md
+
+# Where the code lives, and what the agents' workspace may reach and run.
+stack:
+  repo:
+    url: github.com/mathbrus/pirate-game
+    base_ref: main
+  toolchain:
+    image: poseidon-sandbox
+    test_command: pytest -q
+    egress_allow:
+    - pypi.org
+    - files.pythonhosted.org
+
+# The company's one permanent agent, the PM: it decides what to work
+# on next, and which crews it may bring in for a task.
+standing:
+  pm:
+    role: pm
+    count: 1
+    may_spawn:
+      crew:
+      - feature-delivery
+      - feature-review
+      - stewardship
+      max_concurrent: 1
+
+# What each role may do beyond reading. A role not listed keeps its
+# full set.
+tools: {}
+
+# How a task is carried out and reviewed: which crew does each, how
+# many test retries, and who answers a merge.
+workflows:
+  implement:
+    crew: feature-delivery
+    max_verify_retries: 2
+  review:
+    crew: feature-review
+    gates:
+      merge:
+        resolved_by: policy
+        deadline_minutes: 1440
+        delegate:
+          paths:
+          - src/
+          - tests/unit/
+          - docs/
+          max_reworks: 1
+
+# What the company may never do, whoever asks.
+policies:
+  branch_protection:
+    protected:
+    - main
+    allowed_pattern: ^feature/[a-z0-9-]+$
+  deny_paths:
+  - .github/workflows/
+
+# Spending limits: a task stops here and waits for a person.
+budgets:
+  per_run:
+    usd: 5
+    deadline_minutes: 60
+
+# How the company keeps itself going: how often it checks in, how
+# much it may run at once, how many tries and open tickets, and the
+# day's spending limit.
+heartbeat:
+  conductor: pm
+  reconcile_minutes: 30
+  max_concurrent_runs: 1
+  max_attempts: 2
+  max_open_tickets: 5
+  may_start:
+  - scope
+  - implement
+  - review
+  daily_cap:
+    usd: 20

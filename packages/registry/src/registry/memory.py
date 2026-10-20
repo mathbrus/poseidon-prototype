@@ -22,6 +22,7 @@ from typing import Any
 from common.audit import AuditEvent
 from common.policy import GATE_RESOLVE, verdict_rule
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
+from common.workflows import HEARTBEAT_WORKFLOW, RUN_WORKFLOWS
 from registry.participants import ParticipantRevoked
 from registry.runs import Attempts, RunRecord
 
@@ -230,14 +231,25 @@ class InMemorySandboxRegistrations:
 
 
 class InMemoryCompanies:
-    """The operator's writes, plus the read side the worker and egress
-    proxy consume the infra IR through."""
+    """The operator's writes, the read side the worker and egress proxy
+    consume the infra IR through, and the console's pause."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}
+        self.pauses: dict[str, dict[str, Any]] = {}
 
     def upsert(self, name: str, spec: dict[str, Any]) -> None:
         self.rows[name] = dict(spec)
+
+    def pause(self, name: str, by: str) -> dict[str, Any]:
+        self.pauses[name] = {"by": by, "at": datetime.now(UTC).isoformat()}
+        return self.pauses[name]
+
+    def resume(self, name: str) -> None:
+        self.pauses.pop(name, None)
+
+    def paused(self, name: str) -> dict[str, Any] | None:
+        return self.pauses.get(name) if name in self.rows else None
 
     def get(self, name: str) -> dict[str, Any] | None:
         return self.rows.get(name)
@@ -255,6 +267,7 @@ class InMemoryCompanies:
 
     def delete(self, name: str) -> None:
         self.rows.pop(name, None)
+        self.pauses.pop(name, None)
 
 
 class InMemoryAgentInstances:
@@ -271,7 +284,7 @@ class InMemoryAgentInstances:
         standing_name: str,
         role: str,
         namespace: str | None = None,
-        status: str = "ready",
+        status: str = "converged",
     ) -> None:
         self.rows[agent_id] = {
             "agent_id": agent_id,
@@ -316,7 +329,7 @@ class InMemoryRunParticipants:
         existing = self.rows.get(agent_id)
         if existing is not None and existing["status"] != "active":
             raise ParticipantRevoked(
-                f"participant {agent_id} was revoked; it is not revivable"
+                f"ephemeral agent {agent_id} was revoked; it is not revivable"
             )
         self.rows[agent_id] = {
             "agent_id": agent_id,
@@ -470,7 +483,7 @@ class InMemoryRuns:
             for r in self.rows.values()
             if r.company == company
             and r.status == "running"
-            and r.workflow != "heartbeat"
+            and r.workflow != HEARTBEAT_WORKFLOW
         ]
 
     def active_count(self, company: str) -> int:
@@ -479,7 +492,7 @@ class InMemoryRuns:
             for r in self.rows.values()
             if r.company == company
             and r.status == "running"
-            and r.workflow in ("scope", "implement", "review")
+            and r.workflow in RUN_WORKFLOWS
         )
 
     def issue_attempts(self, company: str) -> dict[int, Attempts]:
@@ -552,7 +565,7 @@ class InMemoryRuns:
             r
             for r in self.rows.values()
             if r.company == company
-            and r.workflow != "heartbeat"
+            and r.workflow != HEARTBEAT_WORKFLOW
             and (since is None or (r.created_at or "") >= since)
         ]
 
@@ -563,6 +576,6 @@ class InMemoryRuns:
         work = [
             r
             for r in self.rows.values()
-            if r.company == company and r.workflow != "heartbeat"
+            if r.company == company and r.workflow != HEARTBEAT_WORKFLOW
         ]
         return work[-limit:][::-1]

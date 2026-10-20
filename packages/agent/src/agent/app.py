@@ -125,7 +125,7 @@ def create_app(
             raise HTTPException(
                 status_code=409, detail=f"run {request.run_id} already running"
             )
-        # A terminal run re-dispatched is a restart — the budget-pause
+        # A terminal run re-dispatched is a restart — the budget-park
         # resume: the workflow re-dispatches after the cap
         # was raised, and polling the stale failure would loop forever.
         log.bind(run_id=request.run_id).info(

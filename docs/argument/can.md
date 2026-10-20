@@ -24,8 +24,8 @@ Read it as the answer to "what do I actually get?"
   platform's own re-run of the tests is green *and* the reviewer's identity
   is not the implementer's — three facts, no LLM's word taken for any of
   them; the merge fires with no human command. Keep the gate human, and
-  an approval is a verdict recorded under a verified name — the console's
-  audit row — that policy, not the signal, releases on. A failed layer files a
+  the verdict is recorded under a verified name — the console's audit
+  row — that policy, not the signal, releases on. A failed layer files a
   bounded rework ticket the heartbeat consumes, and at the rework bound it
   escalates to the human; a change touching a protected surface (a merged PR
   must not be able to rewrite the rules that govern merging) is refused by
@@ -44,12 +44,13 @@ Read it as the answer to "what do I actually get?"
   the next action, starts it under compiled policy and declared caps
   (`max_concurrent_runs`, `max_open_tickets`, a daily spend cap),
   journals every decision, and halts visibly at the cap. With a human
-  merge gate that is one approval out and nothing in — the audited act
+  merge gate that is one verdict out and nothing in — the audited act
   of a named person, through the console; with a delegated
   gate the company merges its own in-class passing work too, so the arc
   has no human act at all. A poisoned ticket or document cannot start
-  work outside the observation, and deleting the company stops the loop
-  at the next tick.
+  work outside the observation; `poseidon pause` holds the loop at the
+  next tick (runs in flight finish, everything stays to be read), and
+  deleting the company stops it.
 - **Durability.** Kill the orchestrator worker mid-run; Temporal replays it
   and the run completes, with no leaked sandbox, identity row
   or registration.
@@ -57,7 +58,7 @@ Read it as the answer to "what do I actually get?"
   out-of-scope tools; an injected conductor refused when it tries to spawn
   outside `may_spawn`; egress containment with the attempt audited; six
   distinct audit sources correlated by one `run_id`.
-- **Budget enforcement.** A per-run hard stop that pauses the run visibly,
+- **Budget enforcement.** A per-run hard stop that parks the run visibly,
   escalates as a real gate event, and attributes every dollar to
   `{run, parent, agent, role}`.
 - **Sandbox containment.** No mounted service-account token, no reachable

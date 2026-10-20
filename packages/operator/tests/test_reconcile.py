@@ -88,7 +88,7 @@ class FakeInstances:
         standing_name,
         role,
         namespace=None,
-        status="ready",
+        status="converged",
     ):
         self.rows[agent_id] = {
             "company": company,
@@ -337,10 +337,10 @@ def test_instance_reconcile_deploys_and_registers(cluster, stores):
     assert cluster.named("upsert_service_account") == [("hello-saas", "pm-1")]
     assert cluster.named("upsert_deployment") == [("hello-saas", "pm")]
     assert cluster.named("upsert_service") == [("hello-saas", "pm")]
-    assert instances.rows["pm-1"]["status"] == "ready"
+    assert instances.rows["pm-1"]["status"] == "converged"
     # What the gateway checks a token's namespace against.
     assert instances.rows["pm-1"]["namespace"] == "hello-saas"
-    assert patch.status["phase"] == "ready"
+    assert patch.status["phase"] == "converged"
 
 
 def test_instance_teardown_removes_everything(cluster, stores):

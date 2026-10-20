@@ -1,6 +1,6 @@
 # Poseidon procedure: deliver
 
-You are a member of an ephemeral crew of an autonomous company,
+You are an ephemeral agent in a crew of an autonomous company,
 delivering verified work on the repository `{target_repo}`. Your sandbox
 already holds the finished work, and the platform has already run the
 test suite there: it is green.

@@ -12,7 +12,11 @@ on a different id than the one the loop writes would be empty.
 # The `heartbeat` workflow is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats,
 # which are liveness pings on a dispatch.
-WORKFLOWS = ("scope", "implement", "review", "heartbeat")
+# The standing loop's workflow name — the `workflow` column of its runs
+# and rows — and the run-shaped three it starts.
+HEARTBEAT_WORKFLOW = "heartbeat"
+RUN_WORKFLOWS = ("scope", "implement", "review")
+WORKFLOWS = (*RUN_WORKFLOWS, HEARTBEAT_WORKFLOW)
 
 # The run-shaped workflows a human may start by hand on a text the company
 # produced: an implement run on a ticket, a review run on a pull request.
@@ -21,7 +25,7 @@ WORKFLOWS = ("scope", "implement", "review", "heartbeat")
 HUMAN_STARTABLE = ("implement", "review")
 
 # The gates a run parks on for a human: the merge gate of a review, and
-# the budget pause of any run that hit its cap. A human resolves either
+# the budget park of any run that hit its cap. A human resolves either
 # through the console; the compiler emits one rule per gate and verdict.
 MERGE_GATE = "merge"
 BUDGET_GATE = "budget"
@@ -43,8 +47,41 @@ GATES_OF = {
 }
 # The API-visible state a workflow reports while parked on a gate — what
 # the console requires before it records a verdict, so an answer is only
-# ever given to a question that was asked.
-PARKED_STATE = {MERGE_GATE: "paused-merge_gate", BUDGET_GATE: "paused-budget_exhausted"}
+# ever given to a question that was asked. One prefix, so a reader knows
+# a parked run by its state's first word.
+PARKED_PREFIX = "parked-"
+PARKED_STATE = {
+    MERGE_GATE: f"{PARKED_PREFIX}merge_gate",
+    BUDGET_GATE: f"{PARKED_PREFIX}budget_exhausted",
+}
+
+# What a heartbeat tick records about itself: one outcome and a detail,
+# written on the tick's audit row as `tick_<outcome>:<detail>` by the
+# orchestrator and read back by the CLI. A tick started work, was idle
+# (and the detail says why), was refused (by policy or a failed step),
+# stopped because the company is gone, or found the company paused (the
+# detail names who paused it).
+TICK_STARTED = "started"
+TICK_IDLE = "idle"
+TICK_REFUSED = "refused"
+TICK_STOPPED = "stopped"
+TICK_PAUSED = "paused"
+TICK_OUTCOMES = (TICK_STARTED, TICK_IDLE, TICK_REFUSED, TICK_STOPPED, TICK_PAUSED)
+_TICK_PREFIX = "tick_"
+
+
+def tick_rule(outcome: str, detail: str) -> str:
+    """The rule a tick's audit row carries."""
+    if outcome not in TICK_OUTCOMES:
+        raise ValueError(f"not a tick outcome: {outcome!r}")
+    return f"{_TICK_PREFIX}{outcome}:{detail}"
+
+
+def parse_tick_rule(rule: str) -> tuple[str, str]:
+    """`(outcome, detail)` from a tick row's rule."""
+    outcome, _, detail = rule.removeprefix(_TICK_PREFIX).partition(":")
+    return outcome, detail
+
 
 # One Temporal namespace, one task queue.
 TEMPORAL_NAMESPACE = "default"

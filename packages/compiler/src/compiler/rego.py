@@ -37,6 +37,8 @@ from common.policy import (
     COMPANY_DELETE,
     CREW_REQUEST,
     GATE_RESOLVE,
+    HEARTBEAT_PAUSE,
+    HEARTBEAT_RESUME,
     HEARTBEAT_START,
     HEARTBEAT_WAKE,
     MERGE_RESOLVE,
@@ -150,7 +152,7 @@ deny_rules contains "crew_request_no_budget" if {{
 }}
 """
 
-# A crew member may ask for one architecture revision per run; the count
+# An ephemeral agent may ask for one architecture revision per run; the count
 # of requests this run already made rides the input, read by the gateway
 # off its own audit trail. Fail-safe: an absent count denies.
 ARCHITECTURE_REQUESTS_PER_RUN = 1
@@ -263,9 +265,9 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
 
     The caps are compiled literals and the live counts ride the input,
     verified by the caller — the `active_spawns` idiom: runs in flight,
-    today's spend, the target item's prior attempts, and for `scope` the
-    repository's open issues. Fail-safe defaults: absent counts deny,
-    like the changed-paths rules."""
+    today's spend, the target item's prior attempts, for `scope` the
+    repository's open issues, and whether a human holds the loop paused.
+    Fail-safe defaults: absent facts deny, like the changed-paths rules."""
     allows = "".join(
         f'\nallow_rules contains "heartbeat_start_{rego_slug(workflow)}" if {{\n'
         '\tinput.lifecycle == "platform"\n'
@@ -316,6 +318,17 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
         f'\tinput.tool == "{HEARTBEAT_START}"\n'
         '\tnot is_number(object.get(input, ["args", "attempts"], null))\n'
         "}\n"
+        # A human holds the loop: the caller read the pause fresh and
+        # says so; a start while paused is refused, and so is one that
+        # does not say.
+        '\ndeny_rules contains "heartbeat_start_while_paused" if {\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
+        "\tinput.args.paused == true\n"
+        "}\n"
+        '\ndeny_rules contains "heartbeat_start_paused_missing" if {\n'
+        f'\tinput.tool == "{HEARTBEAT_START}"\n'
+        '\tnot is_boolean(object.get(input, ["args", "paused"], null))\n'
+        "}\n"
     )
     return _rego_file(company, allows + denies)
 
@@ -360,6 +373,8 @@ def _console_file(company: str, humans: tuple[str, ...]) -> str:
     )
     body += act("run_cancel", RUN_CANCEL)
     body += act("heartbeat_wake", HEARTBEAT_WAKE)
+    body += act("heartbeat_pause", HEARTBEAT_PAUSE)
+    body += act("heartbeat_resume", HEARTBEAT_RESUME)
     body += act("blueprint_apply", BLUEPRINT_APPLY)
     body += act("company_delete", COMPANY_DELETE)
     body += (
@@ -383,8 +398,8 @@ def _merge_gate_file(
 
     The human path (every gate): the verdict the console recorded under
     the person's name rides the input, read back from the audit store by
-    the platform — the release needs a recorded approval by one of the
-    company's humans, and nothing else. A signal that reached the workflow
+    the platform — the release needs a recorded approving verdict by one
+    of the company's humans, and nothing else. A signal that reached the workflow
     without a recorded verdict is refused by name. A human may release a
     change policy never could (a carve-out, the contract tree): that is
     the override the gate promises.

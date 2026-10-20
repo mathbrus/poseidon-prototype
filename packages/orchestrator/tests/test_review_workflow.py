@@ -19,7 +19,7 @@ What must hold:
 - a contract-tree PR is the human's to merge by construction: the gate
   declines before spending any layer — no verify run, no composed
   baseline, no resolve evaluation, no rework ticket — and the human's
-  approval still releases it (the OPA carve-out deny is pinned in the
+  approving verdict still releases it (the OPA carve-out deny is pinned in the
   compiler's bundle tests; the layer tests above pin the contract fact's
   place in the layers for every other diff).
 
@@ -146,7 +146,7 @@ class Harness:
                 "crew": "feature-review",
                 "gates": {"merge": harness.merge_gate} if harness.merge_gate else {},
                 "max_verify_retries": 0,
-                "budget_pause_minutes": 1,
+                "budget_deadline_minutes": 1,
                 "contract_paths": list(harness.contract_paths),
                 "timeouts": asdict(FAST_TIMEOUTS),
             }
@@ -403,7 +403,7 @@ async def wait_for_park(handle: WorkflowHandle) -> None:
     park is reached in real time and the gate timers stay unfired until
     the test awaits the result."""
     for _ in range(200):
-        if await handle.query("state") == "paused-merge_gate":
+        if await handle.query("state") == "parked-merge_gate":
             return
         await asyncio.sleep(0.05)
     raise AssertionError("the review workflow never parked on the merge gate")
@@ -661,7 +661,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
     finally:
         await worker.__aexit__(None, None, None)
 
-    # The human's approval is the one authority that merges an oracle
+    # The human's approving verdict is the one authority that merges an oracle
     # edit — and it still works, findings and facts already on the PR.
     assert harness.gate_events == ["policy_declined", "approved"]
     assert harness.merges == [PR]
@@ -705,7 +705,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
 async def test_a_policy_decline_parks_on_the_human_who_can_release(env):
     """A carve-out (or any out-of-class) deny with perfect layers is a
     decline, not a failure: the run parks on the human signal, and the
-    human's approval still releases the merge — the override survives
+    human's approving verdict still releases the merge — the override survives
     delegation."""
     harness = Harness(
         merge_gate=POLICY_GATE,
@@ -847,8 +847,8 @@ async def test_a_signal_contradicting_the_record_merges_nothing(env):
 
 async def test_a_policy_decline_released_by_a_human_reads_the_record_too(env):
     """The override survives delegation, and it is verified like any
-    human release: the decline parks, the human's recorded approval is
-    read back and decided on, then the merge."""
+    human release: the decline parks, the human's recorded approving
+    verdict is read back and decided on, then the merge."""
     harness = Harness(
         merge_gate=POLICY_GATE,
         resolve={"allow": False, "rule": "merge_resolve_carved_out_path"},

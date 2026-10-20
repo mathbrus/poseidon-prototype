@@ -60,7 +60,7 @@ tickets under its own identity.
 
 ## Architecture requests
 
-A crew member's one way to change the architecture masterplan: the
+An ephemeral agent's one way to change the architecture masterplan: the
 proposal is filed by the platform as a stewardship ticket on the company's
 repository — the caller chooses neither the crew nor the repository — and
 the steward revises the plan on a later tick. One request per run, bound

@@ -24,7 +24,7 @@ GIT_TOOLS = ["git.open_pr"]
 
 ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment"]
 REVIEW_TOOLS = ["git.read", "git.comment"]
-# A crew member's one way to change the architecture masterplan: record a
+# An ephemeral agent's one way to change the architecture masterplan: record a
 # proposal, which the platform files as a stewardship ticket. Asking is
 # not writing.
 ARCHITECTURE_REQUEST = "architecture.request"

@@ -1,9 +1,9 @@
-"""One authenticator, two doors.
+"""One authenticator, two chokepoints.
 
 The gateways verify workloads against the registry; the console verifies
 humans against the names the deployment declares. The same TokenReview
-serves both, with a different audience, so a token minted for one door is
-worthless at the other — and every token a door refuses is audited under
+serves both, with a different audience, so a token minted for one is
+worthless at the other — and every token either refuses is audited under
 an `authn_*` rule naming the principal it carried.
 """
 

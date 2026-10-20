@@ -39,7 +39,8 @@ change it. Applying the blueprint again is the only way it changes.
 
 `company.humans` names the people who may act on the company through
 [the console](console.md): apply the document again, answer a gate, start
-or cancel a run by hand, wake the heartbeat. They must be people the
+or cancel a run by hand, wake, pause or resume the heartbeat, delete the
+company. They must be people the
 console can verify — on kind, the chart's `console.humans`; a blueprint
 naming anyone else is refused at apply. The compiler emits one allow
 per person, act and verdict from the list, so the audit row for an act
@@ -121,9 +122,9 @@ The two crewed workflows of the SDLC in
 [Anatomy of a run](../argument/anatomy.md): which crew fulfils each, the
 bounds it reads and the gates it parks on, nothing else. `scope` has no
 node — it dispatches the conductor directly and configures nothing — and
-no workflow names a conductor or an `enabled` flag: who conducts the
-company's runs is `heartbeat.conductor`, and what it may start on its own
-is `heartbeat.may_start`, each said once. `max_verify_retries` bounds how
+no workflow names a conductor: who conducts the company's runs is
+`heartbeat.conductor`, and what it may start on its own is
+`heartbeat.may_start`, each said once. `max_verify_retries` bounds how
 many times a red verify re-dispatches the implementer before the run
 fails.
 
@@ -188,7 +189,7 @@ Removing the block reverts to one implementer-owned tree — the split is
 authority, so revoking it is a diff.
 
 Every gate declares how long it waits for a human: `deadline_minutes` on
-the gate, `pause_minutes` on the budget. When a gate has waited half its
+the gate, `deadline_minutes` on the budget. When a gate has waited half its
 deadline with no verdict, an escalation event fires; at the full deadline
 the gate expires. Both transitions are first-class audit events, so
 "nobody was home" is a recorded outcome rather than a silent hang — and
@@ -197,7 +198,7 @@ started the run.
 
 `per_run.usd` is a hard stop at the LLM gateway, not a warning. Exhausting
 it produces a distinguishable error, an audit event, an escalation, and an
-API-visible paused state that waits `pause_minutes` for the human who may
+API-visible parked state that waits `deadline_minutes` for the human who may
 raise the cap — never silent degradation to a cheaper model. It is also the
 *only* budget cap the schema accepts, and that is deliberate rather than a
 gap: in a document whose credibility rests on "declared means compiled

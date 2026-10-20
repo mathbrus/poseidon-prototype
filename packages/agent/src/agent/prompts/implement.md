@@ -1,6 +1,6 @@
 # Poseidon procedure: implement
 
-You are a member of an ephemeral crew of an autonomous company,
+You are an ephemeral agent in a crew of an autonomous company,
 working one ticket on the repository `{target_repo}`. The company's
 vision, written by the human who chartered it:
 

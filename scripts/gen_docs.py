@@ -25,6 +25,7 @@ import typer.main
 
 from agent.models import MODEL_FAMILIES
 from common.audit import PLATFORM_EVENTS
+from common.policy import GATE_RESOLVE, RUN_START, rego_slug
 from common.workflows import WORKFLOWS, workflow_id
 from console.app import ROUTES
 from orchestrator import workflows
@@ -215,6 +216,29 @@ def console_routes(_: str | None) -> str:
     return table(["Route", "What it does", "Decision"], rows)
 
 
+def console_acts(_: str | None) -> str:
+    """The console's acts: every platform event the console writes, with
+    the decision it must win and the rule an allow is recorded under —
+    `rego_slug` of the act's name, as the compiler emits it; the two acts
+    whose rule also names what was granted are spelled with their
+    placeholders."""
+    rules = {
+        GATE_RESOLVE: "`gate_resolve_<gate>_approve` / `_reject`",
+        RUN_START: "`run_start_<workflow>`",
+    }
+    rows = [
+        [
+            e.meaning,
+            code(e.name),
+            rules.get(e.name) or code(rego_slug(e.name)),
+            "yes" if e.rationale else "—",
+        ]
+        for e in PLATFORM_EVENTS
+        if e.source == "console"
+    ]
+    return table(["Act", "Decision", "Rule on allow", "Owes a rationale"], rows)
+
+
 def audit_events(_: str | None) -> str:
     """The platform's own event names, from the registry every writer and
     reader spells them from."""
@@ -371,6 +395,7 @@ GENERATORS: dict[str, Callable[[str | None], str]] = {
     "tool-count": tool_count,
     "cli": cli,
     "console": console_routes,
+    "console-acts": console_acts,
     "audit-events": audit_events,
     "models": models,
     "workflows": workflow_table,

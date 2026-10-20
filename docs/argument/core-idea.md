@@ -74,9 +74,10 @@ console's own audience — worthless at the gateways, as an agent's is
 here), decides (the company's compiled bundle names the humans who may
 act, and which act), audits under the person's name, and only then acts.
 It is the only thing a person acts through — applying a blueprint,
-answering a gate, starting a run by hand, waking the heartbeat — which is
-what makes a merge approval a *recorded verdict*: the workflow releases
-on the record the console wrote, not on the signal that woke it.
+answering a gate, starting a run by hand, waking or pausing the
+heartbeat, deleting the company — which is what makes a merge verdict a
+*record*: the workflow releases on the row the console wrote, not on the
+signal that woke it.
 
 One more chokepoint, the **egress proxy**, is the only network route out of a
 sandbox. Everything else is dropped by NetworkPolicy — silently, as a

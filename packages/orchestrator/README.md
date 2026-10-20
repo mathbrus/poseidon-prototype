@@ -17,7 +17,7 @@ a person is required before code leaves the system.
 
 | Path | Owns |
 |---|---|
-| `workflows/` | `scope`, `implement`, `review`, `heartbeat` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget pause and the gate audit trail). Deterministic replay code; no I/O. |
+| `workflows/` | `scope`, `implement`, `review`, `heartbeat` — sequencing, timeouts, retries and compensation; `base.py` holds what they share (the timeout profiles, retry policies, workflow naming, the budget park and the gate audit trail). Deterministic replay code; no I/O. |
 | `activities/` | The activities: thin clients over the gateway, the SandboxBackend, agent HTTP, the registry, or OPA. Every side effect lives here. |
 | `gates/` | `Gate` — a signal-driven wait point with an escalation timer. |
 | `audit.py` | `record_event` — the platform's own audit events, under its identity or an ephemeral agent's, on the shared ingestion contract. |
@@ -122,8 +122,11 @@ every other: `heartbeat_config → heartbeat_observe → [heartbeat_bootstrap]
 record_tick → sleep → continue-as-new`. It is not run-shaped: there is
 exactly one per company, `heartbeat-{company}`, and the worker's ensure
 loop keeps it running for as long as the company is applied. Each tick
-re-reads the blueprint's `heartbeat` section from the registry and stops
-when the company is gone — deleting the company is how it stops. A
+re-reads the blueprint's `heartbeat` section — and the pause — from the
+registry: a tick that finds a human's pause records it with their name
+and starts nothing (runs in flight finish; `poseidon resume` lifts it),
+and the loop stops when the company is gone — deleting the company is
+how it stops. A
 document absent on the base ref gets its bootstrap ticket filed under the
 platform identity (`activities/documents.py` composes it, routed to the
 stewardship crew) and the tick wakes itself; `scope` is refused until
@@ -214,16 +217,16 @@ three transitions — escalated, verdict (approved/rejected), timed out —
 are `source=process-gate` audit events, written by
 the `record_gate_outcome` *activity*, because workflow code cannot reach
 the registry. The park itself is API-visible through the `state` query
-(`paused-merge_gate`, `paused-budget_exhausted`), so a waiting gate is
+(`parked-merge_gate`, `parked-budget_exhausted`), so a waiting gate is
 never a silent hang.
 
 The merge gate is the only human gate the shipped blueprint enables, and
-the sole owner of the merge guarantee. The signal is not the approval.
-The approval is the verdict the console recorded under the person's name
-before it signalled; `read_human_verdict` reads it back, and the compiled
+the sole owner of the merge guarantee. The signal is not the verdict.
+The verdict is what the console recorded under the person's name before
+it signalled; `read_human_verdict` reads it back, and the compiled
 `merge.resolve` decision — its human path, `merge_resolve_human` —
-releases on a recorded approval by one of the blueprint's `humans` and
-on nothing else. A signal that reached the workflow by any other road
+releases on a recorded approving verdict by one of the blueprint's
+`humans` and on nothing else. A signal that reached the workflow by any other road
 (network reach to the engine, a person the company did not name) finds
 no verdict and releases nothing, by a rule that says so. Every outcome
 is a first-class audit row, and the merge itself is a gateway-audited
@@ -231,12 +234,14 @@ is a first-class audit row, and the merge itself is a gateway-audited
 Gate config comes from the compiled plan (`workflows.<name>.gates`),
 never hardcoded.
 
-The budget pause rides the same spine: when a dispatch returns the LLM
+The budget park rides the same spine: when a dispatch returns the LLM
 gateway's `budget_exhausted` marker, the workflow parks on the `budget`
-signal rather than silently retrying against an exhausted cap. Approval
-means the cap was raised — the same text is re-dispatched; anything else
-finalizes the run with the budget error. The budget verdict is authorized
-and audited by the console but not read back here: a forged approval only
+signal rather than silently retrying against an exhausted cap. An
+approving verdict re-dispatches the same text under the cap as the
+applied blueprint states it — raise `budgets.per_run.usd` and apply
+first, or the run parks again at its next call; anything else finalizes
+the run with the budget error. The budget verdict is authorized and
+audited by the console but not read back here: a forged verdict only
 re-dispatches under the same per-run cap the LLM gateway enforces from
 the ledger.
 
@@ -328,9 +333,9 @@ CLI as its client:
 ```
 export POSEIDON_TOKEN=$(uv run poseidon login owner)
 
-uv run poseidon start implement 42                       # implement ticket #42 by hand (an operator's repro)
+uv run poseidon start implement 42                       # implement ticket #42 by hand (a person's repro)
 uv run poseidon start review 41                          # review PR #41 by hand
-uv run poseidon verdict <run_id> merge approve --reason "…"   # approve the gate: the verdict is recorded, then delivered
+uv run poseidon verdict <run_id> merge approve --reason "…"   # answer the gate: the verdict is recorded, then delivered
 uv run poseidon verdict <run_id> merge reject --reason "…"
 uv run poseidon run show <run_id>
 uv run poseidon run story <run_id>

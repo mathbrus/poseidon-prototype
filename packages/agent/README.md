@@ -82,7 +82,7 @@ Two status-code rules carry real semantics:
   workflow retry after a worker death finds its run still going and
   waits, instead of starting a duplicate. It is also the contract that
   one agent host runs one dispatch at a time.
-- **A terminal run re-dispatched is a restart.** After a budget pause
+- **A terminal run re-dispatched is a restart.** After a budget park
   is lifted, the workflow re-dispatches the same `run_id`; if that
   answered 409 too, it would poll a stale failure forever.
 
@@ -291,7 +291,7 @@ is a constant of the host, not a knob of the deployment.
   authenticated with the same workload credential and attributed to the
   run via the `X-Poseidon-Run-Id` header. `num_retries=1` keeps the SDK
   from grinding on errors the workflow owns: a `budget_exhausted` 429
-  surfaces after a single attempt, which is what the workflow's pause
+  surfaces after a single attempt, which is what the workflow's park
   keys on.
 - [`orchestrator`](../orchestrator/README.md) dispatches into `/task` and
   polls it.
