@@ -29,18 +29,32 @@ REVIEW_TOOLS = ["git.read", "git.comment"]
 # not writing.
 ARCHITECTURE_REQUEST = "architecture.request"
 ARCHITECTURE_TOOLS = [ARCHITECTURE_REQUEST]
-# The tools whose call commits the company to something in the world — a
-# ticket, a pull request, a request to change the architecture — take a
-# `rationale`: the caller's own reason, recorded in cleartext on the
-# call's audit row and read back in the run's story. Every other row
-# carries a digest and nothing more.
-RATIONALE_TOOLS = frozenset(["issues.create", "git.open_pr", ARCHITECTURE_REQUEST])
 # Platform lifecycle only: the archive a run's sandbox is provisioned
-# from, the merge the orchestrator performs after the gate, the read of
-# the company's documents at `base_ref` before every tick and every run —
-# never the sandbox's copy — and the read of which declared paths the
-# base ref holds (the contract tree a review replays, if there is one).
-PLATFORM_TOOLS = ["repo.archive", "git.merge_pr", "repo.read_file", "repo.present"]
+# from, the merge the orchestrator performs after the gate, the closing
+# of the tickets a merged pull request fulfils and of a pull request a
+# rework ticket supersedes, the read of the company's documents at
+# `base_ref` before every tick and every run — never the sandbox's copy —
+# and the read of which declared paths the base ref holds (the contract
+# tree a review replays, if there is one).
+ISSUES_CLOSE = "issues.close"
+GIT_CLOSE_PR = "git.close_pr"
+PLATFORM_TOOLS = [
+    "repo.archive",
+    "git.merge_pr",
+    ISSUES_CLOSE,
+    GIT_CLOSE_PR,
+    "repo.read_file",
+    "repo.present",
+]
+# The tools whose call commits the company to something in the world — a
+# ticket, a pull request, a request to change the architecture, the
+# closing of a ticket or a pull request — take a `rationale`: the
+# caller's own reason, recorded in cleartext on the call's audit row and
+# read back in the run's story. Every other row carries a digest and
+# nothing more.
+RATIONALE_TOOLS = frozenset(
+    ["issues.create", "git.open_pr", ARCHITECTURE_REQUEST, ISSUES_CLOSE, GIT_CLOSE_PR]
+)
 
 KNOWN_TOOLS = frozenset(
     SANDBOX_TOOLS
