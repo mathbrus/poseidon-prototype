@@ -136,6 +136,17 @@ first.
   them as you touch the file — they are debris, not documentation.
 - **Leftovers**: if code, docs, or names contradict the charter above,
   ask immediately. Do not guess which world they belong to.
+- **Releases**: Poseidon has one version, the git tag
+  `vMAJOR.MINOR.PATCH+YYYY.MM.DD`, spelled once in the root
+  `pyproject.toml` (`scripts/version.py` keeps the mirrors equal). After
+  a pull request merges to master, run `scripts/release-status.sh` and,
+  if a user-visible surface changed since the last tag, propose the next
+  release per `docs/developing/releasing.md`: version, date, changelog
+  section, the one command. Never tag, push a tag or create a GitHub
+  release without the human's yes to that proposal. The release commit
+  is the one direct commit master takes.
+- **Changelog**: every pull request adds its line under `Unreleased` in
+  `CHANGELOG.md`, ending with its number, before it is reported complete.
 - **Configuration tiers**: a knob lives in exactly one place. Would a
   human revoke it with a diff? Blueprint. Does it name where something
   runs, which image, which secret, which model? Chart values, spelled

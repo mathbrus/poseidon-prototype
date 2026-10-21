@@ -5,7 +5,7 @@
 ```
 packages/          thirteen workspace packages (see Packages)
 docs/              this site's pages; mkdocs.yml at the root builds it
-scripts/           acceptance.sh, gen_docs.py
+scripts/           acceptance.sh, gen_docs.py, version.py, release-status.sh, release.sh
 Dockerfile         one recipe for every image; deploy/build-images.sh is the matrix
 deploy/helm/       the Poseidon chart, plus Temporal's values
 deploy/kind/       kind bootstrap, teardown, .env
@@ -54,7 +54,14 @@ an explicit act whose diff a human reads.
 ```bash
 uv run ruff check .
 uv run ruff format --check .
+uv run python scripts/version.py check   # every copy of the version agrees with the root pyproject
 ```
+
+## The changelog and releases
+
+Every pull request adds one line under *Unreleased* in `CHANGELOG.md`,
+ending with its number, before it is reported complete. Merging never
+makes a release; how one is proposed and made is [Releasing](releasing.md).
 
 ## The docs site
 
@@ -82,7 +89,7 @@ from `CLAUDE.md` rather than copying.
 
 | Job | Gate |
 |---|---|
-| `lint` | ruff check + format |
+| `lint` | ruff check + format; the version's mirrors agree |
 | `lock` | `uv lock --check`; advisory `pip-audit` |
 | `helm` | chart lints and renders — and a bare render must **fail**, proving secrets are required |
 | `unit` | all thirteen suites, with a real Postgres so the registry tests run |
