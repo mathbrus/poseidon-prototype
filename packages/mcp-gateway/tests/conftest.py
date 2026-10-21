@@ -119,6 +119,8 @@ class Backends:
                 "/admin/sandboxes.delete",
                 "sandbox.run_tests",
                 "git.merge_pr",
+                "git.close_pr",
+                "issues.close",
             ):
                 return {"allow": True, "rule": f"platform_{tool}"}
             return {"allow": False, "rule": "default_deny"}
@@ -286,6 +288,8 @@ class Backends:
                     "base": {"ref": "main"},
                 },
             )
+        if method == "PATCH" and "/pulls/" in path:
+            return httpx.Response(200, json={"number": 5, **payload})
         if method == "PUT" and path.endswith("/merge"):
             return httpx.Response(200, json={"merged": True, "sha": "abc123"})
         return httpx.Response(404, json={"message": f"unstubbed {method} {path}"})

@@ -344,3 +344,44 @@ async def test_merge_is_platform_only(app, backends, audit):
         if e["tool"] == "git.merge_pr" and e["decision"] == "deny"
     ]
     assert len(denies) == 2
+
+
+# -- issues.close and git.close_pr (platform only) ----------------------------
+
+
+@pytest.mark.parametrize(
+    ("tool", "number", "route", "body"),
+    [
+        (
+            "issues.close",
+            7,
+            "/issues/7",
+            {"state": "closed", "state_reason": "completed"},
+        ),
+        ("git.close_pr", 5, "/pulls/5", {"state": "closed"}),
+    ],
+)
+async def test_closing_is_platform_only_and_owes_a_rationale(
+    app, backends, audit, tool, number, route, body
+):
+    """The platform closes with its reason on the audit row; a call
+    without one is malformed before policy; no company role reaches it."""
+    args = {"run_id": RUN_ID, "repo": REPO, "number": number}
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        closed = payload(
+            await session.call_tool(tool, {**args, "rationale": "merged #5 (abc)"})
+        )
+        assert closed["state"] == "closed"
+        path, sent, _ = backends.github_calls[-1]
+        assert path.endswith(route) and sent == body
+        refused = await session.call_tool(tool, args)
+        assert refused.isError and "rationale" in refused.content[0].text
+    (allowed,) = audit_events(audit)
+    assert allowed["decision"] == "allow"
+    assert allowed["rationale"] == "merged #5 (abc)"
+
+    for token in (PM_TOKEN, AGENT_TOKEN):
+        async with mcp_session(app, token) as session:
+            result = await session.call_tool(tool, {**args, "rationale": "r"})
+        assert result.isError and "default_deny" in result.content[0].text
+    assert [e["decision"] for e in audit_events(audit)] == ["allow", "deny", "deny"]

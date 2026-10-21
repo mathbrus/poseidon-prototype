@@ -39,7 +39,7 @@ from registry import (
     SandboxRegistrations,
     open_registry,
 )
-from schema.tools import ARCHITECTURE_REQUEST
+from schema.tools import ARCHITECTURE_REQUEST, GIT_CLOSE_PR, ISSUES_CLOSE
 
 
 class RegisterSandboxRequest(BaseModel):
@@ -339,6 +339,19 @@ def create_app(
         on each ticket it files."""
         return await service.issues_comment(identity_of(ctx), run_id, repo, number, body)
 
+    @mcp.tool(name=ISSUES_CLOSE)
+    async def issues_close(
+        run_id: str, repo: str, number: int, rationale: str, ctx: Context
+    ) -> dict[str, Any]:
+        """Close an issue as completed. Compiled policy grants this to the
+        platform identity alone: the orchestrator closes the tickets a pull
+        request fulfilled the moment it learns the pull request merged, and
+        no blueprint can hand it to an agent role. The rationale names the
+        merge and is recorded with the call in the run's story."""
+        return await service.issues_close(
+            identity_of(ctx), run_id, repo, number, rationale
+        )
+
     @mcp.tool(name="git.read")
     async def git_read(
         run_id: str, repo: str, number: int, ctx: Context
@@ -362,6 +375,19 @@ def create_app(
         identity alone, and the orchestrator calls it only after the merge gate
         resolved to merge. No blueprint can hand it to an agent role."""
         return await service.git_merge_pr(identity_of(ctx), run_id, repo, number, method)
+
+    @mcp.tool(name=GIT_CLOSE_PR)
+    async def git_close_pr(
+        run_id: str, repo: str, number: int, rationale: str, ctx: Context
+    ) -> dict[str, Any]:
+        """Close the pull request without merging it. Compiled policy grants
+        this to the platform identity alone: the orchestrator closes a pull
+        request whose failed review it filed as a rework ticket, and no
+        blueprint can hand it to an agent role. The rationale names the
+        ticket and is recorded with the call in the run's story."""
+        return await service.git_close_pr(
+            identity_of(ctx), run_id, repo, number, rationale
+        )
 
     @mcp.custom_route("/admin/sandboxes", methods=["POST"])
     async def admin_sandboxes(request: Request) -> Response:

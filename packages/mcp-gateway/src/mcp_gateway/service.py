@@ -51,7 +51,12 @@ from registry import (
 )
 from schema.catalog import STEWARD_ROLE, STEWARDSHIP_CREW
 from schema.documents import DOCUMENT_LABELS
-from schema.tools import ARCHITECTURE_REQUEST, RATIONALE_TOOLS
+from schema.tools import (
+    ARCHITECTURE_REQUEST,
+    GIT_CLOSE_PR,
+    ISSUES_CLOSE,
+    RATIONALE_TOOLS,
+)
 
 # tool name -> sandbox tool-server route
 SANDBOX_ROUTES = {
@@ -609,6 +614,19 @@ class GatewayService:
             lambda: self._git.comment_issue(repo, number, body),
         )
 
+    async def issues_close(
+        self, identity: Identity, run_id: str, repo: str, number: int, rationale: str
+    ) -> Any:
+        """Policy restricts this to the platform lifecycle — the
+        orchestrator closes the tickets a merged pull request fulfils."""
+        args = {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale}
+        return await self.call(
+            identity,
+            ISSUES_CLOSE,
+            args,
+            lambda: self._git.close_issue(repo, number),
+        )
+
     async def git_read(
         self, identity: Identity, run_id: str, repo: str, number: int
     ) -> Any:
@@ -639,6 +657,19 @@ class GatewayService:
             "git.merge_pr",
             args,
             lambda: self._git.merge_pr(repo, number, method),
+        )
+
+    async def git_close_pr(
+        self, identity: Identity, run_id: str, repo: str, number: int, rationale: str
+    ) -> Any:
+        """Policy restricts this to the platform lifecycle — the
+        orchestrator closes a pull request its rework ticket supersedes."""
+        args = {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale}
+        return await self.call(
+            identity,
+            GIT_CLOSE_PR,
+            args,
+            lambda: self._git.close_pr(repo, number),
         )
 
     # -- audit --------------------------------------------------------------
