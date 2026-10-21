@@ -44,6 +44,7 @@ REPO = Path(__file__).resolve().parent.parent
 DOCS = REPO / "docs"
 GATEWAY_APP = REPO / "packages/mcp-gateway/src/mcp_gateway/app.py"
 ENV_EXAMPLE = REPO / "deploy/kind/.env.example"
+CHARTER = REPO / "CLAUDE.md"
 
 MARKER = re.compile(r"<!-- gen: ([\w.-]+)(?::([\w.-]+))? -->")
 
@@ -502,6 +503,31 @@ def environment(_: str | None) -> str:
     )
 
 
+# -- the glossary ------------------------------------------------------------
+
+GLOSSARY_ROW = re.compile(r"^\| \*\*(.+?)\*\* \| (.+?) \| .+ \|$")
+
+
+def glossary(_: str | None) -> str:
+    """The charter's glossary for a reader: every term and its meaning,
+    alphabetical. The charter's third column, the names to avoid, is for
+    contributors and stays in CLAUDE.md."""
+    text = CHARTER.read_text()
+    start = text.index("[start:glossary]")
+    end = text.index("[end:glossary]")
+    terms = sorted(
+        (
+            m.groups()
+            for line in text[start:end].splitlines()
+            if (m := GLOSSARY_ROW.match(line))
+        ),
+        key=lambda term: term[0].lower(),
+    )
+    if not terms:
+        raise SystemExit("gen_docs: no glossary rows in CLAUDE.md")
+    return table(["Term", "Meaning"], [[f"**{t}**", meaning] for t, meaning in terms])
+
+
 # -- the bounds -------------------------------------------------------------
 
 
@@ -531,6 +557,7 @@ GENERATORS: dict[str, Callable[[str | None], str]] = {
     "blueprint-sections": blueprint_sections,
     "policy-rules": policy_rules,
     "environment": environment,
+    "glossary": glossary,
     "bounds": bounds,
 }
 

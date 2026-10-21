@@ -65,6 +65,17 @@ first.
 <!-- --8<-- [start:glossary] -->
 | Term | Meaning | Not |
 |---|---|---|
+| **company** | what a blueprint declares and the platform runs: its vision, heartbeat, standing agents and runs, in the company namespace; a cluster hosts one | tenant, org, project |
+| **run** | one execution of `scope`, `implement` or `review`: a run id, a registry row, its ephemeral agents and sandbox, from start to teardown | job, execution, task (the text a run works) |
+| **heartbeat** | the company's standing workflow, `heartbeat-<company>`: each tick observes, asks the conductor to decide, and starts at most one run under policy and the caps; every company has one | scheduler, cron, conduct |
+| **gate** | a point where a run parks until it is resolved: `merge` and `budget`; the blueprint declares who resolves it (`resolved_by`) and how long it waits (`deadline_minutes`) | approval step, checkpoint |
+| **delegation** | a merge gate `resolved_by: policy`: its `delegate` block names the paths policy may merge on its own and the rework bound | auto-merge |
+| **contract tree** | the paths `policies.contract_tests` declares: acceptance tests only the named roles may deliver into, read from `base_ref` to grade a delegated merge | oracle (prose may say it once, defined), spec tree |
+| **sandbox** | a run's Kubernetes Job where code runs: no credentials, no cluster API, egress only through the egress proxy | workspace (the files inside it), container, VM |
+| **gateway** | a chokepoint an agent acts through: verifies the caller, asks policy, acts, audits; the MCP gateway for tools, the LLM gateway for models | proxy (the llm-proxy and the egress proxy are not gateways) |
+| **platform identity** | the orchestrator's own principal (`lifecycle: platform`), under which the platform runs the verify gate, files bootstrap and rework tickets, and merges | system user, bot |
+| **policy bundle** | the compiled Rego of the platform or of the company, stored by the reconciler and polled by OPA | policy file, rule set |
+| **ledger** | the `budget_ledger` table: one attributed entry per model call, the sum every cap is checked against | spend log, the audit table (that is the event record) |
 | **role** | a catalog entry: tool ceiling, spawn authority, the procedures it may run — `pm`, `implementer`, `reviewer`, `contract-author`, `steward` | role template, executor, engineer, sdet, author, tier |
 | **crew** | a named list of roles fulfilled together for one run (`feature-delivery`, `feature-review`, `contract-authoring`, `stewardship`); `crew_template` names it in policy input and registry rows | — |
 | **agent** | one principal: one pod, one ServiceAccount, one registry row; standing (`<standing_name>-<n>`) or ephemeral (`<crew>-<role>-<run_id>`) | brain host, member, instance, participant (the `run_participants` table and its API keep the name; prose says ephemeral agent) |
@@ -78,7 +89,7 @@ first.
 | **task** | the text an implement or review run works: a ticket, a pull request | goal, brief |
 | **observation** | the platform-composed reading of the world a conductor decides or scopes on: the documents, the open tickets, the delivered pull requests, the recent runs, capacity and spend | goal, prompt, context |
 | **blueprint** | the YAML document a human applies; the charter is what it declares; validated against the `blueprint` package's JSON Schema | spec file, company file, schema (the package's old name) |
-| **charter** | the blueprint a human applies: the vision, the budgets, the gates, the policies; this file is the charter of the project, not of a company | mission, constitution, goal file |
+| **charter** | the blueprint a human applies: the vision, the budgets, the gates, the policies; `CLAUDE.md` is the charter of the project, not of a company | mission, constitution, goal file |
 | **vision** | the human's statement of purpose in the charter, `company.vision`; reaches every procedure but `deliver` through the static prompt; changed only by applying the blueprint again | mission, goal, purpose |
 | **bounds** | the charter's gates and limits as they bind this company's work — repository, branches, denied paths, contract tree, documents, merge — rendered once from the applied spec by `blueprint.bounds.render_bounds`, carried by every dispatch into the procedure's system prompt, trusted like the vision | rules, guardrails, constraints, policy summary |
 | **strategy** | the document at `company.documents.strategy` on `base_ref`; the steward writes it once from the vision; no current role may change it afterwards (a future observer would) | roadmap, plan |
