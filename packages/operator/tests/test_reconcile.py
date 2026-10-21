@@ -168,6 +168,7 @@ COMPANY_SPEC = {
     },
     "workflows": [],
     "budgets": {},
+    "policies": {"branch_protection": {"protected": ["main"]}},
 }
 
 # What the API server stamps on the CR: the generation of the applied spec.
@@ -207,8 +208,10 @@ def test_company_reconcile_converges_the_envelope(cluster, stores, opa):
     # company's slot never carries the company's name.
     assert set(bundles.stored) == {"company", "platform"}
     # The registry row records what was applied, minus the bundle (which
-    # lives in policy_bundles under its own revision).
+    # lives in policy_bundles under its own revision) — the policies
+    # section included, which the worker reads to say the bounds.
     assert "policyBundle" not in companies.rows["hello-saas"]
+    assert companies.rows["hello-saas"]["policies"] == COMPANY_SPEC["policies"]
     assert patch.status["phase"] == "converged"
     assert patch.status["bundleRevision"] == "rev-company"
     # The phase answers for this apply's generation.

@@ -86,5 +86,7 @@ def workflow_config(
         "gates": dict(config.get("gates") or {}),
         "max_verify_retries": config.get("max_verify_retries"),
         "budget_deadline_minutes": int(spec["budgets"]["deadline_minutes"]),
-        "contract_paths": sorted((spec.get("contractTests") or {}).get("paths") or []),
+        "contract_paths": sorted(
+            (spec["policies"].get("contract_tests") or {}).get("paths") or []
+        ),
     }

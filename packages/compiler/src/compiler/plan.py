@@ -30,6 +30,13 @@ class CompanyCR:
     # The company's document paths in the repository, by name: what the
     # platform reads at `base_ref` before every tick and every run.
     documents: dict[str, str]
+    # The blueprint's `policies` section as written — branch protection,
+    # deny paths, the contract tree — with its lists sorted; `{}` when the
+    # blueprint declares none. The bundle enforces it; the applied record
+    # carries it so the platform can say it: the review workflow reads
+    # the contract tree from here, and the bounds every dispatch carries
+    # are rendered from here.
+    policies: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -165,10 +172,6 @@ class DeploymentPlan:
     # Company CR because the bundle is what carries the authority; the plan
     # shows the list so a preview reads who may answer the gates.
     humans: tuple[str, ...]
-    # The contract tree, projected into the applied record: the review
-    # workflow composes the contract-verify baseline from these paths.
-    # None when the blueprint declares no contract tree.
-    contract_tests: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Deterministic and JSON-shaped. The diff and the golden tests both
@@ -184,7 +187,6 @@ class DeploymentPlan:
                 "budgets": asdict(self.budgets),
                 "heartbeat": asdict(self.heartbeat),
                 "humans": list(self.humans),
-                "contract_tests": self.contract_tests,
                 "infra": asdict(self.infra),
                 "bundle": {"files": dict(sorted(self.bundle.files.items()))},
                 "platform_bundle": {
