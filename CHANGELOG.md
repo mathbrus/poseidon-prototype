@@ -49,6 +49,11 @@ grouped by theme rather than listed merge by merge.
 - Audit event names spelled once, in `common.audit` (#60).
 - The docs site, built strict in CI, its reference tables rendered from
   the code (#46).
+- Releases: one version for the whole of Poseidon, spelled once and
+  checked in CI; this changelog; `scripts/release-status.sh` and
+  `scripts/release.sh`; images stamped with the version, the console
+  reporting it, `poseidon version`, and `kind-up` naming the version it
+  started (#77).
 
 ### Changed
 
