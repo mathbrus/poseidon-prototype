@@ -98,8 +98,8 @@ class ImplementWorkflow(RunWorkflow):
 
     @workflow.query
     def state(self) -> str:
-        """The API-visible run phase (a budget stop must be a visible
-        pending state, never silent degradation)."""
+        """The API-visible run phase (a run parked at its cap must be a
+        visible pending state, never silent degradation)."""
         return self._state
 
     @workflow.run

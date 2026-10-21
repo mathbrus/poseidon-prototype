@@ -130,7 +130,7 @@ surface `budget_exhausted` verbatim and the workflow recognise it.
 
 Enforcement lives here rather than in the workflow because this is the
 point every model call passes through; there is no Temporal client in
-this service. The orchestrator observes the stop through the error the
+this service. The orchestrator observes the refusal through the error the
 agent host surfaces: the implement workflow matches the `budget_exhausted`
 marker in the dispatch result, parks on a `budget` signal in an
 API-visible `parked-budget_exhausted` state, fires an escalation at half
@@ -225,11 +225,11 @@ The suite runs the pipeline against in-memory registry doubles
 (`registry.memory`) and a stubbed OpenAI-shaped upstream: rejected
 without authn, rejected and audited without attribution, unknown and
 foreign runs refused, the pinned model overriding the requested one,
-every forwarded call metered and audited, the cap a hard stop with a
-distinguishable error and no new spend, spend accruing call by call
+every forwarded call metered and audited, calls refused at the cap
+with a distinguishable error and no new spend, spend accruing call by call
 below the cap, and an uncapped company metered without being stopped.
 The Responses surface is held to the same contract: routing, metering,
-every guard and the hard stop over `/responses`, with digests that
+every guard and the refusal at the cap over `/responses`, with digests that
 never carry prompt text.
 
 ## Invariants

@@ -65,7 +65,7 @@ ticket and closes the pull request it supersedes (`close_superseded_pr`).
 The budget gate is decided and recorded by the console like the merge
 gate, but the workflow does not read its record back: a forged budget
 verdict only re-dispatches under the per-run cap the LLM gateway
-enforces from the ledger, and cannot spend past the stop.
+enforces from the ledger, and cannot spend past the cap.
 
 ## Queries
 

@@ -15,7 +15,7 @@ from temporalio.exceptions import ActivityError
 from common.workflows import BUDGET_GATE, GATE_APPROVED, GATE_ESCALATED, PARKED_STATE
 from orchestrator.gates import Gate
 
-# The LLM gateway's hard-stop marker: a dispatch whose error carries it
+# The marker of the LLM gateway's refusal at the cap: a dispatch whose error carries it
 # ran out of budget, and the workflow parks instead of retrying.
 BUDGET_MARKER = "budget_exhausted"
 

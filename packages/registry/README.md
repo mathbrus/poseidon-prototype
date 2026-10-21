@@ -235,7 +235,8 @@ and audit events are not optional.
   `run_participants` (ephemeral identity backing) and
   `sandbox_registrations` (run binding).
 - [`llm-gateway`](../llm-gateway/README.md) writes `budget_ledger` and
-  audit events; its hard stop compares `spent_for_run` before every call.
+  audit events; its refusal at the cap compares `spent_for_run` before every
+  call.
 - [`sandbox`](../sandbox/README.md)'s egress proxy writes audit events
   and resolves a sandbox namespace back to its company's allowlist via
   `Companies.by_namespace`.

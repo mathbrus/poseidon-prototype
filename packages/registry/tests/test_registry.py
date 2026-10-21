@@ -394,7 +394,7 @@ def test_the_pause_is_a_company_fact_that_survives_a_re_apply(registry: Registry
 
 def test_budget_ledger_attributes_and_sums(registry: Registry):
     """One ledger with dimensions: every entry fully attributed,
-    the per-run SUM is what the LLM gateway's hard-stop compares against."""
+    the per-run SUM is what the LLM gateway's refusal compares against the cap."""
     ledger = BudgetLedger(registry)
     Runs(registry).start(RUN_ID, "task")
     ledger.record(

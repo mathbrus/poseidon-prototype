@@ -39,7 +39,7 @@ class ChatRequest(BaseModel):
 
 def _usage(messages: list[dict[str, Any]], message: dict[str, Any]) -> dict[str, Any]:
     """Deterministic token estimate (~4 chars/token): nonzero so the LLM
-    gateway's metering and budget hard-stop have real usage
+    gateway's metering and budget cap have real usage
     to account, stable so e2e assertions can rely on it. The details
     blocks are fixed fractions of their totals — valid subsets, nonzero
     for any realistic call, so tests can prove the breakdown flows all

@@ -1146,7 +1146,7 @@ def test_deny_paths_still_bind_the_contract_author(decide_split):
 
 
 def test_the_contract_crew_rides_the_spawn_caps(decide_split):
-    """`may_spawn` caps and the budget stop bind the second crew exactly
+    """`may_spawn` caps and the budget cap bind the second crew exactly
     as the first: over the concurrency cap or without headroom, the
     contract-authoring request denies by rule — spawning the spec's
     author is governed spend like any other."""

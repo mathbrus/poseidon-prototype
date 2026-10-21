@@ -83,7 +83,7 @@ the rule in the answer.
 ```bash
 uv run poseidon verdict <run_id> merge approve --reason "…"   # approve a parked merge
 uv run poseidon verdict <run_id> merge reject --reason "…"    # reject it
-uv run poseidon verdict <run_id> budget approve --reason "…"  # let a run stopped at its cap continue
+uv run poseidon verdict <run_id> budget approve --reason "…"  # let a run parked at its cap continue
 ```
 
 ```text

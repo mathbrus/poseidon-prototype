@@ -212,7 +212,7 @@ the gate expires. Both transitions are first-class audit events, so
 the patience is the charter's, not a setting someone chose when they
 started the run.
 
-`per_run.usd` is a hard stop at the LLM gateway, not a warning. Exhausting
+`per_run.usd` is a cap the LLM gateway refuses at, not a warning. Exhausting
 it produces a distinguishable error, an audit event, an escalation, and an
 API-visible parked state that waits `deadline_minutes` for the human who may
 raise the cap — never silent degradation to a cheaper model. It is also the

@@ -263,19 +263,20 @@ def _heartbeat_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> l
 
 
 def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
-    """A run cap must exist and be positive, or the first hard-stop check
-    has nothing to compare against; and the park a stopped run waits out
+    """A run cap must exist and be positive, or the LLM gateway's first
+    refusal check has nothing to compare against; and the park a run at
+    its cap waits out
     must be declared, or the workflow would park with no deadline."""
     problems = []
     per_run = (blueprint.get("budgets") or {}).get("per_run") or {}
     if not per_run.get("usd"):
         problems.append(
             "budgets.per_run.usd: every run needs a per-run cap "
-            "(the LLM gateway hard-stops against it)"
+            "(the LLM gateway refuses model calls at it)"
         )
     if not per_run.get("deadline_minutes"):
         problems.append(
-            "budgets.per_run.deadline_minutes: a run stopped at the cap needs a "
+            "budgets.per_run.deadline_minutes: a run parked at its cap needs a "
             "declared wait for the human who may raise it"
         )
     return problems

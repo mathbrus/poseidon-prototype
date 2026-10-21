@@ -120,7 +120,7 @@ class InMemoryAuditStore:
 
 class InMemoryBudgetLedger:
     """The LLM gateway's meter: recorded entries and the
-    per-run SUM the hard-stop compares against."""
+    per-run SUM the cap's refusal compares against."""
 
     def __init__(self) -> None:
         self.entries: list[dict[str, Any]] = []

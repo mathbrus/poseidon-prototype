@@ -28,7 +28,7 @@ What the suite proves, and where:
                   the worker and the console), test_sandbox_k8s (the deadline
                   kills a runaway); HERE: all six audit sources are real in
                   this suite execution — nothing seeded
-  5 budgets       test_budgets (hard-stop, API-visible park, process-gate
+  5 budgets       test_budgets (refusal at the cap, API-visible park, process-gate
                   escalation, full {run, parent, agent, role} tuple)
   6 lean standing test_operator_lifecycle (exactly one AgentInstance),
                   test_scope, test_ephemeral_identity, test_ephemeral_pods,
@@ -402,7 +402,7 @@ def test_all_five_audit_sources_are_real_in_this_suite(
     """Criterion 4's audit clause with no seeding anywhere: within this
     suite execution (fenced by the database's own clock at session start),
     real producers wrote every source in the closed audit-source vocabulary —
-    gateway tool decisions, llm-gateway metering/hard-stops, sandbox-infra
+    gateway tool decisions, llm-gateway metering/cap refusals, sandbox-infra
     egress denies, process-gate escalations/verdicts, process-lifecycle
     mint/revoke — and each source correlates to runs by run_id.
 

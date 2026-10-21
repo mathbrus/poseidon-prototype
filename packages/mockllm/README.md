@@ -210,7 +210,7 @@ runs LiteLLM or this.
 - Sits behind [`llm-gateway`](../llm-gateway/README.md), which meters
   and budget-gates it exactly as it would a real provider. Token usage
   is a deterministic estimate (~4 chars/token) — nonzero so metering and
-  the budget hard-stop have real usage to account, stable so e2e
+  the budget cap have real usage to account, stable so e2e
   assertions can rely on it — and every completion reports its cost in
   the `x-litellm-response-cost` header at a fixed $0.002/1K tokens,
   because the gateway meters spend from what the provider reports. The

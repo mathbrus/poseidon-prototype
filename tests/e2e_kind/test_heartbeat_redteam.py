@@ -169,7 +169,7 @@ def test_the_unattended_run_spend_stays_under_the_per_run_cap(
     unattended_run: dict,
 ):
     """Bounded money: the run the heartbeat funded spent under hello-saas's
-    $5 per-run cap — the same hard stop every run faces."""
+    $5 per-run cap — the same cap every run faces."""
     spend = run_spend(unattended_run["child"]["run_id"])
     assert 0 < spend < 5.0, f"unexpected spend {spend}"
 

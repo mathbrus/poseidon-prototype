@@ -279,7 +279,7 @@ _POLICIES = {
 # one — work originates nowhere else — and it is all-explicit: who decides,
 # how stale its view of the world may grow, concurrency, how many tries an
 # item gets, how large the backlog may grow before scoping is refused, what
-# it may start, and a daily hard stop. A defaulted cap is authority nobody
+# it may start, and a daily cap. A defaulted cap is authority nobody
 # wrote down.
 _HEARTBEAT = {
     "type": "object",
@@ -322,7 +322,7 @@ _HEARTBEAT = {
             "minItems": 1,
             "uniqueItems": True,
         },
-        # Halts *starting*, per calendar day; the per-run hard stop still
+        # Halts *starting*, per calendar day; the per-run cap still
         # governs each run it funds.
         "daily_cap": {
             "type": "object",
@@ -338,8 +338,8 @@ _BUDGETS = {
     "additionalProperties": False,
     "required": ["per_run"],
     "properties": {
-        # `usd` is the hard stop at the LLM gateway; `deadline_minutes` is how
-        # long a run stopped by it waits for a human to raise the cap
+        # `usd` is the cap the LLM gateway refuses model calls at;
+        # `deadline_minutes` is how long a run parked at it waits for a human to raise the cap
         # (escalation at half, then the run fails).
         "per_run": {
             "type": "object",

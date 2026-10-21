@@ -29,7 +29,7 @@ __all__ = ["DELEGATED", "EXAMPLES", "HELLO_SAAS", "REPO_ROOT"]
 _SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")
 
 # The examples declare the waits a real company gives its humans (a working
-# day at the merge gate, an hour at a budget stop). The suite waits those
+# day at the merge gate, an hour at a budget cap). The suite waits those
 # gates out to watch them escalate and expire, so every document it applies
 # carries these instead: escalation lands at half a minute, and the budget
 # approve path has time to re-apply a blueprint before its park ends.

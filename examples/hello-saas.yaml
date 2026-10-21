@@ -96,13 +96,13 @@ policies:
 budgets:
   per_run:
     usd: 5
-    # How long a run stopped at the cap waits for someone to raise it.
+    # How long a run parked at its cap waits for someone to raise it.
     deadline_minutes: 60
     # --8<-- [end:budgets]
 
 # The company's own initiative: who decides, what it may start on its own,
 # how many at once, how many tries an item gets, how large the backlog may
-# grow before it stops scoping, and the day's hard stop.
+# grow before it stops scoping, and the day's cap.
 # --8<-- [start:heartbeat]
 heartbeat:
   conductor: pm
