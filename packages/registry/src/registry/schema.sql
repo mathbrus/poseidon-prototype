@@ -9,10 +9,11 @@
 --
 -- Write ownership (an import-graph convention, enforced by which accessor
 -- a service imports — not by Postgres grants). Seven tables have exactly
--- one writer; the eighth is shared by design:
---   reconciler      -> companies, agent_instances, policy_bundles
+-- one writer, companies has one per column set, and audit_events is shared:
+--   reconciler    -> companies (the spec), agent_instances, policy_bundles
+--   console       -> companies (the pause columns)
 --   orchestrator  -> runs, run_participants
---   gateway       -> sandbox_registrations
+--   gateway       -> sandbox_registrations, filed_tickets
 --   LLM gateway   -> budget_ledger
 --   audit_events  <- gateway, LLM gateway, egress proxy, orchestrator
 --                    (process-gate, process-lifecycle) and console: many
@@ -24,7 +25,7 @@ CREATE SCHEMA IF NOT EXISTS registry;
 CREATE TABLE IF NOT EXISTS registry.companies (
     name        text PRIMARY KEY,
     blueprint   jsonb,
-    -- The pause: who froze the heartbeat and when, written by the console
+    -- The pause: who holds the heartbeat paused and since when, written by the console
     -- under a human's act and read by the heartbeat on every tick. NULL
     -- means the loop may start work. The reason lives on the act's audit
     -- row, like every rationale.

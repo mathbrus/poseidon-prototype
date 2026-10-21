@@ -33,7 +33,7 @@ class Companies:
         )
 
     def pause(self, name: str, by: str) -> dict[str, Any]:
-        """Freeze the heartbeat under `by`'s name; the time is the
+        """Pause the heartbeat under `by`'s name; the time is the
         registry's. Returns the fact as `paused` reads it."""
         self._db.execute(
             "UPDATE registry.companies SET paused_by = %s, paused_at = now()"

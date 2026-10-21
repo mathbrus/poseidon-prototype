@@ -1,9 +1,10 @@
 """Registry tests run against a real Postgres — the SQL is the thing under
 test, so a fake would test nothing.
 
-Point REGISTRY_DSN at any database (CI runs a `postgres` service container;
-locally, `kubectl -n poseidon-platform port-forward svc/postgres 5432:5432`
-against the kind cluster works). Without one the suite skips rather than
+Point REGISTRY_DSN at a throwaway database (CI runs a `postgres` service
+container; locally, `docker run --rm -p 5433:5432 -e POSTGRES_PASSWORD=x
+postgres:16.6`). Never at the kind cluster's registry: the `clean` fixture
+deletes every row of every table. Without one the suite skips rather than
 failing, so a laptop without a database still gets a green unit run.
 """
 

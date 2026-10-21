@@ -554,7 +554,7 @@ class ConsoleService:
         return {"company": company, "woken": True}
 
     async def pause(self, identity: Identity, reason: str) -> dict[str, Any]:
-        """Freeze the loop under the person's name. The order is the
+        """Pause the loop under the person's name. The order is the
         verdict's: decided and audited first, then the pause written where
         every tick reads it, then a wake so the loop records the pause now
         and `heartbeat show` says `paused`. Runs in flight are not the

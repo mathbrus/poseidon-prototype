@@ -203,7 +203,7 @@ def tool_count(_: str | None) -> str:
 # -- the CLI ----------------------------------------------------------------
 
 
-def _param_row(param: Any, ctx: Any) -> list[str]:
+def _param_row(param: Any) -> list[str]:
     if param.param_type_name == "argument":
         name = code(f"<{param.name}>")
     else:
@@ -240,7 +240,7 @@ def cli(_: str | None) -> str:
             return
         ctx = cmd.context_class(cmd, info_name=prog)
         usage = " ".join([prog, *cmd.collect_usage_pieces(ctx)])
-        rows = [_param_row(p, ctx) for p in cmd.params if p.name != "help"]
+        rows = [_param_row(p) for p in cmd.params if p.name != "help"]
         entry = [
             f"### `{prog}`",
             " ".join((cmd.help or "").split()),

@@ -212,7 +212,7 @@ def test_review_without_a_verdict_fails_the_dispatch(settings, gateway):
     assert result.verdict is None
 
 
-def test_prompt_and_toolsets_per_phase(settings, gateway):
+def test_prompt_and_toolsets_per_procedure(settings, gateway):
     """The implement dispatch never offers delivery tools: the
     act surface is the read/write set and the loop ends at the claim —
     open_pr exists only in the separate deliver dispatch, and the implement
