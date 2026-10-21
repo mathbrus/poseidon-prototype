@@ -11,8 +11,9 @@ shipped example if you want to read the real thing.
 ## Bundles and decision paths
 
 Two bundles exist. The platform bundle, `poseidon/platform/decision`,
-grants the platform lifecycle its tools (`repo.archive`, `git.merge_pr`, and
-the same tool names the workflows call on the company's behalf). Each
+grants the platform lifecycle its tools (`repo.archive`, `git.merge_pr`,
+`issues.close` and `git.close_pr`, and the same tool names the workflows
+call on the company's behalf). Each
 company bundle is its own package, `poseidon.authz.<company>`, at its own
 decision path, which is why two companies never collide and why `platform`
 is a reserved company name. The answer is always the same shape:

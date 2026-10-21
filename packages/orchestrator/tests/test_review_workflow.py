@@ -117,6 +117,11 @@ class Harness:
     verdicts: list[tuple[str, str]] = field(default_factory=list)
     gate_events: list[str] = field(default_factory=list)
     merges: list[int] = field(default_factory=list)
+    # The world-changing platform acts in order: the merge, the closing of
+    # the tickets it fulfilled, a rework ticket and the PR it supersedes.
+    effects: list[str] = field(default_factory=list)
+    # A ticket close the gateway keeps refusing.
+    close_fails: bool = False
     torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
         default_factory=list
     )
@@ -279,6 +284,7 @@ class Harness:
             pr_url: str,
             paths: list[str],
         ) -> dict[str, Any]:
+            harness.effects.append("file_rework")
             harness.reworks.append(
                 {
                     "root_pr": root_pr,
@@ -295,10 +301,27 @@ class Harness:
         ) -> None:
             harness.gate_events.append(kind)
 
+        @activity.defn(name="close_superseded_pr")
+        async def close_superseded_pr(
+            run_id: str, pr_number: int, ticket_number: int
+        ) -> dict[str, Any]:
+            harness.effects.append(f"close_pr #{pr_number} for #{ticket_number}")
+            return {"number": pr_number, "state": "closed"}
+
         @activity.defn(name="merge_pr")
         async def merge_pr(run_id: str, pr_number: int) -> dict[str, Any]:
             harness.merges.append(pr_number)
+            harness.effects.append("merge")
             return {"merged": True, "sha": "abc123"}
+
+        @activity.defn(name="close_tickets")
+        async def close_tickets(
+            run_id: str, pr_number: int, sha: str, pr_title: str
+        ) -> list[int]:
+            if harness.close_fails:
+                raise ApplicationError("issues.close: backend down", non_retryable=True)
+            harness.effects.append(f"close_tickets #{pr_number} {sha} {pr_title}")
+            return [7]
 
         @activity.defn(name="record_attempts_exhausted")
         async def record_attempts_exhausted(run_id: str, workflow_id: str) -> dict:
@@ -348,8 +371,10 @@ class Harness:
             resolve_merge,
             rework_depth,
             file_rework,
+            close_superseded_pr,
             record_gate_outcome,
             merge_pr,
+            close_tickets,
             record_attempts_exhausted,
             teardown,
             wake_heartbeat,
@@ -437,6 +462,8 @@ async def test_steered_pass_with_red_checks_merges_nothing(env):
         }
     ]
     assert harness.gate_events == ["rework_filed"]
+    # The ticket supersedes the PR; nothing merged, so no ticket closes.
+    assert harness.effects == ["file_rework", f"close_pr #{PR} for #91"]
     assert record["status"] == "failed"
     assert "platform verify red" in record["error"]
 
@@ -492,9 +519,12 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     ]
     assert harness.gate_events == ["policy_resolved"]
     assert harness.merges == [PR]
+    # The fulfilled tickets close strictly after the merge, naming it.
+    assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
     assert record["status"] == "done"
     assert record["merged"] is True
     assert record["merge_sha"] == "abc123"
+    assert record["closed_tickets"] == [7]
     assert harness.wakes == 1  # the concluded review frees the slot: a nudge
 
 
@@ -703,6 +733,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
 
     assert harness.merges == []
     assert harness.reworks == []
+    assert harness.effects == []
     assert harness.gate_events == ["policy_declined", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
@@ -776,6 +807,8 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
         await worker.__aexit__(None, None, None)
 
     assert harness.merges == []
+    # No ticket filed, so the PR is not superseded; no merge, no close.
+    assert harness.effects == []
     assert harness.gate_events == ["rework_exhausted", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
@@ -802,7 +835,22 @@ async def test_a_human_gate_never_touches_the_policy_machinery(env):
     assert harness.depth_calls == 0
     assert harness.gate_events == ["approved"]
     assert harness.merges == [PR]
+    assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
     assert record["merged"] is True
+
+
+async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(env):
+    """The merge landed; the tickets did not close. The run ends in error
+    rather than leaving the open ticket silent, and the record still says
+    what was merged."""
+    harness = Harness(merge_gate=POLICY_GATE, close_fails=True)
+    record = await run_review(env.client, harness)
+
+    assert harness.merges == [PR]
+    assert record["status"] == "failed"
+    assert "issues.close" in record["error"]
+    assert record["merged"] is True
+    assert record["merge_sha"] == "abc123"
 
 
 # -- the release is the recorded verdict, not the signal ---------------------

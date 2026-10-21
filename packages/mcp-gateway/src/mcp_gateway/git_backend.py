@@ -311,7 +311,7 @@ class GitBackend:
         self._log.info("pr opened", extra={"branch": prepared.branch, "pr_url": pr_url})
         return {"pr_url": pr_url}
 
-    # -- GitHub REST (issues.*, git.read/comment/merge_pr) --------------------
+    # -- GitHub REST (issues.*, git.read/comment/merge_pr/close_pr) -----------
 
     async def _github(
         self,
@@ -406,6 +406,16 @@ class GitBackend:
             "issues": [self._issue_view(i) for i in listing if "pull_request" not in i]
         }
 
+    async def close_issue(self, repo: str, number: int) -> dict[str, Any]:
+        """Close an issue as completed. Closing a closed issue answers the
+        same view, so a retried close is harmless."""
+        issue = await self._github(
+            "PATCH",
+            f"/repos/{repo_slug(repo)}/issues/{number}",
+            json={"state": "closed", "state_reason": "completed"},
+        )
+        return self._issue_view(issue)
+
     async def comment_issue(self, repo: str, number: int, body: str) -> dict[str, Any]:
         """One endpoint serves both `issues.comment` and `git.comment` —
         GitHub PR conversations are issue comments."""
@@ -451,3 +461,14 @@ class GitBackend:
         )
         self._log.info("pr merged", extra={"repo": repo_slug(repo), "number": number})
         return {"merged": bool(result.get("merged")), "sha": result.get("sha", "")}
+
+    async def close_pr(self, repo: str, number: int) -> dict[str, Any]:
+        """Close a pull request without merging it; its branch and diff stay
+        readable. Closing a closed PR answers the same state."""
+        pr = await self._github(
+            "PATCH",
+            f"/repos/{repo_slug(repo)}/pulls/{number}",
+            json={"state": "closed"},
+        )
+        self._log.info("pr closed", extra={"repo": repo_slug(repo), "number": number})
+        return {"number": pr["number"], "state": pr.get("state", "")}

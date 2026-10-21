@@ -11,7 +11,8 @@
     posts findings via git.comment, ends with a structured pass/fail
     verdict) -> record_verdict (the journaled judgement) -> MERGE GATE ->
     approve: the orchestrator merges via git.merge_pr under its platform
-    identity; reject/timeout: honest failure -> teardown.
+    identity, then closes the tickets the PR fulfilled (issues.close);
+    reject/timeout: honest failure -> teardown.
 
 The merge gate owns the merge guarantee, and the blueprint names its
 resolver — gate config comes from the compiled plan, never hardcoded.
@@ -39,10 +40,12 @@ Review is orchestrator-sequenced over HTTP. A human reject stays the
 honest minimum: findings are already on the PR, the run finalizes failed
 with the gate's verdict. Under a policy-resolved gate, a failed quality
 layer instead feeds the bounded rework loop: the findings become a
-backlog ticket the conductor consumes, the chain depth rides the
-canonical ticket title (read back by the platform, never trusted from an
-agent), and at `max_reworks` the PR escalates to the human park instead
-of looping forever.
+backlog ticket the conductor consumes, the platform closes the PR the
+ticket supersedes (git.close_pr), the chain depth rides the canonical
+ticket title (read back by the platform, never trusted from an agent),
+and at `max_reworks` the PR escalates to the human park instead of
+looping forever. When a rework PR finally merges, the whole chain's
+tickets close with it.
 """
 
 import asyncio
@@ -310,6 +313,14 @@ class ReviewWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
+        # The ticket supersedes the PR: the platform closes it, naming the
+        # ticket, so the host carries no PR nobody will review again.
+        await workflow.execute_activity(
+            "close_superseded_pr",
+            args=[input.run_id, input.pr_number, ticket.get("number")],
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+            retry_policy=STEP_RETRY,
+        )
         await self.record_gate(input.run_id, MERGE_GATE, GATE_REWORK_FILED)
         return {
             "error": f"policy merge gate: {reason} — rework ticket filed:"
@@ -503,6 +514,21 @@ class ReviewWorkflow(RunWorkflow):
                     raise _ReviewOver()
             result["merged"] = True
             result["merge_sha"] = outcome["released"].get("sha")
+            # The merge fulfilled the PR's ticket (a rework chain's, all of
+            # them): the platform closes them, with the merge as its reason.
+            # A close that finally fails ends the run in error with the
+            # merge already on the record.
+            result["closed_tickets"] = await workflow.execute_activity(
+                "close_tickets",
+                args=[
+                    input.run_id,
+                    input.pr_number,
+                    result["merge_sha"] or "",
+                    pr.get("title") or "",
+                ],
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+                retry_policy=STEP_RETRY,
+            )
         except _ReviewOver:
             pass
         except asyncio.CancelledError:

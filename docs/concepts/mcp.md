@@ -13,10 +13,11 @@ that call happens.
 Poseidon's gateway is an MCP server; the agent is an MCP client. Everything
 the agent can do to the world is one of the names on the
 [Tools](../reference/tools.md) page, which is what makes "the tool surface
-is the security surface" true rather than aspirational. Two of those names
-belong to the platform lifecycle alone: `repo.archive`, how a workspace
-enters a sandbox, and `git.merge_pr`, which no blueprint can hand to an
-agent role.
+is the security surface" true rather than aspirational. Some of those
+names belong to the platform lifecycle alone: `repo.archive`, how a
+workspace enters a sandbox, and `git.merge_pr` with its two consequences,
+`issues.close` and `git.close_pr` — none of which a blueprint can hand to
+an agent role.
 
 A detail worth noticing: the action schemas the model sees contain no
 `run_id` and no `target_repo`. The agent host injects both at call time

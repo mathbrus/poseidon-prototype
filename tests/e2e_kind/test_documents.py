@@ -60,6 +60,7 @@ from .conftest import (
     DOCUMENT_PATHS,
     REPO_BASELINE,
     apply_profile,
+    assert_merge_closed_tickets,
     close_issue,
     close_pr,
     close_pr_url,
@@ -209,17 +210,25 @@ def test_the_steward_wrote_each_document_and_it_merged(bootstrapped: dict):
 
 def test_the_loop_files_nothing_twice_and_idles_on_a_resting_strategy(bootstrapped: dict):
     """Both documents present, no open slice: the next tick neither files
-    a bootstrap ticket nor scopes — the PM chose idle. The one ticket per
-    document is still the one the filing tick made; delivery consumed it
-    without closing it, and the loop reads it as taken."""
+    a bootstrap ticket nor scopes — the PM chose idle. Each bootstrap
+    ticket closed with its merged pull request, and the loop filed no
+    other: the documents are present, so nothing is owed."""
     assert bootstrapped["after"]["rule"] == tick_rule(TICK_IDLE, "pm_chose_idle"), (
         bootstrapped["after"]
     )
-    for name in BOOTSTRAP_TITLES:
-        assert (
-            _open_issue_numbers(bootstrapped["env"], BOOTSTRAP_TITLES[name])
-            == bootstrapped["tickets"][name]
+    env = bootstrapped["env"]
+    for name, run in bootstrapped["runs"].items():
+        assert_merge_closed_tickets(
+            env,
+            audit_story(run["review"]["run_id"]),
+            run["pr"],
+            bootstrapped["tickets"][name],
         )
+        # The listing may still show a just-closed ticket; anything else
+        # under the title would be a second filing.
+        assert set(_open_issue_numbers(env, BOOTSTRAP_TITLES[name])) <= set(
+            bootstrapped["tickets"][name]
+        ), name
 
 
 # --- an architecture request becomes a stewardship ticket --------------------

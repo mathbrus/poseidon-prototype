@@ -44,6 +44,7 @@ from .cluster import HUMAN, audit_story, await_run, console_env, run_by_task
 from .conftest import (
     REPO_ROOT,
     apply_profile,
+    assert_merge_closed_tickets,
     await_gate,
     close_issue,
     close_pr,
@@ -196,6 +197,18 @@ def test_the_full_chain_lands_a_human_gated_merge(review_chain: dict) -> None:
     )
     assert pr.status_code == 200
     assert pr.json()["merged"] is True, "the gateway merge never landed"
+
+
+def test_the_merge_closed_the_ticket_it_fulfilled(review_chain: dict) -> None:
+    """The company's own ticket does not outlive its merged work: the
+    platform closed it right after the merge, the merge named as the
+    reason, and no role touched it."""
+    assert_merge_closed_tickets(
+        review_chain["env"],
+        audit_story(review_chain["review_run_id"]),
+        review_chain["pr_number"],
+        [review_chain["issue_number"]],
+    )
 
 
 def test_the_run_by_hand_was_the_only_implement(review_chain: dict) -> None:

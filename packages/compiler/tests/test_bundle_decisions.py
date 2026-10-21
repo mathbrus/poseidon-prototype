@@ -306,6 +306,29 @@ def test_only_the_platform_may_merge(decide):
     )
 
 
+def test_only_the_platform_may_close_tickets_and_pull_requests(decide):
+    """Closing a ticket a merge fulfilled, and a pull request a rework
+    ticket superseded, are platform acts: the implementer never grades its
+    own homework, and no company role reaches either tool."""
+    for tool in ("issues.close", "git.close_pr"):
+        assert (
+            decide(
+                PLATFORM_QUERY,
+                lifecycle="platform",
+                tool=tool,
+                run_id="run-1",
+                args={"number": 4},
+            )["allow"]
+            is True
+        ), tool
+        as_implementer = decide(
+            **ephemeral("feature-delivery", "implementer", tool=tool, args={"number": 4})
+        )
+        assert as_implementer == {"allow": False, "rule": "default_deny"}, tool
+        as_pm = decide(**standing("pm", tool=tool, args={"number": 4}))
+        assert as_pm == {"allow": False, "rule": "default_deny"}, tool
+
+
 def test_unknown_tool_is_denied_by_default(decide):
     decision = decide(**standing("pm", tool="issues.purge", args={}))
     assert decision == {"allow": False, "rule": "default_deny"}

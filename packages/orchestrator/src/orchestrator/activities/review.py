@@ -7,7 +7,9 @@ Retry safety, per activity:
                           named rule `pr_not_open` (non-retryable, audited)
                           — nothing downstream can succeed on it, and the
                           ledger should not pay for a run that can only
-                          fail at the head ref.
+                          fail at the head ref. A PR first learned merged
+                          here closes the tickets it fulfils (each skipped
+                          when already closed), so a retry is still safe.
     record_verdict      — appends the reviewer's journaled verdict (same
                           append-only posture) and sets it on the run row,
                           an idempotent update.
@@ -21,6 +23,12 @@ Retry safety, per activity:
     file_rework         — creates an issue; not idempotent, so a retry can
                           file a duplicate ticket — a noisy backlog, never
                           a lost finding.
+    close_superseded_pr — closes the failed PR once its rework ticket is
+                          filed; closing a closed PR answers the same, so
+                          safe. Its own activity, so a retried close never
+                          files the ticket twice.
+    close_tickets       — closes the tickets the merged PR fulfils, each
+                          read first and skipped when already closed; safe.
     merge_pr            — GitHub's merge endpoint is idempotent for an
                           already-merged PR (it answers 405, surfaced as a
                           backend error the workflow reports honestly).
@@ -38,7 +46,6 @@ and that policy, not a bug, let it through.
 """
 
 import asyncio
-import re
 import time
 from typing import Any
 
@@ -55,32 +62,26 @@ from common.audit import (
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
 from common.policy import MERGE_RESOLVE
-from common.tasks import ISSUE_TASK_RE
 from common.telemetry import get_logger
 from common.workflows import MERGE_GATE, workflow_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
+from orchestrator.activities.tickets import (
+    REWORK_TITLE_RE,
+    close_fulfilled_tickets,
+    consumed_ticket,
+    merged_outside_rationale,
+    rework_title,
+)
 from orchestrator.audit import record_event
 from orchestrator.clients import GatewayClient, pr_settled
 from orchestrator.config import WorkerSettings
 from registry import AuditStore, Companies, RunParticipants, Runs
 
-# The canonical rework-ticket title. The chain depth and the root PR ride
-# the title so the platform can read the bound back without trusting any
-# agent: `rework_depth` parses it from the ticket the failing PR's own
-# implement run consumed, under the platform identity. Forging a higher
-# depth into a hand-filed ticket only escalates to the human sooner — the
-# parse can shrink autonomy, never extend it.
-REWORK_TITLE_RE = re.compile(r"^Rework (\d+) for PR #(\d+)")
-
 # The named rule a review run fails with when its PR is already merged or
 # closed — the run record's error starts with it, and the audit row
 # carries it, the way `budget_exhausted` names the other birth refusal.
 PR_NOT_OPEN = "pr_not_open"
-
-
-def rework_title(attempt: int, root_pr: int, pr_title: str) -> str:
-    return f"Rework {attempt} for PR #{root_pr}: {pr_title[:80]}"
 
 
 def contract_deletions(
@@ -184,6 +185,12 @@ class ReviewActivities:
     def _company(self) -> str:
         return applied_company(self._companies)
 
+    def _first_learned_merged(self, company: str, pr_number: int) -> bool:
+        """Whether the company delivered this PR and nothing has yet
+        recorded it settled — the one moment its tickets close."""
+        delivering = self._runs.implement_run_for_pr(company, pr_number)
+        return delivering is not None and delivering.pr_settled is None
+
     @activity.defn(name="read_pr")
     async def read_pr(
         self, run_id: str, pr_number: int, contract_paths: list[str] | None = None
@@ -198,16 +205,33 @@ class ReviewActivities:
         state is the git host's word at the moment of the read. A settled
         PR is a refusal with a named rule, journaled in the run's story,
         never a crash further down at a branch that no longer exists."""
+        company = self._company()
+        repo_url = (await self._repo())["url"]
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            pr = await gateway.read_pr(run_id, (await self._repo())["url"], pr_number)
-        settled = pr_settled(pr)
+            pr = await gateway.read_pr(run_id, repo_url, pr_number)
+            settled = pr_settled(pr)
+            if settled == "merged" and await asyncio.to_thread(
+                self._first_learned_merged, company, pr_number
+            ):
+                # Merged outside the platform, first learned here: the
+                # tickets it fulfils close before the settle is remembered,
+                # so a retry of this read still closes them.
+                await close_fulfilled_tickets(
+                    gateway,
+                    self._runs,
+                    company,
+                    run_id,
+                    repo_url,
+                    pr_number,
+                    merged_outside_rationale(pr_number),
+                )
         if settled:
             # Learned here, remembered here: no later observation reads
             # this PR again.
             await asyncio.to_thread(
-                self._runs.mark_pr_settled, self._company(), pr_number, settled
+                self._runs.mark_pr_settled, company, pr_number, settled
             )
             await self._append_event(
                 run_id=run_id,
@@ -387,14 +411,9 @@ class ReviewActivities:
         robust still, but the mutation path the parse-back would have to
         fear does not exist."""
 
-        def lineage_issue() -> int | None:
-            implement = self._runs.implement_run_for_pr(self._company(), pr_number)
-            if implement is None:
-                return None
-            match = ISSUE_TASK_RE.match(implement.task or "")
-            return int(match.group(1)) if match else None
-
-        issue_number = await asyncio.to_thread(lineage_issue)
+        issue_number = await asyncio.to_thread(
+            consumed_ticket, self._runs, self._company(), pr_number
+        )
         if issue_number is None:
             return {"depth": 0, "root_pr": pr_number}
         async with GatewayClient(
@@ -574,6 +593,49 @@ class ReviewActivities:
             raise RuntimeError(f"merge of pull request #{pr_number} did not land")
         return result
 
+    @activity.defn(name="close_superseded_pr")
+    async def close_superseded_pr(
+        self, run_id: str, pr_number: int, ticket_number: int
+    ) -> dict[str, Any]:
+        """Close the PR whose failed review the rework ticket now carries,
+        under the platform identity: the ticket supersedes it, and an open
+        PR nobody will review again is debris on the host. Its diff and
+        findings stay readable through `git.read` — the ticket names it."""
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            result = await gateway.close_pr(
+                run_id,
+                (await self._repo())["url"],
+                pr_number,
+                f"superseded by rework ticket #{ticket_number}",
+            )
+        self._log.bind(run_id=run_id).info(
+            "superseded pr closed",
+            extra={"pr_number": pr_number, "ticket": ticket_number},
+        )
+        return result
+
+    @activity.defn(name="close_tickets")
+    async def close_tickets(
+        self, run_id: str, pr_number: int, sha: str, pr_title: str
+    ) -> list[int]:
+        """Close the tickets the just-merged PR fulfils, under the platform
+        identity, with the merge as the rationale. Returns the numbers
+        closed."""
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            return await close_fulfilled_tickets(
+                gateway,
+                self._runs,
+                self._company(),
+                run_id,
+                (await self._repo())["url"],
+                pr_number,
+                f"merged pull request #{pr_number} ({sha}): {pr_title}",
+            )
+
     def all(self) -> list[Any]:
         return [
             self.read_pr,
@@ -585,5 +647,7 @@ class ReviewActivities:
             self.resolve_merge,
             self.rework_depth,
             self.file_rework,
+            self.close_superseded_pr,
             self.merge_pr,
+            self.close_tickets,
         ]

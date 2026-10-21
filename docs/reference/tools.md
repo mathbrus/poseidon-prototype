@@ -25,10 +25,11 @@ Three things to keep in mind while reading the signatures:
   holds the tool before a blueprint narrows it. A tool no role holds
   belongs to the platform lifecycle alone.
 
-Three tools commit the company to something in the world — a ticket
+Five tools commit the company to something in the world — a ticket
 (`issues.create`), a pull request (`git.open_pr`), a request to change the
-architecture (`architecture.request`) — and take a `rationale`: the
-caller's own reason, in a few sentences. The gateway refuses the call
+architecture (`architecture.request`), the closing of a ticket
+(`issues.close`) or of a pull request (`git.close_pr`) — and take a
+`rationale`: the caller's own reason, in a few sentences. The gateway refuses the call
 without one and records it in cleartext on the call's audit row, the one
 field of the ledger that is not a digest; `poseidon run story` reads it back
 under the row. Every other tool's row carries a digest and nothing more.
@@ -54,7 +55,13 @@ agent verifiably bound to the very run it names.
 
 The ticket surface of the target repository: the PM files and comments
 tickets when it scopes, and the platform files rework and bootstrap
-tickets under its own identity.
+tickets under its own identity. Closing is the platform's alone, and only
+as a merge's consequence: when it merges a pull request, or first learns
+that a human merged one by hand, it closes the ticket the delivering
+implement run consumed — for a rework chain, the root ticket and every
+rework ticket filed for it — with the merge as the rationale. A pull
+request closed without merging closes nothing; that ticket is the
+human's.
 
 <!-- gen: tools:issues -->
 

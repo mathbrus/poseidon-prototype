@@ -341,6 +341,26 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
                     },
                 ),
                 ("git.merge_pr", {"run_id": run_id, "repo": repo, "number": 1}),
+                # The implementer never grades its own homework: closing a
+                # ticket or a pull request is the platform's alone.
+                (
+                    "issues.close",
+                    {
+                        "run_id": run_id,
+                        "repo": repo,
+                        "number": 1,
+                        "rationale": "red-team: closing my own ticket",
+                    },
+                ),
+                (
+                    "git.close_pr",
+                    {
+                        "run_id": run_id,
+                        "repo": repo,
+                        "number": 1,
+                        "rationale": "red-team: closing a rival pull request",
+                    },
+                ),
             ):
                 denied = mcp_call(env, token, tool, args)
                 assert denied.isError, f"{tool} was not refused"
@@ -348,7 +368,7 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
                     f"{tool}: {denied.content[0].text}"
                 )
 
-            # Both denies are first-class audit events under the bound
+            # Every deny is a first-class audit event under the bound
             # identity — gateway deny, not prompt hope, reconstructable.
             denies = {
                 e["tool"]
@@ -357,7 +377,12 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
                 and e["decision"] == "deny"
                 and e["agent_id"] == bound["agent_id"]
             }
-            assert {"issues.create", "git.merge_pr"} <= denies, denies
+            assert {
+                "issues.create",
+                "git.merge_pr",
+                "issues.close",
+                "git.close_pr",
+            } <= denies, denies
         finally:
             asyncio.run(crew.revoke_participants(run_id))
             if sa_name:

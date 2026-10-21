@@ -52,6 +52,14 @@ allow_rules contains "platform__admin_sandboxes_delete" if {
 # The orchestrator's own privileged calls (the `platform` lifecycle):
 # workspace fetch, sandbox registration, the platform verify gate, and the
 # merge that only the workflow may perform after the human gate.
+allow_rules contains "platform_git_close_pr" if {
+	input.lifecycle == "platform"
+	input.tool == "git.close_pr"
+}
+
+# The orchestrator's own privileged calls (the `platform` lifecycle):
+# workspace fetch, sandbox registration, the platform verify gate, and the
+# merge that only the workflow may perform after the human gate.
 allow_rules contains "platform_git_comment" if {
 	input.lifecycle == "platform"
 	input.tool == "git.comment"
@@ -71,6 +79,14 @@ allow_rules contains "platform_git_merge_pr" if {
 allow_rules contains "platform_git_read" if {
 	input.lifecycle == "platform"
 	input.tool == "git.read"
+}
+
+# The orchestrator's own privileged calls (the `platform` lifecycle):
+# workspace fetch, sandbox registration, the platform verify gate, and the
+# merge that only the workflow may perform after the human gate.
+allow_rules contains "platform_issues_close" if {
+	input.lifecycle == "platform"
+	input.tool == "issues.close"
 }
 
 # The orchestrator's own privileged calls (the `platform` lifecycle):

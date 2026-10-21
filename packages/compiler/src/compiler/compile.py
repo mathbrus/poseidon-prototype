@@ -39,6 +39,10 @@ from schema.tools import PLATFORM_TOOLS
 # both must be here or sandbox registration and teardown die.
 PLATFORM_SCOPE = sorted(
     {
+        # PLATFORM_TOOLS includes the two closing acts: the tickets a merged
+        # pull request fulfils, and a pull request a rework ticket
+        # supersedes — consequences of the platform's own merge and rework,
+        # never a role's to perform.
         *PLATFORM_TOOLS,
         "sandbox.run_tests",
         # The review workflow resolves the PR's head ref before provisioning
