@@ -79,7 +79,6 @@ nav:
       - Anatomy of a run: explanation/anatomy.md
       - Security model: explanation/security-model.md
       - Limitations: explanation/limitations.md
-      - What it can do: explanation/capabilities.md
       - Further reading: explanation/reading.md
       - Architecture: explanation/architecture.md
       - Concepts:

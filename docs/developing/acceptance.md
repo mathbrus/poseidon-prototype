@@ -11,7 +11,7 @@ a declared baseline, closes every PR and branch it creates, and finishes
 by *asserting* the cluster is quiet, so two consecutive runs are green
 with nothing done between them and a fresh disposable repo needs no
 manual setup (`tests/e2e_kind/conftest.py` documents the contract). This
-is the suite that proves the claims in [the argument](../explanation/capabilities.md)
+is the suite that proves the claims in [What you get](../index.md#what-you-get)
 — including the red-team modules, which attack a real provisioned sandbox
 and a real compiled merge gate.
 
