@@ -73,8 +73,10 @@ def scoped(stack: None, baseline_env: dict) -> dict:
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id(), "nonce": nonce}
     try:
+        # The slice stays named: the cap test below needs a PM with every
+        # reason to scope again.
         result["record"] = scope_via_heartbeat(
-            env, open_slice_strategy(nonce, NEXT_SLICE_MARKER)
+            env, open_slice_strategy(nonce, NEXT_SLICE_MARKER), keep_strategy=True
         )
         urls = result["record"].get("ticket_urls") or []
         match = next((re.search(r"/issues/(\d+)$", u) for u in urls if u), None)

@@ -429,8 +429,9 @@ def await_gate(run_id: str, state: str, deadline_s: int = 600) -> None:
 def write_strategy(env: dict, text: str) -> None:
     """A declared deviation from the baseline: the strategy the loop will
     read on its next tick. The mock PM scopes a slice only when it names
-    one; put the resting strategy back (`restore_strategy`) before the
-    module ends, or the loop keeps scoping."""
+    one and no open ticket covers it; put the resting strategy back
+    (`restore_strategy`) once it is scoped, or the loop scopes it again
+    when the slice's ticket closes."""
     put_repo_file(env, DOCUMENT_PATHS["strategy"], text, "e2e: strategy names a slice")
 
 
@@ -468,17 +469,35 @@ def wake_until_run_started(
     raise AssertionError(f"the heartbeat never started {task!r}")
 
 
-def scope_via_heartbeat(env: dict, strategy: str, deadline_s: int = 600) -> dict:
+def scope_via_heartbeat(
+    env: dict, strategy: str, deadline_s: int = 600, *, keep_strategy: bool = False
+) -> dict:
     """Write the strategy, wake the loop onto it, and return the terminal
     record of the scope run it starts. Every scope run works the same task
     text, so the run is the one born after this write — never an earlier
-    module's."""
+    module's.
+
+    The strategy is a one-shot input: once the scope run is over, the
+    tickets carry the slice and the resting strategy goes back. Left
+    naming the slice, it would be scoped again the moment the slice's
+    ticket closes with its merged pull request — the platform closes it —
+    and the module's arc would grow a second one nobody asked for.
+    `keep_strategy` keeps it naming the slice, for a module that tests
+    what the loop does while the slice still looks open."""
     since = db_now()
     write_strategy(env, strategy)
-    wake_until_run_started(SCOPE_TASK, "scope", since=since)
-    return await_run(
-        SCOPE_TASK, terminal=True, deadline_s=deadline_s, workflow="scope", since=since
-    )
+    try:
+        wake_until_run_started(SCOPE_TASK, "scope", since=since)
+        return await_run(
+            SCOPE_TASK,
+            terminal=True,
+            deadline_s=deadline_s,
+            workflow="scope",
+            since=since,
+        )
+    finally:
+        if not keep_strategy:
+            restore_strategy(env)
 
 
 # --- the repo-state contract ------------------------------------------------
