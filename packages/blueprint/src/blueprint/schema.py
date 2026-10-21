@@ -6,15 +6,16 @@ standing spawner, can the daily cap fund a run) belong to the
 compiler — the schema's job is to make a document
 well-formed, not to make a company coherent.
 
-One convention worth stating once: every object is `additionalProperties:
-false`, so a typo'd key is an error rather than a silently ignored line. The
-lean-standing stance on `count` is the compiler's to enforce, not the
-schema's.
+Every object is `additionalProperties: false`, so a typo'd key is an
+error rather than a silently ignored line. Every field carries a
+`description`: the docs site renders the blueprint reference from it, and
+the build fails on a field without one. No field has a default — a
+defaulted cap or bound is authority nobody wrote down.
 """
 
 from typing import Any
 
-from blueprint.documents import DOCUMENT_NAMES
+from blueprint.documents import DOCUMENT_LABELS, DOCUMENT_NAMES
 from blueprint.tools import KNOWN_TOOLS
 
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"
@@ -29,79 +30,123 @@ _HUMAN = {
     "pattern": r"^[A-Za-z0-9][A-Za-z0-9._@:-]*$",
 }
 _TEXT = {"type": "string", "minLength": 1}
-_TOOL_LIST = {
-    "type": "array",
-    "items": {"type": "string", "enum": sorted(KNOWN_TOOLS)},
-    "uniqueItems": True,
-}
 
 # A path inside the company's repository, relative to its root.
 _REPO_PATH = {"type": "string", "minLength": 1, "pattern": r"^[^\s/][^\s]*$"}
 
-# The company's name, its vision — the one text a human writes — the
-# humans who may act on it, and the paths of the two documents the
-# company writes for itself. The humans are the people the console lets
-# resolve a gate, start or cancel a run by hand, wake, pause or resume
-# the heartbeat, re-apply this document and delete the company: named
-# here so that authority is a diff, and
-# required because every company has at least one gate only a person can
-# answer (the budget park; a policy-resolved merge falls back to one).
-# The vision
-# reaches every procedure but `deliver` through the static prompt and
-# changes only when the blueprint is applied again; the cap keeps it a
-# charter, not a specification. The documents live in the repository at
-# `base_ref`: the strategy the steward writes once from the vision, and
-# the architecture masterplan it writes at bootstrap and revises on
-# request. Absence on `base_ref` is not a schema matter — it is what the
-# first ticks are for.
+
+def _described(node: dict[str, Any], description: str) -> dict[str, Any]:
+    """A shared field shape with this use's description."""
+    return {**node, "description": description}
+
+
+def _paths(description: str) -> dict[str, Any]:
+    return {
+        "type": "array",
+        "items": _REPO_PATH,
+        "minItems": 1,
+        "uniqueItems": True,
+        "description": description,
+    }
+
+
+# Humans are required because every company has at least one gate only a
+# person can answer: the budget park, and a policy-resolved merge falls
+# back to one. The vision's cap keeps it a charter, not a specification.
 _COMPANY = {
     "type": "object",
     "additionalProperties": False,
     "required": ["name", "vision", "humans", "documents"],
+    "description": "Who the company is, what it is for, and who may act on it.",
     "properties": {
-        "name": _NAME,
-        "vision": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "name": _described(
+            _NAME,
+            "The company's name. It keys everything the platform records about"
+            " the company and names its policy package. A cluster hosts one"
+            " company.",
+        ),
+        "vision": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "What the company builds and why, in your words. Every"
+            " agent reads it in its system prompt. Only applying the blueprint"
+            " again changes it.",
+        },
         "humans": {
             "type": "array",
             "items": _HUMAN,
             "minItems": 1,
             "uniqueItems": True,
+            "description": "The people who may act on the company through the"
+            " console: answer its gates, start or cancel runs, pause, resume or"
+            " wake the heartbeat, apply the blueprint, delete the company. On"
+            " kind, only the people the chart declares (`owner`, `auditor`).",
         },
         "documents": {
             "type": "object",
             "additionalProperties": False,
             "required": list(DOCUMENT_NAMES),
-            "properties": {name: _REPO_PATH for name in DOCUMENT_NAMES},
+            "description": "Where, in the repository, the company keeps the two"
+            " documents it writes for itself. A document missing on `base_ref`"
+            " is what the first heartbeat ticks write.",
+            "properties": {
+                name: _described(_REPO_PATH, f"Path of the {DOCUMENT_LABELS[name]}.")
+                for name in DOCUMENT_NAMES
+            },
         },
     },
 }
 
-# The company's subject — the one repository every run works on and the
-# branch its changes are measured and delivered against — plus the sandbox
-# image, test command and egress allowlist the infra IR is built from (an
-# empty allowlist means zero egress).
 _STACK = {
     "type": "object",
     "additionalProperties": False,
     "required": ["repo", "toolchain"],
+    "description": "The repository the company works on, and the sandbox its"
+    " code runs in.",
     "properties": {
         "repo": {
             "type": "object",
             "additionalProperties": False,
             "required": ["url", "base_ref"],
-            "properties": {"url": _TEXT, "base_ref": _TEXT},
+            "description": "The one repository every run works on.",
+            "properties": {
+                "url": _described(
+                    _TEXT,
+                    "The repository, as `github.com/<owner>/<name>`. Policy"
+                    " refuses a tool call naming any other repository"
+                    " (`repo_not_declared`).",
+                ),
+                "base_ref": _described(
+                    _TEXT,
+                    "The branch changes are diffed and delivered against, and the"
+                    " documents are read from.",
+                ),
+            },
         },
         "toolchain": {
             "type": "object",
             "additionalProperties": False,
             "required": ["image", "test_command"],
+            "description": "The sandbox every run's code runs in.",
             "properties": {
-                # `poseidon-sandbox` names the platform's own toolchain, which
-                # the deployment resolves to its content-addressed image;
-                # any other image is used as written.
-                "image": _TEXT,
-                "test_command": _TEXT,
-                "egress_allow": {"type": "array", "items": _TEXT, "uniqueItems": True},
+                "image": _described(
+                    _TEXT,
+                    "The sandbox image. `poseidon-sandbox` is the platform's own"
+                    " Python toolchain; any other image is used as written.",
+                ),
+                "test_command": _described(
+                    _TEXT,
+                    "The command the platform runs to decide whether the tests"
+                    " pass, for example `pytest -q`.",
+                ),
+                "egress_allow": {
+                    "type": "array",
+                    "items": _TEXT,
+                    "uniqueItems": True,
+                    "description": "Every host a sandbox may reach, through the"
+                    " egress proxy. Absent or empty means no egress at all.",
+                },
             },
         },
     },
@@ -111,176 +156,243 @@ _HIRE = {
     "type": "object",
     "additionalProperties": False,
     "required": ["role", "count"],
+    "description": "One standing agent, keyed by its name.",
     "properties": {
-        "role": _NAME,
-        # One instance per hire (the reconciler names one Deployment and one
-        # Service per standing name); 0 documents a growth path.
-        "count": {"type": "integer", "enum": [0, 1]},
+        "role": _described(
+            _NAME,
+            "The catalog role it holds. A standing agent must be a conductor:"
+            " a role that may start crews, such as `pm`.",
+        ),
+        "count": {
+            "type": "integer",
+            "enum": [0, 1],
+            "description": "`1` runs the agent. `0` declares it without running it.",
+        },
         "may_spawn": {
             "type": "object",
             "additionalProperties": False,
+            "description": "The crews this agent may start, and how many at once.",
             "properties": {
-                "crew": {"type": "array", "items": _NAME, "uniqueItems": True},
-                "max_concurrent": {"type": "integer", "minimum": 1},
+                "crew": {
+                    "type": "array",
+                    "items": _NAME,
+                    "uniqueItems": True,
+                    "description": "Crew names from the catalog. Every workflow's"
+                    " crew must be on this list.",
+                },
+                "max_concurrent": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "How many of its crews may run at once. Policy"
+                    " checks it against a live count.",
+                },
             },
         },
     },
 }
 
-# The standing agents, keyed by the hire's name so a blueprint diff
-# (hire/fire) is readable; one entry can carry several instances (`count`).
 _STANDING = {
     "type": "object",
     "minProperties": 1,
     "additionalProperties": _HIRE,
     "propertyNames": _NAME,
+    "description": "The standing agents, keyed by name. They live as long as the"
+    " company. Agents that write code are always ephemeral, so a standing"
+    " `implementer` doesn't compile.",
 }
 
-# Per-role tool scopes → gateway allow rules, for standing and ephemeral
-# agents of the role alike. A scope narrows the catalog role's tools and
-# never widens them.
 _TOOLS = {
     "type": "object",
     "additionalProperties": {
         "type": "object",
         "additionalProperties": False,
         "required": ["allow"],
-        "properties": {"allow": _TOOL_LIST},
+        "description": "One role's tool scope, keyed by role name.",
+        "properties": {
+            "allow": {
+                "type": "array",
+                "items": {"type": "string", "enum": sorted(KNOWN_TOOLS)},
+                "uniqueItems": True,
+                "description": "The tools agents of this role may call. It can"
+                " narrow the role's catalog tools, never widen them.",
+            }
+        },
     },
     "propertyNames": _NAME,
+    "description": "Narrows a role's tools, for every agent of that role. A role"
+    " not listed keeps its catalog tools.",
 }
 
 
 # One gate shape: a gate names its resolver and how long it waits for a
-# human (escalation fires at half of that, expiry at the end), and differs
-# only in which resolvers it allows and what a resolver reads. A gate
-# nobody declares is a gate nobody passes — for merge that means the review
-# ends without merging at all, an unattended auto-merge being no default
-# anyone gets. The deadline is explicit because a defaulted wait is
-# patience nobody wrote down.
-def _gate(resolvers: list[str], extra: dict[str, Any] | None = None) -> dict[str, Any]:
+# human, and differs only in which resolvers it allows and what a resolver
+# reads. A gate nobody declares is a gate nobody passes.
+def _gate(
+    description: str, resolvers: list[str], extra: dict[str, Any] | None = None
+) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
         "required": ["resolved_by", "deadline_minutes"],
+        "description": description,
         "properties": {
-            "resolved_by": {"type": "string", "enum": resolvers},
-            "deadline_minutes": {"type": "integer", "minimum": 1},
+            "resolved_by": {
+                "type": "string",
+                "enum": resolvers,
+                "description": "Who resolves the gate: `human`, through"
+                " `poseidon verdict`, or `policy`, within `delegate`.",
+            },
+            "deadline_minutes": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "How long the gate waits for a person. It"
+                " escalates at half and expires at the end.",
+            },
             **(extra or {}),
         },
     }
 
 
-# The delegated class a policy-resolved merge may finish on its own:
-# explicit paths and an explicit rework bound, all-explicit like
-# `heartbeat` — a defaulted bound is authority nobody wrote down. The
-# undelegatable carve-outs live in `blueprint.gates` and are refused at
-# validate time, whatever the paths here say.
+# The protected surfaces that can never be delegated live in
+# `blueprint.gates` and are refused at validate time.
 _MERGE_DELEGATION = {
     "type": "object",
     "additionalProperties": False,
     "required": ["paths", "max_reworks"],
+    "description": "What policy may merge on its own. Required when"
+    " `resolved_by` is `policy`.",
     "properties": {
-        "paths": {
-            "type": "array",
-            "items": _REPO_PATH,
-            "minItems": 1,
-            "uniqueItems": True,
+        "paths": _paths(
+            "The paths a pull request may change and still merge under policy."
+            " May not overlap `.github/`, `policies.deny_paths` or the contract"
+            " tree."
+        ),
+        "max_reworks": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many rework tickets a failed review may file"
+            " before the pull request parks on a person.",
         },
-        "max_reworks": {"type": "integer", "minimum": 0},
     },
 }
 
-_MERGE_GATE = _gate(["human", "policy"], {"delegate": _MERGE_DELEGATION})
+_MERGE_GATE = _gate(
+    "Whether a reviewed pull request merges. Without it, a review ends without merging.",
+    ["human", "policy"],
+    {"delegate": _MERGE_DELEGATION},
+)
 
 
 def _workflow(
-    gates: dict[str, Any] | None, limits: dict[str, Any] | None = None
+    description: str,
+    gates: dict[str, Any] | None,
+    limits: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One crewed workflow node: the crew that fulfils its runs, the limits
     it reads and the gates it parks on — nothing else. Which workflows the
     company runs is `heartbeat.may_start`; who conducts them is
     `heartbeat.conductor`; each is said once. A merge gate on implement,
     or a verify limit on review, was never a meaningful thing to write, so
-    it is not a writable thing. Limits are required: a defaulted limit is
-    authority nobody wrote down."""
-    properties: dict[str, Any] = {"crew": _NAME, **(limits or {})}
+    it is not a writable thing. Limits are required."""
+    properties: dict[str, Any] = {
+        "crew": _described(_NAME, "The crew from the catalog that does the run."),
+        **(limits or {}),
+    }
     if gates:
         properties["gates"] = {
             "type": "object",
             "additionalProperties": False,
+            "description": "The gates the run parks on.",
             "properties": gates,
         }
     return {
         "type": "object",
         "additionalProperties": False,
         "required": ["crew", *(limits or {})],
+        "description": description,
         "properties": properties,
     }
 
 
-# The two workflows that put a crew to work. `scope` has no node: it
-# dispatches the conductor directly and configures nothing.
+# `scope` has no node: it dispatches the conductor directly and configures
+# nothing.
 _WORKFLOWS = {
     "type": "object",
     "additionalProperties": False,
     "required": ["implement", "review"],
+    "description": "The two workflows that put a crew to work.",
     "properties": {
-        # How many times a red platform verify re-dispatches the implementer
-        # before the run fails.
         "implement": _workflow(
-            None, {"max_verify_retries": {"type": "integer", "minimum": 0}}
+            "Turns a ticket into a pull request.",
+            None,
+            {
+                "max_verify_retries": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "How many times a failed test run sends the"
+                    " implementer back to work before the run fails.",
+                }
+            },
         ),
-        "review": _workflow({"merge": _MERGE_GATE}),
+        "review": _workflow(
+            "Reviews a delivered pull request and decides whether it merges.",
+            {"merge": _MERGE_GATE},
+        ),
     },
 }
 
 _POLICIES = {
     "type": "object",
     "additionalProperties": False,
+    "description": "Rules on what a delivery may change. Each compiles to a deny"
+    " rule the gateway checks against the real changed paths.",
     "properties": {
         "branch_protection": {
             "type": "object",
             "additionalProperties": False,
+            "description": "Which branches a delivery may target.",
             "properties": {
-                "protected": {"type": "array", "items": _TEXT, "uniqueItems": True},
-                "allowed_pattern": _TEXT,
+                "protected": {
+                    "type": "array",
+                    "items": _TEXT,
+                    "uniqueItems": True,
+                    "description": "Branches no delivery may target.",
+                },
+                "allowed_pattern": _described(
+                    _TEXT,
+                    "A regular expression every delivery branch must match.",
+                ),
             },
         },
-        "deny_paths": {"type": "array", "items": _REPO_PATH, "uniqueItems": True},
-        # The contract tree: the contract/acceptance tests and the roles
-        # that may deliver into it. Compiles to a `git.open_pr`
-        # deny for every other role and joins the merge carve-outs — the
-        # code that certifies a change never auto-merges with it, and the
-        # implementer cannot rewrite the spec its own work is graded by.
+        "deny_paths": {
+            "type": "array",
+            "items": _REPO_PATH,
+            "uniqueItems": True,
+            "description": "Paths no delivery may change, for example"
+            " `.github/workflows/`.",
+        },
         "contract_tests": {
             "type": "object",
             "additionalProperties": False,
             "required": ["paths", "roles"],
+            "description": "Acceptance tests the implementer can't rewrite."
+            " Delegated merges are graded against this tree as it stands on"
+            " `base_ref`, and changes to it always need a person.",
             "properties": {
-                "paths": {
-                    "type": "array",
-                    "items": _REPO_PATH,
-                    "minItems": 1,
-                    "uniqueItems": True,
-                },
+                "paths": _paths("The contract tree, for example `tests/contract/`."),
                 "roles": {
                     "type": "array",
                     "items": _NAME,
                     "minItems": 1,
                     "uniqueItems": True,
+                    "description": "The roles that may deliver into the tree,"
+                    " for example `contract-author`.",
                 },
             },
         },
     },
 }
 
-# The standing heartbeat: the company's own initiative. Every company has
-# one — work originates nowhere else — and it is all-explicit: who decides,
-# how stale its view of the world may grow, concurrency, how many tries an
-# item gets, how large the backlog may grow before scoping is refused, what
-# it may start, and a daily cap. A defaulted cap is authority nobody
-# wrote down.
 _HEARTBEAT = {
     "type": "object",
     "additionalProperties": False,
@@ -293,42 +405,60 @@ _HEARTBEAT = {
         "may_start",
         "daily_cap",
     ],
+    "description": "The company's own initiative: who decides what to do next,"
+    " and the caps on what it may start. Every company has one.",
     "properties": {
-        # The one standing agent the company's runs are requested under:
-        # dispatched to decide each tick and to scope, and the authority
-        # every crew is fulfilled under.
-        "conductor": _NAME,
-        # The reconcile backstop: the platform's own completions wake the
-        # tick immediately; this bounds how long a change only the outside
-        # world saw (an issue filed by hand, a PR merged by hand) can wait.
-        "reconcile_minutes": {"type": "integer", "minimum": 1},
-        "max_concurrent_runs": {"type": "integer", "minimum": 1},
-        # How many runs the heartbeat may start on one work item — an
-        # issue or a PR — before it stops offering it. A run that
-        # concluded (delivered, or reached a verdict) consumes the item
-        # at once; this bounds the aborted ones (a timed-out model call,
-        # a step cap, a cancel). 1 means every run is the only try.
-        "max_attempts": {"type": "integer", "minimum": 1},
-        # `scope` is refused while the repository has this many open
-        # issues or more — every open issue counts, worked or not — so
-        # the conductor cannot flood its own backlog tick after tick.
-        "max_open_tickets": {"type": "integer", "minimum": 1},
-        # What the heartbeat may start on its own: scoping the next slice
-        # from the company's documents, implementing a ticket, reviewing
-        # a delivered pull request.
+        "conductor": _described(
+            _NAME,
+            "The standing agent that decides each tick and plans the work. Every"
+            " crew is started under its authority.",
+        ),
+        "reconcile_minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The longest the heartbeat sleeps. It also wakes"
+            " whenever one of the company's runs ends.",
+        },
+        "max_concurrent_runs": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How many of the company's runs may be in flight at once.",
+        },
+        "max_attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How many runs may take up one ticket or pull request"
+            " that keeps failing before the heartbeat stops offering it. `1`"
+            " means one try.",
+        },
+        "max_open_tickets": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The heartbeat won't plan more work while the"
+            " repository has this many open issues.",
+        },
         "may_start": {
             "type": "array",
             "items": {"type": "string", "enum": ["implement", "review", "scope"]},
             "minItems": 1,
             "uniqueItems": True,
+            "description": "The workflows the heartbeat may start on its own. Leave"
+            " one out and only a person starts it.",
         },
-        # Halts *starting*, per calendar day; the per-run cap still
-        # governs each run it funds.
         "daily_cap": {
             "type": "object",
             "additionalProperties": False,
             "required": ["usd"],
-            "properties": {"usd": {"type": "number", "exclusiveMinimum": 0}},
+            "description": "Spend per calendar day after which the heartbeat"
+            " starts no run.",
+            "properties": {
+                "usd": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "The cap, in US dollars. It must fund at least"
+                    " one run's `budgets.per_run.usd`.",
+                }
+            },
         },
     },
 }
@@ -337,17 +467,27 @@ _BUDGETS = {
     "type": "object",
     "additionalProperties": False,
     "required": ["per_run"],
+    "description": "What one run may spend on model calls.",
     "properties": {
-        # `usd` is the cap the LLM gateway refuses model calls at;
-        # `deadline_minutes` is how long a run parked at it waits for a human to raise the cap
-        # (escalation at half, then the run fails).
         "per_run": {
             "type": "object",
             "additionalProperties": False,
             "required": ["usd", "deadline_minutes"],
+            "description": "The cap on each run.",
             "properties": {
-                "usd": {"type": "number", "exclusiveMinimum": 0},
-                "deadline_minutes": {"type": "integer", "minimum": 1},
+                "usd": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "The cap, in US dollars. At the cap the LLM"
+                    " gateway refuses further calls and the run parks for a"
+                    " person.",
+                },
+                "deadline_minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "How long a run parked at its cap waits for a"
+                    " verdict. It escalates at half, and the run fails at the end.",
+                },
             },
         },
     },
@@ -370,7 +510,11 @@ BLUEPRINT_SCHEMA: dict[str, Any] = {
         "heartbeat",
     ],
     "properties": {
-        "apiVersion": {"type": "string", "enum": ["poseidon.dev/v1"]},
+        "apiVersion": {
+            "type": "string",
+            "enum": ["poseidon.dev/v1"],
+            "description": "The blueprint format's version.",
+        },
         "company": _COMPANY,
         "stack": _STACK,
         "standing": _STANDING,

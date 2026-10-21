@@ -103,6 +103,7 @@ nav:
       - Roles and crews: reference/roles.md
       - Workflows and signals: reference/workflows.md
       - Policy and audit: reference/policy.md
+      - Environment variables: reference/environment.md
       - Glossary: reference/glossary.md
   - Contributing:
       - Contributing: developing/contributing.md

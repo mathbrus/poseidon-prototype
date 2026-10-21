@@ -47,6 +47,13 @@ from poseidon_cli.client import (
 )
 from poseidon_cli.follow import follow as follow_events
 
+
+def examples(*lines: str) -> str:
+    """A command's examples, as the epilog its `--help` ends with. The
+    docs site renders the CLI reference's examples from the same text."""
+    return "Examples:\n\n" + "\n\n".join(f"  {line}" for line in lines)
+
+
 app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
@@ -132,7 +139,11 @@ def _call(fn, *args: Any, **kwargs: Any) -> Any:
 # -- you -----------------------------------------------------------------------
 
 
-@app.command()
+@app.command(
+    epilog=examples(
+        "poseidon login owner --save", "export POSEIDON_TOKEN=$(poseidon login auditor)"
+    )
+)
 def login(
     name: str = typer.Argument(
         ..., help="A human the chart declares (on kind: owner, auditor)."
@@ -183,7 +194,7 @@ def login(
     render.act(f"saved a token for {name} at {path}, valid until {expires}", render.ERR)
 
 
-@app.command()
+@app.command(epilog=examples("poseidon version"))
 def version(as_json: bool = JSON_OPTION) -> None:
     """This CLI's version, and the version the console runs — the release
     the cluster is on. Needs no token: the health route is open."""
@@ -203,7 +214,7 @@ def version(as_json: bool = JSON_OPTION) -> None:
         render.act(Text(f"console unreachable at {client.base_url}", style=render.DIM))
 
 
-@app.command()
+@app.command(epilog=examples("poseidon whoami"))
 def whoami(as_json: bool = JSON_OPTION) -> None:
     """Who the console takes you for, and which company it hosts."""
     client = _client()
@@ -227,7 +238,12 @@ def whoami(as_json: bool = JSON_OPTION) -> None:
 # -- the blueprint -------------------------------------------------------------
 
 
-@blueprint_app.command("new")
+@blueprint_app.command(
+    "new",
+    epilog=examples(
+        "poseidon blueprint new", "poseidon blueprint new company.yaml --force"
+    ),
+)
 def blueprint_new(
     path: Path = typer.Argument(
         None, help="Where to write; default <company-name>.yaml in the current directory."
@@ -258,7 +274,7 @@ def blueprint_new(
     render.act(Text(f"next: poseidon blueprint apply {target}", style=render.DIM))
 
 
-@blueprint_app.command()
+@blueprint_app.command(epilog=examples("poseidon blueprint preview company.yaml"))
 def preview(blueprint: Path = typer.Argument(..., help="The blueprint file.")) -> None:
     """Show what applying BLUEPRINT would change — the diff against what
     the cluster hosts, and the budget. Changes nothing."""
@@ -269,7 +285,12 @@ def preview(blueprint: Path = typer.Argument(..., help="The blueprint file.")) -
 CONVERGE_TIMEOUT_S = 600
 
 
-@blueprint_app.command()
+@blueprint_app.command(
+    epilog=examples(
+        "poseidon blueprint apply company.yaml",
+        "poseidon blueprint apply company.yaml --yes --no-wait",
+    )
+)
 def apply(
     blueprint: Path = typer.Argument(..., help="The blueprint file."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply without asking."),
@@ -331,7 +352,7 @@ def _await_converged(client: ConsoleClient, generation: int, timeout_s: int) -> 
 # -- the company ---------------------------------------------------------------
 
 
-@company_app.command("show")
+@company_app.command("show", epilog=examples("poseidon company show"))
 def company_show(as_json: bool = JSON_OPTION) -> None:
     """The applied company: its name, phase (`activating` until its policy
     is served, `converged` after), generation and bundle revision, and who
@@ -365,7 +386,13 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
     )
 
 
-@company_app.command("delete")
+@company_app.command(
+    "delete",
+    epilog=examples(
+        'poseidon company delete --reason "wrong vision"',
+        'poseidon company delete --reason "done" --yes',
+    ),
+)
 def company_delete(
     reason: str = REASON_OPTION,
     yes: bool = typer.Option(False, "--yes", "-y", help="Delete without asking."),
@@ -406,7 +433,7 @@ def company_delete(
 # -- the heartbeat -------------------------------------------------------------
 
 
-@heartbeat_app.command("show")
+@heartbeat_app.command("show", epilog=examples("poseidon heartbeat show"))
 def heartbeat_show(
     since: str = typer.Option(None, help="Only ticks at or after this timestamp."),
     as_json: bool = JSON_OPTION,
@@ -439,7 +466,7 @@ def _tick_row(tick: dict[str, Any]) -> tuple[Any, ...]:
     return (render.dim(render.ago(tick.get("ts"))), render.status(outcome), detail)
 
 
-@heartbeat_app.command()
+@heartbeat_app.command(epilog=examples("poseidon heartbeat wake"))
 def wake() -> None:
     """Ask the loop to look now instead of at its next check-in. It
     decides for itself what, if anything, to start."""
@@ -447,7 +474,9 @@ def wake() -> None:
     render.act("heartbeat woken")
 
 
-@app.command()
+@app.command(
+    epilog=examples('poseidon pause --reason "reading the ledger with nothing moving"')
+)
 def pause(reason: str = REASON_OPTION) -> None:
     """Hold the company: its heartbeat starts nothing until `resume`, and
     everything stays where it is to be read. Runs already in flight
@@ -458,7 +487,7 @@ def pause(reason: str = REASON_OPTION) -> None:
     render.act(f"heartbeat paused by {paused.get('by', '')}")
 
 
-@app.command()
+@app.command(epilog=examples('poseidon resume --reason "read it"'))
 def resume(reason: str = REASON_OPTION) -> None:
     """Lift the pause: the heartbeat looks at the world at once and
     decides for itself what to start. Recorded under your name with your
@@ -478,7 +507,7 @@ def _elapsed(record: dict[str, Any]) -> str:
     return render.duration((ended - started).total_seconds())
 
 
-@app.command()
+@app.command(epilog=examples("poseidon runs", "poseidon runs --json"))
 def runs(
     since: str = typer.Option(None, help="Only runs started at or after this timestamp."),
     as_json: bool = JSON_OPTION,
@@ -512,7 +541,7 @@ def runs(
     )
 
 
-@run_app.command("show")
+@run_app.command("show", epilog=examples("poseidon run show auto-3d73e674"))
 def run_show(
     run_id: str = typer.Argument(..., help="The run's id."), as_json: bool = JSON_OPTION
 ) -> None:
@@ -556,7 +585,13 @@ def _render_run(record: dict[str, Any]) -> None:
     )
 
 
-@run_app.command("story")
+@run_app.command(
+    "story",
+    epilog=examples(
+        "poseidon run story auto-3d73e674",
+        "poseidon run story heartbeat-hello-saas --decisions",
+    ),
+)
 def run_story(
     run_id: str = typer.Argument(..., help="The run's id."),
     decisions: bool = typer.Option(
@@ -579,7 +614,10 @@ def run_story(
         render.OUT.print(render.row(event))
 
 
-@run_app.command("cancel")
+@run_app.command(
+    "cancel",
+    epilog=examples('poseidon run cancel auto-3d73e674 --reason "superseded by #43"'),
+)
 def run_cancel(
     run_id: str = typer.Argument(..., help="The run's id."),
     reason: str = REASON_OPTION,
@@ -591,7 +629,12 @@ def run_cancel(
     render.act(f"run {result.get('run_id', run_id)} cancelled")
 
 
-@start_app.command("implement")
+@start_app.command(
+    "implement",
+    epilog=examples(
+        "poseidon start implement 42", "poseidon start implement 42 --no-wait"
+    ),
+)
 def start_implement(
     ticket: int = typer.Argument(..., help="The ticket's number on the repository."),
     no_wait: bool = NO_WAIT_OPTION,
@@ -603,7 +646,7 @@ def start_implement(
     _start("implement", ticket, no_wait, as_json)
 
 
-@start_app.command("review")
+@start_app.command("review", epilog=examples("poseidon start review 43 --no-wait"))
 def start_review(
     pr: int = typer.Argument(..., help="The pull request's number on the repository."),
     no_wait: bool = NO_WAIT_OPTION,
@@ -672,7 +715,12 @@ def _await_run(client: ConsoleClient, run_id: str) -> dict[str, Any]:
 # -- the human's answer --------------------------------------------------------
 
 
-@app.command()
+@app.command(
+    epilog=examples(
+        'poseidon verdict auto-3d73e674 merge approve --reason "engine first, as the vision asks"',
+        'poseidon verdict auto-3d73e674 budget reject --reason "not worth more spend"',
+    )
+)
 def verdict(
     run_id: str = typer.Argument(..., help="The run parked on the gate."),
     gate: Gate = typer.Argument(..., help="The gate: merge, or budget."),
@@ -697,7 +745,13 @@ def verdict(
 # -- the window ------------------------------------------------------------------
 
 
-@app.command()
+@app.command(
+    epilog=examples(
+        "poseidon follow",
+        "poseidon follow --run auto-3d73e674",
+        "poseidon follow --after 1840",
+    )
+)
 def follow(
     run: str = typer.Option(None, help="Only this run's rows."),
     after: int = typer.Option(0, help="Resume from this cursor (the last id printed)."),
@@ -713,7 +767,7 @@ def follow(
     _call(lambda: follow_events(client, sink, after=after, run_id=run, raw=json_lines))
 
 
-@app.command()
+@app.command(epilog=examples("poseidon spend", "poseidon spend auto-3d73e674"))
 def spend(
     run_id: str = typer.Argument(None, help="A run's id; omit for the company's."),
     since: str = typer.Option(
