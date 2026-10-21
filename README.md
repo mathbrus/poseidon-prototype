@@ -65,7 +65,22 @@ to your disposable repository, and apply it:
 
 ```bash
 uv run poseidon blueprint apply company.yaml --yes
-uv run poseidon follow                         # watch the company work
+```
+
+```text
+hello-saas: 1 change(s)
+  + pm-1
+      role pm
+  budget: $5/run
+applied hello-saas: 2 created, 0 updated (blueprint_apply_bootstrap)
+activating …
+converged (10 s)
+```
+
+Then watch the company work:
+
+```bash
+uv run poseidon follow
 ```
 
 The default model is a free, deterministic mock, so this costs nothing.
