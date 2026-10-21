@@ -211,16 +211,17 @@ takes a deadline and an escalation point:
 ```python
 outcome = await self._merge_gate.wait(
     **gate_deadline(gate["deadline_minutes"]),  # the blueprint's wait; escalation at half
-    on_escalate=lambda: self.record_gate(input.run_id, "merge", "escalated"),
+    on_escalate=lambda: self.record_gate(input.run_id, MERGE_GATE, GATE_ESCALATED),
 )
 ```
 
 Nobody home? The escalation fires at half the deadline and the wait
-continues; at the end the gate expires with a `timed_out` outcome. All
-three transitions — escalated, verdict (approved/rejected), timed out —
-are `source=process-gate` audit events, written by
-the `record_gate_outcome` *activity*, because workflow code cannot reach
-the registry. The park itself is API-visible through the `state` query
+continues; at the end the gate expires with an `expired` outcome. All
+three transitions — escalated, verdict (approved/rejected), expired —
+are `source=process-gate` audit events, written by the
+`record_gate_outcome` *activity*, because workflow code cannot reach the
+registry. Every outcome a gate row can carry is spelled once, in
+`common.workflows.GATE_OUTCOMES`, and the activity refuses any other. The park itself is API-visible through the `state` query
 (`parked-merge_gate`, `parked-budget_exhausted`), so a waiting gate is
 never a silent hang.
 

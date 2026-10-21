@@ -748,9 +748,9 @@ async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
     record = await run_review(env.client, harness)
 
     assert harness.merges == []
-    assert harness.gate_events == ["policy_declined", "escalated", "timed_out"]
+    assert harness.gate_events == ["policy_declined", "escalated", "expired"]
     assert record["status"] == "failed"
-    assert "merge gate timed_out" in record["error"]
+    assert "merge gate expired" in record["error"]
 
 
 # -- the rework bound and the human's last word -----------------------------

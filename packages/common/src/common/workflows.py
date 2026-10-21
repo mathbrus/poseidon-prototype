@@ -30,11 +30,12 @@ HUMAN_STARTABLE = ("implement", "review")
 MERGE_GATE = "merge"
 BUDGET_GATE = "budget"
 GATES = (MERGE_GATE, BUDGET_GATE)
-# The stops the heartbeat records in the same shape — a `gate.<name>`
+# The halts the heartbeat records in the same shape — a `gate.<name>`
 # process-gate event — but nobody resolves: a run spent the last attempt
 # the blueprint allows on its text, the bootstrap ticket exhausted its
 # attempts and the company cannot write its own documents, or the daily
-# spend cap halted every start until tomorrow.
+# spend cap halted every start until tomorrow. The world lifts a halt;
+# no verdict does.
 ATTEMPTS_GATE = "heartbeat_attempts"
 BOOTSTRAP_GATE = "heartbeat_bootstrap_exhausted"
 DAILY_CAP_GATE = "heartbeat_daily_cap"
@@ -54,6 +55,51 @@ PARKED_STATE = {
     MERGE_GATE: f"{PARKED_PREFIX}merge_gate",
     BUDGET_GATE: f"{PARKED_PREFIX}budget_exhausted",
 }
+
+# What a gate resolved to: one outcome per kind, written on the gate's
+# process-gate audit row as `gate_<kind>` by the orchestrator and read
+# back by the CLI. A human answered (approved, rejected), nobody did
+# (escalated at half the deadline, expired at the end), policy answered
+# the merge (resolved it, or declined and fell back to the human), the
+# review filed a rework ticket or spent its last rework, an approving
+# signal arrived without a recorded verdict, the heartbeat halted a start
+# on a gate nobody resolves, or a text spent its last attempt.
+GATE_APPROVED = "approved"
+GATE_REJECTED = "rejected"
+GATE_ESCALATED = "escalated"
+GATE_EXPIRED = "expired"
+GATE_POLICY_RESOLVED = "policy_resolved"
+GATE_POLICY_DECLINED = "policy_declined"
+GATE_REWORK_FILED = "rework_filed"
+GATE_REWORK_EXHAUSTED = "rework_exhausted"
+GATE_VERDICT_UNVERIFIED = "verdict_unverified"
+GATE_HALTED = "halted"
+GATE_EXHAUSTED = "exhausted"
+GATE_OUTCOMES = (
+    GATE_APPROVED,
+    GATE_REJECTED,
+    GATE_ESCALATED,
+    GATE_EXPIRED,
+    GATE_POLICY_RESOLVED,
+    GATE_POLICY_DECLINED,
+    GATE_REWORK_FILED,
+    GATE_REWORK_EXHAUSTED,
+    GATE_VERDICT_UNVERIFIED,
+    GATE_HALTED,
+    GATE_EXHAUSTED,
+)
+# The outcomes that release what the gate held — the only `allow` rows a
+# gate writes. Every other outcome is a `deny`.
+GATE_RELEASING = (GATE_APPROVED, GATE_POLICY_RESOLVED)
+_GATE_PREFIX = "gate_"
+
+
+def gate_rule(kind: str) -> str:
+    """The rule a gate outcome's audit row carries."""
+    if kind not in GATE_OUTCOMES:
+        raise ValueError(f"not a gate outcome: {kind!r}")
+    return f"{_GATE_PREFIX}{kind}"
+
 
 # What a heartbeat tick records about itself: one outcome and a detail,
 # written on the tick's audit row as `tick_<outcome>:<detail>` by the

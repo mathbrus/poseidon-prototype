@@ -23,6 +23,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from common.workflows import GATE_HALTED
 from orchestrator.workflows.base import FAST_TIMEOUTS
 from orchestrator.workflows.heartbeat import HeartbeatInput, HeartbeatWorkflow
 
@@ -354,7 +355,7 @@ async def test_an_exhausted_bootstrap_halts_by_name(env):
     assert harness.decide_calls == []
     assert harness.ticks[0] == ("idle", "bootstrap_exhausted:strategy")
     assert harness.gate_events == [
-        (f"heartbeat-{COMPANY}", "heartbeat_bootstrap_exhausted", "halted")
+        (f"heartbeat-{COMPANY}", "heartbeat_bootstrap_exhausted", GATE_HALTED)
     ]
 
 
@@ -386,7 +387,7 @@ async def test_daily_cap_halts_visibly_and_resumes_when_spend_clears(env):
     )
     await run_heartbeat(env.client, harness)
     assert harness.gate_events == [
-        (f"heartbeat-{COMPANY}", "heartbeat_daily_cap", "halted")
+        (f"heartbeat-{COMPANY}", "heartbeat_daily_cap", GATE_HALTED)
     ]
     assert harness.ticks[0] == ("idle", "daily_cap_reached")
     assert harness.ticks[1][0] == "started"

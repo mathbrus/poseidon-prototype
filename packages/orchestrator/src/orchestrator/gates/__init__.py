@@ -15,15 +15,20 @@ code cannot touch the registry.
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Literal
 
 from temporalio import workflow
+
+from common.workflows import GATE_APPROVED, GATE_EXPIRED, GATE_REJECTED
 
 
 @dataclass
 class GateOutcome:
     gate: str
-    kind: Literal["approved", "rejected", "timed_out", "escalated"]
+    # What the park itself resolved to — `GATE_APPROVED`, `GATE_REJECTED`
+    # or `GATE_EXPIRED`. The other gate outcomes (`common.workflows
+    # .GATE_OUTCOMES`) are recorded by the workflows around the park,
+    # never returned by it.
+    kind: str
 
 
 class Gate:
@@ -49,7 +54,7 @@ class Gate:
         row, which is the record the release reads back."""
         if self._outcome is None:  # first signal wins
             self._outcome = GateOutcome(
-                gate=self.name, kind="approved" if approved else "rejected"
+                gate=self.name, kind=GATE_APPROVED if approved else GATE_REJECTED
             )
 
     async def wait(
@@ -58,7 +63,7 @@ class Gate:
         escalate_after: timedelta | None = None,
         on_escalate: Callable[[], Awaitable[None]] | None = None,
     ) -> GateOutcome:
-        """Park until resolved or timed out. The timer/escalation primitive:
+        """Park until resolved or expired. The timer/escalation primitive:
         when `escalate_after` elapses first, `on_escalate` runs (the
         workflows record it as a `process-gate` audit event through an
         activity) and the wait continues to the deadline."""
@@ -79,6 +84,6 @@ class Gate:
                     lambda: self._outcome is not None, timeout=remaining
                 )
             except TimeoutError:
-                self._outcome = GateOutcome(gate=self.name, kind="timed_out")
+                self._outcome = GateOutcome(gate=self.name, kind=GATE_EXPIRED)
         workflow.logger.info("gate %s %s", self.name, self._outcome.kind)
         return self._outcome

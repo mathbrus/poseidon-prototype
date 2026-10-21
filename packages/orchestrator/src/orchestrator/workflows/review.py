@@ -54,7 +54,18 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from common.tasks import review_run_task
-from common.workflows import BUDGET_GATE, MERGE_GATE, PARKED_STATE
+from common.workflows import (
+    BUDGET_GATE,
+    GATE_APPROVED,
+    GATE_ESCALATED,
+    GATE_POLICY_DECLINED,
+    GATE_POLICY_RESOLVED,
+    GATE_REWORK_EXHAUSTED,
+    GATE_REWORK_FILED,
+    GATE_VERDICT_UNVERIFIED,
+    MERGE_GATE,
+    PARKED_STATE,
+)
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
     BOOTSTRAP_S,
@@ -157,7 +168,7 @@ class ReviewWorkflow(RunWorkflow):
             # ones the implementer crew cannot deliver); at bootstrap it
             # also keeps the first contract PR off the composed baseline,
             # which has no tree to run yet. Decline, not failure: park.
-            await self.record_gate(input.run_id, MERGE_GATE, "policy_declined")
+            await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_DECLINED)
             return {}
         verdict = result["verdict"]
         if verdict != "pass":
@@ -254,7 +265,7 @@ class ReviewWorkflow(RunWorkflow):
             },
         )
         if not resolve.get("allow"):
-            await self.record_gate(input.run_id, MERGE_GATE, "policy_declined")
+            await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_DECLINED)
             return {}
         return await self._release(input)
 
@@ -281,7 +292,7 @@ class ReviewWorkflow(RunWorkflow):
         )
         limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
         if depth["depth"] >= limit:
-            await self.record_gate(input.run_id, MERGE_GATE, "rework_exhausted")
+            await self.record_gate(input.run_id, MERGE_GATE, GATE_REWORK_EXHAUSTED)
             return {}
         ticket = await workflow.execute_activity(
             "file_rework",
@@ -299,7 +310,7 @@ class ReviewWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
-        await self.record_gate(input.run_id, MERGE_GATE, "rework_filed")
+        await self.record_gate(input.run_id, MERGE_GATE, GATE_REWORK_FILED)
         return {
             "error": f"policy merge gate: {reason} — rework ticket filed:"
             f" {ticket.get('url')}"
@@ -347,11 +358,13 @@ class ReviewWorkflow(RunWorkflow):
         self._state = PARKED_STATE[MERGE_GATE]
         outcome = await self._merge_gate.wait(
             **gate_deadline(gate["deadline_minutes"]),
-            on_escalate=lambda: self.record_gate(input.run_id, MERGE_GATE, "escalated"),
+            on_escalate=lambda: self.record_gate(
+                input.run_id, MERGE_GATE, GATE_ESCALATED
+            ),
         )
         self._state = "running"
         await self.record_gate(input.run_id, MERGE_GATE, outcome.kind)
-        if outcome.kind != "approved":
+        if outcome.kind != GATE_APPROVED:
             return {"error": f"merge gate {outcome.kind}"}
         verdict = await workflow.execute_activity(
             "read_human_verdict",
@@ -363,7 +376,7 @@ class ReviewWorkflow(RunWorkflow):
             input, "human", {"human_verdict": verdict} if verdict else {}
         )
         if not resolve.get("allow"):
-            await self.record_gate(input.run_id, MERGE_GATE, "verdict_unverified")
+            await self.record_gate(input.run_id, MERGE_GATE, GATE_VERDICT_UNVERIFIED)
             return {
                 "error": f"merge gate: no verified human verdict ({resolve.get('rule')})"
             }
@@ -372,7 +385,7 @@ class ReviewWorkflow(RunWorkflow):
     async def _release(self, input: "ReviewInput") -> dict[str, Any]:
         """The policy release: gate outcome first, then the merge — strictly
         after the compiled allow."""
-        await self.record_gate(input.run_id, MERGE_GATE, "policy_resolved")
+        await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_RESOLVED)
         return {"released": await self._merge_pr(input)}
 
     @workflow.run
