@@ -111,6 +111,10 @@ class ConsoleClient:
 
     # -- the chokepoint -------------------------------------------------------------
 
+    def healthz(self) -> dict[str, Any]:
+        """The open route: liveness and the version the console runs."""
+        return self._call("GET", "/healthz")
+
     def whoami(self) -> dict[str, Any]:
         return self._call("GET", "/whoami")
 

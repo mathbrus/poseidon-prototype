@@ -6,8 +6,18 @@
 #   deploy/build-images.sh TAG [NAME...]   build every image (or only the named
 #                                          ones) as NAME:TAG; prints each reference
 #   deploy/build-images.sh --list          print the image names
+#   deploy/build-images.sh --version       print the version the images are stamped with
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+# The version every image answers to (common.version): the tree's
+# `git describe` against the release tags — the tag itself on a release,
+# the tag plus distance and commit between releases, `-dirty` on an
+# uncommitted tree, a bare commit before the first release. Empty outside
+# git, which the image reports as unreleased.
+version() {
+  git describe --tags --match 'v*' --always --dirty 2>/dev/null || true
+}
 
 # name | workspace package | source packages installed | extra | apt packages | workspace dir | entrypoint
 MATRIX='
@@ -26,10 +36,15 @@ if [ "${1:-}" = "--list" ]; then
   printf '%s\n' "$MATRIX" | sed '/^$/d' | cut -d'|' -f1
   exit 0
 fi
+if [ "${1:-}" = "--version" ]; then
+  version
+  exit 0
+fi
 
-TAG=${1:?usage: build-images.sh TAG [NAME...] | --list}
+TAG=${1:?usage: build-images.sh TAG [NAME...] | --list | --version}
 shift
 wanted=("$@")
+VERSION=$(version)
 
 while IFS='|' read -r name package src extra apt workspace entrypoint; do
   [ -z "$name" ] && continue
@@ -43,6 +58,7 @@ while IFS='|' read -r name package src extra apt workspace entrypoint; do
     --build-arg APT="$apt" \
     --build-arg WORKSPACE="$workspace" \
     --build-arg ENTRYPOINT="$entrypoint" \
+    --build-arg VERSION="$VERSION" \
     . >/dev/null
   echo "$name:$TAG"
 done <<<"$MATRIX"

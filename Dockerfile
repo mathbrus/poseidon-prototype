@@ -68,5 +68,12 @@ ENV OPENHANDS_SUPPRESS_BANNER=1
 RUN printf '#!/bin/sh\nexec %s "$@"\n' "$ENTRYPOINT" > /usr/local/bin/poseidon-entrypoint \
     && chmod +x /usr/local/bin/poseidon-entrypoint
 WORKDIR ${WORKSPACE:-/opt/poseidon}
+# The version this image answers to (common.version): the tree's
+# `git describe`, passed by deploy/build-images.sh; empty for a build
+# outside git. Declared after every RUN so a new commit changes only
+# the image's config, never its layers.
+ARG VERSION=""
+ENV POSEIDON_VERSION=${VERSION}
+LABEL org.opencontainers.image.version=${VERSION}
 USER 10001
 ENTRYPOINT ["poseidon-entrypoint"]

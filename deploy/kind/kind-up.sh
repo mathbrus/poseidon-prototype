@@ -170,6 +170,7 @@ BUILD_TAG=${BUILD_TAG:-$(
     | sort -z | xargs -0 sha1sum | sha1sum | cut -c1-12
 )}
 note "cluster $CLUSTER_NAME, platform namespace $PLATFORM_NS, build tag $BUILD_TAG"
+note "version $(deploy/build-images.sh --version): what the images will answer to"
 note "humans: ${HUMANS[*]} — you will be $KIND_HUMAN"
 if [ "$REAL_LLM" = "1" ]; then
   note "brain: PAID — $MODEL through LiteLLM (REAL_LLM=1)"
@@ -358,10 +359,16 @@ run "login $KIND_HUMAN" uv run poseidon login "$KIND_HUMAN" --namespace "$PLATFO
 uv run poseidon whoami --json 2>>"$LOG" | grep -q "\"human\": \"$KIND_HUMAN\"" \
   || fail "the console did not recognise the token of $KIND_HUMAN"
 note "gateway and console refuse without a token and know $KIND_HUMAN with one"
+# The version is the cluster's own answer (the console's health route),
+# not this script's guess: it is what `poseidon version` will say.
+RUNNING=$(uv run poseidon version --json 2>>"$LOG" | uv run python -c '
+import json, sys
+print(json.load(sys.stdin)["console"] or "unknown")
+')
 close_step
 STEP=0  # the summary is not a step; nothing to close on exit
 
-echo "==> platform up in $((SECONDS - STARTED))s in $PLATFORM_NS"
+echo "==> Poseidon $RUNNING up in $((SECONDS - STARTED))s in $PLATFORM_NS"
 echo "    console $POSEIDON_CONSOLE_URL, gateway $MCP_GATEWAY_URL"
 echo "    you are $KIND_HUMAN for a week: \`uv run poseidon whoami\`"
 if [ -n "$existing" ]; then

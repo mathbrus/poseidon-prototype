@@ -18,6 +18,7 @@ rationale (the console's acts table says which); `--no-wait` wherever a
 command would otherwise wait for the cluster.
 """
 
+import importlib.metadata
 import json
 import sys
 import time
@@ -26,6 +27,7 @@ from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Any
 
+import httpx
 import typer
 from rich.text import Text
 
@@ -179,6 +181,26 @@ def login(
     path.write_text(token.status.token + "\n")
     expires = token.status.expiration_timestamp
     render.act(f"saved a token for {name} at {path}, valid until {expires}", render.ERR)
+
+
+@app.command()
+def version(as_json: bool = JSON_OPTION) -> None:
+    """This CLI's version, and the version the console runs — the release
+    the cluster is on. Needs no token: the health route is open."""
+    cli_version = importlib.metadata.version("poseidon-cli")
+    client = ConsoleClient.from_env()
+    try:
+        console_version = client.healthz().get("version")
+    except (ConsoleError, httpx.HTTPError):
+        console_version = None
+    if as_json:
+        _json({"cli": cli_version, "console": console_version})
+        return
+    render.act(f"cli {cli_version}")
+    if console_version:
+        render.act(f"console {console_version}")
+    else:
+        render.act(Text(f"console unreachable at {client.base_url}", style=render.DIM))
 
 
 @app.command()
