@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from schema import load_blueprint, validate_blueprint
-from schema.catalog import ROLES
-from schema.validate import ValidationError
+from blueprint import load_blueprint, validate_blueprint
+from blueprint.catalog import ROLES
+from blueprint.validate import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
@@ -383,7 +383,7 @@ def test_document_problems_name_a_missing_document():
     """The document pass names each absent document itself, so a caller
     that skips the schema pass (the compiler) fails closed on the same
     sentence."""
-    from schema.gates import document_problems
+    from blueprint.gates import document_problems
 
     problems = document_problems({"company": {"documents": {"strategy": "docs/S.md"}}})
     assert problems == [

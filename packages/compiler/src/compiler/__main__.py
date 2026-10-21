@@ -9,10 +9,10 @@ import json
 import sys
 from pathlib import Path
 
+from blueprint import load_blueprint
+from blueprint.validate import ValidationError
 from compiler import EMPTY, compile_blueprint
 from compiler.errors import CompileError
-from schema import load_blueprint
-from schema.validate import ValidationError
 
 
 def main(argv: list[str] | None = None) -> int:

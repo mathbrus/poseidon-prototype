@@ -8,8 +8,8 @@ into enforcement; the **runtime path** does work under that enforcement.
 ```mermaid
 flowchart LR
     H(["a human<br/><i>poseidon blueprint apply</i>"]) --> CON["<b>console</b><br/>verify · decide · audit"]
-    CON --> BP["blueprint<br/><i>hello-saas.yaml</i>"]
-    BP --> SCH["<b>schema</b><br/>well-formed?"]
+    CON --> BP["document<br/><i>hello-saas.yaml</i>"]
+    BP --> SCH["<b>blueprint</b><br/>well-formed?"]
     SCH --> CMP["<b>compiler</b><br/>coherent?<br/>pure function"]
     CMP --> PLAN["deployment plan<br/>CRs · Rego · infra IR"]
     PLAN --> OP["<b>operator</b><br/>reconciles"]
@@ -19,7 +19,7 @@ flowchart LR
     BS -.OPA polls.-> OPA["<b>OPA</b>"]
 ```
 
-The split between `schema` and `compiler` is worth understanding. `schema`
+The split between `blueprint` and `compiler` is worth understanding. `blueprint`
 asks *is this document well-formed?* — a question answerable from the
 document alone. `compiler` asks *is this company coherent?* — is the
 heartbeat's conductor an active standing spawner, does every scope name a

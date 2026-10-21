@@ -1,13 +1,13 @@
 """The mock re-spells the platform's contract on purpose — a rename on
 one side is caught by the other. This is where both spellings meet."""
 
+from blueprint.catalog import CREW_TEMPLATES, STEWARDSHIP_CREW
+from blueprint.documents import DOCUMENT_NAMES, document_header
 from common.tasks import crew_trailer
 from mcp_gateway.service import ARCHITECTURE_REQUEST_TITLE_PREFIX
 from mockllm import brain
 from orchestrator.activities.documents import BOOTSTRAP_TITLES
 from orchestrator.activities.observation import decision_prompt
-from schema.catalog import CREW_TEMPLATES, STEWARDSHIP_CREW
-from schema.documents import DOCUMENT_NAMES, document_header
 
 
 def test_the_document_headers_are_the_platforms():

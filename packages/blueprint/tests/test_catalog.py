@@ -4,8 +4,8 @@ These are contract tests, not coverage — each one is a rule another package
 assumes it can rely on.
 """
 
-from schema.catalog import CREW_TEMPLATES, PROCEDURES, ROLES, STEWARD_ROLE
-from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY, RATIONALE_TOOLS
+from blueprint.catalog import CREW_TEMPLATES, PROCEDURES, ROLES, STEWARD_ROLE
+from blueprint.tools import KNOWN_TOOLS, PLATFORM_ONLY, RATIONALE_TOOLS
 
 
 def test_catalog_covers_the_mvp_roles():

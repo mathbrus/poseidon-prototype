@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+from blueprint.bounds import render_bounds
 from compiler import compile_blueprint
 from console.crs import company_cr
-from schema.bounds import render_bounds
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 

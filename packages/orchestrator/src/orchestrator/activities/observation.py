@@ -30,6 +30,7 @@ from typing import Any
 
 from temporalio import activity
 
+from blueprint.documents import DOCUMENT_NAMES
 from common.telemetry import get_logger
 from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
@@ -47,7 +48,6 @@ from orchestrator.activities.tickets import (
 from orchestrator.clients import GatewayClient, GatewayError, pr_settled
 from orchestrator.config import WorkerSettings
 from registry import Attempts, BudgetLedger, Companies, FiledTickets, Runs
-from schema.documents import DOCUMENT_NAMES
 
 PR_URL_NUMBER_RE = re.compile(r"(\d+)$")
 # The observation is a prompt, not a database dump: enough candidates to

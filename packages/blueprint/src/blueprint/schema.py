@@ -14,8 +14,8 @@ schema's.
 
 from typing import Any
 
-from schema.documents import DOCUMENT_NAMES
-from schema.tools import KNOWN_TOOLS
+from blueprint.documents import DOCUMENT_NAMES
+from blueprint.tools import KNOWN_TOOLS
 
 SCHEMA_ID = "https://poseidon.dev/schemas/blueprint/v1"
 
@@ -174,7 +174,7 @@ def _gate(resolvers: list[str], extra: dict[str, Any] | None = None) -> dict[str
 # The delegated class a policy-resolved merge may finish on its own:
 # explicit paths and an explicit rework bound, all-explicit like
 # `heartbeat` — a defaulted bound is authority nobody wrote down. The
-# undelegatable carve-outs live in `schema.gates` and are refused at
+# undelegatable carve-outs live in `blueprint.gates` and are refused at
 # validate time, whatever the paths here say.
 _MERGE_DELEGATION = {
     "type": "object",

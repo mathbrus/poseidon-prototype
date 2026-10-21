@@ -24,6 +24,8 @@ from typing import Any
 
 import yaml
 
+from blueprint import validate_blueprint
+from blueprint.validate import ValidationError
 from common.audit import HEARTBEAT_TICK, AuditEvent, args_digest
 from common.identity import Identity
 from common.ids import new_run_id
@@ -66,8 +68,6 @@ from registry import (
     RunRecord,
     Runs,
 )
-from schema import validate_blueprint
-from schema.validate import ValidationError
 
 BOOTSTRAP_RULE = "blueprint_apply_bootstrap"
 

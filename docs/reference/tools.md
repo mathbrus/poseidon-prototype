@@ -36,7 +36,7 @@ under the row. Every other tool's row carries a digest and nothing more.
 
 The tables are rendered from the gateway's tool definitions in
 `packages/mcp-gateway/src/mcp_gateway/app.py` and the catalog in
-`packages/schema/src/schema/tools.py` at build time; a tool present in one
+`packages/blueprint/src/blueprint/tools.py` at build time; a tool present in one
 and not the other fails the build.
 
 ## Sandbox tools

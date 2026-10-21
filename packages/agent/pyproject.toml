@@ -9,7 +9,7 @@ dependencies = [
     "httpx>=0.27",
     "mcp>=1.12",
     "openhands-sdk==1.56.0",
-    "schema",
+    "blueprint",
     "uvicorn>=0.30",
 ]
 

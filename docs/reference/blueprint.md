@@ -3,7 +3,7 @@
 Everything the platform enforces comes from one document. This page reads
 the shipped example, `examples/hello-saas.yaml`, section by section; the
 YAML is included from that file, and the field tables are rendered from
-the JSON Schema in `packages/schema/src/schema/blueprint.py`, both at build
+the JSON Schema in `packages/blueprint/src/blueprint/schema.py`, both at build
 time. Where the delegated profile adds a section, its YAML comes from
 `examples/hello-saas-delegated.yaml`.
 

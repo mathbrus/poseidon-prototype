@@ -9,10 +9,10 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
+from blueprint import load_blueprint
 from compiler import EMPTY, compile_blueprint
 from poseidon_cli import main as cli
 from poseidon_cli import new
-from schema import load_blueprint
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"

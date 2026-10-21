@@ -8,7 +8,7 @@ are not mirrored here; the table links to them.
 | Package | What it owns |
 |---|---|
 | [`common`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/common/README.md) | Identity, workload authn, audit model, pod security posture |
-| [`schema`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/schema/README.md) | The blueprint contract and the role/crew catalogs |
+| [`blueprint`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/blueprint/README.md) | The blueprint contract and the role/crew catalogs |
 | [`compiler`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
 | [`operator`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/operator/README.md) | Reconciles the CRs; serves policy bundles |

@@ -4,7 +4,7 @@ Properties of the *document* against a catalog — does every hire name a
 role, does every crew list its catalog roles, does every tool scope stay
 inside its role's ceiling — as opposed to well-formedness (the JSON
 Schema) or company coherence against cluster state (the compiler). Shared
-by `schema.validate` and `compiler.checks`: the compiler accepts
+by `blueprint.validate` and `compiler.checks`: the compiler accepts
 unvalidated dicts and must fail closed on the same problems, so one
 implementation serves both. Malformed values are skipped, never reported:
 the schema pass names those.
@@ -12,8 +12,8 @@ the schema pass names those.
 
 from typing import Any
 
-from schema.catalog import CrewTemplate, Role
-from schema.tools import KNOWN_TOOLS, PLATFORM_ONLY
+from blueprint.catalog import CrewTemplate, Role
+from blueprint.tools import KNOWN_TOOLS, PLATFORM_ONLY
 
 
 def _known(names: dict[str, Any] | tuple[str, ...]) -> str:

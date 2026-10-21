@@ -101,9 +101,9 @@ import subprocess
 
 import yaml
 
+from blueprint.tools import RATIONALE_TOOLS
 from common.audit import RATIONALE_EVENTS, SOURCES
 from common.ids import new_run_id
-from schema.tools import RATIONALE_TOOLS
 
 from .blueprints import (
     HELLO_SAAS,
@@ -204,9 +204,9 @@ def test_compile_and_preview_close_the_declarative_loop(stack, env, tmp_path):
     # this working tree's compiler emits from the document the suite
     # leaves applied — the pristine profile, the example on the suite's
     # repository and clock with review off the loop's own initiative.
+    from blueprint import load_blueprint
     from compiler import compile_blueprint
     from registry import pack
-    from schema import load_blueprint
 
     plan = compile_blueprint(load_blueprint(suite_document(pristine_profile())))
     _, revision = pack(dict(plan.bundle.files))

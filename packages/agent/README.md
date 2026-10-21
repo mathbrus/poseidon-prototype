@@ -121,7 +121,7 @@ REVIEW_TOOLS = [
 | `review` | `REVIEW_TOOLS` | posted findings + a structured pass/fail verdict |
 
 Which catalog role may be asked to run which procedure is the catalog's
-to say, rendered from `schema.catalog` on
+to say, rendered from `blueprint.catalog` on
 [Roles and crews](../../docs/reference/roles.md).
 
 `edit_file` is the partial edit coding models are trained on —

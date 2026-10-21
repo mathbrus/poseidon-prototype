@@ -19,7 +19,7 @@ from litellm.types.utils import ModelResponse
 import agent.procedures as procedures
 from agent.config import AgentSettings
 from agent.gateway_client import ToolCallError
-from schema.bounds import render_bounds
+from blueprint.bounds import render_bounds
 
 RUN_ID = "run-01TESTULID"
 PR_URL = "https://github.test/example/target/pull/7"

@@ -12,14 +12,14 @@ it certifies. The carve-out is a property of the shape, refused at
 validate time and compiled into the bundle as a deny — never a
 convention.
 
-Shared by `schema.validate` (the document pass) and `compiler.checks`
+Shared by `blueprint.validate` (the document pass) and `compiler.checks`
 (the compiler accepts unvalidated dicts and must fail closed on the same
 problems).
 """
 
 from typing import Any
 
-from schema.documents import DOCUMENT_NAMES
+from blueprint.documents import DOCUMENT_NAMES
 
 # Prefixes no blueprint may delegate, whatever else it says. Everything
 # under them is merge-gate governance itself or the repository's own

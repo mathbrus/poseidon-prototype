@@ -33,7 +33,7 @@ Before 1.0:
 
 | Surface | Paths |
 |---|---|
-| the blueprint and its policy | `packages/schema/src`, `packages/compiler/src`, `crds`, `examples` |
+| the blueprint and its policy | `packages/blueprint/src`, `packages/compiler/src`, `crds`, `examples` |
 | the CLI | `packages/cli/src` |
 | the console | `packages/console/src` |
 | the chart | `deploy/helm` |

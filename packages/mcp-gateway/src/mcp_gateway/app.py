@@ -24,6 +24,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from blueprint.tools import ARCHITECTURE_REQUEST, GIT_CLOSE_PR, ISSUES_CLOSE
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
 from common.identity import Identity
 from mcp_gateway.config import McpGatewaySettings
@@ -39,7 +40,6 @@ from registry import (
     SandboxRegistrations,
     open_registry,
 )
-from schema.tools import ARCHITECTURE_REQUEST, GIT_CLOSE_PR, ISSUES_CLOSE
 
 
 class RegisterSandboxRequest(BaseModel):

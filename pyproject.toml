@@ -10,7 +10,7 @@ dependencies = [
     "sandbox",
     "orchestrator",
     "mockllm",
-    "schema",
+    "blueprint",
     "registry",
     "compiler",
     "poseidon-operator",
@@ -54,7 +54,7 @@ ignore = ["B008"]
 known-first-party = [
     "agent", "common", "compiler", "console", "llm_gateway", "mcp_gateway",
     "mockllm", "orchestrator", "poseidon_cli", "poseidon_operator", "registry",
-    "sandbox", "schema",
+    "blueprint", "sandbox",
 ]
 
 [tool.pytest.ini_options]
@@ -72,7 +72,7 @@ mcp-gateway = { workspace = true }
 sandbox = { workspace = true }
 orchestrator = { workspace = true }
 mockllm = { workspace = true }
-schema = { workspace = true }
+blueprint = { workspace = true }
 registry = { workspace = true }
 compiler = { workspace = true }
 poseidon-operator = { workspace = true }

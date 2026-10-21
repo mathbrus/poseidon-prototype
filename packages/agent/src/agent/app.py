@@ -24,8 +24,8 @@ from pydantic import BaseModel
 from agent import procedures
 from agent.config import AgentSettings
 from agent.procedures import ProcedureResult
+from blueprint.catalog import ROLES
 from common.telemetry import get_logger
-from schema.catalog import ROLES
 
 Procedure = Literal["scope", "decide", "implement", "deliver", "review"]
 # One dispatch: the orchestrator asking this host to run a procedure on a

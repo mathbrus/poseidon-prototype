@@ -3,9 +3,9 @@ blueprint and the converged standing instances."""
 
 from typing import Any
 
+from blueprint.bounds import render_bounds
 from common.topology import agent_url
 from registry import AgentInstances, Companies
-from schema.bounds import render_bounds
 
 
 def conductor(

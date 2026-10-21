@@ -41,8 +41,8 @@ from openhands.sdk.llm.utils.model_prompt_spec import get_model_prompt_spec
 from openhands.sdk.skills import Skill
 
 from agent.config import AgentSettings
+from blueprint.documents import DOCUMENT_LABELS
 from common.text import clip_head
-from schema.documents import DOCUMENT_LABELS
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 # The first line of every prompt file: `# Poseidon procedure: <name>`.

@@ -14,7 +14,7 @@ compiler error does.
 
 from dataclasses import dataclass
 
-from schema.tools import ARCHITECTURE_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
+from blueprint.tools import ARCHITECTURE_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
 
 # The agent host's units of work. A dispatch names one; a role declares
 # which it may run, and the host refuses the rest before any model call.

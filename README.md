@@ -83,7 +83,7 @@ and how to test it.
 | Package | What it owns |
 |---|---|
 | [`common`](packages/common/README.md) | Identity, workload authn, audit model, pod security posture |
-| [`schema`](packages/schema/README.md) | The blueprint contract and the role/crew catalogs |
+| [`blueprint`](packages/blueprint/README.md) | The blueprint contract and the role/crew catalogs |
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
 | [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |

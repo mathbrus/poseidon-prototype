@@ -1,4 +1,4 @@
-# schema
+# blueprint
 
 The blueprint contract: what a company document may say, and the versioned
 catalogs of roles, crews and tool names it may say it
@@ -180,7 +180,7 @@ the schema and the catalogs.
 ## Tests
 
 ```
-uv run pytest packages/schema
+uv run pytest packages/blueprint
 ```
 
 Sub-second, no cluster. `test_blueprint.py` proves the shipped

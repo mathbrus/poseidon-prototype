@@ -30,6 +30,7 @@ from temporalio import activity
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
+from blueprint.bounds import render_bounds
 from common.audit import HEARTBEAT_DECIDE, HEARTBEAT_TICK, RATIONALE_LIMIT, args_digest
 from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.opa import evaluate_decision
@@ -51,7 +52,6 @@ from orchestrator.clients import dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import PROFILES
 from registry import AgentInstances, AuditStore, Companies, Runs
-from schema.bounds import render_bounds
 
 # The run row's error column is a label for a human reading the runs
 # table, not a log; a failed decision's message is cut to fit.

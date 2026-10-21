@@ -4,8 +4,8 @@ The text is read by models and asserted on by humans, so its shape is
 pinned here line by line: one line per section, in a fixed order, facts
 only, and an absent fact says so."""
 
-from schema.bounds import NONE_DECLARED, render_bounds
-from schema.gates import UNDELEGATABLE_PATHS
+from blueprint.bounds import NONE_DECLARED, render_bounds
+from blueprint.gates import UNDELEGATABLE_PATHS
 
 REPO = {"url": "github.com/example-org/hello-saas", "base_ref": "main"}
 DOCUMENTS = {"strategy": "docs/STRATEGY.md", "architecture": "docs/ARCHITECTURE.md"}

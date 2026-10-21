@@ -18,15 +18,19 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
-from schema.blueprint import BLUEPRINT_SCHEMA
-from schema.catalog import CREW_TEMPLATES, ROLES
-from schema.coherence import (
+from blueprint.catalog import CREW_TEMPLATES, ROLES
+from blueprint.coherence import (
     contract_role_problems,
     hire_problems,
     tool_scope_problems,
 )
-from schema.gates import contract_tests_problems, document_problems, merge_gate_problems
-from schema.tools import KNOWN_TOOLS
+from blueprint.gates import (
+    contract_tests_problems,
+    document_problems,
+    merge_gate_problems,
+)
+from blueprint.schema import BLUEPRINT_SCHEMA
+from blueprint.tools import KNOWN_TOOLS
 
 
 class ValidationError(Exception):
@@ -67,7 +71,7 @@ def _schema_problems(document: Any) -> list[str]:
 
 
 def _catalog_problems(document: Any) -> list[str]:
-    """Cross-checks against the versioned catalogs (`schema.coherence`).
+    """Cross-checks against the versioned catalogs (`blueprint.coherence`).
 
     Kept narrow on purpose: only what a *document* can be wrong about
     regardless of cluster state. Workflow-node binding, budget coverage and

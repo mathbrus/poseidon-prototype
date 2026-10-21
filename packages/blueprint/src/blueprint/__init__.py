@@ -7,14 +7,14 @@ catalogs — and how the applied charter is said to the agents it binds
 (`bounds`); nothing about what it compiles to.
 """
 
-from schema.bounds import render_bounds
-from schema.catalog import (
+from blueprint.bounds import render_bounds
+from blueprint.catalog import (
     CREW_TEMPLATES,
     ROLES,
     CrewTemplate,
     Role,
 )
-from schema.validate import (
+from blueprint.validate import (
     BLUEPRINT_SCHEMA,
     ValidationError,
     load_blueprint,

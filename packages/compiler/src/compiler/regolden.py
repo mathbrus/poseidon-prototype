@@ -15,8 +15,8 @@ GOLDEN = REPO_ROOT / "packages" / "compiler" / "tests" / "golden"
 
 
 def main() -> None:
+    from blueprint import load_blueprint
     from compiler import compile_blueprint
-    from schema import load_blueprint
 
     plan = compile_blueprint(load_blueprint(REPO_ROOT / "examples" / "hello-saas.yaml"))
     GOLDEN.mkdir(parents=True, exist_ok=True)

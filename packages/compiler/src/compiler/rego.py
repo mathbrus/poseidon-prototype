@@ -32,6 +32,9 @@ they query.
 import json
 from typing import Any
 
+from blueprint.catalog import STEWARD_ROLE
+from blueprint.gates import UNDELEGATABLE_PATHS
+from blueprint.tools import ARCHITECTURE_REQUEST, RUN_SCOPED
 from common.policy import (
     BLUEPRINT_APPLY,
     COMPANY_DELETE,
@@ -60,9 +63,6 @@ from common.policy import (
 )
 from common.workflows import GATES, HUMAN_STARTABLE
 from compiler.plan import AgentInstanceCR, EphemeralAgentSpec, HeartbeatConfig
-from schema.catalog import STEWARD_ROLE
-from schema.gates import UNDELEGATABLE_PATHS
-from schema.tools import ARCHITECTURE_REQUEST, RUN_SCOPED
 
 PLATFORM_PACKAGE = "poseidon.platform"
 
@@ -193,7 +193,7 @@ allow_rules contains "platform_{tool_slug}" if {{
 def _run_binding(tool: str) -> str:
     """RUN_SCOPED tools additionally require a verified run binding — a role
     allow-list without it reopens cross-run tool use. Membership is
-    declared in `schema.tools`, a property of the tool, not a name prefix."""
+    declared in `blueprint.tools`, a property of the tool, not a name prefix."""
     return "\tbound_to_run\n" if tool in RUN_SCOPED else ""
 
 

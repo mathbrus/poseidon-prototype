@@ -10,6 +10,7 @@ from dataclasses import asdict
 
 import pytest
 
+from blueprint.bounds import render_bounds
 from common.audit import LIFECYCLE_REVOKE, gate_event
 from common.tasks import issue_run_task
 from common.workflows import ATTEMPTS_GATE, MERGE_GATE
@@ -25,7 +26,6 @@ from registry.memory import (
     InMemoryRuns,
 )
 from sandbox.contract import SandboxHandle
-from schema.bounds import render_bounds
 
 RUN_ID = "run-test-0001"
 

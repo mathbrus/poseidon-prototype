@@ -15,9 +15,9 @@ absent fact says so rather than leaving its line out.
 
 from typing import Any
 
-from schema.catalog import STEWARD_ROLE
-from schema.documents import DOCUMENT_LABELS
-from schema.gates import UNDELEGATABLE_PATHS
+from blueprint.catalog import STEWARD_ROLE
+from blueprint.documents import DOCUMENT_LABELS
+from blueprint.gates import UNDELEGATABLE_PATHS
 
 NONE_DECLARED = "none declared"
 
