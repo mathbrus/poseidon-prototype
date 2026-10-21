@@ -1,26 +1,30 @@
-# NetworkPolicy — the silent backstop
+# NetworkPolicy
 
-By default every pod in a Kubernetes cluster can reach every other pod.
-NetworkPolicy changes that: it is a firewall expressed in terms of pod
-labels and namespaces rather than IP addresses.
+By default, every pod in a Kubernetes cluster can reach every other pod.
+A [NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/)
+changes that. It is a firewall written in terms of pod labels and
+namespaces instead of IP addresses.
 
-Poseidon starts from deny-all in each company namespace and punches
-specific holes. A sandbox may receive connections from the MCP gateway, and
-may make connections to the egress proxy. That is the entire list.
+## How Poseidon uses it
 
-The platform namespace carries fences of its own for the surfaces that
-are authority: the Temporal frontend admits the orchestrator worker, the
-console and Temporal's own pods and nothing else, and each chokepoint's
-egress names what it may reach. A fence stops pods; it does not stop a
-person with cluster credentials, whose `kubectl port-forward` enters a
-pod's own network namespace beneath any policy. What guards the frontend
-against that road is the verified verdict, not the fence.
+The company namespace starts from deny-all, then opens specific paths. A
+sandbox accepts connections from the MCP gateway, and opens connections
+to the egress proxy. Nothing else.
 
-Two things follow that are easy to miss:
+The platform namespace has its own rules. For example, the Temporal
+frontend admits only the orchestrator, the console and Temporal's own
+pods.
 
-1. **It needs a CNI that actually enforces it.** kind's default network
-   plugin silently ignores NetworkPolicy, which would make every containment
-   test pass for the wrong reason. The bootstrap installs Calico instead.
-2. **It drops packets silently**, which makes it a poor *audit* layer. That
-   is precisely why the egress proxy exists on top: NetworkPolicy is the
-   backstop, and the proxy is what makes a blocked attempt *visible*.
+## Two things to know
+
+1. **It needs a network plugin that enforces it.** kind's default plugin
+   ignores NetworkPolicy, which would make every containment test pass for
+   the wrong reason. `kind-up.sh` installs Calico instead.
+2. **It drops packets silently.** That makes it a poor audit layer, so the
+   egress proxy sits on top of it and records every attempt. NetworkPolicy
+   is the backstop. The proxy is what makes a blocked attempt visible.
+
+A NetworkPolicy stops pods. It doesn't stop a person with cluster
+credentials, whose `kubectl port-forward` enters a pod's network directly.
+[Limitations](../explanation/limitations.md#some-services-rely-on-networkpolicy-alone)
+covers what that leaves open.

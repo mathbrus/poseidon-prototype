@@ -157,7 +157,7 @@ of `base_ref..branch`, where `base_ref` comes from the `.poseidon-base`
 file written at provision time. The sandbox has no remote to push to —
 the bundle is inert content that the *gateway* verifies, applies to a
 platform-side clone, and pushes with its own token (see
-[anatomy of a run](../../docs/explanation/anatomy.md)).
+[how it works](../../docs/explanation/how-it-works.md)).
 
 ## Egress: allowlisted, attributed, audited
 

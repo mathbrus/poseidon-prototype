@@ -1,212 +1,186 @@
-# What it cannot do
+# Limitations
 
-Stated plainly, because a security posture you cannot describe honestly is
-not one you can rely on.
+Poseidon is a prototype. This page lists what it doesn't do, and where its
+guarantees stop. Read it before you trust it with anything that matters.
 
-## Not hardened: the sandbox is a container, not a VM
+## Summary
 
-There is no gVisor or Kata RuntimeClass. The container's own privilege
-boundary is **not** claimed as a security boundary, and a kernel exploit
-inside a sandbox is out of scope for what this design defends against.
+| Limitation | What it means for you | Today |
+|---|---|---|
+| [The sandbox is a container, not a VM](#the-sandbox-is-a-container-not-a-vm) | A kernel exploit inside a sandbox escapes it. | Out of scope. The sandbox holds nothing worth stealing. |
+| [Some services rely on NetworkPolicy alone](#some-services-rely-on-networkpolicy-alone) | On a cluster whose network plugin ignores NetworkPolicy, five internal services are open. | kind-up installs Calico, which enforces it. |
+| [The merge record is trusted, not signed](#the-merge-record-is-trusted-not-signed) | A compromised console, or another writer of the audit table, could forge a verdict. | The console is trusted code, like the gateways. |
+| [Whoever may apply may name the approvers](#whoever-may-apply-may-name-the-approvers) | Applying a blueprint can rewrite `company.humans`. | Visible and audited under the applier's name. |
+| [A budget verdict is not read back](#a-budget-verdict-is-not-read-back) | A budget signal sent around the console resumes a run under nobody's name. | It can't spend past the run's cap. |
+| [Base images are pinned by tag, not digest](#base-images-are-pinned-by-tag-not-digest) | `python:3.12-slim` can change under you. | Python dependencies are locked; CI audits them. |
+| [Tested on kind only](#tested-on-kind-only) | Nothing has run on a managed cluster or in production. | One replica per service, development defaults for internal secrets. |
+| [An agent pod that dies starts over](#an-agent-pod-that-dies-starts-over) | The model's conversation is lost; the files it wrote survive. | The orchestrator itself is durable. |
+| [A delegated merge trusts the contract](#a-delegated-merge-trusts-the-contract) | Code that meets the contract but is wrong elsewhere still merges. | Contract changes always need you. |
+| [The company writes its own strategy](#the-company-writes-its-own-strategy) | The first strategy is the agents' reading of your vision, and nothing revises it. | Review the strategy pull request yourself. |
 
-What *is* claimed, and tested: privilege inside the sandbox reaches nothing.
-The sandbox runs as uid 10001 with no privilege-escalation path and all
-capabilities dropped — but every containment assertion in the red-team suite
-is written to hold at any uid, because the non-root posture is defence in
-depth on top of the containment, not the containment itself.
+## The sandbox is a container, not a VM
 
-## Unauthenticated in-cluster services, guarded only by NetworkPolicy
+There is no gVisor or Kata runtime. The container boundary is not claimed
+as a security boundary, and a kernel exploit from inside a sandbox is
+outside what Poseidon defends.
 
-Five surfaces have no authentication of their own:
+What is claimed, and tested, is that privilege inside the sandbox reaches
+nothing: no credential, no cluster API, no host mount, and one audited
+route out. The sandbox runs as uid 10001 with every capability dropped,
+but the red-team tests hold at any uid. Running as non-root is an extra
+layer, not the containment.
 
-- the **sandbox tool server** (which exposes `/exec` and runs what it is
-  given — it *is* the sandbox; that is its job),
-- the **agent's `/task` API**,
-- the **OPA bundle server**,
-- **OPA's own API**,
-- the **Temporal frontend** (its browsable web UI is opt-in — the kind
-  bootstrap deploys it only with `TEMPORAL_WEB=1`).
+## Some services rely on NetworkPolicy alone
 
-All five are protected by being unreachable: NetworkPolicy admits exactly
-the callers whose job they are — one for the first four, and for the
-frontend the orchestrator worker and [the console](../reference/console.md).
-This is a real reduction in defence in depth compared to authenticating
-them, and it means **NetworkPolicy enforcement is load-bearing**. On a
-cluster whose CNI ignores NetworkPolicy, these are open. The kind
-bootstrap installs Calico for exactly this reason.
+Five internal services have no authentication of their own:
 
-The frontend keeps one road the fence cannot close: a human with cluster
-credentials reaches it by `kubectl port-forward`, which enters the pod's
-own network namespace beneath any policy. That reach is not merge
-authority — a signal delivered there without a verdict the console
-recorded releases nothing, and the acceptance suite proves it on every
-run — but it is still reach into the workflow engine, and
-[the Temporal contract](../reference/workflows.md) writes down exactly
-what it buys.
+- the sandbox's tool server, which runs whatever it's given;
+- the agent host's `/task` API;
+- the OPA bundle server;
+- OPA's API;
+- the Temporal frontend. Its web UI is deployed only with `TEMPORAL_WEB=1`.
 
-The one **authenticated** surface a person reaches is the console, and it
-is deliberately the only one: on kind a NodePort on the host's loopback,
-nowhere an ingress. Exposing it beyond the host is a decision this
-prototype has not made, and the token lifetimes, revocation and phishing
-questions that come with it are not answered here.
+NetworkPolicy admits only the components that need each one. On a cluster
+whose network plugin ignores NetworkPolicy, all five are open, which is
+why kind-up installs Calico.
 
-## The merge release trusts the console and the registry
+A person with cluster credentials can still reach Temporal through
+`kubectl port-forward`, which bypasses NetworkPolicy. A merge signal sent
+that way releases nothing, because the merge needs a verdict the console
+recorded. The acceptance suite checks this on every run. It is still
+access to the workflow engine.
 
-The merge is released on a record, not on a signal: the console writes
-the verdict under the verified person's name before it delivers the
-signal, the workflow reads that record back, and the compiled
-`merge.resolve` decision releases the merge on the record — or refuses by
-name. OPA decides on an artifact it can read; a signal alone merges
-nothing.
+The console is the one authenticated service a person reaches. On kind,
+it listens on the host's loopback only. Exposing it further, with the
+questions of token lifetime, revocation and phishing that come with it,
+is not designed yet.
 
-What that buys is bounded by what it trusts, and the trust is named:
+## The merge record is trusted, not signed
 
-- **The console and the registry.** The record is an audit row the
-  console wrote; a compromised console, or a writer of `audit_events`,
-  could forge one. The row is not signed. The console is trusted code
-  like the gateways, and the sixth writer of a table five already share.
-- **The applier.** The first apply of a company is decided by nobody —
-  no bundle exists yet — and any later apply can rewrite `company.humans`,
-  so whoever may apply may name who answers the gates. That is the
-  authority a kubeconfig always held; it is now visible and audited under
-  a name.
-- **The budget gate.** Its verdicts are decided and recorded by the
-  console like the merge gate's, but the workflow does not read them
-  back: a `budget` signal delivered past the console resumes a run under
-  nobody's name. It cannot spend past the cap — the re-dispatch runs
-  under the same per-run cap the LLM gateway enforces from the ledger —
-  but "spend is a gate, not a warning" is kept by the ledger here, not by
-  a verified verdict. A known gap, not a residual.
+A merge is released on the verdict the console recorded in the audit
+table, never on the signal alone ([how](merge-gate.md)). That record is
+an unsigned row. A compromised console, or another service that writes
+the audit table, could forge one. The console is trusted code like the
+gateways.
 
-## Supply chain: tags, not digests
+## Whoever may apply may name the approvers
+
+Nobody's policy decides a company's first apply, because no policy exists
+yet. Any later apply can rewrite `company.humans`, so anyone allowed to
+apply can choose who answers the gates. That authority always came with
+cluster access. Poseidon makes it visible and records it under a name.
+
+## A budget verdict is not read back
+
+The console records budget verdicts like merge verdicts, but the workflow
+doesn't read them back. A budget signal delivered around the console
+resumes a parked run under nobody's name. The run still can't spend past
+its cap, because the LLM gateway enforces the cap from the ledger. Issue
+[#66](https://github.com/mathbrus/poseidon-prototype/issues/66) tracks
+related work on budget verdicts.
+
+## Base images are pinned by tag, not digest
 
 Third-party images are pinned to versioned tags (`openpolicyagent/opa:1.19.0`,
-LiteLLM `v1.95.1`, `postgres:16.6`), and Python dependencies are
-lockfile-pinned with the images built via `uv export --frozen` — CI asserts
-the image resolves the same version the lockfile does.
+LiteLLM `v1.95.1`, `postgres:16.6`). Python dependencies are locked, and CI
+checks that each image installs the locked versions and runs an advisory
+`pip-audit`. Base images are not pinned by digest, so `python:3.12-slim`
+can change under you.
 
-Base images are **not** digest-pinned, so `python:3.12-slim` can move under
-you. Digest pinning is a deliberate policy decision that has not been taken.
-CI runs an advisory `pip-audit` on every push.
+## Tested on kind only
 
-## Prompt content is inherently untrusted
+- Nothing has run on a managed cluster. Nothing in the design depends on
+  kind, but that is untested.
+- Every service runs one replica, with no high availability.
+- The chart requires every secret, but kind-up fills in development
+  defaults for the internal ones (database password, egress key).
+- A cluster hosts one company.
 
-Workspace filenames, file contents, test output and issue bodies all flow
-into agent prompts. That is not a bug to be fixed — it is what makes the
-agent useful — and it means **prompt injection is always possible**.
+## An agent pod that dies starts over
 
-The design response is not to sanitise the text. It is to make a successfully
-injected agent unable to do damage: no credentials, a compiled tool scope,
-an audited egress chokepoint, and a human gate before anything merges. When
-you read the red-team tests, notice that none of them assert the model
-refused. They assert the platform refused.
+If the orchestrator's worker dies, Temporal replays the workflow and the
+run continues. An agent pod is different: it keeps the model's
+conversation in memory only. If the pod dies mid-step, the retry starts
+the step over against the sandbox as it stands. The files already written
+survive, and the conversation doesn't.
 
-## Deployment maturity
+Keeping the conversation would need somewhere the agent can write that is
+neither its pod nor the sandbox. That would be new authority for the one
+process assumed compromised, so it hasn't been added.
 
-- **kind only.** Never run against a managed cluster. Nothing in the design
-  assumes kind, and the acceptance script is cluster-neutral, but "should
-  work" is not "has worked."
-- **Single replica** for every service; no HA, no leader election.
-- **Dev secrets remain.** The chart *requires* every secret value — a
-  bare `helm install` fails rather than deploying a placeholder — but the
-  kind bootstrap supplies development defaults for the non-credential
-  ones.
-- **One company per cluster** is what has been exercised, though namespacing
-  and per-company bundle roots are designed for more.
+## A delegated merge trusts the contract
 
-## An agent pod that dies mid-dispatch starts its dispatch over
+When policy resolves the merge gate:
 
-Durability covers the *orchestrator*: kill its worker and Temporal replays
-the workflow, re-attaching to a dispatch still in flight. It does not cover
-the *agent pod*. It mounts nothing but its token and is never
-restarted, so the model's conversation lives only in that process; if the
-pod dies, the retry re-dispatches from scratch against the sandbox as it
-stands — the files already written survive, the transcript does not.
+- **Code that meets the contract but is wrong elsewhere still merges.**
+  The implementer can't weaken the contract, because it comes from the
+  base branch and another crew writes it. But a contract is only as good
+  as the person who approved it. A vague spec passes, and the code merges.
+  Proving a spec adequate (mutation testing, coverage floors) is out of
+  scope.
+- **The reviewed code and the merged code can differ.** The review pins
+  the pull request's head when it starts. The merge doesn't re-check it,
+  so a push between review and merge lands unreviewed.
+- **Rework depth is read from a ticket title.** No agent can edit a
+  ticket title, so it can't be lowered. Storing the depth in the registry
+  would be sturdier. Issue
+  [#32](https://github.com/mathbrus/poseidon-prototype/issues/32) tracks it.
 
-Persisting the conversation would need somewhere the agent host can write that
-is neither the pod nor the sandbox: a gateway write channel, which is new
-authority for the one process assumed compromised. It is a decision not
-yet taken, not an oversight; the durable state of a run is the sandbox and
-the tickets, by design.
+The [merge gate](merge-gate.md) refuses what it claims to refuse.
+`test_split_oracle_redteam` drives a manipulated reviewer, implementer and
+contract author against it on every acceptance run.
 
-## A delegated merge gate merges without a human — with named residual risk
+## The company writes its own strategy
 
-Delegating the merge gate hands a real decision to compiled policy, and
-that is authority a human chose to grant in a document they can read and
-revoke. What it does *not* remove is honest to state:
+- **The first strategy is the agents' reading of your vision.** Under a
+  human merge gate, its pull request waits for you. Under a delegated gate
+  that includes `docs/`, it merges on the reviewer's verdict alone,
+  because a document has no tests.
+- **Nothing revises the strategy.** It's written once, and policy denies
+  any later change. The PM keeps planning from it until it judges there is
+  nothing left to do. `max_open_tickets` and the daily cap bound the cost,
+  but not how long that goes on.
+- **A poisoned strategy steers work within policy.** The PM files what a
+  poisoned strategy says, and the ticket carries it to the crew. The same
+  limits apply as everywhere: crew list, protected paths, egress
+  allowlist, caps. A poisoned document can pick which allowed work
+  happens, never work outside the policy.
+- **A bootstrap ticket nobody can fulfill halts the loop.** If every
+  attempt fails, the heartbeat records `heartbeat_bootstrap_exhausted` and
+  stops planning. If you close a bootstrap pull request without merging,
+  the heartbeat idles. In both cases, close the ticket and the heartbeat
+  files a new one.
+- **A retried ticket may ask for an architecture change again.** One
+  request per run is allowed, so a ticket retried before the steward's
+  revision merges can file a second request. `max_attempts` bounds it.
 
-- **Code that satisfies the human-approved contract but is wrong in ways
-  the contract does not test still merges.** This is the residual the
-  [split oracle](anatomy.md#the-split-oracle-who-owns-the-tests) leaves. The platform does not take the
-  implementer's own suite as the rubric: the gating fact is the contract
-  tree as it stands on `main`, authored by a different crew and merged
-  under a human's hand, run against the PR head. So an implementer cannot
-  weaken the oracle to launder a merge. What remains is that a
-  contract is only as good as the human who approved it — a spec that is
-  vacuous, or simply silent about the bug, will pass, and the code merges
-  unattended. That is the authority the human exercised by merging the
-  contract, and it is why a contract PR always stops at a person and arrives
-  with the platform's deletion facts attached. Making the spec *provably*
-  adequate (mutation testing, coverage floors) is deliberately out of scope
-  — the contract tree is tamper-evident and independently authored, not
-  proven sufficient.
-- **The reviewed tree and the merged tree can diverge.** The changed paths
-  and the verified tree are pinned when the review run starts (its sandbox
-  is provisioned from the PR head read then); the merge does not re-assert
-  the head SHA. A PR head that moves between review and merge re-opens the
-  gap between what was reviewed and what lands — recorded, not yet closed.
-- **The rework bound parses a ticket title, but nothing can rewrite it.** The
-  rework-chain depth is read back from the platform-written ticket title.
-  No company role holds a tool that can edit an issue's title, so a
-  compromised conductor cannot walk a depth downward — the mutation path is
-  positionally closed. A depth the platform stores on its own row rather
-  than parses back would be more robust still, and is flagged in the code.
+## Open questions
 
-The compiled decision does refuse what it claims to: a steered reviewer
-cannot merge a change touching a protected surface, an implementer cannot
-PR the contract tree or launder a red baseline to green, and a steered
-contract author's gutted spec parks on a human with its deletions counted —
-`test_split_oracle_redteam` drives exactly these on the cluster. The point
-of this page is that "policy can merge" is a bounded grant with edges worth
-knowing, not a blank cheque.
+These are the places where the design has a real argument to settle.
+Discussion is welcome.
 
-## The company writes its own documents — with named residual risk
+1. **Would signing the verdict record help?** It is an unsigned audit row.
+   Against which of its writers would a signature protect?
+2. **Is run binding the right guard for `git.open_pr`?** Sandbox tools
+   require the caller to be bound to the run. Opening a pull request
+   doesn't, because it targets the repository. Its guards are the branch
+   and path rules instead. Is that the right trade?
+3. **How would you detect a buggy compiler?** The platform trusts its own
+   compiled policy. The golden files in `packages/compiler/tests/golden/`
+   make every change reviewable, but review is not detection.
+4. **Should spawning be a ceiling?** The PM can start crews holding tools
+   it doesn't have itself. Is that a hole, or the right reading of least
+   privilege? [Standing vs. ephemeral agents](../concepts/standing-vs-ephemeral.md)
+   argues for the latter.
+5. **Which unauthenticated service should get authentication first?** Rank
+   the five by the damage a caller could do, now that a Temporal signal
+   alone releases no merge.
 
-Below the vision, every document the company works from is its own:
-the strategy and the architecture masterplan are agent-written, in git,
-and read back as untrusted text. What that leaves honest to state:
+## Not built yet
 
-- **The first strategy is agent-written.** A human chartered the vision;
-  the company's reading of it is what every later slice is scoped from.
-  Under a human merge gate the strategy's pull request stops at a person;
-  under a delegated gate it merges on the reviewer's verdict alone, because
-  markdown has no oracle — no `contract_green` for a bet. Whether that
-  reading is *right* is not a fact the platform can establish.
-- **No strategy learning.** The strategy is written once and then no
-  current role may change it — the write-once rule is a compiled deny,
-  not restraint. A future standing **observer** would be its author;
-  until it exists, a strategy that has been delivered keeps the PM
-  scoping, and `idle` is the PM's own judgement. `max_open_tickets` and
-  the daily cap bound what that costs; nothing bounds how long it goes on.
-- **A poisoned strategy steers scope within policy.** Injection into the
-  documents is assumed: the PM files what a poisoned strategy tells it to,
-  and the ticket carries the poison to the crew. Containment is the same
-  as everywhere — the compiled crew list, the path fences, the egress
-  allowlist, the caps — so a poisoned document can pick *which* in-class
-  work happens, never work outside the authority. The red team
-  (`tests/e2e_kind/test_injected_conductor.py`, `test_documents.py`) drives
-  exactly that.
-- **A bootstrap ticket nobody can fulfil halts, and stays halted.** When
-  every attempt on a bootstrap ticket aborts short of a delivery, the loop
-  records a `heartbeat_bootstrap_exhausted` halt and files no more; a
-  human closes the ticket and the loop refiles. A bootstrap pull request a
-  human closed without merging is the other shape: the ticket concluded
-  (it delivered) and the document is still absent, so the loop names no
-  halt and idles, scoping refused, until a human closes the ticket and
-  the loop refiles. The loop does not guess either way.
-- **A retried ticket may ask again.** An implementer that requests an
-  architecture change ends its run waiting, by name, and the attempt cap
-  decides whether the ticket is offered again. The one-request cap is per
-  run: an attempt that runs before the steward's revision merges files a
-  second stewardship ticket. Bounded by `max_attempts`, and visible — each
-  is titled `Architecture request from run …`.
+Today's roles are the PM, implementer, reviewer, contract author and
+steward. A future standing *observer* would read the world outside the
+repository and revise the strategy. Support or accounting agents would
+enter the same way: as a catalog role with its own tools and procedures,
+contained by compiled policy. They need new gateway tools, and runs that
+don't assume a sandbox and a repository. None of this exists yet.

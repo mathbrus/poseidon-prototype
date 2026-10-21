@@ -119,7 +119,7 @@ catalog's list.
 ```
 
 The two crewed workflows of the SDLC in
-[Anatomy of a run](../explanation/anatomy.md): which crew fulfils each, the
+[How it works](../explanation/how-it-works.md): which crew fulfils each, the
 limits it reads and the gates it parks on, nothing else. `scope` has no
 node — it dispatches the conductor directly and configures nothing — and
 no workflow names a conductor: who conducts the company's runs is
@@ -136,7 +136,7 @@ verdict — a signal with no verdict on record merges nothing. Leaving
 without merging at all — an unattended auto-merge is not a default anyone
 gets implicitly. Setting it to `policy` instead, with a `delegate` block
 naming the path class and a rework bound, hands the merge to the compiled
-decision described in [the merge gate](../explanation/anatomy.md#the-merge-gate-human-or-policy).
+decision described in [the merge gate](../explanation/merge-gate.md).
 The delegated profile does this:
 
 ```yaml
@@ -194,7 +194,7 @@ The delegated profile adds the split oracle:
 `contract_tests` declares the acceptance tree a delegated merge is graded
 by, and the roles that may deliver into it. Its consequences are
 deliberately positional and are described in full in
-[the split oracle](../explanation/anatomy.md#the-split-oracle-who-owns-the-tests)
+[the split oracle](../explanation/merge-gate.md#tests-the-implementer-cant-rewrite)
 — only `contract-author` may `git.open_pr` into the tree (the implementer's
 attempt dies at the gateway, named), the tree can never be delegated (a
 `delegate.paths` overlap is a compile error, the same refusal `.github/`

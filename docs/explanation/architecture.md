@@ -1,7 +1,9 @@
 # Architecture
 
-Two paths run through the system. The **declarative path** turns a document
-into enforcement; the **runtime path** does work under that enforcement.
+This page shows how a blueprint becomes a running company, and which
+component holds which secret. Two paths run through the system. The
+**declarative path** turns your blueprint into enforcement. The **runtime
+path** does the work under that enforcement.
 
 ## The declarative path
 
@@ -19,17 +21,19 @@ flowchart LR
     BS -.OPA polls.-> OPA["<b>OPA</b>"]
 ```
 
-The split between `blueprint` and `compiler` is worth understanding. `blueprint`
-asks *is this document well-formed?* — a question answerable from the
-document alone. `compiler` asks *is this company coherent?* — is the
-heartbeat's conductor an active standing spawner, does every scope name a
-real tool, can the daily cap fund a run. Both fail before anything reaches
-a cluster.
+Two checks run before anything reaches the cluster:
 
-Note the dotted arrow. Policy is **never pushed** into OPA. The reconciler
-persists a bundle; OPA polls for it. That is what makes an OPA restart safe:
-it re-fetches the current revision rather than running on whatever it last
-held in memory.
+- **`blueprint`** checks that the document is well-formed: every field
+  known, every value of the right type. It needs nothing but the document.
+- **`compiler`** checks that the company is coherent: the heartbeat's
+  conductor may start the crews the workflows need, every tool scope names
+  a real tool, the daily cap can fund at least one run.
+
+Policy is never pushed into OPA (the dotted arrow). The reconciler stores
+a policy bundle, and OPA polls for it. After a restart, OPA fetches the
+current bundle instead of running on whatever it held in memory. The
+company reads `converged` only once OPA serves the bundle the last apply
+compiled.
 
 ## The runtime path
 
@@ -69,16 +73,14 @@ flowchart TB
     PROXY -->|allowlist only| INET(["internet"])
 ```
 
-Read the arrows into `registry` as "the whole story of a run ends up here."
-One `run_id` query returns the gateway's decisions, the proxy's allows and
-denies, the LLM gateway's spend, the process gates' verdicts and the
-human's acts, in order. Six distinct sources write audit events —
-`gateway`, `llm-gateway`, `sandbox-infra`, `process-gate`,
-`process-lifecycle`, `console` — and the acceptance suite asserts that a
-single run's story is reconstructible across all six from the `run_id`
-alone ([Policy and audit](../reference/policy.md) lists them). The console's rows are
-the only ones carrying a person's name; the merge gate's release reads
-one of them back.
+Every arrow into the registry carries part of a run's story. One query by
+`run_id` returns, in order, the gateway's decisions, the egress proxy's
+allows and denies, the LLM gateway's spend, the gates' outcomes and your
+acts. Six sources write audit events (`gateway`, `llm-gateway`,
+`sandbox-infra`, `process-gate`, `process-lifecycle`, `console`), and the
+acceptance suite checks that one run's story can be rebuilt from all six.
+[Policy and audit](../reference/policy.md) lists the events. Only the
+console's rows carry a person's name.
 
 ## What each service is responsible for
 
@@ -93,8 +95,27 @@ one of them back.
 | **egress proxy** | egress HMAC key | The one network route out of a sandbox; allowlist + audit. |
 | **OPA** | — | Answering decision queries from compiled bundles. |
 | **registry** (Postgres) | — | Nine tables, one writer each; the audit and run store. |
-| **agent** | *nothing* | Running the procedure a dispatch names, against the model behind the LLM gateway. Its credential is its own ServiceAccount's projected token file — for standing agents and ephemeral agents alike. |
+| **agent host** | *nothing* | Running the procedure a dispatch names, against the model behind the LLM gateway. Its only credential is its own ServiceAccount's token, for standing and ephemeral agents alike. |
 | **sandbox** | *nothing* | Running untrusted workspace code. |
 
-Each service is one workspace package; [Packages](../developing/packages.md)
+Each service is one workspace package. [Packages](../developing/packages.md)
 maps them to their READMEs.
+
+## What kind-up installs
+
+`deploy/kind/kind-up.sh` installs the platform, and knows nothing about any
+company. It:
+
+1. creates the kind cluster;
+2. installs [Calico](https://docs.tigera.io/calico/), because kind's
+   default network plugin ignores NetworkPolicy and the containment tests
+   would pass for the wrong reason;
+3. builds the nine images and loads them into the cluster;
+4. applies the `Company` and `AgentInstance` resource definitions;
+5. installs the Poseidon chart and Temporal;
+6. checks that every platform pod runs this build;
+7. signs you in as `owner`, saving a week-long console token in
+   `~/.config/poseidon/token`.
+
+The script is safe to run again after any code or chart change. An applied
+company stays applied, and its standing agents restart on the new build.

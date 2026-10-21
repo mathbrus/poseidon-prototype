@@ -1,49 +1,54 @@
-# Workload identity — proving who is calling
+# Workload identity
 
-A shared secret in an environment variable answers "does the caller know the
-password?", which is not the same question as "who is the caller?" Anything
-that reads the variable becomes the caller.
+A shared secret in an environment variable answers "does the caller know
+the password?". That's not the same question as "who is the caller?":
+anything that reads the variable becomes the caller.
 
-Kubernetes offers something better. The kubelet can mount a short-lived,
-**audience-scoped** token for a pod's ServiceAccount, and rotate it. A
-service receiving that token calls the **TokenReview** API to ask the
-cluster who it belongs to. The answer is authoritative and the token is
-useless anywhere outside its audience.
+Kubernetes offers something better. It can mount a short-lived token for
+a pod's ServiceAccount, scoped to one *audience* (one service that may
+accept it). A service that receives the token asks the Kubernetes API,
+through the **TokenReview** API, who it belongs to. The answer comes from
+the cluster, and the token is useless anywhere outside its audience.
 
-Poseidon uses two identity shapes, verified by the same authenticator
-through the same TokenReview, and never confused: a workload's, and a
-person's.
+## How the gateways use it
 
-Every agent pod — standing or ephemeral — mounts a projected token for its
-own ServiceAccount, scoped to the gateway's audience. What differs is
-which registry table the gateway resolves the ServiceAccount against:
+```mermaid
+sequenceDiagram
+    participant A as Agent pod
+    participant G as MCP gateway
+    participant K as Kubernetes API
+    participant R as Registry
+    participant O as OPA
+    A->>G: tool call + projected token
+    G->>K: TokenReview: whose token?
+    K-->>G: ServiceAccount, namespace
+    G->>R: which agent is this, and is it still live?
+    R-->>G: company, role, run binding
+    G->>O: may this agent make this call?
+    O-->>G: allow or deny, with the rule
+    G-->>A: result, and one audit event
+```
 
-- **Standing agents** map through `agent_instances`, the standing agents the
-  reconciler converges. The gateway resolves the ServiceAccount name to
-  the row and — importantly — requires the recorded namespace to *match*.
-  The same SA name in another namespace is an impersonation attempt, and
-  is refused and audited.
-- **Ephemeral agents** get a per-run ServiceAccount created at
-  provision time, mapping through a live `run_participants` row — the
-  row *is* the identity: run binding, crew and role, company, namespace. A
-  verified token alone is never enough; deleting
-  the row revokes the identity **immediately**, however long the token
-  itself remains valid.
+Every agent pod mounts a token for its own ServiceAccount, scoped to the
+gateway. The gateway then looks the ServiceAccount up in the registry:
 
-That last point is the one worth internalising. The TokenReview may be
-cached, but the registry row is re-read on **every call**: revocation as
-a database write is far stronger than revocation as a short expiry — and
-it works the same for firing a standing agent (its row is deleted with
-its ServiceAccount) as for sweeping a crew.
+- **Standing agents** map to a row of `agent_instances`. The row records
+  the namespace too. The same ServiceAccount name from another namespace
+  is an impersonation attempt, refused and recorded.
+- **Ephemeral agents** get a ServiceAccount created for their run, and map
+  to a live row of `run_participants`. The row *is* the identity: its run,
+  crew, role and company.
 
-A **person** presents a token for a different audience — the console's —
-and the console maps it without the registry: on a cluster without an
-identity provider, a ServiceAccount the chart declares for that person
-(`human-<name>` in the platform namespace, minted through the
-TokenRequest API with the person's own cluster credentials); elsewhere,
-the API server's own user. The audiences are what keep the two shapes
-apart: a human's token fails TokenReview at either gateway, a workload's
-fails at the console, and each refusal is audited with the principal it
-carried. Who a person is comes from the cluster; what they may do comes
-from the blueprint's `company.humans`, compiled into policy and asked per
-act — revoking a person is a diff, as it is for an agent.
+## Revocation is a database write
+
+The gateway may cache the TokenReview answer, but it reads the registry
+row on every call. Deleting the row revokes the agent at once, however
+long its token would still be valid. That works the same for an agent
+removed from the blueprint as for a crew at the end of its run.
+
+## People
+
+People use the same mechanism with a different audience: the console's. A
+person's token fails at both gateways, and an agent's token fails at the
+console. [Console API](../reference/console.md#who-a-human-is) explains
+how a person signs in.

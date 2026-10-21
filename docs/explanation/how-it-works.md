@@ -1,104 +1,177 @@
-# The core idea
+# How it works
 
-Four ideas do most of the work. Each one turns a question of agent
-behaviour into a question of system design.
+A Poseidon company is a loop. It observes its repository, decides what is
+worth doing next, does it, records what happened, and repeats for as long
+as the company exists. This page follows that loop and names what keeps
+each agent inside its limits.
 
-None of the ideas is new, and that is deliberate. Readers who know Saltzer
-and Schroeder's 1975 protection principles will recognise all four: the
-credential-free agent is *least privilege* taken to its limit — no ambient
-authority at all; the compiled, default-deny blueprint is *fail-safe
-defaults* and *economy of mechanism*; the chokepoints are *complete
-mediation* — the gateways are a [reference monitor](reading.md)
-for agent effects, aspiring to "always invoked" and "small enough to
-inspect"; and the verify-then-deliver split of [Anatomy of a run](anatomy.md),
-where two independent mechanisms must both fail for unverified code to ship,
-is *separation of privilege*. What is new is the principal being confined: a
-program whose intent can be rewritten by anything it reads. That makes the
-old principles more load-bearing here, not less.
-
-## The agent holds no credentials
-
-Not a GitHub token, not an API key, not a Kubernetes service-account token
-for the cluster API. Its pod environment is inspected by a CI gate that
-fails the build if a single `*_TOKEN` or `*_KEY` variable with a value
-appears in it.
-
-Instead, the agent asks a **gateway** to act on its behalf. The gateway
-holds the credential, checks whether this caller may make this call,
-refuses before anything happens when the answer is no, and leaves exactly
-one audit event either way. An agent that convinces itself to exfiltrate a
-token cannot, because there is no token in the room.
-
-A gateway that acts for others is, by construction, a *deputy* — and the
-classic failure of deputies is confusion: acting with their own authority
-on a request whose provenance they never checked. Poseidon's gateways avoid
-that by never taking the caller's word for anything that matters. Identity
-is proven cryptographically per call, the caller's run binding is checked
-against the registry on every call, and the policy decision is a function
-of *who verifiably asked*, not of what the request text claims.
-
-## Authority is compiled, not configured
-
-You write one YAML document — the **company blueprint** — describing roles,
-tools, workflows, budgets and policies. A compiler turns it into every
-enforcement artifact: Kubernetes custom resources, [Rego](../concepts/opa.md)
-policy bundles, NetworkPolicies, sandbox constraints, budget registrations.
-
-The compiler is a pure function. It reads nothing but its arguments and
-writes nothing. That makes "the blueprint is the source of truth" a
-mechanically checkable claim rather than a slogan — and it means a
-governance mistake fails at compile time, with a readable error, instead of
-at 3am on the first tool call that hits it.
-
-## Every consequential action passes a chokepoint
-
-Agents face exactly two chokepoint services: the **MCP gateway** (all tool
-use — files, shell, git, issues; the sole holder of the git token) and the
-**LLM gateway** (all model access; it holds no key itself — the provider
-key sits one hop behind it, in an llm-proxy that only the LLM gateway can
-reach). That extra hop is deliberate: the proxy is also the translation
-layer that lets one OpenAI-shaped wire format reach multiple providers,
-and folding it into the gateway would move a large third-party
-dependency, the provider key, and external egress into the small
-auditable chokepoint. The reference-monitor aspiration is "small enough
-to inspect"; the mass stays outside. Both gateways authenticate the
-caller's workload identity, both check compiled policy, and both write
-exactly one audit event per call. The
-ordering guarantee is *deny before side effect*: a denial is recorded and
-returned before anything happens, while an allowed call acts first and
-then records how the action went.
-
-A person faces one: the **console**, the human-facing chokepoint with the
-same shape. It authenticates (a token the API server issued for the
-console's own audience — worthless at the gateways, as an agent's is
-here), decides (the company's compiled bundle names the humans who may
-act, and which act), audits under the person's name, and only then acts.
-It is the only thing a person acts through — applying a blueprint,
-answering a gate, starting a run by hand, waking or pausing the
-heartbeat, deleting the company — which is what makes a merge verdict a
-*record*: the workflow releases on the row the console wrote, not on the
-signal that woke it.
-
-One more chokepoint, the **egress proxy**, is the only network route out of a
-sandbox. Everything else is dropped by NetworkPolicy — silently, as a
-backstop beneath the audited layer.
-
-## Containment is layered, and each layer is honest about its job
+## The pieces
 
 ```mermaid
 flowchart TB
-    A["<b>Compiled policy</b><br/>can this caller make this call?"]
-    B["<b>Workload identity</b><br/>is the caller who it claims to be?"]
-    C["<b>Network policy</b><br/>can these two pods talk at all?"]
-    D["<b>Sandbox</b><br/>no credentials, no API, no host"]
-    E["<b>Audit</b><br/>whatever happened, one query tells the story"]
-    A --> B --> C --> D --> E
+    you(["You"]) -->|"blueprint, verdicts, reads"| console["<b>Console</b><br/>the one door for people"]
+    subgraph platform ["Platform"]
+        console
+        orch["<b>Orchestrator</b><br/>runs the workflows"]
+        mcp["<b>MCP gateway</b><br/>holds the git token"]
+        llm["<b>LLM gateway</b><br/>meters spend"]
+        opa["<b>OPA</b><br/>answers policy questions"]
+        reg[("<b>Registry</b><br/>runs, identities, audit")]
+    end
+    subgraph company ["Company namespace"]
+        pm["<b>PM</b><br/>standing agent"]
+        crew["<b>Crew agents</b><br/>implementer, reviewer, steward"]
+        sbx["<b>Sandbox</b><br/>runs the code"]
+    end
+    console -->|"start, signal"| orch
+    orch -->|dispatch| pm
+    orch -->|dispatch| crew
+    pm -->|tool calls| mcp
+    crew -->|tool calls| mcp
+    crew -->|model calls| llm
+    pm -->|model calls| llm
+    mcp --> sbx
+    mcp -->|"pull requests, issues"| gh[("GitHub")]
+    sbx -->|"allowlisted hosts only"| egress["Egress proxy"]
+    mcp -.-> opa
+    console -.-> opa
+    mcp --> reg
+    llm --> reg
+    console --> reg
 ```
 
-No single layer is claimed to be sufficient. The sandbox, for instance, does
-*not* claim kernel-level isolation — there is no gVisor or Kata runtime
-here. What it claims is that privilege inside the sandbox reaches nothing:
-no credential to steal, no cluster API to call, no host to mount, one
-audited route out. That is a narrower claim, and it is tested by an
-adversarial suite that attacks a live sandbox rather than reasoning about it
-on paper.
+| Piece | What it does |
+|---|---|
+| **Console** | The one service you act through. It checks who you are, asks policy whether you may, records the act under your name, then does it. The `poseidon` CLI talks to it. |
+| **Orchestrator** | Runs the company's workflows on [Temporal](../concepts/temporal.md), creates short-lived agents and sandboxes, and runs the tests that gate delivery. |
+| **Agents** | Each agent is one pod running an LLM loop. The PM is *standing*: it lives as long as the company. Crew agents are *ephemeral*: they exist for one run. |
+| **MCP gateway** | Every tool an agent uses (read a file, run a command, open a pull request) is a call to this gateway. It checks policy, acts, and records the call. It alone holds the GitHub token. |
+| **LLM gateway** | Every model call goes through it. It attributes the cost to a run and refuses calls past the run's budget. |
+| **Sandbox** | Where code runs. It holds no credentials, can't reach the cluster API, and reaches the internet only through the egress proxy's allowlist. |
+| **OPA** | Answers "may this caller do this?" from policy compiled out of your blueprint. |
+| **Registry** | A Postgres database: who each agent is, what each run is doing, and one audit table every component writes to. |
+
+[Architecture](architecture.md) shows how the blueprint becomes this
+deployment, and which component holds which secret.
+
+## What the company works from
+
+| Input | Written by | Trusted? |
+|---|---|---|
+| The **vision** | You, in the blueprint | Yes. It goes into every agent's system prompt, and only you can change it. |
+| The **bounds** | The platform, from your blueprint | Yes. The rules that bind the company's work (repository, branches, protected paths, merge rules), in plain text in every agent's system prompt. |
+| The **strategy** | The steward agent, once, from the vision | No. It's a file in the repository, read as untrusted text. |
+| The **architecture masterplan** | The steward agent, from the vision and the code | No. Agents can propose changes to it, and the steward revises it. |
+| Tickets, code, test output, `AGENTS.md` | Agents, people, anyone | No. |
+
+Untrusted text can steer what an agent tries. It can't change what the
+platform allows. The [security model](security-model.md) explains why
+that line matters.
+
+A new repository has no strategy and no masterplan. The company's first
+move is to file two bootstrap tickets, `Bootstrap: strategy` and
+`Bootstrap: architecture masterplan`. A *steward* agent writes each
+document and delivers it as a pull request like any other change. The
+company won't plan work until both documents are on the base branch.
+
+## The loop
+
+```mermaid
+flowchart LR
+    subgraph heartbeat ["heartbeat tick"]
+        HB["observe →<br/>PM decides"]
+    end
+    subgraph scope ["scope run"]
+        SC["PM reads the documents,<br/>files tickets"]
+    end
+    subgraph implement ["implement run"]
+        FU["crew + sandbox"] --> IM["implement"] --> VG["platform<br/>runs tests"] --> DE["open<br/>pull request"]
+    end
+    subgraph review ["review run"]
+        RV["independent<br/>review"] --> MG["merge<br/>gate"]
+    end
+    heartbeat -->|starts| scope -->|ticket| implement -->|pull request| review
+```
+
+The **heartbeat** is a long-running workflow that wakes whenever one of
+the company's runs ends, and at least every `reconcile_minutes`. Each tick
+it reads the documents, the open tickets and the pull requests waiting for
+review. It then asks the PM to pick one action: scope, implement a ticket,
+review a pull request, or do nothing. The platform starts the chosen run
+only if policy and your caps allow it. [How the heartbeat
+decides](heartbeat.md) covers the details.
+
+Each run hands the next one an artifact, never control: scoping produces
+tickets, implementing produces a pull request, reviewing produces a merge
+decision.
+
+### Scope: from strategy to tickets
+
+The PM reads the strategy and the masterplan and files the next slice of
+work as tickets on the repository. Each ticket names the crew that will
+build it. The PM can file tickets but can't write code or open pull
+requests.
+
+### Implement: from ticket to pull request
+
+1. **A crew is formed.** Policy checks that the PM may start this crew.
+   The orchestrator creates one pod per role, each with its own short-lived
+   identity, and one sandbox for the run.
+2. **The code goes in.** The MCP gateway clones the repository with its
+   own token, removes the remote, and hands the sandbox the files. The
+   sandbox has nothing to push with.
+3. **The implementer works.** It reads, writes and runs commands in the
+   sandbox, every call through the gateway. When it's done, it says so.
+4. **The platform runs the tests.** The orchestrator runs the test command
+   itself. The implementer's claim of success counts for nothing. If the
+   tests fail, the implementer gets the failure and tries again, up to
+   `max_verify_retries` times.
+5. **Only then can it deliver.** A green test run starts a separate
+   *deliver* step, the only step whose tools include opening a pull
+   request. During implementation, that tool doesn't exist.
+6. **The gateway pushes.** The agent hands over a git bundle. The gateway
+   checks it, computes the changed paths, asks policy (protected branches
+   and paths, document rules), then pushes the branch and opens the pull
+   request with its own token.
+
+### Review: an independent check
+
+A fresh sandbox is built from the pull request's branch. A reviewer agent,
+which holds no tool that writes to the repository, reads the diff against
+the documents, runs the tests, posts its findings, and gives a pass or
+fail verdict. Then the [merge gate](merge-gate.md) decides: by default it
+waits for your verdict, and you can delegate it to policy for the paths
+you choose.
+
+### Teardown
+
+Every run ends the same way, whether it succeeded, failed, was cancelled
+or its worker died: the run's identities are revoked, its pods and sandbox
+are deleted, and its record is written.
+
+## Four design ideas
+
+**Agents hold no credentials.** No GitHub token, no model API key, no
+Kubernetes token for the cluster API. An agent asks a gateway to act for
+it, and the gateway checks *who verifiably asked*, never what the request
+claims. A CI check fails the build if an agent pod's environment holds a
+token or key.
+
+**Authority is compiled from the blueprint.** A compiler turns your
+blueprint into every enforcement artifact: [Rego](../concepts/opa.md)
+policy, Kubernetes resources, NetworkPolicies, sandbox limits. It's a pure
+function, so a mistake fails at compile time with a readable error.
+Nothing is allowed unless the blueprint grants it.
+
+**Every action passes a chokepoint.** Agents reach the world only through
+the MCP gateway (tools) and the LLM gateway (models). The sandbox reaches
+the internet only through the egress proxy. People act only through the
+console. Each chokepoint decides before anything happens and records one
+audit event per call.
+
+**No single layer is trusted alone.** Policy decides what a caller may
+do. [Workload identity](../concepts/workload-identity.md) proves who the
+caller is. [NetworkPolicy](../concepts/network-policy.md) decides which
+pods can talk at all. The sandbox has nothing to steal. The audit trail
+records every decision. The [security model](security-model.md) shows
+these layers stopping a real attack.

@@ -71,15 +71,21 @@ nav:
   - Home: index.md
   - Get started:
       - Quickstart: get-started/quickstart.md
+      - "Tutorial: build a game": get-started/tutorial.md
   - How-to guides:
+      - Write your blueprint: how-to/write-a-blueprint.md
+      - Answer gates and follow a run: how-to/gates-and-runs.md
       - Delegate merges: how-to/delegate-merges.md
+      - Pause, resume or delete: how-to/pause-resume-delete.md
       - Use a real model: how-to/real-model.md
+      - Act as another person: how-to/act-as-another-human.md
+      - Troubleshooting: how-to/troubleshooting.md
   - Explanation:
       - How it works: explanation/how-it-works.md
-      - Anatomy of a run: explanation/anatomy.md
+      - How the heartbeat decides: explanation/heartbeat.md
+      - The merge gate: explanation/merge-gate.md
       - Security model: explanation/security-model.md
       - Limitations: explanation/limitations.md
-      - Further reading: explanation/reading.md
       - Architecture: explanation/architecture.md
       - Concepts:
           - concepts/index.md
