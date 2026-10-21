@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.1.1+2026.10.21] - 2026-10-21
+
 - The platform closes the tickets a merged pull request fulfilled — a rework
   chain's all at once, hand merges included — and the pull request a rework
   ticket supersedes, through the platform-only `issues.close` and

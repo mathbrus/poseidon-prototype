@@ -27,7 +27,7 @@ members = [
 
 [[package]]
 name = "agent"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/agent" }
 dependencies = [
     { name = "common", extra = ["otel"] },
@@ -776,7 +776,7 @@ wheels = [
 
 [[package]]
 name = "common"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/common" }
 dependencies = [
     { name = "httpx" },
@@ -804,7 +804,7 @@ provides-extras = ["otel"]
 
 [[package]]
 name = "compiler"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/compiler" }
 dependencies = [
     { name = "common" },
@@ -819,7 +819,7 @@ requires-dist = [
 
 [[package]]
 name = "console"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/console" }
 dependencies = [
     { name = "common", extra = ["otel"] },
@@ -1870,7 +1870,7 @@ wheels = [
 
 [[package]]
 name = "llm-gateway"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/llm-gateway" }
 dependencies = [
     { name = "common", extra = ["otel"] },
@@ -2203,7 +2203,7 @@ wheels = [
 
 [[package]]
 name = "mcp-gateway"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/mcp-gateway" }
 dependencies = [
     { name = "common", extra = ["otel"] },
@@ -2328,7 +2328,7 @@ wheels = [
 
 [[package]]
 name = "mockllm"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/mockllm" }
 dependencies = [
     { name = "fastapi" },
@@ -2833,7 +2833,7 @@ wheels = [
 
 [[package]]
 name = "orchestrator"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/orchestrator" }
 dependencies = [
     { name = "common", extra = ["otel"] },
@@ -3100,7 +3100,7 @@ wheels = [
 
 [[package]]
 name = "poseidon"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { virtual = "." }
 dependencies = [
     { name = "agent" },
@@ -3163,7 +3163,7 @@ docs = [
 
 [[package]]
 name = "poseidon-cli"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/cli" }
 dependencies = [
     { name = "common" },
@@ -3190,7 +3190,7 @@ requires-dist = [
 
 [[package]]
 name = "poseidon-operator"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/operator" }
 dependencies = [
     { name = "common", extra = ["otel"] },
@@ -4000,7 +4000,7 @@ wheels = [
 
 [[package]]
 name = "registry"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/registry" }
 dependencies = [
     { name = "common" },
@@ -4214,7 +4214,7 @@ wheels = [
 
 [[package]]
 name = "sandbox"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/sandbox" }
 dependencies = [
     { name = "common" },
@@ -4248,7 +4248,7 @@ provides-extras = ["egress", "toolchain"]
 
 [[package]]
 name = "schema"
-version = "0.1.0+2026.10.21"
+version = "0.1.1+2026.10.21"
 source = { editable = "packages/schema" }
 dependencies = [
     { name = "jsonschema" },
