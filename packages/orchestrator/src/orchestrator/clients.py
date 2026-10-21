@@ -204,6 +204,16 @@ class GatewayClient:
             },
         )
 
+    async def close_issue(
+        self, run_id: str, repo: str, number: int, rationale: str
+    ) -> dict[str, Any]:
+        """Close a ticket under the platform identity — the consequence of
+        a merge, never a role's act. The rationale names the merge."""
+        return await self._tool(
+            "issues.close",
+            {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale},
+        )
+
     async def read_open_issues(self, run_id: str, repo: str) -> list[dict[str, Any]]:
         """The open backlog for the heartbeat's tick. Only numbers,
         titles and URLs feed the decision — issue bodies are untrusted
@@ -241,6 +251,17 @@ class GatewayClient:
         return await self._tool(
             "git.merge_pr",
             {"run_id": run_id, "repo": repo, "number": number, "method": method},
+        )
+
+    async def close_pr(
+        self, run_id: str, repo: str, number: int, rationale: str
+    ) -> dict[str, Any]:
+        """Close a pull request unmerged under the platform identity — the
+        rework loop's act once a failed review's findings are a ticket.
+        The rationale names the ticket that supersedes it."""
+        return await self._tool(
+            "git.close_pr",
+            {"run_id": run_id, "repo": repo, "number": number, "rationale": rationale},
         )
 
     async def register_sandbox(

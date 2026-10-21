@@ -3,8 +3,9 @@ run reads — composed once, rendered once.
 
 Retry safety: `heartbeat_observe` and `scope_observation` read the
 registry, the open backlog and the delivered PRs' live state under the
-platform identity, and remember a PR the world settled on its run row
-(idempotent); safe to retry. Only numbers, titles, URLs and attempt counts
+platform identity, remember a PR the world settled on its run row
+(idempotent), and close the tickets of one a human merged by hand (each
+read first, skipped when already closed); safe to retry. Only numbers, titles, URLs and attempt counts
 leave here: issue bodies are untrusted input the implement run reads
 itself.
 
@@ -38,6 +39,10 @@ from orchestrator.activities.documents import (
     company_documents,
     read_documents,
     sections,
+)
+from orchestrator.activities.tickets import (
+    close_fulfilled_tickets,
+    merged_outside_rationale,
 )
 from orchestrator.clients import GatewayClient, GatewayError, pr_settled
 from orchestrator.config import WorkerSettings
@@ -252,6 +257,26 @@ class ObservationActivities:
                     )
                     continue
                 settled = pr_settled(pr)
+                if settled == "merged":
+                    # Merged outside the platform: the tickets it fulfils
+                    # close before the settle is remembered, so a close that
+                    # fails leaves the PR to be read — and closed — again.
+                    try:
+                        await close_fulfilled_tickets(
+                            gateway,
+                            self._runs,
+                            self._company(),
+                            run_id,
+                            repo["url"],
+                            candidate["number"],
+                            merged_outside_rationale(candidate["number"]),
+                        )
+                    except GatewayError as exc:
+                        self._log.info(
+                            "merged pr tickets not closed, read again next time",
+                            extra={"number": candidate["number"], "error": str(exc)},
+                        )
+                        continue
                 if settled:
                     # Observed once, remembered: the run row keeps what the
                     # world did, and no later tick reads this PR again.

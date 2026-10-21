@@ -473,7 +473,7 @@ def test_resolve_merge_audits_the_decision_either_way(settings, audit, monkeypat
 
 
 def test_rework_title_round_trips():
-    from orchestrator.activities.review import REWORK_TITLE_RE, rework_title
+    from orchestrator.activities.tickets import REWORK_TITLE_RE, rework_title
 
     title = rework_title(2, 41, "Add slugify utility")
     match = REWORK_TITLE_RE.match(title)
@@ -482,12 +482,15 @@ def test_rework_title_round_trips():
 
 
 class FakeIssueGateway:
-    """A gateway double for the rework activities: serves one issue by
-    number, records created issues."""
+    """A gateway double for the rework and closing activities: serves
+    issues by number and the open ones as the backlog, records created and
+    closed issues and closed PRs."""
 
     def __init__(self, issues=None):
         self.issues = issues or {}
         self.created = []
+        self.closed = []
+        self.closed_prs = []
 
     def __call__(self, *a, **k):
         return self
@@ -500,6 +503,18 @@ class FakeIssueGateway:
 
     async def read_issue(self, run_id, repo, number):
         return self.issues[number]
+
+    async def read_open_issues(self, run_id, repo):
+        return [i for i in self.issues.values() if i.get("state") == "open"]
+
+    async def close_issue(self, run_id, repo, number, rationale):
+        self.closed.append((number, rationale))
+        self.issues[number] = {**self.issues[number], "state": "closed"}
+        return self.issues[number]
+
+    async def close_pr(self, run_id, repo, number, rationale):
+        self.closed_prs.append((number, rationale))
+        return {"number": number, "state": "closed"}
 
     async def create_issue(self, run_id, repo, title, body, rationale):
         self.created.append({"repo": repo, "title": title, "body": body})
@@ -727,3 +742,111 @@ def test_resolve_merge_on_the_human_path_carries_only_the_verdict(
     )
     assert result == {"allow": True, "rule": "merge_resolve_human"}
     assert seen[0]["args"] == {"resolver": "human", "human_verdict": verdict}
+
+
+# -- closing what a merge fulfilled, and what a rework superseded -------------
+
+
+def _delivered(runs, run_id, task, pr):
+    runs.start(run_id, task, "implement", f"wf-{run_id}", "hello-saas")
+    runs.finish(run_id, "done", pr_url=f"https://git.test/r/pull/{pr}")
+
+
+def _issue(number, title, state="open"):
+    return {"number": number, "title": title, "state": state}
+
+
+def test_close_tickets_closes_the_consumed_ticket(settings, monkeypatch):
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(
+        issues={7: _issue(7, "Add slugify"), 8: _issue(8, "Unrelated")}
+    )
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _delivered(runs, "run-impl", "implement issue #7", 41)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    closed = asyncio.run(activities.close_tickets(RUN_ID, 41, "abc123", "Add slugify"))
+    assert closed == [7]
+    assert gateway.closed == [(7, "merged pull request #41 (abc123): Add slugify")]
+
+
+def test_a_merged_rework_closes_the_whole_chain(settings, monkeypatch):
+    """Root ticket #7 delivered PR #41, which failed review twice: rework
+    tickets #90 (PR #42) and #91 (PR #43). PR #43 merging closes all three;
+    a rework filed for another root stays open."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(
+        issues={
+            7: _issue(7, "Add slugify"),
+            90: _issue(90, "Rework 1 for PR #41: Add slugify"),
+            91: _issue(91, "Rework 2 for PR #41: Add slugify"),
+            92: _issue(92, "Rework 1 for PR #50: Other"),
+        }
+    )
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _delivered(runs, "run-a", "implement issue #7", 41)
+    _delivered(runs, "run-b", "implement issue #90", 42)
+    _delivered(runs, "run-c", "implement issue #91", 43)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    assert asyncio.run(activities.close_tickets(RUN_ID, 43, "s", "t")) == [7, 90, 91]
+    assert gateway.issues[92]["state"] == "open"
+
+
+def test_close_tickets_skips_closed_tickets_and_unattributed_prs(settings, monkeypatch):
+    """A ticket a human already closed is read and left alone; a PR no
+    implement run delivered, or one delivered from a free-form task, names
+    no ticket and closes nothing."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify", state="closed")})
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    assert asyncio.run(activities.close_tickets(RUN_ID, 41, "s", "t")) == []
+    _delivered(runs, "run-free", "the task file text", 41)
+    assert asyncio.run(activities.close_tickets(RUN_ID, 41, "s", "t")) == []
+    _delivered(runs, "run-impl", "implement issue #7", 42)
+    assert asyncio.run(activities.close_tickets(RUN_ID, 42, "s", "t")) == []
+    assert gateway.closed == []
+
+
+@pytest.mark.parametrize(("merged", "closes"), [(True, [7]), (False, [])])
+def test_read_pr_closes_the_tickets_of_a_pr_merged_by_hand(
+    settings, monkeypatch, merged, closes
+):
+    """A review asked for a PR a human already merged learns of the merge
+    first: the tickets close once, on that transition, and the settle is
+    remembered. A PR closed unmerged leaves its ticket to the human."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify")})
+
+    async def read_pr(run_id, repo, number):
+        return {"number": number, "state": "closed", "merged": merged, "head": "f"}
+
+    gateway.read_pr = read_pr
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _delivered(runs, "run-impl", "implement issue #7", 41)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    for _ in range(2):
+        with pytest.raises(ApplicationError, match="pr_not_open"):
+            asyncio.run(activities.read_pr(RUN_ID, 41))
+    assert [n for n, _ in gateway.closed] == closes
+    assert all(
+        r == "pull request #41 merged outside the platform" for _, r in gateway.closed
+    )
+    assert runs.get("run-impl").pr_settled == ("merged" if merged else "closed")
+
+
+def test_close_superseded_pr_names_the_rework_ticket(settings, monkeypatch):
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway()
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    asyncio.run(activities.close_superseded_pr(RUN_ID, 41, 91))
+    assert gateway.closed_prs == [(41, "superseded by rework ticket #91")]
