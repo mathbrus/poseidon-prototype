@@ -48,7 +48,8 @@ attempt. That ambition sets the bar in five places:
 The docs site is the place to read the argument, follow a guide, or look
 something up. Build it locally with `uv run --group docs mkdocs serve`, or
 download the `docs-site` artifact of any CI run; its pages live under
-[`docs/`](docs/).
+[`docs/`](docs/). What each release changed is in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 - **The argument** — the problem, the core idea, the anatomy of a run, what
   it can and cannot do. Written to be read start to finish.

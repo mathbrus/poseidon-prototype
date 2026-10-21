@@ -102,3 +102,4 @@ nav:
       - Contributing: developing/contributing.md
       - Packages: developing/packages.md
   - Glossary: glossary.md
+  - Changelog: changelog.md
