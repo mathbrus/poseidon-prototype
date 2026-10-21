@@ -105,9 +105,9 @@ answered with). A refusal carries none — its rule is the reason.
 | `source` | Written by | For |
 |---|---|---|
 | `gateway` | the MCP gateway | every tool call: decision, rule, backend outcome |
-| `llm-gateway` | the LLM gateway | every model call and its metered cost; budget stops |
+| `llm-gateway` | the LLM gateway | every model call and its metered cost; budget refusals |
 | `sandbox-infra` | the egress proxy | every allowed and denied egress attempt (`egress_not_allowlisted`) |
-| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget parks, and the stops nobody resolves — attempts spent, bootstrap exhausted, the daily cap |
+| `process-gate` | the orchestrator | gate outcomes: merge verdicts, escalations, expiries, `gate_verdict_unverified` (an approving signal with no recorded verdict), budget parks, and the halts nobody resolves — attempts spent, bootstrap exhausted, the daily cap |
 | `process-lifecycle` | the orchestrator | crew fulfilment, the review's facts, the heartbeat's journal |
 | `console` | the console | every human act, under the person's name; and every token it refused |
 
@@ -121,5 +121,5 @@ and this table:
 Every event carries `company`, `lifecycle`, `parent_agent_id` and
 `workflow` so attribution never has to be inferred from naming
 conventions, and `decision` is always `allow` or `deny` — a gate that
-expired, a budget that stopped a run, and a merge that fired are all
+expired, a budget that parked a run, and a merge that fired are all
 decisions on the record.

@@ -87,7 +87,7 @@ SANDBOX_EGRESS = "sandbox.egress"
 def gate_event(gate: str) -> str:
     """The `process-gate` event a gate outcome is recorded under: the gate's
     name (`common.workflows`) behind one prefix, whether a human resolved
-    it, policy did, it expired, or a stop halted the run."""
+    it, policy did, it expired, or the heartbeat halted a start."""
     return f"gate.{gate}"
 
 

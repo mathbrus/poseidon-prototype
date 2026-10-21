@@ -296,7 +296,7 @@ from the observation, and the start must still win the compiled
 most steer the choice between observed candidates, never mint a new one.
 Idle ticks and cap halts record their reason too (a daily-cap halt, and a
 bootstrap ticket whose every attempt aborted, are first-class
-process-gate events, like the per-run budget stop). Issue bodies never
+process-gate events, like the per-run budget park). Issue bodies never
 feed the tick — only numbers, titles and URLs — and the documents reach
 it clipped and untrusted, after the lists, so a document line is never
 read as a ticket.

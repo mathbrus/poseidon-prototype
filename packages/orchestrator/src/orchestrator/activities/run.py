@@ -37,7 +37,13 @@ if TYPE_CHECKING:
 from common.audit import args_digest, gate_event
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE
 from common.telemetry import get_logger
-from common.workflows import ATTEMPTS_GATE, workflow_id
+from common.workflows import (
+    ATTEMPTS_GATE,
+    GATE_EXHAUSTED,
+    GATE_RELEASING,
+    gate_rule,
+    workflow_id,
+)
 from orchestrator.activities.blueprint import company_repo, workflow_config
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.documents import (
@@ -186,14 +192,16 @@ class RunActivities:
         story, carrying the workflow id that maps back to run_id. The
         policy kinds keep human and policy resolutions distinguishable
         forever: `policy_resolved` released a merge, `policy_declined`
-        fell back to the human signal."""
+        fell back to the human signal. An unknown kind is refused before
+        anything is written: the vocabulary is `common.workflows`'."""
+        rule = gate_rule(kind)
         await record_event(
             self._audit,
             run_id=run_id,
             tool=gate_event(gate),
             digest=args_digest({"gate": gate, "outcome": kind}),
-            decision="allow" if kind in ("approved", "policy_resolved") else "deny",
-            rule=f"gate_{kind}",
+            decision="allow" if kind in GATE_RELEASING else "deny",
+            rule=rule,
             source="process-gate",
             company=self._company(),
             workflow=workflow_id,
@@ -322,10 +330,10 @@ class RunActivities:
             run_id=run_id,
             tool=gate_event(ATTEMPTS_GATE),
             digest=args_digest(
-                {"gate": ATTEMPTS_GATE, "outcome": "exhausted", "attempts": count}
+                {"gate": ATTEMPTS_GATE, "outcome": GATE_EXHAUSTED, "attempts": count}
             ),
             decision="deny",
-            rule="gate_exhausted",
+            rule=gate_rule(GATE_EXHAUSTED),
             source="process-gate",
             company=self._company(),
             workflow=workflow_id,

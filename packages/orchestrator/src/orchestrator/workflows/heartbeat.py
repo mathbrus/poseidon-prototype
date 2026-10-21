@@ -82,6 +82,7 @@ from temporalio.workflow import ParentClosePolicy
 from common.workflows import (
     BOOTSTRAP_GATE,
     DAILY_CAP_GATE,
+    GATE_HALTED,
     TICK_IDLE,
     TICK_PAUSED,
     TICK_REFUSED,
@@ -224,19 +225,19 @@ class HeartbeatWorkflow(RunWorkflow):
                 await self.record_gate(
                     workflow_id("heartbeat", input.company),
                     BOOTSTRAP_GATE,
-                    "halted",
+                    GATE_HALTED,
                 )
             elif observed["active_runs"] >= int(config["max_concurrent_runs"]):
                 rule = "runs_in_flight"
             elif observed["daily_spent_usd"] >= float(config["daily_cap_usd"]):
                 # The cap halt is a first-class process-gate event, like
-                # the per-run budget stop — "nobody may start work today"
+                # the per-run budget park — "nobody may start work today"
                 # must be as visible as "this run is out of money".
                 rule = "daily_cap_reached"
                 await self.record_gate(
                     workflow_id("heartbeat", input.company),
                     DAILY_CAP_GATE,
-                    "halted",
+                    GATE_HALTED,
                 )
             elif not self._anything_startable(config, observed):
                 rule = "backlog_empty"

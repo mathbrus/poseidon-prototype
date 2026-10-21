@@ -34,7 +34,8 @@ attempt. That ambition sets the bar in five places:
   cannot rewrite them.
 - **Authority** — every consequence is decided by policy a human can read,
   diff and revoke. Injection is assumed; containment is positional; spend is
-  a stop, not a warning.
+  a gate, not a warning: an exhausted budget parks the run until a human
+  answers.
 
 > [!NOTE]
 > **Status: working prototype.** Every capability is exercised by the

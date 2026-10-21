@@ -336,6 +336,18 @@ def test_policy_gate_outcomes_map_to_decisions(activities, audit):
     ]
 
 
+def test_unknown_gate_outcome_is_refused_before_it_is_written(activities, audit):
+    """The gate vocabulary is `common.workflows`': a kind outside it
+    never reaches the ledger."""
+    with pytest.raises(ValueError, match="not a gate outcome"):
+        asyncio.run(
+            activities.record_gate_outcome(
+                RUN_ID, "merge", "timed_out", f"review-{RUN_ID}"
+            )
+        )
+    assert [e for e in audit.events if e.run_id == RUN_ID] == []
+
+
 # -- teardown -----------------------------------------------------------------
 
 

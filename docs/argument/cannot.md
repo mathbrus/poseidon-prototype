@@ -73,9 +73,9 @@ What that buys is bounded by what it trusts, and the trust is named:
 - **The budget gate.** Its verdicts are decided and recorded by the
   console like the merge gate's, but the workflow does not read them
   back: a `budget` signal delivered past the console resumes a run under
-  nobody's name. It cannot spend past the stop — the re-dispatch runs
+  nobody's name. It cannot spend past the cap — the re-dispatch runs
   under the same per-run cap the LLM gateway enforces from the ledger —
-  but "spend is a stop, not a warning" is kept by the ledger here, not by
+  but "spend is a gate, not a warning" is kept by the ledger here, not by
   a verified verdict. A known gap, not a residual.
 
 ## Supply chain: tags, not digests
