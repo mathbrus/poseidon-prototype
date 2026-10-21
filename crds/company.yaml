@@ -89,10 +89,12 @@ spec:
                 heartbeat:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
-                # The split oracle (`policies.contract_tests`), projected
-                # so the review workflow can compose the contract-verify
-                # baseline; absent when the blueprint declares none.
-                contractTests:
+                # The blueprint's `policies` section as written: branch
+                # protection, deny paths, the contract tree. The bundle
+                # enforces it; the platform reads it here to render the
+                # bounds every dispatch carries and to compose the
+                # contract-verify baseline.
+                policies:
                   type: object
                   x-kubernetes-preserve-unknown-fields: true
                 ephemeralAgents:

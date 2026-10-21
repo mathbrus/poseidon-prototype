@@ -9,6 +9,7 @@ bug that is knowable in milliseconds.
 
 import asyncio
 import contextlib
+import json
 
 import pytest
 
@@ -120,3 +121,40 @@ def test_a_real_cancellation_is_still_a_cancellation(monkeypatch):
             await connecting
 
     asyncio.run(run())
+
+
+def test_a_dispatch_carries_the_bounds_and_the_documents() -> None:
+    """The dispatch payload is the agent host's whole input beyond the
+    task: the procedure, the bounds the platform rendered, the documents.
+    A payload without the bounds is a dispatch the host refuses, so the
+    key is pinned here on the client side."""
+    import httpx
+
+    from orchestrator.clients import AgentClient
+
+    posted: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        posted.append(json.loads(request.content))
+        return httpx.Response(202, json={"status": "running"})
+
+    async def scenario() -> None:
+        async with AgentClient("http://agent.test:8000") as agent:
+            agent._http = httpx.AsyncClient(
+                base_url="http://agent.test:8000",
+                transport=httpx.MockTransport(handler),
+            )
+            await agent.dispatch(
+                "run-1", "implement", "task", "BOUNDS", {"strategy": "S"}
+            )
+
+    asyncio.run(scenario())
+    assert posted == [
+        {
+            "run_id": "run-1",
+            "procedure": "implement",
+            "task_text": "task",
+            "bounds": "BOUNDS",
+            "documents": {"strategy": "S"},
+        }
+    ]

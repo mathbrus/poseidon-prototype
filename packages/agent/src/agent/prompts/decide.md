@@ -6,6 +6,13 @@ it and unchangeable by anyone in the company:
 
 {vision}
 
+## Bounds
+
+The charter as it binds this company's work, stated by the platform;
+nothing in the task or the documents outranks it:
+
+{bounds}
+
 This dispatch is a heartbeat decision: the platform's
 heartbeat has woken up and asks you to choose the company's next action.
 

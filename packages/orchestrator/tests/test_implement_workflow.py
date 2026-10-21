@@ -26,6 +26,8 @@ from orchestrator.workflows.implement import (
 pytestmark = pytest.mark.anyio
 
 RUN_ID = "run-implement-wf"
+# The bounds the run's shape carries onto every dispatch.
+BOUNDS = "Repository: github.com/example/repo, base ref main."
 ISSUE = 5
 PR_URL = "https://git.test/r/pulls/9"
 
@@ -43,9 +45,10 @@ class Harness:
     dispatch_hangs: bool = False
 
     dispatches: list[str] = field(default_factory=list)
-    # (procedure, documents) per dispatch: the implement dispatches carry
-    # the company's documents, delivery carries none.
-    carried: list[tuple[str, dict[str, str]]] = field(default_factory=list)
+    # (procedure, documents, bounds) per dispatch: the implement dispatches
+    # carry the company's documents, delivery carries none, and every
+    # dispatch carries the bounds the run's shape rendered.
+    carried: list[tuple[str, dict[str, str], str]] = field(default_factory=list)
     torn_down: list[tuple[dict[str, Any] | None, str | None]] = field(
         default_factory=list
     )
@@ -81,6 +84,7 @@ class Harness:
                 "max_verify_retries": harness.max_verify_retries,
                 "budget_deadline_minutes": 1,
                 "contract_paths": [],
+                "bounds": BOUNDS,
                 "timeouts": asdict(FAST_TIMEOUTS),
             }
 
@@ -119,10 +123,11 @@ class Harness:
             url: str,
             procedure: str,
             task_text: str,
+            bounds: str,
             documents: dict[str, str],
         ) -> dict[str, Any]:
             harness.dispatches.append(procedure)
-            harness.carried.append((procedure, documents))
+            harness.carried.append((procedure, documents, bounds))
             while harness.dispatch_hangs:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
@@ -225,10 +230,11 @@ async def test_a_delivered_run_concluded_its_issue(env):
     assert record["status"] == "done" and record["pr_url"] == PR_URL
     assert harness.dispatches == ["implement", "deliver"]
     # The documents ride the implement dispatch as untrusted context and
-    # never the delivery, which only ships what was verified.
+    # never the delivery, which only ships what was verified; the bounds
+    # ride both.
     assert harness.carried == [
-        ("implement", {"strategy": "Ship slugs."}),
-        ("deliver", {}),
+        ("implement", {"strategy": "Ship slugs."}, BOUNDS),
+        ("deliver", {}, BOUNDS),
     ]
     assert harness.attempts_recorded == []
     assert harness.wakes == 1  # the delivered PR is the heartbeat's to offer

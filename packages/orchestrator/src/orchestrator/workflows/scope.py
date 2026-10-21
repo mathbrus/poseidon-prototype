@@ -65,7 +65,7 @@ class ScopeWorkflow(RunWorkflow):
             observation = await workflow.execute_activity(
                 "scope_observation",
                 args=[input.run_id],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             result = await self.dispatch(

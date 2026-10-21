@@ -8,7 +8,8 @@ Regenerate deliberately (never reflexively — the diff is the review):
 import json
 
 import pytest
-from conftest import GOLDEN
+import yaml
+from conftest import GOLDEN, REPO_ROOT
 
 from compiler import compile_blueprint
 from compiler.errors import CompileError
@@ -140,10 +141,28 @@ def test_the_company_carries_its_document_paths(blueprint):
 
 def test_workflow_nodes_carry_no_conductor(blueprint):
     """One conductor, named on the heartbeat: a workflow node is its crew,
-    bounds and gates."""
+    limits and gates."""
     plan = compile_blueprint(blueprint)
     assert {w.name: w.crew for w in plan.workflows} == {
         "implement": "feature-delivery",
         "review": "feature-review",
     }
     assert not any(hasattr(w, "conductor") for w in plan.workflows)
+
+
+@pytest.mark.parametrize("example", ["hello-saas.yaml", "hello-saas-delegated.yaml"])
+def test_the_company_carries_its_policies_section(example):
+    """The policies section rides the Company CR as written, lists sorted
+    — what the bundle enforces and what the platform reads to say the
+    bounds and compose the contract-verify baseline. The contract tree
+    is part of it, not a key of its own."""
+    document = yaml.safe_load((REPO_ROOT / "examples" / example).read_text())
+    plan = compile_blueprint(document)
+    assert plan.company.policies["branch_protection"] == {
+        "allowed_pattern": "^feature/[a-z0-9-]+$",
+        "protected": ["main"],
+    }
+    assert plan.company.policies["deny_paths"] == [".github/workflows/"]
+    declared = document["policies"].get("contract_tests")
+    assert plan.company.policies.get("contract_tests") == declared
+    assert "contract_tests" not in plan.as_dict()

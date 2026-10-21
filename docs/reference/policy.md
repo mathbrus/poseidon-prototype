@@ -22,7 +22,12 @@ is a reserved company name. The answer is always the same shape:
 ```
 
 Everything is default-deny, and the lowest-sorting deny wins over any
-allow. The `rule` is the name that lands in the audit row.
+allow. The `rule` is the name that lands in the audit row. The caller
+hears more: a denial's text names the rule and, for the rules the
+`policies` section and the document paths compile to, what it refused —
+the branch and the pattern it had to match, the path and the prefix it
+fell under — read by the gateway from the applied blueprint, the same
+record every dispatch's bounds are rendered from.
 
 A bundle reaches OPA by OPA's own polling of the bundle server; nothing
 is pushed. The operator writes the Company's `phase: converged` — and the

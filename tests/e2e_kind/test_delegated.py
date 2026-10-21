@@ -34,6 +34,7 @@ import re
 import secrets
 
 import pytest
+import yaml
 
 from common.audit import REVIEW_VERDICT
 from common.policy import HEARTBEAT_START, MERGE_RESOLVE
@@ -126,6 +127,12 @@ def delegated_overnight(stack: None, baseline_env: dict) -> dict:
         result["merged_pr"] = github_api(
             env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
         ).json()
+        result["merged_files"] = [
+            f["filename"]
+            for f in github_api(
+                env, "GET", f"/repos/{target_slug(env)}/pulls/{number}/files"
+            ).json()
+        ]
         yield result
     finally:
         close_pr(env, result.get("pr_number") or 0)
@@ -153,6 +160,18 @@ def test_the_in_class_pr_merged_with_no_human_act(delegated_overnight: dict):
     assert delegated_overnight["merged_pr"]["merged"] is True, (
         "the in-class PR did not merge unattended"
     )
+
+
+def test_the_merged_work_fell_in_the_delegated_class(delegated_overnight: dict):
+    """The implementer put the slice where the bounds said a merge is
+    delegated: every file of the merged PR is under one of the blueprint's
+    `delegate.paths` — the class the bounds named, not a guess."""
+    gate = yaml.safe_load(DELEGATED.read_text())["workflows"]["review"]["gates"]["merge"]
+    delegated = gate["delegate"]["paths"]
+    files = delegated_overnight["merged_files"]
+    assert files, "the merged PR changed no files"
+    outside = [f for f in files if not any(f.startswith(p) for p in delegated)]
+    assert outside == [], f"merged files outside the delegated class: {outside}"
 
 
 def test_the_merge_was_released_by_policy_not_a_human(delegated_overnight: dict):

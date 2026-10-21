@@ -3,7 +3,16 @@ summary comment on the ticket, through governed tools only; a gateway deny
 surfaces as a tool observation the model sees, never a crash."""
 
 import pytest
-from conftest import ISSUE_COMMENT_URL, ScriptedLLM, calls, says, scripted, tc, text_of
+from conftest import (
+    BOUNDS,
+    ISSUE_COMMENT_URL,
+    ScriptedLLM,
+    calls,
+    says,
+    scripted,
+    tc,
+    text_of,
+)
 
 from agent.config import AgentSettings
 from agent.procedures import run_scope
@@ -44,7 +53,9 @@ def test_pm_files_ticket_and_posts_its_summary(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_scope(settings, "run-pm-1", "Strategy:\nShip a slug endpoint")
+        result = run_scope(
+            settings, "run-pm-1", "Strategy:\nShip a slug endpoint", BOUNDS
+        )
 
     assert result.error is None
     assert result.ticket_urls == ["https://github.test/i/7"]
@@ -81,7 +92,9 @@ def test_pm_deny_surfaces_as_tool_error_not_crash(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_scope(settings, "run-pm-1", "Strategy:\nShip a slug endpoint")
+        result = run_scope(
+            settings, "run-pm-1", "Strategy:\nShip a slug endpoint", BOUNDS
+        )
 
     assert result.error is None
     assert result.ticket_urls == ["https://github.test/i/7"]
@@ -95,7 +108,9 @@ def test_pm_with_nothing_to_scope_finishes_clean(settings, gateway):
     llm = ScriptedLLM([says("The strategy names no further slice.")])
 
     with scripted(gateway, llm):
-        result = run_scope(settings, "run-pm-1", "Strategy:\nAll slices delivered.")
+        result = run_scope(
+            settings, "run-pm-1", "Strategy:\nAll slices delivered.", BOUNDS
+        )
 
     assert result.error is None
     assert result.ticket_urls == [] and result.comment_urls == []
@@ -112,7 +127,9 @@ def test_pm_that_files_but_never_summarizes_fails_honestly(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_scope(settings, "run-pm-1", "Strategy:\nShip a slug endpoint")
+        result = run_scope(
+            settings, "run-pm-1", "Strategy:\nShip a slug endpoint", BOUNDS
+        )
 
     assert result.error == "PM filed tickets without posting its summary"
     assert result.ticket_urls == ["https://github.test/i/7"]
@@ -135,7 +152,9 @@ def test_pm_summary_comment_denied_is_a_tool_error_then_an_honest_failure(
     )
 
     with scripted(gateway, llm):
-        result = run_scope(settings, "run-pm-1", "Strategy:\nShip a slug endpoint")
+        result = run_scope(
+            settings, "run-pm-1", "Strategy:\nShip a slug endpoint", BOUNDS
+        )
 
     assert result.error == "PM filed tickets without posting its summary"
     assert result.ticket_urls == ["https://github.test/i/7"]

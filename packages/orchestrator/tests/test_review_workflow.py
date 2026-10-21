@@ -46,6 +46,8 @@ from orchestrator.workflows.review import ReviewInput, ReviewWorkflow
 pytestmark = pytest.mark.anyio
 
 RUN_ID = "run-review-wf"
+# The bounds the run's shape carries onto every dispatch.
+BOUNDS = "Repository: github.com/example/repo, base ref main."
 PR = 41
 
 POLICY_GATE = {
@@ -125,6 +127,8 @@ class Harness:
     # A dispatch that never answers, so a test can cancel the run mid-flight.
     dispatch_hangs: bool = False
     dispatches: int = 0
+    # (procedure, documents, bounds) per dispatch.
+    carried: list[tuple[str, dict[str, str], str]] = field(default_factory=list)
 
     def activities(self) -> list[Any]:
         harness = self
@@ -148,6 +152,7 @@ class Harness:
                 "max_verify_retries": 0,
                 "budget_deadline_minutes": 1,
                 "contract_paths": list(harness.contract_paths),
+                "bounds": BOUNDS,
                 "timeouts": asdict(FAST_TIMEOUTS),
             }
 
@@ -212,9 +217,11 @@ class Harness:
             url: str,
             procedure: str,
             task_text: str,
+            bounds: str,
             documents: dict[str, str],
         ) -> dict[str, Any]:
             harness.dispatches += 1
+            harness.carried.append((procedure, documents, bounds))
             while harness.dispatch_hangs:
                 # Heartbeat so the workflow's cancel reaches the activity.
                 activity.heartbeat()
@@ -468,6 +475,8 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     assert harness.verdicts == [("pass", "Suite green; in scope.")]
     assert harness.verify_calls == 1
     assert harness.independence_calls == 1
+    # The reviewer was dispatched under the bounds, with the documents.
+    assert harness.carried == [("review", {"strategy": "Ship slugs."}, BOUNDS)]
     # The compiled decision saw the real facts, changed paths included.
     assert harness.resolve_args == [
         [

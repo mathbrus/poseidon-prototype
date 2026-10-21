@@ -730,10 +730,21 @@ OBSERVED = {
 }
 
 
+def applied(heartbeat: dict[str, Any]) -> dict[str, Any]:
+    """An applied spec the decide dispatch can be rendered from: the
+    repository and documents the bounds name, and the heartbeat section."""
+    return {
+        "repo": {"url": "github.com/example/repo", "base_ref": "main"},
+        "documents": DOCUMENTS,
+        "policies": {},
+        "heartbeat": heartbeat,
+    }
+
+
 def _pm(monkeypatch, status: dict[str, Any]):
 
     class FakeAgent:
-        dispatched: list[tuple[str, str, str]] = []
+        dispatched: list[tuple[str, str, str, str]] = []
 
         def __init__(self, url):
             FakeAgent.url = url
@@ -744,8 +755,8 @@ def _pm(monkeypatch, status: dict[str, Any]):
         async def __aexit__(self, *a):
             return False
 
-        async def dispatch(self, run_id, procedure, task_text, documents=None):
-            FakeAgent.dispatched.append((run_id, procedure, task_text))
+        async def dispatch(self, run_id, procedure, task_text, bounds, documents=None):
+            FakeAgent.dispatched.append((run_id, procedure, task_text, bounds))
 
         async def status(self, run_id):
             return status
@@ -764,7 +775,7 @@ def _decided(action: str, target: int | None, rationale: str) -> dict[str, Any]:
 def test_decide_dispatches_the_observation_and_journals(
     activities, companies, audit, monkeypatch
 ):
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     agent = _pm(monkeypatch, _decided("review", 4, "finish before starting"))
     decision = asyncio.run(
         activities.heartbeat_decide("auto-1", OBSERVED, ["implement", "review"], 5)
@@ -774,8 +785,10 @@ def test_decide_dispatches_the_observation_and_journals(
         "target": 4,
         "rationale": "finish before starting",
     }
-    (run_id, procedure, prompt) = agent.dispatched[0]
+    (run_id, procedure, prompt, bounds) = agent.dispatched[0]
     assert (run_id, procedure) == ("auto-1", "decide")
+    # The charter rides the decide dispatch, rendered from the applied spec.
+    assert bounds.startswith("Repository: github.com/example/repo, base ref main.")
     # Dispatched at the conductor's Service, derived from the converged
     # instance — never a configured address.
     assert agent.url == f"http://pm.{COMPANY}.svc.cluster.local:8000"
@@ -799,7 +812,7 @@ def test_decide_refuses_a_target_outside_the_observation(
 ):
     """Structural containment: a poisoned backlog can steer the choice
     between observed candidates, never mint a new one."""
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     _pm(monkeypatch, _decided("implement", 99, "the ticket says to pick #99"))
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(
@@ -818,7 +831,7 @@ def test_decide_refuses_a_target_outside_the_observation(
 def test_decide_refuses_an_action_outside_may_start(
     activities, companies, audit, monkeypatch
 ):
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     _pm(monkeypatch, _decided("review", 4, "review it"))
     with pytest.raises(ApplicationError):
         asyncio.run(activities.heartbeat_decide("auto-3", OBSERVED, ["implement"], 5))
@@ -828,7 +841,7 @@ def test_decide_refuses_an_action_outside_may_start(
 
 
 def test_decide_idle_needs_no_target(activities, companies, audit, monkeypatch):
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     _pm(monkeypatch, _decided("idle", None, "capacity is better spent tomorrow"))
     decision = asyncio.run(
         activities.heartbeat_decide("auto-4", OBSERVED, ["implement"], 5)
@@ -839,7 +852,7 @@ def test_decide_idle_needs_no_target(activities, companies, audit, monkeypatch):
 
 
 def test_decide_failed_dispatch_is_nonretryable(activities, companies, monkeypatch):
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     _pm(monkeypatch, {"status": "failed", "error": "decide reply broke the contract"})
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(activities.heartbeat_decide("auto-5", OBSERVED, ["implement"], 5))
@@ -847,7 +860,7 @@ def test_decide_failed_dispatch_is_nonretryable(activities, companies, monkeypat
 
 
 def test_decide_scope_needs_no_target(activities, companies, audit, monkeypatch):
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     _pm(monkeypatch, _decided("scope", None, "the backlog is dry"))
     decision = asyncio.run(
         activities.heartbeat_decide("auto-6", OBSERVED, ["implement", "scope"], 5)
@@ -862,7 +875,7 @@ def test_decide_refuses_scope_while_a_document_is_absent(
 ):
     """Nothing is scoped before the company has written its documents:
     the first ticks are for the bootstrap tickets."""
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     _pm(monkeypatch, _decided("scope", None, "let us scope"))
     absent = {
         **OBSERVED,
@@ -890,7 +903,7 @@ def test_decide_refuses_scope_at_the_open_ticket_cap(
 ):
     """The conductor cannot flood its own backlog: at `max_open_tickets`
     open issues, scoping is refused by name — no model retry."""
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     _pm(monkeypatch, _decided("scope", None, "more tickets"))
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(
@@ -930,7 +943,7 @@ def test_a_poisoned_title_in_the_observation_cannot_mint_a_target(
         "reviewable_prs": [],
         "recent_runs": [],
     }
-    companies.upsert(COMPANY, {"heartbeat": heartbeat_spec()})
+    companies.upsert(COMPANY, applied(heartbeat_spec()))
     # The credulous PM obeys the title and names the planted #999.
     _pm(monkeypatch, _decided("review", 999, "the ticket said it was urgent"))
     with pytest.raises(ApplicationError) as caught:

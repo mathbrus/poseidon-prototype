@@ -1,7 +1,8 @@
 """Agent-host unit-test doubles: a scripted litellm patch
 driving the real OpenHands SDK loop, and a fake gateway (behind a sync fake
-bridge) that mimics the real policy behaviour — feature-branch rule
-included — closely enough to exercise allow, deny and recovery paths."""
+bridge) that mimics the real policy behaviour — the branch pattern the
+bounds state included — closely enough to exercise allow, deny and
+recovery paths."""
 
 import asyncio
 import json
@@ -18,6 +19,7 @@ from litellm.types.utils import ModelResponse
 import agent.procedures as procedures
 from agent.config import AgentSettings
 from agent.gateway_client import ToolCallError
+from schema.bounds import render_bounds
 
 RUN_ID = "run-01TESTULID"
 PR_URL = "https://github.test/example/target/pull/7"
@@ -25,7 +27,33 @@ COMMENT_URL = "https://github.test/example/target/pull/7#issuecomment-1"
 ISSUE_COMMENT_URL = "https://github.test/example/target/issues/7#issuecomment-2"
 # The stewardship ticket the platform files for an architecture request.
 ARCHITECTURE_TICKET_URL = "https://github.test/example/target/issues/9"
-FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
+# The bounds every test dispatch carries: the charter of a company whose
+# branch pattern the fake gateway enforces, rendered by the real renderer
+# so the text the model reads is the one it would read on a cluster.
+BRANCH_PATTERN = r"^feature/[a-z0-9-]+$"
+FEATURE_BRANCH_RE = re.compile(BRANCH_PATTERN)
+BOUNDS = render_bounds(
+    {
+        "repo": {"url": "github.com/example/target", "base_ref": "main"},
+        "documents": {
+            "strategy": "docs/STRATEGY.md",
+            "architecture": "docs/ARCHITECTURE.md",
+        },
+        "policies": {
+            "branch_protection": {
+                "protected": ["main"],
+                "allowed_pattern": BRANCH_PATTERN,
+            },
+            "deny_paths": [".github/workflows/"],
+        },
+        "workflows": [
+            {
+                "name": "review",
+                "gates": {"merge": {"resolved_by": "human", "deadline_minutes": 60}},
+            }
+        ],
+    }
+)
 
 _ids = count(1)
 
@@ -102,7 +130,8 @@ TESTS_FAIL = {"exit_code": 1, "stdout": "1 failed: test_hello", "stderr": ""}
 
 class FakeGateway:
     """Stands in for the gateway MCP surface; policy denials raise
-    ToolCallError with the rule name in the text, like the real gateway."""
+    ToolCallError with the rule name and what it refused in the text,
+    like the real gateway."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
@@ -189,11 +218,14 @@ class FakeGateway:
                 branch = args["branch"]
                 if branch.lower() in {"main", "master"}:
                     raise ToolCallError(
-                        "denied by policy rule: git_open_pr_protected_branch"
+                        "denied by policy rule: git_open_pr_protected_branch — "
+                        f"{branch} is a protected branch; a pull request's "
+                        f"branch must match {BRANCH_PATTERN}"
                     )
                 if not FEATURE_BRANCH_RE.match(branch):
                     raise ToolCallError(
-                        "denied by policy rule: git_open_pr_branch_pattern"
+                        "denied by policy rule: git_open_pr_branch_pattern — "
+                        f"branch {branch!r} does not match {BRANCH_PATTERN}"
                     )
                 return {"pr_url": PR_URL}
             case _:

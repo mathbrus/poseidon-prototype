@@ -86,12 +86,14 @@ def compile_blueprint(
     company = company_section["name"]
     namespace = COMPANY_NAMESPACE
     repo = Repo(**blueprint["stack"]["repo"])
+    policies = _sorted(blueprint.get("policies") or {})
     company_cr = CompanyCR(
         name=company,
         namespace=namespace,
         vision=company_section["vision"],
         repo=repo,
         documents=dict(sorted(company_section["documents"].items())),
+        policies=policies,
     )
 
     scopes = blueprint.get("tools") or {}
@@ -106,7 +108,7 @@ def compile_blueprint(
             company=company,
             instances=list(instances),
             ephemeral_agents=list(ephemeral_agents),
-            policies=blueprint.get("policies") or {},
+            policies=policies,
             repo_url=repo.url,
             heartbeat=heartbeat,
             documents=company_cr.documents,
@@ -125,8 +127,18 @@ def compile_blueprint(
         platform_bundle=RegoBundle(files=build_platform_bundle(PLATFORM_SCOPE)),
         heartbeat=heartbeat,
         humans=tuple(company_section["humans"]),
-        contract_tests=(blueprint.get("policies") or {}).get("contract_tests"),
     )
+
+
+def _sorted(value: Any) -> Any:
+    """The value with every list sorted and every dict keyed in order —
+    the policies section as the applied record carries it, equal to
+    itself whatever order the blueprint wrote it in."""
+    if isinstance(value, dict):
+        return {k: _sorted(value[k]) for k in sorted(value)}
+    if isinstance(value, list):
+        return sorted(_sorted(v) for v in value)
+    return value
 
 
 def _scope(role: Role, scopes: dict[str, Any]) -> tuple[str, ...]:

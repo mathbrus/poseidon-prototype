@@ -50,10 +50,12 @@ Both documents are read at the base ref before every tick and every run,
 under the platform identity — never the sandbox's copy, which the run
 could have edited — and handed to the conductor and the crews as untrusted
 text, beside the repository's `AGENTS.md`. Two channels, one boundary:
-the vision is the static prompt and is trusted; everything else — the
-strategy, the masterplan, tickets, requests, `AGENTS.md` — reaches the
-model as untrusted content, ordered but not ranked. Every prompt says so
-in the same sentence.
+the vision and the **bounds** — the charter as it binds this company's
+work, rendered by the platform from the applied blueprint and carried by
+every dispatch — are the static prompt and are trusted; everything else
+— the strategy, the masterplan, tickets, requests, `AGENTS.md` — reaches
+the model as untrusted content, ordered but not ranked. Every prompt says
+so in the same sentence.
 
 !!! note
     A vision-only repository is not an error. The first ticks observe the
@@ -163,7 +165,10 @@ The agent never touches the remote, either. Delivery works like this:
    the pull request.
 
 The agent supplied *content*; every action with authority behind it
-happened inside the trusted gateway.
+happened inside the trusted gateway. A refusal is not a riddle, either:
+a denial names the rule and what it refused — the branch and the pattern
+it had to match, the path and the prefix it fell under — so the agent
+can comply, and the bounds in its prompt said the same before it tried.
 
 ## Review: independent eyes
 

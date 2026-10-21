@@ -308,18 +308,21 @@ class AgentClient:
         run_id: str,
         procedure: str,
         task_text: str,
+        bounds: str,
         documents: dict[str, str] | None = None,
     ) -> None:
-        """Ask the agent to run `procedure` on `task_text`, with the
-        company's documents as untrusted context. Idempotent under retry:
-        409 means the agent already has the run (a previous attempt
-        dispatched it before the worker died) — the caller proceeds to
-        polling either way. No credential rides the dispatch — every pod
-        holds its own projected token."""
+        """Ask the agent to run `procedure` on `task_text`, with the bounds
+        the platform rendered for the company and its documents as
+        untrusted context. Idempotent under retry: 409 means the agent
+        already has the run (a previous attempt dispatched it before the
+        worker died) — the caller proceeds to polling either way. No
+        credential rides the dispatch — every pod holds its own projected
+        token."""
         payload = {
             "run_id": run_id,
             "procedure": procedure,
             "task_text": task_text,
+            "bounds": bounds,
             "documents": documents or {},
         }
         resp = await self._http.post("/task", json=payload)
@@ -340,6 +343,7 @@ async def dispatch_and_poll(
     run_id: str,
     procedure: str,
     task_text: str,
+    bounds: str,
     documents: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Dispatch a procedure to the agent at `url` and poll it to a terminal
@@ -348,7 +352,7 @@ async def dispatch_and_poll(
     or the workflow history. Callable outside an activity (unit tests): the
     heartbeat is skipped when there is no activity context."""
     async with AgentClient(url) as agent:
-        await agent.dispatch(run_id, procedure, task_text, documents)
+        await agent.dispatch(run_id, procedure, task_text, bounds, documents)
         while True:
             if activity.in_activity():
                 activity.heartbeat()

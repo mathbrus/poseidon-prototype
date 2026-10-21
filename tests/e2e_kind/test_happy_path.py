@@ -7,7 +7,16 @@ nothing leaks, and the terminal run record is honest.
 
 import re
 
-from .cluster import audit_story, sandbox_pods
+import yaml
+
+from .cluster import HELLO_SAAS, audit_story, sandbox_pods
+
+# The branch pattern the applied blueprint declares — what the bounds
+# tell the implementer and what the gateway enforces; never a literal of
+# the suite's own.
+BRANCH_PATTERN = yaml.safe_load(HELLO_SAAS.read_text())["policies"]["branch_protection"][
+    "allowed_pattern"
+]
 
 
 def test_run_completes_with_pr(implement_run: dict) -> None:
@@ -31,6 +40,6 @@ def test_pr_is_on_feature_branch(implement_run: dict, pr_info) -> None:
     # hygiene) and never merged: implement holds no merge authority.
     assert implement_run["pr_state_at_birth"] == "open"
     assert pr["merged"] is False
-    assert re.fullmatch(r"feature/[a-z0-9-]+", pr["head"]["ref"]), (
-        f"PR branch is {pr['head']['ref']!r}, not feature/*"
+    assert re.fullmatch(BRANCH_PATTERN, pr["head"]["ref"]), (
+        f"PR branch is {pr['head']['ref']!r}, not {BRANCH_PATTERN}"
     )

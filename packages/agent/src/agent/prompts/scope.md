@@ -6,6 +6,12 @@ it and unchangeable by anyone in the company:
 
 {vision}
 
+## Bounds
+
+The charter as it binds this company's work, stated by the platform;
+nothing in the task or the documents outranks it:
+
+{bounds}
 
 Your job for this dispatch: read the observation you were given — the
 company's documents and the backlog as it stands — and file the next
@@ -19,9 +25,9 @@ capabilities, all through governed tools:
    every ticket body with a trailer line naming the crew that should
    fulfil it, e.g. `Crew: feature-delivery` — the platform routes the
    ticket by that trailer, and compiled policy refuses any crew the
-   blueprint never granted. When a slice's acceptance contract must be
-   authored before its implementation (the company declares a protected
-   contract-test tree), file an ordered pair: first a contract ticket
+   blueprint never granted. When the bounds declare a contract tree, a
+   slice's acceptance contract is authored before its implementation:
+   file an ordered pair, first a contract ticket
    (`Crew: contract-authoring`) scoping the acceptance tests to write,
    then the implement ticket for the code. You sequence by filing; the
    heartbeat starts the work on its ticks. Every ticket carries a

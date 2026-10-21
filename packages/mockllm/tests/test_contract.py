@@ -39,7 +39,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # the real agent host here.
 TICKETS = REPO_ROOT / "tests" / "e2e_kind" / "tickets"
 PR_URL = "https://github.test/example/target/pull/7"
-FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
+BRANCH_PATTERN = r"^feature/[a-z0-9-]+$"
+FEATURE_BRANCH_RE = re.compile(BRANCH_PATTERN)
+# The bounds every dispatch carries; the mock brain reads the procedure
+# header, not these, so a one-line stand-in is enough here.
+BOUNDS = (
+    f"Branches: main is protected; a pull request's branch must match {BRANCH_PATTERN}."
+)
 
 
 @pytest.fixture(scope="module")
@@ -112,11 +118,14 @@ class FakeGateway:
                 branch = args["branch"]
                 if branch.lower() in {"main", "master"}:
                     raise ToolCallError(
-                        "denied by policy rule: git_open_pr_protected_branch"
+                        "denied by policy rule: git_open_pr_protected_branch — "
+                        f"{branch} is a protected branch; a pull request's "
+                        f"branch must match {BRANCH_PATTERN}"
                     )
                 if not FEATURE_BRANCH_RE.match(branch):
                     raise ToolCallError(
-                        "denied by policy rule: git_open_pr_branch_pattern"
+                        "denied by policy rule: git_open_pr_branch_pattern — "
+                        f"branch {branch!r} does not match {BRANCH_PATTERN}"
                     )
                 return {"pr_url": PR_URL}
             case "git.read":
@@ -173,14 +182,14 @@ def test_happy_task_claims_then_delivers_on_the_feature_branch(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        claim = run_implement(cfg, "run-mock-e1", task_text)
+        claim = run_implement(cfg, "run-mock-e1", task_text, BOUNDS)
     assert claim.error is None
     assert claim.pr_url is None  # the brain never self-delivers
     assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
     assert not any(tool == "git.open_pr" for tool, _ in gateway.calls)
 
     with bridged(gateway):
-        delivered = run_deliver(cfg, "run-mock-e1", task_text)
+        delivered = run_deliver(cfg, "run-mock-e1", task_text, BOUNDS)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
@@ -199,13 +208,13 @@ def test_happy_task_over_the_responses_surface(mock_llm_url):
     cfg = settings(mock_llm_url, model="gpt-5.6-luna")
     gateway = FakeGateway()
     with bridged(gateway):
-        claim = run_implement(cfg, "run-mock-resp", task_text)
+        claim = run_implement(cfg, "run-mock-resp", task_text, BOUNDS)
     assert claim.error is None
     assert claim.pr_url is None
     assert set(gateway.files) == {"slugify.py", "tests/unit/test_slugify.py"}
 
     with bridged(gateway):
-        delivered = run_deliver(cfg, "run-mock-resp", task_text)
+        delivered = run_deliver(cfg, "run-mock-resp", task_text, BOUNDS)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args for tool, args in gateway.calls if tool == "git.open_pr"]
@@ -219,11 +228,11 @@ def test_injected_task_is_denied_on_main_and_recovers(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        claim = run_implement(cfg, "run-mock-e2", task_text)
+        claim = run_implement(cfg, "run-mock-e2", task_text, BOUNDS)
     assert claim.error is None and claim.pr_url is None
 
     with bridged(gateway):
-        delivered = run_deliver(cfg, "run-mock-e2", task_text)
+        delivered = run_deliver(cfg, "run-mock-e2", task_text, BOUNDS)
     assert delivered.error is None
     assert delivered.pr_url == PR_URL
     opened = [args["branch"] for tool, args in gateway.calls if tool == "git.open_pr"]
@@ -276,7 +285,7 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     gateway = GatedFakeGateway()
 
     with bridged(gateway):
-        claim = run_implement(cfg, "run-mock-e3", task_text)
+        claim = run_implement(cfg, "run-mock-e3", task_text, BOUNDS)
     assert claim.error is None and claim.pr_url is None
     assert "tests/unit/test_gate.py" in gateway.files
 
@@ -294,14 +303,14 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
         " pass. Test output (tail):\n1 failed"
     )
     with bridged(gateway):
-        reclaim = run_implement(cfg, "run-mock-e3", feedback)
+        reclaim = run_implement(cfg, "run-mock-e3", feedback, BOUNDS)
     assert reclaim.error is None
     assert "tests/unit/test_gate.py" not in gateway.files
 
     # The platform's re-verify is green; only now is delivery dispatched.
     assert (asyncio.run(gateway.call("sandbox.run_tests", {})))["exit_code"] == 0
     with bridged(gateway):
-        delivered = run_deliver(cfg, "run-mock-e3", task_text)
+        delivered = run_deliver(cfg, "run-mock-e3", task_text, BOUNDS)
     assert delivered.pr_url == PR_URL
 
 
@@ -320,7 +329,7 @@ def test_review_dispatch_reads_executes_and_posts_findings(mock_llm_url):
     cfg = settings(mock_llm_url)
     gateway = FakeGateway()
     with bridged(gateway):
-        result = run_review(cfg, "run-mock-review", task_text)
+        result = run_review(cfg, "run-mock-review", task_text, BOUNDS)
     assert result.error is None
     assert result.comment_urls == [f"{PR_URL}#issuecomment-1"]
     assert result.verdict == "pass"

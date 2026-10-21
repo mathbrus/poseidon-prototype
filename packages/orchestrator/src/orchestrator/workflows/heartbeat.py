@@ -147,7 +147,7 @@ class HeartbeatWorkflow(RunWorkflow):
         if not config:
             await self._record(TICK_STOPPED, "blueprint_absent")
             return {"stopped": "no applied blueprint for the company"}
-        self._bounds = Timeouts(**config["timeouts"])
+        self._profile = Timeouts(**config["timeouts"])
 
         if config.get("paused"):
             # A human holds the loop: nothing is observed, decided or
@@ -187,7 +187,7 @@ class HeartbeatWorkflow(RunWorkflow):
         """One look at the world and, when there is something to do and
         policy allows it, one child run started. Returns the tick's
         (outcome, rule)."""
-        step = timedelta(seconds=self._bounds.step_s)
+        step = timedelta(seconds=self._profile.step_s)
         outcome, rule = TICK_IDLE, ""
         try:
             observed = await workflow.execute_activity(
@@ -268,7 +268,7 @@ class HeartbeatWorkflow(RunWorkflow):
     ) -> tuple[str, str]:
         """Ask the PM for one action and, if policy allows it, start the
         child run. Returns the tick's (outcome, rule)."""
-        step = timedelta(seconds=self._bounds.step_s)
+        step = timedelta(seconds=self._profile.step_s)
         # The run id is minted before the decision: heartbeat_decide
         # registers it as the decision's own run so the PM's LLM call can
         # bind (the gateway rejects an unattributed run), and a started
@@ -283,12 +283,12 @@ class HeartbeatWorkflow(RunWorkflow):
                 list(config.get("may_start") or []),
                 int(config["max_open_tickets"]),
             ],
-            start_to_close_timeout=timedelta(seconds=self._bounds.dispatch_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.dispatch_s),
             schedule_to_close_timeout=timedelta(
-                seconds=self._bounds.dispatch_schedule_to_close_s
+                seconds=self._profile.dispatch_schedule_to_close_s
             ),
             # Temporal's activity liveness heartbeat, not the company's.
-            heartbeat_timeout=timedelta(seconds=self._bounds.dispatch_heartbeat_s),
+            heartbeat_timeout=timedelta(seconds=self._profile.dispatch_heartbeat_s),
             retry_policy=DISPATCH_RETRY,
         )
         action = decision["action"]
@@ -345,6 +345,6 @@ class HeartbeatWorkflow(RunWorkflow):
         await workflow.execute_activity(
             "record_tick",
             args=[outcome, rule, workflow.info().workflow_id],
-            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )

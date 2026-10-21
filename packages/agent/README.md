@@ -48,15 +48,15 @@ for it.
 | `app.py` | The HTTP API: `POST /task`, `GET /task/{run_id}`. |
 | `procedures.py` | The five procedures (`run_scope`, `run_decide`, `run_implement`, `run_deliver`, `run_review`), the SDK conversation setup, `GatewayBridge`. |
 | `hands.py` | The model-facing tool schemas, each resolving to a gateway call. |
-| `prompting.py` | Everything that reaches the model before its first turn: the procedure's text followed by the SDK's heuristic sections, and the repository's `AGENTS.md` as untrusted context. |
+| `prompting.py` | Everything that reaches the model before its first turn: the procedure's text with the vision and the bounds rendered into it, followed by the SDK's heuristic sections, and the repository's `AGENTS.md` and the company's documents as untrusted context. |
 | `gateway_client.py` | The async MCP client (`McpGateway`, `ToolCallError`). |
 | `config.py` | Settings, including the pod's role and gateway-credential resolution. |
-| `prompts/` | One file per procedure (`scope.md`, `decide.md`, `implement.md`, `deliver.md`, `review.md`), edited as prose. Each opens with the one line that is a contract with the mock brain: `# Poseidon procedure: <name>` (`PROCEDURE_HEADER`), which the host also checks against the file's name. |
+| `prompts/` | One file per procedure (`scope.md`, `decide.md`, `implement.md`, `deliver.md`, `review.md`), edited as prose. Each opens with the one line that is a contract with the mock brain: `# Poseidon procedure: <name>` (`PROCEDURE_HEADER`), which the host also checks against the file's name, and each carries `{bounds}` — the charter as it binds the company's work, which every dispatch delivers; a file without it is refused like one with a wrong header. |
 
 ## Dispatch: the /task API
 
 The orchestrator's workflows drive this host through one small API.
-`POST /task {run_id, procedure, task_text, documents}` answers 202 and
+`POST /task {run_id, procedure, task_text, bounds, documents}` answers 202 and
 runs the procedure on a background task; `GET /task/{run_id}` reports
 `status` plus every field of the `ProcedureResult` (`pr_url`,
 `iterations`, `error`, `ticket_urls`, `comment_urls`, `verdict`,
@@ -215,10 +215,12 @@ Three more mechanisms worth knowing:
   the PR URL — base64 bundles never enter the model context (a test
   asserts no message the model saw contains the bundle bytes).
 - **A denial is a tool result, not a crash.** A gateway deny raises
-  `ToolCallError` carrying the OPA rule name; the tool executor turns it into
-  an `ERROR: ...` observation. The model reads the rule name and can
-  recover — the tests script an agent that tries `open_pr` on `main`,
-  sees `git_open_pr_protected_branch`, and retries on `feature/*`.
+  `ToolCallError` carrying the OPA rule name and what it refused (the
+  branch and the pattern it had to match, the path and the prefix it fell
+  under); the tool executor turns it into an `ERROR: ...` observation.
+  The model reads it and can recover — the tests script an agent that
+  tries `open_pr` on `main`, sees `git_open_pr_protected_branch` and the
+  pattern, and retries on a branch the bounds allow.
 - **Results are recorded as they happen.** `ToolRecords` captures the PR
   URL, ticket URLs, crew-request id and comment URLs at the tool executor, so
   the dispatch reports facts it saw, never a parse of the transcript.
@@ -322,7 +324,8 @@ lifecycle bugs fail here, not on kind.
   from, never a crash.
 - `run_id` and `target_repo` are injected at call time and appear in no
   model-facing schema.
-- Prompt files are rendered with literal placeholder substitution, not
+- Prompt files are rendered with literal placeholder substitution
+  (`{target_repo}`, `{vision}`, `{bounds}`), in one pass, not
   `str.format`: they are prose, and a stray brace must stay a brace.
 - One dispatch at a time per agent host (409 on re-dispatch); a terminal
   run re-dispatched restarts.

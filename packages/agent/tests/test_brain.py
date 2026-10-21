@@ -7,6 +7,8 @@ import threading
 import pytest
 from conftest import (
     ARCHITECTURE_TICKET_URL,
+    BOUNDS,
+    BRANCH_PATTERN,
     COMMENT_URL,
     PR_URL,
     RUN_ID,
@@ -47,7 +49,7 @@ def test_happy_path_ends_in_a_completion_claim(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
     assert result.pr_url is None  # the brain never self-delivers
@@ -79,7 +81,7 @@ def test_a_tree_with_no_tests_is_advisory_green(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
     assert result.iterations == 1
@@ -113,7 +115,7 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_deliver(settings, RUN_ID, TASK)
+        result = run_deliver(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.pr_url == PR_URL
     assert result.error is None
@@ -154,7 +156,9 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_review(settings, RUN_ID, "Review pull request #41 (url): Add greet")
+        result = run_review(
+            settings, RUN_ID, "Review pull request #41 (url): Add greet", BOUNDS
+        )
 
     assert result.error is None
     assert result.comment_urls == [COMMENT_URL]
@@ -178,7 +182,7 @@ def test_review_without_findings_fails_the_dispatch(settings, gateway):
     llm = ScriptedLLM([says("Looks fine, nothing to say.")])
 
     with scripted(gateway, llm):
-        result = run_review(settings, RUN_ID, "Review pull request #41")
+        result = run_review(settings, RUN_ID, "Review pull request #41", BOUNDS)
 
     assert result.error == "reviewer posted no findings"
     assert result.comment_urls == []
@@ -201,7 +205,7 @@ def test_review_without_a_verdict_fails_the_dispatch(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_review(settings, RUN_ID, "Review pull request #41")
+        result = run_review(settings, RUN_ID, "Review pull request #41", BOUNDS)
 
     assert result.error == "reviewer finished without a verdict"
     assert result.comment_urls == [COMMENT_URL]
@@ -216,12 +220,12 @@ def test_prompt_and_toolsets_per_phase(settings, gateway):
     llm = ScriptedLLM([says("nothing to do")])
 
     with scripted(gateway, llm):
-        run_implement(settings, RUN_ID, TASK)
+        run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     messages, tools = llm.requests[0]
     assert messages[0]["role"] == "system"
     system = text_of(messages[0])
-    assert "feature/" in system
+    assert BRANCH_PATTERN in system  # the bounds, not a rule of the prompt's own
     assert settings.target_repo in system
     assert "open_pr" not in system  # the prompt matches the tool surface
     task_message = text_of(messages[1])
@@ -248,15 +252,15 @@ def test_prompt_and_toolsets_per_phase(settings, gateway):
 
 def test_deliver_prompt_names_the_delivery_tool(settings, gateway):
     """The deliver dispatch's prompt is the delivery procedure: it names
-    open_pr and the feature-branch rule."""
+    open_pr, and the branch pattern reaches it through the bounds."""
     llm = ScriptedLLM([says("stopping without delivering")])
 
     with scripted(gateway, llm):
-        run_deliver(settings, RUN_ID, TASK)
+        run_deliver(settings, RUN_ID, TASK, BOUNDS)
 
     system = text_of(llm.requests[0][0][0])
     assert "open_pr" in system
-    assert "feature/" in system
+    assert BRANCH_PATTERN in system
     assert settings.target_repo in system
 
 
@@ -266,7 +270,7 @@ def test_review_prompt_is_the_reviewers(settings, gateway):
     llm = ScriptedLLM([says("nothing to say")])
 
     with scripted(gateway, llm):
-        run_review(settings, RUN_ID, "Review pull request #41")
+        run_review(settings, RUN_ID, "Review pull request #41", BOUNDS)
 
     system = text_of(llm.requests[0][0][0])
     assert "comment_pr" in system
@@ -286,7 +290,7 @@ def test_out_of_scope_tool_call_feeds_back_and_loop_recovers(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
     assert "git.open_pr" not in gateway.tools_called()
@@ -305,7 +309,7 @@ def test_failing_tests_loop_back_with_report_until_iteration_cap(settings, gatew
     llm = ScriptedLLM([says("try 1"), says("try 2"), says("try 3")])
 
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.pr_url is None
     assert result.iterations == 3
@@ -339,7 +343,7 @@ def test_denied_pr_is_surfaced_and_agent_retries_on_feature_branch(settings, gat
     )
 
     with scripted(gateway, llm):
-        result = run_deliver(settings, RUN_ID, TASK)
+        result = run_deliver(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.pr_url == PR_URL
     assert result.error is None
@@ -360,7 +364,7 @@ def test_deliver_without_pr_fails_the_run(settings, gateway):
     llm = ScriptedLLM([says("I refuse to open a PR.")])
 
     with scripted(gateway, llm):
-        result = run_deliver(settings, RUN_ID, TASK)
+        result = run_deliver(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.pr_url is None
     assert result.error == "agent stopped without opening a pull request"
@@ -397,7 +401,7 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
     ):
         with patch("openhands.sdk.llm.llm.litellm_completion", side_effect=raise_429):
             try:
-                run_implement(settings, RUN_ID, TASK)
+                run_implement(settings, RUN_ID, TASK, BOUNDS)
                 raised = None
             except Exception as exc:
                 raised = exc
@@ -420,7 +424,7 @@ def test_reviewer_step_budget_is_its_own_cap_not_verify_cycles(settings, gateway
     )
 
     with scripted(gateway, llm):
-        result = run_review(settings, RUN_ID, "Review pull request #41")
+        result = run_review(settings, RUN_ID, "Review pull request #41", BOUNDS)
 
     assert result.error == f"agent loop did not finish within {REVIEW_STEP_CAP} steps"
 
@@ -447,12 +451,26 @@ def test_prompt_rendering_survives_stray_braces(tmp_path, settings, monkeypatch)
     monkeypatch.setattr(prompting, "PROMPTS_DIR", tmp_path)
     (tmp_path / "implement.md").write_text(
         "# Poseidon procedure: implement\n"
-        'Repo: {target_repo}. Example: {"key": "value"} and {not_a_field!r}.'
+        'Repo: {target_repo}. Example: {"key": "value"} and {not_a_field!r}.\n'
+        "{bounds}"
     )
-    rendered = prompting.render_procedure("implement", settings)
+    rendered = prompting.render_procedure("implement", settings, "{vision}")
     assert f"Repo: {settings.target_repo}." in rendered
     assert '{"key": "value"}' in rendered
     assert "{not_a_field!r}" in rendered
+    # One pass: a substituted text is never scanned for placeholders.
+    assert rendered.endswith("{vision}")
+
+
+def test_a_prompt_without_the_bounds_is_refused(tmp_path, settings, monkeypatch):
+    """The bounds bind every procedure; a prompt file that leaves them out
+    is a packaging error, refused before any model call."""
+    from agent import prompting
+
+    monkeypatch.setattr(prompting, "PROMPTS_DIR", tmp_path)
+    (tmp_path / "scope.md").write_text("# Poseidon procedure: scope\n{vision}\n")
+    with pytest.raises(RuntimeError, match="does not carry the bounds"):
+        prompting.render_procedure("scope", settings, BOUNDS)
 
 
 def test_every_prompt_opens_with_its_own_header(settings):
@@ -462,7 +480,7 @@ def test_every_prompt_opens_with_its_own_header(settings):
 
     assert {p.stem for p in PROMPTS_DIR.glob("*.md")} == set(SECTIONS)
     for procedure in SECTIONS:
-        assert render_procedure(procedure, settings).startswith(
+        assert render_procedure(procedure, settings, BOUNDS).startswith(
             f"{PROCEDURE_HEADER}{procedure}\n"
         )
 
@@ -473,7 +491,7 @@ def test_a_prompt_naming_another_procedure_is_refused(tmp_path, settings, monkey
     monkeypatch.setattr(prompting, "PROMPTS_DIR", tmp_path)
     (tmp_path / "review.md").write_text("# Poseidon procedure: implement\nwrong")
     with pytest.raises(RuntimeError, match="does not open with its header"):
-        prompting.render_procedure("review", settings)
+        prompting.render_procedure("review", settings, BOUNDS)
 
 
 # --- decide -------------------------------------------------------------------
@@ -495,7 +513,7 @@ OBSERVATION = (
 def test_decide_parses_the_two_line_contract(settings, gateway):
     llm = ScriptedLLM([says("DECISION: implement #5\nRATIONALE: oldest open work.")])
     with scripted(gateway, llm):
-        result = run_decide(settings, RUN_ID, OBSERVATION)
+        result = run_decide(settings, RUN_ID, OBSERVATION, BOUNDS)
     assert result.error is None
     assert result.decision == {
         "action": "implement",
@@ -517,7 +535,7 @@ def test_decide_idle_and_review_shapes(settings, gateway):
         ("DECISION: review #7\nRATIONALE: finish first.", ("review", 7)),
     ]:
         with scripted(gateway, ScriptedLLM([says(reply)])):
-            result = run_decide(settings, RUN_ID, OBSERVATION)
+            result = run_decide(settings, RUN_ID, OBSERVATION, BOUNDS)
         assert (result.decision["action"], result.decision["target"]) == expected
 
 
@@ -525,7 +543,7 @@ def test_decide_without_a_rationale_fails(settings, gateway):
     """The journal is half the point of asking: an unexplained decision is
     a failed dispatch, not a silently accepted one."""
     with scripted(gateway, ScriptedLLM([says("DECISION: implement #5")])):
-        result = run_decide(settings, RUN_ID, OBSERVATION)
+        result = run_decide(settings, RUN_ID, OBSERVATION, BOUNDS)
     assert result.decision is None
     assert "broke the two-line contract" in result.error
 
@@ -536,7 +554,7 @@ def test_decide_rejects_prose_and_unknown_actions(settings, gateway):
         "DECISION: deploy #5\nRATIONALE: ship it.",
     ]:
         with scripted(gateway, ScriptedLLM([says(reply)])):
-            result = run_decide(settings, RUN_ID, OBSERVATION)
+            result = run_decide(settings, RUN_ID, OBSERVATION, BOUNDS)
         assert result.decision is None and result.error
 
 
@@ -550,7 +568,7 @@ def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
     reader gets efficiency only, the PM gets no workspace advice at all."""
     llm = ScriptedLLM([says("nothing to do")])
     with scripted(gateway, llm):
-        run_implement(settings, RUN_ID, TASK)
+        run_implement(settings, RUN_ID, TASK, BOUNDS)
     system = text_of(llm.requests[0][0][0])
     assert system.startswith("# Poseidon procedure: implement")
     assert "<EFFICIENCY>" in system
@@ -562,14 +580,14 @@ def test_system_prompt_is_the_procedure_then_sdk_heuristics(settings, gateway):
 
     llm = ScriptedLLM([says("nothing to say")])
     with scripted(gateway, llm):
-        run_review(settings, RUN_ID, "Review pull request #41")
+        run_review(settings, RUN_ID, "Review pull request #41", BOUNDS)
     system = text_of(llm.requests[0][0][0])
     assert "<EFFICIENCY>" in system
     assert "<FILE_SYSTEM_GUIDELINES>" not in system
 
     llm = ScriptedLLM([says("done")])
     with scripted(gateway, llm):
-        run_scope(settings, RUN_ID, "Strategy:\n(absent)")
+        run_scope(settings, RUN_ID, "Strategy:\n(absent)", BOUNDS)
     system = text_of(llm.requests[0][0][0])
     assert system.startswith("# Poseidon procedure: scope")
     assert "<EFFICIENCY>" not in system
@@ -594,7 +612,7 @@ def test_an_architecture_request_is_a_gateway_call_and_a_ticket_of_the_run(
         ]
     )
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
     (tool, args) = next(c for c in gateway.calls if c[0] == "architecture.request")
     assert args == {
         "run_id": RUN_ID,
@@ -617,14 +635,14 @@ def test_a_reviewers_architecture_request_is_a_ticket_of_the_run(settings, gatew
     )
     findings = tc("comment_pr", number=41, body="Suite green; the plan is wrong.")
     with scripted(gateway, ScriptedLLM([calls(request, findings), says("Asked.")])):
-        result = run_review(settings, RUN_ID, "Review pull request #41")
+        result = run_review(settings, RUN_ID, "Review pull request #41", BOUNDS)
     assert result.error == "reviewer finished without a verdict"
     assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
     verdict = tc("verdict", verdict="fail", rationale="Contradicts the plan; requested.")
     with scripted(
         gateway, ScriptedLLM([calls(request, findings, verdict), says("Done.")])
     ):
-        result = run_review(settings, RUN_ID, "Review pull request #41")
+        result = run_review(settings, RUN_ID, "Review pull request #41", BOUNDS)
     assert result.verdict == "fail"
     assert result.ticket_urls == [ARCHITECTURE_TICKET_URL]
 
@@ -636,9 +654,9 @@ def test_the_documents_are_untrusted_context_for_implement_and_review(settings, 
     documents = {"strategy": "STRATEGY-TEXT-4471", "architecture": "MASTERPLAN-TEXT-9931"}
     llm = ScriptedLLM([says("nothing to do")])
     with scripted(gateway, llm):
-        run_implement(settings, RUN_ID, TASK, documents)
+        run_implement(settings, RUN_ID, TASK, BOUNDS, documents)
     system = text_of(llm.requests[0][0][0])
-    static = system_prompt("implement", settings, "mock-brain")
+    static = system_prompt("implement", settings, "mock-brain", BOUNDS)
     assert system.startswith(static.rstrip())
     assert "STRATEGY-TEXT-4471" in system and "MASTERPLAN-TEXT-9931" in system
     assert "architecture masterplan" in system
@@ -646,8 +664,37 @@ def test_the_documents_are_untrusted_context_for_implement_and_review(settings, 
 
     llm = ScriptedLLM([says("nothing to do")])
     with scripted(gateway, llm):
-        run_implement(settings, RUN_ID, TASK)
+        run_implement(settings, RUN_ID, TASK, BOUNDS)
     assert "STRATEGY-TEXT-4471" not in text_of(llm.requests[0][0][0])
+
+
+@pytest.mark.parametrize(
+    ("procedure", "run", "reply"),
+    [
+        ("implement", run_implement, "nothing to do"),
+        ("deliver", run_deliver, "stopping without delivering"),
+        ("review", run_review, "nothing to say"),
+        ("scope", run_scope, "done"),
+        ("decide", run_decide, "DECISION: idle\nRATIONALE: nothing worth starting"),
+    ],
+)
+def test_the_bounds_land_in_the_trusted_block_of_every_procedure(
+    settings, gateway, procedure, run, reply
+):
+    """The bounds the dispatch carries render into the static system
+    prompt — the first block, the one the platform wrote — for all five
+    procedures, and never into the untrusted block beside the documents."""
+    documents = {"strategy": "STRATEGY-TEXT-4471"}
+    llm = ScriptedLLM([says(reply)])
+    with scripted(gateway, llm):
+        run(settings, RUN_ID, "Task:\nanything", BOUNDS, documents)
+    system = llm.requests[0][0][0]
+    content = system["content"]
+    blocks = [b["text"] for b in content] if isinstance(content, list) else [content]
+    assert BOUNDS in blocks[0]
+    assert blocks[0].count(BOUNDS) == 1
+    for untrusted in blocks[1:]:
+        assert BOUNDS not in untrusted
 
 
 def test_the_vision_reaches_every_procedure_but_deliver(settings):
@@ -655,8 +702,8 @@ def test_the_vision_reaches_every_procedure_but_deliver(settings):
     every procedure that judges what is worth doing; delivery only ships
     what was already verified and reads none of it."""
     for procedure in ("scope", "decide", "implement", "review"):
-        assert settings.vision in system_prompt(procedure, settings, "mock-brain")
-    assert settings.vision not in system_prompt("deliver", settings, "mock-brain")
+        assert settings.vision in system_prompt(procedure, settings, "mock-brain", BOUNDS)
+    assert settings.vision not in system_prompt("deliver", settings, "mock-brain", BOUNDS)
 
 
 def test_model_family_guidance_follows_the_model():
@@ -685,7 +732,7 @@ def test_agents_md_rides_the_system_message_as_untrusted_context(settings, gatew
     llm = ScriptedLLM([says("nothing to do")])
 
     with scripted(gateway, llm):
-        run_implement(settings, RUN_ID, TASK)
+        run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert gateway.tools_called()[:2] == ["sandbox.list_dir", "sandbox.read_file"]
     assert gateway.calls[1][1]["path"] == "AGENTS.md"
@@ -705,7 +752,7 @@ def test_no_agents_md_means_no_dynamic_block(settings, gateway):
     llm = ScriptedLLM([says("nothing to do")])
 
     with scripted(gateway, llm):
-        run_implement(settings, RUN_ID, TASK)
+        run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert "sandbox.read_file" not in gateway.tools_called()
     system = llm.requests[0][0][0]
@@ -720,7 +767,7 @@ def test_agents_md_the_role_may_not_read_is_skipped(settings, gateway):
     llm = ScriptedLLM([says("nothing to do")])
 
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
     assert len(llm.requests[0][0][0]["content"]) == 1
@@ -737,7 +784,7 @@ def test_repeating_itself_ends_the_dispatch_as_stuck(settings, gateway):
     llm = ScriptedLLM([same, same, same, same])
 
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error == "agent loop stuck repeating itself (after 0 verify cycles)"
     assert llm.script == []  # stopped by the detector, not by a fifth reply
@@ -749,7 +796,7 @@ def test_a_stuck_pm_fails_with_what_it_filed(settings, gateway):
     llm = ScriptedLLM([same] * 4)
 
     with scripted(gateway, llm):
-        result = run_scope(settings, RUN_ID, "Strategy:\n(absent)")
+        result = run_scope(settings, RUN_ID, "Strategy:\n(absent)", BOUNDS)
 
     assert result.error == "agent loop stuck repeating itself"
     assert result.ticket_urls == []
@@ -781,7 +828,7 @@ def test_a_batch_of_reads_runs_concurrently(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
     observations = [m for m in llm.requests[1][0] if m["role"] == "tool"]
@@ -811,7 +858,7 @@ def test_a_batch_with_writes_runs_in_the_models_order(settings, gateway):
     )
 
     with scripted(gateway, llm):
-        result = run_implement(settings, RUN_ID, TASK)
+        result = run_implement(settings, RUN_ID, TASK, BOUNDS)
 
     assert result.error is None
     assert gateway.tools_called() == [

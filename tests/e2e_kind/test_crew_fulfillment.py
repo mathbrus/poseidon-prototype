@@ -102,8 +102,9 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
         service_account_name,
     )
     from orchestrator.identity import ephemeral_agent_id
-    from registry import Runs
+    from registry import Companies, Runs
     from sandbox.k8s_jobs import K8sJobsBackend
+    from schema.bounds import render_bounds
 
     run_id = new_run_id()
     nonce = secrets.token_hex(3)
@@ -125,6 +126,9 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
             EphemeralPodProvisioner(COMPANY_NS),
         )
         Runs(client).start(run_id, task_text, "implement", None, COMPANY)
+        # The bounds the workflow would carry, rendered the way it renders
+        # them: from the applied spec the registry holds.
+        bounds = render_bounds(Companies(client).get(COMPANY) or {})
         try:
             # 2. The run's single sandbox, exactly as implement provisions
             #    it (the crew works it through the gateway).
@@ -172,7 +176,7 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
                 #    the PR.
                 async def dispatch(procedure: str, text: str) -> dict:
                     async with AgentClient(implementer["url"]) as agent:
-                        await agent.dispatch(run_id, procedure, text)
+                        await agent.dispatch(run_id, procedure, text, bounds)
                         while True:
                             status = await agent.status(run_id)
                             if status["status"] != "running":

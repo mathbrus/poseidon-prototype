@@ -3,9 +3,11 @@ prompt for a procedure, and the repository's own instructions.
 
 The system prompt is the procedure's own text (one prose file per
 procedure under `prompts/`, each opening with the `PROCEDURE_HEADER` line
-that names it — the one line the mock brain keys on), followed by the
-coding heuristics
-the OpenHands SDK ships as prompt sections. The SDK's default prompt body
+that names it — the one line the mock brain keys on), with the platform's
+two texts substituted into it — the vision and the bounds, the charter as
+it binds this company's work, both rendered by the platform from the
+applied blueprint and trusted exactly because of that — followed by the
+coding heuristics the OpenHands SDK ships as prompt sections. The SDK's default prompt body
 is deliberately not used: it addresses a user who is in the loop, gives
 the model an OpenHands identity, assumes a networked machine that
 installs its own dependencies, and tells the model to keep notes in a
@@ -23,6 +25,7 @@ UNTRUSTED_CONTENT framing, which is exactly what text from the repository
 is, and the static prompt stays byte-identical.
 """
 
+import re
 from pathlib import Path
 
 from openhands.sdk.context import AgentContext
@@ -69,19 +72,32 @@ SECTIONS: dict[str, tuple[type[PromptSection], ...]] = {
 # The repository's instructions to agents, shown as untrusted context.
 REPO_INSTRUCTIONS_FILE = "AGENTS.md"
 
+# The placeholders a prompt file may carry, and the one every file must:
+# the bounds bind every procedure, so a file that leaves them out is a
+# packaging error like a wrong header.
+PLACEHOLDER = re.compile(r"\{(target_repo|vision|bounds)\}")
+BOUNDS_PLACEHOLDER = "{bounds}"
 
-def render_procedure(procedure: str, settings: AgentSettings) -> str:
+
+def render_procedure(procedure: str, settings: AgentSettings, bounds: str) -> str:
     """The procedure's prompt file, with literal placeholder substitution —
     deliberately not str.format: format machinery turns any other brace in
     the prompt text into a crash (or a format-spec evaluation), and prompt
-    files are edited as prose. The header line is checked, not trusted: a
-    file that names another procedure is a packaging error."""
+    files are edited as prose. One pass, so a substituted text is never
+    scanned for placeholders itself. The header line is checked, not
+    trusted: a file that names another procedure is a packaging error,
+    and so is one without the bounds."""
     text = (PROMPTS_DIR / f"{procedure}.md").read_text()
     if not text.startswith(f"{PROCEDURE_HEADER}{procedure}\n"):
         raise RuntimeError(f"prompts/{procedure}.md does not open with its header")
-    return text.replace("{target_repo}", settings.target_repo).replace(
-        "{vision}", settings.vision
-    )
+    if BOUNDS_PLACEHOLDER not in text:
+        raise RuntimeError(f"prompts/{procedure}.md does not carry the bounds")
+    values = {
+        "target_repo": settings.target_repo,
+        "vision": settings.vision,
+        "bounds": bounds,
+    }
+    return PLACEHOLDER.sub(lambda match: values[match.group(1)], text)
 
 
 def compose(procedure: str, sections: tuple[type[PromptSection], ...], model: str) -> str:
@@ -98,8 +114,12 @@ def compose(procedure: str, sections: tuple[type[PromptSection], ...], model: st
     return procedure.rstrip() + (f"\n\n{heuristics}" if heuristics else "") + "\n"
 
 
-def system_prompt(procedure: str, settings: AgentSettings, model: str) -> str:
-    return compose(render_procedure(procedure, settings), SECTIONS[procedure], model)
+def system_prompt(
+    procedure: str, settings: AgentSettings, model: str, bounds: str
+) -> str:
+    return compose(
+        render_procedure(procedure, settings, bounds), SECTIONS[procedure], model
+    )
 
 
 def untrusted_context(

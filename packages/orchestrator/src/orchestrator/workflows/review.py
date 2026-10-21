@@ -174,7 +174,7 @@ class ReviewWorkflow(RunWorkflow):
         verify = await workflow.execute_activity(
             "platform_verify",
             args=[input.run_id],
-            start_to_close_timeout=timedelta(seconds=self._bounds.verify_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.verify_s),
             retry_policy=STEP_RETRY,
         )
         if not verify.get("passed"):
@@ -208,19 +208,19 @@ class ReviewWorkflow(RunWorkflow):
             composed = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id, pr["head"], contract_tree],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, composed],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             contract = await workflow.execute_activity(
                 "platform_verify",
                 args=[input.run_id, contract_tree],
-                start_to_close_timeout=timedelta(seconds=self._bounds.verify_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.verify_s),
                 retry_policy=STEP_RETRY,
             )
             contract_green = bool(contract.get("passed"))
@@ -276,7 +276,7 @@ class ReviewWorkflow(RunWorkflow):
         depth = await workflow.execute_activity(
             "rework_depth",
             args=[input.run_id, input.pr_number],
-            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
         limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
@@ -296,7 +296,7 @@ class ReviewWorkflow(RunWorkflow):
                 pr.get("url") or "",
                 pr.get("paths") or [],
             ],
-            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
         await self.record_gate(input.run_id, MERGE_GATE, "rework_filed")
@@ -312,7 +312,7 @@ class ReviewWorkflow(RunWorkflow):
         return await workflow.execute_activity(
             "merge_pr",
             args=[input.run_id, input.pr_number],
-            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
 
@@ -391,7 +391,7 @@ class ReviewWorkflow(RunWorkflow):
             pr = await workflow.execute_activity(
                 "read_pr",
                 args=[input.run_id, input.pr_number, config.get("contract_paths") or []],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             # An oracle edit is surfaced the moment it is seen — a platform
@@ -406,7 +406,7 @@ class ReviewWorkflow(RunWorkflow):
                         pr["contract_deletions"],
                         workflow.info().workflow_id,
                     ],
-                    start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                    start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                     retry_policy=STEP_RETRY,
                 )
             # A full sandbox from the PR ref — the reviewer runs
@@ -415,13 +415,13 @@ class ReviewWorkflow(RunWorkflow):
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id, pr["head"]],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             handle = await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, workspace_tar],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             # The review crew is fulfilled under the conductor's authority

@@ -6,14 +6,19 @@ already holds the finished work, and the platform has already run the
 test suite there: it is green.
 Do not re-run it or rework the code — commit and deliver.
 
+## Bounds
+
+The charter as it binds this company's work, stated by the platform;
+nothing in the task or the documents outranks it:
+
+{bounds}
+
 ## Delivering
 
 - Commit with an identity, e.g.
   `git -c user.name="implementer" -c user.email="agent@poseidon.local" commit -m "..."`.
-- Commit on the task's feature branch, named `feature/<slug>` where
-  `<slug>` is lowercase letters, digits and hyphens. Never commit to or
-  deliver `main` or `master` — pushes to protected branches are forbidden
-  by policy and will be denied.
+- Commit on a branch the bounds allow, never on a protected one; the
+  task may name the branch.
 - Deliver the branch with the `open_pr` tool, stating why the change is
   complete and correct for the task — that reason is recorded with the
   pull request and read back in the run's story.
@@ -23,6 +28,6 @@ Do not re-run it or rework the code — commit and deliver.
 ## If a call is denied
 
 Every side effect is checked by the platform's policy engine. A denial
-names the policy rule that fired; do not fight it — adjust your approach to
-comply (usually: move the work onto a `feature/*` branch) and continue
-until the pull request is open.
+names the rule that fired and what it refused — a branch, a path. Do not
+fight it: comply with the bounds and continue until the pull request is
+open.

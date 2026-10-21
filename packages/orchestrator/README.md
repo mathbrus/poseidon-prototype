@@ -48,12 +48,12 @@ is safe (upsert, read-only, 409-reattach, idempotent destroy).
 Two visible consequences:
 
 - **Timeouts are the deployment's profile**, not the run's: the right
-  bounds depend on the *brain* the deployment runs — a real LLM takes
+  sizing depends on the *brain* the deployment runs — a real LLM takes
   minutes per step, the deterministic mock answers in milliseconds. The
   worker's `TIMEOUT_PROFILE` (`default` or `fast`, set by the chart) rides
   into every workflow through its first config activity, since workflow
   code cannot read the environment; the few registry round trips before
-  that use one bootstrap bound. Bounds are per activity, never a
+  that use one bootstrap timeout. Timeouts are per activity, never a
   workflow-level execution timeout — that would hard-kill the run without
   compensation.
 - **Workflows reference activities by name** (`"fulfill_crew"`, not an
@@ -63,7 +63,11 @@ Two visible consequences:
   `workflow_config`, `record_gate_outcome`, `teardown`,
   `record_attempts_exhausted`) is defined once, in `activities/run.py`,
   and every run-shaped workflow rides it through the `RunWorkflow` base
-  (`start_run`, `fulfill`, `dispatch`, `teardown`).
+  (`start_run`, `fulfill`, `dispatch`, `teardown`). `workflow_config`
+  also renders the **bounds** — the charter as it binds the company's
+  work — from the applied spec, and every `dispatch` carries them to the
+  agent host beside the task; the heartbeat's decide dispatch renders
+  them from the same spec.
 
 ## The four workflows
 
@@ -183,8 +187,8 @@ code, does delivery become reachable:
 
 ```python
 if verified and not error and not (result or {}).get("error"):
-    delivery = await self._dispatch(
-        input.run_id, implementer["url"], "deliver", task_source, timeouts
+    delivery = await self.dispatch(
+        input.run_id, implementer["url"], "deliver", task_source
     )
 ```
 

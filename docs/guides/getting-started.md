@@ -170,7 +170,7 @@ company:
 Put that `company:` block in place of the example's, in a copy of
 `examples/hello-saas.yaml` saved as `company.yaml`. The name is yours to
 choose; `humans` names who may act, drawn from the people the chart
-declares. Activity bounds come from the deployment's `TIMEOUT_PROFILE`,
+declares. Activity timeouts come from the deployment's `TIMEOUT_PROFILE`,
 so a cluster brought up with `REAL_LLM=1` already runs the generous
 profile a paid brain needs. A third shipped example,
 `examples/pirate-fight.yaml`, is a different company altogether — a
