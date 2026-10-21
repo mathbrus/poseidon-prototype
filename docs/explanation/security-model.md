@@ -79,7 +79,7 @@ delegated authority on behalf of input it cannot vet.
    run's sandbox, or the host.
 
 **What is out of scope.** Kernel exploits from inside the sandbox container
-([it is a container, not a VM](cannot.md)); a malicious human running the platform;
+([it is a container, not a VM](limitations.md)); a malicious human running the platform;
 compromise of the cluster itself or of the git host. The platform services —
 gateway, orchestrator, reconciler, console — are trusted code; the console
 is the first of them that authenticates a person, and what it trusts is

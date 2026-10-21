@@ -25,7 +25,7 @@ inspect wins.
 ## Why model access is a chokepoint at all
 
 Tool calls are not the only thing a compromised agent can abuse. The
-root threat model ([the threat model](../../docs/argument/problem.md)) lists
+root threat model ([the threat model](../../docs/explanation/security-model.md)) lists
 **spend** — denial-of-wallet — as a goal in its own right, and the
 provider API key is precisely the kind of credential an injected agent
 would exfiltrate. Both problems have the same shape as the git-token

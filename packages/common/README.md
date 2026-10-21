@@ -38,7 +38,7 @@ variable ever becomes an `Identity`. Downstream code — the policy input
 builders in both gateways — can therefore treat every field as a verified
 fact rather than a claim, which is what makes "the decision is a function
 of who verifiably asked" true (see the deputy discussion in
-[the core idea](../../docs/argument/core-idea.md)).
+[the core idea](../../docs/explanation/how-it-works.md)).
 
 The model also records *how* the caller was verified, via `lifecycle`:
 `standing` (a rostered agent with a Kubernetes ServiceAccount),

@@ -71,5 +71,5 @@ model newer than itself; if a run fails on that error, bump
     spending.
 
 Once the real model is up, the walkthrough in
-[Getting started](getting-started.md#a-full-run-a-small-tetris-app) is the
+[Getting started](../get-started/quickstart.md#a-full-run-a-small-tetris-app) is the
 full SDLC.

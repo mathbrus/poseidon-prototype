@@ -39,7 +39,7 @@ pages assume the reader has the code open.
 ## Words
 
 - **Define a term the first time a page uses it**, or link it to the
-  [glossary](../glossary.md). Terms like steward, crew,
+  [glossary](../reference/glossary.md). Terms like steward, crew,
   heartbeat, gate, conductor and bounds mean nothing to a newcomer.
 - **Use one name per concept.** The glossary in `CLAUDE.md` fixes the
   names; its "Not" column lists the words to avoid.
@@ -123,7 +123,7 @@ four kinds. Don't mix them.
 ```
 
 A package README is 500 to 900 words. Rationale belongs on the
-[explanation](../argument/core-idea.md) pages, and the README links
+[explanation](../explanation/how-it-works.md) pages, and the README links
 there.
 
 ## Generated content

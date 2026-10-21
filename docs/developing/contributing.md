@@ -30,7 +30,7 @@ checkout. `packages/registry` reports every test skipped without
 a real Postgres, and a fake would prove nothing.
 
 The end-to-end suite is a separate thing, run against a live cluster:
-[Run the acceptance suite](../guides/acceptance.md).
+[Run the acceptance suite](acceptance.md).
 
 ## The golden files
 

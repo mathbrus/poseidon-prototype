@@ -41,7 +41,7 @@ own network namespace beneath any policy. That reach is not merge
 authority — a signal delivered there without a verdict the console
 recorded releases nothing, and the acceptance suite proves it on every
 run — but it is still reach into the workflow engine, and
-[the Temporal contract](../reference/temporal.md) writes down exactly
+[the Temporal contract](../reference/workflows.md) writes down exactly
 what it buys.
 
 The one **authenticated** surface a person reaches is the console, and it

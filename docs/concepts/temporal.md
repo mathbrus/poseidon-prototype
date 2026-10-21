@@ -23,4 +23,4 @@ For Poseidon this buys two things that matter more than convenience:
 
 The kind test suite kills the worker mid-run and asserts the run completes
 with nothing leaked. The workflows, their signals and the surface beneath
-the console are written down in [the Temporal contract](../reference/temporal.md).
+the console are written down in [the Temporal contract](../reference/workflows.md).

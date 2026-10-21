@@ -10,7 +10,7 @@ This is where the system's thesis becomes mechanical. The agent is not
 trusted to stay in scope; it is *unable* to leave one, because the tool
 surface is the only way out and every call on it is policy-checked against
 a compiled bundle before any side effect happens. If the root README's
-[the core idea](../../docs/argument/core-idea.md) is the argument, this
+[the core idea](../../docs/explanation/how-it-works.md) is the argument, this
 package is the working part: a reference monitor for agent effects, small
 enough to read in an afternoon.
 

@@ -11,12 +11,12 @@ a declared baseline, closes every PR and branch it creates, and finishes
 by *asserting* the cluster is quiet, so two consecutive runs are green
 with nothing done between them and a fresh disposable repo needs no
 manual setup (`tests/e2e_kind/conftest.py` documents the contract). This
-is the suite that proves the claims in [the argument](../argument/can.md)
+is the suite that proves the claims in [the argument](../explanation/capabilities.md)
 — including the red-team modules, which attack a real provisioned sandbox
 and a real compiled merge gate.
 
 It spends nothing: the suite refuses to run against a paid brain unless
-`POSEIDON_ALLOW_PAID=1` opts in ([Use a real model](real-llm.md)).
+`POSEIDON_ALLOW_PAID=1` opts in ([Use a real model](../how-to/real-model.md)).
 
 The suite opens real pull requests on a disposable repository of yours,
 named in its own environment variable — a company's repository is a

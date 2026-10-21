@@ -12,7 +12,7 @@ of Postgres would add a failure mode without adding a boundary. Each
 service holds `REGISTRY_DSN`, constructs the accessors it is allowed to
 write through, and talks to Postgres directly.
 
-In the [architecture diagrams](../../docs/reference/architecture.md) this is the
+In the [architecture diagrams](../../docs/explanation/architecture.md) this is the
 `registry` cylinder: the declarative path ends here (what was applied) and
 the runtime path reports here (what every enforcement point decided).
 

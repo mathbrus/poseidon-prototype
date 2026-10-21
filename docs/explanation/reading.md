@@ -6,7 +6,7 @@ introduction to them, these are the primary sources worth your time.
 ## Classical protection
 
 - Saltzer & Schroeder, *The Protection of Information in Computer Systems*
-  (Proc. IEEE, 1975) — the design principles [The core idea](core-idea.md)
+  (Proc. IEEE, 1975) — the design principles [The core idea](how-it-works.md)
   instantiates: complete mediation, fail-safe defaults, least privilege,
   separation of privilege, economy of mechanism.
 - Anderson, *Computer Security Technology Planning Study* (1972) — the
@@ -47,7 +47,7 @@ If you are reading this with a class, these are the places where
 the design genuinely has something to argue about.
 
 1. The merge is released on a verdict the console recorded, not on the
-   signal ([What it cannot do](cannot.md#the-merge-release-trusts-the-console-and-the-registry)).
+   signal ([What it cannot do](limitations.md#the-merge-release-trusts-the-console-and-the-registry)).
    The artifact is an unsigned audit row. Name what it trusts that the
    signal did not, decide whether signing it would buy anything against
    the writers who could forge it, and say what a compromised console
@@ -62,7 +62,7 @@ the design genuinely has something to argue about.
 4. The PM can spawn crews holding tools the PM itself may not use
    ([Standing vs. ephemeral agents](../concepts/standing-vs-ephemeral.md)). Argue both sides: privilege-escalation hole, or the
    correct reading of least privilege?
-5. [What it cannot do](cannot.md#unauthenticated-in-cluster-services-guarded-only-by-networkpolicy) concedes that in-cluster surfaces rely on NetworkPolicy
+5. [What it cannot do](limitations.md#unauthenticated-in-cluster-services-guarded-only-by-networkpolicy) concedes that in-cluster surfaces rely on NetworkPolicy
    alone, and that a port-forward passes beneath it. Rank the five
    unauthenticated surfaces by consequence-if-reached now that a signal
    to the frontend releases nothing, decide which you would authenticate

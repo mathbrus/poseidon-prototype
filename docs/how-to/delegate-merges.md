@@ -1,6 +1,6 @@
 # Hand over the keys
 
-Everything in [Getting started](getting-started.md) had you answering
+Everything in [Getting started](../get-started/quickstart.md) had you answering
 every merge. The company already starts its own runs — every company has
 a heartbeat; `poseidon pause` holds it, and stopping it is deleting the
 company — so the one authority left to grant is the merge, and this
@@ -82,7 +82,7 @@ A review run of an in-class PR does not park. When the independent
 verdict passed, the platform's own re-run of the tests and the contract
 baseline are green, and every changed path is in class, the orchestrator
 merges with no human command —
-[the merge gate](../argument/anatomy.md#the-merge-gate-human-or-policy)
+[the merge gate](../explanation/anatomy.md#the-merge-gate-human-or-policy)
 lists the facts and the fallbacks. Everything else still stops for you: an
 out-of-class path, a carve-out surface, and any edit to the contract tree
 park on the same `merge` signal you answered before, and a failed quality
@@ -94,7 +94,7 @@ layer feeds the bounded rework loop instead.
     documents. Delegating `docs/` means the first strategy — the company's
     reading of your vision — merges on the reviewer's verdict alone; leave
     it out of `delegate.paths` to read that reading yourself.
-    [What it cannot do](../argument/cannot.md) names the residual.
+    [What it cannot do](../explanation/limitations.md) names the residual.
 
 With the merge handed over, no human act remains. The human surface —
 the console — still stands, idle; every verdict you did give is on the

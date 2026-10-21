@@ -2,14 +2,14 @@
 
 By the end of this guide you will have a company running on a local
 cluster and watched it turn its own strategy into a merged pull request on a
-repository you own. [Hand over the keys](hand-over.md) then lets it start
+repository you own. [Hand over the keys](../how-to/delegate-merges.md) then lets it start
 its own work on a heartbeat and merge its own passing changes. It costs
 nothing: the default brain is a deterministic mock, so you can learn the
 whole shape of the system before spending a cent on a real model.
 
 The path: install → bring up a cluster → configure the company →
-(optionally) [point it at a real model](real-llm.md) → drive a run
-yourself. [The argument](../argument/problem.md) teaches the ideas this
+(optionally) [point it at a real model](../how-to/real-model.md) → drive a run
+yourself. [The argument](../explanation/security-model.md) teaches the ideas this
 guide assumes; you do not need it to follow the commands.
 
 ## Prerequisites
@@ -91,7 +91,7 @@ export POSEIDON_TOKEN=$(uv run poseidon login auditor)
 !!! tip "This costs nothing to run"
     The cluster deploys the deterministic mock brain by default, so the
     full end-to-end suite spends zero LLM tokens. A real provider is
-    opt-in — see [Use a real model](real-llm.md) — and CI never turns it on.
+    opt-in — see [Use a real model](../how-to/real-model.md) — and CI never turns it on.
 
 ## Configure the company
 
@@ -147,7 +147,7 @@ protected surface is refused before anything reaches the cluster.
 
 This is the whole loop — bootstrap, scope, implement, review, human-gated
 merge — against the repository the applied blueprint declares
-(`stack.repo`), with a [real model](real-llm.md) already configured. The
+(`stack.repo`), with a [real model](../how-to/real-model.md) already configured. The
 company is `hello-saas`; the product under construction is whatever its
 vision says. Nothing goes in but that vision: change it in the blueprint
 to name the product you want, apply, and watch — literally, from a second
@@ -250,5 +250,5 @@ runs, `uv run poseidon run show <run_id>` for one, `uv run poseidon run
 story <run_id> --decisions` for what it decided and why — your verdict
 and its reason among them — and `uv run poseidon follow` to watch it all
 land.
-[Hand over the keys](hand-over.md) is where the merge becomes the
+[Hand over the keys](../how-to/delegate-merges.md) is where the merge becomes the
 company's too.

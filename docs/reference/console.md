@@ -58,7 +58,7 @@ bundle exists for a company before its Company CR installs one. When OPA
 serves no policy for the company, any verified human may apply, and the
 audit row says `blueprint_apply_bootstrap`. Every later act — including
 every later apply — is policy's. An applier can rewrite `company.humans`;
-that is the residual [What it cannot do](../argument/cannot.md) names.
+that is the residual [What it cannot do](../explanation/limitations.md) names.
 
 ## Pausing the company is an act, and so is stopping it
 
@@ -107,7 +107,7 @@ workflow treats the signal as a nudge to look: it reads the console's
 recorded verdict back from the audit store and the compiled
 `merge.resolve` decision releases the merge on that record, or refuses by
 name. A signal that reached the workflow by any other road finds no
-verdict and releases nothing ([The Temporal contract](temporal.md)).
+verdict and releases nothing ([The Temporal contract](workflows.md)).
 
 ## Routes
 

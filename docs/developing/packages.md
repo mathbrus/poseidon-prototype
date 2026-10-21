@@ -22,4 +22,4 @@ are not mirrored here; the table links to them.
 | [`mock-brain`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/mock-brain/README.md) | The deterministic brain that makes e2e runs free |
 
 Which service holds which secret, and what each is responsible for, is on
-[Architecture](../reference/architecture.md).
+[Architecture](../explanation/architecture.md).

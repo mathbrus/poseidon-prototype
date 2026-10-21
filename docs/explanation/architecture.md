@@ -76,7 +76,7 @@ human's acts, in order. Six distinct sources write audit events —
 `gateway`, `llm-gateway`, `sandbox-infra`, `process-gate`,
 `process-lifecycle`, `console` — and the acceptance suite asserts that a
 single run's story is reconstructible across all six from the `run_id`
-alone ([Policy and audit](policy.md) lists them). The console's rows are
+alone ([Policy and audit](../reference/policy.md) lists them). The console's rows are
 the only ones carrying a person's name; the merge gate's release reads
 one of them back.
 

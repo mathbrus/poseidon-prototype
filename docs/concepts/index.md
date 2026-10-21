@@ -1,6 +1,6 @@
 # Concepts
 
-Short primers on the six things [the argument](../argument/problem.md)
+Short primers on the six things [the argument](../explanation/security-model.md)
 assumes: MCP, OPA and Rego, workload identity, NetworkPolicy, Temporal, and
 the standing/ephemeral split. Each is self-contained; skip any you already
 know. The argument names them without re-explaining.
@@ -12,5 +12,5 @@ know. The argument names them without re-explaining.
 - [Temporal — durable execution](temporal.md)
 - [Standing vs. ephemeral agents](standing-vs-ephemeral.md)
 
-The [Glossary](../glossary.md) is the one-line version: one name per
+The [Glossary](../reference/glossary.md) is the one-line version: one name per
 concept, everywhere in the code and the docs.

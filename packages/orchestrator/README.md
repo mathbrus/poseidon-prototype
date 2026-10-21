@@ -359,7 +359,7 @@ only then starts, signals or inspects the workflow. Temporal's frontend
 is fenced by NetworkPolicy to the worker, the console and Temporal's own
 components; nothing on a laptop holds a Temporal address or a registry
 DSN. The workflow, signal and query contract is on
-[the Temporal contract](../../docs/reference/temporal.md), the human's
+[the Temporal contract](../../docs/reference/workflows.md), the human's
 side on [the console](../../docs/reference/console.md).
 
 ## Credential posture

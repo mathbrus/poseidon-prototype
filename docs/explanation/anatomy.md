@@ -242,7 +242,7 @@ Anything short of that is a *decline* or a *rework*, never a quiet merge:
 | All facts green, paths in class | The merge fires — no human command. |
 | Touches a carve-out surface (`.github/`) or an out-of-class path | Declines to the human `merge` signal; the person's override survives delegation. |
 | Touches the contract tree | Declines up front, before any layer is spent — an oracle edit is the human's to merge by construction. |
-| Failed verdict, red re-run, or red contract | Feeds a bounded rework loop instead ([What it can do](can.md)): the findings become a ticket, and the platform closes the pull request it supersedes. |
+| Failed verdict, red re-run, or red contract | Feeds a bounded rework loop instead ([What it can do](capabilities.md)): the findings become a ticket, and the platform closes the pull request it supersedes. |
 
 Whichever resolver released it, the merge closes the tickets the pull
 request fulfilled — the one its implement run consumed and, for a rework
@@ -323,7 +323,7 @@ call, and never retries forever.
 human act: the merge verdict. When the blueprint also delegates the
 merge gate, that act drops too: `tests/e2e_kind/test_delegated.py` runs
 the same arc with no human act at all, and the company merges its own
-in-class passing work. [Hand over the keys](../guides/hand-over.md) is
+in-class passing work. [Hand over the keys](../how-to/delegate-merges.md) is
 the hands-on version.
 
 ??? example "What a blocked attack looks like from the inside"
