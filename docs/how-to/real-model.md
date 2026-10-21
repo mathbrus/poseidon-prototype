@@ -1,16 +1,24 @@
 # Use a real model
 
-The mock brain is what the acceptance suite is written against. To run
-`hello-saas` (or any other example company) with a real model, the cluster
-must be brought up with `REAL_LLM=1`. Nothing does that for you.
+The cluster runs a free, deterministic mock model by default. This guide
+switches it to a paid model from OpenAI or Anthropic, so the company does
+real work.
 
-The provider key never enters an agent pod. It lands only in the
-`llm-proxy`, behind the LLM gateway; LiteLLM is started in single-model
-mode, so every role — PM, implementer, reviewer — is served the
-same `MODEL`.
+!!! warning "This spends money"
+    Every agent call goes to your provider and is billed to your key. The
+    blueprint's `budgets.per_run.usd` and `heartbeat.daily_cap.usd` cap
+    what the company spends, so set them before you start.
 
-Edit `deploy/kind/.env` (create it from `.env.example` if you have not
-already). Uncomment and fill:
+## Before you start
+
+- A working mock cluster, as in the [Quickstart](../get-started/quickstart.md).
+- An API key from your provider.
+
+## Steps
+
+### 1. Set the provider in `deploy/kind/.env`
+
+Uncomment and fill these three lines:
 
 ```bash
 REAL_LLM=1
@@ -18,58 +26,68 @@ LLM_API_KEY=sk-your-provider-key
 MODEL=gpt-5.6-luna
 ```
 
-`gpt-5.6-luna` is the cheap OpenAI default this repo is wired for. Then
-re-run the bootstrap so the proxy, the secret, and the gateway's pinned
-model all change together:
+Pick the key and model from one row. The key must match the model's
+provider:
+
+| Provider | `LLM_API_KEY` | `MODEL`, for example |
+|---|---|---|
+| OpenAI | `sk-…` | `gpt-5.6-luna` (the cheap default) |
+| Anthropic | `sk-ant-…` | `anthropic/claude-sonnet-4-5` |
+
+Every agent uses the same model.
+
+### 2. Bring the cluster up again
 
 ```bash
 deploy/kind/kind-up.sh
 ```
 
-To compare against Anthropic, swap **both** the key and the model —
-LiteLLM copies `LLM_API_KEY` into `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`
-and reads the one that matches the model prefix, so leaving an OpenAI key
-in place while changing `MODEL` to Claude will fail:
+The script redeploys the model proxy with your key. Your company stays
+applied, and its agents restart on the new model. The first step of the
+output names the model, marked as paid:
 
-```bash
-REAL_LLM=1
-LLM_API_KEY=sk-ant-your-anthropic-key
-MODEL=anthropic/claude-sonnet-4-5
+```text
+      brain: PAID — gpt-5.6-luna through LiteLLM (REAL_LLM=1)
 ```
 
-Re-run `kind-up.sh` after every provider or model change; the company
-stays applied and its agents re-roll. The same file
-holds `POSEIDON_CONSOLE_URL`, where the `poseidon` CLI reaches the console
-(`http://127.0.0.1:8090` on kind); a provider change does not touch it.
+Run `kind-up.sh` again after every change of provider or model.
+
+## Check that it worked
+
+Follow the company and watch the spend move:
+
+```bash
+uv run poseidon follow
+```
+
+Each model call adds to the spend line. `uv run poseidon spend` prints
+the total to date.
+
+## Undo it
+
+Set `REAL_LLM=0` in `deploy/kind/.env`, or run
+`REAL_LLM=0 deploy/kind/kind-up.sh`. A value on the command line wins
+over the file.
 
 ## Which models work
 
-The agent host picks the wire shape (OpenAI Responses or chat
-completions) and whether to send a reasoning effort from a table by
-model **family**, `agent_host.models`, so a new release in a known family
-needs no change anywhere. Poseidon speaks one reasoning knob,
-`reasoning_effort`; LiteLLM translates it per provider. A model no row
-names keeps the OpenHands SDK's own guess, as the mock brain does.
+The agent host knows how to talk to each model family below. A newer
+model in a known family works without any change.
 
 <!-- gen: models -->
 
-The provider prefix (`openai/`, `anthropic/`) routes the call and is not
-part of the match. One more thing has to know the model: the `llm-proxy`
-must price it, because the gateway meters the cost LiteLLM reports and
-withholds a call it cannot price (`llm_cost_unreported`). LiteLLM fetches
-its price table when it starts, so the pinned image usually knows a
-model newer than itself; if a run fails on that error, bump
-`images.llmProxy.tag` in the chart values.
+Write the provider prefix (`openai/`, `anthropic/`) in `MODEL` if you like.
+It doesn't affect the match.
 
-!!! warning "The acceptance suite refuses a paid brain"
-    Do not point `scripts/acceptance.sh` at a paid provider: the suite
-    asserts mock-brain behaviour, not model quality, and against a live
-    model it would spend money — so it refuses to run. Both the script's
-    preflight and the suite's own session guard read the *deployed*
-    `llm-proxy` image (never `.env`'s `REAL_LLM` claim) and fail fast on a
-    paid brain unless `POSEIDON_ALLOW_PAID=1` deliberately opts into
-    spending.
+## Troubleshooting
 
-Once the real model is up, the walkthrough in
-[Getting started](../get-started/quickstart.md#a-full-run-a-small-tetris-app) is the
-full SDLC.
+| Symptom | Cause and fix |
+|---|---|
+| Runs fail with `llm_cost_unreported` | The model proxy can't price the model, and the LLM gateway refuses calls it can't meter. Raise `images.llmProxy.tag` in the chart values to a newer LiteLLM release, then run `kind-up.sh`. |
+| Every call fails after you changed `MODEL` | The key belongs to another provider. Change `LLM_API_KEY` and `MODEL` together. |
+| `scripts/acceptance.sh` refuses to start | The acceptance suite refuses a paid model, so it can't spend money. Bring the cluster up with `REAL_LLM=0` to run it. |
+
+## Next steps
+
+- [Build a game with a real model](../get-started/tutorial.md)
+- [Troubleshooting](troubleshooting.md)

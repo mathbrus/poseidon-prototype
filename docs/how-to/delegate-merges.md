@@ -1,106 +1,115 @@
-# Hand over the keys
+# Delegate merges
 
-Everything in [Getting started](../get-started/quickstart.md) had you answering
-every merge. The company already starts its own runs — every company has
-a heartbeat; `poseidon pause` holds it, and stopping it is deleting the
-company — so the one authority left to grant is the merge, and this
-guide grants it, narrowly, and takes it back, since it is a diff.
+By default, every pull request the company delivers waits for you to
+approve the merge. This guide lets policy merge the company's own work in
+the paths you choose, and shows how to take that back.
 
-## What the heartbeat already does
+## Before you start
 
-No command starts the heartbeat. The orchestrator worker keeps one durable
-workflow, `heartbeat-<company>` (`heartbeat-hello-saas` for the example),
-running for as long as the company is applied. The loop is event-triggered: every finished run nudges it awake,
-and `reconcile_minutes` (30 in the example) bounds how long a change only
-the outside world saw — an issue you file by hand, a PR you merge by hand —
-waits for a look. Each tick:
+- A company applied from `examples/hello-saas.yaml`, as in the
+  [Quickstart](../get-started/quickstart.md).
+- Know what policy checks before it merges. [The merge
+  gate](../explanation/merge-gate.md)
+  explains it.
 
-1. **Observes** the company's documents at the base ref, the open backlog,
-   the delivered-but-unreviewed PRs (still open on the git host — one you
-   merged by hand simply drops out), the in-flight runs and today's spend.
-2. **Files bootstrap tickets** for a document still absent, and otherwise
-   **dispatches the PM's toolless *decide* procedure** for exactly one
-   action — scope the next slice, implement a ticket, review a PR, or idle
-   — with a required one-line rationale, journaled as a `heartbeat.decide`
-   audit event.
-3. **Starts the chosen run** only if it wins the compiled `heartbeat.start`
-   decision: within `max_concurrent_runs`, under the `daily_cap`, on an
-   item fewer than `max_attempts` runs have taken up, only a workflow on
-   the `may_start` list, and — for scoping — under `max_open_tickets`.
+## What changes
 
-A run that dies before concluding anything (the model call timed out, the
-reviewer hit its step cap) does not take its ticket or PR down with it:
-the item is offered again until `max_attempts` runs have tried, and the
-run that spends the last attempt leaves a comment on it saying so. A
-bootstrap ticket that exhausts its attempts halts the loop by name
-(`heartbeat_bootstrap_exhausted`, a process-gate event) instead of scoping without
-a strategy; close the ticket and the loop refiles.
+Policy merges a pull request only when all of these hold:
 
-Your job is two acts: keep the charter (edit the blueprint, re-apply) and
-answer merge gates. Watch it work:
+- the independent reviewer passed it,
+- the platform's own run of the tests is green,
+- the reviewer is a different agent from the implementer,
+- every changed path is in the class you delegate,
+- the acceptance contract, if you declare one, is green.
 
-```bash
-uv run poseidon heartbeat show                           # the standing workflow and its ticks
-kubectl -n poseidon-platform logs -f deploy/orchestrator-worker
+Anything else still waits for you: a path outside the class, a change to
+`.github/`, and any change to the contract tests. A failed review or a
+red test run files a rework ticket instead, up to `max_reworks` times.
+
+## Steps
+
+### 1. Declare the delegated paths
+
+In your blueprint, change the merge gate's resolver from `human` to
+`policy` and list the paths policy may merge:
+
+```diff
+ workflows:
+   review:
+     crew: feature-review
+     gates:
+       merge:
+-        resolved_by: human
++        resolved_by: policy
++        # The wait when policy declines and the merge falls back to you.
+         deadline_minutes: 1440
++        delegate:
++          paths: [slugify.py, tests/unit/, docs/]
++          max_reworks: 1
 ```
 
-Narrowing `heartbeat.may_start` keeps a step for a person: a company
-that may not `implement` on its own waits for `poseidon start implement <number>`.
-Removing the section is not a state — it does not compile. To hold the
-company still, pause it — `poseidon pause --reason "…"`, a console act
-under your name: the loop records the pause at its next tick and starts
-nothing until `poseidon resume`, while every run in flight finishes and
-everything stays to be read. To stop the company, delete it —
-`poseidon company delete`, a console act that cancels its runs first:
-the loop reads no applied blueprint at its next tick and stops.
-`tests/e2e_kind/test_overnight.py` runs the whole arrangement end to end
-with exactly one human act: the verdict out, through the console.
+`docs/` holds the company's strategy and architecture plan. If you
+delegate it, the first strategy merges on the reviewer's verdict alone.
+Leave `docs/` out if you want to read it yourself.
 
-## The delegated gate: the company merges its own work
+### 2. Optional: add tests the implementer can't rewrite
 
-The one human act each run still needs is the merge verdict. The flagship
-profile delegates it — narrowly:
+Delegating on "the tests pass" is only safe if the agent that writes the
+code can't also weaken the tests. Declare a contract tree that a separate
+crew writes and only you merge:
 
-```bash
-uv run poseidon blueprint apply examples/hello-saas-delegated.yaml --yes
+```yaml
+policies:
+  contract_tests:
+    paths: [tests/contract/]
+    roles: [contract-author]
 ```
 
-Three things change relative to the human-gated company:
+Then let the PM start the crew that writes those tests:
 
-- `gates.merge.resolved_by` becomes `policy`, with a `delegate` block
-  naming the path class the company may merge on its own
-  (`slugify.py`, `tests/unit/`, and `docs/` — the company's own documents)
-  and a rework bound (`max_reworks: 1`).
-- A `policies.contract_tests` block declares the oracle: `tests/contract/`
-  holds the acceptance spec delegated merges are graded by, and it can
-  never be delegated.
-- A `contract-authoring` crew — the only role that may deliver into the
-  contract tree — joins the PM's `may_spawn` list, so contract-first work
-  can be sequenced.
+```diff
+ standing:
+   pm:
+     ...
+-      crew: [feature-delivery, feature-review, stewardship]
++      crew: [contract-authoring, feature-delivery, feature-review, stewardship]
+```
 
-A review run of an in-class PR does not park. When the independent
-verdict passed, the platform's own re-run of the tests and the contract
-baseline are green, and every changed path is in class, the orchestrator
-merges with no human command —
-[the merge gate](../explanation/anatomy.md#the-merge-gate-human-or-policy)
-lists the facts and the fallbacks. Everything else still stops for you: an
-out-of-class path, a carve-out surface, and any edit to the contract tree
-park on the same `merge` signal you answered before, and a failed quality
-layer feeds the bounded rework loop instead.
+A delegated path can't overlap the contract tree, `.github/` or
+`policies.deny_paths`. The compiler refuses the blueprint if it does.
 
-!!! note
-    The delegated class is yours to declare, and the example's is scoped to
-    the acceptance suite's product (`slugify.py`) plus the company's own
-    documents. Delegating `docs/` means the first strategy — the company's
-    reading of your vision — merges on the reviewer's verdict alone; leave
-    it out of `delegate.paths` to read that reading yourself.
-    [What it cannot do](../explanation/limitations.md) names the residual.
+`examples/hello-saas-delegated.yaml` is the shipped example with both
+changes made.
 
-With the merge handed over, no human act remains. The human surface —
-the console — still stands, idle; every verdict you did give is on the
-record under your name. `tests/e2e_kind/test_delegated.py` proves the arc
-— the company scopes, implements, reviews and merges its own in-class
-passing work, every decision on the audit record, and nobody touches
-anything. Taking the
-merge back is the same diff in reverse: re-apply a profile with
-`resolved_by: human` and every merge parks on you again.
+### 3. Preview and apply
+
+```bash
+uv run poseidon blueprint preview company.yaml   # shows the gate change before it happens
+uv run poseidon blueprint apply company.yaml --yes
+```
+
+## Check that it worked
+
+Watch the next review run:
+
+```bash
+uv run poseidon follow
+```
+
+A delegated merge appears as a `merge.resolve` row allowed by the rule
+`merge_resolve_delegated`, with no verdict from you. A pull request that
+falls outside the class parks as before, in the state `parked-merge_gate`.
+
+## Undo it
+
+Delegation is a line in the blueprint, so revoking it is a diff. Set
+`resolved_by` back to `human`, remove the `delegate` block, and apply
+again. From the next review on, every merge waits for you.
+
+## Next steps
+
+- [Pause, resume or delete the company](pause-resume-delete.md)
+- [The merge gate](../explanation/merge-gate.md):
+  every fact policy checks, and what happens when one fails
+- [Limitations](../explanation/limitations.md): what a delegated gate
+  still can't catch
