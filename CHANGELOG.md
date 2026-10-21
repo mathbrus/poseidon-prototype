@@ -11,6 +11,11 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- The platform closes the tickets a merged pull request fulfilled — a rework
+  chain's all at once, hand merges included — and the pull request a rework
+  ticket supersedes, through the platform-only `issues.close` and
+  `git.close_pr`, each with its rationale on the audit row (#79)
+
 ## [0.1.0+2026.10.21] - 2026-10-21
 
 The first numbered release: everything since the `poc` tag (2026-07-21),
