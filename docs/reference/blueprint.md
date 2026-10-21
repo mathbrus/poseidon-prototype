@@ -82,7 +82,7 @@ One standing agent: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 
-A hire is one instance — the operator names one Deployment and one Service
+A hire is one instance — the reconciler names one Deployment and one Service
 per standing name — and `count: 0` is a documented growth path that
 produces none. Try hiring an `implementer` at `count: 1` and the compiler
 refuses: standing coders do not exist here
@@ -246,8 +246,8 @@ and the authority every crew is fulfilled under.
 
 `may_start` is the closed set of what the loop may start: `scope` (read
 the documents, file the next slice as tickets), `implement` (a ticket),
-`review` (a delivered pull request). Narrow it and the rest is an
-operator's act: a company that may not `implement` on its own waits for
+`review` (a delivered pull request). Narrow it and the rest is a
+human's act: a company that may not `implement` on its own waits for
 `poseidon start implement <number>`.
 
 `max_attempts` is what bounds an aborted run. An issue or a delivered PR

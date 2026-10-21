@@ -1,7 +1,7 @@
 """The compiler: `(blueprint, role_catalog, registry_snapshot) → plan`.
 
 A pure function. It reads nothing but its arguments, writes nothing,
-and touches no cluster: apply is the operator's job, and keeping the
+and touches no cluster: apply is the reconciler's job, and keeping the
 mutation in exactly one place is what makes "the blueprint is the source
 of truth" checkable rather than aspirational.
 

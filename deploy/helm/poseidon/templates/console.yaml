@@ -6,7 +6,7 @@
 #
 # It holds no secret but the registry DSN: no GIT_TOKEN, no provider key.
 # Its cluster authority is exactly what an apply needs — the two CRDs and
-# a look at the company namespace — which the operator deliberately lacks.
+# a look at the company namespace — which the reconciler deliberately lacks.
 {{ include "poseidon.authDelegator" (dict "root" . "name" "console") }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

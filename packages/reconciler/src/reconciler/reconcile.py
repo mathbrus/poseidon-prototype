@@ -1,6 +1,6 @@
 """kopf handlers: converge Company and AgentInstance CRs.
 
-The operator owns standing structure and nothing else. It creates
+The reconciler owns standing structure and nothing else. It creates
 namespaces, the NetworkPolicy envelope, the orchestrator's bounded
 sandbox-provisioner RBAC, standing agent Deployments, and it persists
 compiled bundles for the bundle server to publish. It never creates
@@ -18,10 +18,10 @@ import kopf
 
 from common.policy import COMPANY_BUNDLE, PLATFORM_BUNDLE
 from common.telemetry import get_logger
-from poseidon_operator import resources
-from poseidon_operator.config import OperatorSettings
-from poseidon_operator.kube import Cluster
-from poseidon_operator.opa import activated_revision
+from reconciler import resources
+from reconciler.config import ReconcilerSettings
+from reconciler.kube import Cluster
+from reconciler.opa import activated_revision
 from registry import AgentInstances, Companies, PolicyBundles, open_registry
 
 # How long a handler waits before asking OPA again whether it has
@@ -29,7 +29,7 @@ from registry import AgentInstances, Companies, PolicyBundles, open_registry
 # seconds; asking more often than that buys nothing.
 ACTIVATION_POLL_S = 5
 
-_log = get_logger("operator")
+_log = get_logger("reconciler")
 _registry = None
 _the_cluster = None
 _the_settings = None
@@ -49,10 +49,10 @@ def _db():
     return _registry
 
 
-def _settings() -> OperatorSettings:
+def _settings() -> ReconcilerSettings:
     global _the_settings
     if _the_settings is None:
-        _the_settings = OperatorSettings()
+        _the_settings = ReconcilerSettings()
     return _the_settings
 
 
@@ -97,8 +97,8 @@ def reconcile_company(
         cluster.upsert_network_policy(company_ns, policy)
 
     # The orchestrator's bounded sandbox surface rides the namespace: the
-    # namespace is operator-created, so the Role in it must be too (the
-    # operator's ClusterRole holds escalate/bind for exactly this — it still
+    # namespace is reconciler-created, so the Role in it must be too (the
+    # reconciler's ClusterRole holds escalate/bind for exactly this — it still
     # cannot touch a pod itself).
     cluster.upsert_role(company_ns, resources.sandbox_provisioner_role(company_ns))
     cluster.upsert_role_binding(
@@ -161,7 +161,7 @@ def teardown_company(spec: dict[str, Any], name: str, **_: Any) -> None:
     poll, no restart, so a caller still holding an identity finds no rule
     to match before its namespace goes. The platform bundle stays — it
     belongs to the platform, not to any company. Registry rows are swept
-    at the company level — correct even if the operator missed individual
+    at the company level — correct even if the reconciler missed individual
     instance-delete events."""
     revoked = PolicyBundles(_db()).revoke(COMPANY_BUNDLE)
     if revoked and activated_revision(_settings().opa_url, COMPANY_BUNDLE) != revoked:

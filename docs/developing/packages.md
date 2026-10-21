@@ -11,7 +11,7 @@ are not mirrored here; the table links to them.
 | [`blueprint`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/blueprint/README.md) | The blueprint contract and the role/crew catalogs |
 | [`compiler`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
-| [`operator`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
+| [`reconciler`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/reconciler/README.md) | Reconciles the CRs; serves policy bundles |
 | [`orchestrator`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates |
 | [`mcp-gateway`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
 | [`llm-gateway`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |

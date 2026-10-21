@@ -36,7 +36,7 @@ This does not work, and it is worth being precise about why.
     ```
 
     Put that in an issue body. A helpful agent reads the issue, sees what looks
-    like an operator instruction, and complies. It is not malfunctioning — it is
+    like a human's instruction, and complies. It is not malfunctioning — it is
     doing exactly what a text-completion model does with text.
 
     You can make this *less likely* with prompting. You cannot make it
@@ -79,9 +79,9 @@ delegated authority on behalf of input it cannot vet.
    run's sandbox, or the host.
 
 **What is out of scope.** Kernel exploits from inside the sandbox container
-([it is a container, not a VM](cannot.md)); a malicious platform operator;
+([it is a container, not a VM](cannot.md)); a malicious human running the platform;
 compromise of the cluster itself or of the git host. The platform services —
-gateway, orchestrator, operator, console — are trusted code; the console
+gateway, orchestrator, reconciler, console — are trusted code; the console
 is the first of them that authenticates a person, and what it trusts is
 the API server's verdict on the token, never the request. The claim is not that
 nothing is trusted; it is that **no LLM sits inside the trusted computing

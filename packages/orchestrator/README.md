@@ -77,7 +77,7 @@ procedure → teardown`. Started by the heartbeat like every run; no human
 hands it a text. The observation is platform-composed — the company's
 documents at the base ref, the open backlog, the delivered PRs, the recent
 runs — and the conductor's address is derived from its converged instance
-(the operator names its Service after the standing name), never
+(the reconciler names its Service after the standing name), never
 configured. The PM does the scoping itself through governed tools
 (`issues.*`): files the next slice as tickets, each ending in the `Crew:`
 trailer the implement run routes by, and comments its summary on each;
@@ -296,7 +296,7 @@ standing agent runs, labeled to its run. Its only credential is the
 audience-scoped projected token of its own per-run ServiceAccount,
 mounted by the kubelet — no token-shaped env var exists, and no
 credential ever enters Temporal's workflow history, which
-is persisted and replayed. The manifest mirrors the operator's standing
+is persisted and replayed. The manifest mirrors the reconciler's standing
 posture: no API-server token, no service links, non-root, `GPG_KEY`
 blanked.
 
@@ -305,7 +305,7 @@ creates and deletes pods and their labeled ServiceAccounts only, in the
 company namespace only, and every
 delete goes through the `{run_id, kind=ephemeral-agent}` label selector — so
 nothing unlabeled, and no sandbox pod sharing the run label, can ever be
-touched. Standing structure stays operator-owned.
+touched. Standing structure stays reconciler-owned.
 
 Provisioning carries a race guard learned the hard way: removing a
 same-name remnant of a crashed attempt can take ~30 seconds — ample time

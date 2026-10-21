@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
-from poseidon_operator.bundleserver import create_app
+from reconciler.bundleserver import create_app
 from registry import StoredBundle, pack, tombstone
 
 

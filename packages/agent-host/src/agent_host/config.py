@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings
 
 
 class AgentSettings(BaseSettings):
-    """Every field is set on the pod by the operator (standing agents) or
+    """Every field is set on the pod by the reconciler (standing agents) or
     the orchestrator (ephemeral agents); none has a default."""
 
     mcp_gateway_url: str

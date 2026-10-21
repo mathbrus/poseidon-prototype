@@ -1,7 +1,7 @@
 """Review on the live cluster: the full chain — the strategy scoped into a
 ticket, a person's `poseidon start implement <number>` implementing it by hand (the
 repro command: no human retypes the spec, and the loop yields the ticket
-to the operator), reviewer findings posted, merge gate parked, timer
+to the human), reviewer findings posted, merge gate parked, timer
 escalation observable, API approval, gateway merge — every step correlated
 by run_id in one audit story.
 
@@ -14,7 +14,7 @@ so the escalation path is proven on every run, not just when someone
 forgets to answer.
 
 Applies the example with `may_start: [scope, review]`: the company scopes
-and reviews on its own, and implementing is the operator's act here —
+and reviews on its own, and implementing is a human's act here —
 which is what makes `poseidon start implement <number>` a repro rather than a race.
 """
 
@@ -124,7 +124,7 @@ def _watch_review_gate(env: dict, run_id: str, pr_number: int) -> dict:
 @pytest.fixture(scope="module")
 def review_chain(stack: None, baseline_env: dict) -> dict:
     """The whole arc: the strategy becomes a ticket (the loop's scope run),
-    the ticket becomes a PR (the operator's `poseidon start implement`), the PR becomes
+    the ticket becomes a PR (a human's `poseidon start implement`), the PR becomes
     reviewer findings, a parked gate, an escalation, an approval, and a
     gateway merge (the loop's review run)."""
     env = baseline_env
@@ -142,9 +142,9 @@ def review_chain(stack: None, baseline_env: dict) -> dict:
         chain["ticket_url"] = ticket_url
         chain["issue_number"] = int(issue_match.group(1))
 
-        # 2. Implement, by hand: the operator's repro on the company's own
+        # 2. Implement, by hand: a human's repro on the company's own
         # ticket. The loop may not implement in this profile, so the ticket
-        # is the operator's to start — and the company's spec, not a
+        # is a human's to start — and the company's spec, not a
         # second, human-written one.
         chain["implement"] = _poseidon_run(env, chain["issue_number"])
         pr_url = chain["implement"]["pr_url"]

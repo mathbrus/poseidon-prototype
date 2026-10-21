@@ -2,7 +2,7 @@
 
 Everything cluster-shaped goes through `kube.Cluster` and everything
 database-shaped through the registry accessors; both are replaced with
-recording fakes here, so these tests pin *what the operator does* — which
+recording fakes here, so these tests pin *what the reconciler does* — which
 objects it converges, what it sweeps at teardown, what status it writes —
 without a cluster or a database.
 """
@@ -11,8 +11,8 @@ import kopf
 import pytest
 
 from common.topology import PLATFORM_NAMESPACE
-from poseidon_operator import reconcile
-from poseidon_operator.config import OperatorSettings
+from reconciler import reconcile
+from reconciler.config import ReconcilerSettings
 
 
 class FakeCluster:
@@ -58,7 +58,7 @@ class FakeBundleStore:
 
 
 class FakeOpa:
-    """OPA's activation record as the operator reads it. By default an
+    """OPA's activation record as the reconciler reads it. By default an
     OPA that has polled: every stored bundle — a tombstone included — is
     served at its stored revision. `lagging` names the bundles it has not
     caught up on yet."""
@@ -121,7 +121,7 @@ def operator_settings(monkeypatch) -> None:
     monkeypatch.setattr(
         reconcile,
         "_the_settings",
-        OperatorSettings(
+        ReconcilerSettings(
             platform_namespace=PLATFORM_NAMESPACE,
             model="mock-brain",
             agent_image="poseidon-agent-host:abc123",
@@ -199,8 +199,8 @@ def test_company_reconcile_converges_the_envelope(cluster, stores, opa):
         "agent-ingress",
         "sandbox-isolation",
     }
-    # The orchestrator's bounded sandbox RBAC rides the operator-owned
-    # namespace — the operator creates it, the worker uses it.
+    # The orchestrator's bounded sandbox RBAC rides the reconciler-owned
+    # namespace — the reconciler creates it, the worker uses it.
     assert cluster.named("upsert_role") == [("hello-saas", "sandbox-provisioner")]
     assert cluster.named("upsert_role_binding") == [("hello-saas", "sandbox-provisioner")]
 
@@ -302,7 +302,7 @@ def test_company_teardown_revokes_and_sweeps(cluster, stores, opa):
     assert bundles.stored["platform"] is not TOMBSTONE
     assert cluster.named("delete_namespace") == [("hello-saas",)]
     assert "hello-saas" not in companies.rows
-    # Swept at the company level — correct even if the operator missed
+    # Swept at the company level — correct even if the reconciler missed
     # individual instance-delete events; other companies untouched.
     assert list(instances.rows) == ["pm-9"]
 

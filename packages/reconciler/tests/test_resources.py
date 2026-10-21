@@ -1,4 +1,4 @@
-"""What the operator would apply, checked without a cluster.
+"""What the reconciler would apply, checked without a cluster.
 
 The reconcilers are thin wrappers over these builders, so the properties
 that matter — the isolation envelope, no credentials in a spec, the
@@ -6,8 +6,8 @@ ownership boundary — are testable here.
 """
 
 from common.topology import PLATFORM_NAMESPACE
-from poseidon_operator import resources
-from poseidon_operator.config import OperatorSettings
+from reconciler import resources
+from reconciler.config import ReconcilerSettings
 
 SPEC = {
     "agentId": "pm-1",
@@ -20,7 +20,7 @@ SPEC = {
 }
 
 PLATFORM = PLATFORM_NAMESPACE
-SETTINGS = OperatorSettings(
+SETTINGS = ReconcilerSettings(
     model="mock-brain",
     platform_namespace=PLATFORM,
     agent_image="poseidon-agent-host:abc123",

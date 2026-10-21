@@ -1,16 +1,13 @@
-# operator
+# reconciler
 
 Reconciles the two custom resources — `Company` and `AgentInstance` — into
 a live company: a namespace, the NetworkPolicy envelope, the
 orchestrator's bounded sandbox-provisioner RBAC, standing agent
 Deployments, and compiled policy bundles persisted for OPA to poll.
 
-The importable name is `poseidon_operator` because `operator` is a Python
-standard-library module.
-
 This package is the second half of a deliberate split: the
 [compiler](../compiler/README.md) is a pure function that decides what
-enforcement should exist and touches no cluster; the operator makes it
+enforcement should exist and touches no cluster; the reconciler makes it
 exist. Apply is the **only** mutation of enforcement, and this package is
 the only thing that applies — so "why is this NetworkPolicy here?" always
 traces to a blueprint line, through the compiler, through here, and
@@ -18,18 +15,18 @@ nowhere else.
 
 ## What "reconcile" means here
 
-An *operator* in the Kubernetes sense is a controller for custom
+This is what Kubernetes calls an *operator*: a controller for custom
 resources: something writes a `Company` CR to the API server, and this
 process notices and makes the cluster match it. The important design
 choice is *how*. The naive shape is edge-triggered: react to each event
 with the action it implies ("a Company appeared → create a namespace").
 That is brittle, because correctness then depends on having seen every
-event exactly once — a crashed operator misses an edge and stays wrong
+event exactly once — a crashed reconciler misses an edge and stays wrong
 forever.
 
 The reconcilers in `reconcile.py` are written level-triggered instead: on
 *any* event for a CR (create, update, or `resume`, kopf's replay of every
-existing CR at operator startup), the handler recomputes the entire
+existing CR at reconciler startup), the handler recomputes the entire
 desired state from the spec and upserts all of it, whole. Nothing is
 computed from the event's diff. The payoff is that correctness depends
 only on the *current* spec, never on event history: a restart, a resync or
@@ -42,7 +39,7 @@ Teardown follows the same philosophy: `teardown_company` sweeps registry
 rows at the company level (`AgentInstances.delete_for_company`) rather
 than trusting that an instance-delete event was seen for each standing agent.
 
-`phase: converged` means *served*: the operator writes it — and the
+`phase: converged` means *served*: the reconciler writes it — and the
 registry row that makes the company live to the platform — only once OPA
 reports that it has activated exactly the bundle revisions stored for
 this apply, the platform's and the company's. OPA polls the bundle server
@@ -51,21 +48,21 @@ on its own schedule, so until it catches up the handler ends with a kopf
 idempotent reconcile a few seconds later. `status.observedGeneration`
 rides every phase so a reader of a re-applied company can tell which
 apply the phase answers for. The read of OPA (`opa.py`) is the one thing
-the operator asks OPA; nothing is pushed.
+the reconciler asks OPA; nothing is pushed.
 
 ## Hard boundaries
 
-The operator owns **standing structure and nothing else**. It never
+The reconciler owns **standing structure and nothing else**. It never
 creates ephemeral agents — those exist only inside a run and belong to the
 orchestrator's fulfill activities — and it never runs a process. The
 reason is blast radius: standing structure changes only when a human
 applies a blueprint, so its mutator can be slow, auditable and rare; runs
 happen constantly and are driven by LLM output, so the thing acting inside
 them (the orchestrator) gets a separately bounded, separately reviewed
-authority. The operator's ClusterRole makes the boundary mechanical, not
+authority. The reconciler's ClusterRole makes the boundary mechanical, not
 aspirational: it grants the CRs, namespaces, networkpolicies,
 roles/rolebindings, deployments, services and serviceaccounts — and **no
-pods, no exec, no jobs, no secrets**. An operator bug (or compromise)
+pods, no exec, no jobs, no secrets**. A reconciler bug (or compromise)
 cannot execute anything.
 
 ## Module map
@@ -73,11 +70,11 @@ cannot execute anything.
 | Module | Owns |
 |---|---|
 | `reconcile.py` | The kopf handlers: create/update/resume/delete for both CRs, plus the startup hook that moves kopf's bookkeeping into annotations. |
-| `resources.py` | Every Kubernetes object the operator owns, as **pure builders** — what the operator *would* apply is testable without a cluster. |
+| `resources.py` | Every Kubernetes object the reconciler owns, as **pure builders** — what the reconciler *would* apply is testable without a cluster. |
 | `kube.py` | `Cluster`: the intent-level client (`upsert_namespace`, `upsert_deployment`, …), one seam the reconciler tests replace with a fake. |
 | `bundleserver.py` | The OPA bundle server, a separate entry point sharing the package. |
-| `opa.py` | `activated_revision`: the one read the operator makes of OPA — which revision it serves for a bundle — so `converged` and a finished teardown mean what they say. |
-| `config.py` | `OperatorSettings`: the platform namespace, the agent image, the run configuration the builders take as arguments, and where OPA answers. |
+| `opa.py` | `activated_revision`: the one read the reconciler makes of OPA — which revision it serves for a bundle — so `converged` and a finished teardown mean what they say. |
+| `config.py` | `ReconcilerSettings`: the platform namespace, the agent image, the run configuration the builders take as arguments, and where OPA answers. |
 
 ## What one Company converges to
 
@@ -150,11 +147,11 @@ remember.
 
 ## The two entry points
 
-Both run the `poseidon-operator` image, differing only in command:
+Both run the `poseidon-reconciler` image, differing only in command:
 
 ```
-kopf run -m poseidon_operator.reconcile --all-namespaces   # the reconciler
-python -m poseidon_operator.bundleserver                   # the bundle server
+kopf run -m reconciler.reconcile --all-namespaces   # the reconciler
+python -m reconciler.bundleserver                   # the bundle server
 ```
 
 The bundle server builds its FastAPI app in `main()` rather than at
@@ -164,7 +161,7 @@ an eager connect would crash-loop it. `/healthz` stays database-free.
 
 ## Bundles are persisted and polled, never pushed
 
-**Nothing is ever pushed into OPA.** The operator persists a compiled
+**Nothing is ever pushed into OPA.** The reconciler persists a compiled
 bundle to `registry.policy_bundles`; the bundle server hands it to OPA
 over the standard bundle API at `/bundles/{company}/bundle.tar.gz`; OPA
 polls. Three properties fall out of this direction of flow:
@@ -194,17 +191,17 @@ steady state costs one small request per poll interval, not a tarball.
 
 ## The escalate/bind grant
 
-The operator's ClusterRole holds `escalate` and `bind` on roles and
+The reconciler's ClusterRole holds `escalate` and `bind` on roles and
 rolebindings. Kubernetes normally refuses to let a principal grant
 permissions it does not itself hold — the right guard against privilege
 escalation, and exactly what must be selectively waived here: company
-namespaces are operator-created, so the orchestrator's sandbox-provisioner
-Role *inside* them must be operator-created too, and that Role grants
-jobs/pods/exec, which the operator deliberately does not hold. The grant
+namespaces are reconciler-created, so the orchestrator's sandbox-provisioner
+Role *inside* them must be reconciler-created too, and that Role grants
+jobs/pods/exec, which the reconciler deliberately does not hold. The grant
 is scoped to roles/rolebindings only, so the ownership matrix stays
-intact — the operator hands the worker its bounded surface while still
+intact — the reconciler hands the worker its bounded surface while still
 being unable to touch a pod itself. The alternative — widening the
-operator's own RBAC to cover pods and jobs — would be strictly worse.
+reconciler's own RBAC to cover pods and jobs — would be strictly worse.
 
 ## Two traps the code had to design around
 
@@ -242,30 +239,30 @@ code path.
 - Builds agent pod specs from `common.podsecurity` (non-root uid 10001,
   no escalation path, all capabilities dropped).
 - The CRD definitions themselves live in `crds/` at the repo root; the
-  operator's ClusterRole and both Deployments are in
-  `deploy/helm/poseidon/templates/operator.yaml`.
+  reconciler's ClusterRole and both Deployments are in
+  `deploy/helm/poseidon/templates/reconciler.yaml`.
 
 ## Tests
 
 ```
-uv run pytest packages/operator
+uv run pytest packages/reconciler
 ```
 
 `test_resources.py` asserts on the built objects directly — no cluster
 needed, which is the payoff of keeping the builders pure.
 `test_reconcile.py` drives the handlers against a fake `Cluster`, fake
-registry accessors and a fake OPA, pinning *what the operator does*: which
+registry accessors and a fake OPA, pinning *what the reconciler does*: which
 objects it converges, what it holds back until OPA serves the bundles,
 what it sweeps at teardown and when, what status it writes. `test_opa.py`
 pins the activation read's answers.
 `test_bundleserver.py` exercises the bundle API against an in-memory
 store. The live behaviour (namespaces really created, NetworkPolicies
 really enforced, a fired agent's token really rejected) is proven by
-`tests/e2e_kind/test_operator_lifecycle.py`.
+`tests/e2e_kind/test_reconciler_lifecycle.py`.
 
 ## Invariants
 
-- Standing structure only; ephemeral agents are never the operator's, and
+- Standing structure only; ephemeral agents are never the reconciler's, and
   its RBAC cannot touch a pod, an exec, a job or a secret.
 - Reconciliation is idempotent: every object is sent whole and upserted,
   so repeated applies converge instead of accumulating.

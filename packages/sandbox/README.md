@@ -96,7 +96,7 @@ left".
 
 Only the orchestrator calls `provision`/`destroy`; its ServiceAccount
 carries a bounded, namespaced Role (jobs, pods, pods/exec in company
-namespaces only — see the operator's `sandbox_provisioner_role`).
+namespaces only — see the reconciler's `sandbox_provisioner_role`).
 
 ## What the sandbox pod does not have
 
@@ -240,7 +240,7 @@ never carries a database driver or registry credentials.
 - **gateway** proxies the seven `sandbox.*` tools to the tool server
   (after authenticating, policy-checking and auditing each call) and is
   the only ingress the sandbox NetworkPolicy admits.
-- **operator** emits that NetworkPolicy (`sandbox-isolation`) and the
+- **reconciler** emits that NetworkPolicy (`sandbox-isolation`) and the
   orchestrator's bounded provisioning Role.
 - **registry** supplies the proxy's allowlist resolution and receives
   its audit events; **compiler** produces the infra IR the policy and

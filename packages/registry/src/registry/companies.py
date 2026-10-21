@@ -1,5 +1,5 @@
 """`companies` — the registry's record of what has been applied: the
-blueprint, written by the operator on reconcile and cleared on teardown;
+blueprint, written by the reconciler on reconcile and cleared on teardown;
 and the pause, written by the console under a human's act and read by
 the heartbeat on every tick.
 """

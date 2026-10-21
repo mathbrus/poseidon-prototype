@@ -55,7 +55,7 @@ def test_manifest_is_contained_and_labeled():
         env={"GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token", "MODEL": "mock-brain"},
     )
     labels = manifest["metadata"]["labels"]
-    # The kind label puts the pod inside the operator's agent envelope
+    # The kind label puts the pod inside the reconciler's agent envelope
     # (gateways-only egress, orchestrator-only ingress) the moment it
     # exists; the run label is the destroy selector's other half.
     assert labels["poseidon.dev/kind"] == EPHEMERAL_KIND

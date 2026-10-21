@@ -10,7 +10,7 @@ first tool call in production.
 
 The compiler reads nothing but its arguments, writes nothing, and touches
 no cluster. Applying a plan is someone else's job: the console submits it
-as custom resources, the operator converges them. If the vocabulary here
+as custom resources, the reconciler converges them. If the vocabulary here
 is new — blueprints, OPA, run binding — read the
 [root README](../../README.md) first (sections 2, 4 and 7).
 
@@ -204,7 +204,7 @@ delegated path (a policy-resolved gate only) is scoped to `resolver ==
   Activation under a shared root would erase the other company's rules.
 - **The platform bundle**, `package poseidon.platform` — the orchestrator's
   scope, compiler-owned and company-independent, so it compiles identically
-  from every blueprint and every operator upsert lands the same revision.
+  from every blueprint and every reconciler upsert lands the same revision.
 
 The package name, and the slug transform inside it, come from
 `common.policy` — the same module the gateway and the orchestrator derive
@@ -284,7 +284,7 @@ its own; it ships inside the console image.
 - Its plan rides the custom resources the console submits — the Company CR
   carries the bundles, the `policies` section as written, infra IR,
   workflows, budgets and crew specs — and
-  the `operator` ([README](../operator/README.md)) reconciles them. From
+  the `reconciler` ([README](../reconciler/README.md)) reconciles them. From
   the applied blueprint, the `orchestrator` reads SandboxPolicy, workflow
   and gate config, and the egress proxy its host allowlist: one
   `egress_allow` list, two consumers, no drift.

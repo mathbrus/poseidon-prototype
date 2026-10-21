@@ -7,7 +7,7 @@ plus the cross-suite claims that only make sense once everything else ran.
 
 What the suite proves, and where:
 
-  1 declarative   test_operator_lifecycle (apply / edit / teardown with the
+  1 declarative   test_reconciler_lifecycle (apply / edit / teardown with the
                   failed post-teardown call); HERE: compile and preview as
                   scripted e2e steps, and compile-is-what's-live (the local
                   compile's content-addressed revision == the served one)
@@ -16,7 +16,7 @@ What the suite proves, and where:
                   (worker-kill crew sweep); HERE: the killed happy-path run itself
                   leaked no identity row, no ephemeral pod, no registration
   3 SDLC          test_scope + test_review_gate (the strategy scoped into
-                  a ticket, an operator's `poseidon start implement <number>`, review
+                  a ticket, a human's `poseidon start implement <number>`, review
                   with parked gate, escalation, API approval, platform
                   merge); test_verify_gate (the platform's own test run, not
                   the implementer's claim, is the gate of record);
@@ -30,7 +30,7 @@ What the suite proves, and where:
                   this suite execution — nothing seeded
   5 budgets       test_budgets (refusal at the cap, API-visible park, process-gate
                   escalation, full {run, parent, agent, role} tuple)
-  6 lean standing test_operator_lifecycle (exactly one AgentInstance),
+  6 lean standing test_reconciler_lifecycle (exactly one AgentInstance),
                   test_scope, test_ephemeral_identity, test_ephemeral_pods,
                   test_workload_identity; HERE: the registry's standing agents
                   agrees, and a live minted implementer is denied outside its
@@ -258,7 +258,7 @@ def test_the_killed_run_left_nothing_behind(implement_run: dict) -> None:
 
 def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     """`exactly one standing AgentInstance` is asserted against the CRs in
-    test_operator_lifecycle; the registry — which is what gateway authn
+    test_reconciler_lifecycle; the registry — which is what gateway authn
     enriches from — must agree, and must still agree at the end of the
     suite, after every module's teardown/re-apply cycles."""
     rows = psql_json(

@@ -1,6 +1,6 @@
 """Applying the example blueprints to the cluster, exactly as a person
 running the platform does, and waiting for the company to converge — a
-phase the operator writes only once OPA serves the applied policy, not
+phase the reconciler writes only once OPA serves the applied policy, not
 when the pods are Ready."""
 
 import tempfile
@@ -113,18 +113,18 @@ def apply_blueprint(path: Path) -> None:
     """Apply the suite's version of `path` (see `suite_document`) through
     the console, as the human `owner` — the act a person performs: the
     console compiles it against the live registry, decides, submits the
-    CRs; the operator converges them."""
+    CRs; the reconciler converges them."""
     result = console().apply(suite_document(path).read_text())
     assert result["company"] == COMPANY, result
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:
     """The company namespace is Active, the Company reads `converged` for
-    the generation just applied — the operator writes that phase only once
+    the generation just applied — the reconciler writes that phase only once
     OPA serves the stored bundle revisions, the platform's and the
     company's — and its one standing agent (the PM) is rolled out. The
     generation matters after a re-apply: the CR still carries the previous
-    apply's `converged` until the operator has looked at the new spec."""
+    apply's `converged` until the reconciler has looked at the new spec."""
     kubectl(
         "wait",
         "--for=jsonpath={.status.phase}=Active",

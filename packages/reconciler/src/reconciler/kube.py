@@ -1,4 +1,4 @@
-"""The operator's Kubernetes surface, as one intent-level client.
+"""The reconciler's Kubernetes surface, as one intent-level client.
 
 Everything the reconcilers do to a cluster goes through `Cluster`, so the
 handlers in `reconcile.py` stay pure orchestration (buildable objects in,
@@ -11,7 +11,7 @@ from typing import Any
 from kubernetes import client as k8s
 from kubernetes import config as k8s_config
 
-FIELD_MANAGER = "poseidon-operator"
+FIELD_MANAGER = "poseidon-reconciler"
 
 
 class Cluster:

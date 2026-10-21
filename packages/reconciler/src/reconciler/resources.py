@@ -1,7 +1,7 @@
-"""The Kubernetes objects the operator owns, as pure builders.
+"""The Kubernetes objects the reconciler owns, as pure builders.
 
-Pure on purpose: what the operator *would* apply is testable without a
-cluster, and the reconcilers below stay thin enough to read. The operator
+Pure on purpose: what the reconciler *would* apply is testable without a
+cluster, and the reconcilers below stay thin enough to read. The reconciler
 owns standing structure only — namespaces, NetworkPolicies, standing agent
 Deployments — and never creates ephemeral agents or runs processes.
 """
@@ -27,11 +27,11 @@ from common.topology import (
     llm_gateway_url,
     mcp_gateway_url,
 )
-from poseidon_operator.config import OperatorSettings
+from reconciler.config import ReconcilerSettings
 
 LABELS = {
     "app.kubernetes.io/part-of": "poseidon",
-    "app.kubernetes.io/managed-by": "poseidon-operator",
+    "app.kubernetes.io/managed-by": "poseidon-reconciler",
 }
 
 
@@ -201,13 +201,13 @@ def sandbox_provisioner_role(company_ns: str) -> dict[str, Any]:
     workspace delivery) and the ephemeral-pod provisioner (pod + ServiceAccount
     create/delete for each ephemeral agent — the SA is the
     agent's per-run identity, so its lifetime must equal the pod's, which
-    is why it is provisioned here and not operator-reconciled). Company
-    namespaces only — the Role is namespaced and operator-reconciled, so
+    is why it is provisioned here and not reconciler-reconciled). Company
+    namespaces only — the Role is namespaced and reconciler-reconciled, so
     the worker can create no pod or SA in the platform namespace; the
     run_id+kind label-selector discipline on deletes lives in
     `orchestrator.ephemeral_pods` (RBAC cannot express selectors), proven by the
     ephemeral-pods e2e. Never Deployments, Services or CRs: standing structure stays
-    operator-owned."""
+    reconciler-owned."""
     return {
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "Role",
@@ -291,7 +291,7 @@ def agent_service_account(spec: dict[str, Any], company_ns: str) -> dict[str, An
 
 
 def agent_deployment(
-    spec: dict[str, Any], company_ns: str, settings: OperatorSettings
+    spec: dict[str, Any], company_ns: str, settings: ReconcilerSettings
 ) -> dict[str, Any]:
     """A standing agent Deployment, reconciled from an AgentInstance.
 

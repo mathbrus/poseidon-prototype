@@ -2,7 +2,7 @@
 
 The only place the console touches a cluster, and it touches nothing but
 the two CRDs: every real object — namespace, NetworkPolicy, Deployment, bundle — is
-the operator's to create from these. Submitting a CR is a statement of
+the reconciler's to create from these. Submitting a CR is a statement of
 intent, never an instruction.
 
 Instances the plan no longer contains are deleted, which is what makes
@@ -51,7 +51,7 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
             "policies": plan.company.policies,
             "policyBundle": plan.bundle.files,
             # Compiler-owned and identical from every blueprint; riding the
-            # CR keeps the operator the only bundle writer. Every
+            # CR keeps the reconciler the only bundle writer. Every
             # apply upserts the same revision, so it never churns.
             "platformBundle": plan.platform_bundle.files,
             "infra": data["infra"],
@@ -157,7 +157,7 @@ def delete_company(
     timeout_s: float = TEARDOWN_TIMEOUT_S,
 ) -> None:
     """Delete the Company CR and, unless told not to, wait for the
-    operator's teardown to finish — the CR is gone once the tombstone is
+    reconciler's teardown to finish — the CR is gone once the tombstone is
     served, the rows swept and the namespace deleted. A company that is
     not there is already deleted."""
     api = api or _api()
@@ -180,13 +180,13 @@ def delete_company(
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 f"company {name!r} is still being torn down after {timeout_s:.0f}s"
-                " — see its status, and the poseidon-operator's logs"
+                " — see its status, and the poseidon-reconciler's logs"
             )
         time.sleep(2)
 
 
 def _wait_for_namespace(namespace: str, timeout_s: float = NAMESPACE_TIMEOUT_S) -> None:
-    """Wait for the operator to create the company namespace. Waiting on the
+    """Wait for the reconciler to create the company namespace. Waiting on the
     namespace rather than Company status keeps this decoupled from kopf's
     status mechanics: the namespace is what the AgentInstance create below
     actually needs."""
@@ -202,7 +202,7 @@ def _wait_for_namespace(namespace: str, timeout_s: float = NAMESPACE_TIMEOUT_S) 
         if time.monotonic() >= deadline:
             raise TimeoutError(
                 f"namespace {namespace!r} did not appear within {timeout_s:.0f}s"
-                " — is the poseidon-operator running and reconciling the"
+                " — is the poseidon-reconciler running and reconciling the"
                 " Company CR?"
             )
         time.sleep(2)

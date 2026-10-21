@@ -10,7 +10,7 @@
 -- Write ownership (an import-graph convention, enforced by which accessor
 -- a service imports — not by Postgres grants). Seven tables have exactly
 -- one writer; the eighth is shared by design:
---   operator      -> companies, agent_instances, policy_bundles
+--   reconciler      -> companies, agent_instances, policy_bundles
 --   orchestrator  -> runs, run_participants
 --   gateway       -> sandbox_registrations
 --   LLM gateway   -> budget_ledger
@@ -20,7 +20,7 @@
 
 CREATE SCHEMA IF NOT EXISTS registry;
 
--- Standing structure, written by the operator at blueprint apply.
+-- Standing structure, written by the reconciler at blueprint apply.
 CREATE TABLE IF NOT EXISTS registry.companies (
     name        text PRIMARY KEY,
     blueprint   jsonb,
@@ -174,7 +174,7 @@ CREATE TABLE IF NOT EXISTS registry.budget_ledger (
 );
 CREATE INDEX IF NOT EXISTS budget_ledger_run_id_idx ON registry.budget_ledger (run_id);
 
--- Compiled policy bundles: the operator persists them here and the
+-- Compiled policy bundles: the reconciler persists them here and the
 -- bundle server hands them to OPA over the standard bundle API, which OPA
 -- polls. Storing them makes gateway and OPA restarts safe — nothing has to
 -- be re-pushed, and the revision says exactly which blueprint is live.

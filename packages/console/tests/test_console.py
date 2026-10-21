@@ -108,7 +108,7 @@ class World:
         self.runs = InMemoryRuns()
         self.ledger = InMemoryBudgetLedger()
         self.instances = InMemoryAgentInstances()
-        # The operator's record of the applied company; the console reads
+        # The reconciler's record of the applied company; the console reads
         # which company it hosts from here.
         self.companies = InMemoryCompanies()
         self.companies.upsert(COMPANY, {"namespace": "poseidon-company"})
@@ -125,7 +125,7 @@ class World:
     def submit(self, plan: DeploymentPlan) -> tuple[int, int, int]:
         self.submitted.append(plan)
         # What the CR says afterwards: the generation this apply made,
-        # still activating until the fake operator is told otherwise.
+        # still activating until the fake reconciler is told otherwise.
         self.cr = {
             "company": plan.company.name,
             "namespace": plan.company.namespace,

@@ -12,7 +12,7 @@ flowchart LR
     BP --> SCH["<b>blueprint</b><br/>well-formed?"]
     SCH --> CMP["<b>compiler</b><br/>coherent?<br/>pure function"]
     CMP --> PLAN["deployment plan<br/>CRs · Rego · infra IR"]
-    PLAN --> OP["<b>operator</b><br/>reconciles"]
+    PLAN --> OP["<b>reconciler</b><br/>converges"]
     OP --> NS["namespace<br/>NetworkPolicies<br/>Deployments<br/>RBAC"]
     OP --> REG[("<b>registry</b><br/>Postgres")]
     REG --> BS["<b>bundle server</b>"]
@@ -26,7 +26,7 @@ heartbeat's conductor an active standing spawner, does every scope name a
 real tool, can the daily cap fund a run. Both fail before anything reaches
 a cluster.
 
-Note the dotted arrow. Policy is **never pushed** into OPA. The operator
+Note the dotted arrow. Policy is **never pushed** into OPA. The reconciler
 persists a bundle; OPA polls for it. That is what makes an OPA restart safe:
 it re-fetches the current revision rather than running on whatever it last
 held in memory.
@@ -84,7 +84,7 @@ one of them back.
 
 | Service | Holds | Responsible for |
 |---|---|---|
-| **operator** | — | Reconciling CRs into namespaces, NetworkPolicies, Deployments, RBAC; persisting bundles. Never runs a process, never creates an ephemeral agent. |
+| **reconciler** | — | Reconciling CRs into namespaces, NetworkPolicies, Deployments, RBAC; persisting bundles. Never runs a process, never creates an ephemeral agent. |
 | **orchestrator** | egress HMAC key, registry DSN | Temporal workflows, activity sequencing, ephemeral pods and their per-run ServiceAccounts, identity binding, the merge gate's park and its release on the recorded verdict. No `GIT_TOKEN`, no signing key. |
 | **console** | registry DSN | Every human act: authenticate the person, decide, audit under their name, act — apply the blueprint (it alone submits the CRs), record and deliver gate verdicts, start or cancel a run, wake, pause or resume the heartbeat, delete the company; and every human read. |
 | **MCP gateway** | `GIT_TOKEN` | Every tool call: authenticate, decide, audit, act. |

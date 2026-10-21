@@ -1,6 +1,6 @@
-"""`policy_bundles` — written by the operator.
+"""`policy_bundles` — written by the reconciler.
 
-The bundle delivery contract in one place: the operator persists a compiled
+The bundle delivery contract in one place: the reconciler persists a compiled
 bundle, the bundle server hands it to OPA over the standard bundle API, and
 OPA polls. Nothing is pushed at runtime, so a gateway or OPA restart
 re-fetches the same revision instead of running on whatever it last held.

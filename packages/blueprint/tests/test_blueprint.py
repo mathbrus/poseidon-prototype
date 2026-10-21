@@ -87,7 +87,7 @@ def test_unknown_tool_lists_what_is_allowed(blueprint):
 
 
 def test_a_hire_is_one_instance(blueprint):
-    """The operator names one Deployment and one Service per standing
+    """The reconciler names one Deployment and one Service per standing
     name, so a hire is an instance or a growth-path placeholder — never a
     count."""
     blueprint["standing"]["pm"]["count"] = 2

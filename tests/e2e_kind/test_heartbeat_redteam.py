@@ -227,7 +227,7 @@ def test_the_whole_unattended_trajectory_reconstructs_from_the_audit_store(
 def merged_by_hand(unattended_run: dict, env: dict) -> dict:
     """The human act nothing in the loop sees coming: the unattended run's
     PR is merged through the GitHub API — by hand, not by a review run —
-    and its branch deleted, the way an operator who ran `poseidon start implement` or
+    and its branch deleted, the way a human who ran `poseidon start implement` or
     an external harness settles a PR. Then the standing heartbeat gets
     two wakes — the reconcile looks it would eventually take, compressed
     to now. Requested by the last test only, so every assertion above

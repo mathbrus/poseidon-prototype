@@ -86,7 +86,7 @@ and how to test it.
 | [`blueprint`](packages/blueprint/README.md) | The blueprint contract and the role/crew catalogs |
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
-| [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
+| [`reconciler`](packages/reconciler/README.md) | Reconciles the CRs; serves policy bundles |
 | [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates |
 | [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
 | [`llm-gateway`](packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |

@@ -5,7 +5,7 @@ structural rather than cosmetic.
 
 A **standing agent** is a hire: declared under `standing:` in the
 blueprint with a role and a count, reconciled into a Deployment by the
-operator, and holding a stable identity that outlives any run. In the
+reconciler, and holding a stable identity that outlives any run. In the
 shipped example there is exactly one: the PM.
 
 An **ephemeral agent** exists only inside a run. It is bound when a

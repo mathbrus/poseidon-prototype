@@ -13,7 +13,7 @@ def conductor(
 ) -> dict[str, Any]:
     """The converged standing instance behind a blueprint's conductor name,
     as `{agent_id, role, url}`: the identity a crew request is recorded
-    under and the address a dispatch reaches it at. The operator names the
+    under and the address a dispatch reaches it at. The reconciler names the
     instance's Service after the hire in the company namespace, so the
     address is derived, never configured. Fail-closed: no converged
     instance refuses the run before anything is provisioned."""

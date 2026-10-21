@@ -58,12 +58,12 @@ def test_apply_converges_the_company(stack: None):
     apply_blueprint(HELLO_SAAS)
     wait_for_convergence()
 
-    # The namespace is operator-owned and carries its labels; the
+    # The namespace is reconciler-owned and carries its labels; the
     # orchestrator's bounded sandbox RBAC was reconciled into it.
     labels = yaml.safe_load(kubectl("get", "ns", COMPANY_NS, "-o", "yaml"))["metadata"][
         "labels"
     ]
-    assert labels["app.kubernetes.io/managed-by"] == "poseidon-operator"
+    assert labels["app.kubernetes.io/managed-by"] == "poseidon-reconciler"
     assert labels["poseidon.dev/company"] == COMPANY
     kubectl("-n", COMPANY_NS, "get", "role", "sandbox-provisioner")
     kubectl("-n", COMPANY_NS, "get", "rolebinding", "sandbox-provisioner")
@@ -113,7 +113,7 @@ def test_opa_activated_both_bundles(stack: None):
     """Compiled bundles are the only served policy: the company
     bundle under its own package, the platform bundle under the reserved
     key — disjoint roots, both active, default-deny entrypoints. No
-    waiting: `converged` on the CR is the operator's word that OPA
+    waiting: `converged` on the CR is the reconciler's word that OPA
     already serves this revision."""
     revision = bundle_revision_from_cr()
     with port_forward("svc/opa", 8181) as port:
@@ -192,14 +192,14 @@ def test_company_delete_revokes(stack: None, env: dict):
     assert before.status_code != 401, "the pre-teardown credential must work"
 
     # The stop is a console act: decided, audited under the owner's name,
-    # and the console returns only once the operator's teardown is done.
+    # and the console returns only once the reconciler's teardown is done.
     deleted = console(env).delete_company("lifecycle: revocation proof")
     assert deleted["company"] == COMPANY and deleted["runs_cancelled"] == []
     kubectl("wait", "--for=delete", f"ns/{COMPANY_NS}", "--timeout=180s", timeout=200)
     assert kubectl("get", "companies", "-o", "name") == ""
 
     # Revocation at the delivery layer: the served bundle is a tombstone —
-    # the company's roots and no rules under them. The operator held the
+    # the company's roots and no rules under them. The reconciler held the
     # deletion until the running OPA had activated it, so by the time the
     # Company is gone the decision path already answers no document; the
     # platform bundle (the platform's, not the company's) is still served.

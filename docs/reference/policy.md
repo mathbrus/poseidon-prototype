@@ -31,7 +31,7 @@ fell under — read by the gateway from the applied blueprint, the same
 record every dispatch's bounds are rendered from.
 
 A bundle reaches OPA by OPA's own polling of the bundle server; nothing
-is pushed. The operator writes the Company's `phase: converged` — and the
+is pushed. The reconciler writes the Company's `phase: converged` — and the
 registry row that makes the company live to the platform — only once OPA
 reports that it serves the stored revisions of both bundles; until then
 the Company reads `activating`. Before either bundle is served, OPA has
@@ -39,7 +39,7 @@ no document at the decision path, and every enforcement point reads that
 as the deny `no_policy_installed`. Teardown revokes through the same
 channel: the company's bundle becomes a tombstone that declares its roots
 and supplies nothing, OPA's next poll erases the rules under them, and
-the operator holds the deletion until it has.
+the reconciler holds the deletion until it has.
 
 ## What a decision reads
 

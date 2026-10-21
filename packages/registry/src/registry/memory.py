@@ -231,7 +231,7 @@ class InMemorySandboxRegistrations:
 
 
 class InMemoryCompanies:
-    """The operator's writes, the read side the worker and egress proxy
+    """The reconciler's writes, the read side the worker and egress proxy
     consume the infra IR through, and the console's pause."""
 
     def __init__(self) -> None:
@@ -272,7 +272,7 @@ class InMemoryCompanies:
 
 class InMemoryAgentInstances:
     """The gateway's read side of `agent_instances` (workload identity)
-    plus the operator's upsert, same row shape as Postgres."""
+    plus the reconciler's upsert, same row shape as Postgres."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}

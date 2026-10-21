@@ -1,7 +1,7 @@
 """The deployment plan: everything a blueprint compiles into.
 
 One source of truth, several emissions. The plan is data — the
-operator applies it, the compiler never touches a cluster.
+reconciler applies it, the compiler never touches a cluster.
 Every type is a plain dataclass with a deterministic `as_dict()` so plans
 are diffable and golden-testable.
 """
@@ -125,7 +125,7 @@ class SandboxConstraints:
 
 @dataclass(frozen=True)
 class NetworkPolicyProjection:
-    """The namespace envelope the operator owns: sandboxes answer the
+    """The namespace envelope the reconciler owns: sandboxes answer the
     gateway and reach only the egress proxy."""
 
     namespace: str

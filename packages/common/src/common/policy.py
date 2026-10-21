@@ -13,7 +13,7 @@ PLATFORM_DECISION_PATH = "poseidon/platform/decision"
 # The two bundles OPA polls, by the fixed names its config lists them
 # under: the platform's own policy and the applied company's. A platform
 # hosts one company, so the company slot carries no company name — the
-# operator stores whatever company is applied under it, and revokes it
+# reconciler stores whatever company is applied under it, and revokes it
 # with a tombstone at teardown.
 PLATFORM_BUNDLE = "platform"
 COMPANY_BUNDLE = "company"

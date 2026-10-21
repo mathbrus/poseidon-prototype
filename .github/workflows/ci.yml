@@ -114,7 +114,7 @@ jobs:
           # kube-system is the other namespace a policy names (DNS); no
           # company name may appear as one.
           assert selected == {t.COMPANY_NAMESPACE, "kube-system"}, selected
-          # OPA polls two bundles under fixed names; the operator stores
+          # OPA polls two bundles under fixed names; the reconciler stores
           # them under the same two.
           from common import policy as pol
           opa_config = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "opa-config")

@@ -25,7 +25,7 @@ poseidon-mcp-gateway|mcp-gateway|common blueprint registry mcp-gateway||git||uvi
 poseidon-llm-gateway|llm-gateway|common registry llm-gateway||||python -m llm_gateway
 poseidon-agent-host|agent-host|common blueprint agent-host||||uvicorn --factory agent_host.app:create_app --host 0.0.0.0 --port 8000
 poseidon-orchestrator|orchestrator|common blueprint compiler registry sandbox orchestrator||||python -m orchestrator.worker
-poseidon-operator|poseidon-operator|common registry operator||||kopf run -m poseidon_operator.reconcile --all-namespaces
+poseidon-reconciler|poseidon-reconciler|common registry reconciler||||kopf run -m reconciler.reconcile --all-namespaces
 poseidon-sandbox|sandbox|common sandbox|toolchain|git|/workspace|uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000
 poseidon-egress-proxy|sandbox|common registry sandbox|egress|||python -m sandbox.egressproxy
 poseidon-mock-brain|mock-brain|mock-brain||||python -m mock_brain

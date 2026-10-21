@@ -85,7 +85,7 @@ The one stop is deleting the company — and that is a console act like
 any other: `company.delete` is decided against the blueprint's humans and
 audited under the person's name, then every running run is cancelled
 (each its own audited `run.cancel`, so none dies with its namespace),
-then the Company CR is deleted and the operator's teardown waited for.
+then the Company CR is deleted and the reconciler's teardown waited for.
 The repository and the ledgers keep the company's name; applying the
 same blueprint again brings the company back. `kubectl delete company`
 still works, as anything with cluster-admin does, but it asks no policy
@@ -130,11 +130,11 @@ its own.
 The registry DSN and its own projected token (for TokenReview) — no
 `GIT_TOKEN`, no provider key, no signing key. Its cluster authority is
 exactly what an apply needs: create, update and delete on the two CRDs
-and a look at the company namespace, which the operator deliberately
+and a look at the company namespace, which the reconciler deliberately
 lacks. Its NetworkPolicy admits OPA, Postgres, Temporal's frontend, DNS
 and the API server, and nothing else: no company namespace, no git host,
 no model. It writes `audit_events` and nothing else in the registry; the
-operator writes `companies` from the CR the console submits.
+reconciler writes `companies` from the CR the console submits.
 
 On kind the console is a NodePort on the host's loopback
 (`POSEIDON_CONSOLE_URL=http://127.0.0.1:8090`); there is no ingress, and

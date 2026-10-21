@@ -73,7 +73,7 @@ class ConsoleClient:
                 self.token_source = "file"
         self.token = token
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
-        # An apply waits for the operator to create the company namespace,
+        # An apply waits for the reconciler to create the company namespace,
         # which can take a while on a fresh cluster; connecting must not.
         self._http = httpx.Client(
             base_url=self.base_url,

@@ -13,7 +13,7 @@ inject them with the rest of the verified binding.
 
 Structure: a default-deny `decision`, `allow_rules` and `deny_rules` as
 sets, and the lowest-sorting deny wins. Bundles are installed by the
-operator and served over the standard OPA bundle API; nothing is pushed at
+reconciler and served over the standard OPA bundle API; nothing is pushed at
 runtime.
 
 Two bundles per apply:
@@ -22,7 +22,7 @@ Two bundles per apply:
     (activation under a shared root would erase the other company's rules);
   - the platform bundle, `package poseidon.platform` — the orchestrator's
     scope is compiler-owned and company-independent, so it compiles
-    identically from every blueprint and every operator upsert lands the
+    identically from every blueprint and every reconciler upsert lands the
     same revision.
 The package names and the slug transform come from `common.policy`, which
 is also where the gateway and the orchestrator derive the decision paths
@@ -762,7 +762,7 @@ def build_bundle(
 def build_platform_bundle(platform_tools: list[str]) -> dict[str, str]:
     """The platform bundle: the orchestrator's compiler-owned scope with its
     own decision entrypoint. Identical for every company by construction, so
-    every operator upsert of it is a no-op after the first."""
+    every reconciler upsert of it is a no-op after the first."""
     return {
         "platform.rego": _decision_file(PLATFORM_PACKAGE, _platform_rules(platform_tools))
     }

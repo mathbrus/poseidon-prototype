@@ -84,7 +84,7 @@ def test_orchestrator_projected_token_is_accepted(stack: None, env) -> None:
 
 def test_agent_pod_token_round_trips_from_inside(stack: None) -> None:
     """The agent's actual mounted token, used from its own pod: proves the
-    projection, the operator-created ServiceAccount, the registry mapping
+    projection, the reconciler-created ServiceAccount, the registry mapping
     and the TokenReview path end to end."""
     pod = kubectl(
         "-n",

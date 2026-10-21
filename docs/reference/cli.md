@@ -66,7 +66,7 @@ uv run poseidon blueprint preview company.yaml           # the diff against what
 uv run poseidon blueprint apply company.yaml --yes       # the charter: vision, caps, gates, humans; returns once converged
 ```
 
-`apply` returns once the company is **converged** — the operator's word
+`apply` returns once the company is **converged** — the reconciler's word
 that OPA serves the policy this apply compiled — printing `activating …`
 while it waits and `converged (12 s)` when it is; `--no-wait` returns
 after the submit, and a company still activating at `--wait-timeout`

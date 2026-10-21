@@ -6,7 +6,7 @@ Postgres would add a failure mode without adding a boundary. One module
 per table, each with exactly one writer; write ownership shows up as which
 accessor a service imports — `Runs` for the orchestrator,
 `SandboxRegistrations` and `AuditStore` for the gateway, `Companies`,
-`AgentInstances` and `PolicyBundles` for the operator.
+`AgentInstances` and `PolicyBundles` for the reconciler.
 """
 
 from registry.audit import AuditStore

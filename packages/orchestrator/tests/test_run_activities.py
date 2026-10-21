@@ -202,7 +202,7 @@ def test_budget_boundary_fails_born_exhausted_runs(activities, ledger):
 def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
     """Gates, crew, the contract tree, the bounds and the conductor all
     come from the applied spec; the conductor's address is derived from
-    its converged instance (the operator names the Service after the
+    its converged instance (the reconciler names the Service after the
     hire), never configured."""
     assert asyncio.run(activities.workflow_config("implement")) == {
         "company": "hello-saas",

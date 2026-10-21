@@ -1,20 +1,20 @@
-# The operator and the OPA bundle server.
+# The reconciler and the OPA bundle server.
 #
-# The operator owns standing structure: namespace-per-company, the
+# The reconciler owns standing structure: namespace-per-company, the
 # NetworkPolicy envelope, standing agent Deployments, and persisting
 # compiled bundles. It never creates ephemeral agents and never runs a
 # process, which is why its RBAC stops where it does.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: poseidon-operator
+  name: poseidon-reconciler
   labels:
     {{- include "poseidon.labels" . | nindent 4 }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: poseidon-operator
+  name: poseidon-reconciler
   labels:
     {{- include "poseidon.labels" . | nindent 4 }}
 rules:
@@ -33,10 +33,10 @@ rules:
     # matchExpressions and silently deselect everything).
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # The orchestrator's bounded sandbox-provisioner Role/RoleBinding in each
-  # company namespace. escalate/bind exist so the operator can grant
+  # company namespace. escalate/bind exist so the reconciler can grant
   # jobs/pods/exec to the worker *without holding those permissions itself*
-  # — the ownership matrix stays intact: the operator still cannot touch a
-  # pod. The narrow, auditable alternative to widening the operator's own
+  # — the ownership matrix stays intact: the reconciler still cannot touch a
+  # pod. The narrow, auditable alternative to widening the reconciler's own
   # surface.
   - apiGroups: ["rbac.authorization.k8s.io"]
     resources: ["roles", "rolebindings"]
@@ -67,50 +67,50 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: poseidon-operator
+  name: poseidon-reconciler
   labels:
     {{- include "poseidon.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: poseidon-operator
+  name: poseidon-reconciler
 subjects:
   - kind: ServiceAccount
-    name: poseidon-operator
+    name: poseidon-reconciler
     namespace: {{ .Release.Namespace }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: poseidon-operator
+  name: poseidon-reconciler
   labels:
     {{- include "poseidon.labels" . | nindent 4 }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: poseidon-operator
+      app: poseidon-reconciler
   template:
     metadata:
       labels:
-        app: poseidon-operator
+        app: poseidon-reconciler
         {{- include "poseidon.labels" . | nindent 8 }}
     spec:
-      serviceAccountName: poseidon-operator
+      serviceAccountName: poseidon-reconciler
       enableServiceLinks: false
       securityContext:
         {{- include "poseidon.podSecurityContext" . | nindent 8 }}
       volumes:
         {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
-        - name: operator
-          image: "{{ .Values.images.operator.repository }}:{{ .Values.images.operator.tag }}"
-          imagePullPolicy: {{ .Values.images.operator.pullPolicy }}
+        - name: reconciler
+          image: "{{ .Values.images.reconciler.repository }}:{{ .Values.images.reconciler.tag }}"
+          imagePullPolicy: {{ .Values.images.reconciler.pullPolicy }}
           securityContext:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "poseidon.scratchMount" . | nindent 12 }}
-          command: ["kopf", "run", "-m", "poseidon_operator.reconcile", "--all-namespaces", "--liveness", "http://0.0.0.0:8080/healthz"]
+          command: ["kopf", "run", "-m", "reconciler.reconcile", "--all-namespaces", "--liveness", "http://0.0.0.0:8080/healthz"]
           env:
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
@@ -151,13 +151,13 @@ spec:
         {{- include "poseidon.scratchVolume" . | nindent 8 }}
       containers:
         - name: bundle-server
-          image: "{{ .Values.images.operator.repository }}:{{ .Values.images.operator.tag }}"
-          imagePullPolicy: {{ .Values.images.operator.pullPolicy }}
+          image: "{{ .Values.images.reconciler.repository }}:{{ .Values.images.reconciler.tag }}"
+          imagePullPolicy: {{ .Values.images.reconciler.pullPolicy }}
           securityContext:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           volumeMounts:
             {{- include "poseidon.scratchMount" . | nindent 12 }}
-          command: ["python", "-m", "poseidon_operator.bundleserver"]
+          command: ["python", "-m", "reconciler.bundleserver"]
           ports:
             - containerPort: 8081
           env:

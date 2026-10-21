@@ -264,7 +264,7 @@ def test_unattributable_attempts_are_still_recorded(registry: Registry):
     assert len(audit.story("run-does-not-exist")) == 1
 
 
-# -- the operator-owned tables ----------------------------------------------
+# -- the reconciler-owned tables ----------------------------------------------
 
 
 def test_policy_bundle_round_trips_and_revokes(registry: Registry):

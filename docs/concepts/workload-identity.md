@@ -19,7 +19,7 @@ own ServiceAccount, scoped to the gateway's audience. What differs is
 which registry table the gateway resolves the ServiceAccount against:
 
 - **Standing agents** map through `agent_instances`, the standing agents the
-  operator reconciles. The gateway resolves the ServiceAccount name to
+  reconciler converges. The gateway resolves the ServiceAccount name to
   the row and — importantly — requires the recorded namespace to *match*.
   The same SA name in another namespace is an impersonation attempt, and
   is refused and audited.

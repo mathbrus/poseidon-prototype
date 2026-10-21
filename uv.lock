@@ -20,7 +20,7 @@ members = [
     "orchestrator",
     "poseidon",
     "poseidon-cli",
-    "poseidon-operator",
+    "poseidon-reconciler",
     "registry",
     "sandbox",
 ]
@@ -3128,7 +3128,7 @@ dependencies = [
     { name = "mock-brain" },
     { name = "orchestrator" },
     { name = "poseidon-cli" },
-    { name = "poseidon-operator" },
+    { name = "poseidon-reconciler" },
     { name = "registry" },
     { name = "sandbox" },
 ]
@@ -3158,7 +3158,7 @@ requires-dist = [
     { name = "mock-brain", editable = "packages/mock-brain" },
     { name = "orchestrator", editable = "packages/orchestrator" },
     { name = "poseidon-cli", editable = "packages/cli" },
-    { name = "poseidon-operator", editable = "packages/operator" },
+    { name = "poseidon-reconciler", editable = "packages/reconciler" },
     { name = "registry", editable = "packages/registry" },
     { name = "sandbox", editable = "packages/sandbox" },
 ]
@@ -3204,9 +3204,9 @@ requires-dist = [
 ]
 
 [[package]]
-name = "poseidon-operator"
+name = "poseidon-reconciler"
 version = "0.1.1+2026.10.21"
-source = { editable = "packages/operator" }
+source = { editable = "packages/reconciler" }
 dependencies = [
     { name = "common", extra = ["otel"] },
     { name = "fastapi" },

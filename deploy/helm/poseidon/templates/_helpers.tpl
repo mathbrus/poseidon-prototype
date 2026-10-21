@@ -1,7 +1,7 @@
 {{/*
 The platform namespace is the release namespace; platform resources omit an
 explicit metadata.namespace and land there. The company's namespace is the
-operator's to create, from the Company CR; the chart only selects it, by
+reconciler's to create, from the Company CR; the chart only selects it, by
 the fixed name under `companyNamespace`.
 */}}
 

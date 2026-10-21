@@ -2,7 +2,7 @@
 `examples/hello-saas.yaml` and *installed* on the live cluster.
 
 Two layers. The OPA half is a smoke pair against the running OPA's decision
-path (port-forward): what it asserts is that the bundle the operator
+path (port-forward): what it asserts is that the bundle the reconciler
 actually served decides. The decision *matrix* — per-role scoping, branch
 and path policies, tenancy, crew narrowing, merge delegation — is pinned
 per-decision against the real OPA in

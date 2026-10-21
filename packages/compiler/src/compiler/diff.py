@@ -72,7 +72,7 @@ def diff_plan(plan: DeploymentPlan, snapshot: RegistrySnapshot) -> PlanDiff:
 
     for agent_id in live:
         if agent_id not in planned:
-            # The firing half of hire/fire-as-diff; the operator drains
+            # The firing half of hire/fire-as-diff; the reconciler drains
             # before removing.
             result.changes.append(
                 InstanceChange(agent_id, "delete", ("no longer hired",))

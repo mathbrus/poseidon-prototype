@@ -221,7 +221,7 @@ push to `main` is a compiled deny; so is a change to the documents by
 anyone but the steward.
 
 To reproduce one run by hand — a ticket that failed, a review you want to
-watch — the operator commands start exactly the run the loop would:
+watch — the human's commands start exactly the run the loop would:
 
 ```bash
 uv run poseidon start implement 42

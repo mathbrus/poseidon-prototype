@@ -3,7 +3,7 @@ plain answer — a revision, or nothing yet."""
 
 import httpx
 
-from poseidon_operator import opa
+from reconciler import opa
 
 URL = "http://opa.test:8181"
 

@@ -113,7 +113,7 @@ _HIRE = {
     "required": ["role", "count"],
     "properties": {
         "role": _NAME,
-        # One instance per hire (the operator names one Deployment and one
+        # One instance per hire (the reconciler names one Deployment and one
         # Service per standing name); 0 documents a growth path.
         "count": {"type": "integer", "enum": [0, 1]},
         "may_spawn": {

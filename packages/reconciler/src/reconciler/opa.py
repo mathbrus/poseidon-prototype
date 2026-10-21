@@ -1,11 +1,11 @@
-"""The one read the operator makes of OPA: which revision of a bundle it
+"""The one read the reconciler makes of OPA: which revision of a bundle it
 has activated.
 
 Bundles reach OPA by OPA's own polling of the bundle server; nothing here
 pushes. OPA records every bundle it activates under
 `data.system.bundles.<name>.manifest` — the `.manifest` the registry
 packed, revision included — so comparing what it reports with what the
-operator stored says whether the stored authority is the served one.
+reconciler stored says whether the stored authority is the served one.
 """
 
 import httpx
