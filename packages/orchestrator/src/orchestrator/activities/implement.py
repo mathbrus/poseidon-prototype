@@ -170,16 +170,21 @@ class ImplementActivities:
         url: str,
         procedure: str,
         task_text: str,
+        bounds: str,
         documents: dict[str, str],
     ) -> dict[str, Any]:
         """Ask the agent at `url` — a standing conductor's Service or an
-        ephemeral pod — to run one procedure on the text, and poll until it
-        reaches a terminal state, heartbeating every poll. The pod's own
-        projected ServiceAccount token is the credential: no token rides
-        this call or the workflow history. Which procedures reach which
-        agent is the workflow's sequencing (`deliver` only after a green
-        platform verify) and the role's declared set at the host."""
-        status = await dispatch_and_poll(url, run_id, procedure, task_text, documents)
+        ephemeral pod — to run one procedure on the text, with the bounds
+        the run's shape rendered and the company's documents, and poll
+        until it reaches a terminal state, heartbeating every poll. The
+        pod's own projected ServiceAccount token is the credential: no
+        token rides this call or the workflow history. Which procedures
+        reach which agent is the workflow's sequencing (`deliver` only
+        after a green platform verify) and the role's declared set at the
+        host."""
+        status = await dispatch_and_poll(
+            url, run_id, procedure, task_text, bounds, documents
+        )
         self._log.bind(run_id=run_id).info(
             "agent finished", extra={"agent_status": status, "procedure": procedure}
         )

@@ -51,6 +51,7 @@ from orchestrator.clients import dispatch_and_poll
 from orchestrator.config import WorkerSettings
 from orchestrator.workflows.base import PROFILES
 from registry import AgentInstances, AuditStore, Companies, Runs
+from schema.bounds import render_bounds
 
 # The run row's error column is a label for a human reading the runs
 # table, not a log; a failed decision's message is cut to fit.
@@ -156,18 +157,22 @@ class HeartbeatActivities:
         `heartbeat.decide` audit event is the append-only record of *why*
         the company did what it did. The dispatch runs under `run_id` (the
         run the tick would start), so the decision's own LLM spend is
-        attributed to the work it chose."""
+        attributed to the work it chose. The bounds ride the dispatch like
+        every other: the conductor decides under the charter as it binds
+        the company, rendered from the same applied spec its address is
+        read from."""
 
-        def address() -> str:
+        def address() -> tuple[str, str]:
             spec = self._companies.get(self._company()) or {}
             standing_name = (spec.get("heartbeat") or {}).get("conductor")
             if not standing_name:
                 raise RuntimeError(
                     "the applied blueprint declares no heartbeat conductor"
                 )
-            return conductor(self._instances, self._company(), standing_name)["url"]
+            url = conductor(self._instances, self._company(), standing_name)["url"]
+            return url, render_bounds(spec)
 
-        conductor_url = await asyncio.to_thread(address)
+        conductor_url, bounds = await asyncio.to_thread(address)
         # Register the decision run before the PM's LLM call can bind to it.
         await asyncio.to_thread(
             self._runs.start,
@@ -180,7 +185,9 @@ class HeartbeatActivities:
         terminal, terminal_error = "done", None
         try:
             prompt = decision_prompt(observed, may_start)
-            status = await dispatch_and_poll(conductor_url, run_id, "decide", prompt)
+            status = await dispatch_and_poll(
+                conductor_url, run_id, "decide", prompt, bounds
+            )
             decision = status.get("decision")
             if status["status"] != "done" or not decision:
                 raise ApplicationError(

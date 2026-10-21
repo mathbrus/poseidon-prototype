@@ -118,7 +118,7 @@ class ImplementWorkflow(RunWorkflow):
             issue = await workflow.execute_activity(
                 "read_issue",
                 args=[input.run_id, input.issue_number],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             task_source = issue_task(
@@ -127,13 +127,13 @@ class ImplementWorkflow(RunWorkflow):
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
                 args=[input.run_id],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             handle = await workflow.execute_activity(
                 "provision_sandbox",
                 args=[input.run_id, workspace_tar],
-                start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
             # The crew is the only execution path. The ticket names its
@@ -179,7 +179,7 @@ class ImplementWorkflow(RunWorkflow):
                 verify = await workflow.execute_activity(
                     "platform_verify",
                     args=[input.run_id],
-                    start_to_close_timeout=timedelta(seconds=self._bounds.verify_s),
+                    start_to_close_timeout=timedelta(seconds=self._profile.verify_s),
                     retry_policy=STEP_RETRY,
                 )
                 if verify["passed"]:

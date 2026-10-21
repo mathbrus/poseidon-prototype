@@ -25,6 +25,7 @@ from registry.memory import (
     InMemoryRuns,
 )
 from sandbox.contract import SandboxHandle
+from schema.bounds import render_bounds
 
 RUN_ID = "run-test-0001"
 
@@ -199,9 +200,10 @@ def test_budget_boundary_fails_born_exhausted_runs(activities, ledger):
 
 
 def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
-    """Gates, crew, bounds and the conductor all come from config; the
-    conductor's address is derived from its converged instance (the
-    operator names the Service after the hire), never configured."""
+    """Gates, crew, the contract tree, the bounds and the conductor all
+    come from the applied spec; the conductor's address is derived from
+    its converged instance (the operator names the Service after the
+    hire), never configured."""
     assert asyncio.run(activities.workflow_config("implement")) == {
         "company": "hello-saas",
         "conductor": PM,
@@ -210,6 +212,7 @@ def test_workflow_config_is_the_blueprint_block_plus_the_conductor(activities):
         "max_verify_retries": 2,
         "budget_deadline_minutes": 60,
         "contract_paths": ["tests/acceptance", "tests/contract"],
+        "bounds": render_bounds(APPLIED_SPEC),
         "timeouts": asdict(Timeouts()),
     }
     review = asyncio.run(activities.workflow_config("review"))
@@ -248,6 +251,7 @@ def test_workflow_config_carries_no_contract_paths_when_none_are_declared(
     )
     config = asyncio.run(activities.workflow_config("review"))
     assert config["contract_paths"] == [] and config["gates"] == {}
+    assert "Contract tree: none declared." in config["bounds"]
 
 
 def test_workflow_config_fails_closed_without_a_blueprint(

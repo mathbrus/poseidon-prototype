@@ -112,7 +112,7 @@ class RunWorkflow:
     _budget_gate: Gate
     # The deployment's profile, learned from `workflow_config`; until then
     # (and on a birth that failed before it) the default sizing applies.
-    _bounds: Timeouts = Timeouts()
+    _profile: Timeouts = Timeouts()
     # The run's shape, as `workflow_config` returned it.
     _config: dict[str, Any] = {}
 
@@ -143,7 +143,7 @@ class RunWorkflow:
             retry_policy=STEP_RETRY,
         )
         self._config = config
-        self._bounds = Timeouts(**config["timeouts"])
+        self._profile = Timeouts(**config["timeouts"])
         return config
 
     async def fulfill(
@@ -170,8 +170,8 @@ class RunWorkflow:
                     "workflow": self.WORKFLOW,
                 }
             ],
-            start_to_close_timeout=timedelta(seconds=self._bounds.provision_s),
-            heartbeat_timeout=timedelta(seconds=self._bounds.dispatch_heartbeat_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.provision_s),
+            heartbeat_timeout=timedelta(seconds=self._profile.dispatch_heartbeat_s),
             retry_policy=STEP_RETRY,
         )
         (agent,) = fulfilled["agents"].values()
@@ -184,7 +184,7 @@ class RunWorkflow:
         return await workflow.execute_activity(
             "dispatch_documents",
             args=[run_id],
-            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
 
@@ -202,7 +202,7 @@ class RunWorkflow:
         return await workflow.execute_activity(
             "teardown",
             args=[run_id, handle, result, error],
-            start_to_close_timeout=timedelta(seconds=self._bounds.step_s),
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=TEARDOWN_RETRY,
         )
 
@@ -261,18 +261,27 @@ class RunWorkflow:
         anything else returns the budget-marked result for teardown to
         finalize.
         Escalation and verdict are process-gate audit events, like the
-        merge gate's — one Gate spine, one audit contract. `documents` are
-        the company's documents the procedure reads as untrusted context;
+        merge gate's — one Gate spine, one audit contract. Every dispatch
+        carries the bounds the run's shape rendered — the charter as it
+        binds this work, trusted like the vision; `documents` are the
+        company's documents the procedure reads as untrusted context, and
         a procedure that judges nothing (deliver) carries none."""
         while True:
             result = await workflow.execute_activity(
                 "dispatch_agent",
-                args=[run_id, url, procedure, task_text, documents or {}],
-                start_to_close_timeout=timedelta(seconds=self._bounds.dispatch_s),
+                args=[
+                    run_id,
+                    url,
+                    procedure,
+                    task_text,
+                    self._config["bounds"],
+                    documents or {},
+                ],
+                start_to_close_timeout=timedelta(seconds=self._profile.dispatch_s),
                 schedule_to_close_timeout=timedelta(
-                    seconds=self._bounds.dispatch_schedule_to_close_s
+                    seconds=self._profile.dispatch_schedule_to_close_s
                 ),
-                heartbeat_timeout=timedelta(seconds=self._bounds.dispatch_heartbeat_s),
+                heartbeat_timeout=timedelta(seconds=self._profile.dispatch_heartbeat_s),
                 retry_policy=DISPATCH_RETRY,
             )
             if BUDGET_MARKER not in ((result or {}).get("error") or ""):

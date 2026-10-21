@@ -5,6 +5,7 @@ from typing import Any
 
 from common.topology import agent_url
 from registry import AgentInstances, Companies
+from schema.bounds import render_bounds
 
 
 def conductor(
@@ -55,7 +56,8 @@ def workflow_config(
     """The named workflow's shape, from the company's applied blueprint:
 
         {company, conductor: {agent_id, role, url}, crew, gates,
-         max_verify_retries, budget_deadline_minutes, contract_paths}
+         max_verify_retries, budget_deadline_minutes, contract_paths,
+         bounds}
 
     The conductor is the company's one, named on the heartbeat section.
     `crew` is the ephemeral crew the workflow executes through, or None
@@ -66,7 +68,9 @@ def workflow_config(
     implement's verify loop, `budget_deadline_minutes` is how long a run
     stopped at the budget cap waits for a human, and `contract_paths` is
     the declared contract tree ([] when the company declares none) that
-    review's deletion facts resolve against.
+    review's deletion facts resolve against, and `bounds` is the charter as
+    it binds the company's work, rendered once here and carried by every
+    dispatch of the run into the procedure's system prompt.
     Fail-closed: no applied blueprint, no node for a crewed workflow, or
     no converged conductor instance each refuse the run before anything
     is provisioned."""
@@ -89,4 +93,5 @@ def workflow_config(
         "contract_paths": sorted(
             (spec["policies"].get("contract_tests") or {}).get("paths") or []
         ),
+        "bounds": render_bounds(spec),
     }
