@@ -1,6 +1,6 @@
 [project]
 name = "poseidon"
-version = "0.1.0"
+version = "0.1.0+2026.10.21"
 description = "Poseidon — agent companies under declarative governance"
 requires-python = ">=3.12"
 dependencies = [

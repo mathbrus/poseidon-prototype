@@ -1,6 +1,6 @@
 [project]
 name = "schema"
-version = "0.1.0"
+version = "0.1.0+2026.10.21"
 description = "Poseidon blueprint schema, role-template catalog and crew templates"
 requires-python = ">=3.12"
 dependencies = [

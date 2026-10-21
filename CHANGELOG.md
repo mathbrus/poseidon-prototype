@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.1.0+2026.10.21] - 2026-10-21
+
 The first numbered release: everything since the `poc` tag (2026-07-21),
 grouped by theme rather than listed merge by merge.
 
