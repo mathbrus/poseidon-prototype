@@ -31,6 +31,7 @@ jobs:
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - run: uv run python scripts/version.py check
 
   lock:
     runs-on: ubuntu-latest

@@ -1870,7 +1870,7 @@ wheels = [
 
 [[package]]
 name = "llm-gateway"
-version = "0.2.0"
+version = "0.1.0"
 source = { editable = "packages/llm-gateway" }
 dependencies = [
     { name = "common", extra = ["otel"] },
