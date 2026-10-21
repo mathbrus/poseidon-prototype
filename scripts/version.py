@@ -11,6 +11,7 @@ copies equal, and CI refuses a tree where they drift.
     uv run python scripts/version.py show         print the version
     uv run python scripts/version.py check        every mirror equals it; exit 1 naming each drift
     uv run python scripts/version.py set VERSION  rewrite the version and every mirror, refresh uv.lock
+    uv run python scripts/version.py validate VERSION  exit 1 unless VERSION has the release shape
 
 A version is `MAJOR.MINOR.PATCH+YYYY.MM.DD`: semver with the release day
 as build metadata, which is also a valid PEP 440 local version and a
@@ -83,9 +84,13 @@ def check() -> int:
     return 0
 
 
-def set_version(version: str) -> None:
+def validate(version: str) -> None:
     if not VERSION_RE.match(version):
         sys.exit(f"{version!r} is not MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH+YYYY.MM.DD")
+
+
+def set_version(version: str) -> None:
+    validate(version)
     for path in (ROOT_PYPROJECT, *PACKAGE_PYPROJECTS):
         _rewrite(path, PYPROJECT_LINE, f'version = "{version}"')
     _rewrite(CHART, CHART_VERSION_LINE, f"version: {version}")
@@ -111,6 +116,9 @@ def main(argv: list[str]) -> int:
             return check()
         case ["set", version]:
             set_version(version)
+            return 0
+        case ["validate", version]:
+            validate(version)
             return 0
         case _:
             print(__doc__, file=sys.stderr)
