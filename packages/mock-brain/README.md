@@ -1,4 +1,4 @@
-# mockllm
+# mock-brain
 
 A deterministic, OpenAI-compatible brain that stands in for the LLM proxy
 so end-to-end runs cost nothing. **It is the default in every development
@@ -24,7 +24,7 @@ entirely. When an acceptance test fails, the platform changed.
 |---|---|
 | `brain.py` | `next_completion`: the pure function from conversation to scripted completion; all scenario logic and canned file contents. |
 | `app.py` | The OpenAI-compatible FastAPI surface and the deterministic token-usage estimate. |
-| `__main__.py` | `python -m mockllm` with LiteLLM-shaped args, accepted and ignored. |
+| `__main__.py` | `python -m mock_brain` with LiteLLM-shaped args, accepted and ignored. |
 
 The scenarios themselves are the e2e suite's — ticket texts under
 `tests/e2e_kind/tickets/`, strategies and documents the harness writes
@@ -41,7 +41,7 @@ Responses routes (`/responses` plus the `/v1` alias — the agent's model
 table sends current OpenAI families over that surface; the routes are a
 wire-shape adapter over the same brain, so scenario logic never
 forks), same `/health/liveliness` probe the `llm-proxy` Deployment
-expects — so the `values-mockllm.yaml` swap is a pod-template change and
+expects — so the `values-mock-brain.yaml` swap is a pod-template change and
 nothing else.
 That overlay also pins the deployment's model (`run.model`) to
 `mock-brain`, so the LLM gateway's ledger records what was actually
@@ -198,10 +198,10 @@ the same trap.
 ## Entry points
 
 ```
-python -m mockllm --model <ignored> --port 4000 --drop_params
+python -m mock_brain --model <ignored> --port 4000 --drop_params
 ```
 
-the `poseidon-mockllm` row of `deploy/build-images.sh`. The LiteLLM-shaped args are accepted
+the `poseidon-mock-brain` row of `deploy/build-images.sh`. The LiteLLM-shaped args are accepted
 and ignored so the Helm template's `args` work verbatim whether the pod
 runs LiteLLM or this.
 
@@ -220,12 +220,12 @@ runs LiteLLM or this.
   denial texts its scripts recover from are the ones the real gateway
   emits (`git_open_pr_protected_branch`, `egress_not_allowlisted`).
 - Deployed by `deploy/kind/kind-up.sh` via
-  `deploy/helm/poseidon/values-mockllm.yaml` unless `REAL_LLM=1`.
+  `deploy/helm/poseidon/values-mock-brain.yaml` unless `REAL_LLM=1`.
 
 ## Tests
 
 ```
-uv run pytest packages/mockllm
+uv run pytest packages/mock-brain
 ```
 
 `test_procedures.py` unit-tests the procedure sequencing on synthetic histories —

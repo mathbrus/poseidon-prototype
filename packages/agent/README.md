@@ -297,7 +297,7 @@ is a constant of the host, not a knob of the deployment.
   keys on.
 - [`orchestrator`](../orchestrator/README.md) dispatches into `/task` and
   polls it.
-- [`mockllm`](../mockllm/README.md) is the deterministic brain the e2e
+- [`mock-brain`](../mock-brain/README.md) is the deterministic brain the e2e
   suite runs against; nothing in this package knows it exists.
 
 ## Tests

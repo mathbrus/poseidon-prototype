@@ -65,8 +65,8 @@ if [ -n "$PROBLEM" ]; then
   echo "$PROBLEM" >&2
   exit 1
 fi
-case "$BRAIN" in
-*mockllm*) ;;
+case "${BRAIN##*/}" in
+poseidon-mock-brain:* | poseidon-mock-brain) ;;
 *) echo "== PAID brain ($BRAIN): POSEIDON_ALLOW_PAID=1 set, spending deliberately" ;;
 esac
 # The suite's company is the shipped example. A cluster hosts one company

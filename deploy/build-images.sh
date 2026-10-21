@@ -28,7 +28,7 @@ poseidon-orchestrator|orchestrator|common blueprint compiler registry sandbox or
 poseidon-operator|poseidon-operator|common registry operator||||kopf run -m poseidon_operator.reconcile --all-namespaces
 poseidon-sandbox|sandbox|common sandbox|toolchain|git|/workspace|uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000
 poseidon-egress-proxy|sandbox|common registry sandbox|egress|||python -m sandbox.egressproxy
-poseidon-mockllm|mockllm|mockllm||||python -m mockllm
+poseidon-mock-brain|mock-brain|mock-brain||||python -m mock_brain
 poseidon-console|console|common blueprint registry compiler console||||uvicorn --factory console.app:create_app --host 0.0.0.0 --port 8090
 '
 

@@ -66,7 +66,7 @@ import pytest
 from common.audit import REVIEW_CONTRACT_EDIT, REVIEW_VERDICT, gate_event
 from common.policy import MERGE_RESOLVE
 from common.workflows import MERGE_GATE
-from mockllm.brain import (
+from mock_brain.brain import (
     CARVEOUT_PATH,
     CONFTEST_VEIL_MARKER,
     CONTRACT_CREW_LINE,

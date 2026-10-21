@@ -16,7 +16,7 @@ members = [
     "console",
     "llm-gateway",
     "mcp-gateway",
-    "mockllm",
+    "mock-brain",
     "orchestrator",
     "poseidon",
     "poseidon-cli",
@@ -2342,9 +2342,9 @@ wheels = [
 ]
 
 [[package]]
-name = "mockllm"
+name = "mock-brain"
 version = "0.1.1+2026.10.21"
-source = { editable = "packages/mockllm" }
+source = { editable = "packages/mock-brain" }
 dependencies = [
     { name = "fastapi" },
     { name = "uvicorn" },
@@ -3125,7 +3125,7 @@ dependencies = [
     { name = "console" },
     { name = "llm-gateway" },
     { name = "mcp-gateway" },
-    { name = "mockllm" },
+    { name = "mock-brain" },
     { name = "orchestrator" },
     { name = "poseidon-cli" },
     { name = "poseidon-operator" },
@@ -3155,7 +3155,7 @@ requires-dist = [
     { name = "console", editable = "packages/console" },
     { name = "llm-gateway", editable = "packages/llm-gateway" },
     { name = "mcp-gateway", editable = "packages/mcp-gateway" },
-    { name = "mockllm", editable = "packages/mockllm" },
+    { name = "mock-brain", editable = "packages/mock-brain" },
     { name = "orchestrator", editable = "packages/orchestrator" },
     { name = "poseidon-cli", editable = "packages/cli" },
     { name = "poseidon-operator", editable = "packages/operator" },

@@ -37,7 +37,7 @@ from common.audit import (
 from common.policy import GATE_RESOLVE, MERGE_RESOLVE
 from common.tasks import issue_run_task, review_run_task
 from common.workflows import MERGE_GATE
-from mockllm.brain import NEXT_SLICE_MARKER
+from mock_brain.brain import NEXT_SLICE_MARKER
 
 from .blueprints import E2E_GATE_MINUTES, HELLO_SAAS, may_start, restore_pristine
 from .cluster import HUMAN, audit_story, await_run, console_env, run_by_task

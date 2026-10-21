@@ -19,7 +19,7 @@ are not mirrored here; the table links to them.
 | [`cli`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/cli/README.md) | `poseidon-cli`: the `poseidon` CLI and the console client it is built on |
 | [`agent`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/agent/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
 | [`sandbox`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
-| [`mockllm`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/mockllm/README.md) | The deterministic brain that makes e2e runs free |
+| [`mock-brain`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/mock-brain/README.md) | The deterministic brain that makes e2e runs free |
 
 Which service holds which secret, and what each is responsible for, is on
 [Architecture](../reference/architecture.md).

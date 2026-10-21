@@ -32,7 +32,7 @@ import pytest
 
 from common.policy import HEARTBEAT_START
 from common.tasks import review_run_task
-from mockllm.brain import NEXT_SLICE_MARKER
+from mock_brain.brain import NEXT_SLICE_MARKER
 
 from .blueprints import HELLO_SAAS, restore_pristine
 from .cluster import (

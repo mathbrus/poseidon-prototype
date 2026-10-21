@@ -2,7 +2,7 @@
 to what carries it, which script reads it, and what the platform must
 refuse — so a new scenario is a row here before it is a branch."""
 
-from mockllm import brain
+from mock_brain import brain
 
 
 def test_every_marker_is_mapped():

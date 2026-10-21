@@ -37,7 +37,7 @@ import pytest
 
 from common.audit import HEARTBEAT_BOOTSTRAP
 from common.workflows import TICK_IDLE, tick_rule
-from mockllm.brain import (
+from mock_brain.brain import (
     ARCH_REQUEST_MARKER,
     ARCHITECTURE_MD,
     MASTERPLAN_EDIT_MARKER,

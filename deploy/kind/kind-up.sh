@@ -175,7 +175,7 @@ note "humans: ${HUMANS[*]} — you will be $KIND_HUMAN"
 if [ "$REAL_LLM" = "1" ]; then
   note "brain: PAID — $MODEL through LiteLLM (REAL_LLM=1)"
 else
-  note "brain: mock (poseidon-mockllm), zero spend"
+  note "brain: mock (poseidon-mock-brain), zero spend"
 fi
 note "sandbox image: $SANDBOX_IMAGE:$BUILD_TAG"
 
@@ -207,7 +207,7 @@ step "images"
 # runs upstream LiteLLM at its own pinned tag instead.
 NAMES=$(deploy/build-images.sh --list)
 if [ "$REAL_LLM" = "1" ]; then
-  NAMES=$(grep -vx poseidon-mockllm <<<"$NAMES")
+  NAMES=$(grep -vx poseidon-mock-brain <<<"$NAMES")
 fi
 # shellcheck disable=SC2086
 mapfile -t IMAGES < <(deploy/build-images.sh "$BUILD_TAG" $NAMES 2>>"$LOG")
@@ -268,7 +268,7 @@ run:
 EOF
 MOCK_VALUES=()
 if [ "$REAL_LLM" != "1" ]; then
-  MOCK_VALUES=(-f deploy/helm/poseidon/values-mockllm.yaml)
+  MOCK_VALUES=(-f deploy/helm/poseidon/values-mock-brain.yaml)
 fi
 run "helm upgrade poseidon" helm upgrade --install poseidon deploy/helm/poseidon \
   --namespace "$PLATFORM_NS" --create-namespace \

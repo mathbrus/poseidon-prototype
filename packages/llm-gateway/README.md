@@ -211,7 +211,7 @@ read — a real model legitimately thinks for minutes.
   run header (`agent.procedures.build_llm`).
 - `orchestrator` turns the surfaced `budget_exhausted` error into the
   parked state, escalation, and `process-gate` audit events.
-- [`mockllm`](../mockllm/README.md) is the upstream in development;
+- [`mock-brain`](../mock-brain/README.md) is the upstream in development;
   LiteLLM is the upstream in a real deployment. Neither is reachable
   except from here.
 

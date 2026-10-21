@@ -10,7 +10,19 @@ from .conftest import deployed_brain_image, paid_brain_problem
 
 
 def test_the_mock_brain_runs_without_ceremony():
-    assert paid_brain_problem("poseidon-mockllm:abc123", None) is None
+    assert paid_brain_problem("poseidon-mock-brain:abc123", None) is None
+    assert paid_brain_problem("localhost:5001/poseidon-mock-brain:abc", None) is None
+
+
+def test_only_the_mock_brain_image_exactly_is_the_mock():
+    """The match is the repository name, not a substring: a lookalike or
+    the image's retired name reads as a paid brain and refuses."""
+    for image in (
+        "poseidon-mock-brain-proxy:abc",
+        "ghcr.io/berriai/litellm:poseidon-mock-brain",
+        "poseidon-mockllm:abc123",
+    ):
+        assert paid_brain_problem(image, None) is not None, image
 
 
 def test_a_paid_brain_refuses_without_the_opt_in():
@@ -40,7 +52,7 @@ def test_an_unreadable_brain_refuses_fail_closed():
 
 def test_the_live_session_verified_a_mock_brain():
     """This test ran, so the autouse guard passed — which means the
-    deployment really answered and really carries the mock (or the operator
+    deployment really answered and really carries the mock (or a human
     opted into spending; either way, a decision was made, not defaulted)."""
     image = deployed_brain_image()
     assert image, "the guard should have failed the session before this test"

@@ -49,7 +49,7 @@ from common.audit import gate_event
 from common.policy import HEARTBEAT_START
 from common.tasks import review_run_task
 from common.workflows import ATTEMPTS_GATE, TICK_IDLE, TICK_STARTED, tick_rule
-from mockllm.brain import REVIEW_ABORT_MARKER
+from mock_brain.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
     HELLO_SAAS,

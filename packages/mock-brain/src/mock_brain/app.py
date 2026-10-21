@@ -26,7 +26,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from mockllm.brain import MockCompletion, next_completion
+from mock_brain.brain import MockCompletion, next_completion
 
 
 class ChatRequest(BaseModel):
@@ -235,7 +235,7 @@ def _priced(body: dict[str, Any]) -> JSONResponse:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="poseidon-mockllm")
+    app = FastAPI(title="poseidon-mock-brain")
 
     @app.get("/health/liveliness")
     def health() -> dict[str, str]:

@@ -94,7 +94,7 @@ and how to test it.
 | [`cli`](packages/cli/README.md) | `poseidon-cli`: the `poseidon` CLI and the console client it is built on |
 | [`agent`](packages/agent/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
 | [`sandbox`](packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
-| [`mockllm`](packages/mockllm/README.md) | The deterministic brain that makes e2e runs free |
+| [`mock-brain`](packages/mock-brain/README.md) | The deterministic brain that makes e2e runs free |
 
 ---
 

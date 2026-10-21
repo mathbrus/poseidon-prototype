@@ -4,7 +4,7 @@ slugify implementation actually satisfying the task's assertions."""
 
 import json
 
-from mockllm.brain import (
+from mock_brain.brain import (
     CARVEOUT_PATH,
     CONFTEST_VEIL_MARKER,
     CONTRACT_CREW_LINE,
@@ -613,7 +613,7 @@ def test_an_implementer_whose_ticket_contradicts_the_plan_requests_and_stops():
     """The requesting implementer: one `request_architecture` call, then a
     plain stop — no write, no delivery. The platform's ticket is the
     run's only product."""
-    from mockllm.brain import ARCH_REQUEST_MARKER, ARCH_REQUEST_PROPOSAL
+    from mock_brain.brain import ARCH_REQUEST_MARKER, ARCH_REQUEST_PROPOSAL
 
     history = [
         {"role": "system", "content": header("implement")},
@@ -647,7 +647,7 @@ def test_the_steward_writes_the_named_document_then_delivers():
     """Keyed on the ticket's own `Crew: stewardship` trailer: write the
     document the ticket names at the path it names, once, then deliver on
     the ticket's branch."""
-    from mockllm.brain import ARCHITECTURE_MD, STRATEGY_MD
+    from mock_brain.brain import ARCHITECTURE_MD, STRATEGY_MD
 
     history = [
         {"role": "system", "content": header("implement")},
@@ -681,7 +681,7 @@ def test_the_masterplan_edit_is_delivered_then_dropped_on_the_deny():
     delivers everything, and on the gateway's deny drops the edit and
     delivers the implementation alone — the plan changes only through the
     steward."""
-    from mockllm.brain import MASTERPLAN_EDIT_MARKER
+    from mock_brain.brain import MASTERPLAN_EDIT_MARKER
 
     task = f"Task:\nAdd slugify ({MASTERPLAN_EDIT_MARKER}).\n\nDeliver on `feature/slugify-me`."
     write = next_completion(
@@ -727,7 +727,7 @@ def test_the_masterplan_edit_is_delivered_then_dropped_on_the_deny():
 
 
 def test_the_steward_revises_the_masterplan_for_an_architecture_request():
-    from mockllm.brain import REVISED_ARCHITECTURE_MD
+    from mock_brain.brain import REVISED_ARCHITECTURE_MD
 
     ticket = (
         "Task:\nImplement issue #14: Architecture request from run auto-1: Allow a second module.\n\n"

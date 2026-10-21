@@ -32,7 +32,7 @@ from agent.procedures import (
     run_implement,
     run_review,
 )
-from mockllm.app import create_app
+from mock_brain.app import create_app
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 # The scripted ticket bodies the e2e suite files; the same texts drive

@@ -69,7 +69,7 @@ class Timeouts:
     verify_s: int = 900
 
 
-# Sized for the deterministic mock brain (packages/mockllm): every bound is
+# Sized for the deterministic mock brain (packages/mock-brain): every bound is
 # far above what the mock needs, and far below the patience a paid brain
 # deserves — so a wedged activity surfaces in seconds, not minutes.
 FAST_TIMEOUTS = Timeouts(

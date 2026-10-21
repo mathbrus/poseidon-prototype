@@ -9,7 +9,7 @@ dependencies = [
     "mcp-gateway",
     "sandbox",
     "orchestrator",
-    "mockllm",
+    "mock-brain",
     "blueprint",
     "registry",
     "compiler",
@@ -53,7 +53,7 @@ ignore = ["B008"]
 [tool.ruff.lint.isort]
 known-first-party = [
     "agent", "common", "compiler", "console", "llm_gateway", "mcp_gateway",
-    "mockllm", "orchestrator", "poseidon_cli", "poseidon_operator", "registry",
+    "mock_brain", "orchestrator", "poseidon_cli", "poseidon_operator", "registry",
     "blueprint", "sandbox",
 ]
 
@@ -71,7 +71,7 @@ agent = { workspace = true }
 mcp-gateway = { workspace = true }
 sandbox = { workspace = true }
 orchestrator = { workspace = true }
-mockllm = { workspace = true }
+mock-brain = { workspace = true }
 blueprint = { workspace = true }
 registry = { workspace = true }
 compiler = { workspace = true }

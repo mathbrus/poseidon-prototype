@@ -9,7 +9,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from mockllm.app import COST_PER_1K_TOKENS, create_app
+from mock_brain.app import COST_PER_1K_TOKENS, create_app
 
 client = TestClient(create_app())
 
