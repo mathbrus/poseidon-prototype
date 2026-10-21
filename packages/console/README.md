@@ -1,97 +1,80 @@
 # console
 
-The human's chokepoint: the one service a person acts on a company through,
-and the counterpart of the [MCP gateway](../mcp-gateway/README.md) for
-agents. A gateway asks "may this workload call this tool?"; the console
-asks "may this person perform this act?" — and both get the answer from the
-same compiled bundle, audit it in the same store, and do nothing without
-it.
+The console is the human's chokepoint: the one service a person acts on a company through, and reads it through. The [`poseidon` CLI](../cli/README.md) and the acceptance suite call it over HTTP on port 8090 in the platform namespace.
 
-Every request but the health probe carries a token the Kubernetes API
-server issued for the console's own audience (`poseidon-console`), verified
-through TokenReview by the shared `common.authn.Authenticator` in human
-mode: on a cluster without an identity provider the person is a
-`human-<name>` ServiceAccount the chart declares; elsewhere the API server's
-own user. The registry is never consulted for who a person is. Whether
-they may act on the company is policy's question, compiled from the
-blueprint's `company.humans`, asked per act.
+| Kind | Image | Entry point | Holds | Writes |
+|---|---|---|---|---|
+| service | `poseidon-console` | `uvicorn --factory console.app:create_app --port 8090` | `REGISTRY_DSN` | `audit_events`; `paused_by` and `paused_at` on `companies` |
+
+The acts, the decision each must win, and the routes are on the [console reference](../../docs/reference/console.md), rendered from `common.audit` and `app.ROUTES`.
 
 ## Module map
 
-| Path | Owns |
+| Module | Owns |
 |---|---|
-| `app.py` | The FastAPI app and its route table (`ROUTES`, rendered into [the console reference](../../docs/reference/console.md)); the shared auth middleware; the error shapes (403 with the denying rule, 422 for what cannot be acted on, 503 when Temporal is unreachable). |
-| `service.py` | Every act as verify → decide → do → audit, and the reads beside them. The bootstrap rule for a company's first apply. |
-| `temporal.py` | The Temporal client: start, signal, cancel, inspect — addressed by `common.workflows`, shared with the worker. |
-| `crs.py` | The console's only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company — every real object is the reconciler's. The pause is a registry write, not a cluster one. |
-| `config.py` | `ConsoleSettings`: OPA, Temporal, the declared humans. Which company the cluster hosts is read from the registry, never configured. |
+| `app.py` | The FastAPI app, the route table (`ROUTES`), the request models, the shared auth middleware and the error answers. |
+| `service.py` | `ConsoleService`: every act as decide, record, do, and the reads beside them. The bootstrap rule for a first apply. |
+| `temporal.py` | The Temporal client: start, signal, cancel and inspect, addressed by `common.workflows`. Unreachable Temporal raises `Unavailable`. |
+| `crs.py` | The only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company. |
+| `config.py` | `ConsoleSettings`: the shared authn fields, `opa_url`, `temporal_address` and `console_humans`. |
 
-## The acts
+Authentication is `common.authn` in human mode, against the console's own token audience ([common](../common/README.md)).
 
-| Act | Decision | What happens |
-|---|---|---|
-| apply a blueprint | `blueprint.apply` | compile against the live registry, decide, submit the CRs; the reconciler converges |
-| resolve a gate | `gate.resolve` | decide, **record the verdict under the person's name**, then signal the workflow |
-| start a run by hand | `run.start` | decide, start `implement`/`review` on a ticket or pull request the company produced |
-| cancel a run | `run.cancel` | decide, cancel the workflow; teardown compensates |
-| wake the heartbeat | `heartbeat.wake` | decide, nudge the standing loop; the tick that follows is authorized like any other |
-| pause the heartbeat | `heartbeat.pause` | decide, **record the pause under the person's name** in the registry, then wake the loop so it says `paused` now; runs in flight finish |
-| resume the heartbeat | `heartbeat.resume` | decide, clear the pause, wake the loop |
-| delete the company | `company.delete` | decide, cancel every running run (each its own audited act), delete the Company CR, wait for the teardown |
+## How it works
 
-The one list of record is `common.audit.PLATFORM_EVENTS` (the console's
-rows), rendered into [the console reference](../../docs/reference/console.md).
+### Every act is decided and recorded before it is done
 
-The verdict row comes before the signal, on purpose: it is the artifact
-the review workflow reads back (`read_human_verdict`) and `merge.resolve`
-decides on. A signal that reaches the workflow by any other road — network
-reach to Temporal — finds no recorded verdict and releases nothing.
+`ConsoleService._act` asks the company's compiled bundle through `common.opa.evaluate_decision`, with the human's name as `agent_id`. The answer, allow or deny, is written to `audit_events` with `source=console`. A deny raises `PolicyDenied` and nothing else happens.
 
-The first apply of a company is the one act policy cannot decide: no
-bundle exists before the Company CR installs one. When OPA serves no
-policy for the company, any verified human may apply, and the audit row
-says `blueprint_apply_bootstrap`. Every later act is policy's.
+A verdict, a cancel, a pause, a resume and a delete owe a `reason` of 1 to 1000 characters, stored as the row's rationale. A missing reason fails request validation before policy is asked.
 
-## Entry points
+The first apply of a company is the one act policy cannot decide, because no bundle exists yet. When OPA serves no policy for the company, the apply is allowed and recorded as `blueprint_apply_bootstrap`. Reads need a verified human and decide nothing.
 
-| What | How | Image |
-|---|---|---|
-| service | `uvicorn --factory console.app:create_app --port 8090` | `poseidon-console` |
-| client | `uv run poseidon …` ([the CLI](../cli/README.md)) | from a checkout |
+The app's exception handlers map `PolicyDenied`, `Invalid`, `NoCompany` and `Unavailable` to 403, 422, 404 and 503. The [status codes](../../docs/reference/console.md#status-codes) are on the reference, and so is [what the console holds](../../docs/reference/console.md#what-the-console-holds) in the cluster.
 
-## Credential posture
+### A verdict is recorded before it is delivered
 
-The registry DSN and its own projected token (for TokenReview) — no
-`GIT_TOKEN`, no provider key, no signing key. Its cluster authority is
-exactly what an apply needs: create/update/delete on the two CRDs and a
-look at the company namespace, which the reconciler deliberately lacks.
-NetworkPolicy lets it reach OPA, Postgres, Temporal's frontend, DNS and
-the API server, and nothing else.
+`resolve_gate` checks that the gate exists on the run's workflow and that the run is parked on it (`PARKED_STATE[gate]`). Then it decides and records the act. The allow must come under `verdict_rule(gate, approved)`, such as `gate_resolve_merge_approve`, or the console raises instead of signaling. Only then does it signal the workflow, with the boolean alone.
 
-## Tests
+The row is the verdict. The review workflow reads it back (`read_human_verdict`) and `merge.resolve` decides on it. A signal sent to Temporal around the console finds no row and releases nothing. See [The merge gate](../../docs/explanation/merge-gate.md).
 
-```
-uv run pytest packages/console
-```
+A pause follows the same order. It is decided and recorded, then `Companies.pause` writes who holds it, then a `wake` signal makes the loop record the pause at once. A heartbeat that is not running yet reads the pause when the worker starts it.
 
-Everything runs against fakes: a scripted TokenReview, in-memory registry
-accessors, a recording Temporal double, a recording CR submit. What is
-pinned: the health probe is the only open route; a rejected token is
-audited with its principal; a denied act is a 403 naming the rule and
-does nothing; the verdict row precedes the signal, under the rule the
-registry reads it back by; a verdict is refused unless the run is parked
-on that gate; the bootstrap apply; reads need a human and touch nothing;
-the route table equals the app.
+### A cluster hosts one company
+
+`applied()` reads the one company the reconciler recorded in `companies`. An apply compiles the blueprint against the live `agent_instances` rows. It refuses a blueprint naming another company until that company is deleted. When the chart declares humans (`CONSOLE_HUMANS`), it also refuses a `company.humans` entry the chart did not declare.
+
+`crs.submit` writes the Company CR and one AgentInstance CR per standing agent, and deletes the instances the plan dropped. The [reconciler](../reconciler/README.md) creates every real object from them. A delete is decided first, then cancels each running run through `cancel_run` (each its own audited act), then deletes the Company CR. It waits for the teardown unless the caller passed `wait: false`.
 
 ## Invariants
 
-- No act without a decision, no decision without an audit row under the
-  person's name.
-- The verdict is recorded before it is delivered.
-- The console writes `audit_events` and the pause columns of `companies`,
-  nothing else in the registry; the reconciler writes the rest of
-  `companies` from the CR the console submits.
-- A cluster hosts one company. The console learns which from the registry
-  (the reconciler records the applied Company CR) and refuses a blueprint
-  naming another until that company is deleted; before the first apply,
-  any name applies.
+All in `tests/test_console.py` unless noted.
+
+- The health probe is the only open route: `test_the_health_probe_is_the_only_open_route`.
+- A rejected token is audited with its principal: `test_a_rejected_token_is_audited_with_its_principal`.
+- A denied act is a 403 that does nothing: `test_a_denied_verdict_is_a_403_that_signals_nothing`.
+- The verdict row comes first: `test_a_verdict_is_recorded_under_the_humans_name_then_delivered`.
+- A verdict answers only a parked gate: `test_a_verdict_answers_only_a_question_that_was_asked`.
+- An act without a reason records and signals nothing: `test_an_act_without_a_reason_is_refused_before_anything_happens`.
+- The pause is recorded before the loop hears: `test_pause_is_recorded_before_the_loop_hears_and_resume_mirrors_it`.
+- Only the first apply is the bootstrap rule: `test_the_first_apply_is_the_bootstrap_rule`, `test_a_later_apply_is_policys`.
+- A delete ends the runs first: `test_deleting_the_company_is_decided_audited_and_ends_its_runs_first`.
+- One company per cluster: `test_another_companys_blueprint_is_refused_while_one_is_applied`.
+- Reads touch nothing: `test_the_reads_need_a_human_and_touch_nothing`.
+- The route table matches the app: `test_the_route_table_matches_the_app`.
+- The Company CR carries the policies section: `test_crs.py::test_the_cr_carries_the_policies_section`.
+
+## Testing
+
+```bash
+uv run pytest packages/console
+```
+
+It needs no cluster, Temporal, OPA or Postgres (see [Contributing](../../docs/developing/contributing.md)). TokenReview is scripted, the registry is in memory, and Temporal, the policy decisions and the CR calls are recording doubles. On kind, `test_console_identity.py`, `test_console_redteam.py`, `test_pause.py` and `test_review_gate.py` drive the deployed console.
+
+## Related
+
+- [Console reference](../../docs/reference/console.md), [CLI reference](../../docs/reference/cli.md)
+- [Security model](../../docs/explanation/security-model.md)
+- [Pause, resume and delete](../../docs/how-to/pause-resume-delete.md)
+- [mcp-gateway](../mcp-gateway/README.md), the counterpart for agents
