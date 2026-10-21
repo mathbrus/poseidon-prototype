@@ -1,43 +1,55 @@
 # Run the acceptance suite
 
-```bash
-scripts/acceptance.sh
-```
+The acceptance suite runs Poseidon end to end on a live kind cluster. It
+proves every row of [What you get](../index.md#what-you-get), including the
+red-team tests that attack a real sandbox and a real merge gate. A full run
+takes about an hour.
 
-The full end-to-end suite, under an hour, against the live cluster (the
-exact count is in the pytest summary). It opens real pull requests on your
-disposable repo — and owns that repo's state entirely: it seeds `main` to
-a declared baseline, closes every PR and branch it creates, and finishes
-by *asserting* the cluster is quiet, so two consecutive runs are green
-with nothing done between them and a fresh disposable repo needs no
-manual setup (`tests/e2e_kind/conftest.py` documents the contract). This
-is the suite that proves the claims in [What you get](../index.md#what-you-get)
-— including the red-team modules, which attack a real provisioned sandbox
-and a real compiled merge gate.
+## Before you start
 
-It spends nothing: the suite refuses to run against a paid brain unless
-`POSEIDON_ALLOW_PAID=1` opts in ([Use a real model](../how-to/real-model.md)).
+- A cluster on the mock brain: `REAL_LLM=0 deploy/kind/kind-up.sh`. The
+  suite refuses a paid brain, so it never spends money.
+- No company applied, or the shipped `hello-saas`. The suite applies
+  `hello-saas` itself.
+- A **disposable** GitHub repository that `GIT_TOKEN` can write to. The
+  suite takes over its `main` branch.
 
-The suite opens real pull requests on a disposable repository of yours,
-named in its own environment variable — a company's repository is a
-blueprint field, and the suite writes this one into every blueprint it
-applies:
+## Run it
 
 ```bash
 E2E_TARGET_REPO=github.com/<you>/<disposable> scripts/acceptance.sh
 ```
 
-The script's preflight refuses to start without it, reads
-`deploy/kind/.env` for the gateway and the console (`MCP_GATEWAY_URL`,
-`POSEIDON_CONSOLE_URL`) and checks that each answers `401` without a
-token. The suite then acts only through
-[the console](../reference/console.md), as the `owner` the chart
-declares, and observes with psql, kubectl and GitHub — the same door a
-person uses, and no other. Its company is the shipped example,
-`hello-saas`, which the suite applies itself: the cluster may host
-nothing, or `hello-saas` already. A cluster hosting another company is
-refused by the preflight in seconds, naming both.
+The script checks the cluster first and fails in seconds if something is
+wrong. Then it runs `tests/e2e_kind` in full. pytest's summary gives the
+count, and `tests/e2e_kind/test_acceptance.py` indexes which module proves
+what.
+
+## What it does
+
+- Acts only through the console, as `owner`, like a person would. It reads
+  the results with `psql`, `kubectl` and the GitHub API.
+- Resets the repository's `main` to a known baseline, then opens real pull
+  requests and issues on it.
+- Closes every pull request, branch and issue it created.
+- Ends by checking that the cluster is quiet: no running workflow, no
+  unfinished run. You can run it twice in a row with nothing in between.
+
+`tests/e2e_kind/conftest.py` documents these guarantees, and what a new
+test module owes them.
+
+## When the preflight refuses
+
+| Message | Fix |
+|---|---|
+| The repository variable is missing | Set `E2E_TARGET_REPO`. |
+| `cluster unreachable via current kubectl context` | Run `deploy/kind/kind-up.sh`. |
+| `gateway at … answered '…' (expected 401 without a token)` | The cluster isn't serving. Run `kind-up.sh` again. |
+| A paid brain is deployed | Bring the cluster up with `REAL_LLM=0`. `POSEIDON_ALLOW_PAID=1` overrides the check, and spends money. |
+| `this cluster hosts '…'; the suite applies 'hello-saas'` | Delete that company: `uv run poseidon company delete --reason "…"`. |
+
+## Clean up
 
 ```bash
-deploy/kind/kind-down.sh    # when you are done
+deploy/kind/kind-down.sh
 ```
