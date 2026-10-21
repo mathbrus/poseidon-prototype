@@ -11,12 +11,12 @@ ticks of a company exist to write them.
 
 from typing import Any
 
+from blueprint.catalog import STEWARDSHIP_CREW
+from blueprint.documents import DOCUMENT_NAMES, document_header
 from common.tasks import crew_trailer
 from common.text import clip_head
 from orchestrator.clients import GatewayClient
 from registry import Companies
-from schema.catalog import STEWARDSHIP_CREW
-from schema.documents import DOCUMENT_NAMES, document_header
 
 # The observation renders each document under its header; the headers
 # are the contract the mock brain parses.

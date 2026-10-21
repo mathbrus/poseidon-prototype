@@ -3,7 +3,7 @@ name: poseidon
 description: >-
   Poseidon — the core services (OPA, LiteLLM, MCP gateway, agent) hosted
   on Kubernetes. The release installs into the platform namespace; the
-  operator reconciles company namespaces from applied blueprints.
+  reconciler converges the company namespace from applied blueprints.
   The same chart and values structure serves kind and real clusters;
   kind-specific overrides live in values-kind.yaml.
 type: application

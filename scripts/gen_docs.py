@@ -24,7 +24,11 @@ import mkdocs_gen_files
 import typer.main
 import yaml
 
-from agent.models import MODEL_FAMILIES
+from agent_host.models import MODEL_FAMILIES
+from blueprint import tools
+from blueprint.bounds import render_bounds
+from blueprint.catalog import CREW_TEMPLATES, PROCEDURES, ROLES
+from blueprint.schema import BLUEPRINT_SCHEMA
 from common.audit import PLATFORM_EVENTS
 from common.policy import GATE_RESOLVE, RUN_START, rego_slug
 from common.workflows import WORKFLOWS, workflow_id
@@ -33,10 +37,6 @@ from console.app import ROUTES
 from console.crs import company_cr
 from orchestrator import workflows
 from poseidon_cli.main import app as cli_app
-from schema import tools
-from schema.blueprint import BLUEPRINT_SCHEMA
-from schema.bounds import render_bounds
-from schema.catalog import CREW_TEMPLATES, PROCEDURES, ROLES
 
 REPO = Path(__file__).resolve().parent.parent
 DOCS = REPO / "docs"
@@ -167,7 +167,7 @@ def tool_table(group: str | None) -> str:
     defined = _tool_definitions()
     if set(defined) != set(tools.KNOWN_TOOLS):
         raise SystemExit(
-            "gen_docs: the gateway's tools and schema.tools.KNOWN_TOOLS differ: "
+            "gen_docs: the gateway's tools and blueprint.tools.KNOWN_TOOLS differ: "
             f"{sorted(set(defined) ^ set(tools.KNOWN_TOOLS))}"
         )
     rows = []

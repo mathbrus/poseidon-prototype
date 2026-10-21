@@ -39,7 +39,7 @@ import yaml
 from common.audit import REVIEW_VERDICT
 from common.policy import HEARTBEAT_START, MERGE_RESOLVE
 from common.tasks import review_run_task
-from mockllm.brain import CONTRACT_FIRST_MARKER, CONTRACT_TEST_PATH, NEXT_SLICE_MARKER
+from mock_brain.brain import CONTRACT_FIRST_MARKER, CONTRACT_TEST_PATH, NEXT_SLICE_MARKER
 
 from .blueprints import DELEGATED, restore_pristine
 from .cluster import (

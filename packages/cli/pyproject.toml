@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "common",
     "compiler",
-    "schema",
+    "blueprint",
     "httpx>=0.27",
     "kubernetes>=31",
     "questionary>=2.1",
@@ -20,7 +20,7 @@ poseidon = "poseidon_cli.main:app"
 [tool.uv.sources]
 common = { workspace = true }
 compiler = { workspace = true }
-schema = { workspace = true }
+blueprint = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

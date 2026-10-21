@@ -87,7 +87,7 @@ caller this is (`_decision_input` in `service.py`):
   claim, not a binding.
 
 Every compiled rule for a run-scoped tool (the seven `sandbox.*` tools —
-`schema.tools.RUN_SCOPED`) requires the flag, so a wrong, stale or revoked
+`blueprint.tools.RUN_SCOPED`) requires the flag, so a wrong, stale or revoked
 `run_id` fails closed at the policy layer. Retiring the registration at
 teardown is what makes a finished run's sandbox unreachable: same caller,
 same tool, now `default_deny`.
@@ -146,7 +146,7 @@ and review tools, `architecture.request`, and platform-only `git.merge_pr`,
 `issues.close` and `git.close_pr` — are documented one by one, with arguments, on
 [Tools](../../docs/reference/tools.md), rendered from this package's
 definitions at build time.
-The names match the lists in `schema.tools`, which is what the compiler
+The names match the lists in `blueprint.tools`, which is what the compiler
 validates blueprint scopes against, so a scope naming a tool the gateway
 does not serve fails at compile time.
 
@@ -236,7 +236,7 @@ proves the server is up.
   goes through `asyncio.to_thread` — a slow or absent Postgres must not
   stall the event loop (the pool blocks long enough to fail the liveness
   probe if it ran there).
-- `schema.tools` names the same tools; `compiler.rego` must emit the
+- `blueprint.tools` names the same tools; `compiler.rego` must emit the
   same company slug — `tests/test_slug_invariant.py` pins that.
 - The [orchestrator](../orchestrator/README.md) is the platform-lifecycle
   caller: admin routes, `repo.archive`, post-gate `git.merge_pr` and the

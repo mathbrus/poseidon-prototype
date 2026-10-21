@@ -23,14 +23,14 @@ blueprint's `company.humans`, asked per act.
 | `app.py` | The FastAPI app and its route table (`ROUTES`, rendered into [the console reference](../../docs/reference/console.md)); the shared auth middleware; the error shapes (403 with the denying rule, 422 for what cannot be acted on, 503 when Temporal is unreachable). |
 | `service.py` | Every act as verify → decide → do → audit, and the reads beside them. The bootstrap rule for a company's first apply. |
 | `temporal.py` | The Temporal client: start, signal, cancel, inspect — addressed by `common.workflows`, shared with the worker. |
-| `crs.py` | The console's only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company — every real object is the operator's. The pause is a registry write, not a cluster one. |
+| `crs.py` | The console's only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company — every real object is the reconciler's. The pause is a registry write, not a cluster one. |
 | `config.py` | `ConsoleSettings`: OPA, Temporal, the declared humans. Which company the cluster hosts is read from the registry, never configured. |
 
 ## The acts
 
 | Act | Decision | What happens |
 |---|---|---|
-| apply a blueprint | `blueprint.apply` | compile against the live registry, decide, submit the CRs; the operator converges |
+| apply a blueprint | `blueprint.apply` | compile against the live registry, decide, submit the CRs; the reconciler converges |
 | resolve a gate | `gate.resolve` | decide, **record the verdict under the person's name**, then signal the workflow |
 | start a run by hand | `run.start` | decide, start `implement`/`review` on a ticket or pull request the company produced |
 | cancel a run | `run.cancel` | decide, cancel the workflow; teardown compensates |
@@ -64,7 +64,7 @@ says `blueprint_apply_bootstrap`. Every later act is policy's.
 The registry DSN and its own projected token (for TokenReview) — no
 `GIT_TOKEN`, no provider key, no signing key. Its cluster authority is
 exactly what an apply needs: create/update/delete on the two CRDs and a
-look at the company namespace, which the operator deliberately lacks.
+look at the company namespace, which the reconciler deliberately lacks.
 NetworkPolicy lets it reach OPA, Postgres, Temporal's frontend, DNS and
 the API server, and nothing else.
 
@@ -89,8 +89,8 @@ the route table equals the app.
   person's name.
 - The verdict is recorded before it is delivered.
 - The console writes `audit_events` and nothing else in the registry; the
-  operator writes `companies` from the CR the console submits.
+  reconciler writes `companies` from the CR the console submits.
 - A cluster hosts one company. The console learns which from the registry
-  (the operator records the applied Company CR) and refuses a blueprint
+  (the reconciler records the applied Company CR) and refuses a blueprint
   naming another until that company is deleted; before the first apply,
   any name applies.

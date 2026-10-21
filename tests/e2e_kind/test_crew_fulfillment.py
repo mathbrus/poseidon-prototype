@@ -95,6 +95,7 @@ def _pod_forwarded_agent_client():
 def test_crew_delivers_a_pr_under_ephemeral_identity(
     stack: None, env: dict, tmp_path, pr_info
 ) -> None:
+    from blueprint.bounds import render_bounds
     from orchestrator.clients import AgentClient, GatewayClient
     from orchestrator.ephemeral_pods import (
         EphemeralPodProvisioner,
@@ -104,7 +105,6 @@ def test_crew_delivers_a_pr_under_ephemeral_identity(
     from orchestrator.identity import ephemeral_agent_id
     from registry import Companies, Runs
     from sandbox.k8s_jobs import K8sJobsBackend
-    from schema.bounds import render_bounds
 
     run_id = new_run_id()
     nonce = secrets.token_hex(3)

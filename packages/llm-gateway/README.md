@@ -1,7 +1,7 @@
 # llm-gateway
 
 The LLM gateway: the one route to any model. Where the MCP gateway
-([`gateway`](../mcp-gateway/README.md)) governs what an agent can *do*, this
+([`mcp-gateway`](../mcp-gateway/README.md)) governs what an agent can *do*, this
 service governs what an agent can *spend* — and both verify the same
 workload credentials against the same registry state, with the same
 `Authenticator`.
@@ -42,11 +42,11 @@ To the agent all of this is invisible. The gateway speaks plain OpenAI
 on port 4000 — the port agents already expect for model access — on
 **both** OpenAI surfaces: chat completions and the Responses API
 (`/responses`, `/v1/responses`). The agent's model table
-(`agent.models`) sends every current OpenAI family over Responses, so
+(`agent_host.models`) sends every current OpenAI family over Responses, so
 the second surface is what keeps "pointing an off-the-shelf SDK at
 governed model access is a URL change and nothing else" true for those
 models. The agent host builds an ordinary LiteLLM-style client whose
-`base_url` points here (`agent.procedures.build_llm`).
+`base_url` points here (`agent_host.procedures.build_llm`).
 
 ## The pipeline
 
@@ -130,7 +130,7 @@ surface `budget_exhausted` verbatim and the workflow recognise it.
 
 Enforcement lives here rather than in the workflow because this is the
 point every model call passes through; there is no Temporal client in
-this service. The orchestrator observes the stop through the error the
+this service. The orchestrator observes the refusal through the error the
 agent host surfaces: the implement workflow matches the `budget_exhausted`
 marker in the dispatch result, parks on a `budget` signal in an
 API-visible `parked-budget_exhausted` state, fires an escalation at half
@@ -208,10 +208,10 @@ read — a real model legitimately thinks for minutes.
   for attribution and the per-run cap;
   `registry.AuditStore` for `source=llm-gateway` events.
 - `agent` builds its LLM client against this service and injects the
-  run header (`agent.procedures.build_llm`).
+  run header (`agent_host.procedures.build_llm`).
 - `orchestrator` turns the surfaced `budget_exhausted` error into the
   parked state, escalation, and `process-gate` audit events.
-- [`mockllm`](../mockllm/README.md) is the upstream in development;
+- [`mock-brain`](../mock-brain/README.md) is the upstream in development;
   LiteLLM is the upstream in a real deployment. Neither is reachable
   except from here.
 
@@ -225,11 +225,11 @@ The suite runs the pipeline against in-memory registry doubles
 (`registry.memory`) and a stubbed OpenAI-shaped upstream: rejected
 without authn, rejected and audited without attribution, unknown and
 foreign runs refused, the pinned model overriding the requested one,
-every forwarded call metered and audited, the cap a hard stop with a
-distinguishable error and no new spend, spend accruing call by call
+every forwarded call metered and audited, calls refused at the cap
+with a distinguishable error and no new spend, spend accruing call by call
 below the cap, and an uncapped company metered without being stopped.
 The Responses surface is held to the same contract: routing, metering,
-every guard and the hard stop over `/responses`, with digests that
+every guard and the refusal at the cap over `/responses`, with digests that
 never carry prompt text.
 
 ## Invariants

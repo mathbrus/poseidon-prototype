@@ -28,7 +28,7 @@ from common.audit import HEARTBEAT_DECIDE
 from common.policy import HEARTBEAT_START
 from common.tasks import SCOPE_TASK
 from common.workflows import TICK_IDLE, tick_rule
-from mockllm.brain import NEXT_SLICE_MARKER, PM_SUMMARY
+from mock_brain.brain import NEXT_SLICE_MARKER, PM_SUMMARY
 
 from .blueprints import HELLO_SAAS, derived_blueprint, may_start, restore_pristine
 from .cluster import (

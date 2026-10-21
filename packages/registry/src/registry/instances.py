@@ -1,4 +1,4 @@
-"""`agent_instances` — written by the operator: the standing agents, and
+"""`agent_instances` — written by the reconciler: the standing agents, and
 the gateways' read side for workload identity.
 """
 
@@ -6,7 +6,7 @@ from registry.db import Registry
 
 
 class AgentInstances:
-    """Standing agents status, written by the operator."""
+    """Standing agents status, written by the reconciler."""
 
     def __init__(self, registry: Registry) -> None:
         self._db = registry
@@ -62,7 +62,7 @@ class AgentInstances:
         )
 
     def delete_for_company(self, company: str) -> None:
-        """The company-level sweep at teardown: correct even if the operator
+        """The company-level sweep at teardown: correct even if the reconciler
         was down for individual instance-delete events."""
         self._db.execute(
             "DELETE FROM registry.agent_instances WHERE company = %s", (company,)

@@ -3,7 +3,7 @@
 adds where policy and workflows live, and who the humans are on a
 cluster without an identity provider. Which company the cluster hosts is
 not a setting: the console reads it from the registry, where the
-operator records what was applied.
+reconciler records what was applied.
 """
 
 from common.authn import AuthnSettings

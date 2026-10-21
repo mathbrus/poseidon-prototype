@@ -511,7 +511,7 @@ def await_run(
 
 
 def run_spend(run_id: str) -> float:
-    """The run's ledger spend — the per-run hard stop is enforced there,
+    """The run's ledger spend — the per-run cap is enforced there,
     not in the audit stream (audit events carry no usd)."""
     return float(
         psql(

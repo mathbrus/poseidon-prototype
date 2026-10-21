@@ -30,7 +30,7 @@ def settings(tmp_path) -> WorkerSettings:
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
         sandbox_image="poseidon-sandbox:abc123",
-        agent_image="poseidon-agent:abc123",
+        agent_image="poseidon-agent-host:abc123",
         model="mock-brain",
     )
 

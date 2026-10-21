@@ -3,9 +3,9 @@
 One ledger with dimensions, never parallel accounts: every model
 call lands here under {company, run_id, standing parent, ephemeral
 agent, role, model}, so crew fan-out stays reconcilable and "what did
-run X cost" is one SUM. The headroom read is what the hard-stop rides:
+run X cost" is one SUM. The headroom read is what the cap's refusal rides:
 enforcement is local at the LLM gateway (no Temporal client there);
-the workflow observes the stop through the budget error the agent host surfaces.
+the workflow observes the refusal through the budget error the agent host surfaces.
 """
 
 from typing import Any

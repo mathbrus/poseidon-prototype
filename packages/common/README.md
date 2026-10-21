@@ -170,7 +170,7 @@ Export stays env-gated at runtime either way.
 
 ## Cross-package interactions
 
-- [`gateway`](../mcp-gateway/README.md) and
+- [`mcp-gateway`](../mcp-gateway/README.md) and
   [`llm-gateway`](../llm-gateway/README.md) both construct an
   `Authenticator`; their settings classes inherit `AuthnSettings`.
   [`console`](../console/README.md) constructs one in human mode, and
@@ -181,7 +181,7 @@ Export stays env-gated at runtime either way.
   row); both gateways resolve them. [`registry`](../registry/README.md)'s
   `RunParticipants.by_service_account` is the live-row half of
   verification.
-- `sandbox`, `orchestrator` and `operator` build pod specs from
+- `sandbox`, `orchestrator` and `reconciler` build pod specs from
   `podsecurity`. The Helm chart keeps its own copy of the same posture in
   `deploy/helm/poseidon/templates/_helpers.tpl` — templates cannot import
   Python, so those two must be changed together.

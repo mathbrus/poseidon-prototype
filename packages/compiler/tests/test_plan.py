@@ -72,7 +72,7 @@ def test_a_tool_scope_narrows_standing_and_ephemeral_agents_alike(blueprint):
 
 def test_ephemeral_agents_are_specs_not_instances(blueprint):
     """Ephemeral agents exist only inside a run: the plan describes
-    them, the operator never creates them."""
+    them, the reconciler never creates them."""
     plan = compile_blueprint(blueprint)
     agents = {(m.crew, m.role) for m in plan.ephemeral_agents}
     assert agents == {

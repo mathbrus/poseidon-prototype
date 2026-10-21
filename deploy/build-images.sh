@@ -21,15 +21,15 @@ version() {
 
 # name | workspace package | source packages installed | extra | apt packages | workspace dir | entrypoint
 MATRIX='
-poseidon-mcp-gateway|mcp-gateway|common schema registry mcp-gateway||git||uvicorn --factory mcp_gateway.app:create_app --host 0.0.0.0 --port 8080
+poseidon-mcp-gateway|mcp-gateway|common blueprint registry mcp-gateway||git||uvicorn --factory mcp_gateway.app:create_app --host 0.0.0.0 --port 8080
 poseidon-llm-gateway|llm-gateway|common registry llm-gateway||||python -m llm_gateway
-poseidon-agent|agent|common schema agent||||uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
-poseidon-orchestrator|orchestrator|common schema compiler registry sandbox orchestrator||||python -m orchestrator.worker
-poseidon-operator|poseidon-operator|common registry operator||||kopf run -m poseidon_operator.reconcile --all-namespaces
+poseidon-agent-host|agent-host|common blueprint agent-host||||uvicorn --factory agent_host.app:create_app --host 0.0.0.0 --port 8000
+poseidon-orchestrator|orchestrator|common blueprint compiler registry sandbox orchestrator||||python -m orchestrator.worker
+poseidon-reconciler|poseidon-reconciler|common registry reconciler||||kopf run -m reconciler.reconcile --all-namespaces
 poseidon-sandbox|sandbox|common sandbox|toolchain|git|/workspace|uvicorn sandbox.toolserver.app:app --host 0.0.0.0 --port 8000
 poseidon-egress-proxy|sandbox|common registry sandbox|egress|||python -m sandbox.egressproxy
-poseidon-mockllm|mockllm|mockllm||||python -m mockllm
-poseidon-console|console|common schema registry compiler console||||uvicorn --factory console.app:create_app --host 0.0.0.0 --port 8090
+poseidon-mock-brain|mock-brain|mock-brain||||python -m mock_brain
+poseidon-console|console|common blueprint registry compiler console||||uvicorn --factory console.app:create_app --host 0.0.0.0 --port 8090
 '
 
 if [ "${1:-}" = "--list" ]; then

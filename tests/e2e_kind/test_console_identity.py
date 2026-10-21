@@ -122,11 +122,11 @@ def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
 
 
 def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:
-    """The humans exist for a person's own TokenRequest; the operator and
+    """The humans exist for a person's own TokenRequest; the reconciler and
     the worker — the two platform identities with any ServiceAccount
     authority — cannot mint one."""
     for subject in (
-        f"system:serviceaccount:{PLATFORM_NS}:poseidon-operator",
+        f"system:serviceaccount:{PLATFORM_NS}:poseidon-reconciler",
         f"system:serviceaccount:{PLATFORM_NS}:orchestrator-worker",
     ):
         proc = run_kubectl(

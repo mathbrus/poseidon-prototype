@@ -49,7 +49,7 @@ from common.audit import gate_event
 from common.policy import HEARTBEAT_START
 from common.tasks import review_run_task
 from common.workflows import ATTEMPTS_GATE, TICK_IDLE, TICK_STARTED, tick_rule
-from mockllm.brain import REVIEW_ABORT_MARKER
+from mock_brain.brain import REVIEW_ABORT_MARKER
 
 from .blueprints import (
     HELLO_SAAS,
@@ -169,7 +169,7 @@ def test_the_unattended_run_spend_stays_under_the_per_run_cap(
     unattended_run: dict,
 ):
     """Bounded money: the run the heartbeat funded spent under hello-saas's
-    $5 per-run cap — the same hard stop every run faces."""
+    $5 per-run cap — the same cap every run faces."""
     spend = run_spend(unattended_run["child"]["run_id"])
     assert 0 < spend < 5.0, f"unexpected spend {spend}"
 
@@ -227,7 +227,7 @@ def test_the_whole_unattended_trajectory_reconstructs_from_the_audit_store(
 def merged_by_hand(unattended_run: dict, env: dict) -> dict:
     """The human act nothing in the loop sees coming: the unattended run's
     PR is merged through the GitHub API — by hand, not by a review run —
-    and its branch deleted, the way an operator who ran `poseidon start implement` or
+    and its branch deleted, the way a human who ran `poseidon start implement` or
     an external harness settles a PR. Then the standing heartbeat gets
     two wakes — the reconcile looks it would eventually take, compressed
     to now. Requested by the last test only, so every assertion above

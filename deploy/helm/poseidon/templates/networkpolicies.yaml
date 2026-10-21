@@ -4,8 +4,8 @@
 #
 # Platform-namespace policies only. Everything inside a company namespace —
 # the deny-all envelope, agent egress/ingress, sandbox isolation — belongs
-# to the operator, because the namespace itself is
-# operator-created and a chart cannot template what it does not own.
+# to the reconciler, because the namespace itself is
+# reconciler-created and a chart cannot template what it does not own.
 #
 #   gateway egress: OPA, the registry, DNS, the sandbox toolservers in the
 #     company namespace, and non-cluster addresses (the external git host).

@@ -120,7 +120,7 @@ class InMemoryAuditStore:
 
 class InMemoryBudgetLedger:
     """The LLM gateway's meter: recorded entries and the
-    per-run SUM the hard-stop compares against."""
+    per-run SUM the cap's refusal compares against."""
 
     def __init__(self) -> None:
         self.entries: list[dict[str, Any]] = []
@@ -231,7 +231,7 @@ class InMemorySandboxRegistrations:
 
 
 class InMemoryCompanies:
-    """The operator's writes, the read side the worker and egress proxy
+    """The reconciler's writes, the read side the worker and egress proxy
     consume the infra IR through, and the console's pause."""
 
     def __init__(self) -> None:
@@ -272,7 +272,7 @@ class InMemoryCompanies:
 
 class InMemoryAgentInstances:
     """The gateway's read side of `agent_instances` (workload identity)
-    plus the operator's upsert, same row shape as Postgres."""
+    plus the reconciler's upsert, same row shape as Postgres."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}

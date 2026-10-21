@@ -1,7 +1,7 @@
 """The compiler: `(blueprint, role_catalog, registry_snapshot) → plan`.
 
 A pure function. It reads nothing but its arguments, writes nothing,
-and touches no cluster: apply is the operator's job, and keeping the
+and touches no cluster: apply is the reconciler's job, and keeping the
 mutation in exactly one place is what makes "the blueprint is the source
 of truth" checkable rather than aspirational.
 
@@ -12,6 +12,8 @@ deployment's.
 
 from typing import Any
 
+from blueprint.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
+from blueprint.tools import PLATFORM_TOOLS
 from common.topology import COMPANY_NAMESPACE
 from compiler.checks import check, referenced_crews
 from compiler.errors import CompileError
@@ -29,8 +31,6 @@ from compiler.plan import (
 )
 from compiler.rego import build_bundle, build_platform_bundle
 from compiler.snapshot import EMPTY, RegistrySnapshot
-from schema.catalog import CREW_TEMPLATES, ROLES, CrewTemplate, Role
-from schema.tools import PLATFORM_TOOLS
 
 # What the orchestrator's own identity may call. Not blueprint-configurable:
 # a company that could grant itself the platform lifecycle would be able to

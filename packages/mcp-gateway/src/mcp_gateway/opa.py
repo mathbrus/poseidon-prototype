@@ -1,4 +1,4 @@
-"""OPA client: decision queries against operator-installed compiled bundles.
+"""OPA client: decision queries against reconciler-installed compiled bundles.
 
 The decision path is per caller (`common.policy`): company callers query
 their company's package, the platform lifecycle queries the platform

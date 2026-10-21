@@ -83,18 +83,18 @@ and how to test it.
 | Package | What it owns |
 |---|---|
 | [`common`](packages/common/README.md) | Identity, workload authn, audit model, pod security posture |
-| [`schema`](packages/schema/README.md) | The blueprint contract and the role/crew catalogs |
+| [`blueprint`](packages/blueprint/README.md) | The blueprint contract and the role/crew catalogs |
 | [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
 | [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
-| [`operator`](packages/operator/README.md) | Reconciles the CRs; serves policy bundles |
+| [`reconciler`](packages/reconciler/README.md) | Reconciles the CRs; serves policy bundles |
 | [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates |
 | [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
 | [`llm-gateway`](packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |
 | [`console`](packages/console/README.md) | The human's chokepoint: verify the person, ask policy, act, audit |
 | [`cli`](packages/cli/README.md) | `poseidon-cli`: the `poseidon` CLI and the console client it is built on |
-| [`agent`](packages/agent/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
+| [`agent-host`](packages/agent-host/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
 | [`sandbox`](packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
-| [`mockllm`](packages/mockllm/README.md) | The deterministic brain that makes e2e runs free |
+| [`mock-brain`](packages/mock-brain/README.md) | The deterministic brain that makes e2e runs free |
 
 ---
 

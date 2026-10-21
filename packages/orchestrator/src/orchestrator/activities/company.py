@@ -1,4 +1,4 @@
-"""The company a worker executes runs for: the one the operator recorded
+"""The company a worker executes runs for: the one the reconciler recorded
 from the applied Company CR. The worker is not told it — a platform hosts
 one company, and the registry says which."""
 

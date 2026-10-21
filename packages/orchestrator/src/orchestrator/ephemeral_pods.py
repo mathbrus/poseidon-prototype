@@ -5,9 +5,9 @@ and deletes **pods and their per-run ServiceAccounts only**, in the
 **company namespace only**, and every delete goes through the
 `{run_id, kind=ephemeral-agent}` label selector, so nothing unlabeled (and no
 sandbox pod sharing the run label) can ever be touched. Standing
-structure stays operator-owned: no Deployments, no Services, no CRs. The
+structure stays reconciler-owned: no Deployments, no Services, no CRs. The
 matching Role rules live in
-`poseidon_operator.resources.sandbox_provisioner_role`.
+`reconciler.resources.sandbox_provisioner_role`.
 
 An ephemeral pod hosts exactly one ephemeral agent: the same agent image a
 standing agent runs, labeled to its run. Every agent gets its own pod —
@@ -84,11 +84,11 @@ def ephemeral_pod_manifest(
 ) -> dict[str, Any]:
     """The pod, whole and pure (unit-testable without a cluster).
 
-    Mirrors the operator's standing-agent posture: the pod's only
+    Mirrors the reconciler's standing-agent posture: the pod's only
     credential is the audience-scoped projected token of its own
     ServiceAccount (same name as the pod), no API-server token, no
     service links, GPG_KEY blanked. The `ephemeral-agent` kind label is what
-    the operator's company NetworkPolicies select (gateways-only egress,
+    the reconciler's company NetworkPolicies select (gateways-only egress,
     orchestrator-only ingress) and what the destroy selector requires.
 
     `activeDeadlineSeconds` backstops the teardown race guard: a pod

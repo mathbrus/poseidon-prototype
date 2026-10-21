@@ -1,9 +1,9 @@
 # Poseidon values. The release is installed into the platform namespace
 # (`helm install -n poseidon-platform --create-namespace`); company
-# namespaces are the operator's, created from Company CRs.
+# namespaces are the reconciler's, created from Company CRs.
 # Defaults here are cluster-agnostic; kind overrides live in values-kind.yaml.
 
-# The namespace the company lives in. The operator creates it from the
+# The namespace the company lives in. The reconciler creates it from the
 # Company CR, whose compiler wrote the same name from
 # `common.topology.COMPANY_NAMESPACE`; here it is what the platform
 # NetworkPolicies select. CI asserts the two spellings agree.
@@ -22,8 +22,8 @@ images:
     # Images are side-loaded on kind (`kind load docker-image`); IfNotPresent
     # keeps the kubelet from trying to pull them from a registry.
     pullPolicy: IfNotPresent
-  agent:
-    repository: poseidon-agent
+  agentHost:
+    repository: poseidon-agent-host
     tag: latest
     pullPolicy: IfNotPresent
   opa:
@@ -43,8 +43,8 @@ images:
     repository: poseidon-orchestrator
     tag: latest
     pullPolicy: IfNotPresent
-  operator:
-    repository: poseidon-operator
+  reconciler:
+    repository: poseidon-reconciler
     tag: latest
     pullPolicy: IfNotPresent
   llmGateway:
@@ -79,7 +79,7 @@ secrets:
   egressProxyKey: ""
 
 # The one model this deployment serves: the LLM gateway pins it on every
-# call, and the agent pods are told the same name (the operator and the
+# call, and the agent pods are told the same name (the reconciler and the
 # orchestrator hand it to them).
 run:
   model: gpt-5.6-luna
@@ -87,7 +87,7 @@ run:
 orchestrator:
   temporalAddress: temporal-frontend:7233
   # The activity-bound profile every workflow runs with: `default` gives a
-  # paid brain minutes per step; `fast` (values-mockllm.yaml) makes a wedged
+  # paid brain minutes per step; `fast` (values-mock-brain.yaml) makes a wedged
   # step against the mock fail in seconds.
   timeoutProfile: default
   # Sandbox caps come from the applied blueprint's infra IR; the

@@ -1,6 +1,6 @@
 """Applying the example blueprints to the cluster, exactly as a person
 running the platform does, and waiting for the company to converge — a
-phase the operator writes only once OPA serves the applied policy, not
+phase the reconciler writes only once OPA serves the applied policy, not
 when the pods are Ready."""
 
 import tempfile
@@ -29,7 +29,7 @@ __all__ = ["DELEGATED", "EXAMPLES", "HELLO_SAAS", "REPO_ROOT"]
 _SCRATCH = tempfile.TemporaryDirectory(prefix="poseidon-bp-")
 
 # The examples declare the waits a real company gives its humans (a working
-# day at the merge gate, an hour at a budget stop). The suite waits those
+# day at the merge gate, an hour at a budget cap). The suite waits those
 # gates out to watch them escalate and expire, so every document it applies
 # carries these instead: escalation lands at half a minute, and the budget
 # approve path has time to re-apply a blueprint before its park ends.
@@ -113,18 +113,18 @@ def apply_blueprint(path: Path) -> None:
     """Apply the suite's version of `path` (see `suite_document`) through
     the console, as the human `owner` — the act a person performs: the
     console compiles it against the live registry, decides, submits the
-    CRs; the operator converges them."""
+    CRs; the reconciler converges them."""
     result = console().apply(suite_document(path).read_text())
     assert result["company"] == COMPANY, result
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:
     """The company namespace is Active, the Company reads `converged` for
-    the generation just applied — the operator writes that phase only once
+    the generation just applied — the reconciler writes that phase only once
     OPA serves the stored bundle revisions, the platform's and the
     company's — and its one standing agent (the PM) is rolled out. The
     generation matters after a re-apply: the CR still carries the previous
-    apply's `converged` until the operator has looked at the new spec."""
+    apply's `converged` until the reconciler has looked at the new spec."""
     kubectl(
         "wait",
         "--for=jsonpath={.status.phase}=Active",

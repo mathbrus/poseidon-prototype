@@ -1,7 +1,7 @@
 # registry
 
 The join point between declarative intent and live state: nine Postgres
-tables, each behind a write-scoped accessor class. The operator writes
+tables, each behind a write-scoped accessor class. The reconciler writes
 what a blueprint declared, the orchestrator writes what a run is doing,
 the gateways write what they decided — and one `run_id` query returns the
 whole story across all of them.
@@ -20,9 +20,9 @@ the runtime path reports here (what every enforcement point decided).
 
 | Table | Written by | Records |
 |---|---|---|
-| `companies` | operator | The applied blueprint spec, one row per company. |
-| `agent_instances` | operator | The standing agents, including the namespace workload identity checks against. |
-| `policy_bundles` | operator | The compiled OPA bundle tarball and its revision. |
+| `companies` | reconciler | The applied blueprint spec, one row per company. |
+| `agent_instances` | reconciler | The standing agents, including the namespace workload identity checks against. |
+| `policy_bundles` | reconciler | The compiled OPA bundle tarball and its revision. |
 | `runs` | orchestrator | The run record: task, status, artifacts, terminal state — and whether the run *concluded* its work item (`pr_url` for implement, `verdict` for review), which the heartbeat's attempt accounting reads. |
 | `run_participants` | orchestrator | One row per bound ephemeral identity — the whole identity, ServiceAccount name included. Revocation is a row termination. |
 | `sandbox_registrations` | gateway | Run → sandbox address. The registration *is* the run binding. |
@@ -49,7 +49,7 @@ writer.
 |---|---|
 | `db.py` | Connection pool, DSN handling, startup migration under an advisory lock, and `Registry.now` — the database clock, the fence a human takes from the console before acting. |
 | `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
-| `companies.py` | `Companies` — the applied blueprint per company, written by the operator. |
+| `companies.py` | `Companies` — the applied blueprint per company, written by the reconciler. |
 | `instances.py` | `AgentInstances` — the standing agents, and the gateways' workload-identity read. |
 | `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |
 | `runs.py` | `Runs` — the run record and its terminal state; `since` lists a company's runs from a fence. |
@@ -176,7 +176,7 @@ store must not become the leak channel the rest of the design closes.
 
 ## Policy bundles are content-addressed
 
-`bundles.pack` builds the OPA bundle tarball the operator persists and the
+`bundles.pack` builds the OPA bundle tarball the reconciler persists and the
 bundle server hands to OPA. Two properties are load-bearing:
 
 - **The revision is a digest of the content**, and the tar metadata
@@ -219,7 +219,7 @@ and audit events are not optional.
 
 - [`common`](../common/README.md) supplies the `AuditEvent` shape — the
   registry's only dependency besides psycopg.
-- [`operator`](../operator/README.md) writes `companies`,
+- [`reconciler`](../reconciler/README.md) writes `companies`,
   `agent_instances` and `policy_bundles` on reconcile; its bundle server
   reads `policy_bundles` for OPA to poll.
 - [`orchestrator`](../orchestrator/README.md) writes `runs` and
@@ -230,12 +230,13 @@ and audit events are not optional.
 - [`console`](../console/README.md) writes audit events (`source=console`,
   under the person's name) and reads on a human's behalf: `Runs.since`,
   `BudgetLedger.spent_since`, `AuditStore.story` and `Registry.now`.
-- [`gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`
+- [`mcp-gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`
   and audit events; reads `agent_instances` (workload identity),
   `run_participants` (ephemeral identity backing) and
   `sandbox_registrations` (run binding).
 - [`llm-gateway`](../llm-gateway/README.md) writes `budget_ledger` and
-  audit events; its hard stop compares `spent_for_run` before every call.
+  audit events; its refusal at the cap compares `spent_for_run` before every
+  call.
 - [`sandbox`](../sandbox/README.md)'s egress proxy writes audit events
   and resolves a sandbox namespace back to its company's allowlist via
   `Companies.by_namespace`.

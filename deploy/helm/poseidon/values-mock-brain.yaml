@@ -1,0 +1,17 @@
+# Mock LLM overlay: the llm-proxy Deployment runs the deterministic
+# poseidon-mock-brain brain instead of LiteLLM, so e2e runs spend no provider
+# tokens. Everything else — service name, label, port, probes,
+# NetworkPolicies, agent env — is untouched; the agent cannot tell the
+# difference. kind-up.sh applies this by default; REAL_LLM=1 skips it.
+images:
+  llmProxy:
+    repository: poseidon-mock-brain
+    tag: latest
+    pullPolicy: IfNotPresent
+
+run:
+  model: mock-brain
+
+orchestrator:
+  timeoutProfile: fast
+

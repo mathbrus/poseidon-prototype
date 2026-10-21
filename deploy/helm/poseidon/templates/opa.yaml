@@ -1,4 +1,4 @@
-# OPA. Operator-installed compiled bundles are the only policy source.
+# OPA. Reconciler-installed compiled bundles are the only policy source.
 # OPA *polls* the bundle server — never pushed, so an OPA
 # restart re-fetches the current revision instead of running on whatever it
 # last held. Two bundles, under fixed names (`common.policy` spells them

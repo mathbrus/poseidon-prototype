@@ -103,7 +103,7 @@ import yaml
 from common.audit import gate_event
 from common.tasks import SCOPE_TASK, issue_run_task, review_run_task
 from common.workflows import MERGE_GATE
-from mockllm.brain import (
+from mock_brain.brain import (
     ARCHITECTURE_MD,
     CONTRACT_TEST_PATH,
     CONTRACT_TESTS_PY,
@@ -261,6 +261,17 @@ def deployed_brain_image() -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+# The mock brain's image, matched by repository name exactly: a lookalike
+# (`poseidon-mock-brain-x`, a LiteLLM tag that mentions it) is a paid brain.
+MOCK_BRAIN_IMAGE = "poseidon-mock-brain"
+
+
+def image_repository(image: str) -> str:
+    """`registry:5000/name:tag@sha256:…` → `name`."""
+    name = image.split("@", 1)[0].rsplit("/", 1)[-1]
+    return name.split(":", 1)[0]
+
+
 def paid_brain_problem(image: str, allow: str | None) -> str | None:
     """Why the session must not run, or None. This suite dispatches real
     LLM calls; against a paid brain those bill a provider, which is a spend
@@ -273,7 +284,7 @@ def paid_brain_problem(image: str, allow: str | None) -> str | None:
             " refusing to run against an unverified brain —"
             " is the cluster up? deploy/kind/kind-up.sh"
         )
-    if "mockllm" in image:
+    if image_repository(image) == MOCK_BRAIN_IMAGE:
         return None
     if allow == "1":
         return None
@@ -288,7 +299,7 @@ def paid_brain_problem(image: str, allow: str | None) -> str | None:
 def paid_brain_guard() -> None:
     """The LLM-cost rule, enforced rather than asked nicely: the session
     fails before the first dispatch unless the deployed brain is the mock
-    or the operator opted into spending with POSEIDON_ALLOW_PAID=1."""
+    or a human opted into spending with POSEIDON_ALLOW_PAID=1."""
     problem = paid_brain_problem(
         deployed_brain_image(), os.environ.get("POSEIDON_ALLOW_PAID")
     )

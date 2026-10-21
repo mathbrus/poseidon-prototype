@@ -5,7 +5,7 @@ description = "Poseidon compiler: blueprint + catalog + registry snapshot -> dep
 requires-python = ">=3.12"
 dependencies = [
     "common",
-    "schema",
+    "blueprint",
 ]
 
 [build-system]

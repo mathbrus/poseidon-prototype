@@ -9,45 +9,20 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "agent",
+    "agent-host",
+    "blueprint",
     "common",
     "compiler",
     "console",
     "llm-gateway",
     "mcp-gateway",
-    "mockllm",
+    "mock-brain",
     "orchestrator",
     "poseidon",
     "poseidon-cli",
-    "poseidon-operator",
+    "poseidon-reconciler",
     "registry",
     "sandbox",
-    "schema",
-]
-
-[[package]]
-name = "agent"
-version = "0.1.1+2026.10.21"
-source = { editable = "packages/agent" }
-dependencies = [
-    { name = "common", extra = ["otel"] },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "mcp" },
-    { name = "openhands-sdk" },
-    { name = "schema" },
-    { name = "uvicorn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "common", extras = ["otel"], editable = "packages/common" },
-    { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx", specifier = ">=0.27" },
-    { name = "mcp", specifier = ">=1.12" },
-    { name = "openhands-sdk", specifier = "==1.56.0" },
-    { name = "schema", editable = "packages/schema" },
-    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [[package]]
@@ -60,6 +35,31 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9d/95/2c28ca34e545ce0282e88272aa3a8abdf8f3f926a0492f567ea11acd071b/agent_client_protocol-0.12.1.tar.gz", hash = "sha256:9963ccb590ed96d7dc542c9c023e90676fc76b1c6562e21a9ee112f4fbcb0095", size = 130605, upload-time = "2026-08-16T14:08:22.545Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/21/61/0a2186c8ca53cf464767d4c4fb7fd9e23f48ce4547c2fa0d1c83a4d52410/agent_client_protocol-0.12.1-py3-none-any.whl", hash = "sha256:aaf3cc301ed87d9e2c4ccb91adfe1cd58784355f6ce7e513f50e7ca2391862ef", size = 85929, upload-time = "2026-08-16T14:08:21.307Z" },
+]
+
+[[package]]
+name = "agent-host"
+version = "0.1.1+2026.10.21"
+source = { editable = "packages/agent-host" }
+dependencies = [
+    { name = "blueprint" },
+    { name = "common", extra = ["otel"] },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "openhands-sdk" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "blueprint", editable = "packages/blueprint" },
+    { name = "common", extras = ["otel"], editable = "packages/common" },
+    { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "mcp", specifier = ">=1.12" },
+    { name = "openhands-sdk", specifier = "==1.56.0" },
+    { name = "uvicorn", specifier = ">=0.30" },
 ]
 
 [[package]]
@@ -425,6 +425,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0e/06/a4d74bb4fc088f1d9187bd61a348c68923e2c4cf56258b12274ececc705b/blake3-1.0.11-cp315-cp315t-win32.whl", hash = "sha256:7f23feaaf1e13f02f8239dd1fa7452f814a5a6a09db6f49356b1a9d5b7104d8c", size = 229170, upload-time = "2026-10-08T08:57:37.139Z" },
     { url = "https://files.pythonhosted.org/packages/1a/ec/a0aed47780e90d5f9a13558b0f5f3d807194c354cef2d7ec06d4b206e515/blake3-1.0.11-cp315-cp315t-win_amd64.whl", hash = "sha256:57c5e32608ec39667a5942ed4db5bc7a32d1153010be1676c57a0e25a579573b", size = 216658, upload-time = "2026-10-08T08:57:39.154Z" },
     { url = "https://files.pythonhosted.org/packages/2a/1f/562c4e4a3fbacd3539dd72eb125330fa383ed365eafaaf0f4cf3723b1d90/blake3-1.0.11-cp315-cp315t-win_arm64.whl", hash = "sha256:dee576680e40f15b3ce930be55b1c3ad3284768b7312c6a4269e11f10a4978f9", size = 206907, upload-time = "2026-10-08T08:57:40.689Z" },
+]
+
+[[package]]
+name = "blueprint"
+version = "0.1.1+2026.10.21"
+source = { editable = "packages/blueprint" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.20" },
+    { name = "pyyaml", specifier = ">=6" },
 ]
 
 [[package]]
@@ -807,14 +822,14 @@ name = "compiler"
 version = "0.1.1+2026.10.21"
 source = { editable = "packages/compiler" }
 dependencies = [
+    { name = "blueprint" },
     { name = "common" },
-    { name = "schema" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "blueprint", editable = "packages/blueprint" },
     { name = "common", editable = "packages/common" },
-    { name = "schema", editable = "packages/schema" },
 ]
 
 [[package]]
@@ -822,6 +837,7 @@ name = "console"
 version = "0.1.1+2026.10.21"
 source = { editable = "packages/console" }
 dependencies = [
+    { name = "blueprint" },
     { name = "common", extra = ["otel"] },
     { name = "compiler" },
     { name = "fastapi" },
@@ -829,13 +845,13 @@ dependencies = [
     { name = "kubernetes" },
     { name = "pyyaml" },
     { name = "registry" },
-    { name = "schema" },
     { name = "temporalio" },
     { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "blueprint", editable = "packages/blueprint" },
     { name = "common", extras = ["otel"], editable = "packages/common" },
     { name = "compiler", editable = "packages/compiler" },
     { name = "fastapi", specifier = ">=0.115" },
@@ -843,7 +859,6 @@ requires-dist = [
     { name = "kubernetes", specifier = ">=31" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "registry", editable = "packages/registry" },
-    { name = "schema", editable = "packages/schema" },
     { name = "temporalio", specifier = ">=1.31" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
@@ -2206,22 +2221,22 @@ name = "mcp-gateway"
 version = "0.1.1+2026.10.21"
 source = { editable = "packages/mcp-gateway" }
 dependencies = [
+    { name = "blueprint" },
     { name = "common", extra = ["otel"] },
     { name = "httpx" },
     { name = "mcp" },
     { name = "registry" },
-    { name = "schema" },
     { name = "starlette" },
     { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "blueprint", editable = "packages/blueprint" },
     { name = "common", extras = ["otel"], editable = "packages/common" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
     { name = "registry", editable = "packages/registry" },
-    { name = "schema", editable = "packages/schema" },
     { name = "starlette", specifier = ">=0.40" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
@@ -2327,9 +2342,9 @@ wheels = [
 ]
 
 [[package]]
-name = "mockllm"
+name = "mock-brain"
 version = "0.1.1+2026.10.21"
-source = { editable = "packages/mockllm" }
+source = { editable = "packages/mock-brain" }
 dependencies = [
     { name = "fastapi" },
     { name = "uvicorn" },
@@ -2337,7 +2352,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "agent" },
+    { name = "agent-host" },
     { name = "httpx" },
     { name = "openai" },
     { name = "pytest" },
@@ -2351,7 +2366,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "agent", editable = "packages/agent" },
+    { name = "agent-host", editable = "packages/agent-host" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "openai", specifier = ">=1.40" },
     { name = "pytest", specifier = ">=8" },
@@ -2836,23 +2851,23 @@ name = "orchestrator"
 version = "0.1.1+2026.10.21"
 source = { editable = "packages/orchestrator" }
 dependencies = [
+    { name = "blueprint" },
     { name = "common", extra = ["otel"] },
     { name = "httpx" },
     { name = "mcp" },
     { name = "registry" },
     { name = "sandbox" },
-    { name = "schema" },
     { name = "temporalio" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "blueprint", editable = "packages/blueprint" },
     { name = "common", extras = ["otel"], editable = "packages/common" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mcp", specifier = ">=1.12" },
     { name = "registry", editable = "packages/registry" },
     { name = "sandbox", editable = "packages/sandbox" },
-    { name = "schema", editable = "packages/schema" },
     { name = "temporalio", specifier = ">=1.31" },
 ]
 
@@ -3103,19 +3118,19 @@ name = "poseidon"
 version = "0.1.1+2026.10.21"
 source = { virtual = "." }
 dependencies = [
-    { name = "agent" },
+    { name = "agent-host" },
+    { name = "blueprint" },
     { name = "common" },
     { name = "compiler" },
     { name = "console" },
     { name = "llm-gateway" },
     { name = "mcp-gateway" },
-    { name = "mockllm" },
+    { name = "mock-brain" },
     { name = "orchestrator" },
     { name = "poseidon-cli" },
-    { name = "poseidon-operator" },
+    { name = "poseidon-reconciler" },
     { name = "registry" },
     { name = "sandbox" },
-    { name = "schema" },
 ]
 
 [package.dev-dependencies]
@@ -3133,19 +3148,19 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent", editable = "packages/agent" },
+    { name = "agent-host", editable = "packages/agent-host" },
+    { name = "blueprint", editable = "packages/blueprint" },
     { name = "common", editable = "packages/common" },
     { name = "compiler", editable = "packages/compiler" },
     { name = "console", editable = "packages/console" },
     { name = "llm-gateway", editable = "packages/llm-gateway" },
     { name = "mcp-gateway", editable = "packages/mcp-gateway" },
-    { name = "mockllm", editable = "packages/mockllm" },
+    { name = "mock-brain", editable = "packages/mock-brain" },
     { name = "orchestrator", editable = "packages/orchestrator" },
     { name = "poseidon-cli", editable = "packages/cli" },
-    { name = "poseidon-operator", editable = "packages/operator" },
+    { name = "poseidon-reconciler", editable = "packages/reconciler" },
     { name = "registry", editable = "packages/registry" },
     { name = "sandbox", editable = "packages/sandbox" },
-    { name = "schema", editable = "packages/schema" },
 ]
 
 [package.metadata.requires-dev]
@@ -3166,32 +3181,32 @@ name = "poseidon-cli"
 version = "0.1.1+2026.10.21"
 source = { editable = "packages/cli" }
 dependencies = [
+    { name = "blueprint" },
     { name = "common" },
     { name = "compiler" },
     { name = "httpx" },
     { name = "kubernetes" },
     { name = "questionary" },
     { name = "rich" },
-    { name = "schema" },
     { name = "typer" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "blueprint", editable = "packages/blueprint" },
     { name = "common", editable = "packages/common" },
     { name = "compiler", editable = "packages/compiler" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "kubernetes", specifier = ">=31" },
     { name = "questionary", specifier = ">=2.1" },
     { name = "rich", specifier = ">=13" },
-    { name = "schema", editable = "packages/schema" },
     { name = "typer", specifier = ">=0.12" },
 ]
 
 [[package]]
-name = "poseidon-operator"
+name = "poseidon-reconciler"
 version = "0.1.1+2026.10.21"
-source = { editable = "packages/operator" }
+source = { editable = "packages/reconciler" }
 dependencies = [
     { name = "common", extra = ["otel"] },
     { name = "fastapi" },
@@ -4245,21 +4260,6 @@ requires-dist = [
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 provides-extras = ["egress", "toolchain"]
-
-[[package]]
-name = "schema"
-version = "0.1.1+2026.10.21"
-source = { editable = "packages/schema" }
-dependencies = [
-    { name = "jsonschema" },
-    { name = "pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "jsonschema", specifier = ">=4.20" },
-    { name = "pyyaml", specifier = ">=6" },
-]
 
 [[package]]
 name = "secretstorage"

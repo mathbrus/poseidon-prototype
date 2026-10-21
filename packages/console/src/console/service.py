@@ -24,6 +24,8 @@ from typing import Any
 
 import yaml
 
+from blueprint import validate_blueprint
+from blueprint.validate import ValidationError
 from common.audit import HEARTBEAT_TICK, AuditEvent, args_digest
 from common.identity import Identity
 from common.ids import new_run_id
@@ -66,8 +68,6 @@ from registry import (
     RunRecord,
     Runs,
 )
-from schema import validate_blueprint
-from schema.validate import ValidationError
 
 BOOTSTRAP_RULE = "blueprint_apply_bootstrap"
 
@@ -120,7 +120,7 @@ class ConsoleService:
     # -- the applied company --------------------------------------------------
 
     async def applied(self) -> str | None:
-        """The company this cluster hosts — the one the operator recorded
+        """The company this cluster hosts — the one the reconciler recorded
         from the applied Company CR — or None before the first apply."""
         return await asyncio.to_thread(self._companies.applied)
 
@@ -323,7 +323,7 @@ class ConsoleService:
         the company stays, held). Decided and audited under the person's
         name first; then every running run is cancelled through the same
         path `cancel_run` takes, so none dies with its namespace; then the
-        Company CR goes and the operator's teardown — the tombstone served,
+        Company CR goes and the reconciler's teardown — the tombstone served,
         the rows swept, the namespace deleted — is waited for unless the
         caller said not to (it proceeds either way). The heartbeat stops
         itself at its next config read. What the company wrote into the

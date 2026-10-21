@@ -51,11 +51,11 @@ def test_manifest_is_contained_and_labeled():
         agent_id=agent_id,
         run_id=RUN_ID,
         company="hello-saas",
-        agent_image="poseidon-agent:abc",
+        agent_image="poseidon-agent-host:abc",
         env={"GATEWAY_TOKEN_FILE": f"{TOKEN_MOUNT_DIR}/token", "MODEL": "mock-brain"},
     )
     labels = manifest["metadata"]["labels"]
-    # The kind label puts the pod inside the operator's agent envelope
+    # The kind label puts the pod inside the reconciler's agent envelope
     # (gateways-only egress, orchestrator-only ingress) the moment it
     # exists; the run label is the destroy selector's other half.
     assert labels["poseidon.dev/kind"] == EPHEMERAL_KIND
@@ -155,7 +155,7 @@ def settings(tmp_path) -> WorkerSettings:
         temporal_address="temporal.test:7233",
         gateway_token_file=str(token_file),
         mcp_gateway_url="http://gateway.test:8080",
-        agent_image="poseidon-agent:abc123",
+        agent_image="poseidon-agent-host:abc123",
         model="mock-brain",
     )
 
@@ -181,7 +181,7 @@ def test_provision_wires_the_projected_identity_and_binds(crew, stores, provisio
     result = asyncio.run(crew.provision_ephemeral_pod(dict(SPEC)))
 
     (created,) = provisioner.provisioned
-    assert created["agent_image"] == "poseidon-agent:abc123"
+    assert created["agent_image"] == "poseidon-agent-host:abc123"
     env = created["env"]
     # No credential in the env: the pod's identity is the projected token
     # of its own ServiceAccount, mounted by the kubelet.
@@ -440,7 +440,7 @@ def test_ephemeral_pod_carries_a_wall_clock_deadline():
         agent_id="feature-delivery-implementer-run-1",
         run_id="run-1",
         company="hello-saas",
-        agent_image="poseidon-agent:test",
+        agent_image="poseidon-agent-host:test",
         env={},
     )
     assert manifest["spec"]["activeDeadlineSeconds"] == EPHEMERAL_POD_DEADLINE_S
@@ -452,7 +452,7 @@ def test_ephemeral_pod_runs_non_root_with_no_escalation_path():
         agent_id="feature-delivery-implementer-run-1",
         run_id="run-1",
         company="hello-saas",
-        agent_image="poseidon-agent:test",
+        agent_image="poseidon-agent-host:test",
         env={},
     )
     assert manifest["spec"]["securityContext"] == {

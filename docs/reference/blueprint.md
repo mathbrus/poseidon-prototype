@@ -3,7 +3,7 @@
 Everything the platform enforces comes from one document. This page reads
 the shipped example, `examples/hello-saas.yaml`, section by section; the
 YAML is included from that file, and the field tables are rendered from
-the JSON Schema in `packages/schema/src/schema/blueprint.py`, both at build
+the JSON Schema in `packages/blueprint/src/blueprint/schema.py`, both at build
 time. Where the delegated profile adds a section, its YAML comes from
 `examples/hello-saas-delegated.yaml`.
 
@@ -82,7 +82,7 @@ One standing agent: the PM. It may spawn two named crews, at most two at a
 time — and that cap is enforced in compiled policy, evaluated against a live
 spawn count the gateway injects, not by an honour system.
 
-A hire is one instance — the operator names one Deployment and one Service
+A hire is one instance — the reconciler names one Deployment and one Service
 per standing name — and `count: 0` is a documented growth path that
 produces none. Try hiring an `implementer` at `count: 1` and the compiler
 refuses: standing coders do not exist here
@@ -212,7 +212,7 @@ the gate expires. Both transitions are first-class audit events, so
 the patience is the charter's, not a setting someone chose when they
 started the run.
 
-`per_run.usd` is a hard stop at the LLM gateway, not a warning. Exhausting
+`per_run.usd` is a cap the LLM gateway refuses at, not a warning. Exhausting
 it produces a distinguishable error, an audit event, an escalation, and an
 API-visible parked state that waits `deadline_minutes` for the human who may
 raise the cap — never silent degradation to a cheaper model. It is also the
@@ -246,8 +246,8 @@ and the authority every crew is fulfilled under.
 
 `may_start` is the closed set of what the loop may start: `scope` (read
 the documents, file the next slice as tickets), `implement` (a ticket),
-`review` (a delivered pull request). Narrow it and the rest is an
-operator's act: a company that may not `implement` on its own waits for
+`review` (a delivered pull request). Narrow it and the rest is a
+human's act: a company that may not `implement` on its own waits for
 `poseidon start implement <number>`.
 
 `max_attempts` is what bounds an aborted run. An issue or a delivered PR

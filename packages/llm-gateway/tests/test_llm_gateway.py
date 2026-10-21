@@ -1,8 +1,8 @@
 """The LLM gateway pipeline against in-memory doubles
 and a stubbed upstream: unattributed calls rejected, run attribution
 verified, the deployment's model pinned, every forwarded call metered to the ledger
-and audited (source=llm-gateway), and the per-run cap a hard stop with a
-distinguishable error."""
+and audited (source=llm-gateway), and calls refused at the per-run cap
+with a distinguishable error."""
 
 import asyncio
 from dataclasses import dataclass
@@ -299,7 +299,7 @@ def test_the_deployment_model_is_pinned_and_metered(app, stores, upstream):
 
 
 @pytest.mark.parametrize("path", SURFACES)
-def test_exhausted_cap_hard_stops_with_a_distinguishable_error(app, stores, path):
+def test_exhausted_cap_refuses_with_a_distinguishable_error(app, stores, path):
     audit, ledger = stores.audit, stores.ledger
     ledger.record(
         company=COMPANY,
@@ -321,7 +321,7 @@ def test_exhausted_cap_hard_stops_with_a_distinguishable_error(app, stores, path
     assert error["code"] == "budget_exhausted"
     assert "budget_exhausted" in error["message"]
 
-    # No new spend, and the stop is a first-class audited governance event.
+    # No new spend, and the refusal is a first-class audited governance event.
     assert len(ledger.entries_for_run(RUN_ID)) == 1
     event = audit.events[-1]
     assert event.decision == "deny" and event.rule == "budget_exhausted"

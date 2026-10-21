@@ -149,7 +149,7 @@ class CancelRequest(BaseModel):
 
 class DeleteRequest(BaseModel):
     reason: str = Reason
-    # Whether to wait for the operator's teardown before answering; the
+    # Whether to wait for the reconciler's teardown before answering; the
     # act is the same either way, and the teardown proceeds regardless.
     wait: bool = True
 

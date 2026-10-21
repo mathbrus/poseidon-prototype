@@ -77,7 +77,7 @@ procedure → teardown`. Started by the heartbeat like every run; no human
 hands it a text. The observation is platform-composed — the company's
 documents at the base ref, the open backlog, the delivered PRs, the recent
 runs — and the conductor's address is derived from its converged instance
-(the operator names its Service after the standing name), never
+(the reconciler names its Service after the standing name), never
 configured. The PM does the scoping itself through governed tools
 (`issues.*`): files the next slice as tickets, each ending in the `Crew:`
 trailer the implement run routes by, and comments its summary on each;
@@ -194,7 +194,7 @@ if verified and not error and not (result or {}).get("error"):
 
 `deliver` is a *separate dispatch* whose tool surface is the implement
 surface **plus `open_pr`** (procedure table in the
-[agent README](../agent/README.md)). During implementation the delivery
+[agent-host README](../agent-host/README.md)). During implementation the delivery
 tool does not exist in the model's conversation, so two independent
 mechanisms must both fail for unverified code to ship: the implement
 procedure's toolset has no `open_pr`, and the deliver dispatch is sequenced strictly
@@ -296,7 +296,7 @@ standing agent runs, labeled to its run. Its only credential is the
 audience-scoped projected token of its own per-run ServiceAccount,
 mounted by the kubelet — no token-shaped env var exists, and no
 credential ever enters Temporal's workflow history, which
-is persisted and replayed. The manifest mirrors the operator's standing
+is persisted and replayed. The manifest mirrors the reconciler's standing
 posture: no API-server token, no service links, non-root, `GPG_KEY`
 blanked.
 
@@ -305,7 +305,7 @@ creates and deletes pods and their labeled ServiceAccounts only, in the
 company namespace only, and every
 delete goes through the `{run_id, kind=ephemeral-agent}` label selector — so
 nothing unlabeled, and no sandbox pod sharing the run label, can ever be
-touched. Standing structure stays operator-owned.
+touched. Standing structure stays reconciler-owned.
 
 Provisioning carries a race guard learned the hard way: removing a
 same-name remnant of a crashed attempt can take ~30 seconds — ample time
@@ -374,7 +374,7 @@ ephemeral-pod provisioner use: each is useless where the other is needed.
 
 ## Cross-package interactions
 
-- [`gateway`](../mcp-gateway/README.md) for every governed call, including
+- [`mcp-gateway`](../mcp-gateway/README.md) for every governed call, including
   its own platform-lifecycle ones (`repo.archive`, sandbox registration,
   `sandbox.run_tests`, `git.read`, `git.merge_pr`, `issues.close`,
   `git.close_pr`).
@@ -388,7 +388,7 @@ ephemeral-pod provisioner use: each is useless where the other is needed.
   `read_human_verdict` reads back. It also submits the Company and
   AgentInstance CRs the applied blueprint comes from; this package reads
   the result (workflow, gate and sandbox config) from the registry.
-- [`agent`](../agent/README.md) over HTTP for dispatch.
+- [`agent-host`](../agent-host/README.md) over HTTP for dispatch.
 
 ## Tests
 

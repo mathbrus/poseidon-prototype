@@ -58,9 +58,9 @@ Read it as the answer to "what do I actually get?"
   out-of-scope tools; an injected conductor refused when it tries to spawn
   outside `may_spawn`; egress containment with the attempt audited; six
   distinct audit sources correlated by one `run_id`.
-- **Budget enforcement.** A per-run hard stop that parks the run visibly,
-  escalates as a real gate event, and attributes every dollar to
-  `{run, parent, agent, role}`.
+- **Budget enforcement.** A per-run cap the LLM gateway refuses at: the
+  run parks visibly, the park escalates as a real gate event, and every
+  dollar is attributed to `{run, parent, agent, role}`.
 - **Sandbox containment.** No mounted service-account token, no reachable
   cluster API or node metadata, no runtime socket or host mount, no foreign
   processes, unforgeable per-run egress identity, resource caps that

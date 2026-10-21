@@ -39,7 +39,7 @@ from common.audit import (
 )
 from common.tasks import issue_run_task
 from common.workflows import ATTEMPTS_GATE
-from mockllm.brain import CONDUCTOR_MARKER, EXFIL_HOST, FORBIDDEN_CREW
+from mock_brain.brain import CONDUCTOR_MARKER, EXFIL_HOST, FORBIDDEN_CREW
 
 from .blueprints import pristine_profile, restore_pristine, single_attempt
 from .cluster import (

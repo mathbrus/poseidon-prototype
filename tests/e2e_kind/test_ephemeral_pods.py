@@ -4,7 +4,7 @@ goes through the {run_id, kind} label selector — an unlabeled pod in the
 same namespace survives the sweep.
 
 The real provisioner runs host-side (kubeconfig) with the real agent
-image; the pod's containment is probed from inside (the operator's agent
+image; the pod's containment is probed from inside (the reconciler's agent
 envelope covers `ephemeral-agent` pods by kind label); provision/destroy land
 process-lifecycle events in the run's story.
 """
@@ -97,7 +97,7 @@ def test_ephemeral_pod_round_trips_and_destroy_is_label_bounded(
             pod = provisioned["pod_name"]
 
             # The pod is Ready (the kubelet's probe hit the agent host) and
-            # contained the moment it exists: the operator's agent envelope
+            # contained the moment it exists: the reconciler's agent envelope
             # selects the ephemeral-agent kind.
             for url, want in [
                 (

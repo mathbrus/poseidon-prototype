@@ -1,7 +1,7 @@
 """Where the platform's pieces are, spelled once.
 
 Every component that builds a pod, an address or a token for another
-component imports these — the operator for standing agents, the
+component imports these — the reconciler for standing agents, the
 orchestrator for ephemeral agents and sandboxes, the gateways to verify
 the tokens those pods present. The Helm chart carries the same numbers
 as literals (templates cannot import Python); CI asserts they agree.
@@ -18,7 +18,7 @@ EGRESS_PROXY_PORT = 3128
 BUNDLE_PORT = 8081
 CONSOLE_PORT = 8090
 
-# How long a company delete waits for the operator's teardown (the
+# How long a company delete waits for the reconciler's teardown (the
 # tombstone served, the rows swept, the namespace gone) before it is an
 # error. The console waits this long; its clients wait longer than it.
 TEARDOWN_TIMEOUT_S = 600
@@ -73,7 +73,7 @@ TOKEN_TTL_S = 3600
 CONSOLE_TOKEN_AUDIENCE = "poseidon-console"
 HUMAN_SA_PREFIX = "human-"
 
-# Labels the operator, the orchestrator and the NetworkPolicies key on.
+# Labels the reconciler, the orchestrator and the NetworkPolicies key on.
 KIND_LABEL = "poseidon.dev/kind"
 RUN_ID_LABEL = "poseidon.dev/run-id"
 AGENT_ID_LABEL = "poseidon.dev/agent-id"
@@ -112,7 +112,7 @@ def human_service_account(name: str) -> str:
 
 
 def agent_url(standing_name: str, company_namespace: str) -> str:
-    """A standing agent's dispatch address: the operator names its Service
+    """A standing agent's dispatch address: the reconciler names its Service
     after the hire in the company namespace, so the address is derived,
     never configured."""
     return service_url(standing_name, company_namespace, AGENT_PORT)

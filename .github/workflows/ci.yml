@@ -114,7 +114,7 @@ jobs:
           # kube-system is the other namespace a policy names (DNS); no
           # company name may appear as one.
           assert selected == {t.COMPANY_NAMESPACE, "kube-system"}, selected
-          # OPA polls two bundles under fixed names; the operator stores
+          # OPA polls two bundles under fixed names; the reconciler stores
           # them under the same two.
           from common import policy as pol
           opa_config = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["name"] == "opa-config")
@@ -219,7 +219,7 @@ jobs:
           # GPG_KEY is the python base image's public release-signing key
           # fingerprint — not a credential — and cannot be removed from the
           # inherited layer history; everything else *_TOKEN/*_KEY fails.
-          for image in poseidon-agent:ci poseidon-sandbox:ci; do
+          for image in poseidon-agent-host:ci poseidon-sandbox:ci; do
             leaked=$( (docker history --no-trunc --format '{{.CreatedBy}}' "$image"; \
                        docker inspect --format '{{join .Config.Env "\n"}}' "$image") \
               | grep -oE '[A-Za-z_]*_(TOKEN|KEY)=' | sort -u \

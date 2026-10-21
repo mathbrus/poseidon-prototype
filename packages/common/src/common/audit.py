@@ -15,7 +15,7 @@ provisioning); the process gates; and the console, the human's
 chokepoint, whose events are the only ones carrying a person's name.
 
 An event's `tool` column names it. The gateway's rows carry a gateway
-tool (`schema.tools`); every other row carries a name the platform
+tool (`blueprint.tools`); every other row carries a name the platform
 invents, and `PLATFORM_EVENTS` is the closed list of those: the writer
 and every reader — the console, the acceptance suite, the reference
 docs — spell each one from here. The names that are also OPA decisions

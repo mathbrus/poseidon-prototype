@@ -19,6 +19,14 @@ from typing import Any
 
 import httpx
 
+from blueprint.catalog import STEWARD_ROLE, STEWARDSHIP_CREW
+from blueprint.documents import DOCUMENT_LABELS
+from blueprint.tools import (
+    ARCHITECTURE_REQUEST,
+    GIT_CLOSE_PR,
+    ISSUES_CLOSE,
+    RATIONALE_TOOLS,
+)
 from common.audit import RATIONALE_LIMIT, AuditEvent, args_digest
 from common.identity import (
     LIFECYCLE_EPHEMERAL,
@@ -48,14 +56,6 @@ from registry import (
     FiledTickets,
     Runs,
     SandboxRegistrations,
-)
-from schema.catalog import STEWARD_ROLE, STEWARDSHIP_CREW
-from schema.documents import DOCUMENT_LABELS
-from schema.tools import (
-    ARCHITECTURE_REQUEST,
-    GIT_CLOSE_PR,
-    ISSUES_CLOSE,
-    RATIONALE_TOOLS,
 )
 
 # tool name -> sandbox tool-server route

@@ -135,7 +135,7 @@ SANDBOX_IMAGE=${SANDBOX_IMAGE:-poseidon-sandbox}
 # The LLM is mocked by default so runs cost nothing; REAL_LLM=1 deploys the
 # real LiteLLM proxy and then requires LLM_API_KEY and MODEL.
 REAL_LLM=${REAL_LLM_ARG:-${REAL_LLM:-0}}
-# The Temporal web UI is a browsable surface over full operator authority;
+# The Temporal web UI is a browsable surface over full administrative authority;
 # it stays out of the cluster unless explicitly asked for.
 TEMPORAL_WEB=${TEMPORAL_WEB:-0}
 if [ "$REAL_LLM" != "1" ]; then
@@ -175,7 +175,7 @@ note "humans: ${HUMANS[*]} — you will be $KIND_HUMAN"
 if [ "$REAL_LLM" = "1" ]; then
   note "brain: PAID — $MODEL through LiteLLM (REAL_LLM=1)"
 else
-  note "brain: mock (poseidon-mockllm), zero spend"
+  note "brain: mock (poseidon-mock-brain), zero spend"
 fi
 note "sandbox image: $SANDBOX_IMAGE:$BUILD_TAG"
 
@@ -190,7 +190,7 @@ fi
 kubectl config use-context "kind-$CLUSTER_NAME" >>"$LOG" 2>&1
 # A company already applied is none of this script's business; it is
 # only worth a word, since its standing agents will re-roll onto this
-# build once the operator restarts with the new image.
+# build once the reconciler restarts with the new image.
 existing=$(kubectl get companies -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
 [ -z "$existing" ] || note "the cluster hosts $existing; it stays applied"
 
@@ -207,7 +207,7 @@ step "images"
 # runs upstream LiteLLM at its own pinned tag instead.
 NAMES=$(deploy/build-images.sh --list)
 if [ "$REAL_LLM" = "1" ]; then
-  NAMES=$(grep -vx poseidon-mockllm <<<"$NAMES")
+  NAMES=$(grep -vx poseidon-mock-brain <<<"$NAMES")
 fi
 # shellcheck disable=SC2086
 mapfile -t IMAGES < <(deploy/build-images.sh "$BUILD_TAG" $NAMES 2>>"$LOG")
@@ -268,7 +268,7 @@ run:
 EOF
 MOCK_VALUES=()
 if [ "$REAL_LLM" != "1" ]; then
-  MOCK_VALUES=(-f deploy/helm/poseidon/values-mockllm.yaml)
+  MOCK_VALUES=(-f deploy/helm/poseidon/values-mock-brain.yaml)
 fi
 run "helm upgrade poseidon" helm upgrade --install poseidon deploy/helm/poseidon \
   --namespace "$PLATFORM_NS" --create-namespace \
@@ -281,12 +281,12 @@ note "release poseidon installed; humans declared: ${HUMANS[*]}"
 # -- 6. platform rollout -----------------------------------------------------------
 step "platform rollout"
 # Postgres first: every service migrates the registry schema at startup and
-# the bundle server / operator need it reachable before they are useful.
+# the bundle server / reconciler need it reachable before they are useful.
 run "postgres" kubectl -n "$PLATFORM_NS" rollout status statefulset/postgres --timeout=300s
-for deploy in opa llm-proxy llm-gateway mcp-gateway egress-proxy bundle-server poseidon-operator; do
+for deploy in opa llm-proxy llm-gateway mcp-gateway egress-proxy bundle-server poseidon-reconciler; do
   run "$deploy" kubectl -n "$PLATFORM_NS" rollout status "deployment/$deploy" --timeout=300s
 done
-note "postgres, opa, llm-proxy, llm-gateway, mcp-gateway, egress-proxy, bundle-server, operator ready"
+note "postgres, opa, llm-proxy, llm-gateway, mcp-gateway, egress-proxy, bundle-server, reconciler ready"
 
 # -- 7. Temporal ---------------------------------------------------------------------
 step "Temporal (chart $TEMPORAL_CHART_VERSION)"
@@ -343,7 +343,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$MCP_GATEWAY_URL/mcp")
 [ "$code" = "401" ] || fail "gateway answered $code, expected 401 without a token"
 # The console: a person is refused without a token and known with one. The
 # token is the cluster's own — minted with the kubeconfig that just
-# installed everything, as any operator would — and saved where every
+# installed everything, as any cluster admin's would — and saved where every
 # later `poseidon` command reads it: a week on kind, for a token good at
 # the console and nowhere else. The person is left with one command to
 # type, and it is theirs: applying a company.

@@ -15,7 +15,7 @@ from temporalio.exceptions import ActivityError
 from common.workflows import BUDGET_GATE, GATE_APPROVED, GATE_ESCALATED, PARKED_STATE
 from orchestrator.gates import Gate
 
-# The LLM gateway's hard-stop marker: a dispatch whose error carries it
+# The marker of the LLM gateway's refusal at the cap: a dispatch whose error carries it
 # ran out of budget, and the workflow parks instead of retrying.
 BUDGET_MARKER = "budget_exhausted"
 
@@ -69,7 +69,7 @@ class Timeouts:
     verify_s: int = 900
 
 
-# Sized for the deterministic mock brain (packages/mockllm): every bound is
+# Sized for the deterministic mock brain (packages/mock-brain): every bound is
 # far above what the mock needs, and far below the patience a paid brain
 # deserves — so a wedged activity surfaces in seconds, not minutes.
 FAST_TIMEOUTS = Timeouts(

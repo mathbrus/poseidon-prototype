@@ -6,7 +6,7 @@ conductor an active standing spawner, does every scope name a tool the
 gateway actually serves, can the budget pay for a run.
 
 `compile_blueprint` accepts plain dicts and does not run the schema pass, so
-the document-level catalog checks (`schema.coherence`) run here too — the
+the document-level catalog checks (`blueprint.coherence`) run here too — the
 compiler must fail closed on an unvalidated input, not KeyError halfway
 through emission.
 
@@ -26,13 +26,17 @@ placeholders remain legal documentation.
 import re
 from typing import Any
 
-from schema.catalog import CREW_TEMPLATES, ROLES, STEWARDSHIP_CREW, CrewTemplate, Role
-from schema.coherence import (
+from blueprint.catalog import CREW_TEMPLATES, ROLES, STEWARDSHIP_CREW, CrewTemplate, Role
+from blueprint.coherence import (
     contract_role_problems,
     hire_problems,
     tool_scope_problems,
 )
-from schema.gates import contract_tests_problems, document_problems, merge_gate_problems
+from blueprint.gates import (
+    contract_tests_problems,
+    document_problems,
+    merge_gate_problems,
+)
 
 
 def check(
@@ -179,7 +183,7 @@ def _spawnable_crews(
     workflow's crew, and the stewardship crew the platform's document
     tickets route to — otherwise the work compiles but can never be
     fulfilled. (Whether a `may_spawn.crew` names a known crew is
-    `schema.coherence`'s.)"""
+    `blueprint.coherence`'s.)"""
     problems = []
     conductor = _conductor(blueprint)
     allowed = ((_hires(blueprint).get(conductor) or {}).get("may_spawn") or {}).get(
@@ -263,19 +267,20 @@ def _heartbeat_authority(blueprint: dict[str, Any], roles: dict[str, Role]) -> l
 
 
 def _budget_coverage(blueprint: dict[str, Any]) -> list[str]:
-    """A run cap must exist and be positive, or the first hard-stop check
-    has nothing to compare against; and the park a stopped run waits out
+    """A run cap must exist and be positive, or the LLM gateway's first
+    refusal check has nothing to compare against; and the park a run at
+    its cap waits out
     must be declared, or the workflow would park with no deadline."""
     problems = []
     per_run = (blueprint.get("budgets") or {}).get("per_run") or {}
     if not per_run.get("usd"):
         problems.append(
             "budgets.per_run.usd: every run needs a per-run cap "
-            "(the LLM gateway hard-stops against it)"
+            "(the LLM gateway refuses model calls at it)"
         )
     if not per_run.get("deadline_minutes"):
         problems.append(
-            "budgets.per_run.deadline_minutes: a run stopped at the cap needs a "
+            "budgets.per_run.deadline_minutes: a run parked at its cap needs a "
             "declared wait for the human who may raise it"
         )
     return problems

@@ -41,11 +41,11 @@ echo
 echo "user-visible surfaces touched since $BASE (any → a release is due, and a minor):"
 # surface | paths
 SURFACES='
-the blueprint and its policy|packages/schema/src packages/compiler/src crds examples
+the blueprint and its policy|packages/blueprint/src packages/compiler/src crds examples
 the CLI|packages/cli/src
 the console|packages/console/src
 the chart|deploy/helm
-the prompts|packages/agent/src/agent/prompts
+the prompts|packages/agent-host/src/agent_host/prompts
 '
 touched=0
 while IFS='|' read -r surface paths; do

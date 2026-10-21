@@ -1,5 +1,5 @@
 """The shape every agent pod shares, standing or ephemeral: what it may
-consume and how its readiness is probed. The operator builds standing
+consume and how its readiness is probed. The reconciler builds standing
 Deployments and the orchestrator builds ephemeral pods from the same two
 values, so a change here rolls both the same way.
 """

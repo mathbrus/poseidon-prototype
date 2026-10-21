@@ -5,15 +5,15 @@ description = "Poseidon — agent companies under declarative governance"
 requires-python = ">=3.12"
 dependencies = [
     "common",
-    "agent",
+    "agent-host",
     "mcp-gateway",
     "sandbox",
     "orchestrator",
-    "mockllm",
-    "schema",
+    "mock-brain",
+    "blueprint",
     "registry",
     "compiler",
-    "poseidon-operator",
+    "poseidon-reconciler",
     "llm-gateway",
     "console",
     "poseidon-cli",
@@ -39,6 +39,8 @@ package = false
 members = ["packages/*"]
 
 [tool.ruff]
+# Every workspace package's import root is first-party.
+src = ["packages/*/src", "."]
 line-length = 90
 target-version = "py312"
 
@@ -50,13 +52,6 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 ignore = ["B008"]
 
 
-[tool.ruff.lint.isort]
-known-first-party = [
-    "agent", "common", "compiler", "console", "llm_gateway", "mcp_gateway",
-    "mockllm", "orchestrator", "poseidon_cli", "poseidon_operator", "registry",
-    "sandbox", "schema",
-]
-
 [tool.pytest.ini_options]
 markers = [
     "e2e_kind: end-to-end tests needing the live kind cluster and a real (disposable) repo; the LLM is mocked unless the cluster was deployed with REAL_LLM=1 (run with -m e2e_kind)",
@@ -67,15 +62,15 @@ addopts = "-m 'not e2e_kind'"
 
 [tool.uv.sources]
 common = { workspace = true }
-agent = { workspace = true }
+agent-host = { workspace = true }
 mcp-gateway = { workspace = true }
 sandbox = { workspace = true }
 orchestrator = { workspace = true }
-mockllm = { workspace = true }
-schema = { workspace = true }
+mock-brain = { workspace = true }
+blueprint = { workspace = true }
 registry = { workspace = true }
 compiler = { workspace = true }
-poseidon-operator = { workspace = true }
+poseidon-reconciler = { workspace = true }
 llm-gateway = { workspace = true }
 console = { workspace = true }
 poseidon-cli = { workspace = true }

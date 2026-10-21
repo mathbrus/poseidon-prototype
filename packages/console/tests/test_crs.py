@@ -1,4 +1,4 @@
-"""The Company CR the console submits: the one record the operator
+"""The Company CR the console submits: the one record the reconciler
 reconciles and the platform reads back. What it carries is pinned here
 against the two examples — the policies section the bounds are rendered
 from among them."""
@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 import yaml
 
+from blueprint.bounds import render_bounds
 from compiler import compile_blueprint
 from console.crs import company_cr
-from schema.bounds import render_bounds
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 

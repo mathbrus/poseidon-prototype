@@ -8,7 +8,7 @@ catalogs are closed: a blueprint names roles and crews, it never defines
 them, because a role a blueprint could invent would be a policy the
 platform never reviewed.
 
-The tables on this page are rendered from `packages/schema/src/schema/catalog.py`
+The tables on this page are rendered from `packages/blueprint/src/blueprint/catalog.py`
 at build time.
 
 ## Roles

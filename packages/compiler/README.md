@@ -10,7 +10,7 @@ first tool call in production.
 
 The compiler reads nothing but its arguments, writes nothing, and touches
 no cluster. Applying a plan is someone else's job: the console submits it
-as custom resources, the operator converges them. If the vocabulary here
+as custom resources, the reconciler converges them. If the vocabulary here
 is new — blueprints, OPA, run binding — read the
 [root README](../../README.md) first (sections 2, 4 and 7).
 
@@ -137,7 +137,7 @@ tools address *a specific run's* workspace, so a role allow-list alone
 would quietly permit cross-run access: any implementer could read any run's
 files. `git.open_pr` targets the repository, not a run, so run binding
 is the wrong guard — its guards are the deny rules below. Which tools
-carry the requirement is declared in `schema.tools.RUN_SCOPED`, a
+carry the requirement is declared in `blueprint.tools.RUN_SCOPED`, a
 property of the tool, not of its name prefix.
 
 ### The blueprint's own policies
@@ -204,7 +204,7 @@ delegated path (a policy-resolved gate only) is scoped to `resolver ==
   Activation under a shared root would erase the other company's rules.
 - **The platform bundle**, `package poseidon.platform` — the orchestrator's
   scope, compiler-owned and company-independent, so it compiles identically
-  from every blueprint and every operator upsert lands the same revision.
+  from every blueprint and every reconciler upsert lands the same revision.
 
 The package name, and the slug transform inside it, come from
 `common.policy` — the same module the gateway and the orchestrator derive
@@ -225,7 +225,7 @@ standing.implementer: standing count 1 on non-spawner role 'implementer' — exe
 Two subtleties. First, `compile_blueprint` accepts plain dicts and does
 not run the schema pass, so the document-level checks (template
 existence, tool vocabulary, the catalog cross-checks) run here too — the
-same functions `schema.validate` runs, imported from `schema.coherence`,
+same functions `blueprint.validate` runs, imported from `blueprint.coherence`,
 because the compiler must fail closed on an unvalidated input, not
 `KeyError` halfway through emission. Second, narrowing semantics differ by field:
 widening a *ephemeral agent's* tools or a role's *spawn authority* past the
@@ -275,8 +275,8 @@ its own; it ships inside the console image.
 
 ## Cross-package interactions
 
-- Resolves templates and tool names against `schema`
-  ([README](../schema/README.md)): the role/crew catalogs, `KNOWN_TOOLS`,
+- Resolves templates and tool names against `blueprint`
+  ([README](../blueprint/README.md)): the role/crew catalogs, `KNOWN_TOOLS`,
   `PLATFORM_ONLY`, and `RUN_SCOPED`.
 - Reads a `RegistrySnapshot` built from `registry` rows to keep agent ids
   stable across applies (existing ids are reused in order; minted ids skip
@@ -284,7 +284,7 @@ its own; it ships inside the console image.
 - Its plan rides the custom resources the console submits — the Company CR
   carries the bundles, the `policies` section as written, infra IR,
   workflows, budgets and crew specs — and
-  the `operator` ([README](../operator/README.md)) reconciles them. From
+  the `reconciler` ([README](../reconciler/README.md)) reconciles them. From
   the applied blueprint, the `orchestrator` reads SandboxPolicy, workflow
   and gate config, and the egress proxy its host allowlist: one
   `egress_allow` list, two consumers, no drift.

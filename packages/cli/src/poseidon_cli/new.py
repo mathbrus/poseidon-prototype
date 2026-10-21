@@ -27,13 +27,13 @@ from typing import Any, Protocol
 
 import yaml
 
+from blueprint import validate_blueprint
+from blueprint.catalog import CREW_TEMPLATES, ROLES, STEWARDSHIP_CREW
+from blueprint.documents import DOCUMENT_NAMES
+from blueprint.tools import SANDBOX_WRITE_TOOLS
+from blueprint.validate import ValidationError
 from compiler import EMPTY, compile_blueprint
 from compiler.errors import CompileError
-from schema import validate_blueprint
-from schema.catalog import CREW_TEMPLATES, ROLES, STEWARDSHIP_CREW
-from schema.documents import DOCUMENT_NAMES
-from schema.tools import SANDBOX_WRITE_TOOLS
-from schema.validate import ValidationError
 
 API_VERSION = "poseidon.dev/v1"
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")

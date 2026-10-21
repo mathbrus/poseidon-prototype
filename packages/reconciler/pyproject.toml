@@ -1,0 +1,20 @@
+[project]
+name = "poseidon-reconciler"
+version = "0.1.1+2026.10.21"
+description = "Poseidon reconciler: reconciles Company/AgentInstance CRs and serves compiled policy bundles"
+requires-python = ">=3.12"
+dependencies = [
+    "common[otel]",
+    "registry",
+    "kopf>=1.37",
+    "kubernetes>=31",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/reconciler"]

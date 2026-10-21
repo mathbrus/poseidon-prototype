@@ -3,8 +3,8 @@ here rather than at the first tool call in production."""
 
 import pytest
 
+from blueprint.catalog import ROLES
 from compiler import CompileError, compile_blueprint
-from schema.catalog import ROLES
 
 
 def problems_of(blueprint: dict) -> list[str]:

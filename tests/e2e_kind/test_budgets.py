@@ -1,7 +1,7 @@
 """Budget enforcement, end to end, on kind.
 
 A blueprint edit shrinks hello-saas's per-run cap to a value the run's
-second implementer call must exceed; the LLM gateway hard-stops the run
+second implementer call must exceed; the LLM gateway refuses the run
 the heartbeat started (`budget_exhausted`, audited, never silent), the
 implement workflow parks into an API-visible `parked-budget_exhausted`
 state, a rejection signal finalizes it, the ledger fully attributes the
@@ -98,7 +98,7 @@ def ledger_entries(run_id: str) -> list[dict[str, Any]]:
 
 def _parked_run(env: dict) -> tuple[int, str]:
     """File the happy ticket, let the heartbeat start it, and wait for the
-    budget hard-stop's API-visible pending state. Returns the ticket and
+    API-visible pending state its cap's refusal parks it in. Returns the ticket and
     the run the loop minted."""
     nonce = secrets.token_hex(3)
     number = file_ticket(env, f"happy ({nonce})", ticket_body("happy", nonce))
@@ -115,7 +115,7 @@ def _signal_budget(run_id: str, approved: bool, reason: str) -> None:
     console().resolve(run_id, "budget", approved, reason)
 
 
-def test_tiny_cap_hard_stops_parks_and_attributes(tiny_cap_applied, env) -> None:
+def test_tiny_cap_refuses_parks_and_attributes(tiny_cap_applied, env) -> None:
     number, run_id = _parked_run(env)
     try:
         # The park *escalates* — a real process-gate audit event fires at
@@ -141,7 +141,7 @@ def test_tiny_cap_hard_stops_parks_and_attributes(tiny_cap_applied, env) -> None
     assert record["status"] == "failed"
     assert "budget_exhausted" in (record["error"] or "")
 
-    # The ledger fully attributes what was spent before the stop: the
+    # The ledger fully attributes what was spent before the refusal: the
     # conductor's decision that chose this run, then the run's ephemeral
     # implementer — the only two identities that spoke to a model.
     from orchestrator.identity import ephemeral_agent_id
@@ -164,7 +164,7 @@ def test_tiny_cap_hard_stops_parks_and_attributes(tiny_cap_applied, env) -> None
     assert sum(float(e["usd"]) for e in entries) >= TINY_CAP
 
     # Budget events are in the one audit story: metered allows and the
-    # hard-stop deny, all source=llm-gateway.
+    # cap's deny, all source=llm-gateway.
     story = audit_story(run_id)
     llm_events = [e for e in story if e["source"] == "llm-gateway"]
     assert any(
@@ -174,7 +174,7 @@ def test_tiny_cap_hard_stops_parks_and_attributes(tiny_cap_applied, env) -> None
         e["decision"] == "deny" and e["rule"] == "budget_exhausted" for e in llm_events
     ), f"no budget_exhausted deny in the story: {llm_events}"
 
-    # The stop stopped things: no metered model call after the hard-stop.
+    # The refusal held: no metered model call after the cap's deny.
     last_deny = max(
         i
         for i, e in enumerate(story)
@@ -185,7 +185,7 @@ def test_tiny_cap_hard_stops_parks_and_attributes(tiny_cap_applied, env) -> None
         for e in story[last_deny + 1 :]
         if e["source"] == "llm-gateway" and e["decision"] == "allow"
     ]
-    assert late_allows == [], f"model calls after the hard-stop: {late_allows}"
+    assert late_allows == [], f"model calls after the cap's deny: {late_allows}"
 
     # And the park is in the story as first-class gate outcomes: the
     # escalation at half-deadline, then the human's rejection — same
