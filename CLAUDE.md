@@ -5,9 +5,11 @@ exceed its authority.
 
 The company is the product. It lives in the cloud, stays up, and works
 towards its vision for as long as that vision stands. A human writes the
-vision and the hard stops (what may never happen, what must be approved,
+vision and the hard limits (what may never happen, what must be approved,
 how much may be spent). They do not drive the next step: the company
-works out its own strategy and its own next slice of work.
+works out its own strategy and its own next slice of work. What they do
+to a running company is bounded to the console's acts: answer a gate,
+hold or release the loop, start or cancel a run, delete it.
 
 ## What a company is
 
@@ -28,7 +30,8 @@ CI pipeline with a nicer brain.
   record.
 - **Authority** — every consequence is decided by policy a human can
   read, diff, and revoke. Injection is assumed; containment is
-  positional. Spend is a stop, not a warning.
+  positional. Spend is a gate, not a warning: an exhausted budget parks
+  the run until a human answers.
 
 ## Direction
 
@@ -76,7 +79,7 @@ first.
 | **observation** | the platform-composed reading of the world a conductor decides or scopes on: the documents, the open tickets, the delivered pull requests, the recent runs, capacity and spend | goal, prompt, context |
 | **charter** | the blueprint a human applies: the vision, the budgets, the gates, the policies; this file is the charter of the project, not of a company | mission, constitution, goal file |
 | **vision** | the human's statement of purpose in the charter, `company.vision`; reaches every procedure but `deliver` through the static prompt; changed only by applying the blueprint again | mission, goal, purpose |
-| **bounds** | the charter's gates and stops as they bind this company's work — repository, branches, denied paths, contract tree, documents, merge — rendered once from the applied spec by `schema.bounds.render_bounds`, carried by every dispatch into the procedure's system prompt, trusted like the vision | rules, guardrails, constraints, policy summary |
+| **bounds** | the charter's gates and limits as they bind this company's work — repository, branches, denied paths, contract tree, documents, merge — rendered once from the applied spec by `schema.bounds.render_bounds`, carried by every dispatch into the procedure's system prompt, trusted like the vision | rules, guardrails, constraints, policy summary |
 | **strategy** | the document at `company.documents.strategy` on `base_ref`; the steward writes it once from the vision; no current role may change it afterwards (a future observer would) | roadmap, plan |
 | **architecture masterplan** | the document at `company.documents.architecture` on `base_ref`; the steward writes it at bootstrap and revises it only to fulfil an architecture request; `architecture` in identifiers | ADR, design doc, `AGENTS.md` |
 | **architecture request** | a proposal an ephemeral agent records with `architecture.request`; the platform turns it into a stewardship ticket | change request, RFC |
@@ -90,7 +93,9 @@ first.
 | **rationale** | the reason an actor states for a decision at the moment it commits the company to something, recorded in cleartext (`audit_events.rationale`, at most 1000 characters) beside the decision's row; owed by every commitment, by no refusal — the rule is the reason; the CLI asks for it as `--reason` | reason (as a field name), note, payload, summary, rule (why policy answered) |
 | **verdict** | a human's answer to a gate (`approved` or not), recorded by the console under the human's name before the workflow is signalled; the merge gate is released only on a recorded verdict | approval, signal, decision (a policy result) |
 | **parked** | a run waiting on a gate for a human's verdict, in the API-visible state `parked-<gate>` (`parked-merge_gate`, `parked-budget_exhausted`); it waits the gate's `deadline_minutes`, escalates at half and expires at the end | paused, blocked, waiting, suspended |
-| **pause** | the human act that freezes the heartbeat: `heartbeat.pause` through the console, lifted by `heartbeat.resume` (`poseidon pause` / `poseidon resume`); a paused loop ticks, records `tick_paused` and starts nothing; runs in flight finish; not a stop — the company stays, deleting it is the one stop | freeze, halt, suspend, stop, sleep |
+| **pause** | the human act that holds the heartbeat: `heartbeat.pause` through the console, lifted by `heartbeat.resume` (`poseidon pause` / `poseidon resume`); a paused loop ticks, records `tick_paused` and starts nothing; runs in flight finish; not a stop — the company stays, deleting it is the one stop | freeze, halt, suspend, stop, sleep |
+| **sleeping** | the heartbeat's state between ticks, waiting for a wake signal or the backstop cadence; `ticking` while a tick runs, `paused` while a human holds it; prose may say asleep | idle (a tick's outcome, not the loop's state), dormant, waiting, frozen |
+| **halted** | a start the heartbeat refuses on a gate nobody resolves, recorded as the process-gate outcome `halted` (`gate.heartbeat_daily_cap`, `gate.heartbeat_bootstrap_exhausted`); lifted by the world changing (tomorrow's cap, a fulfilled bootstrap), never by a verdict; the loop keeps ticking | stopped, paused, parked, blocked |
 | **converged** | the Company phase the operator writes once OPA serves the stored bundle revisions, the platform's and the company's; `activating` until then | ready, applied, installed |
 | **tombstone** | the empty bundle over a torn-down company's roots that the bundle server keeps serving, so OPA's next poll erases its rules | deleted bundle, 404 |
 <!-- --8<-- [end:glossary] -->
@@ -99,7 +104,7 @@ first.
 
 - **A company always has a heartbeat**: a blueprint without one does not
   compile, work originates only from its ticks, and stopping the company
-  is deleting it. Pausing it (`poseidon pause`) freezes the heartbeat and
+  is deleting it. Pausing it (`poseidon pause`) holds the heartbeat and
   nothing else: runs in flight finish, the company stays. There is no
   human-started mode and no goal file.
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.
