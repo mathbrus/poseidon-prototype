@@ -1,7 +1,7 @@
 """The agent's dispatch HTTP API.
 
-POST /task {run_id, procedure, task_text, documents} -> 202, runs the
-procedure in a background task (one concurrent run per host);
+POST /task {run_id, procedure, task_text, bounds, documents} -> 202, runs
+the procedure in a background task (one concurrent run per host);
 GET /task/{run_id} -> {status, pr_url, iterations, error, ...} — every
 field of the `ProcedureResult`.
 
@@ -29,14 +29,19 @@ from schema.catalog import ROLES
 
 Procedure = Literal["scope", "decide", "implement", "deliver", "review"]
 # One dispatch: the orchestrator asking this host to run a procedure on a
-# text, with the company's documents beside it.
-Dispatch = Callable[[str, str, dict[str, str]], Awaitable[ProcedureResult]]
+# text, with the company's bounds and documents beside it.
+Dispatch = Callable[[str, str, str, dict[str, str]], Awaitable[ProcedureResult]]
 
 
 class TaskRequest(BaseModel):
     run_id: str
     procedure: Procedure
     task_text: str
+    # The bounds: the charter as it binds this company's work, rendered by
+    # the platform from the applied blueprint. Trusted like the vision —
+    # it lands in the procedure's system prompt — and required: a
+    # dispatch that does not say what binds the work is refused.
+    bounds: str
     # The company's documents by name, as the platform read them at
     # base_ref: untrusted context beside the task, empty for a procedure
     # that judges nothing.
@@ -69,12 +74,14 @@ def create_app(
     # The procedures are synchronous (the SDK conversation loop is
     # blocking); each dispatch runs on a worker thread.
     def in_thread(
-        run: Callable[[AgentSettings, str, str, dict[str, str]], ProcedureResult],
+        run: Callable[[AgentSettings, str, str, str, dict[str, str]], ProcedureResult],
     ) -> Dispatch:
         async def dispatch(
-            run_id: str, task_text: str, documents: dict[str, str]
+            run_id: str, task_text: str, bounds: str, documents: dict[str, str]
         ) -> ProcedureResult:
-            return await asyncio.to_thread(run, _settings(), run_id, task_text, documents)
+            return await asyncio.to_thread(
+                run, _settings(), run_id, task_text, bounds, documents
+            )
 
         return dispatch
 
@@ -97,7 +104,7 @@ def create_app(
         run_log = log.bind(run_id=run_id, role=_settings().role)
         try:
             result = await dispatch_by_procedure[request.procedure](
-                run_id, request.task_text, request.documents
+                run_id, request.task_text, request.bounds, request.documents
             )
         except Exception as exc:
             run_log.exception("task crashed")

@@ -373,13 +373,15 @@ def _session(
     procedure: str,
     tools: list[str],
     max_steps: int,
+    bounds: str,
     documents: dict[str, str] | None = None,
 ) -> Iterator[Session]:
     """One dispatch's machinery: a gateway session under the pod's own
     token, a scratch workspace, and an SDK conversation on the procedure's
-    prompt and tool surface. A procedure that holds sandbox tools surveys the
-    run's sandbox first, so the conversation opens knowing the tree and
-    the repository's instructions; the company's documents the dispatch
+    prompt — the bounds the dispatch carries rendered into it — and tool
+    surface. A procedure that holds sandbox tools surveys the run's
+    sandbox first, so the conversation opens knowing the tree and the
+    repository's instructions; the company's documents the dispatch
     carries join them as untrusted context. The records capture every tool
     result; the conversation is closed on the way out, whatever happened
     inside."""
@@ -394,7 +396,7 @@ def _session(
         with tempfile.TemporaryDirectory(prefix="brain-") as scratch:
             convo = _build_conversation(
                 llm,
-                system_prompt(procedure, settings, llm.model),
+                system_prompt(procedure, settings, llm.model, bounds),
                 tools,
                 ctx,
                 scratch,
@@ -424,6 +426,7 @@ def run_implement(
     settings: AgentSettings,
     run_id: str,
     task_text: str,
+    bounds: str,
     documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """implement: the SDK loop acts (read/write/list/exec, never open_pr),
@@ -432,7 +435,13 @@ def run_implement(
     rule, the same the gate of record reads. The gate of record is the
     platform's own `sandbox.run_tests` in the implement workflow."""
     with _session(
-        settings, run_id, "implement", IMPLEMENT_TOOLS, IMPLEMENT_STEP_CAP, documents
+        settings,
+        run_id,
+        "implement",
+        IMPLEMENT_TOOLS,
+        IMPLEMENT_STEP_CAP,
+        bounds,
+        documents,
     ) as s:
         convo, records = s.convo, s.records
         convo.send_message(_act_prompt(task_text, s.workspace.entries))
@@ -472,21 +481,24 @@ def run_deliver(
     settings: AgentSettings,
     run_id: str,
     task_text: str,
+    bounds: str,
     documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """deliver: the workflow-directed delivery, only ever dispatched after
-    the platform verify gate passed. Commit the sandbox's work on the
-    task's branch, bundle it, open the PR. A policy denial comes back as
-    the tool observation so the model can recover — deny-and-recover, not
-    deny-and-halt."""
-    with _session(settings, run_id, "deliver", DELIVER_TOOLS, DELIVER_STEP_CAP) as s:
+    the platform verify gate passed. Commit the sandbox's work on a branch
+    the bounds allow, bundle it, open the PR. A policy denial comes back
+    as the tool observation — the rule and what it refused — so the model
+    can recover: deny-and-recover, not deny-and-halt."""
+    with _session(
+        settings, run_id, "deliver", DELIVER_TOOLS, DELIVER_STEP_CAP, bounds
+    ) as s:
         convo, records = s.convo, s.records
         convo.send_message(
             f"Task:\n{task_text}\n\n"
             "The platform has verified your work in the sandbox: the "
             "test suite is green. Deliver it now — commit your changes "
-            "on the task's feature/<slug> branch and open the pull "
-            "request with the open_pr tool."
+            "on a branch the bounds allow and open the pull request with "
+            "the open_pr tool."
         )
         convo.run()
         failure = _loop_failure(convo)
@@ -503,6 +515,7 @@ def run_review(
     settings: AgentSettings,
     run_id: str,
     task_text: str,
+    bounds: str,
     documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """review: the ephemeral reviewer's dispatch: read the
@@ -516,7 +529,7 @@ def run_review(
     reviewer had the platform file (an architecture request) are reported:
     they are this run's, and the record must carry them."""
     with _session(
-        settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP, documents
+        settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP, bounds, documents
     ) as s:
         convo, records = s.convo, s.records
         convo.send_message(f"Task:\n{task_text}")
@@ -542,6 +555,7 @@ def run_scope(
     settings: AgentSettings,
     run_id: str,
     task_text: str,
+    bounds: str,
     documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """scope: the PM reads the observation — the company's documents and
@@ -554,7 +568,7 @@ def run_scope(
     but posted no summary is a failed dispatch — the tickets are still
     reported, so they stay linked to the run. Refusing a tool call is the
     gateway's job; a deny surfaces as a tool observation the model sees."""
-    with _session(settings, run_id, "scope", SCOPE_TOOLS, SCOPE_STEP_CAP) as s:
+    with _session(settings, run_id, "scope", SCOPE_TOOLS, SCOPE_STEP_CAP, bounds) as s:
         convo, records = s.convo, s.records
         convo.send_message(task_text)
         convo.run()
@@ -600,6 +614,7 @@ def run_decide(
     settings: AgentSettings,
     run_id: str,
     task_text: str,
+    bounds: str,
     documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """decide: the heartbeat's question. LLM-only — one
@@ -608,7 +623,9 @@ def run_decide(
     answer against it. The PM chooses; it starts nothing — actuation stays
     the heartbeat's, under the compiled heartbeat.start decision."""
     llm = build_llm(settings, run_id, settings.resolve_gateway_token())
-    text = _completion(llm, system_prompt("decide", settings, llm.model), task_text)
+    text = _completion(
+        llm, system_prompt("decide", settings, llm.model, bounds), task_text
+    )
     decision = parse_decision(text)
     if decision is None:
         return ProcedureResult(
