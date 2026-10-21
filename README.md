@@ -1,9 +1,9 @@
 # Poseidon
 
 Poseidon runs a small software company of AI agents on Kubernetes. You
-write the company's vision and its limits in one YAML file. The agents
+write the company's vision and its rules in one YAML file. The agents
 plan, build and review the work on their own, and the platform enforces
-your limits in infrastructure, not in prompts.
+your rules in infrastructure, not in prompts.
 
 > [!NOTE]
 > **Status: prototype.** Every capability is tested end to end on a local
@@ -14,20 +14,20 @@ your limits in infrastructure, not in prompts.
 ## Why Poseidon
 
 - **You set the rules once.** A *blueprint* declares the vision, the
-  repository, the budget, and which merges need your approval. Edit the
+  repository, the budget, and which merges wait for your verdict. Edit the
   file and apply it again to change any of them.
 - **Agents hold no credentials.** Every tool call and every model call
   goes through a gateway that checks compiled policy first. A
   prompt-injected agent can try anything, but it can only do what the
   policy allows.
-- **Everything is on the record.** Every decision, tool call, approval
+- **Everything is on the record.** Every decision, tool call, verdict
   and dollar spent is an audit row you can read back, run by run.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    you(["You"]) -->|"blueprint, approvals"| console["Console"]
+    you(["You"]) -->|"blueprint, verdicts"| console["Console"]
     subgraph company ["Your company"]
         agents["Agents<br/>PM, implementer, reviewer"]
         sandbox["Sandbox<br/>runs the code"]
@@ -83,7 +83,8 @@ Then watch the company work:
 uv run poseidon follow
 ```
 
-The default model is a free, deterministic mock, so this costs nothing.
+The default *brain*, the model behind the agents, is a free, deterministic
+mock, so this costs nothing.
 The [Quickstart](docs/get-started/quickstart.md) walks through every step
 and shows the output you should see.
 
@@ -92,7 +93,7 @@ and shows the output you should see.
 | Section | Read it to… |
 |---|---|
 | [Get started](docs/get-started/quickstart.md) | Run a company on your machine. |
-| [How-to guides](docs/how-to/delegate-merges.md) | Do one specific thing: delegate merges, pause the company, use a real model. |
+| [How-to guides](docs/how-to/delegate-merges.md) | Do one specific thing: delegate merges, pause the company, use a paid brain. |
 | [Explanation](docs/explanation/how-it-works.md) | Understand the design and the security model. |
 | [Reference](docs/reference/blueprint.md) | Look up a blueprint field, a CLI command, a tool or a policy rule. |
 | [Contributing](docs/developing/contributing.md) | Change the code, run the tests, cut a release. |

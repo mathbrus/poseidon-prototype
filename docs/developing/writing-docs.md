@@ -11,8 +11,8 @@ You are writing for two kinds of reader, and they come in this order:
 
 1. **The evaluator** has just found the project. They want to know what
    Poseidon is, whether it fits their problem, and how much it costs to try.
-2. **The user** runs a company on Poseidon. They want the command, the
-   field or the error message, and then they go back to work.
+2. **The person running a company** wants the command, the field or the
+   error message, and then goes back to work.
 
 Contributors read the package READMEs and the Contributing section. Those
 pages assume the reader has the code open.
@@ -43,8 +43,8 @@ pages assume the reader has the code open.
   heartbeat, gate, conductor and bounds mean nothing to a newcomer.
 - **Use one name per concept.** The glossary in `CLAUDE.md` fixes the
   names; its "Not" column lists the words to avoid.
-- **Name the code only when the reader needs it.** A user needs the
-  command and the field. A file path or a function name belongs in a
+- **Name the code only when the reader needs it.** A reader needs
+  the command and the field. A file path or a function name belongs in a
   package README.
 
 ## Structure

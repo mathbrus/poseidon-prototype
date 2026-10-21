@@ -1,4 +1,4 @@
-# Console API
+# Console
 
 The console is the one service a person acts on a company through. For
 every act, it verifies who you are, asks policy whether you may, records
@@ -40,18 +40,12 @@ The acts, rendered from `common.audit`:
 
 <!-- gen: console-acts -->
 
-## A verdict is recorded before it is delivered
+## Verdicts
 
-For `POST /runs/{run_id}/gates/{gate}`, the console:
-
-1. checks that the run is parked on that gate;
-2. asks policy whether you may answer it;
-3. records your verdict and reason in the audit table, under your name;
-4. signals the workflow with the verdict.
-
-The merge workflow reads the recorded verdict back before it merges. A
-signal with no recorded verdict merges nothing
-([The merge gate](../explanation/merge-gate.md)).
+`POST /runs/{run_id}/gates/{gate}` answers only a run parked on that gate.
+The console records the verdict and your reason before it signals the
+workflow, and the merge reads that record back
+([The merge gate](../explanation/merge-gate.md#when-you-resolve-it)).
 
 ## Requests
 

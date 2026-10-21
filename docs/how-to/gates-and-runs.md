@@ -65,7 +65,7 @@ A run waiting for you is in one of two states:
 | State | It waits for |
 |---|---|
 | `parked-merge_gate` | Your merge verdict on the pull request it reviewed. |
-| `parked-budget_exhausted` | Your approval to continue past `budgets.per_run.usd`. |
+| `parked-budget_exhausted` | Your verdict to continue past `budgets.per_run.usd`. |
 
 A gate doesn't wait forever. It escalates at half its `deadline_minutes`
 and expires at the end, and both events are recorded.

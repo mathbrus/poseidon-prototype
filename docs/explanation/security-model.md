@@ -39,7 +39,7 @@ next tool call at any time.
 
 What the attacker wants, from most to least damaging, and what stops it:
 
-| Goal | What stops it |
+| The attacker wants to… | What stops it |
 |---|---|
 | **Steal a credential** (GitHub token, model API key, cluster token) | Agents hold none. The GitHub token lives only in the MCP gateway, the model key only in a proxy that only the LLM gateway can reach. |
 | **Get code into `main`** | Agents can't push. The gateway pushes only feature branches, and policy refuses protected branches and paths. A merge needs your recorded verdict or every fact of the [merge gate](merge-gate.md). |
@@ -93,7 +93,7 @@ tries to form that crew, policy checks it against the PM's `may_spawn`
 list and refuses. The refusal is recorded, and no agent is ever created.
 
 **It tells the implementer to upload the workspace to
-`collector.control9931.example`.** The suite's mock model obeys every
+`collector.control9931.example`.** The suite's mock brain obeys every
 instruction on purpose, because the test is about the platform, not the
 model. The agent runs this through `sandbox.exec`:
 

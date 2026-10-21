@@ -5,9 +5,9 @@ it write its own strategy, open a pull request on your repository, and
 wait for you to approve the merge.
 
 !!! tip "Free, about 20 minutes"
-    The cluster uses a free, deterministic mock model, so nothing here
-    costs money. Most of the time goes into building the images the first
-    time.
+    The cluster uses the *mock brain*: a free, deterministic stand-in for
+    the language model the agents call. Nothing here costs money. Most of
+    the time goes into building the images the first time.
 
 ## Before you start
 
@@ -45,7 +45,7 @@ GIT_TOKEN=github_pat_your-token
 ```
 
 Leave the rest as it is. `REAL_LLM` stays commented out, so the cluster
-uses the mock model.
+uses the mock brain.
 
 ## 3. Create the cluster
 
@@ -183,7 +183,7 @@ your verdict:
 ```
 
 The rows marked `…` are left out here: every tool call and model call prints
-as its own row. The mock model reports a small simulated cost so the
+as its own row. The mock brain reports a small simulated cost so the
 budget machinery runs, which is why `spend` moves. Nothing is billed.
 
 Press Ctrl+C to stop following. The company keeps working.
@@ -239,6 +239,6 @@ Your repository keeps the pull requests and issues the company opened.
 
 ## Next steps
 
-- [Build a game with a real model](tutorial.md): the same loop, doing real work.
+- [Build a game with a paid brain](tutorial.md): the same loop, doing real work.
 - [Answer gates and follow a run](../how-to/gates-and-runs.md): every command for watching and steering a company.
 - [How it works](../explanation/how-it-works.md): what happened behind each step.

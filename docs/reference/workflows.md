@@ -21,7 +21,7 @@ heartbeat. Both formats live in `common.workflows`.
   keeps it running. It stops when the company is deleted.
 
 Activity timeouts are not part of any input. The worker's
-`TIMEOUT_PROFILE` (`default` for a paid model, `fast` for the mock) sizes
+`TIMEOUT_PROFILE` (`default` for a paid brain, `fast` for the mock brain) sizes
 every workflow, and each workflow reads it in its first activity.
 
 ## Signals

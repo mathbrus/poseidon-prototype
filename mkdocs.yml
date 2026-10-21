@@ -77,7 +77,7 @@ nav:
       - Answer gates and follow a run: how-to/gates-and-runs.md
       - Delegate merges: how-to/delegate-merges.md
       - Pause, resume or delete: how-to/pause-resume-delete.md
-      - Use a real model: how-to/real-model.md
+      - Use a paid brain: how-to/paid-brain.md
       - Act as another person: how-to/act-as-another-human.md
       - Troubleshooting: how-to/troubleshooting.md
   - Explanation:
@@ -98,7 +98,7 @@ nav:
   - Reference:
       - Blueprint: reference/blueprint.md
       - CLI: reference/cli.md
-      - Console API: reference/console.md
+      - Console: reference/console.md
       - Tools: reference/tools.md
       - Roles and crews: reference/roles.md
       - Workflows and signals: reference/workflows.md

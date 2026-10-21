@@ -27,7 +27,7 @@ Every decision answers in the same shape:
 There are two bundles. The platform's (`poseidon/platform/decision`)
 grants the platform's own tools. The company's
 (`poseidon.authz.<company>`) holds everything compiled from the
-blueprint. That's why `platform` is a reserved company name.
+blueprint.
 
 OPA polls a bundle server for both. Nothing is pushed. Until OPA serves
 the company's bundle, every enforcement point denies with

@@ -142,7 +142,7 @@ contract author against it on every acceptance run.
   but not how long that goes on.
 - **A poisoned strategy steers work within policy.** The PM files what a
   poisoned strategy says, and the ticket carries it to the crew. The same
-  limits apply as everywhere: crew list, protected paths, egress
+  rules apply as everywhere: crew list, protected paths, egress
   allowlist, caps. A poisoned document can pick which allowed work
   happens, never work outside the policy.
 - **A bootstrap ticket nobody can fulfill halts the loop.** If every

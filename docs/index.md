@@ -1,7 +1,7 @@
 # Poseidon
 
 Poseidon runs a small software company of AI agents on Kubernetes. You
-write the company's vision, budget and approval rules in a YAML file
+write the company's vision, budget and merge rules in a YAML file
 called a [blueprint](reference/blueprint.md). The agents plan, build and
 review the work on their own. Policy, network rules and gateways enforce
 your rules, so a prompt-injected agent can't get past them.

@@ -33,12 +33,12 @@ Look up the error you see. Each row gives the cause and the fix.
 
 | You see | Cause and fix |
 |---|---|
-| Nothing starts | The heartbeat may be paused (`uv run poseidon company show` says by whom), at a cap, or idle by choice. `uv run poseidon heartbeat show` lists each tick and why it started nothing. |
+| Nothing starts | The heartbeat may be paused (`uv run poseidon company show` says by whom), at a cap, or its PM chose `idle`. `uv run poseidon heartbeat show` lists each tick and why it started nothing. |
 | A run in state `parked-merge_gate` | It waits for your merge verdict. See [Answer gates and follow a run](gates-and-runs.md). |
 | A run in state `parked-budget_exhausted` | The run reached `budgets.per_run.usd`. Approve or reject it with `poseidon verdict <run_id> budget …`. |
 | `run 'x' is not parked on its merge gate` | The run is not waiting for a verdict, or already got one. Check its state with `uv run poseidon run show <run_id>`. |
 | `repo_not_declared` in a run's story | An agent named a repository other than `stack.repo.url`, and policy refused. Check that `stack.repo.url` is the repository you meant. |
-| `llm_cost_unreported` | The model proxy can't price your model. See [Use a real model](real-model.md#troubleshooting). |
+| `llm_cost_unreported` | The model proxy can't price your model. See [Use a paid brain](paid-brain.md#troubleshooting). |
 
 ## Running the acceptance suite
 

@@ -1,8 +1,9 @@
-# Use a real model
+# Use a paid brain
 
-The cluster runs a free, deterministic mock model by default. This guide
-switches it to a paid model from OpenAI or Anthropic, so the company does
-real work.
+The *brain* is the language model behind the LLM gateway. The cluster runs
+the free, deterministic mock brain by default. This guide switches it to a
+paid brain, a model from OpenAI or Anthropic, so the company does real
+work.
 
 !!! warning "This spends money"
     Every agent call goes to your provider and is billed to your key. The
@@ -85,9 +86,9 @@ It doesn't affect the match.
 |---|---|
 | Runs fail with `llm_cost_unreported` | The model proxy can't price the model, and the LLM gateway refuses calls it can't meter. Raise `images.llmProxy.tag` in the chart values to a newer LiteLLM release, then run `kind-up.sh`. |
 | Every call fails after you changed `MODEL` | The key belongs to another provider. Change `LLM_API_KEY` and `MODEL` together. |
-| `scripts/acceptance.sh` refuses to start | The acceptance suite refuses a paid model, so it can't spend money. Bring the cluster up with `REAL_LLM=0` to run it. |
+| `scripts/acceptance.sh` refuses to start | The acceptance suite refuses a paid brain, so it can't spend money. Bring the cluster up with `REAL_LLM=0` to run it. |
 
 ## Next steps
 
-- [Build a game with a real model](../get-started/tutorial.md)
+- [Build a game with a paid brain](../get-started/tutorial.md)
 - [Troubleshooting](troubleshooting.md)

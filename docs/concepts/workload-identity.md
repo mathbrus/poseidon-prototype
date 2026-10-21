@@ -50,5 +50,5 @@ removed from the blueprint as for a crew at the end of its run.
 
 People use the same mechanism with a different audience: the console's. A
 person's token fails at both gateways, and an agent's token fails at the
-console. [Console API](../reference/console.md#who-a-human-is) explains
+console. [Console](../reference/console.md#who-a-human-is) explains
 how a person signs in.

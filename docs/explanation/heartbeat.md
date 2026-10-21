@@ -2,7 +2,7 @@
 
 Every company has a heartbeat: one long-running workflow that decides what
 the company does next. Nobody starts the company's runs by hand. The
-heartbeat starts them, within the limits your blueprint sets. A blueprint
+heartbeat starts them, within the caps your blueprint sets. A blueprint
 without a `heartbeat` section doesn't compile.
 
 ```yaml
@@ -52,9 +52,9 @@ real candidates. It can't create a new one.
 The PM sees only ticket numbers, titles and URLs, never ticket bodies. The
 documents reach it after those lists, clipped and marked untrusted.
 
-## The limits it must stay within
+## What it must stay within
 
-| Limit | The heartbeat refuses to start a run when… |
+| Field | The heartbeat refuses to start a run when… |
 |---|---|
 | `may_start` | the workflow is not on the list. A company that may not `implement` waits for you to run `poseidon start implement <n>`. |
 | `max_concurrent_runs` | that many of the company's runs are already in flight. |

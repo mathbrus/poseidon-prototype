@@ -113,6 +113,6 @@ until a person answers ([how](../how-to/gates-and-runs.md)).
 
 Who decides what the company does next, and the caps on what it may start.
 Every company has one. [How the heartbeat decides](../explanation/heartbeat.md)
-explains each limit.
+explains each cap.
 
 <!-- gen: blueprint-fields:heartbeat -->

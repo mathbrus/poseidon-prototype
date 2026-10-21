@@ -3,7 +3,7 @@
 A Poseidon company is a loop. It observes its repository, decides what is
 worth doing next, does it, records what happened, and repeats for as long
 as the company exists. This page follows that loop and names what keeps
-each agent inside its limits.
+each agent contained.
 
 ## The pieces
 

@@ -1,13 +1,13 @@
-# Build a game with a real model
+# Build a game with a paid brain
 
 In this tutorial you give a company the vision of a small Tetris game.
 You watch it write its strategy, plan the first slice of work, write the
 code, review it, and wait for you to merge it.
 
-!!! warning "This uses a paid model"
+!!! warning "This uses a paid brain"
     Every agent call is billed to your API key. The example blueprint caps
     each run at $5 and each day at $20. Lower `budgets.per_run.usd` and
-    `heartbeat.daily_cap.usd` if you want a tighter limit.
+    `heartbeat.daily_cap.usd` if you want tighter caps.
 
 ## Before you start
 
@@ -17,7 +17,7 @@ code, review it, and wait for you to merge it.
 - If the Quickstart's company is still applied, delete it:
   `uv run poseidon company delete --reason "starting the tutorial" --yes`.
 
-## 1. Switch to a real model
+## 1. Switch to a paid brain
 
 Set the model in `deploy/kind/.env` and bring the cluster up again:
 
@@ -32,7 +32,7 @@ deploy/kind/kind-up.sh
 ```
 
 The first step of the output now says `brain: PAID`.
-[Use a real model](../how-to/real-model.md) lists the other providers.
+[Use a paid brain](../how-to/paid-brain.md) lists the other providers.
 
 ## 2. Write the vision
 

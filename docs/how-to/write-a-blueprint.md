@@ -1,7 +1,7 @@
 # Write your blueprint
 
 A blueprint is the one YAML file that defines a company: its vision, its
-repository, who may act on it, its budget and its approval rules. This
+repository, who may act on it, its budget and its merge rules. This
 guide writes one, checks it, and applies it.
 
 ## Before you start
@@ -73,4 +73,4 @@ are the mistakes people make most often, with the message you see:
 
 - [Blueprint reference](../reference/blueprint.md): every field
 - [Delegate merges](delegate-merges.md)
-- [Use a real model](real-model.md)
+- [Use a paid brain](paid-brain.md)
