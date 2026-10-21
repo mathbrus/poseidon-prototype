@@ -51,6 +51,7 @@ from .cluster import (
 )
 from .conftest import (
     apply_profile,
+    assert_merge_closed_tickets,
     close_issue,
     close_pr,
     delete_repo_file,
@@ -186,6 +187,17 @@ def test_the_merge_was_released_by_policy_not_a_human(delegated_overnight: dict)
     assert resolves and resolves[-1]["decision"] == "allow", resolves
     assert resolves[-1]["rule"] == "merge_resolve_delegated"
     assert any(e["tool"] == "git.merge_pr" for e in story), "no merge tool call"
+
+
+def test_the_policy_merge_closed_the_ticket(delegated_overnight: dict):
+    """A merge no human released still closes what it fulfilled: the
+    scoped ticket is closed by the platform after the merge."""
+    assert_merge_closed_tickets(
+        delegated_overnight["env"],
+        audit_story(delegated_overnight["review"]["run_id"]),
+        delegated_overnight["pr_number"],
+        [delegated_overnight["issue_number"]],
+    )
 
 
 def test_both_quality_layers_were_recorded(delegated_overnight: dict):

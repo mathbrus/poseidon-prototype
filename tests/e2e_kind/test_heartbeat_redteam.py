@@ -74,6 +74,8 @@ from .conftest import (
     close_pr_url,
     file_ticket,
     github_api,
+    issue_state,
+    platform_closes,
     pr_number,
     run_ticket,
     target_slug,
@@ -261,8 +263,10 @@ def merged_by_hand(unattended_run: dict, env: dict) -> dict:
     ticks = wake_and_await_ticks(1) + wake_and_await_ticks(1)
 
     return {
+        "env": env,
         "ticks": ticks,
         "pr_number": number,
+        "issue_number": unattended_run["issue_number"],
         "heartbeat_id": bare_heartbeat_id(),
     }
 
@@ -281,6 +285,21 @@ def test_a_pr_merged_by_a_human_is_not_reviewed(merged_by_hand: dict):
     assert run_by_task(review_run_task(number), workflow="review") is None, (
         "the heartbeat started a review of a PR the world had already merged"
     )
+
+
+def test_a_pr_merged_by_a_human_closes_its_ticket(merged_by_hand: dict):
+    """The tick that first learns of the hand merge closes the ticket the
+    PR fulfilled, under the heartbeat's own run id and once: the merge
+    landed, so the work is done, whoever merged it."""
+    number = merged_by_hand["pr_number"]
+    assert issue_state(merged_by_hand["env"], merged_by_hand["issue_number"]) == "closed"
+    closes = platform_closes(audit_story(merged_by_hand["heartbeat_id"]), "issues.close")
+    mine = [
+        e
+        for e in closes
+        if e["rationale"] == f"pull request #{number} merged outside the platform"
+    ]
+    assert len(mine) == 1, closes
 
 
 # --- an aborted review is not the company's last word --------------------------

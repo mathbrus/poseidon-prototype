@@ -672,6 +672,44 @@ def close_issue(env: dict, number: int | None) -> None:
         )
 
 
+def issue_state(env: dict, number: int) -> str:
+    """An issue's state on the git host, read by number — never off the
+    open listing, which may still show a just-closed ticket."""
+    issue = github_api(env, "GET", f"/repos/{target_slug(env)}/issues/{number}").json()
+    return str(issue.get("state") or "missing")
+
+
+def platform_closes(story: list[dict], tool: str) -> list[dict]:
+    """The allowed platform-lifecycle calls of a closing tool (`issues.close`,
+    `git.close_pr`) a run's audit story recorded, in order."""
+    return [
+        e
+        for e in story
+        if e["tool"] == tool and e["decision"] == "allow" and e["lifecycle"] == "platform"
+    ]
+
+
+def assert_merge_closed_tickets(
+    env: dict, story: list[dict], pr: int, tickets: list[int]
+) -> None:
+    """The merge's consequence, on the host and in the ledger: every ticket
+    the merged PR fulfilled reads closed, and the review run's story closed
+    them under the platform identity strictly after the merge, naming it."""
+    for number in tickets:
+        assert issue_state(env, number) == "closed", f"ticket #{number} still open"
+    closes = platform_closes(story, "issues.close")
+    assert len(closes) >= len(tickets), closes
+    merges = [
+        i
+        for i, e in enumerate(story)
+        if e["tool"] == "git.merge_pr" and e["decision"] == "allow"
+    ]
+    assert merges and max(merges) < story.index(closes[0]), (
+        "a ticket closed before the merge landed"
+    )
+    assert all(f"#{pr}" in (e["rationale"] or "") for e in closes), closes
+
+
 def gate_merge_rules(story: list[dict]) -> list[str]:
     """The merge-gate rules a run's audit story recorded, in order."""
     return [e["rule"] for e in story if e["tool"] == gate_event(MERGE_GATE)]
