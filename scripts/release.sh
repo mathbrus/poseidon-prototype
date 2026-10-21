@@ -43,7 +43,10 @@ if [ -n "$LAST" ]; then
     || fail "$new_core is below the last release ($LAST)"
 fi
 
-NOTES=$(awk '/^## \[Unreleased\]/{on=1; next} /^## \[/{on=0} on' CHANGELOG.md)
+# The Unreleased section, without the blank lines that frame it: the
+# release's notes, the tag's message and the commit's body.
+NOTES=$(awk '/^## \[Unreleased\]/{on=1; next} /^## \[/{on=0} on' CHANGELOG.md \
+  | sed -e '1{/^$/d}' -e '${/^$/d}')
 [ -n "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ] || fail "CHANGELOG.md has nothing under Unreleased"
 
 ci=$(gh run list --workflow ci --commit "$(git rev-parse HEAD)" --json status,conclusion --limit 1 \
@@ -61,17 +64,13 @@ assert text.count(head) == 1
 path.write_text(text.replace(head, f"{head}\n## [{version}] - {date}\n", 1))
 EOF
 notes=$(mktemp)
-{
-  echo "$TAG"
-  echo
-  printf '%s\n' "$NOTES" | sed -e '1{/^$/d}' -e '${/^$/d}'
-} >"$notes"
+printf '%s\n\n%s\n' "$TAG" "$NOTES" >"$notes"
 
 git add -A
 git commit -q -F - <<EOF
 release: $TAG
 
-$(printf '%s\n' "$NOTES" | sed -e '1{/^$/d}' -e '${/^$/d}')
+$NOTES
 EOF
 git tag -a "$TAG" -F "$notes"
 git push -q origin master "$TAG"

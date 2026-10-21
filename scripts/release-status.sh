@@ -25,15 +25,17 @@ echo "master: $(git log -1 --format='%h, %ad' --date=short "$HEAD_REF"), $(git r
 
 echo
 echo "pull requests merged since $BASE:"
-MERGED=$(git log --merges --first-parent --format='%s' "$BASE..$HEAD_REF" \
-  | sed -n 's/^Merge pull request #\([0-9]*\) .*/\1/p')
+# A merge commit's subject names the pull request, its body's first line
+# is the pull request's title; one pass yields "number<TAB>title".
+MERGED=$(git log --merges --first-parent --format='%s%x1f%b' "$BASE..$HEAD_REF" \
+  | sed -n 's/^Merge pull request #\([0-9]*\) [^\x1f]*\x1f\(.*\)$/\1\t\2/p')
 if [ -z "$MERGED" ]; then
   echo "  none"
 fi
-for number in $MERGED; do
-  title=$(git log --merges --first-parent --format='%b' --grep="pull request #$number " "$BASE..$HEAD_REF" | head -1)
+while IFS=$'\t' read -r number title; do
+  [ -z "$number" ] && continue
   echo "  #$number  $title"
-done
+done <<<"$MERGED"
 
 echo
 echo "user-visible surfaces touched since $BASE (any → a release is due, and a minor):"
@@ -68,7 +70,7 @@ else
   printf '%s\n' "$UNRELEASED" | sed 's/^/  /'
 fi
 missing=""
-for number in $MERGED; do
+for number in $(cut -f1 <<<"$MERGED"); do
   if ! grep -q "#$number\b" <<<"$UNRELEASED"; then
     missing="$missing #$number"
   fi
