@@ -2,7 +2,7 @@
 conversation the agent host sends.
 
 Scripts the e2e scenarios through the real OpenHands SDK loops in
-`agent.procedures`. The procedure is read from the one line every prompt
+`agent_host.procedures`. The procedure is read from the one line every prompt
 file opens with (`# Poseidon procedure: <name>`, the agent host's
 `PROCEDURE_HEADER`); the scripts are keyed on that name and on the
 conversation so far:

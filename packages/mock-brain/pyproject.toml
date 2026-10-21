@@ -10,14 +10,14 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "agent",
+    "agent-host",
     "httpx>=0.27",
     "openai>=1.40",
     "pytest>=8",
 ]
 
 [tool.uv.sources]
-agent = { workspace = true }
+agent-host = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

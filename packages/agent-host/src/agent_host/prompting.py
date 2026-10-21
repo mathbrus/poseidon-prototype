@@ -40,7 +40,7 @@ from openhands.sdk.context.prompts.sections.static import (
 from openhands.sdk.llm.utils.model_prompt_spec import get_model_prompt_spec
 from openhands.sdk.skills import Skill
 
-from agent.config import AgentSettings
+from agent_host.config import AgentSettings
 from blueprint.documents import DOCUMENT_LABELS
 from common.text import clip_head
 

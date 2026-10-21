@@ -71,7 +71,7 @@ spec:
             # Ephemeral pods run the agent image; the worker
             # resolves gateway FQDNs from the platform namespace.
             - name: AGENT_IMAGE
-              value: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+              value: "{{ .Values.images.agentHost.repository }}:{{ .Values.images.agentHost.tag }}"
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
             - name: MODEL

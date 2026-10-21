@@ -24,7 +24,7 @@ import mkdocs_gen_files
 import typer.main
 import yaml
 
-from agent.models import MODEL_FAMILIES
+from agent_host.models import MODEL_FAMILIES
 from blueprint import tools
 from blueprint.bounds import render_bounds
 from blueprint.catalog import CREW_TEMPLATES, PROCEDURES, ROLES

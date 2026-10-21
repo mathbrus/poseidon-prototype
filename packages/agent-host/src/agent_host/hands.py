@@ -34,8 +34,8 @@ from openhands.sdk.tool.spec import Tool
 from openhands.sdk.tool.tool import DeclaredResources
 from pydantic import Field
 
-from agent.config import AgentSettings
-from agent.gateway_client import ToolCallError
+from agent_host.config import AgentSettings
+from agent_host.gateway_client import ToolCallError
 from common.text import numbered_lines
 
 # Per-procedure tool surfaces — the structural guarantee: implement has

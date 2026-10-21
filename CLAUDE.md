@@ -125,7 +125,7 @@ first.
   acceptance suite is `scripts/acceptance.sh`; `test_acceptance.py` is its
   index and capstone.
 - **Responses API surface**: llm-gateway and mock-brain both speak the
-  OpenAI Responses API; the agent's model table (`agent.models`) picks
+  OpenAI Responses API; the agent's model table (`agent_host.models`) picks
   it per model family. Any new LLM API surface must land in both
   services.
 - **Cluster**: the target environment is kind. Beware that `kind-up`

@@ -216,7 +216,7 @@ runs LiteLLM or this.
   because the gateway meters spend from what the provider reports. The
   usage details blocks (cached, reasoning tokens) are fixed fractions of
   their totals so ledger assertions see nonzero breakdowns.
-- Drives [`agent`](../agent/README.md)'s production SDK loops; the
+- Drives [`agent-host`](../agent-host/README.md)'s production SDK loops; the
   denial texts its scripts recover from are the ones the real gateway
   emits (`git_open_pr_protected_branch`, `egress_not_allowlisted`).
 - Deployed by `deploy/kind/kind-up.sh` via
@@ -239,7 +239,7 @@ history items counted as made calls, and output items shaped so the
 OpenHands SDK's parser accepts them.
 
 `test_contract.py` is the valuable one: it runs the **real agent host**
-(`agent.procedures`) over real HTTP against this server, proving the whole
+(`agent_host.procedures`) over real HTTP against this server, proving the whole
 wire contract — routes, response shape, tool-call JSON, the SDK's
 litellm transport — without a cluster or a paid token. Real HTTP on a
 loopback port, not an in-process ASGI shim, because the SDK's transport

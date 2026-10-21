@@ -16,9 +16,9 @@ from unittest.mock import patch
 import pytest
 from litellm.types.utils import ModelResponse
 
-import agent.procedures as procedures
-from agent.config import AgentSettings
-from agent.gateway_client import ToolCallError
+import agent_host.procedures as procedures
+from agent_host.config import AgentSettings
+from agent_host.gateway_client import ToolCallError
 from blueprint.bounds import render_bounds
 
 RUN_ID = "run-01TESTULID"

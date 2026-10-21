@@ -37,7 +37,7 @@ Before 1.0:
 | the CLI | `packages/cli/src` |
 | the console | `packages/console/src` |
 | the chart | `deploy/helm` |
-| the prompts | `packages/agent/src/agent/prompts` |
+| the prompts | `packages/agent-host/src/agent_host/prompts` |
 
 ## When a release is proposed
 

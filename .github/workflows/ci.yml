@@ -219,7 +219,7 @@ jobs:
           # GPG_KEY is the python base image's public release-signing key
           # fingerprint — not a credential — and cannot be removed from the
           # inherited layer history; everything else *_TOKEN/*_KEY fails.
-          for image in poseidon-agent:ci poseidon-sandbox:ci; do
+          for image in poseidon-agent-host:ci poseidon-sandbox:ci; do
             leaked=$( (docker history --no-trunc --format '{{.CreatedBy}}' "$image"; \
                        docker inspect --format '{{join .Config.Env "\n"}}' "$image") \
               | grep -oE '[A-Za-z_]*_(TOKEN|KEY)=' | sort -u \

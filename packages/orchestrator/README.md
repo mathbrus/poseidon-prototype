@@ -194,7 +194,7 @@ if verified and not error and not (result or {}).get("error"):
 
 `deliver` is a *separate dispatch* whose tool surface is the implement
 surface **plus `open_pr`** (procedure table in the
-[agent README](../agent/README.md)). During implementation the delivery
+[agent-host README](../agent-host/README.md)). During implementation the delivery
 tool does not exist in the model's conversation, so two independent
 mechanisms must both fail for unverified code to ship: the implement
 procedure's toolset has no `open_pr`, and the deliver dispatch is sequenced strictly
@@ -388,7 +388,7 @@ ephemeral-pod provisioner use: each is useless where the other is needed.
   `read_human_verdict` reads back. It also submits the Company and
   AgentInstance CRs the applied blueprint comes from; this package reads
   the result (workflow, gate and sandbox config) from the registry.
-- [`agent`](../agent/README.md) over HTTP for dispatch.
+- [`agent-host`](../agent-host/README.md) over HTTP for dispatch.
 
 ## Tests
 

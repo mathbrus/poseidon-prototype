@@ -21,7 +21,7 @@ an agent role.
 
 A detail worth noticing: the action schemas the model sees contain no
 `run_id` and no `target_repo`. The agent host injects both at call time
-(`packages/agent/src/agent/hands.py`), so the model cannot forge what it
+(`packages/agent-host/src/agent_host/hands.py`), so the model cannot forge what it
 cannot name. And because that injection happens inside the agent's own pod,
 it is not trusted either: the gateway independently checks the claimed
 `run_id` against the caller's registry binding, and a mismatch resolves to

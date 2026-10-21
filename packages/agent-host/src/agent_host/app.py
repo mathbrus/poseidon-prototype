@@ -11,7 +11,7 @@ any model call — defence in depth under the gateway's tool policy, not a
 substitute for it. Every procedure acts under the pod's own projected
 token.
 
-Run with: uvicorn --factory agent.app:create_app
+Run with: uvicorn --factory agent_host.app:create_app
 """
 
 import asyncio
@@ -21,9 +21,9 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from agent import procedures
-from agent.config import AgentSettings
-from agent.procedures import ProcedureResult
+from agent_host import procedures
+from agent_host.config import AgentSettings
+from agent_host.procedures import ProcedureResult
 from blueprint.catalog import ROLES
 from common.telemetry import get_logger
 
@@ -95,7 +95,7 @@ def create_app(
     }
 
     log = get_logger("agent")
-    app = FastAPI(title="poseidon-agent")
+    app = FastAPI(title="poseidon-agent-host")
     tasks: dict[str, TaskStatus] = {}
     background: set[asyncio.Task] = set()
 

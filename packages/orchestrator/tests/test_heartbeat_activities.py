@@ -49,7 +49,7 @@ def settings(tmp_path) -> WorkerSettings:
         opa_url="http://opa.test:8181",
         platform_namespace=PLATFORM_NAMESPACE,
         sandbox_image="poseidon-sandbox:abc123",
-        agent_image="poseidon-agent:abc123",
+        agent_image="poseidon-agent-host:abc123",
         model="mock-brain",
         egress_proxy_url="http://127.0.0.1:3128",
         egress_proxy_key="egress-key",

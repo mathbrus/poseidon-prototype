@@ -3,8 +3,8 @@ carries its answer to the SDK."""
 
 import pytest
 
-from agent.models import MODEL_FAMILIES, family_of
-from agent.procedures import build_llm
+from agent_host.models import MODEL_FAMILIES, family_of
+from agent_host.procedures import build_llm
 
 CASES = [(example, family) for family in MODEL_FAMILIES for example in family.examples]
 

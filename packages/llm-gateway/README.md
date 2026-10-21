@@ -42,11 +42,11 @@ To the agent all of this is invisible. The gateway speaks plain OpenAI
 on port 4000 — the port agents already expect for model access — on
 **both** OpenAI surfaces: chat completions and the Responses API
 (`/responses`, `/v1/responses`). The agent's model table
-(`agent.models`) sends every current OpenAI family over Responses, so
+(`agent_host.models`) sends every current OpenAI family over Responses, so
 the second surface is what keeps "pointing an off-the-shelf SDK at
 governed model access is a URL change and nothing else" true for those
 models. The agent host builds an ordinary LiteLLM-style client whose
-`base_url` points here (`agent.procedures.build_llm`).
+`base_url` points here (`agent_host.procedures.build_llm`).
 
 ## The pipeline
 
@@ -208,7 +208,7 @@ read — a real model legitimately thinks for minutes.
   for attribution and the per-run cap;
   `registry.AuditStore` for `source=llm-gateway` events.
 - `agent` builds its LLM client against this service and injects the
-  run header (`agent.procedures.build_llm`).
+  run header (`agent_host.procedures.build_llm`).
 - `orchestrator` turns the surfaced `budget_exhausted` error into the
   parked state, escalation, and `process-gate` audit events.
 - [`mock-brain`](../mock-brain/README.md) is the upstream in development;

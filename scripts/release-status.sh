@@ -45,7 +45,7 @@ the blueprint and its policy|packages/blueprint/src packages/compiler/src crds e
 the CLI|packages/cli/src
 the console|packages/console/src
 the chart|deploy/helm
-the prompts|packages/agent/src/agent/prompts
+the prompts|packages/agent-host/src/agent_host/prompts
 '
 touched=0
 while IFS='|' read -r surface paths; do

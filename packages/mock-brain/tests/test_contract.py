@@ -1,10 +1,10 @@
 """The free e2e rehearsal: the real agent host
-(`agent.procedures`) driven over real HTTP against the mock server — proving the
+(`agent_host.procedures`) driven over real HTTP against the mock server — proving the
 whole wire contract (routes, response shape, tool-call JSON, the SDK's
 litellm transport) without a cluster or a paid token.
 
 The gateway double mirrors the real policy behaviour the same way
-packages/agent/tests/conftest.py does: `main` delivery raises the
+packages/agent-host/tests/conftest.py does: `main` delivery raises the
 `git_open_pr_protected_branch` denial, feature branches succeed. The mock
 server runs on a loopback port because the SDK's LLM transport is litellm —
 a real HTTP client, not an injectable ASGI transport.
@@ -24,10 +24,10 @@ import httpx
 import pytest
 import uvicorn
 
-import agent.procedures as procedures
-from agent.config import AgentSettings
-from agent.gateway_client import ToolCallError
-from agent.procedures import (
+import agent_host.procedures as procedures
+from agent_host.config import AgentSettings
+from agent_host.gateway_client import ToolCallError
+from agent_host.procedures import (
     run_deliver,
     run_implement,
     run_review,
@@ -90,7 +90,7 @@ def settings(llm_url: str, model: str = "mock-brain") -> AgentSettings:
 
 @pytest.fixture(autouse=True)
 def three_verify_cycles(monkeypatch):
-    from agent import procedures
+    from agent_host import procedures
 
     monkeypatch.setattr(procedures, "VERIFY_CYCLES", 3)
 

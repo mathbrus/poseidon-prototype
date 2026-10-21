@@ -115,7 +115,7 @@ spec:
             - name: PLATFORM_NAMESPACE
               value: {{ .Release.Namespace | quote }}
             - name: AGENT_IMAGE
-              value: "{{ .Values.images.agent.repository }}:{{ .Values.images.agent.tag }}"
+              value: "{{ .Values.images.agentHost.repository }}:{{ .Values.images.agentHost.tag }}"
             - name: MODEL
               value: {{ .Values.run.model | quote }}
             - name: OPA_URL

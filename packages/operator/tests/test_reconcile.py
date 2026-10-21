@@ -124,7 +124,7 @@ def operator_settings(monkeypatch) -> None:
         OperatorSettings(
             platform_namespace=PLATFORM_NAMESPACE,
             model="mock-brain",
-            agent_image="poseidon-agent:abc123",
+            agent_image="poseidon-agent-host:abc123",
             opa_url="http://opa.test:8181",
         ),
     )

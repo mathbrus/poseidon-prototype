@@ -5,9 +5,9 @@ import asyncio
 import httpx
 import pytest
 
-from agent.app import create_app
-from agent.config import AgentSettings
-from agent.procedures import ProcedureResult
+from agent_host.app import create_app
+from agent_host.config import AgentSettings
+from agent_host.procedures import ProcedureResult
 
 pytestmark = pytest.mark.anyio
 

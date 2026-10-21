@@ -21,8 +21,8 @@ from conftest import (
     text_of,
 )
 
-from agent.hands import REVIEW_TOOLS
-from agent.procedures import (
+from agent_host.hands import REVIEW_TOOLS
+from agent_host.procedures import (
     build_llm,
     run_decide,
     run_deliver,
@@ -30,7 +30,7 @@ from agent.procedures import (
     run_review,
     run_scope,
 )
-from agent.prompting import system_prompt
+from agent_host.prompting import system_prompt
 
 TASK = "Add a `greet(name)` function to src/hello.py with a test."
 
@@ -394,7 +394,7 @@ def test_budget_429_surfaces_the_marker_without_retry_grind(settings, gateway):
 
     from conftest import FakeBridge
 
-    import agent.procedures as procedures
+    import agent_host.procedures as procedures
 
     with patch.object(
         procedures, "GatewayBridge", lambda url, token: FakeBridge(gateway)
@@ -416,7 +416,7 @@ def test_reviewer_step_budget_is_its_own_cap_not_verify_cycles(settings, gateway
     `VERIFY_CYCLES` — that cap bounds implement's verify cycles and must
     not starve the reviewer of the steps a diff-read, a test run, findings
     and a verdict take."""
-    from agent.procedures import REVIEW_STEP_CAP, VERIFY_CYCLES
+    from agent_host.procedures import REVIEW_STEP_CAP, VERIFY_CYCLES
 
     assert REVIEW_STEP_CAP > VERIFY_CYCLES * 2
     llm = ScriptedLLM(
@@ -446,7 +446,7 @@ def test_llm_carries_run_attribution_and_single_attempt(settings):
 def test_prompt_rendering_survives_stray_braces(tmp_path, settings, monkeypatch):
     """Prompt files are edited as prose: a brace added to the text must
     stay literal text, never a format crash or a format-spec evaluation."""
-    from agent import prompting
+    from agent_host import prompting
 
     monkeypatch.setattr(prompting, "PROMPTS_DIR", tmp_path)
     (tmp_path / "implement.md").write_text(
@@ -465,7 +465,7 @@ def test_prompt_rendering_survives_stray_braces(tmp_path, settings, monkeypatch)
 def test_a_prompt_without_the_bounds_is_refused(tmp_path, settings, monkeypatch):
     """The bounds bind every procedure; a prompt file that leaves them out
     is a packaging error, refused before any model call."""
-    from agent import prompting
+    from agent_host import prompting
 
     monkeypatch.setattr(prompting, "PROMPTS_DIR", tmp_path)
     (tmp_path / "scope.md").write_text("# Poseidon procedure: scope\n{vision}\n")
@@ -476,7 +476,12 @@ def test_a_prompt_without_the_bounds_is_refused(tmp_path, settings, monkeypatch)
 def test_every_prompt_opens_with_its_own_header(settings):
     """The header is the mock brain's whole procedure key and the host's own
     packaging check: each procedure's file names exactly that procedure."""
-    from agent.prompting import PROCEDURE_HEADER, PROMPTS_DIR, SECTIONS, render_procedure
+    from agent_host.prompting import (
+        PROCEDURE_HEADER,
+        PROMPTS_DIR,
+        SECTIONS,
+        render_procedure,
+    )
 
     assert {p.stem for p in PROMPTS_DIR.glob("*.md")} == set(SECTIONS)
     for procedure in SECTIONS:
@@ -486,7 +491,7 @@ def test_every_prompt_opens_with_its_own_header(settings):
 
 
 def test_a_prompt_naming_another_procedure_is_refused(tmp_path, settings, monkeypatch):
-    from agent import prompting
+    from agent_host import prompting
 
     monkeypatch.setattr(prompting, "PROMPTS_DIR", tmp_path)
     (tmp_path / "review.md").write_text("# Poseidon procedure: implement\nwrong")
@@ -709,7 +714,7 @@ def test_the_vision_reaches_every_procedure_but_deliver(settings):
 def test_model_family_guidance_follows_the_model():
     """The SDK's per-family block renders for a model it recognises and
     stays out for one it does not (the mock brain)."""
-    from agent.prompting import SECTIONS, compose
+    from agent_host.prompting import SECTIONS, compose
 
     coding = SECTIONS["implement"]
     claude = compose("# procedure", coding, "anthropic/claude-sonnet-4-5")

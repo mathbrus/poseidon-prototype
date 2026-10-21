@@ -2,7 +2,7 @@
 packages spell it independently (the mock image carries no agent code), so
 the spelling is pinned here rather than trusted."""
 
-from agent.prompting import PROCEDURE_HEADER as HOST_HEADER
+from agent_host.prompting import PROCEDURE_HEADER as HOST_HEADER
 from mock_brain.brain import PROCEDURE_HEADER as MOCK_HEADER
 
 

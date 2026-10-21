@@ -1,4 +1,4 @@
-# agent
+# agent-host
 
 The agent host: the dispatch HTTP API and the OpenHands Agent SDK
 running as a library behind Poseidon contracts. This is the only package
@@ -275,10 +275,10 @@ land before its checkout.
 ## Entry points
 
 ```
-uvicorn --factory agent.app:create_app --host 0.0.0.0 --port 8000
+uvicorn --factory agent_host.app:create_app --host 0.0.0.0 --port 8000
 ```
 
-`poseidon-agent` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and ephemeral
+`poseidon-agent-host` (the root `Dockerfile`, built by `deploy/build-images.sh`) is the image both standing agents and ephemeral
 agents run; the pod spec supplies `MCP_GATEWAY_URL`, `LLM_PROXY_URL`,
 `MODEL`, `TARGET_REPO` and `VISION` (the company's repository and
 vision, from its applied blueprint), `ROLE` (the catalog role, which
@@ -303,7 +303,7 @@ is a constant of the host, not a knob of the deployment.
 ## Tests
 
 ```
-uv run pytest packages/agent
+uv run pytest packages/agent-host
 ```
 
 The unit suite drives the **production** SDK loops: only the

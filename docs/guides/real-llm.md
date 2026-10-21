@@ -46,7 +46,7 @@ holds `POSEIDON_CONSOLE_URL`, where the `poseidon` CLI reaches the console
 
 The agent host picks the wire shape (OpenAI Responses or chat
 completions) and whether to send a reasoning effort from a table by
-model **family**, `agent.models`, so a new release in a known family
+model **family**, `agent_host.models`, so a new release in a known family
 needs no change anywhere. Poseidon speaks one reasoning knob,
 `reasoning_effort`; LiteLLM translates it per provider. A model no row
 names keeps the OpenHands SDK's own guess, as the mock brain does.

@@ -5,7 +5,7 @@ description = "Poseidon — agent companies under declarative governance"
 requires-python = ">=3.12"
 dependencies = [
     "common",
-    "agent",
+    "agent-host",
     "mcp-gateway",
     "sandbox",
     "orchestrator",
@@ -52,7 +52,7 @@ ignore = ["B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = [
-    "agent", "common", "compiler", "console", "llm_gateway", "mcp_gateway",
+    "agent_host", "common", "compiler", "console", "llm_gateway", "mcp_gateway",
     "mock_brain", "orchestrator", "poseidon_cli", "poseidon_operator", "registry",
     "blueprint", "sandbox",
 ]
@@ -67,7 +67,7 @@ addopts = "-m 'not e2e_kind'"
 
 [tool.uv.sources]
 common = { workspace = true }
-agent = { workspace = true }
+agent-host = { workspace = true }
 mcp-gateway = { workspace = true }
 sandbox = { workspace = true }
 orchestrator = { workspace = true }

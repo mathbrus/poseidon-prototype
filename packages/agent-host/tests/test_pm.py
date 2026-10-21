@@ -14,8 +14,8 @@ from conftest import (
     text_of,
 )
 
-from agent.config import AgentSettings
-from agent.procedures import run_scope
+from agent_host.config import AgentSettings
+from agent_host.procedures import run_scope
 
 SUMMARY = "Set up: ticket 7 for the feature-delivery crew."
 

@@ -17,7 +17,7 @@ are not mirrored here; the table links to them.
 | [`llm-gateway`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |
 | [`console`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/console/README.md) | The human's chokepoint: verify the person, ask policy, act, audit |
 | [`cli`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/cli/README.md) | `poseidon-cli`: the `poseidon` CLI and the console client it is built on |
-| [`agent`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/agent/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
+| [`agent-host`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/agent-host/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
 | [`sandbox`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
 | [`mock-brain`](https://github.com/mathbrus/poseidon-prototype/blob/master/packages/mock-brain/README.md) | The deterministic brain that makes e2e runs free |
 

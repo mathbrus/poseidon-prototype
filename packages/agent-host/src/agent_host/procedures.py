@@ -5,7 +5,7 @@ The SDK owns the reasoning loop, context machinery and coding heuristics —
 nothing else. Enforced boundaries:
 
 - Every side effect is a Hands tool resolving to a gateway MCP call
-  (`agent.hands`); the host holds the only credential and the SDK's default
+  (`agent_host.hands`); the host holds the only credential and the SDK's default
   tools are control flow only (finish/think). The OpenHands built-ins and
   its sub-agent machinery (`TaskToolSet`) are never installed or registered.
 - The host starts and stops no sandboxes and owns no process-level
@@ -47,9 +47,9 @@ from openhands.sdk.context import AgentContext
 from openhands.sdk.llm import Message, TextContent
 from pydantic import BaseModel, SecretStr
 
-from agent.config import AgentSettings
-from agent.gateway_client import McpGateway, ToolCallError
-from agent.hands import (
+from agent_host.config import AgentSettings
+from agent_host.gateway_client import McpGateway, ToolCallError
+from agent_host.hands import (
     DELIVER_TOOLS,
     IMPLEMENT_TOOLS,
     REVIEW_TOOLS,
@@ -59,8 +59,8 @@ from agent.hands import (
     ToolRecords,
     hands,
 )
-from agent.models import family_of
-from agent.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_context
+from agent_host.models import family_of
+from agent_host.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_context
 from common.telemetry import get_logger
 from common.text import clip_tail
 from common.topology import RUN_ID_HEADER
@@ -89,7 +89,7 @@ CONDENSER_KEEP_FIRST = 4
 TOOL_CONCURRENCY = 4
 _OUTPUT_CLIP = 4000
 
-log = get_logger("agent.procedures")
+log = get_logger("agent_host.procedures")
 
 
 class ProcedureResult(BaseModel):

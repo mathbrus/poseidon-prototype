@@ -22,8 +22,8 @@ images:
     # Images are side-loaded on kind (`kind load docker-image`); IfNotPresent
     # keeps the kubelet from trying to pull them from a registry.
     pullPolicy: IfNotPresent
-  agent:
-    repository: poseidon-agent
+  agentHost:
+    repository: poseidon-agent-host
     tag: latest
     pullPolicy: IfNotPresent
   opa:
