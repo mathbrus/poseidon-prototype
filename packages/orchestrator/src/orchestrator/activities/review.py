@@ -185,6 +185,12 @@ class ReviewActivities:
     def _company(self) -> str:
         return applied_company(self._companies)
 
+    def _first_learned_merged(self, company: str, pr_number: int) -> bool:
+        """Whether the company delivered this PR and nothing has yet
+        recorded it settled — the one moment its tickets close."""
+        delivering = self._runs.implement_run_for_pr(company, pr_number)
+        return delivering is not None and delivering.pr_settled is None
+
     @activity.defn(name="read_pr")
     async def read_pr(
         self, run_id: str, pr_number: int, contract_paths: list[str] | None = None
@@ -199,36 +205,29 @@ class ReviewActivities:
         state is the git host's word at the moment of the read. A settled
         PR is a refusal with a named rule, journaled in the run's story,
         never a crash further down at a branch that no longer exists."""
+        company = self._company()
+        repo_url = (await self._repo())["url"]
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
-            pr = await gateway.read_pr(run_id, (await self._repo())["url"], pr_number)
-        settled = pr_settled(pr)
-        if settled:
-            company = self._company()
-            delivering = await asyncio.to_thread(
-                self._runs.implement_run_for_pr, company, pr_number
-            )
-            if (
-                settled == "merged"
-                and delivering is not None
-                and delivering.pr_settled is None
+            pr = await gateway.read_pr(run_id, repo_url, pr_number)
+            settled = pr_settled(pr)
+            if settled == "merged" and await asyncio.to_thread(
+                self._first_learned_merged, company, pr_number
             ):
                 # Merged outside the platform, first learned here: the
-                # tickets it fulfils close now, before the settle is
-                # remembered, so a retry of this read closes them still.
-                async with GatewayClient(
-                    self._settings.mcp_gateway_url, self._settings.gateway_token()
-                ) as gateway:
-                    await close_fulfilled_tickets(
-                        gateway,
-                        self._runs,
-                        company,
-                        run_id,
-                        (await self._repo())["url"],
-                        pr_number,
-                        merged_outside_rationale(pr_number),
-                    )
+                # tickets it fulfils close before the settle is remembered,
+                # so a retry of this read still closes them.
+                await close_fulfilled_tickets(
+                    gateway,
+                    self._runs,
+                    company,
+                    run_id,
+                    repo_url,
+                    pr_number,
+                    merged_outside_rationale(pr_number),
+                )
+        if settled:
             # Learned here, remembered here: no later observation reads
             # this PR again.
             await asyncio.to_thread(

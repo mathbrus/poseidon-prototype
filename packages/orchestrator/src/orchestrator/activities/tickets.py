@@ -72,9 +72,9 @@ async def close_fulfilled_tickets(
     ticket = await asyncio.to_thread(consumed_ticket, runs, company, pr_number)
     if ticket is None:
         return []
-    consumed = await gateway.read_issue(run_id, repo_url, ticket)
-    chain = {ticket: consumed}
-    match = REWORK_TITLE_RE.match(str(consumed.get("title") or ""))
+    fulfilled = await gateway.read_issue(run_id, repo_url, ticket)
+    chain = {ticket: fulfilled}
+    match = REWORK_TITLE_RE.match(str(fulfilled.get("title") or ""))
     if match:
         root_pr = int(match.group(2))
         root = await asyncio.to_thread(consumed_ticket, runs, company, root_pr)
