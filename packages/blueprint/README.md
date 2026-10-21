@@ -158,7 +158,7 @@ the schema and the catalogs.
 - The [`console`](../console/README.md) (`preview`, `apply`) and
   `python -m compiler` call `load_blueprint` before compiling, so authors
   see these errors first.
-- [`gateway`](../mcp-gateway/README.md) implements the same tool names.
+- [`mcp-gateway`](../mcp-gateway/README.md) implements the same tool names.
   It does not import this package — the correspondence is kept by hand,
   so adding a tool means adding it in both places, this one first.
 

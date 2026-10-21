@@ -170,7 +170,7 @@ Export stays env-gated at runtime either way.
 
 ## Cross-package interactions
 
-- [`gateway`](../mcp-gateway/README.md) and
+- [`mcp-gateway`](../mcp-gateway/README.md) and
   [`llm-gateway`](../llm-gateway/README.md) both construct an
   `Authenticator`; their settings classes inherit `AuthnSettings`.
   [`console`](../console/README.md) constructs one in human mode, and

@@ -1,7 +1,7 @@
 # llm-gateway
 
 The LLM gateway: the one route to any model. Where the MCP gateway
-([`gateway`](../mcp-gateway/README.md)) governs what an agent can *do*, this
+([`mcp-gateway`](../mcp-gateway/README.md)) governs what an agent can *do*, this
 service governs what an agent can *spend* — and both verify the same
 workload credentials against the same registry state, with the same
 `Authenticator`.

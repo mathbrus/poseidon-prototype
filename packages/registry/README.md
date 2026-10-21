@@ -230,7 +230,7 @@ and audit events are not optional.
 - [`console`](../console/README.md) writes audit events (`source=console`,
   under the person's name) and reads on a human's behalf: `Runs.since`,
   `BudgetLedger.spent_since`, `AuditStore.story` and `Registry.now`.
-- [`gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`
+- [`mcp-gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`
   and audit events; reads `agent_instances` (workload identity),
   `run_participants` (ephemeral identity backing) and
   `sandbox_registrations` (run binding).

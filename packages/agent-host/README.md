@@ -205,7 +205,7 @@ or forge what it cannot name. And because this injection runs inside the
 agent's own pod — exactly the process assumed compromised — the gateway
 does not trust it either: it re-verifies the claimed `run_id` against the
 caller's registry binding on every call
-([gateway](../mcp-gateway/README.md)). The injection is hygiene; the binding
+([`mcp-gateway`](../mcp-gateway/README.md)). The injection is hygiene; the binding
 check is the enforcement.
 
 Three more mechanisms worth knowing:
@@ -288,7 +288,7 @@ is a constant of the host, not a knob of the deployment.
 
 ## Cross-package interactions
 
-- Every side effect goes to [`gateway`](../mcp-gateway/README.md) over MCP.
+- Every side effect goes to [`mcp-gateway`](../mcp-gateway/README.md) over MCP.
 - Model access goes to [`llm-gateway`](../llm-gateway/README.md),
   authenticated with the same workload credential and attributed to the
   run via the `X-Poseidon-Run-Id` header. `num_retries=1` keeps the SDK

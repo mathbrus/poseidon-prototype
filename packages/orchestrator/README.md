@@ -374,7 +374,7 @@ ephemeral-pod provisioner use: each is useless where the other is needed.
 
 ## Cross-package interactions
 
-- [`gateway`](../mcp-gateway/README.md) for every governed call, including
+- [`mcp-gateway`](../mcp-gateway/README.md) for every governed call, including
   its own platform-lifecycle ones (`repo.archive`, sandbox registration,
   `sandbox.run_tests`, `git.read`, `git.merge_pr`, `issues.close`,
   `git.close_pr`).
