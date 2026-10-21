@@ -154,7 +154,7 @@ _TOOLS = {
 # One gate shape: a gate names its resolver and how long it waits for a
 # human (escalation fires at half of that, expiry at the end), and differs
 # only in which resolvers it allows and what a resolver reads. A gate
-# nobody declares is a stop nobody takes — for merge that means the review
+# nobody declares is a gate nobody passes — for merge that means the review
 # ends without merging at all, an unattended auto-merge being no default
 # anyone gets. The deadline is explicit because a defaulted wait is
 # patience nobody wrote down.

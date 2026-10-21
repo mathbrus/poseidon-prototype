@@ -80,7 +80,7 @@ What the suite proves, and where:
                   merges and names the person); test_review_gate (the release
                   read the recorded verdict); HERE: the console's rows are
                   among the six sources.
- 13 the pause    test_pause (`poseidon pause` freezes the heartbeat and
+ 13 the pause    test_pause (`poseidon pause` holds the heartbeat and
                   nothing else: a paused tick on a startable backlog starts
                   nothing and names the person, a wake leaves it paused, a
                   stranger cannot lift it, a resume starts the held work,

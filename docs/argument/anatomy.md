@@ -296,7 +296,7 @@ The PM proposes; the platform disposes; the human declares the backstop
 cadence and the caps and answers the merge gate. Nothing about a run
 changes — the same fulfilment, verify, delivery, review and gate above —
 only that nobody pressed start. Pausing the company (`poseidon pause`)
-freezes the heartbeat and nothing else: a paused tick starts nothing and
+holds the heartbeat and nothing else: a paused tick starts nothing and
 says who holds it, runs in flight finish, and everything stays to be
 read until `poseidon resume`. Stopping the company is deleting it; there
 is no company without a heartbeat.

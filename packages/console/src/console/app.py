@@ -102,7 +102,7 @@ ROUTES: tuple[tuple[str, str, str, str], ...] = (
     (
         "POST",
         "/heartbeat/pause",
-        "freeze the loop: it starts nothing until resumed; runs in flight finish",
+        "hold the loop: it starts nothing until resumed; runs in flight finish",
         HEARTBEAT_PAUSE,
     ),
     ("POST", "/heartbeat/resume", "lift the pause and wake the loop", HEARTBEAT_RESUME),

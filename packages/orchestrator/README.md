@@ -167,7 +167,7 @@ child run is abandoned, not supervised: the tick starts
 work, it does not supervise it — progress and gates belong to the run. Every tick
 outcome — started, idle and why, refused and why — is an audit event
 under the `heartbeat-{company}` run id, and the daily-cap halt is a
-`process-gate` event like a per-run budget stop.
+`process-gate` event like a per-run budget park.
 
 Every run begins with `check_budget`: a run born with no headroom under
 the per-run cap fails before anything is dispatched. Enforcement itself

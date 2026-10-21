@@ -50,7 +50,8 @@ the bar in five places:
   them.
 - **Authority** — every consequence is decided by policy a human can read,
   diff and revoke. Injection is assumed; containment is positional; spend is
-  a stop, not a warning.
+  a gate, not a warning: an exhausted budget parks the run until a human
+  answers.
 
 This is a working prototype, and it is honest about the distance still to
 travel. The destination is a company that lives in the cloud and actuates on

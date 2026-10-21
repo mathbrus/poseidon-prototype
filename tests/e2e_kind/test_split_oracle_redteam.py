@@ -333,8 +333,8 @@ def test_the_red_contract_fed_the_bounded_rework_loop(laundered: dict):
     record, not an abandoned run."""
     story = audit_story(laundered["review_run_id"])
     rules = gate_merge_rules(story)
-    assert rules == ["gate_rework_exhausted", "gate_escalated", "gate_timed_out"], rules
-    assert laundered["review"].get("error") == "merge gate timed_out"
+    assert rules == ["gate_rework_exhausted", "gate_escalated", "gate_expired"], rules
+    assert laundered["review"].get("error") == "merge gate expired"
 
 
 def test_the_reviewer_verdict_was_journaled_either_way(laundered: dict):

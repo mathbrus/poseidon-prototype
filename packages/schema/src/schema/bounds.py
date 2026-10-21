@@ -1,4 +1,4 @@
-"""The bounds: the charter's gates and stops as they bind one company's
+"""The bounds: the charter's gates and limits as they bind one company's
 work, said once.
 
 Compiled policy enforces the blueprint at the gateway, and a denial names

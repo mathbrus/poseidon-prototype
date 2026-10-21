@@ -1,4 +1,4 @@
-"""A human holds the company: `poseidon pause` freezes the standing
+"""A human holds the company: `poseidon pause` holds the standing
 heartbeat and nothing else, proven live.
 
 The pause is a console act like `wake` and `delete` — decided against
