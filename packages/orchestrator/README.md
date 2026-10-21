@@ -48,12 +48,12 @@ is safe (upsert, read-only, 409-reattach, idempotent destroy).
 Two visible consequences:
 
 - **Timeouts are the deployment's profile**, not the run's: the right
-  bounds depend on the *brain* the deployment runs — a real LLM takes
+  sizing depends on the *brain* the deployment runs — a real LLM takes
   minutes per step, the deterministic mock answers in milliseconds. The
   worker's `TIMEOUT_PROFILE` (`default` or `fast`, set by the chart) rides
   into every workflow through its first config activity, since workflow
   code cannot read the environment; the few registry round trips before
-  that use one bootstrap bound. Bounds are per activity, never a
+  that use one bootstrap timeout. Timeouts are per activity, never a
   workflow-level execution timeout — that would hard-kill the run without
   compensation.
 - **Workflows reference activities by name** (`"fulfill_crew"`, not an

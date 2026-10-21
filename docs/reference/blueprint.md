@@ -120,7 +120,7 @@ catalog's list.
 
 The two crewed workflows of the SDLC in
 [Anatomy of a run](../argument/anatomy.md): which crew fulfils each, the
-bounds it reads and the gates it parks on, nothing else. `scope` has no
+limits it reads and the gates it parks on, nothing else. `scope` has no
 node — it dispatches the conductor directly and configures nothing — and
 no workflow names a conductor: who conducts the company's runs is
 `heartbeat.conductor`, and what it may start on its own is

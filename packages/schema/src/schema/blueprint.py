@@ -195,16 +195,16 @@ _MERGE_GATE = _gate(["human", "policy"], {"delegate": _MERGE_DELEGATION})
 
 
 def _workflow(
-    gates: dict[str, Any] | None, bounds: dict[str, Any] | None = None
+    gates: dict[str, Any] | None, limits: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """One crewed workflow node: the crew that fulfils its runs, the bounds
+    """One crewed workflow node: the crew that fulfils its runs, the limits
     it reads and the gates it parks on — nothing else. Which workflows the
     company runs is `heartbeat.may_start`; who conducts them is
     `heartbeat.conductor`; each is said once. A merge gate on implement,
-    or a verify bound on review, was never a meaningful thing to write, so
-    it is not a writable thing. Bounds are required: a defaulted bound is
+    or a verify limit on review, was never a meaningful thing to write, so
+    it is not a writable thing. Limits are required: a defaulted limit is
     authority nobody wrote down."""
-    properties: dict[str, Any] = {"crew": _NAME, **(bounds or {})}
+    properties: dict[str, Any] = {"crew": _NAME, **(limits or {})}
     if gates:
         properties["gates"] = {
             "type": "object",
@@ -214,7 +214,7 @@ def _workflow(
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["crew", *(bounds or {})],
+        "required": ["crew", *(limits or {})],
         "properties": properties,
     }
 

@@ -43,14 +43,14 @@ def gate_deadline(minutes: int) -> dict[str, timedelta]:
 
 @dataclass
 class Timeouts:
-    """Per-activity bounds — the deployment's timeout profile.
+    """Per-activity timeouts — the deployment's profile.
 
     Steps are bounded per activity, not per workflow: a workflow-level
     execution timeout would hard-kill without running compensation.
 
     The sizing depends on the *brain* the deployment runs: a real LLM
     legitimately takes minutes per step, while the deterministic mock
-    answers in milliseconds — and against the mock the generous bounds turn
+    answers in milliseconds — and against the mock the generous timeouts turn
     a fail-fast bug into a quarter hour of waiting on retries. So the
     profile is a worker setting (`TIMEOUT_PROFILE`), and every workflow
     learns it from its first config activity: workflow code cannot read the

@@ -141,7 +141,7 @@ def test_the_company_carries_its_document_paths(blueprint):
 
 def test_workflow_nodes_carry_no_conductor(blueprint):
     """One conductor, named on the heartbeat: a workflow node is its crew,
-    bounds and gates."""
+    limits and gates."""
     plan = compile_blueprint(blueprint)
     assert {w.name: w.crew for w in plan.workflows} == {
         "implement": "feature-delivery",

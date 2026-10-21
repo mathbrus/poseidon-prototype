@@ -27,7 +27,7 @@ composes, and no human starts it. The heartbeat is started by the worker's
 ensure loop, never by a human, and stops itself when the company is gone —
 and it is what starts the three run-shaped workflows.
 
-Activity bounds are not part of any input: the worker's `TIMEOUT_PROFILE`
+Activity timeouts are not part of any input: the worker's `TIMEOUT_PROFILE`
 (`default` for a paid brain, `fast` for the mock) sizes every workflow it
 hosts, and each workflow learns it from its first config activity.
 
