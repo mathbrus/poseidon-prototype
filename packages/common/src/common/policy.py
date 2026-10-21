@@ -45,6 +45,22 @@ HEARTBEAT_RESUME = "heartbeat.resume"
 BLUEPRINT_APPLY = "blueprint.apply"
 COMPANY_DELETE = "company.delete"
 
+# The rules the blueprint's `policies` section and the company's document
+# paths compile to over a delivery (`git.open_pr`), and the repository
+# rule every repository tool shares — spelled once: the compiler emits
+# them, the audit row carries them, and the gateway reads them to say
+# what a denial refused.
+REPO_NOT_DECLARED = "repo_not_declared"
+GIT_OPEN_PR_PROTECTED_BRANCH = "git_open_pr_protected_branch"
+GIT_OPEN_PR_BRANCH_PATTERN = "git_open_pr_branch_pattern"
+GIT_OPEN_PR_PATHS_MISSING = "git_open_pr_paths_missing"
+GIT_OPEN_PR_DENIED_PATHS = "git_open_pr_denied_paths"
+GIT_OPEN_PR_CONTRACT_TREE = "git_open_pr_contract_tree"
+GIT_OPEN_PR_ARCHITECTURE_PATH = "git_open_pr_architecture_path"
+GIT_OPEN_PR_STRATEGY_PATH = "git_open_pr_strategy_path"
+GIT_OPEN_PR_STRATEGY_PRESENT = "git_open_pr_strategy_present"
+GIT_OPEN_PR_STRATEGY_PRESENCE_MISSING = "git_open_pr_strategy_presence_missing"
+
 
 def verdict_rule(gate: str, approved: bool) -> str:
     """The rule a human's verdict on a gate is allowed and recorded under:

@@ -37,11 +37,21 @@ from common.policy import (
     COMPANY_DELETE,
     CREW_REQUEST,
     GATE_RESOLVE,
+    GIT_OPEN_PR_ARCHITECTURE_PATH,
+    GIT_OPEN_PR_BRANCH_PATTERN,
+    GIT_OPEN_PR_CONTRACT_TREE,
+    GIT_OPEN_PR_DENIED_PATHS,
+    GIT_OPEN_PR_PATHS_MISSING,
+    GIT_OPEN_PR_PROTECTED_BRANCH,
+    GIT_OPEN_PR_STRATEGY_PATH,
+    GIT_OPEN_PR_STRATEGY_PRESENCE_MISSING,
+    GIT_OPEN_PR_STRATEGY_PRESENT,
     HEARTBEAT_PAUSE,
     HEARTBEAT_RESUME,
     HEARTBEAT_START,
     HEARTBEAT_WAKE,
     MERGE_RESOLVE,
+    REPO_NOT_DECLARED,
     RUN_CANCEL,
     RUN_START,
     company_package,
@@ -630,14 +640,14 @@ def _policies_file(
         # call naming another one — or none — is denied before the gateway
         # reaches the git host. Fail-closed on a missing argument.
         f"\ndeclared_repo := {json.dumps(repo_url)}\n",
-        '\ndeny_rules contains "repo_not_declared" if {\n'
+        f'\ndeny_rules contains "{REPO_NOT_DECLARED}" if {{\n'
         f"\tinput.tool in {json.dumps(list(REPO_TOOLS))}\n"
         '\tobject.get(input, ["args", "repo"], "") != declared_repo\n'
         "}\n",
     ]
     if protected:
         lines.append(
-            '\ndeny_rules contains "git_open_pr_protected_branch" if {\n'
+            f'\ndeny_rules contains "{GIT_OPEN_PR_PROTECTED_BRANCH}" if {{\n'
             '\tinput.tool == "git.open_pr"\n'
             "\tlower(input.args.branch) in protected_branches\n"
             "}\n"
@@ -647,7 +657,7 @@ def _policies_file(
         # JSON escapes, and a raw backtick literal would let a pattern
         # containing a backtick inject policy text into the bundle.
         lines.append(
-            '\ndeny_rules contains "git_open_pr_branch_pattern" if {\n'
+            f'\ndeny_rules contains "{GIT_OPEN_PR_BRANCH_PATTERN}" if {{\n'
             '\tinput.tool == "git.open_pr"\n'
             f"\tnot regex.match({json.dumps(pattern)}, input.args.branch)\n"
             "}\n"
@@ -658,20 +668,20 @@ def _policies_file(
     # before the policy query). Every company has document paths to
     # fence, so the rule is always emitted.
     lines.append(
-        '\ndeny_rules contains "git_open_pr_paths_missing" if {\n'
+        f'\ndeny_rules contains "{GIT_OPEN_PR_PATHS_MISSING}" if {{\n'
         '\tinput.tool == "git.open_pr"\n'
         "\tnot input.args.paths\n"
         "}\n"
     )
     if deny_paths:
-        lines.append(_open_pr_path_deny("git_open_pr_denied_paths", deny_paths))
+        lines.append(_open_pr_path_deny(GIT_OPEN_PR_DENIED_PATHS, deny_paths))
     if contract_paths:
         # The contract tree is the oracle: only its declared owner roles
         # may deliver into it, so the implementer cannot rewrite the spec
         # its own work is graded by.
         lines.append(
             _open_pr_path_deny(
-                "git_open_pr_contract_tree", contract_paths, contract.get("roles") or []
+                GIT_OPEN_PR_CONTRACT_TREE, contract_paths, contract.get("roles") or []
             )
         )
     # The company's documents have one writer: only the steward may
@@ -684,21 +694,21 @@ def _policies_file(
     strategy = json.dumps(documents["strategy"])
     lines.append(
         _open_pr_path_deny(
-            "git_open_pr_architecture_path", [documents["architecture"]], [STEWARD_ROLE]
+            GIT_OPEN_PR_ARCHITECTURE_PATH, [documents["architecture"]], [STEWARD_ROLE]
         )
     )
     lines.append(
         _open_pr_path_deny(
-            "git_open_pr_strategy_path", [documents["strategy"]], [STEWARD_ROLE]
+            GIT_OPEN_PR_STRATEGY_PATH, [documents["strategy"]], [STEWARD_ROLE]
         )
     )
     lines.append(
-        '\ndeny_rules contains "git_open_pr_strategy_present" if {\n'
+        f'\ndeny_rules contains "{GIT_OPEN_PR_STRATEGY_PRESENT}" if {{\n'
         '\tinput.tool == "git.open_pr"\n'
         '\tsome path in object.get(input, ["args", "paths_present"], [])\n'
         f"\tstartswith(path, {strategy})\n"
         "}\n"
-        '\ndeny_rules contains "git_open_pr_strategy_presence_missing" if {\n'
+        f'\ndeny_rules contains "{GIT_OPEN_PR_STRATEGY_PRESENCE_MISSING}" if {{\n'
         '\tinput.tool == "git.open_pr"\n'
         '\tsome path in object.get(input, ["args", "paths"], [])\n'
         f"\tstartswith(path, {strategy})\n"

@@ -45,7 +45,8 @@ OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
 REPO = "github.test/example/target"
 PR_URL = "https://github.test/example/pull/1"
-FEATURE_BRANCH_RE = re.compile(r"^feature/[a-z0-9-]+$")
+BRANCH_PATTERN = r"^feature/[a-z0-9-]+$"
+FEATURE_BRANCH_RE = re.compile(BRANCH_PATTERN)
 
 COMPANY = "hello-saas"
 COMPANY_NS = "hello-saas"
@@ -356,6 +357,19 @@ def companies() -> InMemoryCompanies:
         {
             "namespace": COMPANY_NS,
             "repo": {"url": REPO, "base_ref": "main"},
+            "documents": {
+                "strategy": "docs/STRATEGY.md",
+                "architecture": "docs/ARCHITECTURE.md",
+            },
+            # The policies the OPA stub enforces, as the applied spec
+            # states them — what a denial is explained from.
+            "policies": {
+                "branch_protection": {
+                    "protected": ["main"],
+                    "allowed_pattern": BRANCH_PATTERN,
+                },
+                "deny_paths": [".github/workflows/"],
+            },
             "budgets": {"per_run_usd": 5.0},
         },
     )

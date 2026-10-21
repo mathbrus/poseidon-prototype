@@ -12,6 +12,7 @@ import tarfile
 import pytest
 from conftest import (
     AGENT_TOKEN,
+    BRANCH_PATTERN,
     GIT_TOKEN,
     PR_URL,
     WORKER_TOKEN,
@@ -250,7 +251,12 @@ async def test_pr_to_main_is_denied_and_nothing_is_pushed(
     )
 
     assert result.isError
-    assert "git_open_pr_protected_branch" in result.content[0].text
+    # The denial names the rule and what it refused: the branch, and the
+    # pattern the applied blueprint says a branch must match.
+    assert result.content[0].text.endswith(
+        "denied by policy rule: git_open_pr_protected_branch — main is a "
+        f"protected branch; a pull request's branch must match {BRANCH_PATTERN}"
+    )
     assert git("rev-parse", "main", cwd=target_repo) == before
     assert backends.github_calls == []
 
@@ -274,7 +280,11 @@ async def test_pr_touching_workflows_is_denied(
     )
 
     assert result.isError
-    assert "git_open_pr_denied_paths" in result.content[0].text
+    # A path deny names the path that fell under the prefix.
+    assert result.content[0].text.endswith(
+        "denied by policy rule: git_open_pr_denied_paths — no pull request may "
+        "change .github/workflows/ci.yml (under .github/workflows/)"
+    )
     assert "refs/heads/feature/sneaky-ci" not in refs(target_repo)
     assert backends.github_calls == []
     assert audit_events(audit)[-1]["rule"] == "git_open_pr_denied_paths"

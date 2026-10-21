@@ -25,7 +25,18 @@ from common.identity import (
     LIFECYCLE_PLATFORM,
     Identity,
 )
-from common.policy import PLATFORM_DECISION_PATH, company_decision_path
+from common.policy import (
+    GIT_OPEN_PR_ARCHITECTURE_PATH,
+    GIT_OPEN_PR_BRANCH_PATTERN,
+    GIT_OPEN_PR_CONTRACT_TREE,
+    GIT_OPEN_PR_DENIED_PATHS,
+    GIT_OPEN_PR_PROTECTED_BRANCH,
+    GIT_OPEN_PR_STRATEGY_PATH,
+    GIT_OPEN_PR_STRATEGY_PRESENT,
+    PLATFORM_DECISION_PATH,
+    REPO_NOT_DECLARED,
+    company_decision_path,
+)
 from common.tasks import crew_trailer
 from common.telemetry import get_logger
 from mcp_gateway.config import McpGatewaySettings
@@ -38,7 +49,8 @@ from registry import (
     Runs,
     SandboxRegistrations,
 )
-from schema.catalog import STEWARDSHIP_CREW
+from schema.catalog import STEWARD_ROLE, STEWARDSHIP_CREW
+from schema.documents import DOCUMENT_LABELS
 from schema.tools import ARCHITECTURE_REQUEST, RATIONALE_TOOLS
 
 # tool name -> sandbox tool-server route
@@ -54,9 +66,95 @@ SANDBOX_ROUTES = {
 
 
 class PolicyDenied(Exception):
-    def __init__(self, rule: str | None) -> None:
+    """A call policy refused: the rule that fired — what the audit row
+    carries — and, when the gateway can say it from the call's arguments
+    and the applied blueprint, what the rule refused: the branch, the
+    path. The caller reads the text as its tool observation and complies;
+    a bare rule name told it only that it was wrong."""
+
+    def __init__(self, rule: str | None, detail: str | None = None) -> None:
         self.rule = rule or "unknown"
-        super().__init__(f"denied by policy rule: {self.rule}")
+        self.detail = detail
+        message = f"denied by policy rule: {self.rule}"
+        super().__init__(f"{message} — {detail}" if detail else message)
+
+
+def _under(paths: list[str], prefixes: list[str]) -> list[str]:
+    return [p for p in paths if any(p.startswith(prefix) for prefix in prefixes)]
+
+
+def _explain_repo(args: dict[str, Any], spec: dict[str, Any]) -> str:
+    return f"the company's repository is {spec['repo']['url']}, not {args.get('repo')!r}"
+
+
+def _explain_protected(args: dict[str, Any], spec: dict[str, Any]) -> str:
+    pattern = (spec["policies"].get("branch_protection") or {}).get("allowed_pattern")
+    text = f"{args.get('branch')} is a protected branch"
+    return f"{text}; a pull request's branch must match {pattern}" if pattern else text
+
+
+def _explain_pattern(args: dict[str, Any], spec: dict[str, Any]) -> str:
+    pattern = (spec["policies"].get("branch_protection") or {}).get("allowed_pattern")
+    return f"branch {args.get('branch')!r} does not match {pattern}"
+
+
+def _explain_denied_paths(args: dict[str, Any], spec: dict[str, Any]) -> str:
+    prefixes = sorted(spec["policies"].get("deny_paths") or [])
+    hit = _under(list(args.get("paths") or []), prefixes)
+    return f"no pull request may change {', '.join(hit)} (under {', '.join(prefixes)})"
+
+
+def _explain_contract_tree(args: dict[str, Any], spec: dict[str, Any]) -> str:
+    contract = spec["policies"].get("contract_tests") or {}
+    hit = _under(list(args.get("paths") or []), sorted(contract.get("paths") or []))
+    return (
+        f"{', '.join(hit)} is in the contract tree, which only "
+        f"{', '.join(sorted(contract.get('roles') or []))} delivers into"
+    )
+
+
+def _explain_document(name: str):
+    def explain(args: dict[str, Any], spec: dict[str, Any]) -> str:
+        return (
+            f"{spec['documents'][name]} is the {DOCUMENT_LABELS[name]}; only the "
+            f"{STEWARD_ROLE} delivers into it"
+        )
+
+    return explain
+
+
+def _explain_strategy_present(args: dict[str, Any], spec: dict[str, Any]) -> str:
+    return (
+        f"{spec['documents']['strategy']} is the strategy and already exists on "
+        f"{spec['repo']['base_ref']}; it is written once"
+    )
+
+
+# Rule -> what it refused, read from the call's arguments and the applied
+# spec. A rule not listed here is explained by its name alone.
+_EXPLAINERS = {
+    REPO_NOT_DECLARED: _explain_repo,
+    GIT_OPEN_PR_PROTECTED_BRANCH: _explain_protected,
+    GIT_OPEN_PR_BRANCH_PATTERN: _explain_pattern,
+    GIT_OPEN_PR_DENIED_PATHS: _explain_denied_paths,
+    GIT_OPEN_PR_CONTRACT_TREE: _explain_contract_tree,
+    GIT_OPEN_PR_ARCHITECTURE_PATH: _explain_document("architecture"),
+    GIT_OPEN_PR_STRATEGY_PATH: _explain_document("strategy"),
+    GIT_OPEN_PR_STRATEGY_PRESENT: _explain_strategy_present,
+}
+
+
+def explain_denial(
+    rule: str | None, args: dict[str, Any], spec: dict[str, Any] | None
+) -> str | None:
+    """What `rule` refused in this call, in the words of the applied
+    blueprint — the branch and the pattern it had to match, the path and
+    the prefix it fell under — or None when the rule has no explainer or
+    no company is applied (a platform caller, a torn-down company)."""
+    explainer = _EXPLAINERS.get(rule or "")
+    if explainer is None or not spec:
+        return None
+    return explainer(args, spec)
 
 
 # The one tool whose backend files a ticket the caller does not shape.
@@ -188,7 +286,11 @@ class GatewayService:
                 workflow,
                 rationale=rationale,
             )
-            raise PolicyDenied(decision.rule)
+            # The row keeps the bare rule; the caller gets the rule and
+            # what it refused, read from the applied blueprint — the same
+            # record the bundle that refused it was compiled from.
+            spec = await asyncio.to_thread(self._companies.get, identity.company or "")
+            raise PolicyDenied(decision.rule, explain_denial(decision.rule, args, spec))
 
         try:
             result = await backend()
