@@ -877,8 +877,9 @@ async def test_a_policy_decline_released_by_a_human_reads_the_record_too(env):
 
 
 async def test_a_missing_verdict_fails_before_any_gate(env):
-    """The platform-side belt on the step-2 contract: a dispatch that
-    somehow reports no verdict reaches no gate and merges nothing."""
+    """The platform-side belt on the reviewer's contract (every review
+    ends in a verdict): a dispatch that somehow reports no verdict reaches
+    no gate and merges nothing."""
     harness = Harness(merge_gate=POLICY_GATE, dispatch=dispatch_result(verdict=None))
     record = await run_review(env.client, harness)
 

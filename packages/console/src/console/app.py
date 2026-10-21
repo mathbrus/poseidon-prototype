@@ -30,6 +30,7 @@ from common.policy import (
     RUN_START,
 )
 from common.topology import CONSOLE_TOKEN_AUDIENCE
+from common.version import running_version
 from compiler import DeploymentPlan
 from console import crs
 from console.config import ConsoleSettings
@@ -47,7 +48,12 @@ from registry import (
 # The routes, for the documentation: method, path, what it does, the
 # decision an act must win (reads decide nothing).
 ROUTES: tuple[tuple[str, str, str, str], ...] = (
-    ("GET", "/healthz", "liveness; the one unauthenticated route", ""),
+    (
+        "GET",
+        "/healthz",
+        "liveness and the running version; the one unauthenticated route",
+        "",
+    ),
     ("GET", "/whoami", "the verified human and the applied company, if any", ""),
     (
         "POST",
@@ -232,8 +238,8 @@ def create_app(
         return request.state.identity
 
     @app.get("/healthz")
-    async def healthz() -> dict[str, bool]:
-        return {"ok": True}
+    async def healthz() -> dict[str, Any]:
+        return {"ok": True, "version": running_version()}
 
     @app.get("/whoami")
     async def whoami(request: Request) -> dict[str, Any]:

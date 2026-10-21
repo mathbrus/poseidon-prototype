@@ -114,16 +114,16 @@ refused. They assert the platform refused.
 - **One company per cluster** is what has been exercised, though namespacing
   and per-company bundle roots are designed for more.
 
-## A brain pod that dies mid-dispatch starts its dispatch over
+## An agent pod that dies mid-dispatch starts its dispatch over
 
 Durability covers the *orchestrator*: kill its worker and Temporal replays
 the workflow, re-attaching to a dispatch still in flight. It does not cover
-the *brain pod*. An agent pod mounts nothing but its token and is never
+the *agent pod*. It mounts nothing but its token and is never
 restarted, so the model's conversation lives only in that process; if the
 pod dies, the retry re-dispatches from scratch against the sandbox as it
 stands — the files already written survive, the transcript does not.
 
-Persisting the conversation would need somewhere the brain can write that
+Persisting the conversation would need somewhere the agent host can write that
 is neither the pod nor the sandbox: a gateway write channel, which is new
 authority for the one process assumed compromised. It is a decision not
 yet taken, not an oversight; the durable state of a run is the sandbox and

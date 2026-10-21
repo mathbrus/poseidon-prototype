@@ -1,6 +1,7 @@
 """The CLI is a thin client: every command is one console call with the
 token, its refusals are the console's, and nothing is decided here."""
 
+import importlib.metadata
 import json
 
 import httpx
@@ -29,6 +30,7 @@ class Console:
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, dict | None, str]] = []
         self.answers: dict[tuple[str, str], tuple[int, dict | list]] = {
+            ("GET", "/healthz"): (200, {"ok": True, "version": "v0.1.0+2026.10.21"}),
             ("GET", "/whoami"): (
                 200,
                 {"human": "owner", "lifecycle": "human", "company": "hello-saas"},
@@ -179,6 +181,29 @@ def runner(console: Console, monkeypatch) -> CliRunner:
 
     monkeypatch.setattr(cli.ConsoleClient, "__init__", scripted)
     return CliRunner()
+
+
+def test_version_names_both_sides(runner, console, monkeypatch):
+    """The CLI's own version is its package metadata; the console's is
+    what the cluster runs. The health route is open, so no token is
+    needed and none is required."""
+    monkeypatch.delenv("POSEIDON_TOKEN")
+    result = runner.invoke(cli.app, ["version", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == {
+        "cli": importlib.metadata.version("poseidon-cli"),
+        "console": "v0.1.0+2026.10.21",
+    }
+    rendered = runner.invoke(cli.app, ["version"])
+    assert "console v0.1.0+2026.10.21" in rendered.output
+
+
+def test_version_without_a_console_still_names_the_cli(runner, console):
+    console.answers[("GET", "/healthz")] = (503, {"detail": "down"})
+    result = runner.invoke(cli.app, ["version", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["console"] is None
+    assert "console unreachable" in runner.invoke(cli.app, ["version"]).output
 
 
 def test_verdict_prints_the_recorded_verdict(runner, console):

@@ -213,6 +213,18 @@ async def test_the_health_probe_is_the_only_open_route(client, world):
     assert world.audit.events == []
 
 
+async def test_the_health_probe_names_the_running_version(client, monkeypatch):
+    """The images are stamped with the version at build time; the console
+    is where a person reads which one the cluster runs."""
+    monkeypatch.setenv("POSEIDON_VERSION", "v0.1.0+2026.10.21")
+    assert (await client.get("/healthz")).json() == {
+        "ok": True,
+        "version": "v0.1.0+2026.10.21",
+    }
+    monkeypatch.delenv("POSEIDON_VERSION")
+    assert (await client.get("/healthz")).json()["version"] == "unreleased"
+
+
 async def test_a_rejected_token_is_audited_with_its_principal(client, world):
     stranger = await client.get("/whoami", headers={"Authorization": "Bearer t-stranger"})
     agent = await client.get("/whoami", headers={"Authorization": "Bearer t-agent"})

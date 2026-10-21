@@ -228,7 +228,7 @@ runs LiteLLM or this.
 uv run pytest packages/mockllm
 ```
 
-`test_brain.py` unit-tests the procedure sequencing on synthetic histories —
+`test_procedures.py` unit-tests the procedure sequencing on synthetic histories —
 including that the canned `slugify.py` actually passes the canned test
 file's assertions, so the platform verify gate has something honestly
 green to check.

@@ -23,8 +23,8 @@ def test_gate_rule_spells_every_outcome_once():
 
 
 def test_gate_rule_refuses_an_unknown_outcome():
-    """`timed_out` is what the ledger used to say for an expired park; the
-    name is gone, and nothing can write it back."""
+    """`timed_out` is not a gate outcome (an expired park is `expired`),
+    and nothing can write it."""
     for kind in ("timed_out", "parked", ""):
         with pytest.raises(ValueError, match="not a gate outcome"):
             gate_rule(kind)
