@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.2.0+2026.10.21] - 2026-10-21
+
 - The LLM gateway *refuses* a model call at a run's cap and the run parks;
   nothing "hard-stops" (glossary row `cap`), and the compiler's
   `budgets.per_run` messages say so. Four packages take their glossary
