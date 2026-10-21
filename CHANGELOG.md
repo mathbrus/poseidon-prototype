@@ -11,6 +11,15 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- The docs are rewritten for readers: a free Quickstart with real
+  output, how-to guides and a troubleshooting page, explanation pages
+  (How it works, The merge gate, How the heartbeat decides, Security
+  model, Limitations) in place of the argument essay, and a generated
+  reference (blueprint field descriptions, one CLI entry per command
+  with examples, policy rules, environment variables, glossary); every
+  package README on one template; American English, held by CI. Every
+  `poseidon` command's `--help` ends with examples (#83)
+
 ## [0.2.0+2026.10.21] - 2026-10-21
 
 - The LLM gateway *refuses* a model call at a run's cap and the run parks;
