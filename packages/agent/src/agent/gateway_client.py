@@ -1,9 +1,9 @@
 """MCP client for the gateway.
 
-The brain depends only on `call(tool, args) -> dict`; a gateway tool error
-(policy denial, backend failure) raises `ToolCallError` carrying the error
-text — which includes the OPA rule name on a deny, so the brain can surface
-it to the model.
+The agent host depends only on `call(tool, args) -> dict`; a gateway tool
+error (policy denial, backend failure) raises `ToolCallError` carrying the
+error text — which includes the OPA rule name on a deny, so the agent host
+can surface it to the model.
 """
 
 import json

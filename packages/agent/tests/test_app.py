@@ -68,12 +68,12 @@ async def test_task_lifecycle_running_then_done():
     release = asyncio.Event()
     seen: list[tuple[str, str, str, dict]] = []
 
-    async def runner(run_id, task_text, bounds, documents) -> ProcedureResult:
+    async def procedure(run_id, task_text, bounds, documents) -> ProcedureResult:
         seen.append((run_id, task_text, bounds, documents))
         await release.wait()
         return ProcedureResult(pr_url="https://github.test/pull/1", iterations=2)
 
-    async with client(app_for("implementer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=procedure)) as http:
         resp = await post(http, "implement", "do it", documents={"strategy": "Ship."})
         assert resp.status_code == 202
 
@@ -104,7 +104,7 @@ async def test_task_lifecycle_running_then_done():
         "verdict_rationale": None,
         "decision": None,
     }
-    # The bounds and the documents reach the runner; a dispatch without
+    # The bounds and the documents reach the procedure; a dispatch without
     # documents carries an empty mapping, never a missing field.
     assert seen == [(RUN_ID, "do it", BOUNDS, {"strategy": "Ship."})]
 
@@ -125,12 +125,12 @@ async def test_a_dispatch_without_the_bounds_is_refused():
 
 
 async def test_procedure_result_error_maps_to_failed():
-    async def runner(run_id, task_text, bounds, documents) -> ProcedureResult:
+    async def procedure(run_id, task_text, bounds, documents) -> ProcedureResult:
         return ProcedureResult(
             iterations=3, error="tests still failing after 3 iterations"
         )
 
-    async with client(app_for("implementer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=procedure)) as http:
         await post(http, "implement", "do it")
         status = await poll_until_terminal(http, RUN_ID)
 
@@ -139,11 +139,11 @@ async def test_procedure_result_error_maps_to_failed():
     assert "still failing" in status["error"]
 
 
-async def test_runner_crash_maps_to_failed():
-    async def runner(run_id, task_text, bounds, documents) -> ProcedureResult:
+async def test_procedure_crash_maps_to_failed():
+    async def procedure(run_id, task_text, bounds, documents) -> ProcedureResult:
         raise RuntimeError("gateway unreachable")
 
-    async with client(app_for("implementer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=procedure)) as http:
         await post(http, "implement", "do it")
         status = await poll_until_terminal(http, RUN_ID)
 
@@ -160,11 +160,11 @@ async def test_unknown_run_is_404():
 async def test_duplicate_run_id_is_409():
     started = asyncio.Event()
 
-    async def runner(run_id, task_text, bounds, documents) -> ProcedureResult:
+    async def procedure(run_id, task_text, bounds, documents) -> ProcedureResult:
         await started.wait()
         return ProcedureResult(pr_url="https://pr", iterations=1)
 
-    async with client(app_for("implementer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=procedure)) as http:
         first = await post(http, "implement", "a")
         second = await post(http, "implement", "b")
         started.set()
@@ -180,13 +180,13 @@ async def test_terminal_run_restarts_on_redispatch():
     would otherwise poll the stale failure forever."""
     attempts: list[str] = []
 
-    async def runner(run_id, task_text, bounds, documents) -> ProcedureResult:
+    async def procedure(run_id, task_text, bounds, documents) -> ProcedureResult:
         attempts.append(task_text)
         if len(attempts) == 1:
             return ProcedureResult(error="budget_exhausted: cap reached")
         return ProcedureResult(pr_url="https://github.test/pull/2", iterations=1)
 
-    async with client(app_for("implementer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=procedure)) as http:
         first = await post(http, "implement", "one")
         assert first.status_code == 202
         status = await poll_until_terminal(http, RUN_ID)
@@ -203,11 +203,11 @@ async def test_terminal_run_restarts_on_redispatch():
 async def test_running_run_still_answers_409():
     release = asyncio.Event()
 
-    async def runner(run_id, task_text, bounds, documents) -> ProcedureResult:
+    async def procedure(run_id, task_text, bounds, documents) -> ProcedureResult:
         await release.wait()
         return ProcedureResult()
 
-    async with client(app_for("implementer", implement=runner)) as http:
+    async with client(app_for("implementer", implement=procedure)) as http:
         await post(http, "implement", "one")
         conflict = await post(http, "implement", "again")
         assert conflict.status_code == 409
@@ -217,7 +217,7 @@ async def test_running_run_still_answers_409():
 
 async def test_a_role_runs_only_its_own_procedures():
     """The pod's role bounds the dispatch: a PM host refuses implement, an
-    implementer host refuses scope — 422 before any runner is touched. The
+    implementer host refuses scope — 422 before any procedure is touched. The
     gateway's tool policy is the boundary; this is the host declining to
     start a loop it could never finish."""
 

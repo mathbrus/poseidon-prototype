@@ -48,8 +48,8 @@ weakening the charter, is the wrong direction even if it ships.
 
 ## The tree is not the charter
 
-This file is the source of truth. The repo is not always caught up —
-the project is moving through phases, and leftovers from earlier ones
+This file is the source of truth. The tree is not always caught up —
+it lags the charter between releases, and leftovers from earlier ones
 remain. Old names, old control flow, old assumptions.
 
 When you find something incoherent with this charter, stop and ask.
@@ -109,7 +109,7 @@ first.
   human-started mode and no goal file.
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.
   Never set `REAL_LLM=1` or use a paid provider without explicit
-  opt-in from the user. The harness now enforces this: the e2e suite
+  opt-in from the user. The harness enforces this: the e2e suite
   and `scripts/acceptance.sh` refuse a paid brain (read from the
   deployed `llm-proxy` image, never from `.env`) unless
   `POSEIDON_ALLOW_PAID=1` is set — that variable is the opt-in

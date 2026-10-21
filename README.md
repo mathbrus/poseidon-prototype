@@ -38,10 +38,11 @@ attempt. That ambition sets the bar in five places:
   answers.
 
 > [!NOTE]
-> **Status: working prototype.** Every capability is exercised by the
-> end-to-end suite against a real Kubernetes cluster. It has run only on
-> kind (local Kubernetes), never in production, and the documentation is
-> deliberately specific about what it cannot do.
+> **Status.** Released from master as tagged versions; what each one
+> changed is in [`CHANGELOG.md`](CHANGELOG.md). Every capability is
+> exercised by the end-to-end suite against a real Kubernetes cluster. It
+> has run only on kind (local Kubernetes), never in production, and the
+> documentation is deliberately specific about what it cannot do.
 
 ## The documentation
 

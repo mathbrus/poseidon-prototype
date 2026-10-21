@@ -53,13 +53,14 @@ the bar in five places:
   a gate, not a warning: an exhausted budget parks the run until a human
   answers.
 
-This is a working prototype, and it is honest about the distance still to
+Poseidon is released from master as tagged versions, each with its
+[changelog](changelog.md), and it is honest about the distance still to
 travel. The destination is a company that lives in the cloud and actuates on
 the real world — customers, mail, money — not just a repository. Today it
 reaches code, under governance, on a local cluster. [What it cannot do](argument/cannot.md)
 is deliberately specific about the gap.
 
-!!! note "Status: working prototype"
+!!! note "Status"
     Every capability described here is exercised by the end-to-end suite
     against a real Kubernetes cluster, and the suite proves its own claims
     twice over — two consecutive green runs from a clean repo, ending with

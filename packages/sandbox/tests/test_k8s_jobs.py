@@ -25,8 +25,7 @@ def test_prepare_strips_every_git_remote_from_the_workspace():
     repo, so it arrives with an `origin` remote — a push/fetch path around
     the gateway and the merge gate. Preparation removes every remote before
     the agent ever runs, so the only way code leaves the sandbox is the
-    governed `git.open_pr` tool. (The live e2e that provisioned a real
-    sandbox and asserted `git remote` was empty was retired; this pins the
-    command that made it true.)"""
+    governed `git.open_pr` tool. This pins the command that makes it
+    true."""
     cmd = _PREPARE_CMD.format(workspace="/workspace")
     assert "git remote | xargs -r -n1 git remote remove" in cmd
