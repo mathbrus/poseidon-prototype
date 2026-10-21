@@ -11,8 +11,9 @@ first tool call in production.
 The compiler reads nothing but its arguments, writes nothing, and touches
 no cluster. Applying a plan is someone else's job: the console submits it
 as custom resources, the reconciler converges them. If the vocabulary here
-is new — blueprints, OPA, run binding — read the
-[root README](../../README.md) first (sections 2, 4 and 7).
+is new — blueprints, OPA, run binding — read
+[the core idea](../../docs/argument/core-idea.md) and
+[OPA and Rego](../../docs/concepts/opa.md) first.
 
 ## Module map
 

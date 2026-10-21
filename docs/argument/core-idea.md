@@ -91,7 +91,7 @@ flowchart TB
     B["<b>Workload identity</b><br/>is the caller who it claims to be?"]
     C["<b>Network policy</b><br/>can these two pods talk at all?"]
     D["<b>Sandbox</b><br/>no credentials, no API, no host"]
-    E["<b>Audit</b><br/>whatever happened, one query tells the story</b>"]
+    E["<b>Audit</b><br/>whatever happened, one query tells the story"]
     A --> B --> C --> D --> E
 ```
 

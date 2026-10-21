@@ -12,7 +12,7 @@ of Postgres would add a failure mode without adding a boundary. Each
 service holds `REGISTRY_DSN`, constructs the accessors it is allowed to
 write through, and talks to Postgres directly.
 
-In [the root README](../../README.md)'s architecture diagrams this is the
+In the [architecture diagrams](../../docs/reference/architecture.md) this is the
 `registry` cylinder: the declarative path ends here (what was applied) and
 the runtime path reports here (what every enforcement point decided).
 
@@ -20,7 +20,7 @@ the runtime path reports here (what every enforcement point decided).
 
 | Table | Written by | Records |
 |---|---|---|
-| `companies` | reconciler | The applied blueprint spec, one row per company. |
+| `companies` | reconciler, console | The applied blueprint spec, one row per company (the reconciler); who holds the heartbeat paused (the console). |
 | `agent_instances` | reconciler | The standing agents, including the namespace workload identity checks against. |
 | `policy_bundles` | reconciler | The compiled OPA bundle tarball and its revision. |
 | `runs` | orchestrator | The run record: task, status, artifacts, terminal state — and whether the run *concluded* its work item (`pr_url` for implement, `verdict` for review), which the heartbeat's attempt accounting reads. |
@@ -30,7 +30,7 @@ the runtime path reports here (what every enforcement point decided).
 | `budget_ledger` | LLM gateway | One spend entry per model call, fully attributed. |
 | `audit_events` | gateway, LLM gateway, egress proxy, orchestrator, console | Every decision, one ingestion contract. |
 
-Seven tables have exactly one writer. The discipline is not a Postgres
+Seven tables have exactly one writer, and `companies` has one writer per column set. The discipline is not a Postgres
 grant — every service connects with the same DSN — but a code convention
 made auditable by the import graph: which accessor a service imports *is*
 its write authority, and you can grep for it. It buys provenance without
@@ -49,13 +49,13 @@ writer.
 |---|---|
 | `db.py` | Connection pool, DSN handling, startup migration under an advisory lock, and `Registry.now` — the database clock, the fence a human takes from the console before acting. |
 | `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
-| `companies.py` | `Companies` — the applied blueprint per company, written by the reconciler. |
+| `companies.py` | `Companies` — the applied blueprint per company, written by the reconciler, and the pause, written by the console. |
 | `instances.py` | `AgentInstances` — the standing agents, and the gateways' workload-identity read. |
 | `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |
 | `runs.py` | `Runs` — the run record and its terminal state; `since` lists a company's runs from a fence. |
 | `participants.py` | `RunParticipants` — bound identities, revocation, the spawn count. |
 | `sandboxes.py` | `SandboxRegistrations` — run → sandbox address. |
-| `crews.py` | `CrewRequests` — idempotent, expiring spawn requests. |
+| `tickets.py` | `FiledTickets` — every ticket the company filed, so the heartbeat reads its own writes. |
 | `ledger.py` | `BudgetLedger` — one ledger with dimensions, never parallel accounts; `spent_since` sums a company's spend from a fence. |
 | `audit.py` | `AuditStore` — the one ingestion contract, the `story(run_id)` query, and `latest_human_verdict` — the console-recorded verdict the merge gate is released on. |
 | `memory.py` | In-memory stand-ins for every accessor. **Shipped on purpose** — see below. |
@@ -93,10 +93,6 @@ re-executed after crashes and worker deaths ([Temporal](../../docs/concepts/temp
 - `RunParticipants.add` upserts on the deterministic `agent_id` the mint
   activity derives from `{crew, role, run}` — a retried mint converges
   on one identity instead of leaking two.
-- `CrewRequests` derives its id from `{conductor, crew_template, run_id}`
-  so a retried request refreshes rather than duplicates; `consume` is an
-  atomic `recorded → fulfilled` claim that hands a mid-fulfill crash's
-  retry its own request back while giving any other run nothing.
 - `SandboxRegistrations.register` updates on conflict, because a
   provision retry re-registers a new address for the same run.
 - `Runs.finish` recreates a missing row rather than failing, because it

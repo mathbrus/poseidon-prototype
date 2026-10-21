@@ -88,8 +88,9 @@ the route table equals the app.
 - No act without a decision, no decision without an audit row under the
   person's name.
 - The verdict is recorded before it is delivered.
-- The console writes `audit_events` and nothing else in the registry; the
-  reconciler writes `companies` from the CR the console submits.
+- The console writes `audit_events` and the pause columns of `companies`,
+  nothing else in the registry; the reconciler writes the rest of
+  `companies` from the CR the console submits.
 - A cluster hosts one company. The console learns which from the registry
   (the reconciler records the applied Company CR) and refuses a blueprint
   naming another until that company is deleted; before the first apply,

@@ -86,7 +86,7 @@ cannot execute anything.
   infrastructure. `agent-egress` lets agent pods reach exactly the two
   gateways (MCP on 8080, LLM on 4000) plus cluster DNS; `agent-ingress`
   admits only the orchestrator worker. Both select pods by
-  `poseidon.dev/kind` in `{standing-agent, ephemeral-agent}`, so an ephemeral
+  `poseidon.dev/kind` in `{standing-agent, ephemeral-agent}`, so an
   ephemeral pod is contained by a policy that existed before the pod did.
   `sandbox-isolation` is projected from the compiled infra IR carried on
   the CR spec (`spec.infra.network_policy`) — hand-authoring that

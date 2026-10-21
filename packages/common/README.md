@@ -37,15 +37,15 @@ platform verified. No request header, no JSON body, no environment
 variable ever becomes an `Identity`. Downstream code — the policy input
 builders in both gateways — can therefore treat every field as a verified
 fact rather than a claim, which is what makes "the decision is a function
-of who verifiably asked" true (see the deputy discussion in the
-[root README](../../README.md), section 2).
+of who verifiably asked" true (see the deputy discussion in
+[the core idea](../../docs/argument/core-idea.md)).
 
 The model also records *how* the caller was verified, via `lifecycle`:
 `standing` (a rostered agent with a Kubernetes ServiceAccount),
 `ephemeral` (an ephemeral agent bound to one run), `platform` (the
 orchestrator itself), or `human` (a verified person at the console —
 never a workload, never a catalog role). Compiled policy keys on this field, so the
-distinction that section 3 of the root README calls structural is carried
+distinction [standing vs. ephemeral agents](../../docs/concepts/standing-vs-ephemeral.md) describes is carried
 by the identity itself, not inferred from naming conventions.
 
 ## One credential shape, checked against live state

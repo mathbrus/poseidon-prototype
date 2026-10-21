@@ -133,8 +133,9 @@ exactly what an apply needs: create, update and delete on the two CRDs
 and a look at the company namespace, which the reconciler deliberately
 lacks. Its NetworkPolicy admits OPA, Postgres, Temporal's frontend, DNS
 and the API server, and nothing else: no company namespace, no git host,
-no model. It writes `audit_events` and nothing else in the registry; the
-reconciler writes `companies` from the CR the console submits.
+no model. It writes `audit_events` and the pause columns of `companies`, nothing
+else in the registry; the reconciler writes the rest of `companies` from
+the CR the console submits.
 
 On kind the console is a NodePort on the host's loopback
 (`POSEIDON_CONSOLE_URL=http://127.0.0.1:8090`); there is no ingress, and

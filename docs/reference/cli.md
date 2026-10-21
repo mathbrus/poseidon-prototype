@@ -40,6 +40,7 @@ name; every command that would wait for the cluster takes `--no-wait`.
 ```text
 poseidon login <name> [--save]
 poseidon whoami
+poseidon version
 poseidon blueprint new | preview | apply [--no-wait]
 poseidon company show | delete --reason [--no-wait]
 poseidon heartbeat show | wake

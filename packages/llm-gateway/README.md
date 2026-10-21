@@ -112,7 +112,7 @@ ledger prompt/completion columns.
 ## Budget enforcement is local, and loud
 
 Before forwarding, the gateway reads the applied company spec's
-`budgets.per_run_usd` and the ledger's spend for this run. At or over
+the compiled spec's `budgets.per_run_usd` (the blueprint's `budgets.per_run.usd`) and the ledger's spend for this run. At or over
 the cap, the call is denied with `429` and a distinguishable error, and
 the denial is itself an audit event (`decision=deny`,
 `rule=budget_exhausted`, `source=llm-gateway`):
@@ -207,7 +207,7 @@ read — a real model legitimately thinks for minutes.
   gateway is the ledger's only writer); `registry.Runs` and `Companies`
   for attribution and the per-run cap;
   `registry.AuditStore` for `source=llm-gateway` events.
-- `agent` builds its LLM client against this service and injects the
+- `agent-host` builds its LLM client against this service and injects the
   run header (`agent_host.procedures.build_llm`).
 - `orchestrator` turns the surfaced `budget_exhausted` error into the
   parked state, escalation, and `process-gate` audit events.
