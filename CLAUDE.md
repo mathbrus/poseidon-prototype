@@ -120,7 +120,8 @@ first.
 - **Docs**: `docs/` is the MkDocs site (`uv run mkdocs build`, strict, a
   CI gate); reference tables there are rendered from the code by
   `scripts/gen_docs.py`, never typed. The root README, this file and
-  `packages/*/README.md` stay GitHub's, next to the code.
+  `packages/*/README.md` stay GitHub's, next to the code. Every page,
+  README and rendered docstring follows `docs/developing/writing-docs.md`.
 - **Tests**: run pytest per-package, not from the repo root. The full
   acceptance suite is `scripts/acceptance.sh`; `test_acceptance.py` is its
   index and capstone.
