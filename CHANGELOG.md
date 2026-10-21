@@ -11,6 +11,16 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- The LLM gateway *refuses* a model call at a run's cap and the run parks;
+  nothing "hard-stops" (glossary row `cap`), and the compiler's
+  `budgets.per_run` messages say so. Four packages take their glossary
+  names, with their images and chart keys: `schema` → `blueprint`,
+  `mockllm` → `mock-brain` (image `poseidon-mock-brain`,
+  `values-mock-brain.yaml`), `agent` → `agent-host` (image
+  `poseidon-agent-host`, chart `images.agentHost`), `operator` →
+  `reconciler` (image and chart objects `poseidon-reconciler`, chart
+  `images.reconciler`); a cluster is recreated, not upgraded in place (#81)
+
 ## [0.1.1+2026.10.21] - 2026-10-21
 
 - The platform closes the tickets a merged pull request fulfilled — a rework
