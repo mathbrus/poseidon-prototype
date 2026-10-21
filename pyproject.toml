@@ -39,6 +39,8 @@ package = false
 members = ["packages/*"]
 
 [tool.ruff]
+# Every workspace package's import root is first-party.
+src = ["packages/*/src", "."]
 line-length = 90
 target-version = "py312"
 
@@ -49,13 +51,6 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B"]
 # Assigning to a name only to return it is often the clearer form here.
 ignore = ["B008"]
 
-
-[tool.ruff.lint.isort]
-known-first-party = [
-    "agent_host", "common", "compiler", "console", "llm_gateway", "mcp_gateway",
-    "mock_brain", "orchestrator", "poseidon_cli", "reconciler", "registry",
-    "blueprint", "sandbox",
-]
 
 [tool.pytest.ini_options]
 markers = [
