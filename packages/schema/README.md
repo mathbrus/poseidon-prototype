@@ -120,11 +120,13 @@ PLATFORM_ONLY = frozenset(PLATFORM_TOOLS)
 # Tools whose compiled rules additionally require a verified run binding in
 # the decision input — a role allow-list without run binding reopens
 # cross-run tool use. A property of the tool, not a name prefix.
-RUN_SCOPED = frozenset(SANDBOX_TOOLS)
+RUN_SCOPED = frozenset(SANDBOX_TOOLS + ARCHITECTURE_TOOLS)
 ```
 
-`PLATFORM_ONLY` is one tool, `git.merge_pr`, and validation refuses it in
-any role or ephemeral-agent allow-list — that check lives here, not in the
+`PLATFORM_ONLY` is the platform lifecycle's tools — `git.merge_pr`, the
+two closing acts that follow a merge or a rework (`issues.close`,
+`git.close_pr`), and the platform's reads of the repository — and
+validation refuses each in any role or ephemeral-agent allow-list — that check lives here, not in the
 compiler, because a document that grants it is wrong on its face. Note
 what makes it interesting: the name *is* in `KNOWN_TOOLS`, so the schema
 enum accepts it; the refusal is about who may hold it, not whether it

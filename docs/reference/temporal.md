@@ -57,6 +57,10 @@ rejects, `merge_resolve_not_a_human` when its author is not in
 run failed, unmerged. Under `resolved_by: policy` the delegated path may
 release the merge before the gate ever parks; a decline still falls to the
 human path, verified the same way, so the override survives delegation.
+Both paths end at the one merge, and right after it the workflow closes
+the tickets the pull request fulfilled (`close_tickets`, recorded on the
+run as `closed_tickets`); a failed policy layer instead files the rework
+ticket and closes the pull request it supersedes (`close_superseded_pr`).
 
 The budget gate is decided and recorded by the console like the merge
 gate, but the workflow does not read its record back: a forged budget

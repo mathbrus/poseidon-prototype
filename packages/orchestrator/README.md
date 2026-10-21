@@ -236,6 +236,12 @@ releases on a recorded approving verdict by one of the blueprint's
 no verdict and releases nothing, by a rule that says so. Every outcome
 is a first-class audit row, and the merge itself is a gateway-audited
 `git.merge_pr` call that policy grants to the platform identity alone.
+Right after it the workflow closes the tickets the pull request fulfilled
+(`issues.close`, the merge as the rationale; a rework chain's tickets all
+close with its last pull request), and the heartbeat's observation does
+the same for a pull request it first sees a human merged by hand. A failed
+policy layer's rework ticket supersedes its pull request, which the
+platform closes (`git.close_pr`).
 Gate config comes from the compiled plan (`workflows.<name>.gates`),
 never hardcoded.
 
@@ -370,7 +376,8 @@ ephemeral-pod provisioner use: each is useless where the other is needed.
 
 - [`gateway`](../mcp-gateway/README.md) for every governed call, including
   its own platform-lifecycle ones (`repo.archive`, sandbox registration,
-  `sandbox.run_tests`, `git.read`, `git.merge_pr`).
+  `sandbox.run_tests`, `git.read`, `git.merge_pr`, `issues.close`,
+  `git.close_pr`).
 - [`sandbox`](../sandbox/README.md) for the `SandboxBackend` contract and
   the k8s_jobs backend.
 - [`registry`](../registry/README.md) for runs, participants, crew

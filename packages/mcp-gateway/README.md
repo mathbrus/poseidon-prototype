@@ -142,8 +142,8 @@ The tools — the sandbox tools proxied to the run's registered tool
 server, `repo.archive` and `git.open_pr` backed by platform-side clones,
 `repo.read_file` for the company's documents at the base ref, `repo.present`
 for which declared paths the base ref holds, the issue
-and review tools, `architecture.request`, and platform-only `git.merge_pr`
-— are documented one by one, with arguments, on
+and review tools, `architecture.request`, and platform-only `git.merge_pr`,
+`issues.close` and `git.close_pr` — are documented one by one, with arguments, on
 [Tools](../../docs/reference/tools.md), rendered from this package's
 definitions at build time.
 The names match the lists in `schema.tools`, which is what the compiler
@@ -239,7 +239,8 @@ proves the server is up.
 - `schema.tools` names the same tools; `compiler.rego` must emit the
   same company slug — `tests/test_slug_invariant.py` pins that.
 - The [orchestrator](../orchestrator/README.md) is the platform-lifecycle
-  caller: admin routes, `repo.archive`, post-gate `git.merge_pr`.
+  caller: admin routes, `repo.archive`, post-gate `git.merge_pr` and the
+  closing acts that follow it (`issues.close`, `git.close_pr`).
 
 ## Tests
 

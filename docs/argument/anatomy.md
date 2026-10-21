@@ -242,7 +242,14 @@ Anything short of that is a *decline* or a *rework*, never a quiet merge:
 | All facts green, paths in class | The merge fires — no human command. |
 | Touches a carve-out surface (`.github/`) or an out-of-class path | Declines to the human `merge` signal; the person's override survives delegation. |
 | Touches the contract tree | Declines up front, before any layer is spent — an oracle edit is the human's to merge by construction. |
-| Failed verdict, red re-run, or red contract | Feeds a bounded rework loop instead ([What it can do](can.md)). |
+| Failed verdict, red re-run, or red contract | Feeds a bounded rework loop instead ([What it can do](can.md)): the findings become a ticket, and the platform closes the pull request it supersedes. |
+
+Whichever resolver released it, the merge closes the tickets the pull
+request fulfilled — the one its implement run consumed and, for a rework
+chain, every ticket of the chain — under the platform identity, the merge
+named as the rationale on each `issues.close` row. No role closes a ticket:
+the implementer never grades its own homework, and the open backlog the
+scoping cap counts empties only as work lands.
 
 **`contract_green`, the decisive fact.** The platform composes the PR
 head's code with the contract tree *as it stands on the base ref* — the
