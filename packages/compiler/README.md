@@ -282,7 +282,8 @@ its own; it ships inside the console image.
   stable across applies (existing ids are reused in order; minted ids skip
   anything taken) and to compute the firing half of a diff.
 - Its plan rides the custom resources the console submits — the Company CR
-  carries the bundles, infra IR, workflows, budgets and crew specs — and
+  carries the bundles, the `policies` section as written, infra IR,
+  workflows, budgets and crew specs — and
   the `operator` ([README](../operator/README.md)) reconciles them. From
   the applied blueprint, the `orchestrator` reads SandboxPolicy, workflow
   and gate config, and the egress proxy its host allowlist: one

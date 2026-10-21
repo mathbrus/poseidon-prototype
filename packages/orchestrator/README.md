@@ -63,7 +63,11 @@ Two visible consequences:
   `workflow_config`, `record_gate_outcome`, `teardown`,
   `record_attempts_exhausted`) is defined once, in `activities/run.py`,
   and every run-shaped workflow rides it through the `RunWorkflow` base
-  (`start_run`, `fulfill`, `dispatch`, `teardown`).
+  (`start_run`, `fulfill`, `dispatch`, `teardown`). `workflow_config`
+  also renders the **bounds** — the charter as it binds the company's
+  work — from the applied spec, and every `dispatch` carries them to the
+  agent host beside the task; the heartbeat's decide dispatch renders
+  them from the same spec.
 
 ## The four workflows
 
@@ -183,8 +187,8 @@ code, does delivery become reachable:
 
 ```python
 if verified and not error and not (result or {}).get("error"):
-    delivery = await self._dispatch(
-        input.run_id, implementer["url"], "deliver", task_source, timeouts
+    delivery = await self.dispatch(
+        input.run_id, implementer["url"], "deliver", task_source
     )
 ```
 

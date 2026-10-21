@@ -4,8 +4,8 @@ mkdocs-gen-files runs this at build time (see mkdocs.yml). A page under
 docs/ carries a line `<!-- gen: NAME -->` wherever a table belongs; this
 script replaces the marker with the table rendered from the catalogs, the
 gateway's tool definitions, the `poseidon` CLI, the console's routes, the
-audit event registry, the Temporal workflows and the blueprint JSON Schema,
-and re-emits the page. Nothing rendered here is committed, so nothing here
+audit event registry, the Temporal workflows, the blueprint JSON Schema
+and the bounds an example compiles to, and re-emits the page. Nothing rendered here is committed, so nothing here
 can drift from the code. A marker naming no generator, a generator no page
 uses, or a tool without a description fails the build.
 """
@@ -22,16 +22,20 @@ from typing import Any
 
 import mkdocs_gen_files
 import typer.main
+import yaml
 
 from agent.models import MODEL_FAMILIES
 from common.audit import PLATFORM_EVENTS
 from common.policy import GATE_RESOLVE, RUN_START, rego_slug
 from common.workflows import WORKFLOWS, workflow_id
+from compiler import compile_blueprint
 from console.app import ROUTES
+from console.crs import company_cr
 from orchestrator import workflows
 from poseidon_cli.main import app as cli_app
 from schema import tools
 from schema.blueprint import BLUEPRINT_SCHEMA
+from schema.bounds import render_bounds
 from schema.catalog import CREW_TEMPLATES, PROCEDURES, ROLES
 
 REPO = Path(__file__).resolve().parent.parent
@@ -387,6 +391,18 @@ def blueprint_sections(_: str | None) -> str:
 
 # -- the pages ---------------------------------------------------------------
 
+# -- the bounds -------------------------------------------------------------
+
+
+def bounds(example: str | None) -> str:
+    """The bounds every dispatch of the example's company carries, made
+    the way the platform makes them: the example compiled, submitted as
+    the Company CR, rendered from that spec."""
+    document = yaml.safe_load((REPO / "examples" / f"{example}.yaml").read_text())
+    spec = company_cr(compile_blueprint(document))["spec"]
+    return "```\n" + render_bounds(spec) + "\n```"
+
+
 GENERATORS: dict[str, Callable[[str | None], str]] = {
     "roles": roles,
     "crews": crews,
@@ -402,6 +418,7 @@ GENERATORS: dict[str, Callable[[str | None], str]] = {
     "signals": signal_table,
     "blueprint-fields": blueprint_fields,
     "blueprint-sections": blueprint_sections,
+    "bounds": bounds,
 }
 
 

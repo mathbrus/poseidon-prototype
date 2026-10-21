@@ -151,6 +151,14 @@ from the compiled plan at runtime — never hardcoded — so changing the
 resolver is a visible, reviewable change to the document, not a code edit
 buried somewhere.
 
+The agents are told. Every dispatch carries the **bounds** — the charter
+as it binds this company's work, rendered once from the applied document
+and placed in the procedure's system prompt beside the vision — so an
+implementer knows the class a merge is delegated for before it chooses
+where a slice goes. For the delegated profile they read:
+
+<!-- gen: bounds:hello-saas-delegated -->
+
 <!-- gen: blueprint-fields:workflows -->
 
 ## `policies` and `budgets` — the guardrails
@@ -168,6 +176,14 @@ modify the CI that checks it. The path rules also fail closed: without the
 changed paths in the input they *cannot* be evaluated, so the call is
 denied rather than allowed by default. Fail-safe defaults again: the
 dangerous condition is the absent input, and absence denies.
+
+The rules refuse; the bounds say. The same section reaches every
+procedure as text — one line per fact, in a fixed order, an absent fact
+saying so — and a denial at the gateway names the rule *and* what it
+refused: the branch and the pattern it had to match, the path and the
+prefix it fell under. For `hello-saas`, whose merge gate is a human's:
+
+<!-- gen: bounds:hello-saas -->
 
 The delegated profile adds the split oracle:
 
