@@ -103,6 +103,15 @@ jobs:
           worker = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == t.ORCHESTRATOR_SERVICE_ACCOUNT)
           token = worker["spec"]["template"]["spec"]["volumes"][0]["projected"]["sources"][0]["serviceAccountToken"]
           assert token["audience"] == t.TOKEN_AUDIENCE and token["expirationSeconds"] == t.TOKEN_TTL_S, token
+          # The console reads the documents at the gateway as its own
+          # ServiceAccount, with the same projected token, mounted where
+          # the console reads it.
+          pod = console["spec"]["template"]["spec"]
+          assert pod["serviceAccountName"] == t.CONSOLE_SERVICE_ACCOUNT, pod["serviceAccountName"]
+          token = pod["volumes"][0]["projected"]["sources"][0]["serviceAccountToken"]
+          assert token["audience"] == t.TOKEN_AUDIENCE and token["expirationSeconds"] == t.TOKEN_TTL_S, token
+          mount = pod["containers"][0]["volumeMounts"][0]
+          assert mount["mountPath"] == t.TOKEN_MOUNT_DIR and mount["readOnly"], mount
           # The platform NetworkPolicies select the company namespace by the
           # name the compiler writes into the Company CR.
           selected = set()

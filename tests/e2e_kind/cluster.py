@@ -424,7 +424,7 @@ def events_since(fence: str) -> list[dict[str, Any]]:
     """Every audit event stamped at or after `fence` (a `db_now()` value)."""
     return psql_json(
         "SELECT COALESCE(json_agg(e), '[]'::json) FROM ("
-        "SELECT source, run_id, decision, rule, rationale, tool"
+        "SELECT source, run_id, agent_id, lifecycle, decision, rule, rationale, tool"
         " FROM registry.audit_events WHERE ts >= :'fence') e",
         fence=fence,
     )

@@ -9,6 +9,9 @@ arrived at:
 
   the gateways (workload mode) — the principal must be a ServiceAccount:
     platform ns / orchestrator SA -> platform lifecycle
+    platform ns / console SA      -> the console lifecycle, for the applied
+                                     company (the MCP gateway only, which
+                                     passes the registry's companies)
     <company ns> / <agent_id>     -> the registry's `agent_instances` row
                                      (standing agents)
     <company ns> / ephemeral-*    -> a live `run_participants` row, looked
@@ -48,7 +51,10 @@ from pydantic_settings import BaseSettings
 
 from common.audit import AuditEvent, Source, args_digest
 from common.identity import (
+    CONSOLE_ID,
+    CONSOLE_ROLE,
     HUMAN_ROLE,
+    LIFECYCLE_CONSOLE,
     LIFECYCLE_EPHEMERAL,
     LIFECYCLE_HUMAN,
     LIFECYCLE_PLATFORM,
@@ -60,6 +66,7 @@ from common.identity import (
 )
 from common.telemetry import get_logger
 from common.topology import (
+    CONSOLE_SERVICE_ACCOUNT,
     HUMAN_SA_PREFIX,
     ORCHESTRATOR_SERVICE_ACCOUNT,
     TOKEN_AUDIENCE,
@@ -140,6 +147,12 @@ class ParticipantReads(Protocol):
     def by_service_account(self, service_account: str) -> dict[str, Any] | None: ...
 
 
+class CompanyReads(Protocol):
+    """The registry's `companies` reader: the one applied company."""
+
+    def applied(self) -> str | None: ...
+
+
 class KubeTokenReviewer:
     """TokenReview against the cluster's API server, authenticated with the
     verifier's own mounted service-account token (RBAC: system:auth-delegator).
@@ -209,6 +222,7 @@ class Authenticator:
         audit: AuditSink,
         instances: InstanceReads | None = None,
         participants: ParticipantReads | None = None,
+        companies: CompanyReads | None = None,
         reviewer: Reviewer | None = None,
         source: Source = "gateway",
         audience: str = TOKEN_AUDIENCE,
@@ -218,6 +232,7 @@ class Authenticator:
         self._audit = audit
         self._instances = instances
         self._participants = participants
+        self._companies = companies
         self._reviewer = reviewer
         self._source = source
         self._audience = audience
@@ -319,6 +334,21 @@ class Authenticator:
                 agent_id=ORCHESTRATOR_ID,
                 role=PLATFORM_ROLE,
                 lifecycle=LIFECYCLE_PLATFORM,
+            )
+        if (
+            self._companies is not None
+            and account.namespace == settings.platform_namespace
+            and account.name == CONSOLE_SERVICE_ACCOUNT
+        ):
+            # The console reading the company's documents for a person. Its
+            # company is the one applied: the compiled rule that answers it
+            # lives in that company's bundle, nowhere else.
+            return Identity(
+                agent_id=CONSOLE_ID,
+                role=CONSOLE_ROLE,
+                lifecycle=LIFECYCLE_CONSOLE,
+                company=await asyncio.to_thread(self._companies.applied),
+                namespace=account.namespace,
             )
         # Standing first: instance ids never carry the crew SA prefix, so
         # the two lookups cannot shadow each other; the order only decides

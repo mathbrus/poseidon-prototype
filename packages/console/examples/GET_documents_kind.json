@@ -1,0 +1,17 @@
+{
+  "request": {
+    "body": null,
+    "path": "/documents/strategy",
+    "query": {}
+  },
+  "response": {
+    "kind": "strategy",
+    "path": "docs/STRATEGY.md",
+    "present": true,
+    "read_at": "2026-01-01T00:00:00Z",
+    "ref": "main",
+    "text": "# Strategy\n\nShip slugify first: every later slice builds on it.\n"
+  },
+  "route": "GET /documents/{kind}",
+  "status": 200
+}

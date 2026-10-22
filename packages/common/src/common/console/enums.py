@@ -40,6 +40,12 @@ AuditSource = _closed("AuditSource", SOURCES)
 Decision = _closed("Decision", DECISIONS)
 CompanyPhase = _closed("CompanyPhase", COMPANY_PHASES)
 
+# The company's two documents, by the names a blueprint places them under
+# (`blueprint.documents.DOCUMENT_NAMES`, a package `common` does not
+# depend on; the console's tests hold the two equal).
+DOCUMENT_KINDS = ("strategy", "architecture")
+DocumentKind = _closed("DocumentKind", DOCUMENT_KINDS)
+
 # Temporal's execution statuses by name (`temporalio.client.
 # WorkflowExecutionStatus`, which `common` does not depend on; the
 # console's tests hold the two equal), plus the console's answer for an

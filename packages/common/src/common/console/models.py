@@ -20,6 +20,7 @@ from common.console.enums import (
     AuditSource,
     CompanyPhase,
     Decision,
+    DocumentKind,
     ExecutionStatus,
     Gate,
     HeartbeatState,
@@ -194,6 +195,20 @@ class BlueprintView(Model):
     sha256: str
     applied_by: str
     applied_at: datetime
+
+
+class DocumentView(Model):
+    """`GET /documents/{kind}`: one of the company's two documents as it
+    stands on the base ref, read live through the MCP gateway, clipped to
+    what a model is shown of it. An absent document is `present: false`,
+    not an error: a company's first ticks exist to write them."""
+
+    kind: DocumentKind
+    path: str
+    ref: str
+    present: bool
+    text: str | None
+    read_at: datetime
 
 
 class BoundsView(Model):

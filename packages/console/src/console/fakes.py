@@ -102,6 +102,20 @@ class FakeWorkflows:
         return {"workflow_id": wf_id, "status": "RUNNING", "state": self.running[wf_id]}
 
 
+class FakeDocuments:
+    """The gateway's `repo.read_file`, over a dict of path to text; records
+    what it was asked."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, str] = {}
+        self.reads: list[tuple[str, str, str]] = []
+
+    async def read(self, repo: str, ref: str, path: str) -> dict[str, Any]:
+        self.reads.append((repo, ref, path))
+        text = self.files.get(path)
+        return {"present": text is not None, "text": text}
+
+
 class FixedCompanies(InMemoryCompanies):
     """The registry's companies, with the pause stamped at the world's
     clock rather than the host's."""
@@ -147,6 +161,7 @@ class World:
         self.companies = FixedCompanies(lambda: self.now)
         self.companies.upsert(COMPANY, applied_spec())
         self.workflows = FakeWorkflows()
+        self.documents = FakeDocuments()
         self.submitted: list[DeploymentPlan] = []
         self.deleted: list[str] = []
         self.waited: list[bool] = []
@@ -219,6 +234,7 @@ class World:
             tickets=self.tickets,
             token_reviewer=FakeReviewer(),
             workflows=self.workflows,
+            documents=self.documents,
             submit_crs=self.submit,
             delete_company=self.delete,
             read_company=self.read_company,

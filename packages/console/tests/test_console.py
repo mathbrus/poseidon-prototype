@@ -32,6 +32,7 @@ from common.console import (
     CompanyDeleted,
     CompanyView,
     CrewView,
+    DocumentView,
     EventsPage,
     ExecutionView,
     Health,
@@ -65,6 +66,7 @@ from common.policy import (
     RUN_CANCEL,
     RUN_START,
 )
+from common.text import UNTRUSTED_CLIP, clip_head
 from common.topology import BLUEPRINT_LIMIT_BYTES, PLATFORM_NAMESPACE
 from common.workflows import GATE_PARKED, gate_rule
 from console.config import ConsoleSettings
@@ -864,6 +866,34 @@ async def test_the_tickets_are_the_ones_filed_on_the_company_repository(client, 
         (3, "heartbeat-hello-saas"),
         (9, "run-scope"),
     ]
+
+
+async def test_the_documents_are_read_live_at_the_base_ref(client, world):
+    """Each of the two documents, read through the gateway at the company's
+    repository and base ref, clipped as a crew reads it; an absent one is
+    `present: false`, not an error."""
+    spec = applied_spec()
+    world.documents.files[spec["documents"]["strategy"]] = "x" * (UNTRUSTED_CLIP + 10)
+    strategy = model(
+        DocumentView, await client.get("/documents/strategy", headers=as_owner())
+    )
+    assert (strategy.kind, strategy.path, strategy.ref, strategy.present) == (
+        "strategy",
+        spec["documents"]["strategy"],
+        spec["repo"]["base_ref"],
+        True,
+    )
+    assert strategy.text == clip_head("x" * (UNTRUSTED_CLIP + 10))
+    architecture = model(
+        DocumentView, await client.get("/documents/architecture", headers=as_owner())
+    )
+    assert architecture.present is False and architecture.text is None
+    assert world.documents.reads == [
+        (spec["repo"]["url"], spec["repo"]["base_ref"], spec["documents"][name])
+        for name in ("strategy", "architecture")
+    ]
+    unknown = await client.get("/documents/roadmap", headers=as_owner())
+    assert unknown.status_code == 422 and world.audit.events == []
 
 
 async def test_the_company_carries_its_limits_and_its_bounds(client, world):

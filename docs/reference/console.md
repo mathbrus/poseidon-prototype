@@ -144,11 +144,22 @@ uv run python scripts/console_interface.py --check   # what CI runs
 
 ## What the console holds
 
-The registry's connection string and its own token for TokenReview. It
-holds no GitHub token, no model key and no signing key. In the cluster,
-it may create, update and delete the `Company` and `AgentInstance`
-resources, and read the company namespace. Its NetworkPolicy lets it reach OPA,
-Postgres, the Temporal frontend, DNS and the Kubernetes API, and nothing
-else.
+The registry's connection string, its own token for TokenReview, and a
+projected token for the MCP gateway's audience. It holds no GitHub
+token, no model key and no signing key. In the cluster, it may create,
+update and delete the `Company` and `AgentInstance` resources, and read
+the company namespace. Its NetworkPolicy lets it reach OPA, Postgres,
+the Temporal frontend, the MCP gateway, DNS and the Kubernetes API, and
+nothing else.
 
-It writes the audit table and the pause, and nothing else in the registry.
+At the MCP gateway it is the `console` identity, never the platform's.
+The company's bundle allows it exactly one read: `repo.read_file` of the
+company's two documents, on its repository, at its base ref
+(`console_read_document`). Every other call is denied by default. The
+gateway audits each read under `console`; your name is not forwarded,
+because the gateway trusts no forwarded identity. `GET /documents/{kind}`
+is that read, and like every `GET` the console itself records nothing.
+Agents' authority is unchanged: the console gains one read and no act.
+
+In the registry, it writes the audit table and the pause columns of
+`companies`, and nothing else.

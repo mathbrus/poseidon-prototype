@@ -103,3 +103,12 @@ deny_rules contains "human_not_recognized" if {
 	input.lifecycle == "human"
 	not input.agent_id in ["owner"]
 }
+
+allow_rules contains "console_read_document" if {
+	input.lifecycle == "console"
+	input.company == "hello-saas"
+	input.tool == "repo.read_file"
+	input.args.repo == "github.com/example-org/hello-saas"
+	input.args.ref == "main"
+	input.args.path in ["docs/ARCHITECTURE.md", "docs/STRATEGY.md"]
+}

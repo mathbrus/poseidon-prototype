@@ -427,6 +427,61 @@
         "title": "DeleteRequest",
         "type": "object"
       },
+      "DocumentKind": {
+        "enum": [
+          "strategy",
+          "architecture"
+        ],
+        "title": "DocumentKind",
+        "type": "string"
+      },
+      "DocumentView": {
+        "additionalProperties": false,
+        "description": "`GET /documents/{kind}`: one of the company's two documents as it\nstands on the base ref, read live through the MCP gateway, clipped to\nwhat a model is shown of it. An absent document is `present: false`,\nnot an error: a company's first ticks exist to write them.",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DocumentKind"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "present": {
+            "title": "Present",
+            "type": "boolean"
+          },
+          "read_at": {
+            "format": "date-time",
+            "title": "Read At",
+            "type": "string"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "required": [
+          "kind",
+          "path",
+          "ref",
+          "present",
+          "text",
+          "read_at"
+        ],
+        "title": "DocumentView",
+        "type": "object"
+      },
       "EphemeralAgentView": {
         "additionalProperties": false,
         "description": "One ephemeral agent bound to a run: its crew and role, and whether\nits identity is still active or was revoked at teardown.",
@@ -2122,6 +2177,74 @@
           }
         },
         "summary": "the charter's gates and limits as every dispatch carries them"
+      }
+    },
+    "/documents/{kind}": {
+      "get": {
+        "operationId": "document_documents__kind__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DocumentKind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "the strategy or the architecture masterplan, as it stands on the base ref"
       }
     },
     "/events": {

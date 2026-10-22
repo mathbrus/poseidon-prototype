@@ -46,6 +46,9 @@ PEER_PORTS = {
 # The ServiceAccount the orchestrator worker acts as — the one caller the
 # gateways treat as the platform identity.
 ORCHESTRATOR_SERVICE_ACCOUNT = "orchestrator-worker"
+# The ServiceAccount the console runs as; at the MCP gateway its projected
+# token is the console identity, which may read the company's documents.
+CONSOLE_SERVICE_ACCOUNT = "console"
 
 # The namespace the platform is installed into: the chart's release
 # namespace, which every template hands its pod. In-cluster nothing needs

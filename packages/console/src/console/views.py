@@ -20,6 +20,7 @@ from common.console import (
     BoundsView,
     CompanyView,
     CrewView,
+    DocumentView,
     EphemeralAgentView,
     EventsPage,
     EventsSpend,
@@ -39,6 +40,7 @@ from common.console import (
     TicketView,
     TickView,
 )
+from common.text import clip_head
 from common.topology import PHASE_ACTIVATING
 from common.workflows import (
     BUDGET_GATE,
@@ -99,6 +101,24 @@ def blueprint_view(cr: dict[str, Any]) -> BlueprintView | None:
         sha256=source["sha256"],
         applied_by=source["appliedBy"],
         applied_at=source["appliedAt"],
+    )
+
+
+def document_view(
+    kind: str, spec: dict[str, Any], read: dict[str, Any], read_at: str
+) -> DocumentView:
+    """`repo.read_file`'s `{present, text}` for one of the documents, the
+    text clipped as the orchestrator clips what a model reads of it, so
+    a person and a crew see the same picture."""
+    present = bool(read.get("present"))
+    text = read.get("text") if present else None
+    return DocumentView(
+        kind=kind,
+        path=spec["documents"][kind],
+        ref=spec["repo"]["base_ref"],
+        present=present,
+        text=clip_head(str(text)) if text is not None else None,
+        read_at=read_at,
     )
 
 

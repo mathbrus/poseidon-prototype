@@ -103,6 +103,9 @@ def create_app(
         audit,
         instances,
         participants,
+        # The console's own ServiceAccount is known here, for the one read
+        # its company's bundle allows it: the documents.
+        companies=companies,
         reviewer=token_reviewer or default_reviewer(settings),
     )
 

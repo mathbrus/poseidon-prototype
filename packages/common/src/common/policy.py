@@ -46,6 +46,9 @@ HEARTBEAT_PAUSE = "heartbeat.pause"
 HEARTBEAT_RESUME = "heartbeat.resume"
 BLUEPRINT_APPLY = "blueprint.apply"
 COMPANY_DELETE = "company.delete"
+# The one read the console makes at the MCP gateway, for a person: the
+# company's documents at the base ref.
+CONSOLE_READ_DOCUMENT = "console_read_document"
 
 # The rules the blueprint's `policies` section and the company's document
 # paths compile to over a delivery (`git.open_pr`), and the repository
@@ -289,6 +292,12 @@ RULES: tuple[PolicyRule, ...] = (
         "human_not_recognized",
         "deny",
         "A verified person the blueprint's `company.humans` doesn't name.",
+    ),
+    PolicyRule(
+        CONSOLE_READ_DOCUMENT,
+        "allow",
+        "The console reads one of the company's two documents, on its repository"
+        " at the base ref, for a person.",
     ),
     # -- the merge gate
     PolicyRule(

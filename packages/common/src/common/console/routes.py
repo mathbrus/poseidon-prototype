@@ -79,6 +79,12 @@ ROUTES: tuple[Route, ...] = (
     ),
     Route(
         "GET",
+        "/documents/{kind}",
+        "the strategy or the architecture masterplan, as it stands on the base ref",
+        m.DocumentView,
+    ),
+    Route(
+        "GET",
         "/agents",
         "the company's standing agents, the conductor marked",
         m.AgentList,

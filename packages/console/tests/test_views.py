@@ -58,6 +58,12 @@ def test_temporals_statuses_are_the_interfaces():
     }
 
 
+def test_the_document_kinds_are_the_blueprints():
+    from blueprint.documents import DOCUMENT_NAMES
+
+    assert enums.DOCUMENT_KINDS == DOCUMENT_NAMES
+
+
 def test_an_audit_row_reaches_a_client_without_its_digest():
     """The arguments' digest and the backend's status are the ledger's,
     not a reader's."""

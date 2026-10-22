@@ -24,6 +24,7 @@ from common.console import (
     BlueprintRequest,
     CancelRequest,
     DeleteRequest,
+    DocumentKind,
     Gate,
     Health,
     PauseRequest,
@@ -40,6 +41,7 @@ from common.version import running_version
 from compiler import DeploymentPlan
 from console import crs
 from console.config import ConsoleSettings
+from console.documents import Documents, DocumentsUnavailable, GatewayDocuments
 from console.service import ConsoleService, Invalid, NoCompany, PolicyDenied
 from console.temporal import TemporalWorkflows, Unavailable, Workflows
 from registry import (
@@ -83,6 +85,7 @@ def create_app(
     tickets: FiledTickets | None = None,
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
+    documents: Documents | None = None,
     submit_crs: Callable[[DeploymentPlan, dict[str, str]], tuple[int, int, int]]
     | None = None,
     delete_company: Callable[[str, bool], None] | None = None,
@@ -125,6 +128,7 @@ def create_app(
         participants,
         tickets,
         workflows or TemporalWorkflows(settings.temporal_address),
+        documents or GatewayDocuments(settings.platform_namespace),
         submit_crs or crs.submit,
         delete_company or crs.delete_company,
         read_company or crs.read_company,
@@ -179,6 +183,10 @@ def create_app(
     async def unavailable(_: Request, exc: Unavailable) -> JSONResponse:
         return _problem(503, f"temporal unreachable: {exc}")
 
+    @app.exception_handler(DocumentsUnavailable)
+    async def no_documents(_: Request, exc: DocumentsUnavailable) -> JSONResponse:
+        return _problem(503, str(exc))
+
     def identity_of(request: Request):
         return request.state.identity
 
@@ -214,6 +222,10 @@ def create_app(
     @serve("GET", "/company/bounds")
     async def bounds():
         return await service.bounds()
+
+    @serve("GET", "/documents/{kind}")
+    async def document(kind: DocumentKind):
+        return await service.document(kind.value)
 
     @serve("GET", "/agents")
     async def agents():

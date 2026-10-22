@@ -25,6 +25,7 @@ from common.console import (
     CompanyDeleted,
     CompanyView,
     DeleteRequest,
+    DocumentView,
     EventsPage,
     Health,
     HeartbeatView,
@@ -172,6 +173,9 @@ class ConsoleClient:
 
     def blueprint(self) -> BlueprintView:
         return self._call("GET", "/blueprint", BlueprintView)
+
+    def document(self, kind: str) -> DocumentView:
+        return self._call("GET", f"/documents/{kind}", DocumentView)
 
     def company(self) -> CompanyView:
         return self._call("GET", "/company", CompanyView)

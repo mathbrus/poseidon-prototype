@@ -36,6 +36,7 @@ from common.console import (
     CompanyDeleted,
     CompanyView,
     CrewView,
+    DocumentView,
     EventsPage,
     ExecutionView,
     HeartbeatView,
@@ -87,6 +88,7 @@ from compiler import (
 from compiler.errors import CompileError
 from console import views
 from console.config import ConsoleSettings
+from console.documents import Documents
 from console.temporal import AlreadyStarted, WorkflowNotFound, Workflows
 from registry import (
     AgentInstances,
@@ -131,6 +133,7 @@ class ConsoleService:
         participants: RunParticipants,
         tickets: FiledTickets,
         workflows: Workflows,
+        documents: Documents,
         submit_crs: Callable[[DeploymentPlan, dict[str, str]], tuple[int, int, int]],
         delete_company: Callable[[str, bool], None],
         read_company: Callable[[], dict[str, Any] | None],
@@ -145,6 +148,7 @@ class ConsoleService:
         self._participants = participants
         self._tickets = tickets
         self._workflows = workflows
+        self._documents = documents
         self._submit = submit_crs
         self._delete = delete_company
         self._read_company = read_company
@@ -392,6 +396,17 @@ class ConsoleService:
         if view is None:
             raise NoCompany("no blueprint is applied")
         return view
+
+    async def document(self, kind: str) -> DocumentView:
+        """One of the two documents at the base ref, read live through the
+        MCP gateway under the console's own identity."""
+        _, spec = await self._converged_spec()
+        repo = spec["repo"]
+        read = await self._documents.read(
+            repo["url"], repo["base_ref"], spec["documents"][kind]
+        )
+        read_at = await asyncio.to_thread(self._clock)
+        return views.document_view(kind, spec, read, read_at)
 
     async def bounds(self) -> BoundsView:
         """The bounds every dispatch carries, from the applied spec."""
