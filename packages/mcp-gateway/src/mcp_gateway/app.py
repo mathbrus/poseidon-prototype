@@ -222,13 +222,24 @@ def create_app(
 
     @mcp.tool(name="sandbox.git_bundle")
     async def sandbox_git_bundle(
-        run_id: str, branch: str, ctx: Context
+        run_id: str, branch: str, message: str, ctx: Context
     ) -> dict[str, Any]:
-        """A git bundle of the named branch's commits since the recorded base ref,
-        base64-encoded. How work leaves the sandbox: as verifiable content, not
-        as a push."""
-        return await sandbox_call(
-            ctx, "sandbox.git_bundle", {"run_id": run_id, "branch": branch}
+        """Commit the run's workspace as it stands onto `branch` and return a git
+        bundle of it since the recorded base ref, base64-encoded. The commit is
+        the platform's — one commit over the base ref, whose tree is the
+        workspace, authored by the calling agent — so what is delivered is what
+        is in the sandbox. How work leaves the sandbox: as verifiable content,
+        not as a push."""
+        identity = identity_of(ctx)
+        args = {"run_id": run_id, "branch": branch, "message": message}
+        # The author is the verified caller, never an argument it chose.
+        return await service.call(
+            identity,
+            "sandbox.git_bundle",
+            args,
+            lambda: service.proxy_sandbox(
+                "sandbox.git_bundle", {**args, "author": identity.agent_id}
+            ),
         )
 
     @mcp.tool(name="repo.archive")

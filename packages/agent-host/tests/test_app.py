@@ -88,6 +88,7 @@ async def test_task_lifecycle_running_then_done():
             "verdict": None,
             "verdict_rationale": None,
             "decision": None,
+            "delivery_refusal": None,
         }
 
         release.set()
@@ -103,6 +104,7 @@ async def test_task_lifecycle_running_then_done():
         "verdict": None,
         "verdict_rationale": None,
         "decision": None,
+        "delivery_refusal": None,
     }
     # The bounds and the documents reach the procedure; a dispatch without
     # documents carries an empty mapping, never a missing field.

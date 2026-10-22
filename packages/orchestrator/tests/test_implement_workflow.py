@@ -60,6 +60,11 @@ class Harness:
     # Scripted implement dispatch results, consumed in order; `implement`
     # once exhausted.
     implement_outcomes: list[dict[str, Any]] = field(default_factory=list)
+    # Scripted deliver dispatch results, consumed in order; `deliver` once
+    # exhausted.
+    deliver_outcomes: list[dict[str, Any]] = field(default_factory=list)
+    # The text each implement dispatch was given, in order.
+    implement_texts: list[str] = field(default_factory=list)
     max_verify_retries: int = 0
 
     def activities(self) -> list[Any]:
@@ -133,7 +138,10 @@ class Harness:
                 activity.heartbeat()
                 await asyncio.sleep(0.05)
             if procedure == "deliver":
+                if harness.deliver_outcomes:
+                    return dict(harness.deliver_outcomes.pop(0))
                 return dict(harness.deliver)
+            harness.implement_texts.append(task_text)
             if harness.implement_outcomes:
                 return dict(harness.implement_outcomes.pop(0))
             return dict(harness.implement)
@@ -301,6 +309,49 @@ async def test_a_delivery_that_opened_nothing_is_not_a_conclusion(env):
     record = await run_implement(env.client, harness)
     assert record["status"] == "failed"
     assert record["error"] == "delivery finished without a PR"
+    assert harness.attempts_recorded == [RUN_ID]
+
+
+REFUSAL = (
+    "denied by policy rule: git_open_pr_architecture_path — docs/ARCHITECTURE.md"
+    " is the architecture masterplan; only the steward delivers into it"
+)
+REFUSED = {
+    "status": "failed",
+    "error": "no PR",
+    "pr_url": None,
+    "delivery_refusal": REFUSAL,
+}
+
+
+async def test_a_refused_delivery_goes_back_to_implement_and_is_verified_again(env):
+    """Deliver cannot change the work, so policy's refusal of a path is the
+    implementer's to fix: it gets the platform's words, its fix is verified
+    again, and only then delivered."""
+    harness = Harness(deliver_outcomes=[REFUSED], max_verify_retries=1)
+    record = await run_implement(env.client, harness)
+
+    assert harness.dispatches == ["implement", "deliver", "implement", "deliver"]
+    assert harness.verifies == 2
+    assert REFUSAL in harness.implement_texts[1]
+    assert record["status"] == "done"
+    assert record["pr_url"] == PR_URL
+
+
+async def test_refused_deliveries_share_the_verify_bound(env):
+    """A red verify and a refused delivery each send the work back once
+    against the same `max_verify_retries`; past it the run fails with the
+    refusal on the record, and no PR."""
+    harness = Harness(
+        verify_outcomes=[{"passed": False, "output": "red"}],
+        deliver_outcomes=[REFUSED],
+        max_verify_retries=1,
+    )
+    record = await run_implement(env.client, harness)
+
+    assert harness.dispatches == ["implement", "implement", "deliver"]
+    assert record["status"] == "failed"
+    assert record["error"].startswith(f"delivery refused: {REFUSAL} after 2 attempt(s)")
     assert harness.attempts_recorded == [RUN_ID]
 
 

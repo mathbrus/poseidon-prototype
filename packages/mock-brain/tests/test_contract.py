@@ -314,6 +314,61 @@ def test_verify_red_scenario_recovers_on_the_feedback_dispatch(mock_llm_url):
     assert delivered.pr_url == PR_URL
 
 
+class PathFencedGateway(FakeGateway):
+    """Models the gateway's path fence: a delivery whose workspace holds
+    the architecture masterplan is refused for the implementer, with the
+    rule and the path in the text, like the real gateway."""
+
+    async def call(self, tool: str, args: dict[str, Any]) -> dict[str, Any]:
+        if tool == "sandbox.exec" and "-- docs/ARCHITECTURE.md" in args.get("cmd", ""):
+            self.files.pop("docs/ARCHITECTURE.md", None)
+        if tool == "git.open_pr" and "docs/ARCHITECTURE.md" in self.files:
+            self.calls.append((tool, dict(args)))
+            raise ToolCallError(
+                "denied by policy rule: git_open_pr_architecture_path — "
+                "docs/ARCHITECTURE.md is the architecture masterplan; only the "
+                "steward delivers into it"
+            )
+        return await super().call(tool, args)
+
+
+def test_a_refused_path_goes_back_to_implement_and_is_delivered_without_it(
+    mock_llm_url,
+):
+    """The masterplan-edit arc, rehearsed off-cluster: deliver cannot drop
+    the refused file, so it ends with the refusal; the workflow's feedback
+    re-dispatch restores the plan, and the next delivery opens."""
+    from mock_brain.brain import MASTERPLAN_EDIT_MARKER
+
+    task_text = (
+        f"Add a slugify utility ({MASTERPLAN_EDIT_MARKER}).\n\n"
+        "Deliver your work on the branch `feature/slugify-me`.\n"
+    )
+    cfg = settings(mock_llm_url)
+    gateway = PathFencedGateway()
+    with bridged(gateway):
+        run_implement(cfg, "run-mock-me", task_text, BOUNDS)
+        refused = run_deliver(cfg, "run-mock-me", task_text, BOUNDS)
+    assert refused.pr_url is None
+    assert "git_open_pr_architecture_path" in (refused.delivery_refusal or "")
+
+    # The same text shape orchestrator.workflows.implement.delivery_feedback
+    # composes — the mock keys on DELIVERY_FEEDBACK_MARKER.
+    feedback = (
+        f"{task_text}\n\n"
+        "The platform verified your work, but policy REFUSED to deliver it:\n"
+        f"{refused.delivery_refusal}\n"
+        "Change the work in the workspace so that it complies, then stop; the"
+        " platform verifies it again and delivers it."
+    )
+    with bridged(gateway):
+        reclaim = run_implement(cfg, "run-mock-me", feedback, BOUNDS)
+        delivered = run_deliver(cfg, "run-mock-me", task_text, BOUNDS)
+    assert reclaim.error is None
+    assert "docs/ARCHITECTURE.md" not in gateway.files
+    assert delivered.pr_url == PR_URL
+
+
 def test_review_dispatch_reads_executes_and_posts_findings(mock_llm_url):
     """The reviewer's script: read the PR diff, run
     the suite in the review sandbox, post exactly one findings comment —

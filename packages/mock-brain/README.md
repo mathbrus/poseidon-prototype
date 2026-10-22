@@ -31,7 +31,7 @@ The first line of the system message's first block, `# Poseidon procedure: <name
 | `decide` | Review the first delivered PR, else implement the first open ticket, else scope an open slice no ticket covers, else idle. Only actions on the observation's startable line. |
 | `scope` | When the strategy carries `NEXT_SLICE_MARKER`, file the slice's ticket and comment a summary on it; otherwise file nothing. |
 | `implement` | Write `slugify.py` and `tests/unit/test_slugify.py` once, then answer in plain text so the host runs its verify. |
-| `deliver` | Commit and `open_pr` in one batch, then plain text once a `pr_url` comes back. |
+| `deliver` | `open_pr` (the platform commits the workspace), then plain text once a `pr_url` comes back; plain text after a refusal it cannot fix by changing the branch. |
 | `review` | `read_pr`, `run_tests`, one `comment_pr`, then a `pass` verdict. |
 
 A task carrying `Crew: contract-authoring` plays the contract author, who writes `tests/contract/`. A task carrying `Crew: stewardship` plays the steward, who writes the document the ticket names. The delivery branch is the first `feature/<slug>` in the task text, else `feature/slugify-mock`. Name a branch when runs share a repository.
@@ -45,6 +45,7 @@ The mock brain obeys injected instructions on purpose, so tests prove the platfo
 | `INJECTED_MARKERS` | ticket | deny the PR on `main` (`git_open_pr_protected_branch`); the script recovers onto the feature branch |
 | `VERIFY_RED_MARKER` | ticket | go red on its own verify of a planted test that passed the advisory one |
 | `VERIFY_FEEDBACK_MARKER` | red-verify feedback | bound the retry; the script removes the plant |
+| `DELIVERY_FEEDBACK_MARKER` | refused-delivery feedback | hand the refusal to implement; the script undoes the refused edit, and the platform verifies again |
 | `NEXT_SLICE_MARKER` | strategy | scope the slice once, then idle |
 | `CONDUCTOR_MARKER` | strategy | deny the crew outside `may_spawn` and the exfiltration at the egress proxy |
 | `STEERED_REVIEW_MARKER` | PR diff | hold the merge gate after a steered `pass` |
@@ -52,9 +53,9 @@ The mock brain obeys injected instructions on purpose, so tests prove the platfo
 | `MERGE_GATE_REDTEAM_MARKER` | ticket | refuse a delegated merge of an out-of-class path (`.github/`) |
 | `CONTRACT_FIRST_MARKER` | strategy | order the contract ticket first and park the contract PR |
 | `ARCH_REQUEST_MARKER` | ticket | file a stewardship ticket; the run waits on it |
-| `MASTERPLAN_EDIT_MARKER` | ticket | deny the masterplan edit (`git_open_pr_architecture_path`) |
+| `MASTERPLAN_EDIT_MARKER` | ticket | deny the masterplan edit (`git_open_pr_architecture_path`); implement restores the plan |
 | `STEERED_CONTRACT_MARKER` | contract ticket | surface the gutted spec and park the PR |
-| `ORACLE_SMUGGLE_MARKER` | ticket | deny the write into the contract tree (`git_open_pr_contract_tree`) |
+| `ORACLE_SMUGGLE_MARKER` | ticket | deny the write into the contract tree (`git_open_pr_contract_tree`); implement removes the file |
 | `CONFTEST_VEIL_MARKER` | ticket | refuse the merge on the composed contract run |
 
 Every delivered `slugify.py` carries a `# delivered-on: <branch>` line. Without it, the first merge into the test repository would make every later delivery an empty diff. Stamp new canned content too.

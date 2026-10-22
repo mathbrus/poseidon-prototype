@@ -5,8 +5,9 @@ Two mechanisms worth stating:
 
 - `run_id` (and `target_repo`) are injected at call time and appear in no
   action schema — the model cannot see or forge them.
-- `open_pr` stays a composite: `sandbox.git_bundle` then `git.open_pr`, so
-  base64 bundles never enter the model context.
+- `open_pr` stays a composite: `sandbox.git_bundle` (the platform commits
+  the workspace as it stands) then `git.open_pr`, so base64 bundles never
+  enter the model context.
 
 A gateway denial (`ToolCallError`, carrying the OPA rule name) becomes the
 tool observation text (`ERROR: ...`) — denial-as-tool-result, the
@@ -40,8 +41,10 @@ from common.text import numbered_lines
 
 # Per-procedure tool surfaces — the structural guarantee: implement has
 # no `open_pr` (delivery before the platform verify gate is impossible by
-# construction); review writes nothing but its findings comment and, at
-# most, one architecture request the platform files as a ticket.
+# construction), and deliver has nothing that changes the sandbox (what is
+# delivered is what the platform verified); review writes nothing but its
+# findings comment and, at most, one architecture request the platform
+# files as a ticket.
 IMPLEMENT_TOOLS = [
     "list_dir",
     "read_file",
@@ -50,7 +53,7 @@ IMPLEMENT_TOOLS = [
     "exec",
     "request_architecture",
 ]
-DELIVER_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec", "open_pr"]
+DELIVER_TOOLS = ["read_file", "open_pr"]
 SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
 REVIEW_TOOLS = [
     "list_dir",
@@ -62,11 +65,10 @@ REVIEW_TOOLS = [
     "request_architecture",
     "verdict",
 ]
-# The tools that address the run's sandbox: a procedure holding any of
-# them gets the host's workspace survey before its first turn.
-WORKSPACE_TOOLS = frozenset(
-    {"list_dir", "read_file", "write_file", "edit_file", "exec", "run_tests"}
-)
+# The tools that work in the run's sandbox: a procedure holding any of
+# them gets the host's workspace survey before its first turn. Deliver,
+# which only reads there, opens on what it delivers instead.
+WORKSPACE_TOOLS = frozenset({"write_file", "edit_file", "exec", "run_tests"})
 
 
 class GatewayCaller(Protocol):
@@ -87,6 +89,8 @@ class ToolRecords:
     # against compiled policy — never this record's.
     verdict: str | None = None
     verdict_rationale: str | None = None
+    # Deliver: the last refusal of an `open_pr`, the platform's words.
+    delivery_refusal: str | None = None
 
 
 @dataclass
@@ -294,21 +298,30 @@ def _run_tests(ctx: HandsContext, a: RunTestsAction) -> dict[str, Any]:
 
 
 def _open_pr(ctx: HandsContext, a: OpenPrAction) -> dict[str, Any]:
-    bundle = ctx.bridge.call(
-        "sandbox.git_bundle", {"run_id": ctx.run_id, "branch": a.branch}
-    )
-    result = ctx.bridge.call(
-        "git.open_pr",
-        {
-            "run_id": ctx.run_id,
-            "repo": ctx.settings.target_repo,
-            "branch": a.branch,
-            "title": a.title,
-            "body": a.body,
-            "bundle_b64": bundle["bundle_b64"],
-            "rationale": a.rationale,
-        },
-    )
+    """The platform commits the workspace under the PR title, then policy
+    decides the delivery. A refusal is kept: when no PR opens, it is what
+    the workflow hands the next implement dispatch, since only that one
+    can change the work."""
+    try:
+        bundle = ctx.bridge.call(
+            "sandbox.git_bundle",
+            {"run_id": ctx.run_id, "branch": a.branch, "message": a.title},
+        )
+        result = ctx.bridge.call(
+            "git.open_pr",
+            {
+                "run_id": ctx.run_id,
+                "repo": ctx.settings.target_repo,
+                "branch": a.branch,
+                "title": a.title,
+                "body": a.body,
+                "bundle_b64": bundle["bundle_b64"],
+                "rationale": a.rationale,
+            },
+        )
+    except ToolCallError as exc:
+        ctx.records.delivery_refusal = str(exc)
+        raise
     if result.get("pr_url"):
         ctx.records.pr_url = result["pr_url"]
     # The bundle never enters the model context; the observation is the PR.
@@ -453,10 +466,9 @@ _TOOLS: dict[str, ToolSpec] = {
         _run_tests,
     ),
     "open_pr": ToolSpec(
-        "Deliver the finished work: bundle the given branch and open a pull "
-        "request against the target repository, saying why the change is "
-        "complete and correct. Commit your changes on the branch first (via "
-        "exec).",
+        "Deliver the verified work: the platform commits the workspace onto "
+        "the given branch and opens a pull request against the target "
+        "repository, saying why the change is complete and correct.",
         OpenPrAction,
         _open_pr,
     ),

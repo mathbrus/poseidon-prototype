@@ -76,9 +76,12 @@ SCOPE_STEP_CAP = 10
 # blueprint's `max_verify_retries` bound the run; these bound one dispatch.
 IMPLEMENT_STEP_CAP = 20
 VERIFY_CYCLES = 10
-# One SDK step is one delivery attempt (commit + open_pr); a denied
-# attempt and its recovery must fit.
+# One SDK step is one delivery attempt (open_pr); a denied attempt and its
+# recovery must fit.
 DELIVER_STEP_CAP = 4
+# What the deliver dispatch opens on: the work the platform is about to
+# commit, against the base ref the sandbox recorded.
+_CHANGES_CMD = 'git status --short && git --no-pager diff --stat "$(cat .poseidon-base)"'
 # Read the diff, run the suite, post findings, judge.
 REVIEW_STEP_CAP = 30
 # Condensation is real context machinery for a real model; the sizes keep it
@@ -114,6 +117,11 @@ class ProcedureResult(BaseModel):
     # chosen next action. The PM proposes; the platform validates,
     # authorizes and starts.
     decision: dict[str, Any] | None = None
+    # Deliver: why no pull request opened, in the platform's words — a
+    # policy refusal names the rule and what it refused. Deliver cannot
+    # change the work, so the workflow hands this to the next implement
+    # dispatch.
+    delivery_refusal: str | None = None
 
 
 class GatewayBridge:
@@ -314,6 +322,18 @@ def _loop_failure(convo: Conversation) -> str | None:
     return None
 
 
+def _shell_result(bridge: GatewayBridge, run_id: str, cmd: str) -> str:
+    """A command the host runs in the sandbox under the pod's token, its
+    output as text — host code, not a model tool."""
+    try:
+        result = bridge.call(
+            "sandbox.exec", {"run_id": run_id, "cmd": cmd, "timeout_s": 60}
+        )
+    except ToolCallError as exc:
+        return f"(unavailable: {exc})"
+    return clip_tail(str(result.get("stdout", "")), _OUTPUT_CLIP).strip()
+
+
 def _test_report(result: dict[str, Any]) -> str:
     return (
         f"Test run finished with exit code {result.get('exit_code')}.\n"
@@ -485,20 +505,26 @@ def run_deliver(
     documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """deliver: the workflow-directed delivery, only ever dispatched after
-    the platform verify gate passed. Commit the sandbox's work on a branch
-    the bounds allow, bundle it, open the PR. A policy denial comes back
-    as the tool observation — the rule and what it refused — so the model
-    can recover: deny-and-recover, not deny-and-halt."""
+    the platform verify gate passed. The model names a branch the bounds
+    allow and says what the PR is; the platform commits the workspace as
+    verified and policy decides the delivery. Nothing on this surface
+    changes the sandbox. A policy denial comes back as the tool
+    observation — the rule and what it refused — so the model can recover
+    what is its own to choose (the branch); a refusal of the work itself
+    ends the dispatch with `delivery_refusal`, for the workflow to hand
+    back to implement."""
     with _session(
         settings, run_id, "deliver", DELIVER_TOOLS, DELIVER_STEP_CAP, bounds
     ) as s:
         convo, records = s.convo, s.records
+        changes = _shell_result(s.bridge, run_id, _CHANGES_CMD)
         convo.send_message(
             f"Task:\n{task_text}\n\n"
-            "The platform has verified your work in the sandbox: the "
-            "test suite is green. Deliver it now — commit your changes "
-            "on a branch the bounds allow and open the pull request with "
-            "the open_pr tool."
+            "The platform has verified the work in the sandbox: the test "
+            "suite is green. What it will deliver:\n"
+            f"{changes}\n\n"
+            "Open the pull request with the open_pr tool, on a branch the "
+            "bounds allow."
         )
         convo.run()
         failure = _loop_failure(convo)
@@ -506,6 +532,7 @@ def run_deliver(
         return ProcedureResult(
             error=failure or "agent stopped without opening a pull request",
             iterations=1,
+            delivery_refusal=records.delivery_refusal,
         )
     log.info("delivered", extra={"pr_url": records.pr_url})
     return ProcedureResult(pr_url=records.pr_url, iterations=1)

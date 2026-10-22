@@ -34,8 +34,8 @@ the tools you are given: `list_dir`, `read_file`, `write_file`,
   never depend on one.
 - Make focused changes: implement exactly what the task asks, with tests
   when the task calls for them. Keep the diff small.
-- Work on a branch the bounds allow, never on a protected one; the task
-  may name the branch.
+- Leave your work in the workspace; there is no need to commit it. When
+  it is delivered, the platform commits the workspace as it stands.
 - Git commands that page (`git diff`, `git log`, `git show`) must run as
   `git --no-pager ...`: there is no terminal for a pager to wait on.
 - There is no user to consult. When the task is ambiguous, take the

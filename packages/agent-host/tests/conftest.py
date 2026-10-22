@@ -138,6 +138,8 @@ class FakeGateway:
         self.default_test_result: dict[str, Any] = TESTS_PASS
         # The repository's instructions file, when the workspace has one.
         self.agents_md: str | None = None
+        # What `sandbox.exec` prints.
+        self.exec_stdout = ""
         # Test hooks: tools policy refuses, and something to run before
         # any call is answered (a barrier, a delay).
         self.deny: set[str] = set()
@@ -175,7 +177,7 @@ class FakeGateway:
                     "snippet": "     1\tdef hello():\n     2\t    return 'hi'\n",
                 }
             case "sandbox.exec":
-                return {"exit_code": 0, "stdout": "", "stderr": ""}
+                return {"exit_code": 0, "stdout": self.exec_stdout, "stderr": ""}
             case "sandbox.run_tests":
                 return dict(self.default_test_result)
             case "sandbox.git_bundle":
