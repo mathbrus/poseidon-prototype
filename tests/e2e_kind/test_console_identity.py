@@ -14,6 +14,7 @@ TokenRequest a person makes with their own cluster credentials.
 import httpx
 import pytest
 
+from common.console import Problem
 from common.topology import CONSOLE_TOKEN_AUDIENCE, TOKEN_AUDIENCE, human_service_account
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 
@@ -28,6 +29,7 @@ from .cluster import (
     console_url,
     db_now,
     gateway_url,
+    human_token,
     projected_token,
     run_kubectl,
 )
@@ -108,7 +110,7 @@ def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
     compiled rule that says so, audited under their name, and the nudge
     never reaches the heartbeat. The owner's same act goes through."""
     auditor = console(env, name="auditor")
-    assert auditor.whoami()["human"] == "auditor"
+    assert auditor.whoami().human == "auditor"
     with pytest.raises(PolicyDenied) as denied:
         auditor.wake()
     assert denied.value.rule == "human_not_recognized"
@@ -118,7 +120,8 @@ def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
     ]
     assert refusals and refusals[-1]["decision"] == "deny"
     assert refusals[-1]["rule"] == "human_not_recognized"
-    assert console(env).wake() == {"company": COMPANY, "woken": True}
+    woken = console(env).wake()
+    assert (woken.company, woken.rule) == (COMPANY, "heartbeat_wake")
 
 
 def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:
@@ -147,10 +150,16 @@ def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:
 def test_what_cannot_be_acted_on_is_refused_before_policy(stack: None, env: dict) -> None:
     """What names nothing is refused before policy is even asked: a
     workflow no human may start by hand (`scope` reads the observation and
-    takes no text), and a run that does not exist."""
-    with pytest.raises(ConsoleError) as refused:
-        console(env).start_run("scope", 1)
-    assert refused.value.status == 422
+    takes no text), and a run that does not exist. The typed client would
+    not even send the first, so it goes as a person's raw request."""
+    scope = httpx.post(
+        f"{console_url(env)}/runs",
+        json={"workflow": "scope", "number": 1},
+        headers={"Authorization": f"Bearer {human_token()}"},
+        timeout=30,
+    )
+    assert scope.status_code == 422, scope.text
+    assert "workflow" in Problem.model_validate(scope.json()).detail
     with pytest.raises(ConsoleError) as refused:
         console(env).resolve("run-does-not-exist", "merge", True, "e2e: no such run")
     assert refused.value.status == 422

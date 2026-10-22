@@ -855,8 +855,8 @@ def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
     while time.monotonic() < deadline:
         # Not started yet, or between runs: keep waiting.
         with contextlib.suppress(Exception):
-            execution = console().heartbeat()["execution"]
-            if execution["status"] == "RUNNING" and execution["state"] == "sleeping":
+            execution = console().heartbeat().execution
+            if (execution.status, execution.state) == ("RUNNING", "sleeping"):
                 return
         time.sleep(3)
     raise AssertionError(

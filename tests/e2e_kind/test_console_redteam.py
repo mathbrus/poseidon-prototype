@@ -152,7 +152,7 @@ def test_the_same_verdict_through_the_console_merges(raw_review: dict, delivered
     assert run_id != raw_review["run_id"]
     await_gate(run_id, "parked-merge_gate")
     verdict = console(env).resolve(run_id, "merge", True, "red-team: the real road")
-    assert verdict["principal"] == HUMAN
+    assert verdict.human == HUMAN
     record = await_run(task, terminal=True, deadline_s=600, workflow="review")
     assert record["status"] == "done", record
 

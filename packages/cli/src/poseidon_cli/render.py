@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from common.console import EXECUTION_NOT_FOUND, EXECUTION_RUNNING, AuditEventView
 from common.workflows import (
     GATE_APPROVED,
     GATE_ESCALATED,
@@ -51,7 +52,7 @@ STATUS_STYLE = {
     # and the heartbeat's `paused` state is its tick's outcome word.
     RUN_STATUS_RUNNING: "blue",
     RUN_FINALIZING: "blue",
-    "RUNNING": "blue",
+    EXECUTION_RUNNING: "blue",
     HEARTBEAT_TICKING: "blue",
     TICK_STARTED: "blue",
     "activating": "yellow",
@@ -79,7 +80,7 @@ STATUS_STYLE = {
     "TERMINATED": "red",
     TICK_REFUSED: "red",
     TICK_STOPPED: "red",
-    "NOT_FOUND": "dim",
+    EXECUTION_NOT_FOUND: "dim",
     TICK_IDLE: "dim",
     HEARTBEAT_SLEEPING: "dim",
 }
@@ -247,38 +248,35 @@ HEARTBEAT_PREFIX = workflow_id(HEARTBEAT_WORKFLOW, "")
 RULE_WIDTH = 96
 
 
-def row(event: dict[str, Any]) -> Text:
+def row(event: AuditEventView) -> Text:
     """One audit row, one line: the time, the run (or `heartbeat`), who
     acted, the tool, the decision in its colour, and the rule when it
-    names why — a denial, or a tick that ended on one. Rows carry a digest
-    of the arguments, never the arguments, so a line names the tool and
-    no more — except the actor's stated rationale, which follows on its
-    own line. The same line `follow`, `run story` and `runs` print."""
-    run_id = str(event.get("run_id", ""))
-    where = "heartbeat" if run_id.startswith(HEARTBEAT_PREFIX) else (run_id or "-")
-    who = (
-        "/".join(part for part in (event.get("role"), event.get("agent_id")) if part)
-        or "-"
-    )
-    decision = str(event.get("decision", ""))
-    rule = str(event.get("rule") or "")
+    names why — a denial, or a tick that ended on one. Rows carry no
+    arguments, so a line names the tool and no more — except the actor's
+    stated rationale, which follows on its own line. The same line
+    `follow`, `run story` and `runs` print."""
+    run_id = event.run_id
+    on_heartbeat = run_id.startswith(HEARTBEAT_PREFIX)
+    where = "heartbeat" if on_heartbeat else (run_id or "-")
+    who = "/".join(part for part in (event.role, event.agent_id) if part) or "-"
+    rule = event.rule or ""
     line = Text.assemble(
-        dim(clock(event.get("ts"))),
+        dim(clock(event.ts)),
         "  ",
         f"{where:<28}",
         "  ",
         f"{who:<26}",
         "  ",
-        str(event.get("tool", "")),
+        event.tool,
         "  ",
-        status(decision),
+        status(event.decision),
     )
-    if rule and (decision == "deny" or run_id.startswith(HEARTBEAT_PREFIX)):
+    if rule and (event.decision == "deny" or on_heartbeat):
         # A refused tick's rule can carry a whole error message; the line
         # names it, the row (`--json`) has all of it.
         short = rule if len(rule) <= RULE_WIDTH else rule[: RULE_WIDTH - 1] + "…"
         line.append(f" ({short})", style=DIM)
-    rationale = str(event.get("rationale") or "").strip()
+    rationale = (event.rationale or "").strip()
     if rationale:
         line.append("\n" + " " * 10 + rationale)
     return line
