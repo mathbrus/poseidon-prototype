@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.3.0+2026.10.22] - 2026-10-22
+
 - The console's HTTP surface is one typed interface, `common.console`: a
   request and a response model per route, closed sets for every state,
   status and outcome, refusals as `Problem` or `PolicyRefusal`. Its
