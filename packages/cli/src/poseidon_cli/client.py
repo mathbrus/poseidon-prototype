@@ -19,17 +19,21 @@ from pydantic import BaseModel, ValidationError
 
 from common.console import (
     ActList,
+    AgentList,
     ApplyResult,
     BlueprintRequest,
     BlueprintView,
+    BoundsView,
     CancelRequest,
     CompanyDeleted,
     CompanyView,
+    CrewView,
     DeleteRequest,
     DocumentView,
     EventsPage,
     Health,
     HeartbeatView,
+    Now,
     PauseRequest,
     PauseState,
     PolicyRefusal,
@@ -44,6 +48,7 @@ from common.console import (
     SpendView,
     StartRunRequest,
     StoryView,
+    TicketList,
     VerdictRecorded,
     VerdictRequest,
     WhoAmI,
@@ -181,6 +186,15 @@ class ConsoleClient:
     def company(self) -> CompanyView:
         return self._call("GET", "/company", CompanyView)
 
+    def bounds(self) -> BoundsView:
+        return self._call("GET", "/company/bounds", BoundsView)
+
+    def agents(self) -> AgentList:
+        return self._call("GET", "/agents", AgentList)
+
+    def tickets(self) -> TicketList:
+        return self._call("GET", "/tickets", TicketList)
+
     def delete_company(self, rationale: str, wait: bool = True) -> CompanyDeleted:
         return self._call(
             "DELETE",
@@ -199,8 +213,9 @@ class ConsoleClient:
             StartRunRequest(workflow=workflow, number=number),
         )
 
-    def runs(self, since: str | None = None) -> RunList:
-        return self._call("GET", "/runs", RunList, params=_since(since))
+    def runs(self, since: str | None = None, parked: bool = False) -> RunList:
+        params = _since(since) | ({"state": "parked"} if parked else {})
+        return self._call("GET", "/runs", RunList, params=params)
 
     def run(self, run_id: str) -> RunDetail:
         return self._call("GET", f"/runs/{run_id}", RunDetail)
@@ -211,6 +226,9 @@ class ConsoleClient:
 
     def spend(self, run_id: str) -> RunSpendView:
         return self._call("GET", f"/runs/{run_id}/spend", RunSpendView)
+
+    def crew(self, run_id: str) -> CrewView:
+        return self._call("GET", f"/runs/{run_id}/crew", CrewView)
 
     def resolve(
         self, run_id: str, gate: str, approved: bool, rationale: str
@@ -263,6 +281,10 @@ class ConsoleClient:
         if run_id:
             params["run"] = run_id
         return self._call("GET", "/events", EventsPage, params=params)
+
+    def now(self) -> Now:
+        """The registry's clock: the fence to take before acting."""
+        return self._call("GET", "/now", Now)
 
 
 def _refusal(response: httpx.Response) -> "ConsoleError":

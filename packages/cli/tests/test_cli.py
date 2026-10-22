@@ -10,7 +10,7 @@ from golden import golden, golden_answers
 from typer.testing import CliRunner
 
 from common.audit import REVIEW_VERDICT
-from common.console import PolicyRefusal, Problem, RunDetail
+from common.console import ROUTES, PolicyRefusal, Problem, RunDetail
 from common.topology import PLATFORM_NAMESPACE
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 from poseidon_cli import main as cli
@@ -92,6 +92,48 @@ def test_every_answer_is_its_interface_model(client):
     assert client.run(REVIEW).execution.state == "parked-merge_gate"
     assert [r.run_id for r in client.runs().runs] == [IMPLEMENT, REVIEW]
     assert client.heartbeat().ticks[-1].outcome == "idle"
+
+
+def test_the_client_reaches_every_route_of_the_interface(client):
+    """One method per route, each answer its route's model: a route the
+    client cannot call is a route neither the CLI nor the acceptance
+    suite can read through it."""
+    calls = {
+        ("GET", "/healthz"): client.healthz,
+        ("GET", "/whoami"): client.whoami,
+        ("POST", "/blueprint/preview"): lambda: client.preview("company: {}"),
+        ("POST", "/blueprint/apply"): lambda: client.apply("company: {}"),
+        ("GET", "/blueprint"): client.blueprint,
+        ("GET", "/company"): client.company,
+        ("GET", "/company/bounds"): client.bounds,
+        ("GET", "/documents/{kind}"): lambda: client.document("strategy"),
+        ("GET", "/agents"): client.agents,
+        ("GET", "/tickets"): client.tickets,
+        ("DELETE", "/company"): lambda: client.delete_company("why"),
+        ("POST", "/runs"): lambda: client.start_run("implement", 7),
+        ("GET", "/runs"): client.runs,
+        ("GET", "/runs/{run_id}"): lambda: client.run(REVIEW),
+        ("GET", "/runs/{run_id}/story"): lambda: client.story(REVIEW),
+        ("GET", "/runs/{run_id}/spend"): lambda: client.spend(IMPLEMENT),
+        ("GET", "/runs/{run_id}/crew"): lambda: client.crew(REVIEW),
+        ("POST", "/runs/{run_id}/gates/{gate}"): lambda: client.resolve(
+            REVIEW, "merge", True, "why"
+        ),
+        ("POST", "/runs/{run_id}/cancel"): lambda: client.cancel(REVIEW, "why"),
+        ("GET", "/heartbeat"): client.heartbeat,
+        ("POST", "/heartbeat/wake"): client.wake,
+        ("POST", "/heartbeat/pause"): lambda: client.pause("why"),
+        ("POST", "/heartbeat/resume"): lambda: client.resume("why"),
+        ("GET", "/spend"): client.spend_since,
+        ("GET", "/events"): client.events,
+        ("GET", "/now"): client.now,
+        ("GET", "/acts"): client.acts,
+        ("GET", "/runs/{run_id}/acts"): lambda: client.acts(REVIEW),
+    }
+    assert set(calls) == {(r.method, r.path) for r in ROUTES}
+    for entry in ROUTES:
+        answer = calls[(entry.method, entry.path)]()
+        assert isinstance(answer, entry.response), entry
 
 
 def test_a_verdict_is_one_call(client, console):
