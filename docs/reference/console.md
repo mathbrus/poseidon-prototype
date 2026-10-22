@@ -56,6 +56,26 @@ A blueprint may be at most 256 KiB (`common.topology.BLUEPRINT_LIMIT_BYTES`),
 so the Company resource stays well under the cluster store's object
 limit. The console refuses a longer one with a `422`.
 
+## What you may do now
+
+`GET /acts` lists the company's acts as you could ask for them now:
+apply, delete, wake, pause, resume, and a start per workflow a human may
+start. `GET /runs/{run_id}/acts` lists one run's: cancel, and a verdict
+per gate its workflow has, approved or not. `poseidon acts [RUN_ID]`
+prints either. Each act says whether it owes a rationale, whether it
+would be allowed, and if not, why: policy refuses you (`rule`, as the
+`403` would name it), or the company's state refuses the act (`detail`,
+as the `422` would say it), such as a verdict on a run not parked on
+that gate, or a resume of a company that isn't paused.
+
+The preview is advisory, and the act is the decision. Both are built
+from the same policy question and the same state check, and a test
+holds their answers equal. The preview records nothing and does
+nothing; the act decides again and is audited, so a stale preview costs
+at worst a `403` or a `422`. For a start and an apply, whose refusals
+also depend on what you send (the ticket's number, the blueprint), the
+preview answers for policy alone.
+
 ## Verdicts
 
 `POST /runs/{run_id}/gates/{gate}` answers only a run parked on that gate.

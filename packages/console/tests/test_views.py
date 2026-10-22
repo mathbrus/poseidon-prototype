@@ -24,13 +24,26 @@ SOURCE = Path(views.__file__).parent
 
 
 def test_the_service_builds_no_response_dicts():
-    """A dict returned from the service, a record's `as_dict()` spread
-    into one, or a row passed through untouched would be an internal
-    shape reaching a client: the mapping is `views.py`'s alone."""
+    """A dict returned from a method that answers a route, or a record's
+    `as_dict()` spread into one, would be an internal shape reaching a
+    client: the mapping is `views.py`'s alone."""
     tree = ast.parse((SOURCE / "service.py").read_text())
+    service = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ConsoleService"
+    )
+    answering = [
+        node
+        for node in service.body
+        if isinstance(node, ast.AsyncFunctionDef) and not node.name.startswith("_")
+    ]
+    assert answering, "the service answers nothing"
+    for method in answering:
+        for node in ast.walk(method):
+            if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+                raise AssertionError(f"{method.name} returns a dict")
     for node in ast.walk(tree):
-        if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
-            raise AssertionError(f"service.py:{node.lineno} returns a dict")
         if isinstance(node, ast.Attribute) and node.attr == "as_dict":
             raise AssertionError(f"service.py:{node.lineno} reads a record's dict")
 

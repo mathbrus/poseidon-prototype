@@ -9,7 +9,7 @@ writers use, and its OpenAPI rendering lists every value.
 
 from enum import StrEnum
 
-from common.audit import DECISIONS, SOURCES
+from common.audit import CONSOLE_ACTS, DECISIONS, SOURCES
 from common.topology import COMPANY_PHASES
 from common.workflows import (
     GATE_OUTCOMES,
@@ -39,6 +39,12 @@ StartableWorkflow = _closed("StartableWorkflow", HUMAN_STARTABLE)
 AuditSource = _closed("AuditSource", SOURCES)
 Decision = _closed("Decision", DECISIONS)
 CompanyPhase = _closed("CompanyPhase", COMPANY_PHASES)
+Act = _closed("Act", CONSOLE_ACTS)
+# Why an act's preview says no: policy refuses this person, or the
+# company's state refuses the act (a verdict on a run not parked, a pause
+# of a paused company).
+REFUSAL_KINDS = ("policy", "state")
+RefusalKind = _closed("RefusalKind", REFUSAL_KINDS)
 
 # The company's two documents, by the names a blueprint places them under
 # (`blueprint.documents.DOCUMENT_NAMES`, a package `common` does not

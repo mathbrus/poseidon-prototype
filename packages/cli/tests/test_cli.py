@@ -412,6 +412,16 @@ def test_run_show_is_a_record_and_story_is_lines(runner, console):
     assert json.loads(raw.output) == golden("GET /runs/{run_id}/story")
 
 
+def test_acts_prints_what_a_human_may_do_now(runner, console):
+    company = runner.invoke(cli.app, ["acts"])
+    assert company.exit_code == 0, company.output
+    assert "heartbeat.pause" in company.output and "run.start" in company.output
+    assert "deny" in company.output  # the resume: the company is not paused
+    run = runner.invoke(cli.app, ["acts", REVIEW, "--json"])
+    assert json.loads(run.output) == golden("GET /runs/{run_id}/acts")
+    assert console.requests[-1][:2] == ("GET", f"/runs/{REVIEW}/acts")
+
+
 def test_blueprint_show_prints_the_applied_text_exactly(runner, console):
     """Round-trippable: what `show` prints is what was applied, byte for
     byte, so it can be edited and applied again."""

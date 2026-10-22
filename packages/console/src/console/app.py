@@ -303,6 +303,14 @@ def create_app(
     async def events(after: int = 0, run: str | None = None, limit: int = 200):
         return await service.events(after, run, max(1, min(limit, 1000)))
 
+    @serve("GET", "/acts")
+    async def acts(request: Request):
+        return await service.acts(identity_of(request))
+
+    @serve("GET", "/runs/{run_id}/acts")
+    async def run_acts(request: Request, run_id: str):
+        return await service.run_acts(identity_of(request), run_id)
+
     @serve("GET", "/now")
     async def now():
         return await service.now()

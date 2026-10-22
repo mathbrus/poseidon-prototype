@@ -767,6 +767,41 @@ def verdict(
     )
 
 
+@app.command(epilog=examples("poseidon acts", "poseidon acts auto-3d73e674"))
+def acts(
+    run_id: str = typer.Argument(None, help="A run's id; omit for the company's acts."),
+    as_json: bool = JSON_OPTION,
+) -> None:
+    """What you may do now, to the company or to one run: every act, with
+    the arguments that decide it, whether it owes --reason, and why not
+    when it would be refused. A preview: the act itself decides again,
+    and is recorded."""
+    listing = _call(_client().acts, run_id)
+    if as_json:
+        _json(listing)
+        return
+    render.table(
+        ("act", "with", "reason", "allowed", "why not"),
+        [
+            (
+                view.act,
+                ", ".join(
+                    f"{key}={value}"
+                    for key, value in view.args.items()
+                    if key != "run_id"
+                ),
+                "yes" if view.rationale_required else "",
+                render.status("allow" if view.allowed else "deny"),
+                ""
+                if view.refusal is None
+                else (view.refusal.rule or view.refusal.detail),
+            )
+            for view in listing.acts
+        ],
+        empty="no acts",
+    )
+
+
 # -- the window ------------------------------------------------------------------
 
 

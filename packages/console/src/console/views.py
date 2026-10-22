@@ -11,9 +11,11 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from blueprint.bounds import render_bounds
-from common.audit import HEARTBEAT_TICK, gate_event
+from common.audit import HEARTBEAT_TICK, RATIONALE_EVENTS, gate_event
 from common.console import (
     EXECUTION_NOT_FOUND,
+    ActRefusal,
+    ActView,
     AgentList,
     AuditEventView,
     BlueprintView,
@@ -356,4 +358,29 @@ def heartbeat_view(
         company=company,
         execution=execution,
         ticks=[tick_view(row) for row in story if row["tool"] == HEARTBEAT_TICK],
+    )
+
+
+def act_view(
+    act: str,
+    args: dict[str, Any],
+    refusal: str | None,
+    decision: dict[str, Any] | None,
+) -> ActView:
+    """An act's preview: refused by the company's state (the act's 422
+    detail), or else allowed or refused by policy (the act's 403 rule)."""
+    shown = {key: value for key, value in args.items() if value is not None}
+    if refusal is not None:
+        why = ActRefusal(kind="state", rule=None, detail=refusal)
+    elif decision is not None and decision.get("allow"):
+        why = None
+    else:
+        rule = str((decision or {}).get("rule") or "default_deny")
+        why = ActRefusal(kind="policy", rule=rule, detail=f"denied by policy: {rule}")
+    return ActView(
+        act=act,
+        args=shown,
+        rationale_required=act in RATIONALE_EVENTS,
+        allowed=why is None,
+        refusal=why,
     )

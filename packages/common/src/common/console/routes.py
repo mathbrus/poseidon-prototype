@@ -191,6 +191,19 @@ ROUTES: tuple[Route, ...] = (
         m.EventsPage,
     ),
     Route("GET", "/now", "the registry's clock: the fence to take before acting", m.Now),
+    Route(
+        "GET",
+        "/acts",
+        "what this human may do to the company now, and why not; a preview,"
+        " never a decision",
+        m.ActList,
+    ),
+    Route(
+        "GET",
+        "/runs/{run_id}/acts",
+        "what this human may do to the run now, and why not; a preview, never a decision",
+        m.ActList,
+    ),
 )
 
 

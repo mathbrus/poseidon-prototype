@@ -46,11 +46,15 @@ COMPANY = "hello-saas"
 # The example the world's company is applied from.
 HELLO_SAAS = Path(__file__).resolve().parents[4] / "examples" / "hello-saas.yaml"
 NOW = "2026-01-01T00:00:00+00:00"
-# The tokens the fake TokenReview knows: a declared human, a human the
+# The tokens the fake TokenReview knows: the human the company names, a
+# human the console may declare but the company does not name, a human the
 # console does not declare, and an agent's workload token.
 OWNER_TOKEN = "t-owner"
+AUDITOR_TOKEN = "t-auditor"
 STRANGER_TOKEN = "t-stranger"
 AGENT_TOKEN = "t-agent"
+# The humans the world's company names (`company.humans`).
+NAMED = frozenset({"owner"})
 
 
 def as_owner() -> dict[str, str]:
@@ -64,6 +68,9 @@ class FakeReviewer:
         return {
             OWNER_TOKEN: Principal.of(
                 f"system:serviceaccount:{PLATFORM_NAMESPACE}:human-owner"
+            ),
+            AUDITOR_TOKEN: Principal.of(
+                f"system:serviceaccount:{PLATFORM_NAMESPACE}:human-auditor"
             ),
             STRANGER_TOKEN: Principal.of(
                 f"system:serviceaccount:{PLATFORM_NAMESPACE}:human-x"
@@ -150,6 +157,8 @@ def company_cr(name: str, generation: int = 1, **status: Any) -> dict[str, Any]:
 class World:
     def __init__(self) -> None:
         self.now = NOW
+        # The humans the console declares (`CONSOLE_HUMANS`).
+        self.humans = "owner"
         self.audit = InMemoryAuditStore()
         self.runs = InMemoryRuns()
         self.ledger = InMemoryBudgetLedger()
@@ -167,7 +176,8 @@ class World:
         self.waited: list[bool] = []
         self.cr: dict[str, Any] | None = None
         # What OPA answers, per tool; the default is the rule the compiled
-        # bundle would name for a declared human.
+        # bundle would name: the act's for a human the company names,
+        # `human_not_recognized` for any other.
         self.decisions: dict[str, dict[str, Any]] = {}
         self.asked: list[dict[str, Any]] = []
         # The run ids the console mints, in order, when a run is started.
@@ -199,6 +209,8 @@ class World:
         tool = decision_input["tool"]
         if tool in self.decisions:
             return dict(self.decisions[tool])
+        if decision_input["agent_id"] not in NAMED:
+            return {"allow": False, "rule": "human_not_recognized"}
         args = decision_input["args"]
         if tool == GATE_RESOLVE:
             return {"allow": True, "rule": verdict_rule(args["gate"], args["approved"])}
@@ -216,12 +228,12 @@ class World:
 
     # -- the console over them ----------------------------------------------
 
-    def app(self, humans: str = "owner") -> FastAPI:
+    def app(self) -> FastAPI:
         settings = ConsoleSettings(
             platform_namespace=PLATFORM_NAMESPACE,
             opa_url="http://opa.test:8181",
             temporal_address="temporal.test:7233",
-            console_humans=humans,
+            console_humans=self.humans,
         )
         return create_app(
             settings,

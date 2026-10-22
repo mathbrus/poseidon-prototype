@@ -18,6 +18,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from common.console import (
+    ActList,
     ApplyResult,
     BlueprintRequest,
     BlueprintView,
@@ -246,6 +247,11 @@ class ConsoleClient:
         return self._call(
             "POST", "/heartbeat/resume", PauseState, ResumeRequest(rationale=rationale)
         )
+
+    def acts(self, run_id: str | None = None) -> ActList:
+        """What this human may do now — to the company, or to one run."""
+        path = f"/runs/{run_id}/acts" if run_id else "/acts"
+        return self._call("GET", path, ActList)
 
     def spend_since(self, since: str | None = None) -> SpendView:
         return self._call("GET", "/spend", SpendView, params=_since(since))

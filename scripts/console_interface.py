@@ -274,6 +274,8 @@ REQUESTS: dict[tuple[str, str], tuple[str, dict[str, Any], dict[str, Any] | None
     ("GET", "/spend"): ("/spend", {}, None),
     ("GET", "/events"): ("/events", {"after": 0}, None),
     ("GET", "/now"): ("/now", {}, None),
+    ("GET", "/acts"): ("/acts", {}, None),
+    ("GET", "/runs/{run_id}/acts"): (f"/runs/{REVIEW_RUN}/acts", {}, None),
 }
 
 # A world to prepare before a route's request, beyond the seed.

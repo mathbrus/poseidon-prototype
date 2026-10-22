@@ -246,6 +246,11 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
 # The platform events that owe a rationale — the suite asserts every row
 # under these names states one.
 RATIONALE_EVENTS = frozenset(e.name for e in PLATFORM_EVENTS if e.rationale)
+# The console's acts, by the decision each must win: a human's every
+# commitment through the console, in the order the reference lists them.
+CONSOLE_ACTS: tuple[str, ...] = tuple(
+    e.name for e in PLATFORM_EVENTS if e.source == "console"
+)
 
 
 def args_digest(payload: dict[str, Any]) -> str:

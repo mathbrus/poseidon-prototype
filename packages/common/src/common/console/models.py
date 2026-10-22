@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from common.audit import RATIONALE_LIMIT
 from common.console.enums import (
+    Act,
     AuditSource,
     CompanyPhase,
     Decision,
@@ -24,6 +25,7 @@ from common.console.enums import (
     ExecutionStatus,
     Gate,
     HeartbeatState,
+    RefusalKind,
     RunState,
     RunStatus,
     StartableWorkflow,
@@ -514,3 +516,44 @@ class PauseState(Model):
     company: str
     paused: PauseView | None
     rule: str
+
+
+# -- what a human may do now -------------------------------------------------
+
+
+class ActRefusal(Model):
+    """Why an act would be refused: by policy (`rule` names the rule, as
+    a 403 would), or by the company's state (`detail` says why, as a 422
+    would)."""
+
+    kind: RefusalKind
+    rule: str | None
+    detail: str
+
+
+class ActView(Model):
+    """One act this human could ask for now, by the decision it must win,
+    with the arguments that decide it; whether it owes a rationale; and
+    whether it would be allowed — or why not.
+
+    A preview, not a decision: it runs the same policy input and the same
+    state check the act runs, records nothing, and commits nothing. The
+    act decides again, and is audited. For a start and an apply, whose
+    refusals also depend on what is sent (the ticket's number, the
+    blueprint), the preview answers for policy alone."""
+
+    act: Act
+    args: dict[str, str | int | bool]
+    rationale_required: bool
+    allowed: bool
+    refusal: ActRefusal | None
+
+
+class ActList(Model):
+    """`GET /acts` (the company's acts: apply, delete, wake, pause, resume,
+    and a start per workflow a human may start) and `GET /runs/{run_id}/acts`
+    (the run's: cancel, and a verdict per gate its workflow has, approved
+    or not)."""
+
+    run_id: str | None
+    acts: list[ActView]

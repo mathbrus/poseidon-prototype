@@ -35,6 +35,7 @@ from .cluster import (
     console_env,
     console_url,
     db_now,
+    events_since,
     gateway_url,
     human_token,
     projected_token,
@@ -129,6 +130,24 @@ def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
     assert refusals[-1]["rule"] == "human_not_recognized"
     woken = console(env).wake()
     assert (woken.company, woken.rule) == (COMPANY, "heartbeat_wake")
+
+
+def test_a_human_the_company_did_not_name_sees_every_act_refused(
+    stack: None, env: dict
+) -> None:
+    """The auditor asks what they may do: every act is refused, and every
+    act the company's state would allow is refused by the rule that says
+    why — the preview a web client's buttons read, recording nothing."""
+    since = db_now()
+    listed = console(env, name="auditor").acts().acts
+    assert listed, "the console listed no acts"
+    assert all(not view.allowed for view in listed), listed
+    by_policy = [view for view in listed if view.refusal.kind == "policy"]
+    assert by_policy, listed
+    assert {view.refusal.rule for view in by_policy} == {"human_not_recognized"}
+    assert not [e for e in events_since(since) if e["source"] == "console"], (
+        "a preview recorded a row"
+    )
 
 
 def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:

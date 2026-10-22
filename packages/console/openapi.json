@@ -1,6 +1,134 @@
 {
   "components": {
     "schemas": {
+      "Act": {
+        "enum": [
+          "gate.resolve",
+          "run.start",
+          "run.cancel",
+          "heartbeat.wake",
+          "heartbeat.pause",
+          "heartbeat.resume",
+          "blueprint.apply",
+          "company.delete"
+        ],
+        "title": "Act",
+        "type": "string"
+      },
+      "ActList": {
+        "additionalProperties": false,
+        "description": "`GET /acts` (the company's acts: apply, delete, wake, pause, resume,\nand a start per workflow a human may start) and `GET /runs/{run_id}/acts`\n(the run's: cancel, and a verdict per gate its workflow has, approved\nor not).",
+        "properties": {
+          "acts": {
+            "items": {
+              "$ref": "#/components/schemas/ActView"
+            },
+            "title": "Acts",
+            "type": "array"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "required": [
+          "run_id",
+          "acts"
+        ],
+        "title": "ActList",
+        "type": "object"
+      },
+      "ActRefusal": {
+        "additionalProperties": false,
+        "description": "Why an act would be refused: by policy (`rule` names the rule, as\na 403 would), or by the company's state (`detail` says why, as a 422\nwould).",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/RefusalKind"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          }
+        },
+        "required": [
+          "kind",
+          "rule",
+          "detail"
+        ],
+        "title": "ActRefusal",
+        "type": "object"
+      },
+      "ActView": {
+        "additionalProperties": false,
+        "description": "One act this human could ask for now, by the decision it must win,\nwith the arguments that decide it; whether it owes a rationale; and\nwhether it would be allowed \u2014 or why not.\n\nA preview, not a decision: it runs the same policy input and the same\nstate check the act runs, records nothing, and commits nothing. The\nact decides again, and is audited. For a start and an apply, whose\nrefusals also depend on what is sent (the ticket's number, the\nblueprint), the preview answers for policy alone.",
+        "properties": {
+          "act": {
+            "$ref": "#/components/schemas/Act"
+          },
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "args": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "title": "Args",
+            "type": "object"
+          },
+          "rationale_required": {
+            "title": "Rationale Required",
+            "type": "boolean"
+          },
+          "refusal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActRefusal"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "act",
+          "args",
+          "rationale_required",
+          "allowed",
+          "refusal"
+        ],
+        "title": "ActView",
+        "type": "object"
+      },
       "AgentList": {
         "additionalProperties": false,
         "description": "`GET /agents`: the company's standing agents.",
@@ -924,6 +1052,14 @@
         "title": "Problem",
         "type": "object"
       },
+      "RefusalKind": {
+        "enum": [
+          "policy",
+          "state"
+        ],
+        "title": "RefusalKind",
+        "type": "string"
+      },
       "ResumeRequest": {
         "additionalProperties": false,
         "description": "`POST /heartbeat/resume`.",
@@ -1725,6 +1861,64 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/acts": {
+      "get": {
+        "operationId": "acts_acts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "what this human may do to the company now, and why not; a preview, never a decision"
+      }
+    },
     "/agents": {
       "get": {
         "operationId": "agents_agents_get",
@@ -2995,6 +3189,75 @@
           }
         },
         "summary": "the run record and its workflow's execution"
+      }
+    },
+    "/runs/{run_id}/acts": {
+      "get": {
+        "operationId": "run_acts_runs__run_id__acts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "what this human may do to the run now, and why not; a preview, never a decision"
       }
     },
     "/runs/{run_id}/cancel": {

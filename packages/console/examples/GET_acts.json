@@ -1,0 +1,73 @@
+{
+  "request": {
+    "body": null,
+    "path": "/acts",
+    "query": {}
+  },
+  "response": {
+    "acts": [
+      {
+        "act": "blueprint.apply",
+        "allowed": true,
+        "args": {
+          "company": "hello-saas"
+        },
+        "rationale_required": false,
+        "refusal": null
+      },
+      {
+        "act": "company.delete",
+        "allowed": true,
+        "args": {},
+        "rationale_required": true,
+        "refusal": null
+      },
+      {
+        "act": "heartbeat.wake",
+        "allowed": true,
+        "args": {},
+        "rationale_required": false,
+        "refusal": null
+      },
+      {
+        "act": "heartbeat.pause",
+        "allowed": true,
+        "args": {},
+        "rationale_required": true,
+        "refusal": null
+      },
+      {
+        "act": "heartbeat.resume",
+        "allowed": false,
+        "args": {},
+        "rationale_required": true,
+        "refusal": {
+          "detail": "'hello-saas' is not paused",
+          "kind": "state",
+          "rule": null
+        }
+      },
+      {
+        "act": "run.start",
+        "allowed": true,
+        "args": {
+          "workflow": "implement"
+        },
+        "rationale_required": false,
+        "refusal": null
+      },
+      {
+        "act": "run.start",
+        "allowed": true,
+        "args": {
+          "workflow": "review"
+        },
+        "rationale_required": false,
+        "refusal": null
+      }
+    ],
+    "run_id": null
+  },
+  "route": "GET /acts",
+  "status": 200
+}
