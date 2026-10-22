@@ -69,38 +69,46 @@ plugins:
 
 nav:
   - Home: index.md
-  - The argument:
-      - The problem: argument/problem.md
-      - The core idea: argument/core-idea.md
-      - Anatomy of a run: argument/anatomy.md
-      - What it can do: argument/can.md
-      - What it cannot do: argument/cannot.md
-      - Further reading: argument/reading.md
-  - Concepts:
-      - concepts/index.md
-      - MCP: concepts/mcp.md
-      - OPA and Rego: concepts/opa.md
-      - Workload identity: concepts/workload-identity.md
-      - NetworkPolicy: concepts/network-policy.md
-      - Temporal: concepts/temporal.md
-      - Standing vs. ephemeral agents: concepts/standing-vs-ephemeral.md
-  - Guides:
-      - Getting started: guides/getting-started.md
-      - Hand over the keys: guides/hand-over.md
-      - Use a real model: guides/real-llm.md
-      - Run the acceptance suite: guides/acceptance.md
+  - Get started:
+      - Quickstart: get-started/quickstart.md
+      - "Tutorial: build a game": get-started/tutorial.md
+  - How-to guides:
+      - Write your blueprint: how-to/write-a-blueprint.md
+      - Answer gates and follow a run: how-to/gates-and-runs.md
+      - Delegate merges: how-to/delegate-merges.md
+      - Pause, resume or delete: how-to/pause-resume-delete.md
+      - Use a paid brain: how-to/paid-brain.md
+      - Act as another person: how-to/act-as-another-human.md
+      - Troubleshooting: how-to/troubleshooting.md
+  - Explanation:
+      - How it works: explanation/how-it-works.md
+      - How the heartbeat decides: explanation/heartbeat.md
+      - The merge gate: explanation/merge-gate.md
+      - Security model: explanation/security-model.md
+      - Limitations: explanation/limitations.md
+      - Architecture: explanation/architecture.md
+      - Concepts:
+          - concepts/index.md
+          - MCP: concepts/mcp.md
+          - OPA and Rego: concepts/opa.md
+          - Workload identity: concepts/workload-identity.md
+          - NetworkPolicy: concepts/network-policy.md
+          - Temporal: concepts/temporal.md
+          - Standing vs. ephemeral agents: concepts/standing-vs-ephemeral.md
   - Reference:
-      - Architecture: reference/architecture.md
-      - The blueprint: reference/blueprint.md
-      - Roles and crews: reference/roles.md
-      - Tools: reference/tools.md
-      - The console: reference/console.md
+      - Blueprint: reference/blueprint.md
       - CLI: reference/cli.md
-      - Temporal contract: reference/temporal.md
+      - Console: reference/console.md
+      - Tools: reference/tools.md
+      - Roles and crews: reference/roles.md
+      - Workflows and signals: reference/workflows.md
       - Policy and audit: reference/policy.md
-  - Developing:
+      - Environment variables: reference/environment.md
+      - Glossary: reference/glossary.md
+  - Contributing:
       - Contributing: developing/contributing.md
       - Packages: developing/packages.md
+      - Run the acceptance suite: developing/acceptance.md
       - Releasing: developing/releasing.md
-  - Glossary: glossary.md
+      - Writing docs: developing/writing-docs.md
   - Changelog: changelog.md

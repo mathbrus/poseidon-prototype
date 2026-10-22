@@ -1,16 +1,21 @@
-# OPA and Rego — policy as a pure function
+# OPA and Rego
 
-[Open Policy Agent](https://www.openpolicyagent.org/) is a general-purpose
-policy engine. You give it a document of rules written in a language called
-**Rego**, then ask it questions of the form "given this input, what is the
+[Open Policy Agent](https://www.openpolicyagent.org/) (OPA) is a
+general-purpose policy engine. You give it rules written in a language
+called **Rego**, then ask it questions: "given this input, what is the
 decision?"
 
-The key property is that a decision is a *pure function of the policy bundle
-and the input*. OPA reads no live data of its own. That makes decisions
-reproducible and restart-safe: you can replay an input and get the same
-answer.
+## Why Poseidon uses it
 
-A compiled Poseidon rule looks like this:
+A decision is a pure function of the policy and the input. OPA reads no
+live data of its own, so the same input always gets the same answer, even
+after a restart.
+
+Every gateway and the console ask OPA before they act. The policy they ask
+is compiled from your blueprint. Nobody writes Rego by hand, so a
+permission you didn't declare can't exist.
+
+## What a rule looks like
 
 ```rego
 allow_rules contains "crew_feature_delivery_implementer_sandbox_exec" if {
@@ -23,22 +28,13 @@ allow_rules contains "crew_feature_delivery_implementer_sandbox_exec" if {
 }
 ```
 
-Read it as: *an ephemeral caller of hello-saas, acting as the implementer of a
-feature-delivery crew, may call `sandbox.exec` — provided its run binding
-was verified.* Everything is default-deny; the lowest-sorting deny wins over
-any allow. [Policy and audit](../reference/policy.md) lists the whole rule
-vocabulary and what a decision reads.
+Read it as: *an ephemeral agent of hello-saas, acting as the implementer
+of a feature-delivery crew, may call `sandbox.exec`, provided it is bound
+to the run it names.*
 
-That final clause, `bound_to_run`, deserves a second look. Sandbox tools
-are *run-scoped*: the rule demands not just the right role but a verified
-binding between this caller and the specific run whose sandbox the call
-addresses. Without it, a role allow-list would quietly permit cross-run
-access — any implementer could read any run's workspace. Which tools carry
-the requirement is a property of the tool, not of its name prefix
-(`packages/blueprint/src/blueprint/tools.py` maintains the list); `git.open_pr`,
-for instance, does not, because a pull request targets the repository
-rather than a run's sandbox — its guards are the branch-protection and
-changed-path rules you will meet in [the blueprint](../reference/blueprint.md).
+`bound_to_run` matters. Without it, any implementer could reach any run's
+sandbox. With it, an agent reaches only the sandbox of its own run.
 
-**Nobody writes these by hand.** They are emitted by the compiler from the
-blueprint, which is why a scope you did not declare cannot exist.
+Everything is denied unless a rule allows it, and any deny beats every
+allow. [Policy and audit](../reference/policy.md) lists every rule and what
+a decision reads.

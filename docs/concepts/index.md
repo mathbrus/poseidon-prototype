@@ -1,16 +1,15 @@
 # Concepts
 
-Short primers on the six things [the argument](../argument/problem.md)
-assumes: MCP, OPA and Rego, workload identity, NetworkPolicy, Temporal, and
-the standing/ephemeral split. Each is self-contained; skip any you already
-know. The argument names them without re-explaining.
+Short primers on the technologies Poseidon is built on. Each page
+explains one idea and why Poseidon needs it. Skip any you already know.
 
-- [MCP — the Model Context Protocol](mcp.md)
-- [OPA and Rego — policy as a pure function](opa.md)
-- [Workload identity — proving who is calling](workload-identity.md)
-- [NetworkPolicy — the silent backstop](network-policy.md)
-- [Temporal — durable execution](temporal.md)
-- [Standing vs. ephemeral agents](standing-vs-ephemeral.md)
+| Concept | Why Poseidon needs it |
+|---|---|
+| [MCP](mcp.md) | Every agent action is a named tool call, so a gateway can decide each one. |
+| [OPA and Rego](opa.md) | Policy is compiled from your blueprint and answers every "may this caller do this?" |
+| [Workload identity](workload-identity.md) | The gateways know which agent is calling without any shared password. |
+| [NetworkPolicy](network-policy.md) | Pods that shouldn't talk can't, even if every other layer fails. |
+| [Temporal](temporal.md) | Runs survive crashes, and cleanup always happens. |
+| [Standing vs. ephemeral agents](standing-vs-ephemeral.md) | Agents that write code exist for one run only. |
 
-The [Glossary](../glossary.md) is the one-line version: one name per
-concept, everywhere in the code and the docs.
+The [glossary](../reference/glossary.md) defines Poseidon's own terms.

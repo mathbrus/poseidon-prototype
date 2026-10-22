@@ -1,102 +1,109 @@
 # Poseidon
 
-**An autonomous company, run by cloud agents, that cannot
-exceed its authority — because the infrastructure will not let it, not
-because the prompt asked nicely.**
-
-You give Poseidon a charter — a vision to pursue, a budget to stay under,
-a short list of things that must never happen without you. It stands up a
-small software organisation to pursue that vision: a steward that writes
-the strategy and the architecture masterplan from it, a product manager
-that scopes the next slice and files tickets, ephemeral crews that
-implement and review each change, and a standing heartbeat that decides
-what to do next and
-keeps going. Nothing else goes in — no goal file, no task, no "please do
-X". Real pull requests appear on your repository. You approve the merges
-that matter and watch the rest happen. When you are ready to grant more, the
-company does more of its own SDLC unattended — up to and including merging
-its own passing work — and never one step past the authority you wrote down.
-
-Plenty of tools let an agent open a pull request. What is hard, and what
-Poseidon is about, is letting a *company of agents work toward a vision on
-its own* while guaranteeing it cannot force-push to `main`, spend past its
-budget, exfiltrate a secret, or act on an instruction hidden in a GitHub
-issue — not because a careful prompt asked it not to, but because the
-surrounding system makes those outcomes impossible and records every
-attempt. That ambition sets the bar in five places:
-
-- **Autonomy** — the system chooses the next action; a human declares the
-  gates and the caps but does not stitch the phases together.
-- **Continuity** — standing agents that remember across restarts.
-- **Coordination** — many workstreams, shared artifacts, real priorities.
-- **Quality** — the platform, never the agent, is the gate of record for
-  "the tests pass," and the tests can be split off where the implementer
-  cannot rewrite them.
-- **Authority** — every consequence is decided by policy a human can read,
-  diff and revoke. Injection is assumed; containment is positional; spend is
-  a gate, not a warning: an exhausted budget parks the run until a human
-  answers.
+Poseidon runs a small software company of AI agents on Kubernetes. You
+write the company's vision and its rules in one YAML file. The agents
+plan, build and review the work on their own, and the platform enforces
+your rules in infrastructure, not in prompts.
 
 > [!NOTE]
-> **Status.** Released from master as tagged versions; what each one
-> changed is in [`CHANGELOG.md`](CHANGELOG.md). Every capability is
-> exercised by the end-to-end suite against a real Kubernetes cluster. It
-> has run only on kind (local Kubernetes), never in production, and the
-> documentation is deliberately specific about what it cannot do.
+> **Status: prototype.** Every capability is tested end to end on a local
+> [kind](https://kind.sigs.k8s.io/) cluster. Poseidon has never run in
+> production. Read the [limitations](docs/explanation/limitations.md)
+> before you trust it with anything that matters.
 
-## The documentation
+## Why Poseidon
 
-The docs site is the place to read the argument, follow a guide, or look
-something up. Build it locally with `uv run --group docs mkdocs serve`, or
-download the `docs-site` artifact of any CI run; its pages live under
-[`docs/`](docs/). What each release changed is in
-[`CHANGELOG.md`](CHANGELOG.md).
+- **You set the rules once.** A *blueprint* declares the vision, the
+  repository, the budget, and which merges wait for your verdict. Edit the
+  file and apply it again to change any of them.
+- **Agents hold no credentials.** Every tool call and every model call
+  goes through a gateway that checks compiled policy first. A
+  prompt-injected agent can try anything, but it can only do what the
+  policy allows.
+- **Everything is on the record.** Every decision, tool call, verdict
+  and dollar spent is an audit row you can read back, run by run.
 
-- **The argument** — the problem, the core idea, the anatomy of a run, what
-  it can and cannot do. Written to be read start to finish.
-- **Concepts** — primers on MCP, OPA and Rego, workload identity,
-  NetworkPolicy, Temporal, and standing vs. ephemeral agents.
-- **Guides** — bring up a cluster, drive a run, hand over the heartbeat and
-  the merge, run the acceptance suite.
-- **Reference** — the blueprint, roles and crews, tools, the console and
-  its CLI, the Temporal contract, policy and audit. Rendered from the code.
+## How it works
+
+```mermaid
+flowchart LR
+    you(["You"]) -->|"blueprint, verdicts"| console["Console"]
+    subgraph company ["Your company"]
+        agents["Agents<br/>PM, implementer, reviewer"]
+        sandbox["Sandbox<br/>runs the code"]
+    end
+    agents -->|"tool calls"| mcp["MCP gateway<br/>policy + audit"]
+    agents -->|"model calls"| llm["LLM gateway<br/>budget + audit"]
+    mcp --> sandbox
+    mcp --> repo[("Your GitHub<br/>repository")]
+    llm --> model[("Model<br/>provider")]
+    sandbox -->|"allowlisted hosts only"| egress["Egress proxy"]
+```
+
+A *heartbeat* wakes up regularly and asks the PM agent what to do next.
+The PM turns your vision into tickets. For each ticket, a short-lived crew
+writes the code in a sandbox, the platform runs the tests, and an
+independent reviewer checks the pull request. You approve the merge, or
+let policy approve merges in the paths you choose.
+
+[How it works](docs/explanation/how-it-works.md) explains it in full.
 
 ## Quickstart
 
-It costs nothing: the default brain is a deterministic mock.
+You need Docker, kind, kubectl, helm, [uv](https://docs.astral.sh/uv/),
+Python 3.12, and a GitHub token for a **disposable** repository. The
+agents open real pull requests on it.
 
 ```bash
 uv sync
-for p in packages/*/; do uv run pytest "$p" -q; done   # thirteen suites, no cluster needed
-cp deploy/kind/.env.example deploy/kind/.env            # fill in GIT_TOKEN
-deploy/kind/kind-up.sh                                  # the platform: cluster, images, chart; saves your token
-uv run poseidon blueprint apply examples/hello-saas.yaml --yes   # the company, your act; returns once converged
-uv run poseidon whoami                                  # you, to the console
-E2E_TARGET_REPO=github.com/you/disposable scripts/acceptance.sh   # the whole suite, zero LLM spend
+cp deploy/kind/.env.example deploy/kind/.env   # set GIT_TOKEN
+deploy/kind/kind-up.sh                         # creates the cluster and logs you in
 ```
 
-## Packages
+Copy `examples/hello-saas.yaml` to `company.yaml`, set `stack.repo.url`
+to your disposable repository, and apply it:
 
-Each package has its own README with a module map, entry points, invariants
-and how to test it.
+```bash
+uv run poseidon blueprint apply company.yaml --yes
+```
 
-| Package | What it owns |
+```text
+hello-saas: 1 change(s)
+  + pm-1
+      role pm
+  budget: $5/run
+applied hello-saas: 2 created, 0 updated (blueprint_apply_bootstrap)
+activating …
+converged (10 s)
+```
+
+Then watch the company work:
+
+```bash
+uv run poseidon follow
+```
+
+The default *brain*, the model behind the agents, is a free, deterministic
+mock, so this costs nothing.
+The [Quickstart](docs/get-started/quickstart.md) walks through every step
+and shows the output you should see.
+
+## Documentation
+
+| Section | Read it to… |
 |---|---|
-| [`common`](packages/common/README.md) | Identity, workload authn, audit model, pod security posture |
-| [`blueprint`](packages/blueprint/README.md) | The blueprint contract and the role/crew catalogs |
-| [`compiler`](packages/compiler/README.md) | Blueprint → deployment plan, as a pure function |
-| [`registry`](packages/registry/README.md) | Nine Postgres tables; one writer each; the audit store |
-| [`reconciler`](packages/reconciler/README.md) | Reconciles the CRs; serves policy bundles |
-| [`orchestrator`](packages/orchestrator/README.md) | Temporal workflows, ephemeral pods, gates |
-| [`mcp-gateway`](packages/mcp-gateway/README.md) | The MCP tool chokepoint; the only holder of `GIT_TOKEN` |
-| [`llm-gateway`](packages/llm-gateway/README.md) | The model chokepoint; metering and budget enforcement |
-| [`console`](packages/console/README.md) | The human's chokepoint: verify the person, ask policy, act, audit |
-| [`cli`](packages/cli/README.md) | `poseidon-cli`: the `poseidon` CLI and the console client it is built on |
-| [`agent-host`](packages/agent-host/README.md) | The agent host: the dispatch API and the OpenHands SDK procedures behind it |
-| [`sandbox`](packages/sandbox/README.md) | Backend contract, K8s Jobs backend, tool server, egress proxy |
-| [`mock-brain`](packages/mock-brain/README.md) | The deterministic brain that makes e2e runs free |
+| [Get started](docs/get-started/quickstart.md) | Run a company on your machine. |
+| [How-to guides](docs/how-to/delegate-merges.md) | Do one specific thing: delegate merges, pause the company, use a paid brain. |
+| [Explanation](docs/explanation/how-it-works.md) | Understand the design and the security model. |
+| [Reference](docs/reference/blueprint.md) | Look up a blueprint field, a CLI command, a tool or a policy rule. |
+| [Contributing](docs/developing/contributing.md) | Change the code, run the tests, cut a release. |
 
----
+The pages live under [`docs/`](docs/) and build into a searchable site:
 
-<sub>Prototype. Read what it cannot do before trusting it with anything
-that matters.</sub>
+```bash
+uv run --group docs mkdocs serve               # http://127.0.0.1:8000
+```
+
+The code is thirteen Python packages under `packages/`, each with its own
+README. [Packages](docs/developing/packages.md) lists them. What each
+release changed is in [`CHANGELOG.md`](CHANGELOG.md).

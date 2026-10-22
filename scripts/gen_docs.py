@@ -5,9 +5,11 @@ docs/ carries a line `<!-- gen: NAME -->` wherever a table belongs; this
 script replaces the marker with the table rendered from the catalogs, the
 gateway's tool definitions, the `poseidon` CLI, the console's routes, the
 audit event registry, the Temporal workflows, the blueprint JSON Schema
-and the bounds an example compiles to, and re-emits the page. Nothing rendered here is committed, so nothing here
-can drift from the code. A marker naming no generator, a generator no page
-uses, or a tool without a description fails the build.
+the bounds an example compiles to, the policy rule registry and the
+environment file, and re-emits the page. Nothing rendered here is
+committed, so nothing here can drift from the code. A marker naming no
+generator, a generator no page uses, a tool without a docstring or a
+blueprint field without a description fails the build.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from blueprint.bounds import render_bounds
 from blueprint.catalog import CREW_TEMPLATES, PROCEDURES, ROLES
 from blueprint.schema import BLUEPRINT_SCHEMA
 from common.audit import PLATFORM_EVENTS
-from common.policy import GATE_RESOLVE, RUN_START, rego_slug
+from common.policy import GATE_RESOLVE, RULES, RUN_START, rego_slug
 from common.workflows import WORKFLOWS, workflow_id
 from compiler import compile_blueprint
 from console.app import ROUTES
@@ -41,6 +43,8 @@ from poseidon_cli.main import app as cli_app
 REPO = Path(__file__).resolve().parent.parent
 DOCS = REPO / "docs"
 GATEWAY_APP = REPO / "packages/mcp-gateway/src/mcp_gateway/app.py"
+ENV_EXAMPLE = REPO / "deploy/kind/.env.example"
+CHARTER = REPO / "CLAUDE.md"
 
 MARKER = re.compile(r"<!-- gen: ([\w.-]+)(?::([\w.-]+))? -->")
 
@@ -175,9 +179,21 @@ def tool_table(group: str | None) -> str:
         t = defined[name]
         holders = [r.name for r in ROLES.values() if name in r.tools]
         rows.append(
-            [code(t.name), code(t.arguments), t.description, codes(holders) or "—"]
+            [
+                code(t.name),
+                code(t.arguments),
+                first_sentence(t.description),
+                codes(holders) or "—",
+            ]
         )
     return table(["Tool", "Arguments", "What it does", "Catalog roles holding it"], rows)
+
+
+def first_sentence(text: str) -> str:
+    """The docstring's first sentence. The whole docstring is the tool
+    description the agents read; the reference shows its summary."""
+    match = re.match(r"(.+?[.!?])(\s|$)", text)
+    return match.group(1) if match else text
 
 
 def tool_count(_: str | None) -> str:
@@ -187,24 +203,53 @@ def tool_count(_: str | None) -> str:
 # -- the CLI ----------------------------------------------------------------
 
 
-def _plain_help(cmd: Any, prog: str) -> str:
-    """The command's `--help` as plain text. Typer overrides `format_help`
-    with rich panels, so the click base class beneath it is called."""
-    ctx = cmd.context_class(cmd, info_name=prog, terminal_width=80, max_content_width=80)
-    formatter = ctx.make_formatter()
-    base = next(c for c in type(cmd).__mro__ if c.__module__ != "typer.core")
-    base.format_help(cmd, ctx, formatter)
-    return formatter.getvalue().rstrip()
+def _param_row(param: Any) -> list[str]:
+    if param.param_type_name == "argument":
+        name = code(f"<{param.name}>")
+    else:
+        name = ", ".join(code(o) for o in param.opts)
+        if not param.is_flag:
+            name += " " + code(f"<{param.type.name}>")
+    default = param.default
+    shown = (
+        "required"
+        if param.required
+        else ("—" if default in (None, False, "") else code(default))
+    )
+    return [name, shown, " ".join((getattr(param, "help", "") or "").split())]
+
+
+def _examples(cmd: Any) -> str:
+    lines = [line.strip() for line in (cmd.epilog or "").splitlines()]
+    lines = [line for line in lines if line and line != "Examples:"]
+    if not lines:
+        raise SystemExit(f"gen_docs: command {cmd.name!r} has no examples")
+    return "```bash\n" + "\n".join(lines) + "\n```"
 
 
 def cli(_: str | None) -> str:
-    """Each command's own `--help`, verbatim, at a fixed width."""
+    """One entry per command: what it does, its synopsis, its arguments
+    and options, and its examples — all from the command itself."""
     out: list[str] = []
 
     def walk(cmd: Any, prog: str) -> None:
-        out.append(f"### `{prog}`\n\n```text\n{_plain_help(cmd, prog)}\n```")
-        for name, sub in getattr(cmd, "commands", {}).items():
-            walk(sub, f"{prog} {name}")
+        subcommands = getattr(cmd, "commands", {})
+        if subcommands:
+            for name, sub in subcommands.items():
+                walk(sub, f"{prog} {name}")
+            return
+        ctx = cmd.context_class(cmd, info_name=prog)
+        usage = " ".join([prog, *cmd.collect_usage_pieces(ctx)])
+        rows = [_param_row(p) for p in cmd.params if p.name != "help"]
+        entry = [
+            f"### `{prog}`",
+            " ".join((cmd.help or "").split()),
+            f"```text\n{usage}\n```",
+        ]
+        if rows:
+            entry.append(table(["Argument or option", "Default", "Description"], rows))
+        entry.append(_examples(cmd))
+        out.append("\n\n".join(entry))
 
     walk(typer.main.get_command(cli_app), "poseidon")
     return "\n\n".join(out)
@@ -348,13 +393,14 @@ def _constraints(node: dict[str, Any]) -> str:
     if "pattern" in target:
         parts.append("matches " + code(target["pattern"]))
     for key, label in (
-        ("minimum", "≥"),
-        ("exclusiveMinimum", ">"),
-        ("minItems", "at least items:"),
-        ("minProperties", "at least entries:"),
+        ("minimum", "≥ {}"),
+        ("exclusiveMinimum", "> {}"),
+        ("maxLength", "at most {} characters"),
+        ("minItems", "at least {} item(s)"),
+        ("minProperties", "at least {} entry"),
     ):
         if key in node:
-            parts.append(f"{label} {node[key]}")
+            parts.append(label.format(node[key]))
     if node.get("minLength") == 1 and "pattern" not in node:
         parts.append("non-empty")
     if node.get("uniqueItems"):
@@ -362,8 +408,23 @@ def _constraints(node: dict[str, Any]) -> str:
     return "; ".join(parts)
 
 
+def _description(node: dict[str, Any], path: str) -> str:
+    if "description" not in node:
+        raise SystemExit(f"gen_docs: blueprint field {path} has no description")
+    return node["description"]
+
+
 def _rows(node: dict[str, Any], path: str, required: bool) -> list[list[str]]:
-    rows = [[code(path), _type_of(node), "yes" if required else "", _constraints(node)]]
+    kind = _type_of(node)
+    constraints = _constraints(node)
+    rows = [
+        [
+            code(path),
+            kind + (f" ({constraints})" if constraints else ""),
+            "yes" if required else "",
+            _description(node, path),
+        ]
+    ]
     if node.get("type") != "object":
         return rows
     for name, child in node.get("properties", {}).items():
@@ -379,19 +440,93 @@ def blueprint_fields(section: str | None) -> str:
     if section not in top:
         raise SystemExit(f"gen_docs: unknown blueprint section {section!r}")
     rows = _rows(top[section], section, section in BLUEPRINT_SCHEMA["required"])
-    return table(["Field", "Type", "Required", "Constraints"], rows)
+    return table(["Field", "Type", "Required", "Description"], rows)
 
 
 def blueprint_sections(_: str | None) -> str:
     top = BLUEPRINT_SCHEMA["properties"]
     rows = [
-        [code(name), "yes" if name in BLUEPRINT_SCHEMA["required"] else ""]
-        for name in top
+        [
+            f"[`{name}`](#{name.lower()})",
+            "yes" if name in BLUEPRINT_SCHEMA["required"] else "",
+            _description(node, name),
+        ]
+        for name, node in top.items()
     ]
-    return table(["Section", "Required"], rows)
+    return table(["Section", "Required", "What it declares"], rows)
 
 
-# -- the pages ---------------------------------------------------------------
+# -- the policy rules --------------------------------------------------------
+
+
+def policy_rules(_: str | None) -> str:
+    rows = [[code(r.name), r.effect, r.decides] for r in RULES]
+    return table(["Rule", "Effect", "What it decides"], rows)
+
+
+# -- the environment ---------------------------------------------------------
+
+ENV_VAR = re.compile(r"^#?([A-Z][A-Z0-9_]*)=(.*)$")
+
+
+def environment(_: str | None) -> str:
+    """deploy/kind/.env.example as tables: a `# ==` line opens a section
+    (the comment right under it introduces the section), and the comment
+    block above a variable describes it."""
+    sections: list[dict[str, Any]] = []
+    comment: list[str] = []
+    for raw in ENV_EXAMPLE.read_text().splitlines():
+        line = raw.strip()
+        if line.startswith("# =="):
+            sections.append({"title": line[4:].strip(), "intro": "", "rows": []})
+            comment = []
+        elif match := ENV_VAR.match(line):
+            name, example = match.groups()
+            if not sections or not comment:
+                raise SystemExit(
+                    f"gen_docs: .env.example: {name} needs a section and a comment"
+                )
+            sections[-1]["rows"].append(
+                [code(name), code(example) if example else "—", " ".join(comment)]
+            )
+        elif line.startswith("#"):
+            comment.append(line.lstrip("#").strip())
+        else:
+            if sections and not sections[-1]["rows"] and not sections[-1]["intro"]:
+                sections[-1]["intro"] = " ".join(comment)
+            comment = []
+    return "\n\n".join(
+        f"## {s['title']}\n\n"
+        + (f"{s['intro']}\n\n" if s["intro"] else "")
+        + table(["Variable", "Example", "What it does"], s["rows"])
+        for s in sections
+    )
+
+
+# -- the glossary ------------------------------------------------------------
+
+GLOSSARY_ROW = re.compile(r"^\| \*\*(.+?)\*\* \| (.+?) \| .+ \|$")
+
+
+def glossary(_: str | None) -> str:
+    """The charter's glossary for a reader: every term and its meaning,
+    alphabetical. The charter's third column, the names to avoid, is for
+    contributors and stays in CLAUDE.md."""
+    text = CHARTER.read_text()
+    start = text.index("[start:glossary]")
+    end = text.index("[end:glossary]")
+    terms = sorted(
+        (
+            m.groups()
+            for line in text[start:end].splitlines()
+            if (m := GLOSSARY_ROW.match(line))
+        ),
+        key=lambda term: term[0].lower(),
+    )
+    if not terms:
+        raise SystemExit("gen_docs: no glossary rows in CLAUDE.md")
+    return table(["Term", "Meaning"], [[f"**{t}**", meaning] for t, meaning in terms])
+
 
 # -- the bounds -------------------------------------------------------------
 
@@ -420,6 +555,9 @@ GENERATORS: dict[str, Callable[[str | None], str]] = {
     "signals": signal_table,
     "blueprint-fields": blueprint_fields,
     "blueprint-sections": blueprint_sections,
+    "policy-rules": policy_rules,
+    "environment": environment,
+    "glossary": glossary,
     "bounds": bounds,
 }
 

@@ -248,6 +248,15 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --group docs
+      # The docs, the READMEs and the glossary are written in American
+      # English (docs/developing/writing-docs.md); a British spelling fails.
+      - name: American spelling
+        run: |
+          british='(organi|recogni|normali|seriali|initiali|summari|prioriti|authori|minimi|maximi|optimi|utili|reali|internali|categori)s(e|ed|es|ing|ation)|behaviour|honour|defence|colour|labell(ed|ing)|\bfulfils?\b|fulfilment|signall(ed|ing)|\banalys(e|ed|es|ing)\b|catalogue|\bcentre|favour|judgement|travelled|modelled|artefact|whilst|learnt|licence'
+          if grep -rniE "$british" docs README.md CLAUDE.md packages/*/README.md; then
+            echo "British spellings above; the docs use American English" >&2
+            exit 1
+          fi
       # mkdocs.yml sets strict: a broken link, an orphaned page or a
       # reference page that does not match the code fails the build.
       - run: uv run mkdocs build

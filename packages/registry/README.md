@@ -1,282 +1,143 @@
 # registry
 
-The join point between declarative intent and live state: nine Postgres
-tables, each behind a write-scoped accessor class. The reconciler writes
-what a blueprint declared, the orchestrator writes what a run is doing,
-the gateways write what they decided — and one `run_id` query returns the
-whole story across all of them.
+The registry is the Postgres state the platform services share: nine
+tables, each behind an accessor class. It is a library: each service
+imports it and connects with its own `REGISTRY_DSN`.
 
-It is a **shared library, not a service**. The writers are already
-separate processes with separate identities; putting an HTTP hop in front
-of Postgres would add a failure mode without adding a boundary. Each
-service holds `REGISTRY_DSN`, constructs the accessors it is allowed to
-write through, and talks to Postgres directly.
-
-In [the root README](../../README.md)'s architecture diagrams this is the
-`registry` cylinder: the declarative path ends here (what was applied) and
-the runtime path reports here (what every enforcement point decided).
-
-## The nine tables
-
-| Table | Written by | Records |
-|---|---|---|
-| `companies` | reconciler | The applied blueprint spec, one row per company. |
-| `agent_instances` | reconciler | The standing agents, including the namespace workload identity checks against. |
-| `policy_bundles` | reconciler | The compiled OPA bundle tarball and its revision. |
-| `runs` | orchestrator | The run record: task, status, artifacts, terminal state — and whether the run *concluded* its work item (`pr_url` for implement, `verdict` for review), which the heartbeat's attempt accounting reads. |
-| `run_participants` | orchestrator | One row per bound ephemeral identity — the whole identity, ServiceAccount name included. Revocation is a row termination. |
-| `sandbox_registrations` | gateway | Run → sandbox address. The registration *is* the run binding. |
-| `filed_tickets` | gateway | Every ticket the company filed, by repository and number, from the moment the git host created it — the heartbeat reads its own writes from here while the host's listing catches up. |
-| `budget_ledger` | LLM gateway | One spend entry per model call, fully attributed. |
-| `audit_events` | gateway, LLM gateway, egress proxy, orchestrator, console | Every decision, one ingestion contract. |
-
-Seven tables have exactly one writer. The discipline is not a Postgres
-grant — every service connects with the same DSN — but a code convention
-made auditable by the import graph: which accessor a service imports *is*
-its write authority, and you can grep for it. It buys provenance without
-coordination: a row's origin is knowable from its table alone, no writer
-needs a protocol with another, and each accessor can encode exactly the
-retry semantics its one writer needs.
-
-The one exception is deliberate. `audit_events` inverts the pattern: many
-writers, one accessor, append only. Five services write it, distinguished
-by the `source` column, and what is single is the *contract*, not the
-writer.
+| Kind | Image | Entry point | Holds | Writes |
+|---|---|---|---|---|
+| library | none | `registry.open_registry()` | nothing (callers hold `REGISTRY_DSN`) | the nine tables below, through their accessors |
 
 ## Module map
 
 | Module | Owns |
 |---|---|
-| `db.py` | Connection pool, DSN handling, startup migration under an advisory lock, and `Registry.now` — the database clock, the fence a human takes from the console before acting. |
-| `schema.sql` | The nine tables. Comment-only edits are safe; DDL changes are not — see the invariants. |
-| `companies.py` | `Companies` — the applied blueprint per company, written by the reconciler. |
-| `instances.py` | `AgentInstances` — the standing agents, and the gateways' workload-identity read. |
-| `policy.py` | `PolicyBundles` — stored compiled bundles, plus deterministic bundle packing. |
-| `runs.py` | `Runs` — the run record and its terminal state; `since` lists a company's runs from a fence. |
-| `participants.py` | `RunParticipants` — bound identities, revocation, the spawn count. |
-| `sandboxes.py` | `SandboxRegistrations` — run → sandbox address. |
-| `crews.py` | `CrewRequests` — idempotent, expiring spawn requests. |
-| `ledger.py` | `BudgetLedger` — one ledger with dimensions, never parallel accounts; `spent_since` sums a company's spend from a fence. |
-| `audit.py` | `AuditStore` — the one ingestion contract, the `story(run_id)` query, and `latest_human_verdict` — the console-recorded verdict the merge gate is released on. |
-| `memory.py` | In-memory stand-ins for every accessor. **Shipped on purpose** — see below. |
+| `db.py` | `Registry`: the pool, `migrate()`, and `now()`, the database clock a reader takes as a fence. `open_registry()` opens and migrates. |
+| `schema.sql` | The nine tables and their indexes, all `IF NOT EXISTS`. |
+| `companies.py` | `Companies`: the applied spec and the pause. `applied()` raises if two companies are applied. |
+| `instances.py` | `AgentInstances`: the standing agents. |
+| `policy.py` | `pack()` and `tombstone()` build bundle tarballs. `PolicyBundles` stores them per slot (`platform`, `company`) with `put`, `get` and `revoke`. |
+| `runs.py` | `Runs`: the run record, attempt counts and delivered pull requests. |
+| `participants.py` | `RunParticipants`: ephemeral agent rows, revocation, the spawn count, and `ParticipantRevoked`. |
+| `sandboxes.py` | `SandboxRegistrations`: run to sandbox address. |
+| `tickets.py` | `FiledTickets`: so the heartbeat reads its own tickets before the git host lists them. |
+| `ledger.py` | `BudgetLedger`: spend rows and their sums. |
+| `audit.py` | `AuditStore`: `append`, `story(run_id)`, `after` for followers, `count_allowed`, `latest_human_verdict`. |
+| `memory.py` | In-memory doubles of every accessor except `PolicyBundles`, for other packages' unit tests. They fail the way the real accessors do. No running service imports it. |
 
-## Migration is every service's job
+### The nine tables
 
-There is no migration job and no ordering requirement. Every service calls
-`open_registry()` at startup, which applies `schema.sql` — every statement
-is `IF NOT EXISTS`, so services migrate in any order, on every restart,
-concurrently. Concurrency is real: `CREATE TABLE IF NOT
-EXISTS` can still collide in Postgres, so `migrate()` serializes under one
-advisory lock.
+| Table | Written by | Records |
+|---|---|---|
+| `companies` | reconciler, console | The applied spec (reconciler). Who paused the heartbeat, and when (console). |
+| `agent_instances` | reconciler | Standing agents, with their namespace. |
+| `policy_bundles` | reconciler | Bundle tarball and revision, one row per slot. |
+| `runs` | orchestrator | Task, status, artifacts, and the conclusion (`pr_url`, `verdict`). |
+| `run_participants` | orchestrator | One row per ephemeral agent: its whole identity. |
+| `sandbox_registrations` | mcp-gateway | Run to sandbox address. |
+| `filed_tickets` | mcp-gateway | Each ticket the company filed. |
+| `budget_ledger` | llm-gateway | One spend entry per model call. |
+| `audit_events` | mcp-gateway, llm-gateway, egress proxy, orchestrator, console | Every decision, append only. |
 
-The lock is transaction-scoped (`pg_advisory_xact_lock`), not
-session-scoped, and `db.py` explains why: a failing DDL aborts the
-transaction, and a session lock taken inside it would survive the rollback
-on a pooled connection while the unlock call cannot run — wedging
-every other service's `migrate()` until the pool recycles.
+## How it works
 
-The schema also lives *inside* the Postgres instance deployed for
-Temporal, as a `registry` schema rather than a separate database, so no
-`CREATE DATABASE` has to race the services that migrate at startup.
+### Each table has one writer
 
-## Every write expects to be retried
+Which accessor a service imports is its write authority. Postgres grants
+don't enforce it, so review the imports. `companies` has one writer per
+column set. A re-applied company stays paused.
 
-The orchestrator's writes come from Temporal activities, which are
-re-executed after crashes and worker deaths ([Temporal](../../docs/concepts/temporal.md)). So the registry's job is to make
-"the retry lands on the same row" a property of the SQL, not a hope:
+`audit_events` has many writers and one accessor, told apart by `source`
+(`gateway`, `llm-gateway`, `sandbox-infra`, `process-gate`,
+`process-lifecycle`, `console`). Arguments are stored as `args_digest`.
+The `rationale` column is the only cleartext the actor wrote.
+`audit_events.run_id` and `sandbox_registrations.run_id` carry no
+foreign key, so an event whose run claim failed verification is still
+recorded.
 
-- `Runs.start` upserts — a re-attempt resets the same row (and clears a
-  stale terminal state) instead of creating a second run; a *different*
-  run claiming the same live issue or PR task dies on the one-live-run
-  partial indexes instead, so a re-offered item can never be worked twice
-  at once.
-- `RunParticipants.add` upserts on the deterministic `agent_id` the mint
-  activity derives from `{crew, role, run}` — a retried mint converges
-  on one identity instead of leaking two.
-- `CrewRequests` derives its id from `{conductor, crew_template, run_id}`
-  so a retried request refreshes rather than duplicates; `consume` is an
-  atomic `recorded → fulfilled` claim that hands a mid-fulfill crash's
-  retry its own request back while giving any other run nothing.
-- `SandboxRegistrations.register` updates on conflict, because a
-  provision retry re-registers a new address for the same run.
-- `Runs.finish` recreates a missing row rather than failing, because it
-  runs on the compensation path, which must never be the thing that fails.
+### Every service migrates at startup
 
-## Revocation is a row termination, not an expiry
+`open_registry()` applies `schema.sql` on every start, in any order,
+concurrently. `migrate()` takes a transaction-scoped advisory lock
+(`pg_advisory_xact_lock`). A session lock would survive a failed DDL on
+a pooled connection and block every other service's migration. The
+tables live in a `registry` schema in Temporal's Postgres.
 
-`run_participants` is where the ephemeral-identity contract from the root
-README becomes concrete:
+`CREATE TABLE IF NOT EXISTS` leaves an existing table as it is. A new
+column doesn't reach a database created before it. Add an idempotent
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, or recreate the cluster.
 
-```sql
-CREATE TABLE IF NOT EXISTS registry.run_participants (
-    agent_id        text PRIMARY KEY,
-    run_id          text NOT NULL REFERENCES registry.runs(run_id) ON DELETE CASCADE,
-    parent_agent_id text NOT NULL,
-    crew_template   text NOT NULL,
-    role            text NOT NULL,
-    company         text NOT NULL DEFAULT '',
-    namespace       text NOT NULL DEFAULT '',
-    service_account text,
-    status          text NOT NULL DEFAULT 'active',
-    created_at      timestamptz NOT NULL DEFAULT now(),
-    terminated_at   timestamptz
-);
-```
+A call waits up to 30 seconds for a connection, then raises.
 
-The gateway accepts an ephemeral agent's ServiceAccount token only while a
-live (`active`, unterminated) row backs it — resolved by
-`service_account` name, checked on every call, and read for everything
-the identity is (company, catalog template, namespace, crew
-coordinates). That makes revocation a database write: flip `status` to
-`terminated` and the identity is dead on the next call — however long
-its projected tokens remain valid. Token expiry alone
-would leave a compromised identity usable for the remainder of its TTL;
-a row check leaves it usable for zero further calls. Teardown uses the
-sweep form, `terminate_for_run`, which revokes every live ephemeral agent of a
-run at once and returns who it swept (each becomes an audit event).
+### Every write expects a retry
 
-Revocation is also **final**, and the mechanism is worth reading:
+Temporal re-runs the orchestrator's activities after a worker dies, so
+each write is safe to repeat:
 
-```sql
-ON CONFLICT (agent_id) DO UPDATE SET ...
-WHERE run_participants.status = 'active'
-RETURNING agent_id
-```
-
-The `WHERE` on the upsert means a mint that hits a terminated row updates
-nothing and returns no row — and `add` raises `ParticipantRevoked`. The
-only caller that can reach a terminated row is a mint retry that lost the
-race with its run's teardown, and reviving the row would resurrect an
-identity the platform already revoked, with nothing left in the workflow
-to collect the pod holding it. The in-memory double raises the same
-exception, so unit suites exercise the same sharp edge.
-
-## The audit store: one `run_id`, six sources
-
-`audit_events` is the table the phrase "whatever happened, one query tells
-the story" refers to. Six sources write it in practice — `gateway` (tool
-decisions and rejected tokens), `llm-gateway` (model calls),
-`sandbox-infra` (the egress proxy's allows and denies), `process-gate`
-(gate verdicts and escalations), `process-lifecycle` (crew lifecycle) and
-`console` (a human's acts, the only rows carrying a person's name) —
-all through `AuditStore.append`, all in the shape of `common.audit`'s
-`AuditEvent`. `story(run_id)` returns every event for a run ordered by
-`(ts, id)`, backed by an index on `(run_id, ts)`. Because every
-enforcement point records the same fields, one query reconstructs a run
-across all of them. Two reads feed policy: `count_allowed` (a per-run
-tool cap) and `latest_human_verdict` (the console-recorded verdict the
-merge gate is released on).
-
-Two shapes of restraint define the table. There is **no foreign key on
-`run_id`**, on purpose: an event whose `run_id` is a *claim* that failed
-verification — an unattributable egress attempt, a stale run binding — is
-exactly the event worth keeping, and a foreign key would refuse it. And
-arguments are stored as **digests** (`args_digest`), never raw: the audit
-store must not become the leak channel the rest of the design closes.
-
-## Policy bundles are content-addressed
-
-`bundles.pack` builds the OPA bundle tarball the reconciler persists and the
-bundle server hands to OPA. Two properties are load-bearing:
-
-- **The revision is a digest of the content**, and the tar metadata
-  (mtime, uid, ownership) is pinned, so identical policy produces an
-  identical tarball. Re-applying an unchanged blueprint is a no-op for
-  OPA; a changed one is unmissable.
-- **The roots are derived from the files' own `package` declarations**,
-  never hardcoded. OPA bundle activation erases everything under a
-  bundle's roots that the bundle does not supply, so a root any wider than
-  the contents would delete policy another bundle owns on the first poll.
-  A file without a `package` declaration is refused outright.
-
-`PolicyBundles.delete` is company teardown's policy revocation: the bundle
-stops being served, so a caller that still holds an identity finds no rule
-to match.
-
-## `memory.py` is not test-only scaffolding to delete
-
-The in-memory doubles are part of the package's public surface. The unit
-suites of `gateway`, `llm-gateway`, `orchestrator` and `sandbox` import
-them to run without a database. They live next to the real accessors
-because a double that drifts from its interface is worse than no double,
-and they mirror behaviour, not just signatures: `record_artifacts` on an
-unknown run is a no-op (an `UPDATE` matching zero rows, not a `KeyError`),
-and `InMemoryRunParticipants` raises `ParticipantRevoked` on a revived row
-exactly as Postgres does. A double with friendlier failure modes than the
-real thing hides exactly the bugs it exists to catch. Nothing in a running
-service may import this module — the point of the registry is that state
-survives the process.
-
-## Entry points
-
-A library only — no service, no CLI, no Dockerfile. Callers hold
-`REGISTRY_DSN` (default `postgresql://poseidon@postgres:5432/poseidon`)
-and call `open_registry()`, which opens the pool and migrates. Calls block
-up to 30 s for a connection rather than degrading silently: run records
-and audit events are not optional.
-
-## Cross-package interactions
-
-- [`common`](../common/README.md) supplies the `AuditEvent` shape — the
-  registry's only dependency besides psycopg.
-- [`reconciler`](../reconciler/README.md) writes `companies`,
-  `agent_instances` and `policy_bundles` on reconcile; its bundle server
-  reads `policy_bundles` for OPA to poll.
-- [`orchestrator`](../orchestrator/README.md) writes `runs` and
-  `run_participants`, emits the `process-gate` and `process-lifecycle`
-  audit events, reads the ledger for headroom checks and the spawn
-  count off `run_participants` when it fulfils a crew, and reads
-  `AuditStore.latest_human_verdict` when a human merge gate is signalled.
-- [`console`](../console/README.md) writes audit events (`source=console`,
-  under the person's name) and reads on a human's behalf: `Runs.since`,
-  `BudgetLedger.spent_since`, `AuditStore.story` and `Registry.now`.
-- [`mcp-gateway`](../mcp-gateway/README.md) writes `sandbox_registrations`
-  and audit events; reads `agent_instances` (workload identity),
-  `run_participants` (ephemeral identity backing) and
-  `sandbox_registrations` (run binding).
-- [`llm-gateway`](../llm-gateway/README.md) writes `budget_ledger` and
-  audit events; its refusal at the cap compares `spent_for_run` before every
-  call.
-- [`sandbox`](../sandbox/README.md)'s egress proxy writes audit events
-  and resolves a sandbox namespace back to its company's allowlist via
-  `Companies.by_namespace`.
-
-## Tests
-
-```
-REGISTRY_DSN=postgresql://poseidon:...@127.0.0.1:5432/poseidon uv run pytest packages/registry
-```
-
-**These tests skip without `REGISTRY_DSN`**, which is expected on a laptop
-— `uv run pytest packages/registry` reports every test skipped, and that
-is green.
-The SQL is the thing under test — upsert convergence, the revocation
-`WHERE` clause, the cross-source `story` query — so a fake would test
-nothing. CI provides a Postgres service container; locally,
-`kubectl -n poseidon-platform port-forward svc/postgres 5432:5432` against
-the kind cluster works. That DSN is for developers and the platform
-services; the `poseidon` CLI holds none — it reads runs, stories and
-spend through the console. (The pure bundle-packing tests in
-`test_bundles.py` need no database at all; they skip anyway because the
-suite-wide cleanup fixture depends on the database session fixture.)
-
-As everywhere in this repo, run pytest per package, never repo-wide.
+- `Runs.start` upserts on `run_id`. A different run claiming a live
+  issue or pull request fails on the partial unique indexes
+  `runs_one_live_*_run`.
+- `RunParticipants.add` upserts on the deterministic `agent_id`. Its
+  `WHERE status = 'active'` never revives a terminated row: `add` raises
+  `ParticipantRevoked`.
+- `SandboxRegistrations.register` updates on conflict, since a provision
+  retry brings a new address.
+- `Runs.finish` recreates a missing row, so compensation never fails on
+  it.
 
 ## Invariants
 
-- **Revocation is final.** A terminated `run_participants` row is never
-  revived. The only way to reach one is to mint after the run's teardown
-  already swept it — a retry racing compensation — and that caller is
-  told to stop rather than allowed to resurrect a revoked identity.
-- **No foreign key on `audit_events.run_id`**, on purpose: an event whose
-  `run_id` is a claim that failed verification is exactly the event worth
-  keeping. `sandbox_registrations.run_id` has none either — coupling the
-  gateway's write to another service's insert ordering would trade a real
-  failure mode for referential tidiness.
-- **Audit args are digests.** The audit store must not become a leak
-  channel.
-- **Terminated rows read as absent.** `SandboxRegistrations.active` and
-  `RunParticipants.active` return `None` once terminated, which is what
-  makes a stale `run_id` claim or a revoked token fail closed.
-- `schema.sql` is applied by every service at startup. Changing DDL is a
-  wire-compatibility question across all writers, not a local edit.
+- Revocation is final:
+  `test_registry.py::test_revocation_is_final_and_a_late_mint_cannot_revive_it`.
+- Terminated rows read as absent:
+  `test_participant_active_goes_dark_on_termination`,
+  `test_terminated_registration_is_not_served`.
+- A retried `start` lands on its own row: `test_start_is_retry_safe`.
+- One live run per issue and per pull request:
+  `test_one_live_implement_run_per_issue`,
+  `test_one_live_review_run_per_pr`.
+- `finish` recreates a missing row:
+  `test_finish_recreates_a_missing_row`.
+- An unattributable event is still recorded:
+  `test_unattributable_attempts_are_still_recorded`.
+- One query returns a run's story across every source:
+  `test_story_spans_every_source`.
+- A re-apply keeps the pause:
+  `test_the_pause_is_a_company_fact_that_survives_a_re_apply`.
+- Identical policy packs identically:
+  `test_bundles.py::test_identical_files_pack_identically`.
+- Bundle roots come from the files' `package` lines:
+  `test_roots_come_from_the_package_declarations`.
+- A tombstone must declare its roots:
+  `test_a_rootless_tombstone_is_refused`.
+
+## Testing
+
+These tests need a real Postgres. Without `REGISTRY_DSN` every test
+skips, `test_bundles.py` included, and the run is green. The autouse
+`clean` fixture deletes every row of all nine tables after each test.
+Point it at a throwaway database, never at a cluster you use:
+
+```bash
+docker run --rm -d -p 5432:5432 -e POSTGRES_USER=poseidon \
+  -e POSTGRES_PASSWORD=ci -e POSTGRES_DB=poseidon postgres:16.6
+REGISTRY_DSN=postgresql://poseidon:ci@127.0.0.1:5432/poseidon uv run pytest packages/registry
+```
+
+CI runs the same container. Run tests per package
+([Contributing](../../docs/developing/contributing.md)). On the cluster,
+`tests/e2e_kind/test_registry_durability.py` checks that a run's record
+and sandbox registration survive a gateway restart.
+
+## Related
+
+- [Architecture](../../docs/explanation/architecture.md): who holds
+  what, and writes where.
+- [Policy and audit](../../docs/reference/policy.md): the audit events
+  and their names.
+- [`reconciler`](../reconciler/README.md),
+  [`orchestrator`](../orchestrator/README.md),
+  [`console`](../console/README.md),
+  [`mcp-gateway`](../mcp-gateway/README.md),
+  [`llm-gateway`](../llm-gateway/README.md),
+  [`sandbox`](../sandbox/README.md).

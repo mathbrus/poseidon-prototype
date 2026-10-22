@@ -8,6 +8,8 @@ transform, so a company can never end up with its callers querying an
 empty document — which would fail closed (every call denied) but silently.
 """
 
+from typing import Literal, NamedTuple
+
 PLATFORM_DECISION_PATH = "poseidon/platform/decision"
 
 # The two bundles OPA polls, by the fixed names its config lists them
@@ -84,3 +86,280 @@ def company_package(company: str) -> str:
 def company_decision_path(company: str) -> str:
     """The OPA data path of the company's `decision` document."""
     return f"{company_package(company).replace('.', '/')}/decision"
+
+
+class PolicyRule(NamedTuple):
+    """One rule name a decision can answer with, as the audit row's `rule`
+    column carries it. A `<placeholder>` stands for a name the compiler
+    fills in per company: a standing agent, crew, role, tool, workflow or
+    gate."""
+
+    name: str
+    effect: Literal["allow", "deny"]
+    decides: str
+
+
+# Every rule name a decision can answer with: the compiler emits all but
+# the two the enforcement points supply themselves (`default_deny` is the
+# bundle's default, `no_policy_installed` is read when OPA serves no
+# document at all). The compiler's tests hold this list and the compiled
+# bundles equal; the reference docs render it.
+RULES: tuple[PolicyRule, ...] = (
+    PolicyRule("default_deny", "deny", "Nothing matched."),
+    PolicyRule(
+        "no_policy_installed",
+        "deny",
+        "OPA serves no policy for the company yet; every enforcement point denies.",
+    ),
+    # -- scopes
+    PolicyRule(
+        "role_<standing>_<tool>",
+        "allow",
+        "A standing agent's tool scope: its catalog tools narrowed by the"
+        " blueprint's `tools.<role>`.",
+    ),
+    PolicyRule(
+        "crew_<crew>_<role>_<tool>",
+        "allow",
+        "An ephemeral agent's tool scope, per crew and role. Sandbox tools also"
+        " require the caller to be bound to the run.",
+    ),
+    PolicyRule("platform_<tool>", "allow", "The platform's own tools."),
+    PolicyRule(
+        REPO_NOT_DECLARED,
+        "deny",
+        "A tool call naming a repository other than `stack.repo.url`.",
+    ),
+    # -- crews and architecture requests
+    PolicyRule(
+        "crew_request_over_cap",
+        "deny",
+        "Starting a crew beyond the conductor's `may_spawn.max_concurrent`.",
+    ),
+    PolicyRule(
+        "crew_request_no_budget",
+        "deny",
+        "Starting a crew when the run has no budget left.",
+    ),
+    PolicyRule(
+        "architecture_request_over_cap",
+        "deny",
+        "A second architecture request in one run.",
+    ),
+    PolicyRule(
+        "architecture_request_count_missing",
+        "deny",
+        "An architecture request without the run's request count.",
+    ),
+    # -- deliveries
+    PolicyRule(
+        GIT_OPEN_PR_PROTECTED_BRANCH,
+        "deny",
+        "A delivery to a branch in `policies.branch_protection.protected`.",
+    ),
+    PolicyRule(
+        GIT_OPEN_PR_BRANCH_PATTERN,
+        "deny",
+        "A delivery branch that doesn't match `branch_protection.allowed_pattern`.",
+    ),
+    PolicyRule(
+        GIT_OPEN_PR_PATHS_MISSING,
+        "deny",
+        "A delivery whose changed paths are missing from the input.",
+    ),
+    PolicyRule(
+        GIT_OPEN_PR_DENIED_PATHS,
+        "deny",
+        "A delivery that changes a path in `policies.deny_paths`.",
+    ),
+    PolicyRule(
+        GIT_OPEN_PR_CONTRACT_TREE,
+        "deny",
+        "A delivery into the contract tree by a role `contract_tests.roles` doesn't name.",
+    ),
+    PolicyRule(
+        GIT_OPEN_PR_STRATEGY_PATH,
+        "deny",
+        "A delivery into the strategy's path by any role but the steward.",
+    ),
+    PolicyRule(
+        GIT_OPEN_PR_ARCHITECTURE_PATH,
+        "deny",
+        "A delivery into the masterplan's path by any role but the steward.",
+    ),
+    PolicyRule(
+        GIT_OPEN_PR_STRATEGY_PRESENT,
+        "deny",
+        "A delivery over a strategy that already exists on the base branch.",
+    ),
+    PolicyRule(
+        GIT_OPEN_PR_STRATEGY_PRESENCE_MISSING,
+        "deny",
+        "A delivery to the strategy's path without the fact of whether it exists.",
+    ),
+    # -- the heartbeat
+    PolicyRule(
+        "heartbeat_start_<workflow>",
+        "allow",
+        "The heartbeat may start this workflow: it is on `may_start`.",
+    ),
+    PolicyRule(
+        "heartbeat_start_over_concurrency",
+        "deny",
+        "A start at `max_concurrent_runs`.",
+    ),
+    PolicyRule(
+        "heartbeat_start_over_daily_cap",
+        "deny",
+        "A start once the day's spend reached `daily_cap.usd`.",
+    ),
+    PolicyRule(
+        "heartbeat_start_over_attempts",
+        "deny",
+        "A start on an item `max_attempts` runs already took up.",
+    ),
+    PolicyRule(
+        "heartbeat_start_over_open_tickets",
+        "deny",
+        "A `scope` start at `max_open_tickets`.",
+    ),
+    PolicyRule(
+        "heartbeat_start_while_paused",
+        "deny",
+        "A start while a person holds the company paused.",
+    ),
+    PolicyRule(
+        "heartbeat_start_counts_missing",
+        "deny",
+        "A start without the live run count.",
+    ),
+    PolicyRule(
+        "heartbeat_start_spend_missing",
+        "deny",
+        "A start without the day's spend.",
+    ),
+    PolicyRule(
+        "heartbeat_start_attempts_missing",
+        "deny",
+        "A start without the item's attempt count.",
+    ),
+    PolicyRule(
+        "heartbeat_start_open_tickets_missing",
+        "deny",
+        "A `scope` start without the open-ticket count.",
+    ),
+    PolicyRule(
+        "heartbeat_start_paused_missing",
+        "deny",
+        "A start without the fact of whether the company is paused.",
+    ),
+    # -- people
+    PolicyRule(
+        "gate_resolve_<gate>_approve",
+        "allow",
+        "A person `company.humans` names approves a gate.",
+    ),
+    PolicyRule(
+        "gate_resolve_<gate>_reject",
+        "allow",
+        "A person `company.humans` names rejects a gate.",
+    ),
+    PolicyRule(
+        "run_start_<workflow>",
+        "allow",
+        "A person `company.humans` names starts a run by hand.",
+    ),
+    PolicyRule("run_cancel", "allow", "A person `company.humans` names cancels a run."),
+    PolicyRule(
+        "heartbeat_wake", "allow", "A person `company.humans` names wakes the heartbeat."
+    ),
+    PolicyRule(
+        "heartbeat_pause", "allow", "A person `company.humans` names pauses the company."
+    ),
+    PolicyRule(
+        "heartbeat_resume", "allow", "A person `company.humans` names resumes it."
+    ),
+    PolicyRule(
+        "blueprint_apply", "allow", "A person `company.humans` names applies a blueprint."
+    ),
+    PolicyRule(
+        "company_delete", "allow", "A person `company.humans` names deletes the company."
+    ),
+    PolicyRule(
+        "human_not_recognized",
+        "deny",
+        "A verified person the blueprint's `company.humans` doesn't name.",
+    ),
+    # -- the merge gate
+    PolicyRule(
+        "merge_resolve_human",
+        "allow",
+        "A merge on a recorded approving verdict by a person `company.humans` names.",
+    ),
+    PolicyRule(
+        "merge_resolve_no_human_verdict",
+        "deny",
+        "A merge signal with no verdict recorded by the console.",
+    ),
+    PolicyRule(
+        "merge_resolve_human_rejected",
+        "deny",
+        "The latest recorded verdict rejects the merge.",
+    ),
+    PolicyRule(
+        "merge_resolve_not_a_human",
+        "deny",
+        "The recorded verdict's author is not in `company.humans`.",
+    ),
+    PolicyRule(
+        "merge_resolve_resolver_missing",
+        "deny",
+        "A merge decision that doesn't say which resolver it asks for.",
+    ),
+    PolicyRule(
+        "merge_resolve_delegated",
+        "allow",
+        "A policy merge: verdict passed, tests green, reviewer independent,"
+        " every path delegated, and the contract green when one is declared.",
+    ),
+    PolicyRule(
+        "merge_resolve_verdict_not_pass",
+        "deny",
+        "Policy merge refused: the reviewer's verdict failed.",
+    ),
+    PolicyRule(
+        "merge_resolve_checks_not_green",
+        "deny",
+        "Policy merge refused: the platform's test run is red.",
+    ),
+    PolicyRule(
+        "merge_resolve_not_independent",
+        "deny",
+        "Policy merge refused: the reviewer is the implementer.",
+    ),
+    PolicyRule(
+        "merge_resolve_paths_missing",
+        "deny",
+        "Policy merge refused: the changed paths are missing from the input.",
+    ),
+    PolicyRule(
+        "merge_resolve_carved_out_path",
+        "deny",
+        "Policy merge refused: a path under `.github/` or `policies.deny_paths`.",
+    ),
+    PolicyRule(
+        "merge_resolve_undelegated_path",
+        "deny",
+        "Policy merge refused: a path outside `delegate.paths`.",
+    ),
+    PolicyRule(
+        "merge_resolve_contract_path",
+        "deny",
+        "Policy merge refused: the pull request changes the contract tree.",
+    ),
+    PolicyRule(
+        "merge_resolve_contract_not_green",
+        "deny",
+        "Policy merge refused: the base branch's contract tests fail on the pull request's code.",
+    ),
+)

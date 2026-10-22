@@ -1,33 +1,29 @@
 # Roles and crews
 
-A **role** is what an agent *is*: its tool ceiling, the crews it may
-spawn, and the procedures a dispatch may ask of it. A **crew** is the list
-of roles fulfilled together for one run; each becomes one ephemeral agent
-with its own pod and identity, under the conductor's authority. Both
-catalogs are closed: a blueprint names roles and crews, it never defines
-them, because a role a blueprint could invent would be a policy the
-platform never reviewed.
+A **role** defines what an agent is: the tools it may hold, the crews it
+may start, and the procedures it may run. A **crew** is a list of roles
+that work together on one run. Each role in a crew becomes one ephemeral
+agent, with its own pod and identity.
 
-The tables on this page are rendered from `packages/blueprint/src/blueprint/catalog.py`
-at build time.
+Both catalogs are fixed in code. A blueprint names roles and crews, but
+never defines them, so no blueprint can invent a permission nobody
+reviewed. The tables are rendered from
+`packages/blueprint/src/blueprint/catalog.py`.
 
 ## Roles
 
 <!-- gen: roles -->
 
-A blueprint may **narrow** a role's tool list in its `tools.<role>` section,
-never widen it, and the scope applies to every agent of the role, standing
-or ephemeral. The lean-standing rule is not in the table because it is the
-compiler's: `implementer`, `reviewer`, `contract-author` and `steward` exist
-only as ephemeral agents, and a blueprint that hires one standing is a
-compile error. The `steward` is the one writer of the company's documents;
-a future standing **observer** would revise the strategy, and is not in
-the catalog.
+A blueprint may narrow a role's tools in its `tools` section, never widen
+them. Only `pm` may be a standing agent. The other roles exist only
+inside a run, and the compiler refuses a blueprint that hires one as
+standing.
 
 ## Which role runs which procedure
 
-A **procedure** is the agent host's unit of work. A dispatch names one; the
-host refuses any the role does not declare before a model call is made.
+A **procedure** is one unit of work an agent runs. The orchestrator names
+one in each dispatch, and the agent host refuses a procedure its role
+doesn't declare, before any model call.
 
 <!-- gen: procedures -->
 
@@ -35,7 +31,7 @@ host refuses any the role does not declare before a model call is made.
 
 <!-- gen: crews -->
 
-A blueprint names the crews it puts to work in a hire's `may_spawn` and a
-workflow's `crew`, never their members. Spawn authority is authority to
-create a principal from a compiler-vetted role, not a capability ceiling:
-the PM cannot open a pull request, yet the crew it spawns can.
+A blueprint puts crews to work in a standing agent's `may_spawn` and a
+workflow's `crew`. A crew's roles may hold tools its conductor doesn't:
+the PM can't open a pull request, but the crew it starts can
+([why](../concepts/standing-vs-ephemeral.md#starting-a-crew-is-not-sharing-tools)).
