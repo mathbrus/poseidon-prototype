@@ -46,7 +46,6 @@ from common.text import clip_tail, numbered_lines
 # findings comment and, at most, one architecture request the platform
 # files as a ticket.
 IMPLEMENT_TOOLS = [
-    "list_dir",
     "read_file",
     "write_file",
     "edit_file",
@@ -56,7 +55,6 @@ IMPLEMENT_TOOLS = [
 DELIVER_TOOLS = ["read_file", "open_pr"]
 SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
 REVIEW_TOOLS = [
-    "list_dir",
     "read_file",
     "exec",
     "run_tests",
@@ -123,10 +121,6 @@ def current_context() -> HandsContext:
 
 
 # --- action schemas (the model-facing contract, run_id-free) -----------------
-
-
-class ListDirAction(Action):
-    path: str = Field(description="Directory path, relative to the workspace root.")
 
 
 class ReadFileAction(Action):
@@ -244,10 +238,6 @@ class GatewayObservation(Observation):
 
 
 # --- gateway mappings (run_id / target_repo injection lives here) ------------
-
-
-def _list_dir(ctx: HandsContext, a: ListDirAction) -> dict[str, Any]:
-    return ctx.bridge.call("sandbox.list_dir", {"run_id": ctx.run_id, "path": a.path})
 
 
 def _read_file(ctx: HandsContext, a: ReadFileAction) -> dict[str, Any]:
@@ -453,12 +443,6 @@ class ToolSpec:
 
 
 _TOOLS: dict[str, ToolSpec] = {
-    "list_dir": ToolSpec(
-        "List entries of a directory inside the workspace.",
-        ListDirAction,
-        _list_dir,
-        read_only=True,
-    ),
     "read_file": ToolSpec(
         "Read a text file from the workspace, as numbered lines.",
         ReadFileAction,
@@ -481,7 +465,7 @@ _TOOLS: dict[str, ToolSpec] = {
         render=_render_edit,
     ),
     "exec": ToolSpec(
-        "Run a shell command in the workspace root (e.g. git, ls, python).",
+        "Run a shell command in the workspace root (e.g. git, rg, python).",
         ExecAction,
         _exec,
         render=_render_shell,

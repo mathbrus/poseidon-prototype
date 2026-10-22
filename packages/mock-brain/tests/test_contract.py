@@ -104,7 +104,7 @@ class FakeGateway:
         self.calls.append((tool, dict(args)))
         match tool:
             case "sandbox.list_dir":
-                return {"entries": [{"name": "README.md", "type": "file"}]}
+                return {"files": ["README.md"], "omitted": 0}
             case "sandbox.write_file":
                 self.files[args["path"]] = args["content"]
                 return {"ok": True}

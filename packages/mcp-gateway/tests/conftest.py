@@ -78,7 +78,7 @@ SANDBOX_RESPONSES = {
     "/files/read": {"content": "hello from sandbox"},
     "/files/write": {"ok": True},
     "/files/edit": {"ok": True, "snippet": "     1\tx"},
-    "/files/list": {"entries": [{"name": "README.md", "type": "file"}]},
+    "/files/list": {"files": ["README.md"], "omitted": 0},
     "/exec": {"exit_code": 0, "stdout": "ran", "stderr": ""},
     "/tests": {"exit_code": 0, "stdout": "1 passed", "stderr": ""},
     "/bundle": {"bundle_b64": "YnVuZGxl", "base_ref": "main"},

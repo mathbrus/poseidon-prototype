@@ -247,13 +247,30 @@ def test_edit_traversal_and_symlink_escape_rejected(
 # --- /files/list -----------------------------------------------------------
 
 
-def test_list_dir(client: TestClient):
+def test_list_dir_is_the_tree_as_git_sees_it(client: TestClient, workspace: Path):
+    """Recursive, workspace-relative, untracked files in, ignored and
+    deleted files out — `.git` and the platform's own marker never show."""
+    (workspace / "pkg" / "new.py").write_text("y = 2\n")
+    (workspace / "pkg" / "__pycache__").mkdir()
+    (workspace / "pkg" / "__pycache__" / "mod.cpython-312.pyc").write_bytes(b"\0")
+    (workspace / "hello.txt").unlink()
     resp = client.post("/files/list", json={"path": "."})
     assert resp.status_code == 200
-    entries = {e["name"]: e["type"] for e in resp.json()["entries"]}
-    assert entries["hello.txt"] == "file"
-    assert entries["pkg"] == "dir"
-    assert entries[".git"] == "dir"
+    assert resp.json() == {"files": ["pkg/mod.py", "pkg/new.py"], "omitted": 0}
+    sub = client.post("/files/list", json={"path": "pkg"}).json()
+    assert sub["files"] == ["pkg/mod.py", "pkg/new.py"]
+
+
+def test_list_dir_is_capped(client: TestClient, workspace: Path):
+    from sandbox.toolserver.app import LIST_LIMIT
+
+    many = workspace / "many"
+    many.mkdir()
+    for n in range(LIST_LIMIT + 7):
+        (many / f"f{n:04d}.txt").write_text("")
+    body = client.post("/files/list", json={"path": "many"}).json()
+    assert len(body["files"]) == LIST_LIMIT
+    assert body["omitted"] == 7
 
 
 def test_list_missing_dir_404(client: TestClient):

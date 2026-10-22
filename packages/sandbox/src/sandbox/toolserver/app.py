@@ -5,7 +5,7 @@ Runs inside the sandbox container and listens for the gateway only:
     POST /files/read  {path, view_range?}                       -> {content, start_line, total_lines}
     POST /files/write {path, content}                           -> {ok}
     POST /files/edit  {path, command, old_str?, new_str, insert_line?} -> {ok, snippet}
-    POST /files/list  {path}                                    -> {entries: [{name, type}]}
+    POST /files/list  {path}                                    -> {files, omitted}
     POST /exec        {cmd, timeout_s}  -> {exit_code, stdout, stderr}
     POST /tests       {paths?}          -> {exit_code, stdout, stderr}
     POST /bundle      {branch, message, author} -> {bundle_b64, base_ref}
@@ -16,6 +16,10 @@ numbered snippet around the change. `/files/read` takes an optional
 `[start, end]` line range (1-based, inclusive, `-1` for end of file);
 without one it returns the first `READ_LINE_LIMIT` lines, and
 `total_lines` says how many there are.
+
+`/files/list` is the tree under a directory as git sees it — tracked and
+untracked files, ignored ones left out — as workspace-relative paths, at
+most `LIST_LIMIT` of them; `omitted` counts the rest.
 
 `/tests` with `paths` appends them to the test command — the platform's
 scoped contract-verify run. Naming the paths explicitly means a pytest
@@ -60,6 +64,8 @@ GIT_TIMEOUT_S = 60
 # The most lines a read without a range returns; a longer file is read on
 # in ranges.
 READ_LINE_LIMIT = 2000
+# The most paths a listing returns.
+LIST_LIMIT = 500
 # The delivery commit's author is the agent that asked for it; git wants an
 # address, and this domain says it is no mailbox.
 AUTHOR_EMAIL_DOMAIN = "agents.poseidon.invalid"
@@ -138,6 +144,23 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         if not candidate.is_relative_to(ws):
             raise HTTPException(status_code=400, detail=f"path escapes workspace: {path}")
         return candidate
+
+    def git(*args: str, env: dict[str, str] | None = None) -> str:
+        """One git command in the workspace; a failure is the caller's 400."""
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=ws,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_S,
+            env=env,
+        )
+        if proc.returncode != 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"git {args[0]} failed: {proc.stderr.strip()}",
+            )
+        return proc.stdout.strip()
 
     def run_shell(cmd: str, timeout_s: float) -> dict[str, Any]:
         log.info("exec", extra={"cmd": cmd, "timeout_s": timeout_s})
@@ -243,11 +266,19 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         target = resolve(req.path)
         if not target.is_dir():
             raise HTTPException(status_code=404, detail=f"no such directory: {req.path}")
-        entries = [
-            {"name": entry.name, "type": "dir" if entry.is_dir() else "file"}
-            for entry in sorted(target.iterdir(), key=lambda e: e.name)
-        ]
-        return {"entries": entries}
+        listed = git(
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            str(target.relative_to(ws)),
+        )
+        # A tracked file the agent deleted is still in the index; the
+        # listing is the tree as it stands.
+        files = sorted({p for p in listed.split("\0") if p and (ws / p).is_file()})
+        return {"files": files[:LIST_LIMIT], "omitted": max(0, len(files) - LIST_LIMIT)}
 
     @app.post("/exec")
     def exec_cmd(req: ExecRequest) -> dict[str, Any]:
@@ -262,23 +293,6 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         if paths:
             cmd = " ".join([cmd, *(shlex.quote(p) for p in sorted(paths))])
         return run_shell(cmd, TESTS_TIMEOUT_S)
-
-    def git(*args: str, env: dict[str, str] | None = None) -> str:
-        """One git command in the workspace; a failure is the caller's 400."""
-        proc = subprocess.run(
-            ["git", *args],
-            cwd=ws,
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT_S,
-            env=env,
-        )
-        if proc.returncode != 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"git {args[0]} failed: {proc.stderr.strip()}",
-            )
-        return proc.stdout.strip()
 
     @app.post("/bundle")
     def bundle(req: BundleRequest) -> dict[str, Any]:

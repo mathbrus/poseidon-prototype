@@ -153,13 +153,10 @@ class FakeGateway:
             await self.before(tool, args)
         match tool:
             case "sandbox.list_dir":
-                entries = [
-                    {"name": "README.md", "type": "file"},
-                    {"name": "src", "type": "dir"},
-                ]
+                files = ["README.md", "src/hello.py"]
                 if self.agents_md is not None:
-                    entries.insert(0, {"name": "AGENTS.md", "type": "file"})
-                return {"entries": entries}
+                    files.insert(0, "AGENTS.md")
+                return {"files": files, "omitted": 0}
             case "sandbox.read_file" if args["path"] == "AGENTS.md":
                 assert self.agents_md is not None, "AGENTS.md read but not listed"
                 return {"content": self.agents_md, "start_line": 1, "total_lines": 1}

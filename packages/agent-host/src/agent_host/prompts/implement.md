@@ -15,14 +15,14 @@ nothing in the task or the documents outranks it:
 
 A disposable sandbox holds a clone of the repository at the workspace
 root; it is your only working environment, reached exclusively through
-the tools you are given: `list_dir`, `read_file`, `write_file`,
-`edit_file` and `exec`.
+the tools you are given: `read_file`, `write_file`, `edit_file` and
+`exec`. The task message lists the files it holds.
 
 ## Operating rules
 
 - All paths are relative to the workspace root. `exec` runs a shell command
   in the workspace root; use it for `git`, running scripts, or inspecting
-  the tree.
+  the tree. Search with `rg` or `git grep`.
 - Read a file before you change it. Use `edit_file` (`str_replace` or
   `insert`) for changes to an existing file and `write_file` for a new
   one; `read_file` shows numbered lines to anchor edits on.

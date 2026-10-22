@@ -342,34 +342,40 @@ def _test_report(result: dict[str, Any]) -> str:
 @dataclass
 class Workspace:
     """What the host learned about the sandbox before the model saw it:
-    the root listing, and the repository's instructions file if it has
-    one — read under the pod's own token, so a role that may not read
+    the tree as git sees it, and the repository's instructions file if it
+    has one — read under the pod's own token, so a role that may not read
     simply gets no instructions. Empty for a dispatch with no sandbox."""
 
-    entries: str = ""
+    tree: str = ""
     instructions: str | None = None
 
 
 def _survey(bridge: GatewayBridge, run_id: str) -> Workspace:
     listing = bridge.call("sandbox.list_dir", {"run_id": run_id, "path": "."})
-    names = {e["name"]: e["type"] for e in listing["entries"]}
-    entries = ", ".join(f"{n}{'/' if t == 'dir' else ''}" for n, t in names.items())
-    if names.get(REPO_INSTRUCTIONS_FILE) != "file":
-        return Workspace(entries)
+    files = list(listing["files"])
+    tree = "\n".join(files) or "(no files yet)"
+    if listing.get("omitted"):
+        tree += f"\n(and {listing['omitted']} more files)"
+    if REPO_INSTRUCTIONS_FILE not in files:
+        return Workspace(tree)
     try:
         read = bridge.call(
             "sandbox.read_file", {"run_id": run_id, "path": REPO_INSTRUCTIONS_FILE}
         )
     except ToolCallError as exc:
         log.info("repo instructions unread", extra={"reason": str(exc)})
-        return Workspace(entries)
-    return Workspace(entries, str(read["content"]))
+        return Workspace(tree)
+    return Workspace(tree, str(read["content"]))
 
 
-def _act_prompt(task_text: str, entries: str) -> str:
+def _opening(task_text: str, workspace: Workspace) -> str:
+    """The task, then the tree the sandbox holds."""
+    return f"Task:\n{task_text}\n\nWorkspace files:\n{workspace.tree}"
+
+
+def _act_prompt(task_text: str, workspace: Workspace) -> str:
     return (
-        f"Task:\n{task_text}\n\n"
-        f"Workspace root entries: {entries}\n\n"
+        f"{_opening(task_text, workspace)}\n\n"
         "Carry out this slice, then stop — the test suite is run for you "
         "between turns."
     )
@@ -461,7 +467,7 @@ def run_implement(
         documents,
     ) as s:
         convo, records = s.convo, s.records
-        convo.send_message(_act_prompt(task_text, s.workspace.entries))
+        convo.send_message(_act_prompt(task_text, s.workspace))
         iterations = 0
         while True:
             convo.run()
@@ -556,7 +562,7 @@ def run_review(
         settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP, bounds, documents
     ) as s:
         convo, records = s.convo, s.records
-        convo.send_message(f"Task:\n{task_text}")
+        convo.send_message(_opening(task_text, s.workspace))
         convo.run()
         failure = _loop_failure(convo)
     partial = dict(ticket_urls=records.ticket_urls, comment_urls=records.comment_urls)

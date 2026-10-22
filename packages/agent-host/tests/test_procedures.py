@@ -168,6 +168,8 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
     assert result.comment_urls == [COMMENT_URL]
     assert result.verdict == "pass"
     assert result.verdict_rationale == "Suite green; in scope."
+    # The reviewer opens on the tree, like the implementer.
+    assert "Workspace files:\nREADME.md\nsrc/hello.py" in text_of(llm.requests[0][0][1])
     assert gateway.tools_called() == [
         "sandbox.list_dir",
         "git.read",
@@ -234,12 +236,12 @@ def test_prompt_and_toolsets_per_procedure(settings, gateway):
     assert "open_pr" not in system  # the prompt matches the tool surface
     task_message = text_of(messages[1])
     assert TASK in task_message
-    assert "README.md" in task_message  # workspace survey rode the prompt
+    # The survey's tree rode the prompt, nested paths included.
+    assert "README.md\nsrc/hello.py" in task_message
     assert "carry it out" not in task_message  # no delivery talk while acting
 
     offered = set(llm.offered(0)) - {"finish", "think"}
     assert offered == {
-        "list_dir",
         "read_file",
         "write_file",
         "edit_file",

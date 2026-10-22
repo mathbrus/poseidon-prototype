@@ -189,7 +189,9 @@ def create_app(
 
     @mcp.tool(name="sandbox.list_dir")
     async def sandbox_list_dir(run_id: str, path: str, ctx: Context) -> dict[str, Any]:
-        """List a workspace directory."""
+        """The files under a workspace directory, recursively, as git sees them —
+        tracked and untracked, ignored ones left out — as workspace-relative
+        paths, capped; `omitted` counts what the cap left out."""
         return await sandbox_call(
             ctx, "sandbox.list_dir", {"run_id": run_id, "path": path}
         )
