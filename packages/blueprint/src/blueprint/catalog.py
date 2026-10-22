@@ -14,7 +14,13 @@ compiler error does.
 
 from dataclasses import dataclass
 
-from blueprint.tools import ARCHITECTURE_TOOLS, ISSUE_TOOLS, REVIEW_TOOLS, SANDBOX_TOOLS
+from blueprint.tools import (
+    ARCHITECTURE_TOOLS,
+    ISSUE_TOOLS,
+    REVIEW_SANDBOX_TOOLS,
+    REVIEW_TOOLS,
+    SANDBOX_TOOLS,
+)
 
 # The agent host's units of work. A dispatch names one; a role declares
 # which it may run, and the host refuses the rest before any model call.
@@ -85,8 +91,9 @@ ROLES: dict[str, Role] = {
     "reviewer": Role(
         name="reviewer",
         summary="Reads the diff, runs the tests, posts findings, gives a verdict.",
+        # What the review procedure works with, and nothing that delivers.
         tools=tuple(
-            SANDBOX_TOOLS + REVIEW_TOOLS + ARCHITECTURE_TOOLS + ["issues.comment"]
+            REVIEW_SANDBOX_TOOLS + REVIEW_TOOLS + ARCHITECTURE_TOOLS + ["issues.comment"]
         ),
         procedures=("review",),
     ),

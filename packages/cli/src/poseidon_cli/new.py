@@ -28,9 +28,8 @@ from typing import Any, Protocol
 import yaml
 
 from blueprint import validate_blueprint
-from blueprint.catalog import CREW_TEMPLATES, ROLES, STEWARDSHIP_CREW
+from blueprint.catalog import CREW_TEMPLATES, STEWARDSHIP_CREW
 from blueprint.documents import DOCUMENT_NAMES
-from blueprint.tools import SANDBOX_WRITE_TOOLS
 from blueprint.validate import ValidationError
 from compiler import EMPTY, compile_blueprint
 from compiler.errors import CompileError
@@ -112,7 +111,6 @@ class Answers:
     base_ref: str = "main"
     test_command: str = "pytest -q"
     egress: list[str] = field(default_factory=lambda: list(EGRESS_PRESETS["python"]))
-    reviewer_writes: bool = False
     resolver: str = "human"
     delegate_paths: list[str] = field(
         default_factory=lambda: ["src/", "tests/unit/", "docs/"]
@@ -276,14 +274,6 @@ def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
         a.egress = list(EGRESS_PRESETS[preset])
 
     prompter.say(SECTIONS[2])
-    a.reviewer_writes = (
-        prompter.select(
-            "Should the reviewer fix code, or only judge it?",
-            [("judge", "Judge only (recommended)"), ("fix", "Judge and fix")],
-            default="fix" if a.reviewer_writes else "judge",
-        )
-        == "fix"
-    )
     a.resolver = prompter.select(
         "Who decides whether a pull request merges?",
         [
@@ -512,10 +502,6 @@ def build(a: Answers) -> dict[str, Any]:
             "daily_cap": {"usd": _money(a.daily_cap_usd)},
         },
     }
-    if not a.reviewer_writes:
-        # The reviewer's catalog minus the writes: it judges, it does not fix.
-        reviewer = [t for t in ROLES["reviewer"].tools if t not in SANDBOX_WRITE_TOOLS]
-        document["tools"]["reviewer"] = {"allow": reviewer}
     return document
 
 
@@ -537,8 +523,7 @@ SECTION_NOTES = {
         "on next, and which crews it may bring in for a task."
     ),
     "tools": (
-        "What each role may do beyond reading. A role not listed keeps its\n"
-        "full set{reviewer}."
+        "What each role may do beyond reading. A role not listed keeps its\nfull set."
     ),
     "workflows": (
         "How a task is carried out and reviewed: which crew does each, how\n"
@@ -567,14 +552,6 @@ def render(document: dict[str, Any]) -> str:
     for section, note in SECTION_NOTES.items():
         if section not in document:
             continue
-        if section == "tools":
-            # The note says what the section does: a reviewer narrowed to
-            # judging, or nothing narrowed at all.
-            note = note.format(
-                reviewer="; the reviewer here may judge code, not change it"
-                if "reviewer" in document["tools"]
-                else ""
-            )
         commented = "\n".join(f"# {line}" for line in note.splitlines())
         body = yaml.safe_dump({section: document[section]}, sort_keys=False, width=88)
         parts.append(f"\n{commented}\n{body}")

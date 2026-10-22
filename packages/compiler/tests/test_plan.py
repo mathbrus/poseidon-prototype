@@ -11,6 +11,7 @@ import pytest
 import yaml
 from conftest import GOLDEN, REPO_ROOT
 
+from blueprint.catalog import ROLES
 from compiler import compile_blueprint
 from compiler.errors import CompileError
 
@@ -57,14 +58,28 @@ def test_agent_specs_carry_no_secrets(blueprint):
         assert smell not in blob, f"{smell!r} appears in the plan"
 
 
-def test_a_tool_scope_narrows_standing_and_ephemeral_agents_alike(blueprint):
-    """One narrowing site: `tools.<role>.allow` applies to every agent of
-    the role. The reviewer's scope drops the write tools its catalog entry
-    would allow, and the compiled crew spec carries the narrowed list."""
+def test_the_reviewer_holds_what_the_review_procedure_uses(blueprint):
+    """With no scope declared, the reviewer's compiled tools are its
+    catalog's: a shell in its own sandbox, and nothing that writes files
+    or carries work out of it."""
+    assert "reviewer" not in blueprint["tools"]
     plan = compile_blueprint(blueprint)
     reviewer = next(a for a in plan.ephemeral_agents if a.role == "reviewer")
-    assert "sandbox.write_file" not in reviewer.tools
-    assert set(reviewer.tools) == set(blueprint["tools"]["reviewer"]["allow"])
+    assert set(reviewer.tools) == set(ROLES["reviewer"].tools)
+    assert "sandbox.exec" in reviewer.tools
+    for tool in ("sandbox.write_file", "sandbox.edit_file", "sandbox.git_bundle"):
+        assert tool not in reviewer.tools
+    assert "git.open_pr" not in reviewer.tools
+
+
+def test_a_tool_scope_narrows_standing_and_ephemeral_agents_alike(blueprint):
+    """One narrowing site: `tools.<role>.allow` applies to every agent of
+    the role, and the compiled crew spec carries the narrowed list."""
+    narrowed = ["sandbox.read_file", "sandbox.run_tests", "git.read", "git.comment"]
+    blueprint["tools"]["reviewer"] = {"allow": narrowed}
+    plan = compile_blueprint(blueprint)
+    reviewer = next(a for a in plan.ephemeral_agents if a.role == "reviewer")
+    assert set(reviewer.tools) == set(narrowed)
     # A role with no scope declared gets its catalog tools.
     implementer = next(a for a in plan.ephemeral_agents if a.role == "implementer")
     assert "git.open_pr" in implementer.tools
