@@ -1,0 +1,19 @@
+{
+  "request": {
+    "body": {
+      "rationale": "reading the ledger"
+    },
+    "path": "/heartbeat/pause",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "paused": {
+      "at": "2026-01-01T00:00:00Z",
+      "by": "owner"
+    },
+    "rule": "heartbeat_pause"
+  },
+  "route": "POST /heartbeat/pause",
+  "status": 200
+}

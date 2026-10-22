@@ -32,6 +32,9 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run python scripts/version.py check
+      # The console interface: a change to it is a reviewed diff to the
+      # committed OpenAPI snapshot and golden examples, never a surprise.
+      - run: uv run python scripts/console_interface.py --check
 
   lock:
     runs-on: ubuntu-latest

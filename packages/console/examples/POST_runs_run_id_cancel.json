@@ -1,0 +1,16 @@
+{
+  "request": {
+    "body": {
+      "rationale": "superseded by #13"
+    },
+    "path": "/runs/run-01REVIEW/cancel",
+    "query": {}
+  },
+  "response": {
+    "rule": "run_cancel",
+    "run_id": "run-01REVIEW",
+    "workflow_id": "review-run-01REVIEW"
+  },
+  "route": "POST /runs/{run_id}/cancel",
+  "status": 200
+}

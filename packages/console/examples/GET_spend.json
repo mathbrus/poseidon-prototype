@@ -1,0 +1,14 @@
+{
+  "request": {
+    "body": null,
+    "path": "/spend",
+    "query": {}
+  },
+  "response": {
+    "completion_tokens": 212,
+    "prompt_tokens": 1830,
+    "usd": 0.0042
+  },
+  "route": "GET /spend",
+  "status": 200
+}

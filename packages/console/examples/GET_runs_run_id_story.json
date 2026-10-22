@@ -1,0 +1,31 @@
+{
+  "request": {
+    "body": null,
+    "path": "/runs/run-01REVIEW/story",
+    "query": {}
+  },
+  "response": {
+    "events": [
+      {
+        "agent_id": "orchestrator",
+        "company": "hello-saas",
+        "decision": "allow",
+        "id": 3,
+        "latency_ms": 4,
+        "lifecycle": "platform",
+        "parent_agent_id": "",
+        "rationale": "the change does what the ticket asks; tests cover it",
+        "role": "platform",
+        "rule": "review_pass",
+        "run_id": "run-01REVIEW",
+        "source": "process-lifecycle",
+        "tool": "review.verdict",
+        "ts": "2025-12-31T23:56:00Z",
+        "workflow": "review-run-01REVIEW"
+      }
+    ],
+    "run_id": "run-01REVIEW"
+  },
+  "route": "GET /runs/{run_id}/story",
+  "status": 200
+}

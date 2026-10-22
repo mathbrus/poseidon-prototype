@@ -1,0 +1,19 @@
+{
+  "request": {
+    "body": {
+      "blueprint": "<the text of examples/hello-saas.yaml>"
+    },
+    "path": "/blueprint/apply",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "created": 1,
+    "diff": "hello-saas: no changes\n  budget: $5/run",
+    "generation": 1,
+    "rule": "blueprint_apply",
+    "updated": 0
+  },
+  "route": "POST /blueprint/apply",
+  "status": 200
+}

@@ -57,9 +57,18 @@ Before 1.0:
 |---|---|
 | the blueprint and its policy | `packages/blueprint/src`, `packages/compiler/src`, `crds`, `examples` |
 | the CLI | `packages/cli/src` |
-| the console | `packages/console/src` |
+| the console | `packages/console/src`, `packages/common/src/common/console` |
 | the chart | `deploy/helm` |
 | the prompts | `packages/agent-host/src/agent_host/prompts` |
+
+It also says how the console interface changed since the last release,
+by comparing the committed OpenAPI snapshot
+(`packages/console/openapi.json`) at both ends:
+`breaking` (a route or field removed, a field retyped, a request field
+newly required, an enum narrowed), `additive`, or `unchanged`. A
+breaking change is what every console client must follow, so the
+proposal's changelog says it under *Changed*. There is no separate
+interface version: the release is the version.
 
 ## When a release is proposed
 

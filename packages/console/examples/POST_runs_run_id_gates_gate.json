@@ -1,0 +1,19 @@
+{
+  "request": {
+    "body": {
+      "approved": true,
+      "rationale": "engine first, as the vision asks"
+    },
+    "path": "/runs/run-01REVIEW/gates/merge",
+    "query": {}
+  },
+  "response": {
+    "approved": true,
+    "gate": "merge",
+    "human": "owner",
+    "rule": "gate_resolve_merge_approve",
+    "run_id": "run-01REVIEW"
+  },
+  "route": "POST /runs/{run_id}/gates/{gate}",
+  "status": 200
+}

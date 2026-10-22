@@ -70,13 +70,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   http://127.0.0.1:8090/heartbeat/pause
 ```
 
-| Body | Used by |
-|---|---|
-| `{"blueprint": "<yaml text>"}` | `POST /blueprint/preview`, `POST /blueprint/apply` |
-| `{"workflow": "implement", "number": 42}` | `POST /runs` |
-| `{"approved": true, "rationale": "…"}` | `POST /runs/{run_id}/gates/{gate}` |
-| `{"rationale": "…"}` | `POST /runs/{run_id}/cancel`, `POST /heartbeat/pause`, `POST /heartbeat/resume` |
-| `{"rationale": "…", "wait": true}` | `DELETE /company` |
+Every request and response body is a model of the
+[console interface](#the-console-interface).
 
 To read back your own writes, take a timestamp from `GET /now` before you
 act, then pass it as `?since=` to `/runs`, `/spend` or `/heartbeat`.
@@ -89,12 +84,47 @@ act, then pass it as `?since=` to `/runs`, `/spend` or `/heartbeat`.
 
 | Code | Body | Meaning |
 |---|---|---|
-| `200` | the result | Done. |
-| `401` | `{"detail": "unauthorized"}` | No token, or a token the console can't verify. |
-| `403` | `{"detail": "…", "rule": "human_not_recognized"}` | Policy refused the act. `rule` names the rule. |
-| `404` | `{"detail": "no company is applied"}` | The route needs a company and none is applied. |
-| `422` | `{"detail": "no run 'x'"}` | The request can't be acted on: an unknown run, a run not parked on that gate, a blueprint that doesn't validate, or another company's name. |
-| `503` | `{"detail": "temporal unreachable: …"}` | The workflow engine didn't answer. |
+| `200` | the route's response model | Done. |
+| `401` | `Problem`: `{"detail": "unauthorized"}` | No token, or a token the console can't verify. |
+| `403` | `PolicyRefusal`: `{"detail": "…", "rule": "human_not_recognized"}` | Policy refused the act. `rule` names the rule. |
+| `404` | `Problem`: `{"detail": "no company is applied"}` | The route needs a company and none is applied. |
+| `422` | `Problem`: `{"detail": "no run 'x'"}` | The request can't be acted on: a body that doesn't validate, an unknown run, a run not parked on that gate, a blueprint that doesn't compile, or another company's name. |
+| `503` | `Problem`: `{"detail": "temporal unreachable: …"}` | The workflow engine didn't answer. |
+
+## The console interface
+
+The routes, their request and response models and the closed sets
+they use are one interface, `common.console`, which every client is
+built on: the CLI, the acceptance suite and the web client to come. The
+console maps its registry rows, Temporal's answers and the Company CR
+onto it in one place, so those can change without a client noticing.
+Every model refuses fields it doesn't name.
+
+The interface is held still three ways:
+
+- **The snapshot.** `packages/console/openapi.json` is the console's
+  OpenAPI document, committed. CI renders it again and fails on any
+  difference, so a change to the interface is a reviewed diff in the
+  same pull request.
+- **The golden examples.** `packages/console/examples/` holds one
+  request and answer per route, rendered from a console over in-memory
+  fakes. The CLI's tests replay them, so a change the CLI doesn't follow
+  fails its tests.
+- **The breaking check.** `scripts/console_interface.py --breaking master`
+  says whether a branch's interface is `breaking` (a route or field
+  removed, a field retyped, a request field newly required, an enum
+  narrowed), `additive` or `unchanged`. The release proposal reports the
+  same since the last release.
+
+The interface has no version of its own. The release is the version,
+and `GET /healthz` answers it.
+
+```bash
+uv run python scripts/console_interface.py --write   # after changing the interface
+uv run python scripts/console_interface.py --check   # what CI runs
+```
+
+<!-- gen: console-interface -->
 
 ## What the console holds
 

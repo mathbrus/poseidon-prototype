@@ -1,0 +1,20 @@
+{
+  "request": {
+    "body": {
+      "rationale": "the vision is done",
+      "wait": true
+    },
+    "path": "/company",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "elapsed_s": 0,
+    "rule": "company_delete",
+    "runs_cancelled": [
+      "run-01REVIEW"
+    ]
+  },
+  "route": "DELETE /company",
+  "status": 200
+}

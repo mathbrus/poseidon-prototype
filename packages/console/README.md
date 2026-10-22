@@ -18,6 +18,7 @@ The acts, the decision each must win, and the routes are on the [console referen
 | `temporal.py` | The Temporal client: start, signal, cancel and inspect, addressed by `common.workflows`. Unreachable Temporal raises `Unavailable`. |
 | `crs.py` | The only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company. |
 | `config.py` | `ConsoleSettings`: the shared authn fields, `opa_url`, `temporal_address` and `console_humans`. |
+| `fakes.py` | A console over the registry's in-memory fakes, a recording Temporal and a scripted OPA, on a fixed clock. For tests and the golden examples only; nothing running imports it. |
 
 Authentication is `common.authn` in human mode, against the console's own token audience ([common](../common/README.md)).
 
@@ -70,7 +71,10 @@ All in `tests/test_console.py` unless noted.
 
 ```bash
 uv run pytest packages/console
+uv run python scripts/console_interface.py --check
 ```
+
+`openapi.json` and `examples/` are the console interface, committed: the OpenAPI snapshot and one golden request and answer per route, rendered from `fakes.py` by `scripts/console_interface.py --write`. CI fails when either drifts from the console, and the CLI's tests replay the examples ([console reference](../../docs/reference/console.md#the-console-interface)).
 
 It needs no cluster, Temporal, OPA or Postgres (see [Contributing](../../docs/developing/contributing.md)). TokenReview is scripted, the registry is in memory, and Temporal, the policy decisions and the CR calls are recording doubles. On kind, `test_console_identity.py`, `test_console_redteam.py`, `test_pause.py` and `test_review_gate.py` drive the deployed console.
 

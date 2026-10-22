@@ -1,0 +1,18 @@
+{
+  "request": {
+    "body": {
+      "number": 7,
+      "workflow": "implement"
+    },
+    "path": "/runs",
+    "query": {}
+  },
+  "response": {
+    "rule": "run_start",
+    "run_id": "run-01STARTED",
+    "workflow": "implement",
+    "workflow_id": "implement-run-01STARTED"
+  },
+  "route": "POST /runs",
+  "status": 200
+}

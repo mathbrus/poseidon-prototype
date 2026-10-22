@@ -128,7 +128,14 @@ def create_app(
         if registry is not None:
             registry.close()
 
-    app = FastAPI(title="poseidon-console", lifespan=lifespan)
+    app = FastAPI(
+        title="poseidon-console",
+        description="The console interface: the one way a person acts on a company"
+        " and reads it. Every act is decided by policy and audited under the"
+        " human's name.",
+        version=running_version(),
+        lifespan=lifespan,
+    )
 
     def serve(method: str, path: str):
         """Register a handler for one route of the interface, with its

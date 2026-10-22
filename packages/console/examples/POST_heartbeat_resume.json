@@ -1,0 +1,16 @@
+{
+  "request": {
+    "body": {
+      "rationale": "read it"
+    },
+    "path": "/heartbeat/resume",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "paused": null,
+    "rule": "heartbeat_resume"
+  },
+  "route": "POST /heartbeat/resume",
+  "status": 200
+}

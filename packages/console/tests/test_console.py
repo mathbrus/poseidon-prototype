@@ -15,14 +15,12 @@ What must hold:
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 import httpx
 import pytest
 import yaml
 
 from common.audit import HEARTBEAT_TICK, AuditEvent
-from common.authn import Principal
 from common.console import (
     ApplyResult,
     CompanyDeleted,
@@ -59,11 +57,9 @@ from common.policy import (
     RUN_START,
 )
 from common.topology import PLATFORM_NAMESPACE
-from compiler import DeploymentPlan
-from console import service as service_module
 from console.app import create_app
 from console.config import ConsoleSettings
-from console.temporal import WorkflowNotFound
+from console.fakes import COMPANY, FakeWorkflows, World, as_owner, company_cr
 from registry.memory import (
     InMemoryAgentInstances,
     InMemoryAuditStore,
@@ -77,7 +73,6 @@ pytestmark = pytest.mark.anyio
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HELLO_SAAS = (REPO_ROOT / "examples" / "hello-saas.yaml").read_text()
 PLATFORM_NS = PLATFORM_NAMESPACE
-COMPANY = "hello-saas"
 RUN_ID = "run-01CONSOLE"
 
 
@@ -86,148 +81,22 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-class FakeReviewer:
-    async def review(self, token: str, audience: str) -> Principal | None:
-        if audience != "poseidon-console":
-            return None
-        return {
-            "t-owner": Principal.of(f"system:serviceaccount:{PLATFORM_NS}:human-owner"),
-            "t-stranger": Principal.of(f"system:serviceaccount:{PLATFORM_NS}:human-x"),
-            "t-agent": Principal.of(f"system:serviceaccount:{COMPANY}:pm-1"),
-        }.get(token)
-
-
-class FakeWorkflows:
-    """Records what the console asked Temporal for, in order."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, Any]] = []
-        self.running: dict[str, str] = {}
-
-    async def start(self, workflow: str, key: str, payload: dict[str, Any]) -> str:
-        wf_id = f"{workflow}-{key}"
-        self.calls.append(("start", (workflow, key, payload)))
-        self.running[wf_id] = "running"
-        return wf_id
-
-    async def signal(self, wf_id: str, name: str, args: list[Any]) -> None:
-        if wf_id not in self.running:
-            raise WorkflowNotFound(wf_id)
-        self.calls.append(("signal", (wf_id, name, args)))
-
-    async def cancel(self, wf_id: str) -> None:
-        if wf_id not in self.running:
-            raise WorkflowNotFound(wf_id)
-        self.calls.append(("cancel", wf_id))
-
-    async def inspect(self, wf_id: str) -> dict[str, Any]:
-        if wf_id not in self.running:
-            raise WorkflowNotFound(wf_id)
-        return {"workflow_id": wf_id, "status": "RUNNING", "state": self.running[wf_id]}
-
-
-def company_cr(name: str, generation: int = 1, **status: Any) -> dict[str, Any]:
-    """A Company CR as the cluster holds it."""
-    return {
-        "metadata": {"name": name, "generation": generation},
-        "spec": {"namespace": "poseidon-company"},
-        "status": status,
-    }
-
-
 def model(cls, response: httpx.Response):
     """The response, parsed as the interface model the route declares."""
     assert response.status_code == 200, response.text
     return cls.model_validate(response.json())
 
 
-class World:
-    def __init__(self) -> None:
-        self.audit = InMemoryAuditStore()
-        self.runs = InMemoryRuns()
-        self.ledger = InMemoryBudgetLedger()
-        self.instances = InMemoryAgentInstances()
-        # The reconciler's record of the applied company; the console reads
-        # which company it hosts from here.
-        self.companies = InMemoryCompanies()
-        self.companies.upsert(COMPANY, {"namespace": "poseidon-company"})
-        self.workflows = FakeWorkflows()
-        self.submitted: list[DeploymentPlan] = []
-        self.deleted: list[str] = []
-        self.waited: list[bool] = []
-        self.cr: dict[str, Any] | None = None
-        # What OPA answers, per tool; the default is the rule the compiled
-        # bundle would name for the owner.
-        self.decisions: dict[str, dict[str, Any]] = {}
-        self.asked: list[dict[str, Any]] = []
-
-    def submit(self, plan: DeploymentPlan) -> tuple[int, int, int]:
-        self.submitted.append(plan)
-        # What the CR says afterwards: the generation this apply made,
-        # with no status until the fake reconciler is told otherwise.
-        self.cr = company_cr(plan.company.name, generation=len(self.submitted))
-        return (1, 0, len(self.submitted))
-
-    def read_company(self) -> dict[str, Any] | None:
-        return self.cr
-
-    def delete(self, company: str, wait: bool = True) -> None:
-        self.deleted.append(company)
-        self.waited.append(wait)
-        self.companies.delete(company)
-
-    async def evaluate(self, opa_url: str, company: str, decision_input: dict) -> dict:
-        self.asked.append(decision_input)
-        tool = decision_input["tool"]
-        if tool in self.decisions:
-            return dict(self.decisions[tool])
-        args = decision_input["args"]
-        if tool == GATE_RESOLVE:
-            verdict = "approve" if args["approved"] else "reject"
-            return {"allow": True, "rule": f"gate_resolve_{args['gate']}_{verdict}"}
-        return {"allow": True, "rule": tool.replace(".", "_")}
-
-    @property
-    def events(self) -> list[tuple[str, str, str]]:
-        return [(e.tool, e.decision, e.rule or "") for e in self.audit.events]
-
-
 @pytest.fixture
 def world(monkeypatch) -> World:
     w = World()
-    monkeypatch.setattr(service_module, "evaluate_decision", w.evaluate)
+    w.patch(monkeypatch.setattr)
     return w
 
 
 @pytest.fixture
 def client(world: World) -> httpx.AsyncClient:
-    settings = ConsoleSettings(
-        platform_namespace=PLATFORM_NS,
-        opa_url="http://opa.test:8181",
-        temporal_address="temporal.test:7233",
-        console_humans="owner",
-    )
-    app = create_app(
-        settings,
-        audit=world.audit,
-        runs=world.runs,
-        ledger=world.ledger,
-        instances=world.instances,
-        companies=world.companies,
-        token_reviewer=FakeReviewer(),
-        workflows=world.workflows,
-        submit_crs=world.submit,
-        delete_company=world.delete,
-        read_company=world.read_company,
-        clock=lambda: "2026-01-01T00:00:00+00:00",
-    )
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://console.test"
-    )
-
-
-def as_owner() -> dict[str, str]:
-    return {"Authorization": "Bearer t-owner"}
+    return world.client()
 
 
 def a_review_run(world: World) -> None:
