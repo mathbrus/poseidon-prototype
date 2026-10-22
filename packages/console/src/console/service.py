@@ -471,8 +471,25 @@ class ConsoleService:
         a run on a text the company produced. The heartbeat starts the
         company's own runs; this bypasses its caps, which is why it is a
         decided act. Which workflows a human may start is the request's
-        to say (`StartableWorkflow`)."""
+        to say (`StartableWorkflow`).
+
+        One live run per work item: a ticket or a pull request a live run
+        already holds is refused here, before policy is asked, rather than
+        started into the registry's one-live-run index — which stays the
+        backstop for a start that races this read."""
         company = await self._company()
+        attempts = await asyncio.to_thread(
+            self._runs.issue_attempts
+            if workflow == "implement"
+            else self._runs.review_attempts,
+            company,
+        )
+        if number in attempts and attempts[number].live:
+            item = "ticket" if workflow == "implement" else "pull request"
+            raise Invalid(
+                f"a live {workflow} run already holds {item} #{number};"
+                " one live run per work item"
+            )
         run_id = new_run_id()
         wf_id = workflow_id(workflow, run_id)
         decision = await self._act(

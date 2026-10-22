@@ -283,6 +283,30 @@ async def test_starting_a_run_is_decided_then_started(client, world):
     assert world.events == [(RUN_START, "allow", "run_start")]
 
 
+async def test_a_second_start_of_a_held_item_is_refused_before_policy(client, world):
+    """One live run per work item: starting a ticket a live implement run
+    holds (or a pull request a live review holds) is a 422 that asks no
+    policy and starts nothing; once that run ends, the item may start
+    again."""
+    world.runs.start("run-live", "implement issue #42", "implement", None, COMPANY)
+    world.runs.start("run-rev", "review pull request #7", "review", None, COMPANY)
+    for workflow, number, item in (
+        ("implement", 42, "ticket #42"),
+        ("review", 7, "pull request #7"),
+    ):
+        response = await client.post(
+            "/runs", json={"workflow": workflow, "number": number}, headers=as_owner()
+        )
+        assert response.status_code == 422, response.text
+        assert item in Problem.model_validate(response.json()).detail
+    assert world.asked == [] and world.workflows.calls == []
+    world.runs.finish("run-live", "failed", error="aborted")
+    again = await client.post(
+        "/runs", json={"workflow": "implement", "number": 42}, headers=as_owner()
+    )
+    assert model(RunStarted, again).workflow == "implement"
+
+
 async def test_only_the_human_startable_workflows_can_be_started(client, world):
     response = await client.post(
         "/runs", json={"workflow": "scope", "number": 1}, headers=as_owner()

@@ -104,7 +104,7 @@ act, then pass it as `?since=` to `/runs`, `/spend` or `/heartbeat`.
 | `401` | `Problem`: `{"detail": "unauthorized"}` | No token, or a token the console can't verify. |
 | `403` | `PolicyRefusal`: `{"detail": "…", "rule": "human_not_recognized"}` | Policy refused the act. `rule` names the rule. |
 | `404` | `Problem`: `{"detail": "no company is applied"}` | The route needs a company and none is applied. |
-| `422` | `Problem`: `{"detail": "no run 'x'"}` | The request can't be acted on: a body that doesn't validate, an unknown run, a run not parked on that gate, a blueprint that doesn't compile, or another company's name. |
+| `422` | `Problem`: `{"detail": "no run 'x'"}` | The request can't be acted on: a body that doesn't validate, an unknown run, a verdict on a run not parked on that gate, a pause of a paused company or a resume of one that isn't, a start of a ticket or pull request a live run already holds, a blueprint that doesn't compile or is over the limit, or another company's name. |
 | `503` | `Problem`: `{"detail": "temporal unreachable: …"}` | The workflow engine didn't answer. |
 
 ## The console interface
