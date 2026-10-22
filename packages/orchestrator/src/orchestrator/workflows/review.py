@@ -4,7 +4,9 @@
     PR's live state under the platform identity; a merged or closed PR
     is refused here as `pr_not_open`, before any sandbox is spent) ->
     fetch_workspace (the PR's head commit, pinned for the whole run) ->
-    provision_sandbox ->
+    provision_sandbox -> platform_verify (under a delegated gate only,
+    before any agent holds the sandbox; red files rework and ends the run
+    with no reviewer dispatched) ->
     fulfill_crew (feature-review under the PM's conductor authority —
     process-initiated is a first-class recorded request,
     not a bypass) -> dispatch the ephemeral reviewer (the review procedure:
@@ -12,15 +14,17 @@
     posts findings via git.comment, ends with a structured pass/fail
     verdict) -> record_verdict (the journaled judgement) -> MERGE GATE ->
     approve: the orchestrator merges that same head commit via
-    git.merge_pr under its platform identity, then closes the tickets the PR fulfilled (issues.close);
-    reject/timeout: honest failure -> teardown.
+    git.merge_pr under its platform identity, then closes the tickets the
+    PR fulfilled (issues.close); reject/timeout: honest failure ->
+    teardown.
 
 The merge gate owns the merge guarantee, and the blueprint names its
 resolver — gate config comes from the compiled plan, never hardcoded.
 `resolved_by: human` parks on the `merge` signal. `resolved_by: policy`
-adds the platform's own layers before anything merges: the reviewer's
-journaled verdict, the platform verify re-run in the review sandbox (the
-same activity that gates implement delivery), the contract verify when a
+adds the platform's own layers before anything merges: the platform
+verify of the PR head, run before the reviewer in the sandbox as
+provisioned (the same activity that gates implement delivery), the
+reviewer's journaled verdict, the contract verify when a
 contract tree is declared (the base ref's contract tests, composed over
 the PR head and run scoped — a baseline nothing in the PR can rewrite),
 the registry-checked reviewer-independence fact, and one evaluation of
@@ -128,52 +132,68 @@ class ReviewWorkflow(RunWorkflow):
         visible pending state, never a silent hang."""
         return self._state
 
+    def _touches_contract(self, pr: dict[str, Any], config: dict[str, Any]) -> bool:
+        """Whether the platform-read diff edits the declared contract tree.
+        Such a PR can never policy-merge: the compiled carve-out denies its
+        resolve whatever the facts say (pinned in the bundle tests), and the
+        workflow knows the same thing positionally, from the
+        blueprint-declared tree and the diff, before it spends anything."""
+        contract_paths = config.get("contract_paths") or []
+        return any(
+            path.startswith(prefix)
+            for path in pr.get("paths") or []
+            for prefix in contract_paths
+        )
+
+    async def _verify(self, input: "ReviewInput") -> dict[str, Any]:
+        """The platform's own run of the PR head's suite, in the sandbox
+        provisioned from that head and untouched since — the same activity
+        that gates implement delivery: one verification concept, two
+        callers. It runs before any agent holds the sandbox, so nothing
+        the reviewer does there can move it; the reviewer's own run_tests
+        is advisory."""
+        return await workflow.execute_activity(
+            "platform_verify",
+            args=[input.run_id],
+            start_to_close_timeout=timedelta(seconds=self._profile.verify_s),
+            retry_policy=STEP_RETRY,
+        )
+
     async def _policy_merge(
         self,
         input: "ReviewInput",
         pr: dict[str, Any],
         result: dict[str, Any],
         config: dict[str, Any],
+        verify: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        """The policy-resolved path. A diff touching the declared contract
-        tree declines up front: the compiled carve-out denies its resolve
-        whatever the facts say (pinned in the bundle tests), and the
-        workflow knows the same thing positionally — the blueprint-declared
-        tree against the platform-read diff — so no verify run is spent and
-        no rework ticket is filed on a PR only the human can merge. It
-        parks on the `merge` signal with the deletion facts already posted.
+        """The policy-resolved path, after the reviewer and a green
+        platform verify (`verify`, run before the reviewer was dispatched).
+        A diff touching the declared contract tree declines: it is the
+        human's to merge, so no layer is spent on it and no rework ticket
+        is filed on a PR only the human can merge. It parks on the `merge`
+        signal with the deletion facts already posted.
 
-        Everything else: quality layers first — a failed verdict, a red
-        platform verify, or a red contract verify feeds the bounded rework
-        loop (`_rework`): findings become a backlog ticket the conductor
-        consumes, until the chain is out of attempts and the PR escalates
-        to the human. Then one evaluation of the compiled merge.resolve
-        decision, carrying the caller-verified facts (verdict, checks,
-        independence, contract) and the changed paths: allow releases the
-        merge under the platform identity; deny is a *decline*, not a
-        failure — good work outside the delegation falls back to the human
-        signal, so the human override survives delegation by construction.
+        Everything else: quality layers first — a failed verdict or a red
+        contract verify feeds the bounded rework loop (`_rework`): findings
+        become a backlog ticket the conductor consumes, until the chain is
+        out of attempts and the PR escalates to the human. Then one
+        evaluation of the compiled merge.resolve decision, carrying the
+        caller-verified facts (verdict, checks, independence, contract) and
+        the changed paths: allow releases the merge under the platform
+        identity; deny is a *decline*, not a failure — good work outside
+        the delegation falls back to the human signal, so the human
+        override survives delegation by construction.
 
         The verified tree, the reviewed tree and the merged commit are one
         head, pinned at the run's start: every sandbox is provisioned from
         the head commit read then, and the merge names it, so a push after
         that point merges nothing."""
         gate = config["gates"].get(MERGE_GATE) or {}
-        contract_paths = config.get("contract_paths") or []
-        if any(
-            path.startswith(prefix)
-            for path in pr.get("paths") or []
-            for prefix in contract_paths
-        ):
-            # An oracle edit is the human's to merge, full stop — the
-            # compiled carve-out would deny the resolve whatever the facts
-            # say, and the workflow reads the same verdict positionally
-            # from the declared tree and the platform-read diff. Declining
-            # here spends no verify run and files no rework ticket a
-            # contract PR could never consume (its paths are exactly the
-            # ones the implementer crew cannot deliver); at bootstrap it
-            # also keeps the first contract PR off the composed baseline,
-            # which has no tree to run yet. Decline, not failure: park.
+        if self._touches_contract(pr, config):
+            # Decline, not failure: park. At bootstrap this also keeps the
+            # first contract PR off the composed baseline, which has no
+            # tree to run yet.
             await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_DECLINED)
             return {}
         verdict = result["verdict"]
@@ -185,33 +205,17 @@ class ReviewWorkflow(RunWorkflow):
                 "review verdict failed",
                 result.get("verdict_rationale") or "",
             )
-        # The platform's own run of the suite in the review sandbox — the
-        # same activity that gates implement delivery: one verification
-        # concept, two callers. The reviewer's run_tests was advisory.
-        verify = await workflow.execute_activity(
-            "platform_verify",
-            args=[input.run_id],
-            start_to_close_timeout=timedelta(seconds=self._profile.verify_s),
-            retry_policy=STEP_RETRY,
-        )
-        if not verify.get("passed"):
-            return await self._rework(
-                input,
-                pr,
-                gate,
-                "platform verify red",
-                (verify.get("output") or "")[-1000:],
-            )
         # The contract layer, when the company declares a contract tree
         # and the base ref holds it (`contract_tree`): the platform
         # composes head code with the contract tree as it stands on the
         # base ref and runs exactly those tests. The head suite (hygiene,
-        # above) can be weakened by the PR; nothing in this baseline came
-        # from the PR, so it cannot. A declared tree not yet on the base
-        # ref replays nothing and leaves the fact vacuously true.
-        # Re-provisioning replaces the reviewer's finished sandbox in
+        # run before the reviewer) can be weakened by the PR; nothing in
+        # this baseline came from the PR, so it cannot. A declared tree not
+        # yet on the base ref replays nothing and leaves the fact vacuously
+        # true. Re-provisioning replaces the reviewer's finished sandbox in
         # place — the same deterministic name, so teardown's compensation
         # is unchanged.
+        contract_paths = config.get("contract_paths") or []
         contract_green = True
         contract_tree: list[str] = []
         if contract_paths:
@@ -260,7 +264,7 @@ class ReviewWorkflow(RunWorkflow):
             "policy",
             {
                 "verdict": verdict,
-                "checks_green": bool(verify.get("passed")),
+                "checks_green": bool(verify and verify.get("passed")),
                 "reviewer_independent": bool(independence.get("independent")),
                 # The composed-baseline fact: the contract tree as it
                 # stands on the base ref, run against this PR's head.
@@ -455,6 +459,36 @@ class ReviewWorkflow(RunWorkflow):
                 start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
+            gate = config["gates"].get(MERGE_GATE) or {}
+            delegated = gate.get("resolved_by") == "policy"
+            # Under a delegated gate the platform verifies the head first,
+            # in the sandbox as provisioned: the reviewer holds a shell
+            # there, so a verify run after it could read whatever the
+            # reviewer left. A contract-tree PR is the human's whatever the
+            # suite says, so nothing is spent on it.
+            verify: dict[str, Any] | None = None
+            if delegated and not self._touches_contract(pr, config):
+                verify = await self._verify(input)
+                if not verify.get("passed"):
+                    rework = await self._rework(
+                        input,
+                        pr,
+                        gate,
+                        "platform verify red",
+                        (verify.get("output") or "")[-1000:],
+                    )
+                    if rework.get("error"):
+                        # The red suite is the review's conclusion: the
+                        # rework ticket carries it and no reviewer is
+                        # dispatched on code the platform already refused.
+                        concluded = True
+                        result = {"pr_url": pr["url"]}
+                        error = rework["error"]
+                        raise _ReviewOver()
+                    # The rework chain is spent: the reviewer still runs, so
+                    # the human park carries its findings, and the policy
+                    # layers are skipped — the PR goes to the human.
+                    delegated = False
             # The review crew is fulfilled under the conductor's authority
             # — the compiled crew.request decision, evaluated as the
             # conductor — and reads the company's documents as they stand
@@ -492,7 +526,6 @@ class ReviewWorkflow(RunWorkflow):
             result = dict(result or {})
             result["pr_url"] = pr["url"]
 
-            gate = config["gates"].get(MERGE_GATE) or {}
             if not gate:
                 # The blueprint declared no merge gate: the findings are
                 # the deliverable and the workflow ends without merging —
@@ -509,8 +542,8 @@ class ReviewWorkflow(RunWorkflow):
             # review uses, so the human signal resolves every gate and the
             # override survives delegation.
             outcome: dict[str, Any] = {}
-            if gate.get("resolved_by") == "policy":
-                outcome = await self._policy_merge(input, pr, result, config)
+            if delegated:
+                outcome = await self._policy_merge(input, pr, result, config, verify)
                 if outcome.get("error"):
                     error = outcome["error"]
                     raise _ReviewOver()

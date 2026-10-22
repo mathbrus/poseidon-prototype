@@ -139,6 +139,8 @@ class Harness:
     # A dispatch that never answers, so a test can cancel the run mid-flight.
     dispatch_hangs: bool = False
     dispatches: int = 0
+    # The head verify and the reviewer dispatch, in the order they ran.
+    sequence: list[str] = field(default_factory=list)
     # (procedure, documents, bounds) per dispatch.
     carried: list[tuple[str, dict[str, str], str]] = field(default_factory=list)
 
@@ -234,6 +236,7 @@ class Harness:
             documents: dict[str, str],
         ) -> dict[str, Any]:
             harness.dispatches += 1
+            harness.sequence.append("dispatch")
             harness.carried.append((procedure, documents, bounds))
             while harness.dispatch_hangs:
                 # Heartbeat so the workflow's cancel reaches the activity.
@@ -255,6 +258,7 @@ class Harness:
                 harness.scoped_verifies.append(list(paths))
                 return dict(harness.contract_verify)
             harness.verify_calls += 1
+            harness.sequence.append("verify")
             return dict(harness.verify)
 
         @activity.defn(name="reviewer_independent")
@@ -459,13 +463,28 @@ async def wait_for_park(handle: WorkflowHandle) -> None:
 # -- both layers required ---------------------------------------------------
 
 
-async def test_steered_pass_with_red_checks_merges_nothing(env):
-    """The model-free layer is required: a reviewer talked into 'pass'
-    cannot merge past a red platform verify — the failure feeds the
-    bounded rework loop instead, and policy is never even asked."""
+async def test_the_head_is_verified_before_the_reviewer_holds_the_sandbox(env):
+    """Under a delegated gate the platform's verify runs first, in the
+    sandbox as provisioned: the reviewer holds a shell there, so nothing
+    it leaves behind can reach the verify of record."""
+    harness = Harness(merge_gate=POLICY_GATE)
+    await run_review(env.client, harness)
+
+    assert harness.sequence == ["verify", "dispatch"]
+    assert harness.provisions == 1
+
+
+async def test_red_checks_file_rework_without_a_reviewer(env):
+    """The model-free layer is required, and it comes first: a red head
+    suite feeds the bounded rework loop before any reviewer is dispatched,
+    so no reviewer can talk the run past it and none is paid for. The red
+    suite is the review's conclusion, so no attempt is counted as lost."""
     harness = Harness(merge_gate=POLICY_GATE, verify={"passed": False, "output": "red"})
     record = await run_review(env.client, harness)
 
+    assert harness.dispatches == 0
+    assert harness.verdicts == []
+    assert harness.attempts_recorded == []
     assert harness.merges == []
     assert harness.resolve_args == []  # no OPA evaluation on a red layer
     assert harness.reworks == [
@@ -481,11 +500,41 @@ async def test_steered_pass_with_red_checks_merges_nothing(env):
     assert harness.effects == ["file_rework", f"close_pr #{PR} for #91"]
     assert record["status"] == "failed"
     assert "platform verify red" in record["error"]
+    assert record["pr_url"] == f"https://git.test/r/pulls/{PR}"
+
+
+async def test_red_checks_at_the_rework_bound_still_get_a_reviewer(env):
+    """The chain is spent, so the red suite escalates: the reviewer still
+    runs, so the human park carries its findings, and no policy layer is
+    spent — no resolve, no independence read, straight to the human."""
+    harness = Harness(
+        merge_gate=POLICY_GATE,
+        verify={"passed": False, "output": "red"},
+        depth={"depth": 2, "root_pr": 38},
+    )
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        assert harness.sequence == ["verify", "dispatch"]
+        assert harness.verdicts == [("pass", "Suite green; in scope.")]
+        assert harness.gate_events == ["rework_exhausted", "parked"]
+        await handle.signal("merge", args=[False])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.reworks == []
+    assert harness.independence_calls == 0
+    assert harness.resolve_args == []
+    assert harness.merges == []
+    assert record["status"] == "failed"
+    assert "merge gate rejected" in record["error"]
 
 
 async def test_green_checks_with_a_fail_verdict_merge_nothing(env):
-    """The independent-judgement layer is required — and a failed verdict
-    short-circuits before the platform spends a verify run on it."""
+    """The independent-judgement layer is required: green checks do not
+    carry a failed verdict, which feeds the rework loop before any further
+    layer is spent."""
     harness = Harness(
         merge_gate=POLICY_GATE,
         dispatch=dispatch_result(verdict="fail", verdict_rationale="Blocking."),
@@ -493,7 +542,8 @@ async def test_green_checks_with_a_fail_verdict_merge_nothing(env):
     record = await run_review(env.client, harness)
 
     assert harness.merges == []
-    assert harness.verify_calls == 0
+    assert harness.verify_calls == 1
+    assert harness.scoped_verifies == []
     assert harness.resolve_args == []
     assert harness.reworks == [
         {
