@@ -48,7 +48,7 @@ Results are facts captured at the tool executor (`ToolRecords`), never the model
 
 ### Every side effect goes through the gateway
 
-The SDK's built-in tools are never installed. Each tool resolves to an MCP call on the [mcp-gateway](../mcp-gateway/README.md), except `verdict`, which only records the answer. `hands.py` injects `run_id` and `target_repo`, which appear in no schema. `open_pr` bundles then opens the PR, and the model sees only the URL. A denial becomes an `ERROR: ...` observation naming the rule, so the model can recover.
+The SDK's built-in tools are never installed. Each tool resolves to an MCP call on the [mcp-gateway](../mcp-gateway/README.md), except `verdict`, which only records the answer. `hands.py` injects `run_id` and `target_repo`, which appear in no schema. `open_pr` has the platform commit and bundle the workspace, then opens the PR, and the model sees only the URL. A denial becomes an `ERROR: ...` observation naming the rule, so the model can recover.
 
 Before `implement` and `review` start, the host lists the sandbox's files (`sandbox.list_dir`, recursive and .gitignore-aware) into the opening message and reads `AGENTS.md`. That file and the company's documents reach the model inside the SDK's untrusted-content framing. The model has no listing tool of its own; it searches with `rg` or `git grep` through `exec`.
 

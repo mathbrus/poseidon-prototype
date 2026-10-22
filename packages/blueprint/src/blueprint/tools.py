@@ -5,15 +5,6 @@ tool scope names a registered gateway backend"), so a typo fails at compile
 instead of at the first tool call.
 """
 
-SANDBOX_TOOLS = [
-    "sandbox.read_file",
-    "sandbox.list_dir",
-    "sandbox.exec",
-    "sandbox.run_tests",
-    "sandbox.write_file",
-    "sandbox.edit_file",
-    "sandbox.git_bundle",
-]
 # The sandbox tools the review procedure works with. `exec` is a shell, so
 # the reviewer can change its own sandbox; what bounds it is position:
 # nothing leaves that sandbox (no `sandbox.git_bundle`, no `git.open_pr`),
@@ -25,6 +16,12 @@ REVIEW_SANDBOX_TOOLS = [
     "sandbox.list_dir",
     "sandbox.exec",
     "sandbox.run_tests",
+]
+SANDBOX_TOOLS = [
+    *REVIEW_SANDBOX_TOOLS,
+    "sandbox.write_file",
+    "sandbox.edit_file",
+    "sandbox.git_bundle",
 ]
 GIT_TOOLS = ["git.open_pr"]
 
