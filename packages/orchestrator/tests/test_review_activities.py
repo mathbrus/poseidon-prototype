@@ -142,6 +142,7 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(
             "title": "Add slugify",
             "state": "open",
             "head": "feature/slugify-x",
+            "head_sha": "f00d5ha",
             "url": "https://pr/41",
             "files": [{"path": "slugify.py", "patch": "+..."}],
         }
@@ -149,7 +150,7 @@ def test_read_pr_keeps_the_shape_and_drops_the_patches(
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
     pr = asyncio.run(activities.read_pr(RUN_ID, 41))
-    assert pr["head"] == "feature/slugify-x"
+    assert pr["head_sha"] == "f00d5ha"
     assert "files" not in pr
     # The changed paths survive the shaping: the merge-time class check
     # resolves against them.
@@ -254,16 +255,16 @@ def test_warn_contract_edit_posts_and_audits(settings, audit, monkeypatch, fake_
 
 
 def test_read_pr_refuses_a_headless_pr(settings, monkeypatch, fake_gateway):
-    """No head ref means nothing to provision the review sandbox from
+    """No head commit means nothing to provision the review sandbox from
     — refuse before provisioning, like every config activity."""
     import orchestrator.activities.review as module
 
     async def read_pr(self, run_id, repo, number):
-        return {"number": number, "state": "open", "head": ""}
+        return {"number": number, "state": "open", "head": "f", "head_sha": ""}
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(read_pr=read_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
-    with pytest.raises(RuntimeError, match="no head ref"):
+    with pytest.raises(RuntimeError, match="no head commit"):
         asyncio.run(activities.read_pr(RUN_ID, 41))
 
 
@@ -312,15 +313,33 @@ def test_merge_pr_raises_when_the_merge_does_not_land(
         {"merged": True, "sha": "abc123"},
         {"merged": False, "sha": ""},
     ]
+    named: list[str] = []
 
-    async def merge_pr(self, run_id, repo, number, method="merge"):
+    async def merge_pr(self, run_id, repo, number, sha, method="merge"):
+        named.append(sha)
         return merged.pop(0)
 
     monkeypatch.setattr(module, "GatewayClient", fake_gateway(merge_pr=merge_pr))
     activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
-    assert asyncio.run(activities.merge_pr(RUN_ID, 41))["sha"] == "abc123"
+    assert asyncio.run(activities.merge_pr(RUN_ID, 41, "f00d5ha"))["sha"] == "abc123"
     with pytest.raises(RuntimeError, match="did not land"):
-        asyncio.run(activities.merge_pr(RUN_ID, 41))
+        asyncio.run(activities.merge_pr(RUN_ID, 41, "f00d5ha"))
+    assert named == ["f00d5ha", "f00d5ha"]
+
+
+def test_a_moved_head_fails_the_merge_for_good(settings, monkeypatch, fake_gateway):
+    """The host refused the pinned merge because the head moved: the
+    refusal is the run's error, and no retry can bring the head back."""
+    import orchestrator.activities.review as module
+
+    async def merge_pr(self, run_id, repo, number, sha, method="merge"):
+        return {"merged": False, "sha": "", "refused": "head moved after review"}
+
+    monkeypatch.setattr(module, "GatewayClient", fake_gateway(merge_pr=merge_pr))
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]))
+    with pytest.raises(ApplicationError, match="head moved after review") as caught:
+        asyncio.run(activities.merge_pr(RUN_ID, 41, "0ld5ha"))
+    assert caught.value.non_retryable
 
 
 # -- reviewer independence --------------------------------------------------

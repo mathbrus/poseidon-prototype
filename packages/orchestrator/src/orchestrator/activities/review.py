@@ -195,9 +195,10 @@ class ReviewActivities:
     async def read_pr(
         self, run_id: str, pr_number: int, contract_paths: list[str] | None = None
     ) -> dict[str, Any]:
-        """PR metadata under the platform identity: the head ref is what
-        the review sandbox is provisioned from, the title and URL
-        seed the reviewer's task text and the run record.
+        """PR metadata under the platform identity: the head commit is
+        what every review sandbox is provisioned from and what the merge
+        names, the title and URL seed the reviewer's task text and the run
+        record.
 
         The PR must still be open. The heartbeat offers only open PRs, but
         the world moves between its observation and this read — and a
@@ -247,9 +248,9 @@ class ReviewActivities:
                 " — nothing to review",
                 non_retryable=True,
             )
-        if not pr.get("head"):
+        if not pr.get("head_sha"):
             raise RuntimeError(
-                f"pull request #{pr_number} has no head ref — nothing to"
+                f"pull request #{pr_number} has no head commit — nothing to"
                 " provision a review sandbox from"
             )
         # The reviewer reads the diff itself (git.read is in its scope);
@@ -570,16 +571,21 @@ class ReviewActivities:
         return {"allow": allowed, "rule": str(result.get("rule") or "")}
 
     @activity.defn(name="merge_pr")
-    async def merge_pr(self, run_id: str, pr_number: int) -> dict[str, Any]:
+    async def merge_pr(
+        self, run_id: str, pr_number: int, head_sha: str
+    ) -> dict[str, Any]:
         """The post-gate merge: a gateway tool call under the
         orchestrator's platform identity — audited at the gateway — that
-        the workflow issues strictly after the merge gate approved."""
+        the workflow issues strictly after the merge gate approved. It
+        names the head the run reviewed: a head that moved since merges
+        nothing, and the run fails with the host's refusal — no retry
+        brings the reviewed head back."""
         started = time.monotonic()
         async with GatewayClient(
             self._settings.mcp_gateway_url, self._settings.gateway_token()
         ) as gateway:
             result = await gateway.merge_pr(
-                run_id, (await self._repo())["url"], pr_number
+                run_id, (await self._repo())["url"], pr_number, head_sha
             )
         self._log.bind(run_id=run_id).info(
             "pr merged",
@@ -589,6 +595,8 @@ class ReviewActivities:
                 "latency_ms": int((time.monotonic() - started) * 1000),
             },
         )
+        if result.get("refused"):
+            raise ApplicationError(result["refused"], non_retryable=True)
         if not result.get("merged"):
             raise RuntimeError(f"merge of pull request #{pr_number} did not land")
         return result

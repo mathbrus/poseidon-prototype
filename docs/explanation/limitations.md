@@ -118,9 +118,6 @@ When policy resolves the merge gate:
   as the person who approved it. A vague spec passes, and the code merges.
   Proving a spec adequate (mutation testing, coverage floors) is out of
   scope.
-- **The reviewed code and the merged code can differ.** The review pins
-  the pull request's head when it starts. The merge doesn't re-check it,
-  so a push between review and merge lands unreviewed.
 - **Rework depth is read from a ticket title.** No agent can edit a
   ticket title, so it can't be lowered. Storing the depth in the registry
   would be sturdier. Issue

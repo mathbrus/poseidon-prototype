@@ -49,6 +49,8 @@ RUN_ID = "run-review-wf"
 # The bounds the run's shape carries onto every dispatch.
 BOUNDS = "Repository: github.com/example/repo, base ref main."
 PR = 41
+# The head commit read_pr reports: every fetch and the merge name it.
+HEAD_SHA = "f00d5ha"
 
 POLICY_GATE = {
     "resolved_by": "policy",
@@ -104,6 +106,9 @@ class Harness:
         default_factory=lambda: {"allow": True, "rule": "merge_resolve_human"}
     )
     depth: dict[str, Any] = field(default_factory=lambda: {"depth": 0, "root_pr": PR})
+    # Someone pushed to the PR branch after the run read its head: the
+    # pinned merge is refused, as the real activity refuses it.
+    head_moved: bool = False
 
     verify_calls: int = 0
     scoped_verifies: list[list[str]] = field(default_factory=list)
@@ -117,6 +122,8 @@ class Harness:
     verdicts: list[tuple[str, str]] = field(default_factory=list)
     gate_events: list[str] = field(default_factory=list)
     merges: list[int] = field(default_factory=list)
+    # The head commit each merge named.
+    merge_heads: list[str] = field(default_factory=list)
     # The world-changing platform acts in order: the merge, the closing of
     # the tickets it fulfilled, a rework ticket and the PR it supersedes.
     effects: list[str] = field(default_factory=list)
@@ -175,6 +182,7 @@ class Harness:
                 "number": pr_number,
                 "title": "Add slugify utility",
                 "head": "feature/slugify-x",
+                "head_sha": HEAD_SHA,
                 "url": f"https://git.test/r/pulls/{pr_number}",
                 "paths": list(harness.pr_paths),
                 "contract_deletions": harness.deletions,
@@ -309,7 +317,14 @@ class Harness:
             return {"number": pr_number, "state": "closed"}
 
         @activity.defn(name="merge_pr")
-        async def merge_pr(run_id: str, pr_number: int) -> dict[str, Any]:
+        async def merge_pr(run_id: str, pr_number: int, head_sha: str) -> dict[str, Any]:
+            harness.merge_heads.append(head_sha)
+            if harness.head_moved:
+                raise ApplicationError(
+                    f"head moved after review: pull request #{pr_number} is no"
+                    f" longer at {head_sha}",
+                    non_retryable=True,
+                )
             harness.merges.append(pr_number)
             harness.effects.append("merge")
             return {"merged": True, "sha": "abc123"}
@@ -519,6 +534,9 @@ async def test_both_layers_green_and_allowed_releases_the_merge(env):
     ]
     assert harness.gate_events == ["policy_resolved"]
     assert harness.merges == [PR]
+    # The merge names the head the run read, the one every sandbox held.
+    assert harness.merge_heads == [HEAD_SHA]
+    assert harness.fetches == [[HEAD_SHA, None]]
     # The fulfilled tickets close strictly after the merge, naming it.
     assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
     assert record["status"] == "done"
@@ -582,8 +600,8 @@ async def test_a_green_contract_verify_rides_the_resolve(env):
     # composed baseline (head + base-ref contract tree), then a second
     # provision replacing the sandbox in place.
     assert harness.fetches == [
-        ["feature/slugify-x", None],
-        ["feature/slugify-x", ["tests/contract/"]],
+        [HEAD_SHA, None],
+        [HEAD_SHA, ["tests/contract/"]],
     ]
     assert harness.provisions == 2
     assert harness.scoped_verifies == [["tests/contract/"]]
@@ -614,7 +632,7 @@ async def test_a_declared_tree_the_base_ref_lacks_replays_nothing(env):
     )
     record = await run_review(env.client, harness)
 
-    assert harness.fetches == [["feature/slugify-x", None]]
+    assert harness.fetches == [[HEAD_SHA, None]]
     assert harness.provisions == 1
     assert harness.scoped_verifies == []
     assert harness.resolve_args[0][1]["contract_green"] is True
@@ -628,7 +646,7 @@ async def test_no_contract_tree_means_no_composed_run(env):
     harness = Harness(merge_gate=POLICY_GATE)
     await run_review(env.client, harness)
 
-    assert harness.fetches == [["feature/slugify-x", None]]
+    assert harness.fetches == [[HEAD_SHA, None]]
     assert harness.provisions == 1
     assert harness.scoped_verifies == []
 
@@ -687,7 +705,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
         assert harness.warns == [deletions]
         assert harness.verify_calls == 0
         assert harness.scoped_verifies == []
-        assert harness.fetches == [["feature/slugify-x", None]]
+        assert harness.fetches == [[HEAD_SHA, None]]
         assert harness.provisions == 1
         assert harness.independence_calls == 0
         assert harness.resolve_args == []
@@ -851,6 +869,29 @@ async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(e
     assert "issues.close" in record["error"]
     assert record["merged"] is True
     assert record["merge_sha"] == "abc123"
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, POLICY_GATE])
+async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
+    """A push to the PR branch after the run read its head: both resolvers
+    merge through the same pinned call, the host refuses it, and the run
+    fails with the refusal — no merge, no ticket closed, the PR left open
+    for another review."""
+    harness = Harness(merge_gate=gate, head_moved=True)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        if gate is HUMAN_GATE:
+            await wait_for_park(handle)
+            await handle.signal("merge", args=[True])
+        record = await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+    assert harness.merge_heads == [HEAD_SHA]
+    assert harness.merges == []
+    assert harness.effects == []
+    assert record["status"] == "failed"
+    assert "head moved after review" in record["error"]
 
 
 # -- the release is the recorded verdict, not the signal ---------------------

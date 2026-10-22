@@ -320,9 +320,11 @@ class GitBackend:
         json: dict[str, Any] | None = None,
         *,
         missing_ok: bool = False,
+        conflict_ok: bool = False,
     ) -> Any:
         """One GitHub REST call. `missing_ok` turns a 404 into None — for
-        reads whose subject may honestly not exist yet."""
+        reads whose subject may honestly not exist yet; `conflict_ok` turns
+        a 409 into None — for writes the host refuses on a stale premise."""
         headers = {"Accept": "application/vnd.github+json"}
         if self._settings.git_token:
             headers["Authorization"] = f"Bearer {self._settings.git_token}"
@@ -333,6 +335,8 @@ class GitBackend:
             headers=headers,
         )
         if missing_ok and resp.status_code == 404:
+            return None
+        if conflict_ok and resp.status_code == 409:
             return None
         if resp.status_code not in (200, 201):
             raise GitBackendError(
@@ -438,6 +442,7 @@ class GitBackend:
             "body": pr.get("body") or "",
             "url": pr.get("html_url", ""),
             "head": (pr.get("head") or {}).get("ref", ""),
+            "head_sha": (pr.get("head") or {}).get("sha", ""),
             "base": (pr.get("base") or {}).get("ref", ""),
             "merged": bool(pr.get("merged")),
             "files": [
@@ -452,13 +457,25 @@ class GitBackend:
         }
 
     async def merge_pr(
-        self, repo: str, number: int, method: str = "merge"
+        self, repo: str, number: int, sha: str, method: str = "merge"
     ) -> dict[str, Any]:
+        """Merge the pull request only while its head is still `sha`, the
+        commit the platform verified and the reviewer read. GitHub answers
+        409 when the head moved since; that is a refusal the caller reads,
+        not a backend fault, and nothing merges."""
         result = await self._github(
             "PUT",
             f"/repos/{repo_slug(repo)}/pulls/{number}/merge",
-            json={"merge_method": method},
+            json={"merge_method": method, "sha": sha},
+            conflict_ok=True,
         )
+        if result is None:
+            return {
+                "merged": False,
+                "sha": "",
+                "refused": f"head moved after review: pull request #{number}"
+                f" is no longer at {sha}",
+            }
         self._log.info("pr merged", extra={"repo": repo_slug(repo), "number": number})
         return {"merged": bool(result.get("merged")), "sha": result.get("sha", "")}
 

@@ -3,15 +3,16 @@
     create_run -> check_budget -> workflow_config -> read_pr (the
     PR's live state under the platform identity; a merged or closed PR
     is refused here as `pr_not_open`, before any sandbox is spent) ->
-    fetch_workspace (PR head ref) -> provision_sandbox ->
+    fetch_workspace (the PR's head commit, pinned for the whole run) ->
+    provision_sandbox ->
     fulfill_crew (feature-review under the PM's conductor authority —
     process-initiated is a first-class recorded request,
     not a bypass) -> dispatch the ephemeral reviewer (the review procedure:
     reads the diff via git.read, runs the tests in its own sandbox,
     posts findings via git.comment, ends with a structured pass/fail
     verdict) -> record_verdict (the journaled judgement) -> MERGE GATE ->
-    approve: the orchestrator merges via git.merge_pr under its platform
-    identity, then closes the tickets the PR fulfilled (issues.close);
+    approve: the orchestrator merges that same head commit via
+    git.merge_pr under its platform identity, then closes the tickets the PR fulfilled (issues.close);
     reject/timeout: honest failure -> teardown.
 
 The merge gate owns the merge guarantee, and the blueprint names its
@@ -153,11 +154,10 @@ class ReviewWorkflow(RunWorkflow):
         failure — good work outside the delegation falls back to the human
         signal, so the human override survives delegation by construction.
 
-        Both the verified tree and the changed paths are pinned at the
-        run's start (the sandbox was provisioned from the head ref read
-        then). A head that moves after review re-opens the gap between
-        reviewed and merged — recorded, not yet closed: merge_pr does not
-        assert the head sha."""
+        The verified tree, the reviewed tree and the merged commit are one
+        head, pinned at the run's start: every sandbox is provisioned from
+        the head commit read then, and the merge names it, so a push after
+        that point merges nothing."""
         gate = config["gates"].get(MERGE_GATE) or {}
         contract_paths = config.get("contract_paths") or []
         if any(
@@ -224,7 +224,7 @@ class ReviewWorkflow(RunWorkflow):
         if contract_tree:
             composed = await workflow.execute_activity(
                 "fetch_workspace",
-                args=[input.run_id, pr["head"], contract_tree],
+                args=[input.run_id, pr["head_sha"], contract_tree],
                 start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
@@ -273,7 +273,7 @@ class ReviewWorkflow(RunWorkflow):
         if not resolve.get("allow"):
             await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_DECLINED)
             return {}
-        return await self._release(input)
+        return await self._release(input, pr)
 
     async def _rework(
         self,
@@ -330,13 +330,14 @@ class ReviewWorkflow(RunWorkflow):
             f" {ticket.get('url')}"
         }
 
-    async def _merge_pr(self, input: "ReviewInput") -> dict[str, Any]:
+    async def _merge_pr(self, input: "ReviewInput", pr: dict[str, Any]) -> dict[str, Any]:
         """The merge itself — one platform tool call, issued only after a
         gate (human or policy) resolved to merge. Both resolvers land here,
-        so there is exactly one place the branch reaches `main`."""
+        so there is exactly one place the branch reaches `main`, and it
+        names the head this run read: what was reviewed is what merges."""
         return await workflow.execute_activity(
             "merge_pr",
-            args=[input.run_id, input.pr_number],
+            args=[input.run_id, input.pr_number, pr["head_sha"]],
             start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
@@ -354,7 +355,7 @@ class ReviewWorkflow(RunWorkflow):
         )
 
     async def _human_merge(
-        self, input: "ReviewInput", gate: dict[str, Any]
+        self, input: "ReviewInput", pr: dict[str, Any], gate: dict[str, Any]
     ) -> dict[str, Any]:
         """The human gate: the declared `resolved_by: human` resolver, and
         the fallback whenever a policy gate declines or its rework chain is
@@ -397,13 +398,13 @@ class ReviewWorkflow(RunWorkflow):
             return {
                 "error": f"merge gate: no verified human verdict ({resolve.get('rule')})"
             }
-        return {"released": await self._merge_pr(input)}
+        return {"released": await self._merge_pr(input, pr)}
 
-    async def _release(self, input: "ReviewInput") -> dict[str, Any]:
+    async def _release(self, input: "ReviewInput", pr: dict[str, Any]) -> dict[str, Any]:
         """The policy release: gate outcome first, then the merge — strictly
         after the compiled allow."""
         await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_RESOLVED)
-        return {"released": await self._merge_pr(input)}
+        return {"released": await self._merge_pr(input, pr)}
 
     @workflow.run
     async def run(self, input: ReviewInput) -> dict[str, Any]:
@@ -439,12 +440,12 @@ class ReviewWorkflow(RunWorkflow):
                     start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                     retry_policy=STEP_RETRY,
                 )
-            # A full sandbox from the PR ref — the reviewer runs
+            # A full sandbox from the PR's head commit — the reviewer runs
             # things, it does not just read diffs. Reuses the implement
             # provisioning verbatim.
             workspace_tar = await workflow.execute_activity(
                 "fetch_workspace",
-                args=[input.run_id, pr["head"]],
+                args=[input.run_id, pr["head_sha"]],
                 start_to_close_timeout=timedelta(seconds=self._profile.step_s),
                 retry_policy=STEP_RETRY,
             )
@@ -514,7 +515,7 @@ class ReviewWorkflow(RunWorkflow):
                     error = outcome["error"]
                     raise _ReviewOver()
             if not outcome.get("released"):
-                outcome = await self._human_merge(input, gate)
+                outcome = await self._human_merge(input, pr, gate)
                 if outcome.get("error"):
                     error = outcome["error"]
                     raise _ReviewOver()

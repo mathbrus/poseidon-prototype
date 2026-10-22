@@ -372,12 +372,22 @@ def create_app(
 
     @mcp.tool(name="git.merge_pr")
     async def git_merge_pr(
-        run_id: str, repo: str, number: int, ctx: Context, method: str = "merge"
+        run_id: str,
+        repo: str,
+        number: int,
+        sha: str,
+        ctx: Context,
+        method: str = "merge",
     ) -> dict[str, Any]:
-        """Merge the pull request. Compiled policy grants this to the platform
-        identity alone, and the orchestrator calls it only after the merge gate
-        resolved to merge. No blueprint can hand it to an agent role."""
-        return await service.git_merge_pr(identity_of(ctx), run_id, repo, number, method)
+        """Merge the pull request while its head is still `sha`, the commit
+        that was reviewed. A head that moved since merges nothing and
+        answers `merged: false` with the refusal. Compiled policy grants
+        this to the platform identity alone, and the orchestrator calls it
+        only after the merge gate resolved to merge. No blueprint can hand
+        it to an agent role."""
+        return await service.git_merge_pr(
+            identity_of(ctx), run_id, repo, number, sha, method
+        )
 
     @mcp.tool(name=GIT_CLOSE_PR)
     async def git_close_pr(

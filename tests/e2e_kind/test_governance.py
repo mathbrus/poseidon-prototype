@@ -144,7 +144,7 @@ def test_merge_is_platform_only_at_the_gateway(stack: None, env: dict) -> None:
         env,
         orchestrator,
         "git.merge_pr",
-        {"run_id": "run-gov", "repo": target, "number": 999999},
+        {"run_id": "run-gov", "repo": target, "number": 999999, "sha": "0" * 40},
     )
     assert allowed.isError  # backend: no such PR
     text = allowed.content[0].text
@@ -158,6 +158,6 @@ def test_merge_is_platform_only_at_the_gateway(stack: None, env: dict) -> None:
         env,
         token,
         "git.merge_pr",
-        {"run_id": "run-gov", "repo": target, "number": 999999},
+        {"run_id": "run-gov", "repo": target, "number": 999999, "sha": "0" * 40},
     )
     assert denied.isError and "default_deny" in denied.content[0].text
