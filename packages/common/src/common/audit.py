@@ -65,6 +65,10 @@ Source = Literal[
 ]
 SOURCES: tuple[str, ...] = get_args(Source)
 
+# What every row says of the act it records.
+Decision = Literal["allow", "deny"]
+DECISIONS: tuple[str, ...] = get_args(Decision)
+
 # The heartbeat's journal, beyond the start decision.
 HEARTBEAT_TICK = "heartbeat.tick"
 HEARTBEAT_DECIDE = "heartbeat.decide"
@@ -258,7 +262,7 @@ class AuditEvent(BaseModel):
     role: str
     tool: str
     args_digest: str
-    decision: Literal["allow", "deny"]
+    decision: Decision
     rule: str | None
     # The actor's own reason for a decision that committed the company —
     # the PM's for what to start, the reviewer's for a verdict, a human's

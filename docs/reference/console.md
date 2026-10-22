@@ -50,8 +50,8 @@ workflow, and the merge reads that record back
 ## Requests
 
 JSON in, JSON out. Acts are `POST` or `DELETE`, reads are `GET`. Every act
-that commits the company to something takes a `reason`, recorded as the
-audit row's rationale.
+that commits the company to something takes a `rationale` (the CLI's `--reason`),
+recorded beside the act's audit row.
 
 ```bash
 TOKEN=$(uv run poseidon login owner)
@@ -61,12 +61,12 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8090/company
 
 # Approve a parked merge
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"approved": true, "reason": "engine first"}' \
+  -d '{"approved": true, "rationale": "engine first"}' \
   http://127.0.0.1:8090/runs/auto-3d73e674/gates/merge
 
 # Pause the company
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"reason": "reading the ledger"}' \
+  -d '{"rationale": "reading the ledger"}' \
   http://127.0.0.1:8090/heartbeat/pause
 ```
 
@@ -74,9 +74,9 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 |---|---|
 | `{"blueprint": "<yaml text>"}` | `POST /blueprint/preview`, `POST /blueprint/apply` |
 | `{"workflow": "implement", "number": 42}` | `POST /runs` |
-| `{"approved": true, "reason": "…"}` | `POST /runs/{run_id}/gates/{gate}` |
-| `{"reason": "…"}` | `POST /runs/{run_id}/cancel`, `POST /heartbeat/pause`, `POST /heartbeat/resume` |
-| `{"reason": "…", "wait": true}` | `DELETE /company` |
+| `{"approved": true, "rationale": "…"}` | `POST /runs/{run_id}/gates/{gate}` |
+| `{"rationale": "…"}` | `POST /runs/{run_id}/cancel`, `POST /heartbeat/pause`, `POST /heartbeat/resume` |
+| `{"rationale": "…", "wait": true}` | `DELETE /company` |
 
 To read back your own writes, take a timestamp from `GET /now` before you
 act, then pass it as `?since=` to `/runs`, `/spend` or `/heartbeat`.

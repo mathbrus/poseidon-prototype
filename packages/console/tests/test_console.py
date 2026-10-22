@@ -247,7 +247,7 @@ async def test_a_verdict_is_recorded_under_the_humans_name_then_delivered(client
     a_review_run(world)
     response = await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "reason": "reviewed: findings are clean"},
+        json={"approved": True, "rationale": "reviewed: findings are clean"},
         headers=as_owner(),
     )
     assert response.status_code == 200, response.text
@@ -277,7 +277,7 @@ async def test_a_denied_verdict_is_a_403_that_signals_nothing(client, world):
     world.decisions[GATE_RESOLVE] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "reason": "looks fine"},
+        json={"approved": True, "rationale": "looks fine"},
         headers=as_owner(),
     )
     assert response.status_code == 403
@@ -292,7 +292,7 @@ async def test_a_rejection_is_recorded_as_one(client, world):
     world.workflows.running[f"review-{RUN_ID}"] = "parked-budget_exhausted"
     response = await client.post(
         f"/runs/{RUN_ID}/gates/budget",
-        json={"approved": False, "reason": "not worth more spend"},
+        json={"approved": False, "rationale": "not worth more spend"},
         headers=as_owner(),
     )
     assert response.status_code == 200
@@ -311,13 +311,13 @@ async def test_an_act_without_a_reason_is_refused_before_anything_happens(client
     a_review_run(world)
     attempts = (
         ("POST", f"/runs/{RUN_ID}/gates/merge", {"approved": True}),
-        ("POST", f"/runs/{RUN_ID}/gates/merge", {"approved": True, "reason": ""}),
+        ("POST", f"/runs/{RUN_ID}/gates/merge", {"approved": True, "rationale": ""}),
         ("POST", f"/runs/{RUN_ID}/cancel", None),
-        ("POST", f"/runs/{RUN_ID}/cancel", {"reason": ""}),
+        ("POST", f"/runs/{RUN_ID}/cancel", {"rationale": ""}),
         ("DELETE", "/company", None),
-        ("DELETE", "/company", {"reason": "x" * 1001}),
+        ("DELETE", "/company", {"rationale": "x" * 1001}),
         ("POST", "/heartbeat/pause", None),
-        ("POST", "/heartbeat/pause", {"reason": ""}),
+        ("POST", "/heartbeat/pause", {"rationale": ""}),
         ("POST", "/heartbeat/resume", None),
     )
     for method, path, body in attempts:
@@ -344,7 +344,7 @@ async def test_a_verdict_answers_only_a_question_that_was_asked(client, world):
     for run_id, gate in refusals:
         response = await client.post(
             f"/runs/{run_id}/gates/{gate}",
-            json={"approved": True, "reason": "yes"},
+            json={"approved": True, "rationale": "yes"},
             headers=as_owner(),
         )
         assert response.status_code == 422, (run_id, gate, response.text)
@@ -383,7 +383,7 @@ async def test_cancel_and_wake_are_decided_acts(client, world):
     a_review_run(world)
     world.workflows.running[f"heartbeat-{COMPANY}"] = "sleeping"
     cancelled = await client.post(
-        f"/runs/{RUN_ID}/cancel", json={"reason": "enough"}, headers=as_owner()
+        f"/runs/{RUN_ID}/cancel", json={"rationale": "enough"}, headers=as_owner()
     )
     woken = await client.post("/heartbeat/wake", headers=as_owner())
     assert cancelled.status_code == woken.status_code == 200
@@ -405,7 +405,7 @@ async def test_pause_is_recorded_before_the_loop_hears_and_resume_mirrors_it(
     world.workflows.running[f"heartbeat-{COMPANY}"] = "sleeping"
     world.cr = {"company": COMPANY, "namespace": "poseidon-company", "phase": "converged"}
     paused = await client.post(
-        "/heartbeat/pause", json={"reason": "reading the ledger"}, headers=as_owner()
+        "/heartbeat/pause", json={"rationale": "reading the ledger"}, headers=as_owner()
     )
     assert paused.status_code == 200, paused.text
     assert paused.json()["paused"]["by"] == "owner"
@@ -419,7 +419,7 @@ async def test_pause_is_recorded_before_the_loop_hears_and_resume_mirrors_it(
     assert shown.json()["paused"]["by"] == "owner"
 
     resumed = await client.post(
-        "/heartbeat/resume", json={"reason": "read it"}, headers=as_owner()
+        "/heartbeat/resume", json={"rationale": "read it"}, headers=as_owner()
     )
     assert resumed.status_code == 200, resumed.text
     assert resumed.json()["paused"] is None
@@ -435,12 +435,12 @@ async def test_a_pause_nobody_asked_for_is_refused_before_policy(client, world):
     no policy asked, no row, no signal — the verdict-on-no-gate idiom."""
     world.workflows.running[f"heartbeat-{COMPANY}"] = "sleeping"
     resumed = await client.post(
-        "/heartbeat/resume", json={"reason": "go"}, headers=as_owner()
+        "/heartbeat/resume", json={"rationale": "go"}, headers=as_owner()
     )
     assert resumed.status_code == 422
-    await client.post("/heartbeat/pause", json={"reason": "hold"}, headers=as_owner())
+    await client.post("/heartbeat/pause", json={"rationale": "hold"}, headers=as_owner())
     again = await client.post(
-        "/heartbeat/pause", json={"reason": "hold again"}, headers=as_owner()
+        "/heartbeat/pause", json={"rationale": "hold again"}, headers=as_owner()
     )
     assert again.status_code == 422
     assert [e[0] for e in world.events] == [HEARTBEAT_PAUSE]
@@ -452,7 +452,9 @@ async def test_a_pause_holds_a_loop_the_worker_has_not_started_yet(client, world
     pause is still written, and the loop reads it when the worker starts
     it."""
     paused = await client.post(
-        "/heartbeat/pause", json={"reason": "before the first tick"}, headers=as_owner()
+        "/heartbeat/pause",
+        json={"rationale": "before the first tick"},
+        headers=as_owner(),
     )
     assert paused.status_code == 200, paused.text
     assert world.companies.paused(COMPANY)["by"] == "owner"
@@ -462,7 +464,7 @@ async def test_a_pause_holds_a_loop_the_worker_has_not_started_yet(client, world
 async def test_a_stranger_cannot_pause_the_company(client, world):
     world.decisions[HEARTBEAT_PAUSE] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.post(
-        "/heartbeat/pause", json={"reason": "mine now"}, headers=as_owner()
+        "/heartbeat/pause", json={"rationale": "mine now"}, headers=as_owner()
     )
     assert response.status_code == 403
     assert response.json()["rule"] == "human_not_recognized"
@@ -507,7 +509,7 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     then the Company CR deleted and the teardown waited for."""
     a_review_run(world)
     response = await client.request(
-        "DELETE", "/company", json={"reason": "wrong vision"}, headers=as_owner()
+        "DELETE", "/company", json={"rationale": "wrong vision"}, headers=as_owner()
     )
     assert response.status_code == 200, response.text
     assert response.json()["company"] == COMPANY
@@ -528,7 +530,7 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     # Nothing is left to act on.
     assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
     again = await client.request(
-        "DELETE", "/company", json={"reason": "again"}, headers=as_owner()
+        "DELETE", "/company", json={"rationale": "again"}, headers=as_owner()
     )
     assert again.status_code == 404
 
@@ -554,7 +556,10 @@ async def test_a_delete_may_decline_to_wait_for_the_teardown(client, world):
     """`wait: false` is the CLI's `--no-wait`: the act and the teardown
     are the same, only the answer comes before the namespace is gone."""
     response = await client.request(
-        "DELETE", "/company", json={"reason": "quick", "wait": False}, headers=as_owner()
+        "DELETE",
+        "/company",
+        json={"rationale": "quick", "wait": False},
+        headers=as_owner(),
     )
     assert response.status_code == 200, response.text
     assert world.deleted == [COMPANY] and world.waited == [False]
@@ -564,7 +569,7 @@ async def test_a_stranger_cannot_delete_the_company(client, world):
     a_review_run(world)
     world.decisions[COMPANY_DELETE] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.request(
-        "DELETE", "/company", json={"reason": "mine now"}, headers=as_owner()
+        "DELETE", "/company", json={"rationale": "mine now"}, headers=as_owner()
     )
     assert response.status_code == 403
     assert response.json()["rule"] == "human_not_recognized"
@@ -772,7 +777,7 @@ async def test_a_decisions_story_is_the_rows_with_a_rationale(client, world):
     )
     await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "reason": "clean findings"},
+        json={"approved": True, "rationale": "clean findings"},
         headers=as_owner(),
     )
     everything = (await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())).json()
@@ -789,7 +794,7 @@ async def test_a_story_is_the_runs_events_in_order(client, world):
     a_review_run(world)
     await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "reason": "reviewed"},
+        json={"approved": True, "rationale": "reviewed"},
         headers=as_owner(),
     )
     story = (await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())).json()
@@ -801,7 +806,7 @@ async def test_a_story_is_the_runs_events_in_order(client, world):
 def test_the_route_table_matches_the_app():
     """The documentation renders ROUTES; every route the app serves is in
     it and nothing more."""
-    from console.app import ROUTES
+    from common.console import ROUTES
 
     settings = ConsoleSettings(
         platform_namespace=PLATFORM_NS,
@@ -827,7 +832,7 @@ def test_the_route_table_matches_the_app():
         for method in route.methods
         if method != "HEAD" and not route.path.startswith(("/docs", "/redoc", "/openapi"))
     }
-    assert served == {(method, path) for method, path, _, _ in ROUTES}
+    assert served == {(r.method, r.path) for r in ROUTES}
 
 
 def test_settings_split_the_declared_humans():

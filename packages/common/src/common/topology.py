@@ -56,6 +56,13 @@ PLATFORM_NAMESPACE = "poseidon-platform"
 # worker puts sandboxes and ephemeral pods here.
 COMPANY_NAMESPACE = "poseidon-company"
 
+# The Company CR's phase, written by the reconciler and read through the
+# console: activating until OPA serves the stored bundle revisions,
+# converged once it does.
+PHASE_ACTIVATING = "activating"
+PHASE_CONVERGED = "converged"
+COMPANY_PHASES = (PHASE_ACTIVATING, PHASE_CONVERGED)
+
 # Workload identity: every agent pod and the worker present a kubelet-
 # rotated projected ServiceAccount token scoped to this audience; both
 # gateways verify against it. The token is mounted read-only at this path.

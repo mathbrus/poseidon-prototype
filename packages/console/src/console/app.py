@@ -4,7 +4,7 @@ JSON in, JSON out, a bearer token on every request but the health probe.
 Acts are POSTs and answer 403 with the denying rule when policy says no;
 reads are GETs. 422 names what could not be acted on (an unknown run, a
 blueprint that does not validate), 503 says Temporal was unreachable.
-The route table below is what the reference documentation renders.
+The routes are `common.console.ROUTES`, the console interface.
 
 Run with: uvicorn --factory console.app:create_app
 """
@@ -15,19 +15,16 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 
-from common.audit import RATIONALE_LIMIT
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
-from common.policy import (
-    BLUEPRINT_APPLY,
-    COMPANY_DELETE,
-    GATE_RESOLVE,
-    HEARTBEAT_PAUSE,
-    HEARTBEAT_RESUME,
-    HEARTBEAT_WAKE,
-    RUN_CANCEL,
-    RUN_START,
+from common.console import (
+    BlueprintRequest,
+    CancelRequest,
+    DeleteRequest,
+    PauseRequest,
+    ResumeRequest,
+    StartRunRequest,
+    VerdictRequest,
 )
 from common.topology import CONSOLE_TOKEN_AUDIENCE
 from common.version import running_version
@@ -44,118 +41,6 @@ from registry import (
     Runs,
     open_registry,
 )
-
-# The routes, for the documentation: method, path, what it does, the
-# decision an act must win (reads decide nothing).
-ROUTES: tuple[tuple[str, str, str, str], ...] = (
-    (
-        "GET",
-        "/healthz",
-        "liveness and the running version; the one unauthenticated route",
-        "",
-    ),
-    ("GET", "/whoami", "the verified human and the applied company, if any", ""),
-    (
-        "POST",
-        "/blueprint/preview",
-        "compile against the live registry; the diff and the plan",
-        "",
-    ),
-    (
-        "POST",
-        "/blueprint/apply",
-        "compile and submit the Company and AgentInstance CRs",
-        BLUEPRINT_APPLY,
-    ),
-    (
-        "GET",
-        "/company",
-        "the applied company's phase, generation and bundle revision from its CR,"
-        " and its pause from the registry",
-        "",
-    ),
-    (
-        "DELETE",
-        "/company",
-        "stop the company: cancel its runs, delete its CR, wait for the teardown",
-        COMPANY_DELETE,
-    ),
-    ("POST", "/runs", "start one implement or review run by hand", RUN_START),
-    ("GET", "/runs", "the company's runs since a fence (`?since=`)", ""),
-    ("GET", "/runs/{run_id}", "the run record and its workflow's execution", ""),
-    (
-        "GET",
-        "/runs/{run_id}/story",
-        "the run's audit story, every source; `?decisions=true` keeps the rows"
-        " carrying a rationale",
-        "",
-    ),
-    ("GET", "/runs/{run_id}/spend", "the run's attributed spend", ""),
-    (
-        "POST",
-        "/runs/{run_id}/gates/{gate}",
-        "record a verdict, then deliver it",
-        GATE_RESOLVE,
-    ),
-    ("POST", "/runs/{run_id}/cancel", "cancel a run; teardown compensates", RUN_CANCEL),
-    (
-        "GET",
-        "/heartbeat",
-        "the standing loop's execution and its ticks since a fence",
-        "",
-    ),
-    ("POST", "/heartbeat/wake", "nudge the loop to look now", HEARTBEAT_WAKE),
-    (
-        "POST",
-        "/heartbeat/pause",
-        "hold the loop: it starts nothing until resumed; runs in flight finish",
-        HEARTBEAT_PAUSE,
-    ),
-    ("POST", "/heartbeat/resume", "lift the pause and wake the loop", HEARTBEAT_RESUME),
-    ("GET", "/spend", "the company's spend since a fence", ""),
-    (
-        "GET",
-        "/events",
-        "the company's audit rows after a cursor (`?after=&run=`), with its spend to date",
-        "",
-    ),
-    ("GET", "/now", "the registry's clock: the fence to take before acting", ""),
-)
-
-
-class BlueprintRequest(BaseModel):
-    blueprint: str
-
-
-class StartRunRequest(BaseModel):
-    workflow: str
-    number: int
-
-
-# A person's reason is part of the act: a verdict, a cancel, a pause, a
-# resume or a delete without one is refused, and the reason is stored
-# beside the row as its rationale.
-Reason = Field(min_length=1, max_length=RATIONALE_LIMIT)
-
-
-class VerdictRequest(BaseModel):
-    approved: bool
-    reason: str = Reason
-
-
-class CancelRequest(BaseModel):
-    reason: str = Reason
-
-
-class DeleteRequest(BaseModel):
-    reason: str = Reason
-    # Whether to wait for the reconciler's teardown before answering; the
-    # act is the same either way, and the teardown proceeds regardless.
-    wait: bool = True
-
-
-class HoldRequest(BaseModel):
-    reason: str = Reason
 
 
 def create_app(
@@ -266,11 +151,13 @@ def create_app(
     async def delete_company_route(
         request: Request, body: DeleteRequest
     ) -> dict[str, Any]:
-        return await service.delete(identity_of(request), body.reason, body.wait)
+        return await service.delete(identity_of(request), body.rationale, body.wait)
 
     @app.post("/runs")
     async def start_run(request: Request, body: StartRunRequest) -> dict[str, Any]:
-        return await service.start_run(identity_of(request), body.workflow, body.number)
+        return await service.start_run(
+            identity_of(request), body.workflow.value, body.number
+        )
 
     @app.get("/runs")
     async def runs_since(since: str | None = None) -> list[dict[str, Any]]:
@@ -293,14 +180,14 @@ def create_app(
         request: Request, run_id: str, gate: str, body: VerdictRequest
     ) -> dict[str, Any]:
         return await service.resolve_gate(
-            identity_of(request), run_id, gate, body.approved, body.reason
+            identity_of(request), run_id, gate, body.approved, body.rationale
         )
 
     @app.post("/runs/{run_id}/cancel")
     async def cancel_run(
         request: Request, run_id: str, body: CancelRequest
     ) -> dict[str, Any]:
-        return await service.cancel_run(identity_of(request), run_id, body.reason)
+        return await service.cancel_run(identity_of(request), run_id, body.rationale)
 
     @app.get("/heartbeat")
     async def heartbeat(since: str | None = None) -> dict[str, Any]:
@@ -311,12 +198,12 @@ def create_app(
         return await service.wake(identity_of(request))
 
     @app.post("/heartbeat/pause")
-    async def pause(request: Request, body: HoldRequest) -> dict[str, Any]:
-        return await service.pause(identity_of(request), body.reason)
+    async def pause(request: Request, body: PauseRequest) -> dict[str, Any]:
+        return await service.pause(identity_of(request), body.rationale)
 
     @app.post("/heartbeat/resume")
-    async def resume(request: Request, body: HoldRequest) -> dict[str, Any]:
-        return await service.resume(identity_of(request), body.reason)
+    async def resume(request: Request, body: ResumeRequest) -> dict[str, Any]:
+        return await service.resume(identity_of(request), body.rationale)
 
     @app.get("/spend")
     async def spend_since(since: str | None = None) -> dict[str, Any]:

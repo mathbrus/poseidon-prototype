@@ -6,13 +6,13 @@ The console is the human's chokepoint: the one service a person acts on a compan
 |---|---|---|---|---|
 | service | `poseidon-console` | `uvicorn --factory console.app:create_app --port 8090` | `REGISTRY_DSN` | `audit_events`; `paused_by` and `paused_at` on `companies` |
 
-The acts, the decision each must win, and the routes are on the [console reference](../../docs/reference/console.md), rendered from `common.audit` and `app.ROUTES`.
+The acts, the decision each must win, and the routes are on the [console reference](../../docs/reference/console.md), rendered from `common.audit` and the console interface (`common.console`).
 
 ## Module map
 
 | Module | Owns |
 |---|---|
-| `app.py` | The FastAPI app, the route table (`ROUTES`), the request models, the shared auth middleware and the error answers. |
+| `app.py` | The FastAPI app: the routes of `common.console.ROUTES`, the shared auth middleware and the error answers. |
 | `service.py` | `ConsoleService`: every act as decide, record, do, and the reads beside them. The bootstrap rule for a first apply. |
 | `temporal.py` | The Temporal client: start, signal, cancel and inspect, addressed by `common.workflows`. Unreachable Temporal raises `Unavailable`. |
 | `crs.py` | The only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company. |
@@ -26,7 +26,7 @@ Authentication is `common.authn` in human mode, against the console's own token 
 
 `ConsoleService._act` asks the company's compiled bundle through `common.opa.evaluate_decision`, with the human's name as `agent_id`. The answer, allow or deny, is written to `audit_events` with `source=console`. A deny raises `PolicyDenied` and nothing else happens.
 
-A verdict, a cancel, a pause, a resume and a delete owe a `reason` of 1 to 1000 characters, stored as the row's rationale. A missing reason fails request validation before policy is asked.
+A verdict, a cancel, a pause, a resume and a delete owe a `rationale` of 1 to 1000 characters, stored on the act's audit row. A missing one fails request validation before policy is asked.
 
 The first apply of a company is the one act policy cannot decide, because no bundle exists yet. When OPA serves no policy for the company, the apply is allowed and recorded as `blueprint_apply_bootstrap`. Reads need a verified human and decide nothing.
 

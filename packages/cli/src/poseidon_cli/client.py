@@ -129,8 +129,10 @@ class ConsoleClient:
     def company(self) -> dict[str, Any]:
         return self._call("GET", "/company")
 
-    def delete_company(self, reason: str, wait: bool = True) -> dict[str, Any]:
-        return self._call("DELETE", "/company", json={"reason": reason, "wait": wait})
+    def delete_company(self, rationale: str, wait: bool = True) -> dict[str, Any]:
+        return self._call(
+            "DELETE", "/company", json={"rationale": rationale, "wait": wait}
+        )
 
     # -- runs -----------------------------------------------------------------
 
@@ -151,16 +153,16 @@ class ConsoleClient:
         return self._call("GET", f"/runs/{run_id}/spend")
 
     def resolve(
-        self, run_id: str, gate: str, approved: bool, reason: str
+        self, run_id: str, gate: str, approved: bool, rationale: str
     ) -> dict[str, Any]:
         return self._call(
             "POST",
             f"/runs/{run_id}/gates/{gate}",
-            json={"approved": approved, "reason": reason},
+            json={"approved": approved, "rationale": rationale},
         )
 
-    def cancel(self, run_id: str, reason: str) -> dict[str, Any]:
-        return self._call("POST", f"/runs/{run_id}/cancel", json={"reason": reason})
+    def cancel(self, run_id: str, rationale: str) -> dict[str, Any]:
+        return self._call("POST", f"/runs/{run_id}/cancel", json={"rationale": rationale})
 
     # -- the company ------------------------------------------------------------
 
@@ -170,11 +172,11 @@ class ConsoleClient:
     def wake(self) -> dict[str, Any]:
         return self._call("POST", "/heartbeat/wake")
 
-    def pause(self, reason: str) -> dict[str, Any]:
-        return self._call("POST", "/heartbeat/pause", json={"reason": reason})
+    def pause(self, rationale: str) -> dict[str, Any]:
+        return self._call("POST", "/heartbeat/pause", json={"rationale": rationale})
 
-    def resume(self, reason: str) -> dict[str, Any]:
-        return self._call("POST", "/heartbeat/resume", json={"reason": reason})
+    def resume(self, rationale: str) -> dict[str, Any]:
+        return self._call("POST", "/heartbeat/resume", json={"rationale": rationale})
 
     def spend_since(self, since: str | None = None) -> dict[str, Any]:
         return self._call("GET", "/spend", params=_since(since))

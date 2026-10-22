@@ -129,7 +129,7 @@ def test_a_verdict_is_one_call(client, console):
     assert console.requests[-1][:3] == (
         "POST",
         "/runs/run-1/gates/merge",
-        {"approved": True, "reason": "reviewed"},
+        {"approved": True, "rationale": "reviewed"},
     )
 
 
@@ -212,7 +212,7 @@ def test_verdict_prints_the_recorded_verdict(runner, console):
     )
     assert result.exit_code == 0, result.output
     assert "verdict recorded: merge approved for run run-1, by owner" in result.output
-    assert console.requests[-1][2] == {"approved": True, "reason": "ok"}
+    assert console.requests[-1][2] == {"approved": True, "rationale": "ok"}
 
 
 def test_a_verdict_is_approve_or_reject_on_a_known_gate(runner, console):
@@ -229,7 +229,7 @@ def test_a_verdict_is_approve_or_reject_on_a_known_gate(runner, console):
     assert console.requests[-1][:3] == (
         "POST",
         "/runs/run-1/gates/budget",
-        {"approved": False, "reason": "no more spend"},
+        {"approved": False, "rationale": "no more spend"},
     )
     for args in (
         ["verdict", "run-1", "merge", "maybe", "--reason", "x"],
@@ -284,13 +284,13 @@ def test_company_delete_names_the_running_runs_then_asks_the_console(runner, con
     assert console.requests[-1][:3] == (
         "DELETE",
         "/company",
-        {"reason": "done", "wait": True},
+        {"rationale": "done", "wait": True},
     )
     quick = runner.invoke(
         cli.app, ["company", "delete", "--yes", "--no-wait", "--reason", "done"]
     )
     assert quick.exit_code == 0, quick.output
-    assert console.requests[-1][2] == {"reason": "done", "wait": False}
+    assert console.requests[-1][2] == {"rationale": "done", "wait": False}
 
 
 def test_company_delete_asks_before_acting(runner, console):
@@ -381,7 +381,7 @@ def test_pause_and_resume_carry_the_reason_and_wake_carries_none(runner, console
     assert console.requests[-1][:3] == (
         "POST",
         "/heartbeat/pause",
-        {"reason": "reading the ledger"},
+        {"rationale": "reading the ledger"},
     )
     resumed = runner.invoke(cli.app, ["resume", "--reason", "read it"])
     assert resumed.exit_code == 0, resumed.output
@@ -389,7 +389,7 @@ def test_pause_and_resume_carry_the_reason_and_wake_carries_none(runner, console
     assert console.requests[-1][:3] == (
         "POST",
         "/heartbeat/resume",
-        {"reason": "read it"},
+        {"rationale": "read it"},
     )
     woken = runner.invoke(cli.app, ["heartbeat", "wake"])
     assert woken.exit_code == 0, woken.output

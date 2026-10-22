@@ -32,10 +32,10 @@ from blueprint.bounds import render_bounds
 from blueprint.catalog import CREW_TEMPLATES, PROCEDURES, ROLES
 from blueprint.schema import BLUEPRINT_SCHEMA
 from common.audit import PLATFORM_EVENTS
+from common.console import ROUTES
 from common.policy import GATE_RESOLVE, RULES, RUN_START, rego_slug
 from common.workflows import WORKFLOWS, workflow_id
 from compiler import compile_blueprint
-from console.app import ROUTES
 from console.crs import company_cr
 from orchestrator import workflows
 from poseidon_cli.main import app as cli_app
@@ -259,10 +259,10 @@ def cli(_: str | None) -> str:
 
 
 def console_routes(_: str | None) -> str:
-    """The console's route table, as the app declares it."""
+    """The console's route table, as the console interface declares it."""
     rows = [
-        [code(f"{method} {path}"), what, code(decision) if decision else "—"]
-        for method, path, what, decision in ROUTES
+        [code(f"{r.method} {r.path}"), r.summary, code(r.decision) if r.decision else "—"]
+        for r in ROUTES
     ]
     return table(["Route", "What it does", "Decision"], rows)
 
