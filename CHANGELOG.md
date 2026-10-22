@@ -11,6 +11,25 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- Nothing an agent does in its sandbox moves a platform check or what is
+  delivered or merged. A review pins the pull request's head commit:
+  every sandbox is built from it and the merge names it, so a push after
+  the review read it fails the run (`head moved after review`) and leaves
+  the PR open. Under a delegated merge gate the platform runs the tests
+  before the reviewer is dispatched; a red suite files rework with no
+  reviewer spent. `sandbox.git_bundle` makes the delivery commit of the
+  workspace as it stands, authored by the calling agent, and `deliver`
+  holds only `read_file` and `open_pr`; a delivery policy refuses on a
+  path goes back to implement and is verified again, under
+  `max_verify_retries`. Shell output reaches the model as plain text with
+  each stream's tail kept, a read without a range returns at most 2,000
+  lines, the opening message lists the workspace's files (`list_dir` is
+  no longer a model tool) and the sandbox ships ripgrep. *Changed:*
+  `poseidon blueprint new` no longer asks whether the reviewer may fix
+  code, the example blueprints carry no `tools.reviewer` block,
+  `git.merge_pr` takes `sha` and `sandbox.git_bundle` takes `message`
+  (#86)
+
 ## [0.3.0+2026.10.22] - 2026-10-22
 
 - The console's HTTP surface is one typed interface, `common.console`: a
