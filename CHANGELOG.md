@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.2.1+2026.10.22] - 2026-10-22
+
 - The docs are rewritten for readers: a free Quickstart with real
   output, how-to guides and a troubleshooting page, explanation pages
   (How it works, The merge gate, How the heartbeat decides, Security

@@ -1,6 +1,6 @@
 [project]
 name = "common"
-version = "0.2.0+2026.10.21"
+version = "0.2.1+2026.10.22"
 description = "Poseidon shared library: ids, identity and workload authn, audit event model, telemetry"
 requires-python = ">=3.12"
 dependencies = [
