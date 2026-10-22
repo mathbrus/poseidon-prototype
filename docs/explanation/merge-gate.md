@@ -58,14 +58,27 @@ Policy merges with no human act, but only when every one of these facts
 holds. The platform establishes each one itself. None comes from an
 agent's word.
 
+- The platform's own run of the tests on the pull request is green. It's
+  the same test code that gates delivery.
 - The independent reviewer's verdict passed.
-- The platform's own run of the tests, in the review sandbox, is green.
-  It's the same test code that gates delivery.
 - The registry confirms the reviewer is a different agent from the
   implementer.
 - Every changed path is inside `delegate.paths`.
 - If the company declares a contract tree, the contract is green (see
   below).
+
+The checks run in this order:
+
+1. **The platform runs the tests** in the sandbox built from the pull
+   request, before the reviewer starts. The reviewer holds a shell in that
+   sandbox, so a run after it could read whatever the reviewer left there.
+   If the tests are red, the rework ticket is filed at once and no
+   reviewer is started.
+2. **The reviewer** reads the diff, runs the tests in its sandbox, posts
+   findings and gives its verdict.
+3. **The contract run**, if the company declares a contract tree, uses a
+   new sandbox (see below).
+4. **Policy decides** on the facts.
 
 Anything short of that is never a quiet merge:
 
@@ -74,7 +87,7 @@ Anything short of that is never a quiet merge:
 | Every fact holds, every path in the class | Policy merges it (rule `merge_resolve_delegated`). |
 | Touches `.github/` or a path outside the class | It parks on you, as if the gate were `human`. |
 | Touches the contract tree | It parks on you at once, before any check runs. Only a person merges the tests that grade the code. |
-| The verdict failed, the tests are red, or the contract is red | The findings become a rework ticket, and the platform closes the pull request. After `max_reworks` rounds, it parks on you. |
+| The verdict failed, the tests are red, or the contract is red | The findings become a rework ticket, and the platform closes the pull request. After `max_reworks` rounds, it parks on you, with the reviewer's findings on it. |
 
 `delegate.paths` can never include `.github/`, a path in
 `policies.deny_paths`, or the contract tree. The compiler refuses such a
@@ -115,6 +128,14 @@ The first contract pull request always needs you, like every contract
 change. On any pull request that edits the contract tree, the platform
 also posts how many test functions and assertions it removes, so a gutted
 spec can't be approved without anyone noticing.
+
+## The merge is the reviewed commit
+
+A review reads the pull request's head commit once, when it starts. Every
+sandbox the review uses is built from that commit, and the merge names
+it. If anyone pushes to the branch after that, GitHub refuses the merge:
+the run fails with `head moved after review`, and the pull request stays
+open for another review. This holds whoever resolves the gate.
 
 ## After the merge
 

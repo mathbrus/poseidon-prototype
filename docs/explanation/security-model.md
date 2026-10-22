@@ -82,6 +82,28 @@ mediation* (every action passes a gateway), and *separation of privilege*
 both allow it). What is new is the thing being confined: a program whose
 intent can be rewritten by anything it reads.
 
+## What an agent does in its sandbox moves nothing
+
+Every coding role holds `sandbox.exec`, a full shell in its sandbox. With
+a shell, withholding a file-writing tool restricts nothing: `sed -i` or
+`echo >` change files just as well. So the tool list inside a sandbox is
+not a boundary, and Poseidon doesn't treat it as one. These are the
+boundaries:
+
+- **The sandbox.** It holds no credentials and reaches the internet only
+  through the egress proxy.
+- **The gateway.** Every call that leaves the sandbox passes it and is
+  decided by policy.
+- **The delivery tool.** The platform makes the delivery commit of the
+  sandbox as it tested it. The deliver step holds no tool that can change
+  the sandbox in between.
+- **Where platform checks run.** A review's test run happens before the
+  reviewer starts, and the contract run uses a new sandbox. A reviewer
+  that rewrites its sandbox changes only what it sees itself.
+
+The red-team suite drives a reviewer that does exactly that
+(`tests/e2e_kind/test_delegated.py`). The pull request doesn't merge.
+
 ## A blocked attack, step by step
 
 The acceptance suite plants a poisoned strategy
