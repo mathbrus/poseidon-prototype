@@ -14,6 +14,7 @@ The acts, the decision each must win, and the routes are on the [console referen
 |---|---|
 | `app.py` | The FastAPI app: the routes of `common.console.ROUTES`, the shared auth middleware and the error answers. |
 | `service.py` | `ConsoleService`: every act as decide, record, do, and the reads beside them. The bootstrap rule for a first apply. |
+| `views.py` | The one translation layer: registry rows, run records, Temporal's answers and the Company CR mapped onto the console interface's models. Nothing else knows both sides. |
 | `temporal.py` | The Temporal client: start, signal, cancel and inspect, addressed by `common.workflows`. Unreachable Temporal raises `Unavailable`. |
 | `crs.py` | The only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company. |
 | `config.py` | `ConsoleSettings`: the shared authn fields, `opa_url`, `temporal_address` and `console_humans`. |
@@ -55,13 +56,14 @@ All in `tests/test_console.py` unless noted.
 - A denied act is a 403 that does nothing: `test_a_denied_verdict_is_a_403_that_signals_nothing`.
 - The verdict row comes first: `test_a_verdict_is_recorded_under_the_humans_name_then_delivered`.
 - A verdict answers only a parked gate: `test_a_verdict_answers_only_a_question_that_was_asked`.
-- An act without a reason records and signals nothing: `test_an_act_without_a_reason_is_refused_before_anything_happens`.
+- An act without a reason records and signals nothing: `test_an_act_without_a_rationale_is_refused_before_anything_happens`.
 - The pause is recorded before the loop hears: `test_pause_is_recorded_before_the_loop_hears_and_resume_mirrors_it`.
 - Only the first apply is the bootstrap rule: `test_the_first_apply_is_the_bootstrap_rule`, `test_a_later_apply_is_policys`.
 - A delete ends the runs first: `test_deleting_the_company_is_decided_audited_and_ends_its_runs_first`.
 - One company per cluster: `test_another_companys_blueprint_is_refused_while_one_is_applied`.
 - Reads touch nothing: `test_the_reads_need_a_human_and_touch_nothing`.
 - The route table matches the app: `test_the_route_table_matches_the_app`.
+- Every served route declares its interface model, and the service builds no response dicts: `test_views.py`.
 - The Company CR carries the policies section: `test_crs.py::test_the_cr_carries_the_policies_section`.
 
 ## Testing

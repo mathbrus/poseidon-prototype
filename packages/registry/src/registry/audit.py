@@ -123,7 +123,7 @@ class AuditStore:
         calls between."""
         return self._db.query(
             """
-            SELECT ts, run_id, agent_id, role, tool, args_digest,
+            SELECT id, ts, run_id, agent_id, role, tool, args_digest,
                    decision, rule, rationale, latency_ms, backend_status,
                    source, company, lifecycle, parent_agent_id, workflow
               FROM registry.audit_events

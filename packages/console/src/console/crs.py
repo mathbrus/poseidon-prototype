@@ -126,10 +126,10 @@ def submit(
 
 
 def read_company(api: k8s.CustomObjectsApi | None = None) -> dict[str, Any] | None:
-    """The one Company CR, as a reader of its phase sees it, or None when
-    none is applied. Read from the cluster, not the registry: the registry
-    row exists only once the company is converged, and the phase is what
-    says whether it is."""
+    """The one Company CR as the cluster holds it — its metadata, spec
+    and status — or None when none is applied. Read from the cluster,
+    not the registry: the registry row exists only once the company is
+    converged, and the phase is what says whether it is."""
     api = api or _api()
     items = api.list_cluster_custom_object(GROUP, VERSION, "companies").get("items", [])
     if not items:
@@ -137,17 +137,7 @@ def read_company(api: k8s.CustomObjectsApi | None = None) -> dict[str, Any] | No
     if len(items) > 1:
         names = sorted(item["metadata"]["name"] for item in items)
         raise RuntimeError(f"more than one company is applied: {names}")
-    item = items[0]
-    status = item.get("status") or {}
-    return {
-        "company": item["metadata"]["name"],
-        "namespace": item["spec"]["namespace"],
-        "generation": item["metadata"].get("generation", 0),
-        "phase": status.get("phase") or "activating",
-        "observedGeneration": status.get("observedGeneration", 0),
-        "bundleRevision": status.get("bundleRevision", ""),
-        "message": status.get("message", ""),
-    }
+    return items[0]
 
 
 def delete_company(

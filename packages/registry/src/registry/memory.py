@@ -79,8 +79,9 @@ class InMemoryAuditStore:
 
     @staticmethod
     def _row(e: AuditEvent) -> dict[str, Any]:
-        # The same projection and order as AuditStore.story — consumers must
-        # not come to depend on extra keys Postgres will never return.
+        # The same projection and order as AuditStore.story, less the id the
+        # callers prepend — consumers must not come to depend on extra keys
+        # Postgres will never return.
         return {
             "ts": e.ts,
             "run_id": e.run_id,
@@ -103,17 +104,18 @@ class InMemoryAuditStore:
     def story(
         self, run_id: str, since: str | None = None, decisions_only: bool = False
     ) -> list[dict[str, Any]]:
+        # The fake's ids are positions in the append order, from 1.
         return [
-            self._row(e)
-            for e in sorted(
+            {"id": index, **self._row(e)}
+            for index, e in sorted(
                 (
-                    e
-                    for e in self.events
+                    (index, e)
+                    for index, e in enumerate(self.events, start=1)
                     if e.run_id == run_id
                     and (since is None or e.ts >= since)
                     and (not decisions_only or e.rationale is not None)
                 ),
-                key=lambda e: e.ts,
+                key=lambda item: (item[1].ts, item[0]),
             )
         ]
 
