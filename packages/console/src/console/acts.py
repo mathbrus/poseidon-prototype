@@ -16,8 +16,24 @@ rationale is not among them — it rides the audit row in its own column.
 from typing import Any
 
 from common.console import EXECUTION_RUNNING, ExecutionView
+from common.policy import DEFAULT_DENY
 from common.workflows import GATES_OF, PARKED_STATE
 from registry import RunRecord
+
+# -- what policy answered, as the act and its preview both say it -------------
+
+
+def refused_rule(decision: dict[str, Any]) -> str | None:
+    """The rule a decision refused under, or None when it allowed."""
+    if decision.get("allow"):
+        return None
+    return str(decision.get("rule") or DEFAULT_DENY)
+
+
+def policy_detail(rule: str) -> str:
+    """How a policy refusal reads: the 403's detail."""
+    return f"denied by policy: {rule}"
+
 
 # -- the decision input's arguments, per act ----------------------------------
 

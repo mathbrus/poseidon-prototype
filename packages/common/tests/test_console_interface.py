@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from common import audit, topology, workflows
+from common import audit, documents, topology, workflows
 from common.console import ROUTES, enums, models, route
 
 PACKAGE = Path(models.__file__).parent
@@ -109,6 +109,8 @@ def test_an_internal_field_leaking_through_is_an_error():
         (enums.AuditSource, audit.SOURCES),
         (enums.Decision, audit.DECISIONS),
         (enums.CompanyPhase, topology.COMPANY_PHASES),
+        (enums.DocumentKind, documents.DOCUMENT_NAMES),
+        (enums.Act, audit.CONSOLE_ACTS),
     ],
     ids=lambda v: getattr(v, "__name__", ""),
 )
@@ -149,3 +151,13 @@ def test_a_rationale_is_required_and_bounded():
                 {**fields, "rationale": "x" * (audit.RATIONALE_LIMIT + 1)}
             )
         assert request.model_validate({**fields, "rationale": "why"}).rationale == "why"
+
+
+def test_an_act_owes_a_rationale_exactly_where_its_request_carries_one():
+    """`RATIONALE_EVENTS` says which acts owe a person's reason; the
+    request models are where a client gives it. The two are one rule."""
+    for entry in ROUTES:
+        if not entry.decision:
+            continue
+        carries = entry.request is not None and "rationale" in entry.request.model_fields
+        assert carries == (entry.decision in audit.RATIONALE_EVENTS), entry

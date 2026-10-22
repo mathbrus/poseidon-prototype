@@ -89,6 +89,21 @@ class AuditStore:
             "ts": row["ts"],
         }
 
+    def last_at(self, run_id: str, tool: str, rule: str) -> Any:
+        """When the run last recorded `tool` under `rule` (a timestamp), or
+        None — how the console finds the row a parked run's deadlines are
+        measured from, without reading the run's story."""
+        rows = self._db.query(
+            """
+            SELECT ts FROM registry.audit_events
+             WHERE run_id = %s AND tool = %s AND rule = %s
+             ORDER BY ts DESC, id DESC
+             LIMIT 1
+            """,
+            (run_id, tool, rule),
+        )
+        return rows[0]["ts"] if rows else None
+
     def after(
         self, company: str, after: int, run_id: str | None = None, limit: int = 500
     ) -> list[dict[str, Any]]:

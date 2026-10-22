@@ -19,6 +19,7 @@ from common.workflows import (
     GATE_PARKED,
     PARKED_STATE,
     RUN_RUNNING,
+    gate_timer,
 )
 from orchestrator.gates import Gate
 
@@ -40,12 +41,10 @@ TEARDOWN_RETRY = RetryPolicy(maximum_attempts=5, backoff_coefficient=2.0)
 
 
 def gate_deadline(minutes: int) -> dict[str, timedelta]:
-    """A gate's timer from its declared wait: expiry at the deadline,
-    escalation halfway — the shape `Gate.wait` takes."""
-    return {
-        "timeout": timedelta(minutes=minutes),
-        "escalate_after": timedelta(seconds=minutes * 30),
-    }
+    """A gate's timer (`common.workflows.gate_timer`) in the shape
+    `Gate.wait` takes."""
+    escalate_after, timeout = gate_timer(minutes)
+    return {"timeout": timeout, "escalate_after": escalate_after}
 
 
 @dataclass

@@ -10,15 +10,17 @@
 
 | Module | Owns |
 |---|---|
-| `identity.py` | `Identity`, the verified caller, the lifecycle names, and `bearer_token()`. |
+| `console/` | The console interface: the request and response models of every console route (`models.py`), the closed sets they use, built from the constants below (`enums.py`), and the route table (`routes.py`). Imports pydantic, the standard library and `common`, nothing else; the console serves it, the CLI and the acceptance suite consume it. |
+| `identity.py` | `Identity`, the verified caller, the lifecycle names (the `console` one included), and `bearer_token()`. |
 | `authn.py` | `Authenticator`, `AuthMiddleware`, `AuthnSettings`, `KubeTokenReviewer`: a bearer token in, an `Identity` out, every rejected token audited. |
-| `audit.py` | `AuditEvent`, the closed `Source` list, `PLATFORM_EVENTS` (every event name the platform writes), `RATIONALE_LIMIT`, and `args_digest()`. |
+| `audit.py` | `AuditEvent`, the closed `Source` and `Decision` lists, `PLATFORM_EVENTS` (every event name the platform writes) and the console's acts among them, `RATIONALE_LIMIT`, and `args_digest()`. |
 | `policy.py` | The OPA naming contract: package and decision paths, `rego_slug()`, the decision names, and `RULES`, every rule name a decision can answer with. |
 | `opa.py` | `evaluate_decision()`: one decision against the company bundle. No served bundle answers `no_policy_installed`, a deny. |
-| `workflows.py` | Task queue, workflow ids, gates, `parked-*` states, gate outcomes and tick outcomes, with the rule spellings for each. |
-| `topology.py` | Ports, Service names, namespaces, token audiences, pod labels and service URLs. |
+| `workflows.py` | Task queue, workflow ids, gates, every state a workflow's `state()` answers (`RUN_STATES`, `HEARTBEAT_STATES`), run statuses, gate outcomes and tick outcomes, with the rule spellings for each. |
+| `topology.py` | Ports, Service names, namespaces, token audiences, pod labels, service URLs, the Company phases and the blueprint's size limit. |
 | `podsecurity.py` | The pod and container security context: uid 10001, non-root, no privilege escalation, all capabilities dropped, RuntimeDefault seccomp. |
 | `agentpod.py` | Resources and readiness probe shared by standing and ephemeral agent pods. |
+| `documents.py` | `DOCUMENT_NAMES`: the company's two documents by name, which the blueprint places and the console interface names. |
 | `tasks.py` | The task texts of heartbeat-started runs, the regexes that parse them, and the `Crew:` ticket trailer. |
 | `verify.py` | `suite_green()`: what a test run's exit code means. |
 | `text.py` | `numbered_lines()` and the clip helpers for untrusted text. |

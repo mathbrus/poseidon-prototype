@@ -7,11 +7,11 @@ the interface the clients read stays what it was — or the mapper fails
 its test, in the same pull request.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from blueprint.bounds import render_bounds
-from common.audit import HEARTBEAT_TICK, RATIONALE_EVENTS, gate_event
+from common.audit import HEARTBEAT_TICK, RATIONALE_EVENTS
 from common.console import (
     EXECUTION_NOT_FOUND,
     ActRefusal,
@@ -31,6 +31,7 @@ from common.console import (
     LimitsView,
     ParkedView,
     PauseView,
+    RefusalKind,
     RunDetail,
     RunSpendView,
     RunView,
@@ -46,13 +47,13 @@ from common.text import clip_head
 from common.topology import PHASE_ACTIVATING
 from common.workflows import (
     BUDGET_GATE,
-    GATE_PARKED,
     MERGE_GATE,
     PARKED_STATE,
-    gate_rule,
+    gate_timer,
     parse_tick_rule,
     workflow_id,
 )
+from console.acts import policy_detail, refused_rule
 from registry import RunRecord
 
 # The gate a parked state names.
@@ -87,18 +88,27 @@ def limits_view(spec: dict[str, Any], spent_today: float) -> LimitsView:
     )
 
 
+def _cr_state(cr: dict[str, Any]) -> dict[str, Any]:
+    """What every reader of the Company CR shows: its name, the generation
+    applied, the one its phase answers for, and the phase — `activating`
+    until the reconciler writes one."""
+    status = cr.get("status") or {}
+    return {
+        "company": cr["metadata"]["name"],
+        "generation": cr["metadata"].get("generation", 0),
+        "observed_generation": status.get("observedGeneration", 0),
+        "phase": status.get("phase") or PHASE_ACTIVATING,
+    }
+
+
 def blueprint_view(cr: dict[str, Any]) -> BlueprintView | None:
     """The blueprint's text the Company CR keeps (`spec.blueprintSource`),
     with the CR's generation and phase; None for a CR without one."""
     source = cr["spec"].get("blueprintSource")
     if not source:
         return None
-    status = cr.get("status") or {}
     return BlueprintView(
-        company=cr["metadata"]["name"],
-        generation=cr["metadata"].get("generation", 0),
-        observed_generation=status.get("observedGeneration", 0),
-        phase=status.get("phase") or PHASE_ACTIVATING,
+        **_cr_state(cr),
         text=source["text"],
         sha256=source["sha256"],
         applied_by=source["appliedBy"],
@@ -137,10 +147,7 @@ def company_view(
     limits."""
     status = cr.get("status") or {}
     return CompanyView(
-        company=cr["metadata"]["name"],
-        phase=status.get("phase") or PHASE_ACTIVATING,
-        generation=cr["metadata"].get("generation", 0),
-        observed_generation=status.get("observedGeneration", 0),
+        **_cr_state(cr),
         bundle_revision=status.get("bundleRevision", ""),
         message=status.get("message", ""),
         paused=pause_view(paused),
@@ -159,27 +166,16 @@ def parked_gate(execution: ExecutionView) -> str | None:
     return _GATE_OF_STATE.get(str(execution.state)) if execution.state else None
 
 
-def park_since(story: list[dict[str, Any]], gate: str) -> datetime | None:
-    """When the run last parked on `gate`: its latest `parked` gate row."""
-    rows = [
-        row
-        for row in story
-        if row["tool"] == gate_event(gate) and row["rule"] == gate_rule(GATE_PARKED)
-    ]
-    if not rows:
-        return None
-    ts = rows[-1]["ts"]
-    return ts if isinstance(ts, datetime) else datetime.fromisoformat(ts)
-
-
-def parked_view(gate: str, since: datetime | None, deadline: int | None) -> ParkedView:
-    """A park's deadlines, measured as the gate's timer measures them:
-    escalation at half the deadline, expiry at the end."""
+def parked_view(gate: str, since: Any, deadline: int | None) -> ParkedView:
+    """A park's deadlines, measured from its `parked` gate row (`since`,
+    a registry timestamp) by the gate's own timer (`gate_timer`)."""
+    if since is not None and not isinstance(since, datetime):
+        since = datetime.fromisoformat(since)
     if since is None or deadline is None:
         escalates_at = expires_at = None
     else:
-        escalates_at = since + timedelta(seconds=deadline * 30)
-        expires_at = since + timedelta(minutes=deadline)
+        escalate_after, expire_after = gate_timer(deadline)
+        escalates_at, expires_at = since + escalate_after, since + expire_after
     return ParkedView(
         gate=gate,
         deadline_minutes=deadline,
@@ -368,15 +364,16 @@ def act_view(
     decision: dict[str, Any] | None,
 ) -> ActView:
     """An act's preview: refused by the company's state (the act's 422
-    detail), or else allowed or refused by policy (the act's 403 rule)."""
+    detail; policy was not asked), or else allowed or refused by policy
+    (the act's 403 rule)."""
     shown = {key: value for key, value in args.items() if value is not None}
+    rule = refused_rule(decision) if decision is not None else None
     if refusal is not None:
-        why = ActRefusal(kind="state", rule=None, detail=refusal)
-    elif decision is not None and decision.get("allow"):
-        why = None
+        why = ActRefusal(kind=RefusalKind.state, rule=None, detail=refusal)
+    elif rule is not None:
+        why = ActRefusal(kind=RefusalKind.policy, rule=rule, detail=policy_detail(rule))
     else:
-        rule = str((decision or {}).get("rule") or "default_deny")
-        why = ActRefusal(kind="policy", rule=rule, detail=f"denied by policy: {rule}")
+        why = None
     return ActView(
         act=act,
         args=shown,

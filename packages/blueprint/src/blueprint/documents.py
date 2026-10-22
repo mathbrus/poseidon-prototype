@@ -6,8 +6,8 @@ them, and every reader shows them under the same label — the
 observation's section headers and the crews' untrusted context alike.
 """
 
-# By name, in the order every reader renders them.
-DOCUMENT_NAMES = ("strategy", "architecture")
+from common.documents import DOCUMENT_NAMES
+
 # The label a model sees a document under.
 DOCUMENT_LABELS = {"strategy": "strategy", "architecture": "architecture masterplan"}
 

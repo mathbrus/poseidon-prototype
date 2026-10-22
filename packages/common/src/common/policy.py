@@ -11,6 +11,8 @@ empty document — which would fail closed (every call denied) but silently.
 from typing import Literal, NamedTuple
 
 PLATFORM_DECISION_PATH = "poseidon/platform/decision"
+# What every bundle answers when nothing matched.
+DEFAULT_DENY = "default_deny"
 
 # The two bundles OPA polls, by the fixed names its config lists them
 # under: the platform's own policy and the applied company's. A platform
@@ -108,7 +110,7 @@ class PolicyRule(NamedTuple):
 # document at all). The compiler's tests hold this list and the compiled
 # bundles equal; the reference docs render it.
 RULES: tuple[PolicyRule, ...] = (
-    PolicyRule("default_deny", "deny", "Nothing matched."),
+    PolicyRule(DEFAULT_DENY, "deny", "Nothing matched."),
     PolicyRule(
         "no_policy_installed",
         "deny",

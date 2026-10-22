@@ -20,7 +20,13 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from common.console import EXECUTION_NOT_FOUND, EXECUTION_RUNNING, AuditEventView
+from common.console import (
+    EXECUTION_NOT_FOUND,
+    EXECUTION_RUNNING,
+    AuditEventView,
+    ExecutionStatus,
+)
+from common.topology import PHASE_ACTIVATING, PHASE_CONVERGED
 from common.workflows import (
     GATE_APPROVED,
     GATE_ESCALATED,
@@ -56,30 +62,26 @@ STATUS_STYLE = {
     EXECUTION_RUNNING: "blue",
     HEARTBEAT_TICKING: "blue",
     TICK_STARTED: "blue",
-    "activating": "yellow",
+    PHASE_ACTIVATING: "yellow",
     TICK_PAUSED: "yellow",
     GATE_PARKED: "yellow",
     GATE_ESCALATED: "yellow",
     GATE_HALTED: "yellow",
     GATE_EXPIRED: "yellow",
     RUN_STATUS_DONE: "green",
-    "COMPLETED": "green",
-    "converged": "green",
+    ExecutionStatus.COMPLETED: "green",
+    PHASE_CONVERGED: "green",
     GATE_APPROVED: "green",
-    "approve": "green",
     "allow": "green",
     "pass": "green",
-    "ok": "green",
     RUN_STATUS_FAILED: "red",
-    "FAILED": "red",
+    ExecutionStatus.FAILED: "red",
     "deny": "red",
     GATE_REJECTED: "red",
-    "reject": "red",
     "fail": "red",
-    "error": "red",
-    "cancelled": "red",
-    "CANCELED": "red",
-    "TERMINATED": "red",
+    ExecutionStatus.CANCELED: "red",
+    ExecutionStatus.TERMINATED: "red",
+    ExecutionStatus.TIMED_OUT: "red",
     TICK_REFUSED: "red",
     TICK_STOPPED: "red",
     EXECUTION_NOT_FOUND: "dim",
@@ -103,20 +105,6 @@ def dim(value: Any) -> Text:
 # -- time and money --------------------------------------------------------------
 
 
-def parse_ts(value: Any) -> datetime | None:
-    """A registry timestamp (ISO 8601, with offset) as an aware datetime;
-    None for nothing or for something that is not a timestamp."""
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
-
-
 def duration(seconds: float | None) -> str:
     """`38 s`, `4 min 02 s`, `2 h 07 min`, `3 d 4 h` — the largest two units."""
     if seconds is None:
@@ -134,12 +122,10 @@ def duration(seconds: float | None) -> str:
     return f"{days} d {hours} h"
 
 
-def ago(value: Any, now: datetime | None = None) -> str:
-    """`just now`, `12 min ago`, `4 h ago`, `3 d ago`; the value as given
-    when it is not a timestamp."""
-    then = parse_ts(value)
+def ago(then: datetime | None, now: datetime | None = None) -> str:
+    """`just now`, `12 min ago`, `4 h ago`, `3 d ago`; nothing for no time."""
     if then is None:
-        return str(value or "")
+        return ""
     now = now or datetime.now(UTC)
     seconds = (now - then).total_seconds()
     if seconds < 0:
@@ -153,18 +139,13 @@ def ago(value: Any, now: datetime | None = None) -> str:
     return f"{int(seconds // 86400)} d ago"
 
 
-def clock(value: Any) -> str:
+def clock(then: datetime) -> str:
     """`12:04:10` — the time of day a row landed, for a story's left edge."""
-    then = parse_ts(value)
-    return then.strftime("%H:%M:%S") if then else "--:--:--"
+    return then.strftime("%H:%M:%S")
 
 
-def usd(amount: Any) -> str:
+def usd(value: float) -> str:
     """`$4.20`, never `4.2000001`; `$0.0031` keeps the cents of a small call."""
-    try:
-        value = float(amount or 0.0)
-    except (TypeError, ValueError):
-        return str(amount)
     if 0 < value < 0.01:
         return f"${value:.4f}"
     return f"${value:,.2f}"

@@ -9,6 +9,7 @@ Instances the plan no longer contains are deleted, which is what makes
 firing a blueprint diff rather than an ops task.
 """
 
+import hashlib
 import time
 from typing import Any
 
@@ -29,6 +30,17 @@ def _api() -> k8s.CustomObjectsApi:
     except k8s_config.ConfigException:
         k8s_config.load_kube_config()
     return k8s.CustomObjectsApi()
+
+
+def blueprint_source(text: str, applied_by: str, applied_at: str) -> dict[str, str]:
+    """The blueprint's text as a human applied it, as the Company CR keeps
+    it (`spec.blueprintSource`)."""
+    return {
+        "text": text,
+        "sha256": hashlib.sha256(text.encode()).hexdigest(),
+        "appliedBy": applied_by,
+        "appliedAt": applied_at,
+    }
 
 
 def company_cr(

@@ -10,7 +10,6 @@ committed OpenAPI snapshot and a failing check in the same pull request.
 """
 
 from common.console.enums import (
-    DOCUMENT_KINDS,
     EXECUTION_NOT_FOUND,
     EXECUTION_RUNNING,
     REFUSAL_KINDS,
@@ -101,7 +100,6 @@ __all__ = [
     "CompanyPhase",
     "CompanyView",
     "CrewView",
-    "DOCUMENT_KINDS",
     "Decision",
     "DeleteRequest",
     "DocumentKind",

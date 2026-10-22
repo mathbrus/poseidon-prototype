@@ -27,7 +27,7 @@ import pytest
 import yaml
 
 from common.audit import HEARTBEAT_TICK
-from common.console import EphemeralAgentView
+from common.console import EXECUTION_RUNNING, EphemeralAgentView
 from common.topology import (
     COMPANY_NAMESPACE,
     CONSOLE_TOKEN_AUDIENCE,
@@ -36,7 +36,7 @@ from common.topology import (
     TOKEN_AUDIENCE,
     human_service_account,
 )
-from common.workflows import workflow_id
+from common.workflows import HEARTBEAT_SLEEPING, workflow_id
 from poseidon_cli import ConsoleClient
 from registry import Registry, open_registry
 
@@ -848,7 +848,10 @@ def await_bare_heartbeat_asleep(deadline_s: int = 300) -> None:
         # Not started yet, or between runs: keep waiting.
         with contextlib.suppress(Exception):
             execution = console().heartbeat().execution
-            if (execution.status, execution.state) == ("RUNNING", "sleeping"):
+            if (execution.status, execution.state) == (
+                EXECUTION_RUNNING,
+                HEARTBEAT_SLEEPING,
+            ):
                 return
         time.sleep(3)
     raise AssertionError(

@@ -28,38 +28,44 @@ from common.policy import (
     RUN_CANCEL,
     RUN_START,
 )
+from common.tasks import review_run_task
+from common.workflows import (
+    BUDGET_GATE,
+    HEARTBEAT_PAUSED,
+    HEARTBEAT_SLEEPING,
+    MERGE_GATE,
+    PARKED_STATE,
+    RUN_RUNNING,
+    RUN_STATUS_DONE,
+    workflow_id,
+)
 from console.fakes import AUDITOR_TOKEN, COMPANY, HELLO_SAAS, OWNER_TOKEN, World
 
 pytestmark = pytest.mark.anyio
 
 RUN = "run-01PARITY"
-REVIEW_WF = f"review-{RUN}"
-HEARTBEAT_WF = f"heartbeat-{COMPANY}"
-
-
-@pytest.fixture
-def anyio_backend() -> str:
-    return "asyncio"
+REVIEW_WF = workflow_id("review", RUN)
+HEARTBEAT_WF = workflow_id("heartbeat", COMPANY)
 
 
 def a_review(world: World, state: str | None) -> None:
     """A review run whose workflow answers `state`, or has ended (None)."""
-    world.runs.start(RUN, "review pull request #12", "review", REVIEW_WF, COMPANY)
+    world.runs.start(RUN, review_run_task(12), "review", REVIEW_WF, COMPANY)
     if state is None:
-        world.runs.finish(RUN, "done")
+        world.runs.finish(RUN, RUN_STATUS_DONE)
     else:
         world.workflows.running[REVIEW_WF] = state
 
 
 def resting(world: World) -> None:
-    world.workflows.running[HEARTBEAT_WF] = "sleeping"
-    a_review(world, "parked-merge_gate")
+    world.workflows.running[HEARTBEAT_WF] = HEARTBEAT_SLEEPING
+    a_review(world, PARKED_STATE[MERGE_GATE])
 
 
 def held(world: World) -> None:
-    world.workflows.running[HEARTBEAT_WF] = "paused"
+    world.workflows.running[HEARTBEAT_WF] = HEARTBEAT_PAUSED
     world.companies.pause(COMPANY, "owner")
-    a_review(world, "running")
+    a_review(world, RUN_RUNNING)
 
 
 def over(world: World) -> None:
@@ -68,8 +74,8 @@ def over(world: World) -> None:
 
 
 def on_budget(world: World) -> None:
-    world.workflows.running[HEARTBEAT_WF] = "sleeping"
-    a_review(world, "parked-budget_exhausted")
+    world.workflows.running[HEARTBEAT_WF] = HEARTBEAT_SLEEPING
+    a_review(world, PARKED_STATE[BUDGET_GATE])
 
 
 SCENARIOS: dict[str, Callable[[World], None]] = {

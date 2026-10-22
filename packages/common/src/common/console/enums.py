@@ -10,6 +10,7 @@ writers use, and its OpenAPI rendering lists every value.
 from enum import StrEnum
 
 from common.audit import CONSOLE_ACTS, DECISIONS, SOURCES
+from common.documents import DOCUMENT_NAMES
 from common.topology import COMPANY_PHASES
 from common.workflows import (
     GATE_OUTCOMES,
@@ -46,11 +47,7 @@ Act = _closed("Act", CONSOLE_ACTS)
 REFUSAL_KINDS = ("policy", "state")
 RefusalKind = _closed("RefusalKind", REFUSAL_KINDS)
 
-# The company's two documents, by the names a blueprint places them under
-# (`blueprint.documents.DOCUMENT_NAMES`, a package `common` does not
-# depend on; the console's tests hold the two equal).
-DOCUMENT_KINDS = ("strategy", "architecture")
-DocumentKind = _closed("DocumentKind", DOCUMENT_KINDS)
+DocumentKind = _closed("DocumentKind", DOCUMENT_NAMES)
 
 # Temporal's execution statuses by name (`temporalio.client.
 # WorkflowExecutionStatus`, which `common` does not depend on; the

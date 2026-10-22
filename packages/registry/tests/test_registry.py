@@ -665,6 +665,35 @@ def test_filed_tickets_are_remembered_within_the_lag_window(registry: Registry):
     assert all(r["filed_at"] is not None for r in rows)
 
 
+def test_last_at_is_the_latest_matching_row(registry: Registry):
+    """The console's read of when a run last parked: one row, the latest,
+    never the story."""
+    audit = AuditStore(registry)
+    for ts, rule in (
+        ("2026-01-01T00:00:00+00:00", "gate_parked"),
+        ("2026-01-01T01:00:00+00:00", "gate_approved"),
+        ("2026-01-01T02:00:00+00:00", "gate_parked"),
+    ):
+        audit.append(
+            AuditEvent(
+                ts=ts,
+                run_id=RUN_ID,
+                agent_id="orchestrator",
+                role="platform",
+                tool="gate.budget",
+                args_digest="d",
+                decision="deny",
+                rule=rule,
+                latency_ms=0,
+                backend_status=None,
+                source="process-gate",
+            )
+        )
+    last = audit.last_at(RUN_ID, "gate.budget", "gate_parked")
+    assert last.isoformat() == "2026-01-01T02:00:00+00:00"
+    assert audit.last_at(RUN_ID, "gate.merge", "gate_parked") is None
+
+
 def test_count_allowed_counts_answered_allows_only(registry: Registry):
     """A per-run cap reads the calls the gateway allowed and the host
     answered; a deny or a failed backend does not spend the cap."""

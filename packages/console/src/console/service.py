@@ -18,7 +18,6 @@ the signal.
 """
 
 import asyncio
-import hashlib
 import time
 from collections.abc import Callable
 from typing import Any
@@ -27,7 +26,7 @@ import yaml
 
 from blueprint import validate_blueprint
 from blueprint.validate import ValidationError
-from common.audit import AuditEvent, args_digest
+from common.audit import AuditEvent, args_digest, gate_event
 from common.console import (
     ActList,
     ActView,
@@ -74,9 +73,11 @@ from common.policy import (
 from common.telemetry import get_logger
 from common.topology import BLUEPRINT_LIMIT_BYTES
 from common.workflows import (
+    GATE_PARKED,
     GATES_OF,
     HUMAN_STARTABLE,
     RUN_STATUS_RUNNING,
+    gate_rule,
     heartbeat_run_id,
     workflow_id,
 )
@@ -88,7 +89,7 @@ from compiler import (
     diff_plan,
 )
 from compiler.errors import CompileError
-from console import acts, views
+from console import acts, crs, views
 from console.config import ConsoleSettings
 from console.documents import Documents
 from console.temporal import AlreadyStarted, WorkflowNotFound, Workflows
@@ -105,10 +106,17 @@ from registry import (
 
 BOOTSTRAP_RULE = "blueprint_apply_bootstrap"
 
+# What a human start works on, per workflow: the reader of the attempts
+# that hold an item, what the item is called, and the payload key naming it.
+_WORK_ITEMS = {
+    "implement": ("issue_attempts", "ticket", "issue_number"),
+    "review": ("review_attempts", "pull request", "pr_number"),
+}
+
 
 class PolicyDenied(Exception):
     def __init__(self, rule: str) -> None:
-        super().__init__(f"denied by policy: {rule}")
+        super().__init__(acts.policy_detail(rule))
         self.rule = rule
 
 
@@ -191,11 +199,11 @@ class ConsoleService:
         args: dict[str, Any],
         company: str,
         run_id: str = "",
-        bootstrap_rule: str | None = None,
     ) -> dict[str, Any]:
         """What policy answers this person for this act — the one question
-        an act and its preview both ask. The first apply of a company no
-        policy is served for is the bootstrap rule's to allow."""
+        an act and its preview both ask. The one act policy cannot decide
+        is the first apply: no bundle is served for a company before its
+        Company CR installs one, so the bootstrap rule allows it."""
         decision_input = {
             "company": company,
             "agent_id": identity.agent_id,
@@ -211,45 +219,9 @@ class ConsoleService:
         decision = await evaluate_decision(
             self._settings.opa_url, company, decision_input
         )
-        if (
-            bootstrap_rule is not None
-            and not decision.get("allow")
-            and decision.get("rule") == NO_POLICY_RULE
-        ):
-            return {"allow": True, "rule": bootstrap_rule}
+        if tool == BLUEPRINT_APPLY and decision.get("rule") == NO_POLICY_RULE:
+            return {"allow": True, "rule": BOOTSTRAP_RULE}
         return decision
-
-    async def _record(
-        self,
-        identity: Identity,
-        tool: str,
-        args: dict[str, Any],
-        decision: dict[str, Any],
-        *,
-        company: str,
-        run_id: str = "",
-        workflow: str = "",
-        started: float,
-        rationale: str | None = None,
-    ) -> None:
-        event = AuditEvent(
-            run_id=run_id,
-            agent_id=identity.agent_id,
-            role=identity.role,
-            tool=tool,
-            args_digest=args_digest(args),
-            decision="allow" if decision.get("allow") else "deny",
-            rule=str(decision.get("rule") or ""),
-            rationale=rationale,
-            latency_ms=int((time.monotonic() - started) * 1000),
-            backend_status=None,
-            source="console",
-            company=company,
-            lifecycle=identity.lifecycle,
-            workflow=workflow,
-        )
-        await asyncio.to_thread(self._audit.append, event)
-        self._log.info("audit", extra=event.model_dump())
 
     async def _act(
         self,
@@ -260,7 +232,6 @@ class ConsoleService:
         company: str,
         run_id: str = "",
         workflow: str = "",
-        bootstrap_rule: str | None = None,
         rationale: str | None = None,
     ) -> dict[str, Any]:
         """Decide the act and audit the answer; raise on deny. Returns the
@@ -270,22 +241,28 @@ class ConsoleService:
         is the person's own reason, recorded on the row whatever policy
         answered."""
         started = time.monotonic()
-        decision = await self._decision(
-            identity, tool, args, company, run_id, bootstrap_rule
-        )
-        await self._record(
-            identity,
-            tool,
-            args,
-            decision,
-            company=company,
+        decision = await self._decision(identity, tool, args, company, run_id)
+        refused = acts.refused_rule(decision)
+        event = AuditEvent(
             run_id=run_id,
-            workflow=workflow,
-            started=started,
+            agent_id=identity.agent_id,
+            role=identity.role,
+            tool=tool,
+            args_digest=args_digest(args),
+            decision="deny" if refused else "allow",
+            rule=refused or str(decision["rule"]),
             rationale=rationale,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            backend_status=None,
+            source="console",
+            company=company,
+            lifecycle=identity.lifecycle,
+            workflow=workflow,
         )
-        if not decision.get("allow"):
-            raise PolicyDenied(str(decision.get("rule") or "default_deny"))
+        await asyncio.to_thread(self._audit.append, event)
+        self._log.info("audit", extra=event.model_dump())
+        if refused:
+            raise PolicyDenied(refused)
         return decision
 
     # -- the blueprint --------------------------------------------------------
@@ -362,16 +339,12 @@ class ConsoleService:
             BLUEPRINT_APPLY,
             acts.apply_args(plan.company.name),
             company=plan.company.name,
-            bootstrap_rule=BOOTSTRAP_RULE,
         )
         # The text itself rides the Company CR, the record of intent: the
         # compiled spec is not the blueprint and cannot be applied again.
-        source = {
-            "text": blueprint_text,
-            "sha256": hashlib.sha256(blueprint_text.encode()).hexdigest(),
-            "appliedBy": identity.agent_id,
-            "appliedAt": await asyncio.to_thread(self._clock),
-        }
+        source = crs.blueprint_source(
+            blueprint_text, identity.agent_id, await asyncio.to_thread(self._clock)
+        )
         created, updated, generation = await asyncio.to_thread(self._submit, plan, source)
         return ApplyResult(
             company=plan.company.name,
@@ -392,12 +365,12 @@ class ConsoleService:
         if cr is None:
             raise NoCompany("no company is applied")
         company = cr["metadata"]["name"]
-        paused = await asyncio.to_thread(self._companies.paused, company)
-        spec = await self._spec(company)
-        limits = None
-        if spec is not None:
-            spent = await asyncio.to_thread(self._ledger.spent_today, company)
-            limits = views.limits_view(spec, spent)
+        paused, spec, spent = await asyncio.gather(
+            asyncio.to_thread(self._companies.paused, company),
+            self._spec(company),
+            asyncio.to_thread(self._ledger.spent_today, company),
+        )
+        limits = views.limits_view(spec, spent) if spec is not None else None
         return views.company_view(cr, paused, limits)
 
     async def blueprint(self) -> BlueprintView:
@@ -489,14 +462,9 @@ class ConsoleService:
         started into the registry's one-live-run index — which stays the
         backstop for a start that races this read."""
         company = await self._company()
-        attempts = await asyncio.to_thread(
-            self._runs.issue_attempts
-            if workflow == "implement"
-            else self._runs.review_attempts,
-            company,
-        )
+        reader, item, key = _WORK_ITEMS[workflow]
+        attempts = await asyncio.to_thread(getattr(self._runs, reader), company)
         if number in attempts and attempts[number].live:
-            item = "ticket" if workflow == "implement" else "pull request"
             raise Invalid(
                 f"a live {workflow} run already holds {item} #{number};"
                 " one live run per work item"
@@ -511,7 +479,6 @@ class ConsoleService:
             run_id=run_id,
             workflow=wf_id,
         )
-        key = "issue_number" if workflow == "implement" else "pr_number"
         try:
             await self._workflows.start(workflow, run_id, {"run_id": run_id, key: number})
         except AlreadyStarted as exc:
@@ -602,38 +569,46 @@ class ConsoleService:
         except WorkflowNotFound:
             return views.missing_execution(wf_id)
 
-    async def _parked(
-        self, record: RunRecord, execution: ExecutionView
-    ) -> ParkedView | None:
-        """Where the run waits, if its execution says it is parked: since
-        its `parked` gate row, for the deadline the applied spec gives
-        the gate."""
+    async def _deadlines(self, company: str) -> dict[str, int]:
+        """How long each gate waits, by the applied spec; none before the
+        company has converged."""
+        spec = await self._spec(company)
+        return views.gate_deadlines(spec) if spec else {}
+
+    async def _inspected(
+        self, record: RunRecord, deadlines: dict[str, int]
+    ) -> tuple[ExecutionView, ParkedView | None]:
+        """The run's execution and, if it is parked, where it waits: since
+        its latest `parked` gate row, for the gate's deadline."""
+        execution = await self._execution(views.run_workflow_id(record))
         gate = views.parked_gate(execution)
         if gate is None:
-            return None
-        story = await asyncio.to_thread(self._audit.story, record.run_id)
-        spec = await self._spec(record.company or "")
-        deadline = views.gate_deadlines(spec).get(gate) if spec else None
-        return views.parked_view(gate, views.park_since(story, gate), deadline)
+            return execution, None
+        since = await asyncio.to_thread(
+            self._audit.last_at, record.run_id, gate_event(gate), gate_rule(GATE_PARKED)
+        )
+        return execution, views.parked_view(gate, since, deadlines.get(gate))
 
     async def run(self, run_id: str) -> RunDetail:
-        record, wf_id = await asyncio.to_thread(self._run_of, run_id)
-        execution = await self._execution(wf_id)
-        return views.run_detail(record, execution, await self._parked(record, execution))
+        record, _ = await asyncio.to_thread(self._run_of, run_id)
+        execution, parked = await self._inspected(
+            record, await self._deadlines(record.company or "")
+        )
+        return views.run_detail(record, execution, parked)
 
     async def runs_since(self, since: str | None, parked_only: bool = False) -> RunList:
         """The company's runs since a fence. The ones still running are
         inspected, all at once, so each says whether it is parked."""
         company = await self._company()
-        records = await asyncio.to_thread(self._runs.since, company, since)
+        records, deadlines = await asyncio.gather(
+            asyncio.to_thread(self._runs.since, company, since),
+            self._deadlines(company),
+        )
         running = [r for r in records if r.status == RUN_STATUS_RUNNING]
-        executions = await asyncio.gather(
-            *(self._execution(views.run_workflow_id(r)) for r in running)
+        inspected = await asyncio.gather(
+            *(self._inspected(r, deadlines) for r in running)
         )
-        parks = await asyncio.gather(
-            *(self._parked(r, e) for r, e in zip(running, executions, strict=True))
-        )
-        parked = {r.run_id: park for r, park in zip(running, parks, strict=True)}
+        parked = {r.run_id: park for r, (_, park) in zip(running, inspected, strict=True)}
         listed = [views.run_view(r, parked.get(r.run_id)) for r in records]
         if parked_only:
             listed = [view for view in listed if view.parked is not None]
@@ -784,21 +759,37 @@ class ConsoleService:
         nothing."""
         decision = None
         if refusal is None:
-            bootstrap = BOOTSTRAP_RULE if act == BLUEPRINT_APPLY else None
-            decision = await self._decision(
-                identity, act, args, company, run_id, bootstrap
-            )
+            decision = await self._decision(identity, act, args, company, run_id)
         return views.act_view(act, args, refusal, decision)
+
+    async def _previews(
+        self,
+        identity: Identity,
+        company: str,
+        plans: list[tuple[str, dict[str, Any], str, str | None]],
+    ) -> list[ActView]:
+        """Every `(act, args, run_id, state refusal)` previewed, policy's
+        questions asked all at once."""
+        return list(
+            await asyncio.gather(
+                *(
+                    self._preview(identity, act, args, company, run_id, refusal)
+                    for act, args, run_id, refusal in plans
+                )
+            )
+        )
 
     async def acts(self, identity: Identity) -> ActList:
         """The company's acts as this person could ask for them now:
         apply, delete, wake, pause, resume, and a start per workflow a
         human may start. Policy's questions are asked all at once."""
         company = await self._company()
-        paused = await asyncio.to_thread(self._companies.paused, company)
-        heartbeat = await self._execution(workflow_id("heartbeat", company))
+        paused, heartbeat = await asyncio.gather(
+            asyncio.to_thread(self._companies.paused, company),
+            self._execution(workflow_id("heartbeat", company)),
+        )
         loop = heartbeat_run_id(company)
-        previews = [
+        plans = [
             (BLUEPRINT_APPLY, acts.apply_args(company), "", None),
             (COMPANY_DELETE, acts.NO_ARGS, "", None),
             (HEARTBEAT_WAKE, acts.NO_ARGS, loop, acts.wake_refusal(company, heartbeat)),
@@ -809,36 +800,29 @@ class ConsoleService:
                 for workflow in HUMAN_STARTABLE
             ),
         ]
-        answered = await asyncio.gather(
-            *(
-                self._preview(identity, act, args, company, run_id, refusal)
-                for act, args, run_id, refusal in previews
-            )
-        )
-        return ActList(run_id=None, acts=list(answered))
+        return ActList(run_id=None, acts=await self._previews(identity, company, plans))
 
     async def run_acts(self, identity: Identity, run_id: str) -> ActList:
         """The run's acts as this person could ask for them now: cancel,
         and a verdict per gate its workflow has, approved or not."""
         record, wf_id = await asyncio.to_thread(self._run_of, run_id)
         execution = await self._execution(wf_id)
-        company = record.company or ""
-        previews = [
-            (RUN_CANCEL, acts.cancel_args(run_id), acts.cancel_refusal(record, execution))
+        plans = [
+            (
+                RUN_CANCEL,
+                acts.cancel_args(run_id),
+                run_id,
+                acts.cancel_refusal(record, execution),
+            )
         ]
         for gate in GATES_OF.get(record.workflow, ()):
             refusal = acts.verdict_refusal(record, gate, execution)
-            previews += [
-                (GATE_RESOLVE, acts.verdict_args(gate, run_id, approved), refusal)
+            plans += [
+                (GATE_RESOLVE, acts.verdict_args(gate, run_id, approved), run_id, refusal)
                 for approved in (True, False)
             ]
-        answered = await asyncio.gather(
-            *(
-                self._preview(identity, act, args, company, run_id, refusal)
-                for act, args, refusal in previews
-            )
-        )
-        return ActList(run_id=run_id, acts=list(answered))
+        answered = await self._previews(identity, record.company or "", plans)
+        return ActList(run_id=run_id, acts=answered)
 
     async def now(self) -> Now:
         """The registry's clock — the fence a reader takes before acting so

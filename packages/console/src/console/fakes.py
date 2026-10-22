@@ -24,8 +24,10 @@ import yaml
 from fastapi import FastAPI
 
 from common.authn import Principal
+from common.console import EXECUTION_RUNNING
 from common.policy import GATE_RESOLVE, verdict_rule
 from common.topology import COMPANY_NAMESPACE, CONSOLE_TOKEN_AUDIENCE, PLATFORM_NAMESPACE
+from common.workflows import RUN_RUNNING, workflow_id
 from compiler import DeploymentPlan, compile_blueprint
 from console import crs
 from console import service as service_module
@@ -88,9 +90,9 @@ class FakeWorkflows:
         self.running: dict[str, str] = {}
 
     async def start(self, workflow: str, key: str, payload: dict[str, Any]) -> str:
-        wf_id = f"{workflow}-{key}"
+        wf_id = workflow_id(workflow, key)
         self.calls.append(("start", (workflow, key, payload)))
-        self.running[wf_id] = "running"
+        self.running[wf_id] = RUN_RUNNING
         return wf_id
 
     async def signal(self, wf_id: str, name: str, args: list[Any]) -> None:
@@ -106,7 +108,11 @@ class FakeWorkflows:
     async def inspect(self, wf_id: str) -> dict[str, Any]:
         if wf_id not in self.running:
             raise WorkflowNotFound(wf_id)
-        return {"workflow_id": wf_id, "status": "RUNNING", "state": self.running[wf_id]}
+        return {
+            "workflow_id": wf_id,
+            "status": EXECUTION_RUNNING,
+            "state": self.running[wf_id],
+        }
 
 
 class FakeDocuments:

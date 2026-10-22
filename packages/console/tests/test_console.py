@@ -15,7 +15,6 @@ What must hold:
 
 import asyncio
 import hashlib
-from pathlib import Path
 
 import httpx
 import pytest
@@ -24,7 +23,6 @@ import yaml
 from blueprint.bounds import render_bounds
 from common.audit import HEARTBEAT_TICK, AuditEvent, gate_event
 from common.console import (
-    ROUTES,
     AgentList,
     ApplyResult,
     BlueprintView,
@@ -69,20 +67,15 @@ from common.policy import (
 from common.text import UNTRUSTED_CLIP, clip_head
 from common.topology import BLUEPRINT_LIMIT_BYTES, PLATFORM_NAMESPACE
 from common.workflows import GATE_PARKED, gate_rule
+from console import fakes
 from console.config import ConsoleSettings
 from console.fakes import COMPANY, World, applied_spec, as_owner, company_cr
 
 pytestmark = pytest.mark.anyio
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-HELLO_SAAS = (REPO_ROOT / "examples" / "hello-saas.yaml").read_text()
+HELLO_SAAS = fakes.HELLO_SAAS.read_text()
 PLATFORM_NS = PLATFORM_NAMESPACE
 RUN_ID = "run-01CONSOLE"
-
-
-@pytest.fixture
-def anyio_backend() -> str:
-    return "asyncio"
 
 
 def model(cls, response: httpx.Response):
@@ -961,20 +954,6 @@ async def test_before_it_converges_a_company_has_no_limits_and_no_bounds(client,
     for path in ("/company/bounds", "/agents", "/tickets"):
         response = await client.get(path, headers=as_owner())
         assert response.status_code == 404, (path, response.text)
-
-
-def test_the_route_table_matches_the_app():
-    """The documentation renders the interface's ROUTES; every route the
-    app serves is in it and nothing more."""
-    app = World().app()
-    served = {
-        (method, route.path)
-        for route in app.routes
-        if hasattr(route, "methods")
-        for method in route.methods
-        if method != "HEAD" and not route.path.startswith(("/docs", "/redoc", "/openapi"))
-    }
-    assert served == {(r.method, r.path) for r in ROUTES}
 
 
 def test_settings_split_the_declared_humans():

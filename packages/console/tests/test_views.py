@@ -48,10 +48,13 @@ def test_the_service_builds_no_response_dicts():
             raise AssertionError(f"service.py:{node.lineno} reads a record's dict")
 
 
-def test_every_served_route_declares_its_interface_model():
+def test_every_served_route_declares_its_interface_models():
+    """The app serves the interface's route table and nothing more, each
+    route with its response model and, for an act with a body, its request
+    model — the documentation renders the same table."""
     app = World().app()
     served = {
-        (method, route.path): route.response_model
+        (method, route.path): route
         for route in app.routes
         if hasattr(route, "methods")
         for method in route.methods
@@ -59,8 +62,11 @@ def test_every_served_route_declares_its_interface_model():
     }
     assert set(served) == {(r.method, r.path) for r in ROUTES}
     for entry in ROUTES:
-        assert served[(entry.method, entry.path)] is entry.response, entry
+        route = served[(entry.method, entry.path)]
+        assert route.response_model is entry.response, entry
         assert entry.response.__module__ == models.__name__
+        body = route.body_field.field_info.annotation if route.body_field else None
+        assert body is entry.request, (entry, body)
 
 
 def test_temporals_statuses_are_the_interfaces():
@@ -69,12 +75,6 @@ def test_temporals_statuses_are_the_interfaces():
         *enums.TEMPORAL_STATUSES,
         enums.EXECUTION_NOT_FOUND,
     }
-
-
-def test_the_document_kinds_are_the_blueprints():
-    from blueprint.documents import DOCUMENT_NAMES
-
-    assert enums.DOCUMENT_KINDS == DOCUMENT_NAMES
 
 
 def test_an_audit_row_reaches_a_client_without_its_digest():

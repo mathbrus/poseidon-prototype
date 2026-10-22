@@ -27,24 +27,25 @@ from __future__ import annotations
 import argparse
 import asyncio
 import difflib
-import hashlib
 import json
 import logging
 import os
 import subprocess
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from common.audit import HEARTBEAT_TICK, REVIEW_VERDICT, AuditEvent, gate_event
 from common.console import ROUTES, Route
+from common.identity import LIFECYCLE_PLATFORM, ORCHESTRATOR_ID, PLATFORM_ROLE
 from common.tasks import issue_run_task, review_run_task
 from common.topology import COMPANY_NAMESPACE, PHASE_CONVERGED
 from common.version import VERSION_VAR
 from common.workflows import (
     GATE_PARKED,
+    HEARTBEAT_SLEEPING,
     MERGE_GATE,
     PARKED_STATE,
     TICK_IDLE,
@@ -54,13 +55,15 @@ from common.workflows import (
     tick_rule,
     workflow_id,
 )
+from console import fakes
+from console.crs import blueprint_source
 from console.fakes import COMPANY, World, applied_spec, as_owner, company_cr
 
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "packages" / "console" / "openapi.json"
 EXAMPLES = ROOT / "packages" / "console" / "examples"
 SNAPSHOT_PATH = SNAPSHOT.relative_to(ROOT).as_posix()
-HELLO_SAAS = (ROOT / "examples" / "hello-saas.yaml").read_text()
+HELLO_SAAS = fakes.HELLO_SAAS.read_text()
 
 REPO = "https://github.com/acme/hello-saas"
 IMPLEMENTER = "feature-delivery-implementer-run-01implement"
@@ -99,12 +102,9 @@ def seeded() -> World:
         bundleRevision="9f2c41d0",
         message="",
     )
-    world.cr["spec"]["blueprintSource"] = {
-        "text": HELLO_SAAS,
-        "sha256": hashlib.sha256(HELLO_SAAS.encode()).hexdigest(),
-        "appliedBy": "owner",
-        "appliedAt": "2025-12-31T23:00:00+00:00",
-    }
+    world.cr["spec"]["blueprintSource"] = blueprint_source(
+        HELLO_SAAS, "owner", "2025-12-31T23:00:00+00:00"
+    )
     world.instances.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY_NAMESPACE)
 
     runs = world.runs
@@ -127,8 +127,8 @@ def seeded() -> World:
     )
     runs.record_verdict(REVIEW_RUN, "pass")
     runs.rows[REVIEW_RUN].created_at = "2025-12-31T23:55:00+00:00"
-    world.workflows.running[workflow_id("review", REVIEW_RUN)] = PARKED_STATE["merge"]
-    world.workflows.running[workflow_id("heartbeat", COMPANY)] = "sleeping"
+    world.workflows.running[workflow_id("review", REVIEW_RUN)] = PARKED_STATE[MERGE_GATE]
+    world.workflows.running[workflow_id("heartbeat", COMPANY)] = HEARTBEAT_SLEEPING
     world.run_ids = [STARTED_RUN]
 
     world.documents.files[applied_spec()["documents"]["strategy"]] = (
@@ -148,7 +148,11 @@ def seeded() -> World:
     )
 
     heartbeat = heartbeat_run_id(COMPANY)
-    platform = {"agent_id": "orchestrator", "role": "platform", "lifecycle": "platform"}
+    platform = {
+        "agent_id": ORCHESTRATOR_ID,
+        "role": PLATFORM_ROLE,
+        "lifecycle": LIFECYCLE_PLATFORM,
+    }
     for event in (
         _row(
             "2025-12-31T23:39:00+00:00",
@@ -279,7 +283,7 @@ REQUESTS: dict[tuple[str, str], tuple[str, dict[str, Any], dict[str, Any] | None
 }
 
 # A world to prepare before a route's request, beyond the seed.
-PREPARE: dict[tuple[str, str], Callable[[World], Awaitable[None] | None]] = {
+PREPARE: dict[tuple[str, str], Callable[[World], Any]] = {
     ("POST", "/heartbeat/resume"): lambda w: w.companies.pause(COMPANY, "owner"),
 }
 
@@ -295,9 +299,7 @@ async def _example(entry: Route) -> dict[str, Any]:
     world.patch(setattr)
     prepare = PREPARE.get((entry.method, entry.path))
     if prepare is not None:
-        prepared = prepare(world)
-        if asyncio.iscoroutine(prepared):
-            await prepared
+        prepare(world)
     path, params, body = REQUESTS[(entry.method, entry.path)]
     async with world.client() as client:
         response = await client.request(
@@ -402,13 +404,6 @@ def check() -> int:
 
 
 # -- breaking changes ----------------------------------------------------------
-
-
-def _resolve(document: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
-    ref = schema.get("$ref")
-    if ref:
-        return document["components"]["schemas"][ref.rsplit("/", 1)[1]]
-    return schema
 
 
 def _shape(document: dict[str, Any], schema: dict[str, Any]) -> Any:

@@ -8,6 +8,8 @@ wrong task queue would fail silently, and a heartbeat audit story keyed
 on a different id than the one the loop writes would be empty.
 """
 
+from datetime import timedelta
+
 # The workflows a run id (or, for the heartbeat, a company) addresses.
 # The `heartbeat` workflow is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats,
@@ -39,6 +41,15 @@ GATES = (MERGE_GATE, BUDGET_GATE)
 ATTEMPTS_GATE = "heartbeat_attempts"
 BOOTSTRAP_GATE = "heartbeat_bootstrap_exhausted"
 DAILY_CAP_GATE = "heartbeat_daily_cap"
+
+
+def gate_timer(deadline_minutes: int) -> tuple[timedelta, timedelta]:
+    """A gate's timer from its declared wait: `(escalate_after, expire_after)`
+    — escalation halfway, expiry at the deadline. The workflow parks on it;
+    the console says when a parked run escalates and expires by it."""
+    return timedelta(seconds=deadline_minutes * 30), timedelta(minutes=deadline_minutes)
+
+
 # Which gates each run-shaped workflow has: a verdict on a gate a run
 # cannot park on is refused before policy is asked.
 GATES_OF = {

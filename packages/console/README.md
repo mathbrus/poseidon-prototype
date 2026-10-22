@@ -68,8 +68,8 @@ All in `tests/test_console.py` unless noted.
 - A delete ends the runs first: `test_deleting_the_company_is_decided_audited_and_ends_its_runs_first`.
 - One company per cluster: `test_another_companys_blueprint_is_refused_while_one_is_applied`.
 - Reads touch nothing: `test_the_reads_need_a_human_and_touch_nothing`.
-- The route table matches the app: `test_the_route_table_matches_the_app`.
-- Every served route declares its interface model, and the service builds no response dicts: `test_views.py`.
+- The app serves exactly the interface's route table, each route with its request and response models, and the service builds no response dicts: `test_views.py`.
+- Every act's preview answers as the act does, for a human the company names and one it does not: `test_acts.py`.
 - The Company CR carries the policies section: `test_crs.py::test_the_cr_carries_the_policies_section`.
 - The applied blueprint reads back byte for byte, and a blueprint over the limit is refused: `test_the_applied_blueprint_reads_back_byte_for_byte`, `test_a_blueprint_over_the_limit_is_refused`.
 

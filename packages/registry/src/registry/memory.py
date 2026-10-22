@@ -64,6 +64,14 @@ class InMemoryAuditStore:
             "ts": last.ts,
         }
 
+    def last_at(self, run_id: str, tool: str, rule: str) -> Any:
+        matching = [
+            e.ts
+            for e in self.events
+            if e.run_id == run_id and e.tool == tool and e.rule == rule
+        ]
+        return max(matching) if matching else None
+
     def after(
         self, company: str, after: int, run_id: str | None = None, limit: int = 500
     ) -> list[dict[str, Any]]:

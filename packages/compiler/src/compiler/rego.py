@@ -41,6 +41,7 @@ from common.policy import (
     COMPANY_DELETE,
     CONSOLE_READ_DOCUMENT,
     CREW_REQUEST,
+    DEFAULT_DENY,
     GATE_RESOLVE,
     GIT_OPEN_PR_ARCHITECTURE_PATH,
     GIT_OPEN_PR_BRANCH_PATTERN,
@@ -78,7 +79,7 @@ package {package}
 import rego.v1
 
 # Default deny: a caller with no matching allow rule gets nothing.
-default decision := {{"allow": false, "rule": "default_deny"}}
+default decision := {{"allow": false, "rule": "{default_deny}"}}
 
 decision := {{"allow": false, "rule": min(deny_rules)}} if {{
 	count(deny_rules) > 0
@@ -202,7 +203,11 @@ def _run_binding(tool: str) -> str:
 def _decision_file(package: str, *rules: str) -> str:
     """The bundle's entrypoint file: the default-deny decision, then any
     rules that belong beside it rather than in a per-role file."""
-    return HEADER + _DECISION.format(package=package) + "".join(rules)
+    return (
+        HEADER
+        + _DECISION.format(package=package, default_deny=DEFAULT_DENY)
+        + "".join(rules)
+    )
 
 
 def _rego_file(company: str, body: str) -> str:
