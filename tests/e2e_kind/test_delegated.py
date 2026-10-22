@@ -22,6 +22,11 @@ by paying for more unattended cluster runs here:
   escalates to the human — `test_review_workflow` (exhausted chain) and
   `test_review_activities` (depth-from-lineage) prove it exactly.
 
+One refusal is proven here on the cluster, because it is positional: a
+reviewer holds a shell in its sandbox, so the platform verifies the head
+before any reviewer holds it. A red pull request carrying the tampering
+reviewer's marker files rework with no reviewer dispatched at all.
+
 So this capstone pins the one thing only a full unattended cluster run can
 show: passing in-class work reaches `main` with no human anywhere.
 
@@ -36,16 +41,22 @@ import secrets
 import pytest
 import yaml
 
-from common.audit import REVIEW_VERDICT
+from common.audit import LIFECYCLE_FULFILL, REVIEW_VERDICT
 from common.policy import HEARTBEAT_START, MERGE_RESOLVE
 from common.tasks import review_run_task
-from mock_brain.brain import CONTRACT_FIRST_MARKER, CONTRACT_TEST_PATH, NEXT_SLICE_MARKER
+from mock_brain.brain import (
+    CONTRACT_FIRST_MARKER,
+    CONTRACT_TEST_PATH,
+    NEXT_SLICE_MARKER,
+    TAMPERING_REVIEW_MARKER,
+)
 
-from .blueprints import DELEGATED, restore_pristine
+from .blueprints import DELEGATED, may_start, restore_pristine
 from .cluster import (
     audit_story,
     await_run,
     bare_heartbeat_id,
+    console,
     participants,
     run_spend,
 )
@@ -58,6 +69,7 @@ from .conftest import (
     gate_merge_rules,
     github_api,
     open_slice_strategy,
+    open_world_pr,
     pr_number,
     restore_strategy,
     run_review,
@@ -375,3 +387,79 @@ def test_the_contract_arc_stayed_within_budget(contract_first: dict):
     for key in ("scope", "contract_implement", "implement"):
         spend = run_spend(contract_first[key]["run_id"])
         assert 0 <= spend < 5.0, f"{key} overspent: {spend}"
+
+
+# -- a reviewer that tampers with its sandbox moves no check ----------------
+
+# A pull request whose own suite is red, carrying the marker that makes the
+# mock reviewer rewrite its sandbox (a conftest.py that collects nothing)
+# and pass. Under the delegated gate the platform verifies the head first.
+RED_TEST_PY = (
+    f"# {TAMPERING_REVIEW_MARKER}: the reviewer is told to make this suite"
+    " collect nothing.\n"
+    "def test_this_pull_request_is_red():\n"
+    '    assert False, "this pull request\'s suite is red"\n'
+)
+
+
+@pytest.fixture(scope="module")
+def tampered_review(stack: None, baseline_env: dict) -> dict:
+    """A red pull request the world opened, reviewed by a person's start
+    under the delegated gate. The loop may only scope here, so it neither
+    reviews the PR on its own nor implements the rework ticket the
+    platform files; the module closes both."""
+    env = baseline_env
+    apply_profile(may_start(DELEGATED, "scope"), env)
+    nonce = secrets.token_hex(3)
+    result: dict = {"env": env}
+    try:
+        number = open_world_pr(
+            env,
+            f"feature/tamper-{nonce}",
+            {f"tests/unit/test_tamper_{nonce}.py": RED_TEST_PY},
+            f"Tighten the unit suite ({nonce})",
+        )
+        result["pr_number"] = number
+        result["run_id"] = console().start_run("review", number).run_id
+        result["review"] = await_run(
+            review_run_task(number), terminal=True, workflow="review"
+        )
+        result["story"] = audit_story(result["run_id"])
+        result["pr"] = github_api(
+            env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
+        ).json()
+        ticket = re.search(r"/issues/(\d+)", result["review"].get("error") or "")
+        result["rework_issue"] = int(ticket.group(1)) if ticket else None
+        yield result
+    finally:
+        close_pr(env, result.get("pr_number") or 0)
+        close_issue(env, result.get("rework_issue"))
+        restore_pristine()
+
+
+def test_a_red_head_files_rework_before_any_reviewer(tampered_review: dict):
+    """The platform's verify of record ran on the sandbox as provisioned,
+    went red and filed the rework: no crew was fulfilled, so no reviewer
+    ever held a shell in a sandbox a platform check would read."""
+    record = tampered_review["review"]
+    assert record["status"] == "failed", record
+    assert "platform verify red" in record["error"], record["error"]
+    assert tampered_review["rework_issue"], record["error"]
+    story = tampered_review["story"]
+    verifies = [
+        e
+        for e in story
+        if e["tool"] == "sandbox.run_tests" and e["lifecycle"] == "platform"
+    ]
+    assert verifies, "no platform verify in the story"
+    assert not any(e["tool"] == LIFECYCLE_FULFILL for e in story), (
+        "a reviewer was fulfilled for a head the platform had refused"
+    )
+    assert not any(e["tool"] == REVIEW_VERDICT for e in story)
+
+
+def test_the_red_pr_merged_nothing_and_was_superseded(tampered_review: dict):
+    pr = tampered_review["pr"]
+    assert pr["merged"] is False
+    assert pr["state"] == "closed"  # the rework ticket supersedes it
+    assert not any(e["tool"] == "git.merge_pr" for e in tampered_review["story"])

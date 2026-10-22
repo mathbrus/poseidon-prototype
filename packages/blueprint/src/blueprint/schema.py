@@ -329,8 +329,9 @@ _WORKFLOWS = {
                 "max_verify_retries": {
                     "type": "integer",
                     "minimum": 0,
-                    "description": "How many times a failed test run sends the"
-                    " implementer back to work before the run fails.",
+                    "description": "How many times the platform sends the"
+                    " implementer back to work, after a failed test run or a"
+                    " delivery policy refused, before the run fails.",
                 }
             },
         ),

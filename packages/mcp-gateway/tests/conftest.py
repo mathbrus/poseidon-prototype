@@ -45,6 +45,8 @@ OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
 REPO = "github.test/example/target"
 PR_URL = "https://github.test/example/pull/1"
+# The open PR's head commit, what a pinned merge must name.
+HEAD_SHA = "f00d5ha"
 BRANCH_PATTERN = r"^feature/[a-z0-9-]+$"
 FEATURE_BRANCH_RE = re.compile(BRANCH_PATTERN)
 
@@ -76,7 +78,7 @@ SANDBOX_RESPONSES = {
     "/files/read": {"content": "hello from sandbox"},
     "/files/write": {"ok": True},
     "/files/edit": {"ok": True, "snippet": "     1\tx"},
-    "/files/list": {"entries": [{"name": "README.md", "type": "file"}]},
+    "/files/list": {"files": ["README.md"], "omitted": 0},
     "/exec": {"exit_code": 0, "stdout": "ran", "stderr": ""},
     "/tests": {"exit_code": 0, "stdout": "1 passed", "stderr": ""},
     "/bundle": {"bundle_b64": "YnVuZGxl", "base_ref": "main"},
@@ -284,13 +286,16 @@ class Backends:
                     "body": "",
                     "html_url": PR_URL,
                     "merged": False,
-                    "head": {"ref": "feature/x"},
+                    "head": {"ref": "feature/x", "sha": HEAD_SHA},
                     "base": {"ref": "main"},
                 },
             )
         if method == "PATCH" and "/pulls/" in path:
             return httpx.Response(200, json={"number": 5, **payload})
         if method == "PUT" and path.endswith("/merge"):
+            # GitHub refuses a merge whose expected head is not the PR's.
+            if payload.get("sha") != HEAD_SHA:
+                return httpx.Response(409, json={"message": "Head branch was modified"})
             return httpx.Response(200, json={"merged": True, "sha": "abc123"})
         return httpx.Response(404, json={"message": f"unstubbed {method} {path}"})
 

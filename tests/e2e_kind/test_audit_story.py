@@ -29,8 +29,9 @@ def test_story_covers_the_whole_run(implement_run: dict) -> None:
     # The run's whole arc: sandbox registered, workspace fetched,
     # the crew stood up (request recorded under the conductor's authority,
     # agents bound, their pods provisioned, fulfillment), files
-    # written, tests run, work committed, bundle pulled, PR opened, and the
-    # crew revoked at teardown.
+    # written, tests run, the changes read for delivery, the workspace
+    # committed and bundled by the platform, PR opened, and the crew
+    # revoked at teardown.
     assert {
         "/admin/sandboxes",
         "repo.archive",

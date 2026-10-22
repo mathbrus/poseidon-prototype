@@ -54,10 +54,12 @@ from agent_host.hands import (
     IMPLEMENT_TOOLS,
     REVIEW_TOOLS,
     SCOPE_TOOLS,
+    SHELL_CLIP,
     WORKSPACE_TOOLS,
     HandsContext,
     ToolRecords,
     hands,
+    shell_text,
 )
 from agent_host.models import family_of
 from agent_host.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_context
@@ -76,9 +78,12 @@ SCOPE_STEP_CAP = 10
 # blueprint's `max_verify_retries` bound the run; these bound one dispatch.
 IMPLEMENT_STEP_CAP = 20
 VERIFY_CYCLES = 10
-# One SDK step is one delivery attempt (commit + open_pr); a denied
-# attempt and its recovery must fit.
+# One SDK step is one delivery attempt (open_pr); a denied attempt and its
+# recovery must fit.
 DELIVER_STEP_CAP = 4
+# What the deliver dispatch opens on: the work the platform is about to
+# commit, against the base ref the sandbox recorded.
+_CHANGES_CMD = 'git status --short && git --no-pager diff --stat "$(cat .poseidon-base)"'
 # Read the diff, run the suite, post findings, judge.
 REVIEW_STEP_CAP = 30
 # Condensation is real context machinery for a real model; the sizes keep it
@@ -87,7 +92,6 @@ CONDENSER_MAX_SIZE = 120
 CONDENSER_KEEP_FIRST = 4
 # Tool calls from one reply that may run at once — only ever reads.
 TOOL_CONCURRENCY = 4
-_OUTPUT_CLIP = 4000
 
 log = get_logger("agent_host.procedures")
 
@@ -114,6 +118,11 @@ class ProcedureResult(BaseModel):
     # chosen next action. The PM proposes; the platform validates,
     # authorizes and starts.
     decision: dict[str, Any] | None = None
+    # Deliver: why no pull request opened, in the platform's words — a
+    # policy refusal names the rule and what it refused. Deliver cannot
+    # change the work, so the workflow hands this to the next implement
+    # dispatch.
+    delivery_refusal: str | None = None
 
 
 class GatewayBridge:
@@ -314,45 +323,59 @@ def _loop_failure(convo: Conversation) -> str | None:
     return None
 
 
+def _shell_result(bridge: GatewayBridge, run_id: str, cmd: str) -> str:
+    """A command the host runs in the sandbox under the pod's token, its
+    output as text — host code, not a model tool."""
+    try:
+        result = bridge.call(
+            "sandbox.exec", {"run_id": run_id, "cmd": cmd, "timeout_s": 60}
+        )
+    except ToolCallError as exc:
+        return f"(unavailable: {exc})"
+    return clip_tail(str(result.get("stdout", "")), SHELL_CLIP).strip()
+
+
 def _test_report(result: dict[str, Any]) -> str:
-    return (
-        f"Test run finished with exit code {result.get('exit_code')}.\n"
-        f"stdout:\n{clip_tail(str(result.get('stdout', '')), _OUTPUT_CLIP)}\n"
-        f"stderr:\n{clip_tail(str(result.get('stderr', '')), _OUTPUT_CLIP)}"
-    )
+    return f"The test suite ran in your sandbox: {shell_text(result)}"
 
 
 @dataclass
 class Workspace:
     """What the host learned about the sandbox before the model saw it:
-    the root listing, and the repository's instructions file if it has
-    one — read under the pod's own token, so a role that may not read
+    the tree as git sees it, and the repository's instructions file if it
+    has one — read under the pod's own token, so a role that may not read
     simply gets no instructions. Empty for a dispatch with no sandbox."""
 
-    entries: str = ""
+    tree: str = ""
     instructions: str | None = None
 
 
 def _survey(bridge: GatewayBridge, run_id: str) -> Workspace:
     listing = bridge.call("sandbox.list_dir", {"run_id": run_id, "path": "."})
-    names = {e["name"]: e["type"] for e in listing["entries"]}
-    entries = ", ".join(f"{n}{'/' if t == 'dir' else ''}" for n, t in names.items())
-    if names.get(REPO_INSTRUCTIONS_FILE) != "file":
-        return Workspace(entries)
+    files = list(listing["files"])
+    tree = "\n".join(files) or "(no files yet)"
+    if listing.get("omitted"):
+        tree += f"\n(and {listing['omitted']} more files)"
+    if REPO_INSTRUCTIONS_FILE not in files:
+        return Workspace(tree)
     try:
         read = bridge.call(
             "sandbox.read_file", {"run_id": run_id, "path": REPO_INSTRUCTIONS_FILE}
         )
     except ToolCallError as exc:
         log.info("repo instructions unread", extra={"reason": str(exc)})
-        return Workspace(entries)
-    return Workspace(entries, str(read["content"]))
+        return Workspace(tree)
+    return Workspace(tree, str(read["content"]))
 
 
-def _act_prompt(task_text: str, entries: str) -> str:
+def _opening(task_text: str, workspace: Workspace) -> str:
+    """The task, then the tree the sandbox holds."""
+    return f"Task:\n{task_text}\n\nWorkspace files:\n{workspace.tree}"
+
+
+def _act_prompt(task_text: str, workspace: Workspace) -> str:
     return (
-        f"Task:\n{task_text}\n\n"
-        f"Workspace root entries: {entries}\n\n"
+        f"{_opening(task_text, workspace)}\n\n"
         "Carry out this slice, then stop — the test suite is run for you "
         "between turns."
     )
@@ -444,7 +467,7 @@ def run_implement(
         documents,
     ) as s:
         convo, records = s.convo, s.records
-        convo.send_message(_act_prompt(task_text, s.workspace.entries))
+        convo.send_message(_act_prompt(task_text, s.workspace))
         iterations = 0
         while True:
             convo.run()
@@ -485,20 +508,26 @@ def run_deliver(
     documents: dict[str, str] | None = None,
 ) -> ProcedureResult:
     """deliver: the workflow-directed delivery, only ever dispatched after
-    the platform verify gate passed. Commit the sandbox's work on a branch
-    the bounds allow, bundle it, open the PR. A policy denial comes back
-    as the tool observation — the rule and what it refused — so the model
-    can recover: deny-and-recover, not deny-and-halt."""
+    the platform verify gate passed. The model names a branch the bounds
+    allow and says what the PR is; the platform commits the workspace as
+    verified and policy decides the delivery. Nothing on this surface
+    changes the sandbox. A policy denial comes back as the tool
+    observation — the rule and what it refused — so the model can recover
+    what is its own to choose (the branch); a refusal of the work itself
+    ends the dispatch with `delivery_refusal`, for the workflow to hand
+    back to implement."""
     with _session(
         settings, run_id, "deliver", DELIVER_TOOLS, DELIVER_STEP_CAP, bounds
     ) as s:
         convo, records = s.convo, s.records
+        changes = _shell_result(s.bridge, run_id, _CHANGES_CMD)
         convo.send_message(
             f"Task:\n{task_text}\n\n"
-            "The platform has verified your work in the sandbox: the "
-            "test suite is green. Deliver it now — commit your changes "
-            "on a branch the bounds allow and open the pull request with "
-            "the open_pr tool."
+            "The platform has verified the work in the sandbox: the test "
+            "suite is green. What it will deliver:\n"
+            f"{changes}\n\n"
+            "Open the pull request with the open_pr tool, on a branch the "
+            "bounds allow."
         )
         convo.run()
         failure = _loop_failure(convo)
@@ -506,6 +535,7 @@ def run_deliver(
         return ProcedureResult(
             error=failure or "agent stopped without opening a pull request",
             iterations=1,
+            delivery_refusal=records.delivery_refusal,
         )
     log.info("delivered", extra={"pr_url": records.pr_url})
     return ProcedureResult(pr_url=records.pr_url, iterations=1)
@@ -532,7 +562,7 @@ def run_review(
         settings, run_id, "review", REVIEW_TOOLS, REVIEW_STEP_CAP, bounds, documents
     ) as s:
         convo, records = s.convo, s.records
-        convo.send_message(f"Task:\n{task_text}")
+        convo.send_message(_opening(task_text, s.workspace))
         convo.run()
         failure = _loop_failure(convo)
     partial = dict(ticket_urls=records.ticket_urls, comment_urls=records.comment_urls)

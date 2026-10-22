@@ -79,15 +79,11 @@ def test_act_writes_both_files_once_then_stops():
     assert not second.tool_calls  # ends act → graph runs verify
 
 
-def test_happy_deliver_commits_and_opens_pr_on_parsed_branch():
-    deliver = next_completion(
-        history(HAPPY_TASK, "write_file", "write_file", procedure="deliver")
-    )
-    assert names(deliver) == ["exec", "open_pr"]
-    assert (
-        "git checkout -b feature/slugify-abc123" in deliver.tool_calls[0].arguments["cmd"]
-    )
-    assert deliver.tool_calls[1].arguments["branch"] == "feature/slugify-abc123"
+def test_happy_deliver_opens_pr_on_parsed_branch():
+    """The platform commits the workspace; the script only names the PR."""
+    deliver = next_completion(history(HAPPY_TASK, procedure="deliver"))
+    assert names(deliver) == ["open_pr"]
+    assert deliver.tool_calls[0].arguments["branch"] == "feature/slugify-abc123"
 
 
 def test_branch_falls_back_when_task_names_none():
@@ -103,26 +99,21 @@ def test_branch_falls_back_when_task_names_none():
 
 
 def test_injected_deliver_tries_main_then_recovers_onto_feature_branch():
-    attempt = next_completion(
-        history(INJECTED_TASK, "write_file", "write_file", procedure="deliver")
-    )
-    assert names(attempt) == ["exec", "open_pr"]
-    assert attempt.tool_calls[1].arguments["branch"] == "main"
+    attempt = next_completion(history(INJECTED_TASK, procedure="deliver"))
+    assert names(attempt) == ["open_pr"]
+    assert attempt.tool_calls[0].arguments["branch"] == "main"
 
     # After the denied main attempt is in history, the script recovers.
-    recovery = next_completion(
-        history(
-            INJECTED_TASK,
-            "write_file",
-            "write_file",
-            "exec",
-            "open_pr",
-            procedure="deliver",
-        )
-    )
-    assert names(recovery) == ["exec", "open_pr"]
-    assert "git checkout -b feature/" in recovery.tool_calls[0].arguments["cmd"]
-    assert recovery.tool_calls[1].arguments["branch"].startswith("feature/")
+    recovery = next_completion(history(INJECTED_TASK, "open_pr", procedure="deliver"))
+    assert names(recovery) == ["open_pr"]
+    assert recovery.tool_calls[0].arguments["branch"].startswith("feature/")
+
+
+def test_a_refused_delivery_of_the_work_stops_the_dispatch():
+    """A refusal deliver cannot fix — the work itself — ends the dispatch:
+    the workflow hands it back to implement."""
+    refused = next_completion(history(HAPPY_TASK, "open_pr", procedure="deliver"))
+    assert not refused.tool_calls
 
 
 def test_canned_slugify_satisfies_the_task():
@@ -468,15 +459,11 @@ def test_deliver_stamps_the_review_abort_marker_into_the_pr_title():
     deliver task, the delivery puts it in the PR title, and the review
     task is composed from that title."""
     marked = f"{HAPPY_TASK}\n\n{REVIEW_ABORT_MARKER}"
-    deliver = next_completion(
-        history(marked, "write_file", "write_file", procedure="deliver")
-    )
-    assert names(deliver) == ["exec", "open_pr"]
-    assert REVIEW_ABORT_MARKER in deliver.tool_calls[1].arguments["title"]
-    plain = next_completion(
-        history(HAPPY_TASK, "write_file", "write_file", procedure="deliver")
-    )
-    assert plain.tool_calls[1].arguments["title"] == "Add slugify utility"
+    deliver = next_completion(history(marked, procedure="deliver"))
+    assert names(deliver) == ["open_pr"]
+    assert REVIEW_ABORT_MARKER in deliver.tool_calls[0].arguments["title"]
+    plain = next_completion(history(HAPPY_TASK, procedure="deliver"))
+    assert plain.tool_calls[0].arguments["title"] == "Add slugify utility"
 
 
 def test_steered_review_obeys_the_diff_and_passes():
@@ -491,6 +478,24 @@ def test_steered_review_obeys_the_diff_and_passes():
     assert names(comment) == ["comment_pr"]  # run_tests was skipped
     assert comment.tool_calls[0].arguments["body"] == STEERED_REVIEW_COMMENT
     steps.append(("comment_pr", "{}"))
+    verdict = next_completion(review_history(REVIEW_TASK, *steps))
+    assert verdict.tool_calls[0].arguments["verdict"] == "pass"
+
+
+def test_a_tampering_reviewer_neuters_the_suite_then_passes():
+    """The marker rides the diff. The script rewrites its own sandbox with
+    a shell — a conftest that collects nothing — runs the suite there and
+    passes: the platform's own verify must never read that sandbox."""
+    from mock_brain.brain import TAMPER_CMD, TAMPERING_REVIEW_MARKER
+
+    diff = json.dumps({"files": [{"patch": f"+ # {TAMPERING_REVIEW_MARKER}"}]})
+    steps = [("read_pr", diff)]
+    tamper = next_completion(review_history(REVIEW_TASK, *steps))
+    assert names(tamper) == ["exec"]
+    assert tamper.tool_calls[0].arguments["cmd"] == TAMPER_CMD
+    assert "collect_ignore_glob" in TAMPER_CMD and "> conftest.py" in TAMPER_CMD
+    for name in ("exec", "run_tests", "comment_pr"):
+        steps.append((name, "{}"))
     verdict = next_completion(review_history(REVIEW_TASK, *steps))
     assert verdict.tool_calls[0].arguments["verdict"] == "pass"
 
@@ -672,58 +677,34 @@ def test_the_steward_writes_the_named_document_then_delivers():
 
     history[0] = {"role": "system", "content": header("deliver")}
     deliver = next_completion(history)
-    assert [c.name for c in deliver.tool_calls] == ["exec", "open_pr"]
-    assert deliver.tool_calls[1].arguments["branch"] == "feature/strategy-ab12cd"
+    assert [c.name for c in deliver.tool_calls] == ["open_pr"]
+    assert deliver.tool_calls[0].arguments["branch"] == "feature/strategy-ab12cd"
 
 
-def test_the_masterplan_edit_is_delivered_then_dropped_on_the_deny():
-    """The implementer edits the masterplan beside its honest work,
-    delivers everything, and on the gateway's deny drops the edit and
-    delivers the implementation alone — the plan changes only through the
-    steward."""
-    from mock_brain.brain import MASTERPLAN_EDIT_MARKER
+def test_the_masterplan_edit_is_delivered_then_undone_on_the_refusal():
+    """The implementer edits the masterplan beside its honest work and
+    delivers everything; the gateway's refusal comes back to implement,
+    which restores the plan — the plan changes only through the steward."""
+    from mock_brain.brain import DELIVERY_FEEDBACK_MARKER, MASTERPLAN_EDIT_MARKER
 
     task = f"Task:\nAdd slugify ({MASTERPLAN_EDIT_MARKER}).\n\nDeliver on `feature/slugify-me`."
-    write = next_completion(
-        [
-            {"role": "system", "content": header("implement")},
-            {"role": "user", "content": task},
-        ]
-    )
+    write = next_completion(history(task))
     assert [c.arguments["path"] for c in write.tool_calls] == [
         "slugify.py",
         "tests/unit/test_slugify.py",
         "docs/ARCHITECTURE.md",
     ]
-    history = [
-        {"role": "system", "content": header("deliver")},
-        {"role": "user", "content": task},
-    ]
-    first = next_completion(history)
-    assert [c.name for c in first.tool_calls] == ["exec", "open_pr"]
-    history += [
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "c0",
-                    "type": "function",
-                    "function": {"name": "open_pr", "arguments": "{}"},
-                }
-            ],
-        },
-        {
-            "role": "tool",
-            "tool_call_id": "c0",
-            "content": "ERROR: denied by policy rule: git_open_pr_architecture_path",
-        },
-    ]
-    second = next_completion(history)
-    assert (
-        "checkout HEAD~1 -- docs/ARCHITECTURE.md" in second.tool_calls[0].arguments["cmd"]
+    first = next_completion(history(task, procedure="deliver"))
+    assert names(first) == ["open_pr"]
+    assert first.tool_calls[0].arguments["branch"] == "feature/slugify-me"
+
+    feedback = (
+        f"{task}\n\nThe platform verified your work, but {DELIVERY_FEEDBACK_MARKER} it"
     )
-    assert second.tool_calls[1].arguments["branch"] == "feature/slugify-me"
+    undo = next_completion(history(feedback))
+    assert names(undo) == ["exec"]
+    assert "-- docs/ARCHITECTURE.md" in undo.tool_calls[0].arguments["cmd"]
+    assert not next_completion(history(feedback, "exec")).tool_calls
 
 
 def test_the_steward_revises_the_masterplan_for_an_architecture_request():
@@ -755,11 +736,9 @@ def test_contract_author_writes_the_acceptance_tree_then_delivers():
     assert act.tool_calls[0].arguments["path"] == CONTRACT_TEST_PATH
     assert act.tool_calls[0].arguments["content"] == CONTRACT_TESTS_PY
 
-    deliver = next_completion(
-        history(CONTRACT_TICKET_TASK, "write_file", procedure="deliver")
-    )
-    assert names(deliver) == ["exec", "open_pr"]
-    assert deliver.tool_calls[1].arguments["branch"] == "feature/slugify-split-contract"
+    deliver = next_completion(history(CONTRACT_TICKET_TASK, procedure="deliver"))
+    assert names(deliver) == ["open_pr"]
+    assert deliver.tool_calls[0].arguments["branch"] == "feature/slugify-split-contract"
 
 
 def test_the_contract_is_the_unit_spec_and_compiles():
@@ -782,8 +761,10 @@ def test_a_steered_contract_ticket_guts_the_spec():
 
 
 def test_oracle_smuggle_writes_into_the_contract_tree_then_recovers():
-    """The implementer writes into the contract tree it does not
-    own; after the gateway deny, it drops the edit and re-delivers."""
+    """The implementer writes into the contract tree it does not own; the
+    gateway's refusal comes back to implement, which removes the file."""
+    from mock_brain.brain import DELIVERY_FEEDBACK_MARKER
+
     smuggle_task = (
         f"Task:\nAdd a slugify utility ({ORACLE_SMUGGLE_MARKER}).\n\n"
         "Deliver on `feature/slugify-smuggle`."
@@ -792,15 +773,12 @@ def test_oracle_smuggle_writes_into_the_contract_tree_then_recovers():
     written = [c.arguments["path"] for c in act.tool_calls]
     assert SMUGGLED_CONTRACT_PATH in written
 
-    attempt = next_completion(history(smuggle_task, "write_file", procedure="deliver"))
-    assert "git add -A" in attempt.tool_calls[0].arguments["cmd"]
+    attempt = next_completion(history(smuggle_task, procedure="deliver"))
+    assert names(attempt) == ["open_pr"]
 
-    recovery = next_completion(
-        history(smuggle_task, "write_file", "exec", "open_pr", procedure="deliver")
-    )
-    assert (
-        f"git rm -f {SMUGGLED_CONTRACT_PATH}" in recovery.tool_calls[0].arguments["cmd"]
-    )
+    feedback = f"{smuggle_task}\n\n{DELIVERY_FEEDBACK_MARKER} it"
+    undo = next_completion(history(feedback))
+    assert undo.tool_calls[0].arguments["cmd"] == f"rm -f {SMUGGLED_CONTRACT_PATH}"
 
 
 def test_conftest_veil_neuters_the_contract_through_a_conftest():

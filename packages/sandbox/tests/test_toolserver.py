@@ -39,6 +39,9 @@ def workspace(tmp_path: Path) -> Path:
     git(tmp_path, "commit", "-m", "base")
     base_sha = git(tmp_path, "rev-parse", "HEAD")
     (tmp_path / ".poseidon-base").write_text(base_sha + "\n")
+    # What the sandbox backend appends at provision time.
+    with (tmp_path / ".git" / "info" / "exclude").open("a") as exclude:
+        exclude.write(".poseidon-base\n__pycache__/\n*.pyc\n")
     return tmp_path
 
 
@@ -54,6 +57,22 @@ def test_read_file(client: TestClient):
     resp = client.post("/files/read", json={"path": "hello.txt"})
     assert resp.status_code == 200
     assert resp.json() == {"content": "hello\n", "start_line": 1, "total_lines": 1}
+
+
+def test_read_file_without_a_range_is_capped(client: TestClient, workspace: Path):
+    """A whole-file read returns at most READ_LINE_LIMIT lines; the total
+    says there is more, to read on in ranges."""
+    from sandbox.toolserver.app import READ_LINE_LIMIT
+
+    (workspace / "big.txt").write_text("".join(f"{n}\n" for n in range(5000)))
+    body = client.post("/files/read", json={"path": "big.txt"}).json()
+    assert body["content"].count("\n") == READ_LINE_LIMIT
+    assert body["content"].startswith("0\n")
+    assert body["total_lines"] == 5000
+    tail = client.post(
+        "/files/read", json={"path": "big.txt", "view_range": [4999, -1]}
+    ).json()
+    assert tail["content"] == "4998\n4999\n"
 
 
 def test_read_file_view_range(client: TestClient, workspace: Path):
@@ -228,13 +247,30 @@ def test_edit_traversal_and_symlink_escape_rejected(
 # --- /files/list -----------------------------------------------------------
 
 
-def test_list_dir(client: TestClient):
+def test_list_dir_is_the_tree_as_git_sees_it(client: TestClient, workspace: Path):
+    """Recursive, workspace-relative, untracked files in, ignored and
+    deleted files out — `.git` and the platform's own marker never show."""
+    (workspace / "pkg" / "new.py").write_text("y = 2\n")
+    (workspace / "pkg" / "__pycache__").mkdir()
+    (workspace / "pkg" / "__pycache__" / "mod.cpython-312.pyc").write_bytes(b"\0")
+    (workspace / "hello.txt").unlink()
     resp = client.post("/files/list", json={"path": "."})
     assert resp.status_code == 200
-    entries = {e["name"]: e["type"] for e in resp.json()["entries"]}
-    assert entries["hello.txt"] == "file"
-    assert entries["pkg"] == "dir"
-    assert entries[".git"] == "dir"
+    assert resp.json() == {"files": ["pkg/mod.py", "pkg/new.py"], "omitted": 0}
+    sub = client.post("/files/list", json={"path": "pkg"}).json()
+    assert sub["files"] == ["pkg/mod.py", "pkg/new.py"]
+
+
+def test_list_dir_is_capped(client: TestClient, workspace: Path):
+    from sandbox.toolserver.app import LIST_LIMIT
+
+    many = workspace / "many"
+    many.mkdir()
+    for n in range(LIST_LIMIT + 7):
+        (many / f"f{n:04d}.txt").write_text("")
+    body = client.post("/files/list", json={"path": "many"}).json()
+    assert len(body["files"]) == LIST_LIMIT
+    assert body["omitted"] == 7
 
 
 def test_list_missing_dir_404(client: TestClient):
@@ -324,38 +360,103 @@ def test_tests_endpoint_refuses_escaping_paths(client: TestClient):
 # --- /bundle -------------------------------------------------------------------
 
 
-def make_feature_commit(workspace: Path) -> None:
-    git(workspace, "checkout", "-b", "feature/change")
-    (workspace / "feature.txt").write_text("new\n")
-    git(workspace, "add", "-A")
-    git(workspace, "commit", "-m", "feature change")
+BUNDLE = {"branch": "feature/change", "message": "Add a feature", "author": "fd-impl-1"}
 
 
-def test_bundle_returns_verifiable_bundle(
+def bundled(body: dict, tmp_path_factory) -> Path:
+    path = tmp_path_factory.mktemp("bundle") / "change.bundle"
+    path.write_bytes(base64.b64decode(body["bundle_b64"]))
+    return path
+
+
+def test_bundle_commits_the_workspace_as_it_stands(
     client: TestClient, workspace: Path, tmp_path_factory
 ):
-    make_feature_commit(workspace)
-    resp = client.post("/bundle", json={"branch": "feature/change"})
+    """Uncommitted work is the delivery: the platform makes one commit over
+    the base ref, authored by the agent that asked, and leaves the working
+    tree and its index alone."""
+    (workspace / "feature.txt").write_text("new\n")
+    (workspace / "hello.txt").write_text("hello, world\n")
+    resp = client.post("/bundle", json=BUNDLE)
     assert resp.status_code == 200
     body = resp.json()
-    assert body["base_ref"] == (workspace / ".poseidon-base").read_text().strip()
+    base = (workspace / ".poseidon-base").read_text().strip()
+    assert body["base_ref"] == base
 
-    bundle_path = tmp_path_factory.mktemp("bundle") / "change.bundle"
-    bundle_path.write_bytes(base64.b64decode(body["bundle_b64"]))
+    bundle_path = bundled(body, tmp_path_factory)
     git(workspace, "bundle", "verify", str(bundle_path))
-    listed = git(workspace, "bundle", "list-heads", str(bundle_path))
-    assert "refs/heads/feature/change" in listed
+    assert "refs/heads/feature/change" in git(
+        workspace, "bundle", "list-heads", str(bundle_path)
+    )
+    assert git(workspace, "rev-parse", "feature/change^") == base
+    assert git(workspace, "log", "-1", "--format=%an <%ae>|%s", "feature/change") == (
+        "fd-impl-1 <fd-impl-1@agents.poseidon.invalid>|Add a feature"
+    )
+    changed = git(workspace, "diff", "--name-only", base, "feature/change")
+    assert changed.splitlines() == ["feature.txt", "hello.txt"]
+    # The workspace is where the agent left it.
+    assert git(workspace, "rev-parse", "HEAD") == base
+    assert "?? feature.txt" in git(workspace, "status", "--short")
 
 
-def test_bundle_unknown_branch_400(client: TestClient):
-    resp = client.post("/bundle", json={"branch": "feature/does-not-exist"})
+def test_bundle_keeps_excluded_files_out_even_when_committed(
+    client: TestClient, workspace: Path
+):
+    """The tree is staged from the base ref, not from the agent's index: a
+    force-added `.poseidon-base` or bytecode file never reaches the
+    delivery, whatever the agent committed."""
+    (workspace / "pkg" / "__pycache__").mkdir()
+    (workspace / "pkg" / "__pycache__" / "mod.cpython-312.pyc").write_bytes(b"\0")
+    (workspace / "feature.txt").write_text("new\n")
+    git(workspace, "add", "-f", ".poseidon-base", "pkg/__pycache__")
+    git(workspace, "commit", "-m", "agent commit")
+    assert client.post("/bundle", json=BUNDLE).status_code == 200
+
+    base = (workspace / ".poseidon-base").read_text().strip()
+    changed = git(workspace, "diff", "--name-only", base, "feature/change")
+    assert changed.splitlines() == ["feature.txt"]
+
+
+def test_bundle_points_a_second_branch_at_the_same_tree(
+    client: TestClient, workspace: Path
+):
+    """Deny-and-recover on the branch name: the second call delivers the
+    same tree under the name policy allows."""
+    (workspace / "feature.txt").write_text("new\n")
+    assert client.post("/bundle", json={**BUNDLE, "branch": "main"}).status_code == 200
+    assert client.post("/bundle", json=BUNDLE).status_code == 200
+    assert git(workspace, "rev-parse", "feature/change^{tree}") == git(
+        workspace, "rev-parse", "main^{tree}"
+    )
+
+
+def test_bundle_carries_a_deletion(client: TestClient, workspace: Path):
+    (workspace / "pkg" / "mod.py").unlink()
+    (workspace / "feature.txt").write_text("new\n")
+    assert client.post("/bundle", json=BUNDLE).status_code == 200
+    base = (workspace / ".poseidon-base").read_text().strip()
+    changed = git(workspace, "diff", "--name-status", base, "feature/change")
+    assert changed.splitlines() == ["A\tfeature.txt", "D\tpkg/mod.py"]
+
+
+def test_bundle_with_nothing_changed_400(client: TestClient, workspace: Path):
+    """Only excluded files differ: nothing to deliver."""
+    (workspace / "pkg" / "x.pyc").write_bytes(b"\0")
+    resp = client.post("/bundle", json=BUNDLE)
     assert resp.status_code == 400
-    assert "git bundle failed" in resp.json()["detail"]
+    assert "nothing to deliver" in resp.json()["detail"]
+
+
+@pytest.mark.parametrize("branch", ["-x", "feature/a b", "feature/..x"])
+def test_bundle_refuses_a_bad_branch_name(client: TestClient, workspace: Path, branch):
+    (workspace / "feature.txt").write_text("new\n")
+    resp = client.post("/bundle", json={**BUNDLE, "branch": branch})
+    assert resp.status_code == 400
 
 
 def test_bundle_missing_base_file_400(client: TestClient, workspace: Path):
-    make_feature_commit(workspace)
+    (workspace / "feature.txt").write_text("new\n")
     (workspace / ".poseidon-base").unlink()
-    resp = client.post("/bundle", json={"branch": "feature/change"})
+    resp = client.post("/bundle", json=BUNDLE)
     assert resp.status_code == 400
     assert ".poseidon-base" in resp.json()["detail"]

@@ -43,8 +43,9 @@ _READY_CMD = (
 # Runs once after the workspace is unpacked: no remote may survive inside the
 # sandbox, the base ref is recorded for later `git bundle` calls, and the
 # platform marker plus build artifacts are kept out of deliveries via
-# `.git/info/exclude` — git's local ignore, never committed, so `git add -A`
-# skips them and the PR diff is exactly the agent's own changes. This is
+# `.git/info/exclude` — git's local ignore, never committed, so the tool
+# server's delivery commit skips them and the PR diff is exactly the work
+# the platform verified. This is
 # what lets a policy-resolved merge gate confine a delegated class to real
 # source paths: it refuses any path outside that class, so an incidental
 # `.poseidon-base` or `__pycache__` in the diff would park the merge. The

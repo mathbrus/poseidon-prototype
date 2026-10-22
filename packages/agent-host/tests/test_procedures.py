@@ -89,19 +89,15 @@ def test_a_tree_with_no_tests_is_advisory_green(settings, gateway):
     assert gateway.tools_called().count("sandbox.run_tests") == 1
 
 
-def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
-    """The workflow-directed delivery (the deliver procedure): commit, bundle, PR —
-    and the bundle base64 never enters the model context."""
+def test_deliver_dispatch_opens_the_pr_on_what_the_platform_commits(settings, gateway):
+    """The workflow-directed delivery (the deliver procedure): the host
+    shows the model what changed, the model names the branch and the PR,
+    the platform commits and bundles — and the bundle base64 never enters
+    the model context. Nothing on the surface changes the sandbox."""
+    gateway.exec_stdout = "?? src/hello.py\n src/hello.py | 2 ++\n"
     llm = ScriptedLLM(
         [
             calls(
-                tc(
-                    "exec",
-                    cmd=(
-                        "git checkout -b feature/greet && git add -A && "
-                        "git -c user.name=a -c user.email=a@p commit -m 'add greet'"
-                    ),
-                ),
                 tc(
                     "open_pr",
                     branch="feature/greet",
@@ -120,11 +116,19 @@ def test_deliver_dispatch_commits_bundles_and_opens_pr(settings, gateway):
     assert result.pr_url == PR_URL
     assert result.error is None
     assert gateway.tools_called() == [
-        "sandbox.list_dir",  # the survey every sandboxed dispatch opens with
-        "sandbox.exec",
+        "sandbox.exec",  # the host's, before the first turn
         "sandbox.git_bundle",
         "git.open_pr",
     ]
+    assert "git status --short" in gateway.calls[0][1]["cmd"]
+    assert "src/hello.py | 2 ++" in text_of(llm.requests[0][0][1])
+    assert gateway.calls[1][1] == {
+        "run_id": RUN_ID,
+        "branch": "feature/greet",
+        "message": "Add greet",
+    }
+    offered = set(llm.offered(0)) - {"finish", "think"}
+    assert offered == {"read_file", "open_pr"}
     open_pr_args = gateway.calls[-1][1]
     assert open_pr_args["repo"] == settings.target_repo
     assert open_pr_args["branch"] == "feature/greet"
@@ -164,6 +168,8 @@ def test_review_dispatch_reads_runs_comments_and_judges(settings, gateway):
     assert result.comment_urls == [COMMENT_URL]
     assert result.verdict == "pass"
     assert result.verdict_rationale == "Suite green; in scope."
+    # The reviewer opens on the tree, like the implementer.
+    assert "Workspace files:\nREADME.md\nsrc/hello.py" in text_of(llm.requests[0][0][1])
     assert gateway.tools_called() == [
         "sandbox.list_dir",
         "git.read",
@@ -230,12 +236,12 @@ def test_prompt_and_toolsets_per_procedure(settings, gateway):
     assert "open_pr" not in system  # the prompt matches the tool surface
     task_message = text_of(messages[1])
     assert TASK in task_message
-    assert "README.md" in task_message  # workspace survey rode the prompt
+    # The survey's tree rode the prompt, nested paths included.
+    assert "README.md\nsrc/hello.py" in task_message
     assert "carry it out" not in task_message  # no delivery talk while acting
 
     offered = set(llm.offered(0)) - {"finish", "think"}
     assert offered == {
-        "list_dir",
         "read_file",
         "write_file",
         "edit_file",
@@ -368,6 +374,28 @@ def test_deliver_without_pr_fails_the_run(settings, gateway):
 
     assert result.pr_url is None
     assert result.error == "agent stopped without opening a pull request"
+    assert result.delivery_refusal is None
+
+
+def test_a_refused_delivery_carries_the_refusal_back(settings, gateway):
+    """Policy refused the work itself; deliver cannot change it, so the
+    dispatch ends with the platform's words for the workflow to hand to
+    the next implement dispatch."""
+    gateway.deny = {"git.open_pr"}
+    llm = ScriptedLLM(
+        [
+            calls(
+                tc("open_pr", branch="feature/greet", title="t", body="b", rationale="r")
+            ),
+            says("The path is refused; the implementation has to change."),
+        ]
+    )
+
+    with scripted(gateway, llm):
+        result = run_deliver(settings, RUN_ID, TASK, BOUNDS)
+
+    assert result.pr_url is None
+    assert result.delivery_refusal == "denied by policy rule: default_deny (git.open_pr)"
 
 
 # --- budget refusal -------------------------------------------------------------

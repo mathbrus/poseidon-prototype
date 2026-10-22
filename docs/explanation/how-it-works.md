@@ -128,16 +128,22 @@ requests.
    `max_verify_retries` times.
 5. **Only then can it deliver.** A green test run starts a separate
    *deliver* step, the only step whose tools include opening a pull
-   request. During implementation, that tool doesn't exist.
-6. **The gateway pushes.** The agent hands over a git bundle. The gateway
-   checks it, computes the changed paths, asks policy (protected branches
-   and paths, document rules), then pushes the branch and opens the pull
-   request with its own token.
+   request. During implementation, that tool doesn't exist. The deliver
+   step's tools can't change the sandbox: the agent names the branch and
+   describes the pull request, and the platform commits the sandbox as it
+   tested it.
+6. **The gateway pushes.** The platform hands the gateway a git bundle of
+   that commit. The gateway checks it, computes the changed paths, asks
+   policy (protected branches and paths, document rules), then pushes the
+   branch and opens the pull request with its own token. If policy refuses
+   a path, the implementer gets the refusal, changes the work, and the
+   platform tests it again before the next delivery. This counts against
+   `max_verify_retries` too.
 
 ### Review: an independent check
 
-A fresh sandbox is built from the pull request's branch. A reviewer agent,
-which holds no tool that writes to the repository, reads the diff against
+A fresh sandbox is built from the pull request's head commit. A reviewer
+agent, which holds no tool that delivers anything, reads the diff against
 the documents, runs the tests, posts its findings, and gives a pass or
 fail verdict. Then the [merge gate](merge-gate.md) decides: by default it
 waits for your verdict, and you can delegate it to policy for the paths

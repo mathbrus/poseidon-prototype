@@ -7,6 +7,7 @@ import json
 import pytest
 from conftest import (
     AGENT_TOKEN,
+    HEAD_SHA,
     PM_TOKEN,
     REVIEWER_TOKEN,
     WORKER_TOKEN,
@@ -169,6 +170,7 @@ async def test_reviewer_reads_and_comments_the_pr(app, participants, audit):
             )
         )
         assert pr["head"] == "feature/x"
+        assert pr["head_sha"] == HEAD_SHA
         assert pr["files"][0]["path"] == "app.py"
 
         comment = payload(
@@ -189,7 +191,8 @@ async def test_reviewer_cannot_merge_or_open_issues(app, participants):
     token = reviewer_token(participants)
     async with mcp_session(app, token) as session:
         merge = await session.call_tool(
-            "git.merge_pr", {"run_id": RUN_ID, "repo": REPO, "number": 5}
+            "git.merge_pr",
+            {"run_id": RUN_ID, "repo": REPO, "number": 5, "sha": HEAD_SHA},
         )
         create = await session.call_tool(
             "issues.create",
@@ -326,16 +329,20 @@ async def test_merge_is_platform_only(app, backends, audit):
     async with mcp_session(app, WORKER_TOKEN) as session:
         merged = payload(
             await session.call_tool(
-                "git.merge_pr", {"run_id": RUN_ID, "repo": REPO, "number": 5}
+                "git.merge_pr",
+                {"run_id": RUN_ID, "repo": REPO, "number": 5, "sha": HEAD_SHA},
             )
         )
     assert merged == {"merged": True, "sha": "abc123"}
-    assert backends.github_calls[-1][0].endswith("/pulls/5/merge")
+    path, sent, _ = backends.github_calls[-1]
+    assert path.endswith("/pulls/5/merge")
+    assert sent == {"merge_method": "merge", "sha": HEAD_SHA}
 
     for token in (PM_TOKEN, AGENT_TOKEN):
         async with mcp_session(app, token) as session:
             result = await session.call_tool(
-                "git.merge_pr", {"run_id": RUN_ID, "repo": REPO, "number": 5}
+                "git.merge_pr",
+                {"run_id": RUN_ID, "repo": REPO, "number": 5, "sha": HEAD_SHA},
             )
         assert result.isError, "a company role reached git.merge_pr"
     denies = [
@@ -344,6 +351,21 @@ async def test_merge_is_platform_only(app, backends, audit):
         if e["tool"] == "git.merge_pr" and e["decision"] == "deny"
     ]
     assert len(denies) == 2
+
+
+async def test_a_moved_head_merges_nothing(app, backends):
+    """The merge names the reviewed head; GitHub's 409 for a head that
+    moved since is a refusal the platform reads, not a merge."""
+    async with mcp_session(app, WORKER_TOKEN) as session:
+        refused = payload(
+            await session.call_tool(
+                "git.merge_pr",
+                {"run_id": RUN_ID, "repo": REPO, "number": 5, "sha": "0ld5ha"},
+            )
+        )
+    assert refused["merged"] is False
+    assert "head moved after review" in refused["refused"]
+    assert backends.github_calls[-1][1]["sha"] == "0ld5ha"
 
 
 # -- issues.close and git.close_pr (platform only) ----------------------------

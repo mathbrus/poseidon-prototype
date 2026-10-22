@@ -583,6 +583,50 @@ def delete_repo_file(env: dict, path: str, message: str) -> None:
     assert resp.status_code == 200, f"removing {path} failed: {resp.text}"
 
 
+def put_branch_file(env: dict, branch: str, path: str, content: str, message: str) -> str:
+    """One commit on `branch` writing `path`, pushed with the suite's token
+    — the world moving a branch under the platform. Returns the commit."""
+    existing = github_api(
+        env, "GET", f"/repos/{target_slug(env)}/contents/{path}?ref={branch}"
+    )
+    body = {
+        "message": message,
+        "content": base64.b64encode(content.encode()).decode(),
+        "branch": branch,
+    }
+    if existing.status_code == 200:
+        body["sha"] = existing.json()["sha"]
+    resp = github_api(env, "PUT", f"/repos/{target_slug(env)}/contents/{path}", json=body)
+    assert resp.status_code in (200, 201), f"writing {path} on {branch}: {resp.text}"
+    return resp.json()["commit"]["sha"]
+
+
+def open_world_pr(env: dict, branch: str, files: dict[str, str], title: str) -> int:
+    """A pull request the world opens — a `feature/*` branch off main
+    carrying `files`, pushed and opened with the suite's token — for a
+    module whose story starts at a review of work the company did not
+    deliver. The sweeper deletes the branch like any other."""
+    slug = target_slug(env)
+    main = github_api(env, "GET", f"/repos/{slug}/git/ref/heads/main").json()
+    made = github_api(
+        env,
+        "POST",
+        f"/repos/{slug}/git/refs",
+        json={"ref": f"refs/heads/{branch}", "sha": main["object"]["sha"]},
+    )
+    assert made.status_code == 201, f"creating {branch}: {made.text}"
+    for path, content in files.items():
+        put_branch_file(env, branch, path, content, f"{title}: {path}")
+    opened = github_api(
+        env,
+        "POST",
+        f"/repos/{slug}/pulls",
+        json={"title": title, "head": branch, "base": "main", "body": title},
+    )
+    assert opened.status_code == 201, f"opening the PR: {opened.text}"
+    return int(opened.json()["number"])
+
+
 # The declared shape of main: the mock brain's own canonical texts, so the
 # baseline is exactly what the company itself delivers — the implementation,
 # the implementer's unit tree, the human-merged acceptance contract the
@@ -852,6 +896,14 @@ def implement_run(stack: None, env: dict[str, str]) -> dict:
     needed the concurrency slot."""
     record = run_implement("happy", env, kill_after="sandbox")
     record["pr_state_at_birth"] = pr_state(env, record.get("pr_url"))
+    # What the delivery carried, read before the branch goes.
+    number = pr_number(record.get("pr_url"))
+    if number is not None:
+        pulls = f"/repos/{target_slug(env)}/pulls/{number}"
+        record["pr_files"] = [
+            f["filename"] for f in github_api(env, "GET", f"{pulls}/files").json()
+        ]
+        record["pr_commits"] = github_api(env, "GET", f"{pulls}/commits").json()
     close_pr_url(env, record.get("pr_url"))
     close_issue(env, record["issue_number"])
     yield record

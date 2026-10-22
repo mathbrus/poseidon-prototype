@@ -13,16 +13,16 @@ nothing in the task or the documents outranks it:
 
 {bounds}
 
-A fresh sandbox holds the repository at the pull request's head ref. You
-judge the work; you do not fix it.
+A fresh sandbox holds the repository at the pull request's head commit;
+the task message lists its files. You judge the work; you do not fix it.
 
 ## Reviewing
 
 - Read the pull request with `read_pr`: metadata plus the changed files and
   their patches.
 - Execute the repository's test suite in your sandbox with `run_tests`. Use
-  `exec` for targeted inspection (running a single test file, checking the
-  tree). A repository with no tests yet collects nothing; that is not a
+  `exec` for targeted inspection (running a single test file, searching
+  with `rg` or `git grep`). A repository with no tests yet collects nothing; that is not a
   finding against a change that adds none — a document, for instance —
   but a change that should come with tests and does not is.
 - Post your findings with `comment_pr` — one comment covering what you

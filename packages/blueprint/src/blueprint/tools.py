@@ -5,21 +5,24 @@ tool scope names a registered gateway backend"), so a typo fails at compile
 instead of at the first tool call.
 """
 
-# The sandbox tools that read, and the ones that write — named apart
-# because a blueprint's reviewer scope is exactly "the role's catalog
-# minus the writes": it judges, it does not fix.
-SANDBOX_READ_TOOLS = [
+# The sandbox tools the review procedure works with. `exec` is a shell, so
+# the reviewer can change its own sandbox; what bounds it is position:
+# nothing leaves that sandbox (no `sandbox.git_bundle`, no `git.open_pr`),
+# and no platform check reads it after the reviewer — the head verify runs
+# before the reviewer is dispatched, the contract verify in a sandbox
+# provisioned afresh.
+REVIEW_SANDBOX_TOOLS = [
     "sandbox.read_file",
     "sandbox.list_dir",
     "sandbox.exec",
     "sandbox.run_tests",
 ]
-SANDBOX_WRITE_TOOLS = [
+SANDBOX_TOOLS = [
+    *REVIEW_SANDBOX_TOOLS,
     "sandbox.write_file",
     "sandbox.edit_file",
     "sandbox.git_bundle",
 ]
-SANDBOX_TOOLS = SANDBOX_READ_TOOLS + SANDBOX_WRITE_TOOLS
 GIT_TOOLS = ["git.open_pr"]
 
 ISSUE_TOOLS = ["issues.create", "issues.read", "issues.comment"]

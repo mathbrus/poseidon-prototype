@@ -112,7 +112,8 @@ On a later tick the PM picks a ticket, and the company starts an
    tests fail, the implementer gets the failure and tries again, up to
    `max_verify_retries` times.
 3. Only when the tests pass does the agent get the tool that opens a pull
-   request. The pull request comes from a `feature/…` branch.
+   request. The platform commits what it tested, and the pull request
+   comes from a `feature/…` branch.
 
 ## 7. Review and merge
 

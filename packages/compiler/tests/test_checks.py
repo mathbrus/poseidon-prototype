@@ -29,12 +29,12 @@ def test_the_conductor_must_be_a_hire(blueprint):
 
 
 def test_unknown_tool_scope_fails_at_compile(blueprint):
-    blueprint["tools"]["reviewer"]["allow"].append("issues.purge")
+    blueprint["tools"]["reviewer"] = {"allow": ["git.read", "issues.purge"]}
     assert any("issues.purge" in p for p in problems_of(blueprint))
 
 
 def test_platform_tool_cannot_be_granted_to_a_role(blueprint):
-    blueprint["tools"]["reviewer"]["allow"].append("git.merge_pr")
+    blueprint["tools"]["reviewer"] = {"allow": ["git.read", "git.merge_pr"]}
     (problem,) = [p for p in problems_of(blueprint) if "git.merge_pr" in p]
     assert "platform identity" in problem
 
@@ -67,9 +67,9 @@ def test_spawn_authority_cannot_be_widened(blueprint):
 def test_a_tool_scope_cannot_widen_the_catalog(blueprint):
     """Standing and ephemeral alike: a scope naming a tool the role's
     catalog entry does not grant is an error, never a silent intersection."""
-    blueprint["tools"]["reviewer"]["allow"].append("git.open_pr")
+    blueprint["tools"]["reviewer"] = {"allow": ["git.read", "git.open_pr"]}
     assert any("never widens" in p for p in problems_of(blueprint))
-    blueprint["tools"]["reviewer"]["allow"].pop()
+    del blueprint["tools"]["reviewer"]
     blueprint["tools"]["pm"] = {"allow": [*ROLES["pm"].tools, "sandbox.exec"]}
     assert any("never widens" in p for p in problems_of(blueprint))
 
@@ -124,7 +124,7 @@ def test_compiler_fails_closed_on_a_missing_document(blueprint):
 
 
 def test_a_tool_scope_needs_a_real_allow_list(blueprint):
-    blueprint["tools"]["reviewer"]["allow"] = []
+    blueprint["tools"]["reviewer"] = {"allow": []}
     assert any("must not be empty" in p for p in problems_of(blueprint))
 
 

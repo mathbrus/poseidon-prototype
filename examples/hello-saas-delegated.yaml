@@ -49,19 +49,7 @@ standing:
 
 # The one place a role's scope is narrowed, for standing and ephemeral
 # agents of the role alike; a role not listed keeps its catalog tools.
-# The reviewer drops the write tools its catalog role would allow: it
-# judges, it does not fix.
-tools:
-  reviewer:
-    allow:
-      - sandbox.read_file
-      - sandbox.list_dir
-      - sandbox.exec
-      - sandbox.run_tests
-      - git.read
-      - git.comment
-      - issues.comment
-      - architecture.request
+tools: {}
 
 workflows:
   implement:

@@ -16,6 +16,11 @@ forgets to answer.
 Applies the example with `may_start: [scope, review]`: the company scopes
 and reviews on its own, and implementing is a human's act here —
 which is what makes `poseidon start implement <number>` a repro rather than a race.
+
+The merge names the head the review read. A second arc proves it on the
+git host: a pull request the world opened is reviewed by a person's start
+and parks; someone pushes to its branch; the person approves; GitHub
+refuses the pinned merge and the run fails with the PR still open.
 """
 
 import json
@@ -40,7 +45,7 @@ from common.workflows import MERGE_GATE
 from mock_brain.brain import NEXT_SLICE_MARKER
 
 from .blueprints import E2E_GATE_MINUTES, HELLO_SAAS, may_start, restore_pristine
-from .cluster import HUMAN, audit_story, await_run, console_env, run_by_task
+from .cluster import HUMAN, audit_story, await_run, console, console_env, run_by_task
 from .conftest import (
     REPO_ROOT,
     apply_profile,
@@ -50,6 +55,8 @@ from .conftest import (
     close_pr,
     github_api,
     open_slice_strategy,
+    open_world_pr,
+    put_branch_file,
     restore_strategy,
     scope_via_heartbeat,
     target_slug,
@@ -350,3 +357,66 @@ def test_one_story_spans_every_review_source(review_chain: dict) -> None:
     ):
         assert lifecycle_step in tools, f"{lifecycle_step} missing from the story"
     assert all(e["run_id"] == run_id for e in story)
+
+
+# -- the merged head is the reviewed head -----------------------------------
+
+
+@pytest.fixture(scope="module")
+def moved_head(stack: None, baseline_env: dict) -> dict:
+    """A pull request the world opened — the heartbeat observes only the
+    PRs the company delivered, so it starts nothing on this one — reviewed
+    by a person's start and parked on the human gate. While it waits, a
+    push moves its branch; then the person approves."""
+    env = baseline_env
+    nonce = secrets.token_hex(3)
+    branch = f"feature/moved-{nonce}"
+    path = f"docs/notes-{nonce}.md"
+    result: dict = {"env": env}
+    try:
+        number = open_world_pr(
+            env, branch, {path: "# Notes\n\nReviewed text.\n"}, f"Add notes ({nonce})"
+        )
+        result["pr_number"] = number
+        run_id = console().start_run("review", number).run_id
+        result["run_id"] = run_id
+        # The workflow writes the run's row; the console knows the run
+        # only from then on.
+        await_run(review_run_task(number), terminal=False, workflow="review")
+        await_gate(run_id, "parked-merge_gate")
+        result["pushed"] = put_branch_file(
+            env, branch, path, "# Notes\n\nText nobody reviewed.\n", "a push after review"
+        )
+        console().resolve(run_id, "merge", True, "e2e: approve the reviewed head")
+        result["review"] = await_run(
+            review_run_task(number), terminal=True, workflow="review"
+        )
+        result["story"] = audit_story(run_id)
+        result["pr"] = github_api(
+            env, "GET", f"/repos/{target_slug(env)}/pulls/{number}"
+        ).json()
+        yield result
+    finally:
+        close_pr(env, result.get("pr_number") or 0)
+
+
+def test_an_approval_of_a_moved_head_merges_nothing(moved_head: dict) -> None:
+    """The verdict was recorded and released, the merge named the head the
+    run reviewed, and the git host refused it: the run failed by name and
+    the PR is still open, at the commit nobody reviewed."""
+    record = moved_head["review"]
+    assert record["status"] == "failed", record
+    assert "head moved after review" in (record["error"] or ""), record["error"]
+    pr = moved_head["pr"]
+    assert pr["merged"] is False and pr["state"] == "open"
+    assert pr["head"]["sha"] == moved_head["pushed"]
+    story = moved_head["story"]
+    gates = [e["rule"] for e in story if e["source"] == "process-gate"]
+    assert gates[0] == "gate_parked" and "gate_approved" in gates, gates
+    # Right after a push GitHub may first answer that the PR is not
+    # mergeable yet; the retry then gets the refusal. Either way every
+    # attempt was the platform's, and none landed.
+    merges = [e for e in story if e["tool"] == "git.merge_pr"]
+    assert merges and all(e["decision"] == "allow" for e in merges), merges
+    # Nothing merged, so nothing the PR would fulfil was closed.
+    assert not any(e["tool"] == "issues.close" for e in story)

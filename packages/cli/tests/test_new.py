@@ -20,7 +20,6 @@ HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
 VISION = "What should this company build, and why?"
 REPOSITORY = "GitHub repository"
 MERGE = "Who decides whether a pull request merges?"
-REVIEWER = "Should the reviewer fix code, or only judge it?"
 CONTRACT = "Keep acceptance tests the code's author may not edit?"
 ADVANCED = "Fine-tune the advanced settings?"
 # A repository of the person's own: the example's owner is a placeholder
@@ -170,12 +169,6 @@ def test_a_human_resolved_gate_carries_no_delegation():
     assert "delegate" not in built["workflows"]["review"]["gates"]["merge"]
     assert "contract_tests" not in built["policies"]
     assert "Folders where a change may merge without a person" not in prompter.asked
-
-
-def test_the_reviewer_may_be_let_fix():
-    built = new.build(new.ask(example_answers(**{REVIEWER: "fix"})))
-    assert "reviewer" not in built["tools"]
-    assert new.problems(built) == []
 
 
 def test_concurrency_is_one_question_in_the_main_flow():

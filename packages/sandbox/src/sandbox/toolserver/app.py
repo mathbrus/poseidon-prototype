@@ -5,20 +5,35 @@ Runs inside the sandbox container and listens for the gateway only:
     POST /files/read  {path, view_range?}                       -> {content, start_line, total_lines}
     POST /files/write {path, content}                           -> {ok}
     POST /files/edit  {path, command, old_str?, new_str, insert_line?} -> {ok, snippet}
-    POST /files/list  {path}                                    -> {entries: [{name, type}]}
+    POST /files/list  {path}                                    -> {files, omitted}
     POST /exec        {cmd, timeout_s}  -> {exit_code, stdout, stderr}
     POST /tests       {paths?}          -> {exit_code, stdout, stderr}
-    POST /bundle      {branch}          -> {bundle_b64, base_ref}
+    POST /bundle      {branch, message, author} -> {bundle_b64, base_ref}
 
 `/files/edit` is the partial edit: `str_replace` swaps text that occurs
 exactly once, `insert` adds lines after a line number. Both answer with a
 numbered snippet around the change. `/files/read` takes an optional
-`[start, end]` line range (1-based, inclusive, `-1` for end of file).
+`[start, end]` line range (1-based, inclusive, `-1` for end of file);
+without one it returns the first `READ_LINE_LIMIT` lines, and
+`total_lines` says how many there are.
+
+`/files/list` is the tree under a directory as git sees it — tracked and
+untracked files, ignored ones left out — as workspace-relative paths, at
+most `LIST_LIMIT` of them; `omitted` counts the rest.
 
 `/tests` with `paths` appends them to the test command — the platform's
 scoped contract-verify run. Naming the paths explicitly means a pytest
 config that ignores them cannot silently green the run: collecting
 nothing from a named path is a nonzero exit, not a pass.
+
+`/bundle` is the delivery commit, made here rather than by whoever holds a
+shell: one commit over the base ref whose tree is the workspace as it
+stands, staged from a fresh index seeded from the base ref, so what
+`.git/info/exclude` keeps out (`.poseidon-base`, bytecode) stays out even
+if something force-added it. The branch is pointed at that commit, the
+working tree is left as it is, and a second call on another branch name
+points that one at the same tree. A workspace that matches the base ref
+has nothing to deliver: HTTP 400.
 
 All paths are resolved inside the workspace (default /workspace, override with
 WORKSPACE_DIR); anything escaping it is HTTP 400. The bundle base ref is read
@@ -26,6 +41,7 @@ from `.poseidon-base`, written at provision time by the sandbox backend.
 """
 
 import base64
+import os
 import shlex
 import subprocess
 from pathlib import Path
@@ -44,6 +60,18 @@ TESTS_TIMEOUT_S = 600
 TIMEOUT_EXIT_CODE = 124
 # Lines of context on each side of an edit in the snippet returned.
 SNIPPET_CONTEXT = 4
+GIT_TIMEOUT_S = 60
+# The most lines a read without a range returns; a longer file is read on
+# in ranges.
+READ_LINE_LIMIT = 2000
+# The most paths a listing returns.
+LIST_LIMIT = 500
+# The delivery commit's author is the agent that asked for it; git wants an
+# address, and this domain says it is no mailbox.
+AUTHOR_EMAIL_DOMAIN = "agents.poseidon.invalid"
+# Where the delivery commit is staged: inside `.git`, so never in the tree,
+# and apart from the workspace's own index, which stays as the agent left it.
+DELIVERY_INDEX = "poseidon-delivery-index"
 
 
 class ToolserverSettings(BaseSettings):
@@ -82,6 +110,8 @@ class ExecRequest(BaseModel):
 
 class BundleRequest(BaseModel):
     branch: str
+    message: str
+    author: str
 
 
 class TestsRequest(BaseModel):
@@ -115,6 +145,23 @@ def create_app(workspace: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"path escapes workspace: {path}")
         return candidate
 
+    def git(*args: str, env: dict[str, str] | None = None) -> str:
+        """One git command in the workspace; a failure is the caller's 400."""
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=ws,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_S,
+            env=env,
+        )
+        if proc.returncode != 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"git {args[0]} failed: {proc.stderr.strip()}",
+            )
+        return proc.stdout.strip()
+
     def run_shell(cmd: str, timeout_s: float) -> dict[str, Any]:
         log.info("exec", extra={"cmd": cmd, "timeout_s": timeout_s})
         try:
@@ -142,7 +189,11 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         text = target.read_text()
         lines = text.splitlines(keepends=True)
         if req.view_range is None:
-            return {"content": text, "start_line": 1, "total_lines": len(lines)}
+            return {
+                "content": "".join(lines[:READ_LINE_LIMIT]),
+                "start_line": 1,
+                "total_lines": len(lines),
+            }
         start, end = req.view_range
         if end == -1:
             end = len(lines)
@@ -215,11 +266,19 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         target = resolve(req.path)
         if not target.is_dir():
             raise HTTPException(status_code=404, detail=f"no such directory: {req.path}")
-        entries = [
-            {"name": entry.name, "type": "dir" if entry.is_dir() else "file"}
-            for entry in sorted(target.iterdir(), key=lambda e: e.name)
-        ]
-        return {"entries": entries}
+        listed = git(
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+            "--",
+            str(target.relative_to(ws)),
+        )
+        # A tracked file the agent deleted is still in the index; the
+        # listing is the tree as it stands.
+        files = sorted({p for p in listed.split("\0") if p and (ws / p).is_file()})
+        return {"files": files[:LIST_LIMIT], "omitted": max(0, len(files) - LIST_LIMIT)}
 
     @app.post("/exec")
     def exec_cmd(req: ExecRequest) -> dict[str, Any]:
@@ -243,12 +302,40 @@ def create_app(workspace: Path | None = None) -> FastAPI:
                 status_code=400, detail=f"base ref not recorded ({BASE_REF_FILE} missing)"
             )
         base_ref = base_file.read_text().strip()
+        if req.branch.startswith("-"):
+            raise HTTPException(
+                status_code=400, detail=f"{req.branch!r} is not a valid branch name"
+            )
+        git("check-ref-format", "--branch", req.branch)
         log.info("bundle", extra={"branch": req.branch, "base_ref": base_ref})
+        index = ws / ".git" / DELIVERY_INDEX
+        staged = {**os.environ, "GIT_INDEX_FILE": str(index)}
+        try:
+            git("read-tree", base_ref, env=staged)
+            git("add", "-A", env=staged)
+            tree = git("write-tree", env=staged)
+        finally:
+            index.unlink(missing_ok=True)
+        if tree == git("rev-parse", f"{base_ref}^{{tree}}"):
+            raise HTTPException(
+                status_code=400,
+                detail="nothing to deliver: the workspace matches the base ref",
+            )
+        email = f"{req.author}@{AUTHOR_EMAIL_DOMAIN}"
+        identity = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": req.author,
+            "GIT_AUTHOR_EMAIL": email,
+            "GIT_COMMITTER_NAME": req.author,
+            "GIT_COMMITTER_EMAIL": email,
+        }
+        commit = git("commit-tree", tree, "-p", base_ref, "-m", req.message, env=identity)
+        git("update-ref", f"refs/heads/{req.branch}", commit)
         proc = subprocess.run(
             ["git", "bundle", "create", "-", f"{base_ref}..{req.branch}"],
             cwd=ws,
             capture_output=True,
-            timeout=60,
+            timeout=GIT_TIMEOUT_S,
         )
         if proc.returncode != 0:
             raise HTTPException(

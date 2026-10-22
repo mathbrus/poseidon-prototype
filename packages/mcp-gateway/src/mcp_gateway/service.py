@@ -647,16 +647,28 @@ class GatewayService:
         )
 
     async def git_merge_pr(
-        self, identity: Identity, run_id: str, repo: str, number: int, method: str
+        self,
+        identity: Identity,
+        run_id: str,
+        repo: str,
+        number: int,
+        sha: str,
+        method: str,
     ) -> Any:
         """Policy restricts this to the platform lifecycle — the
-        orchestrator calls it after the human merge gate."""
-        args = {"run_id": run_id, "repo": repo, "number": number, "method": method}
+        orchestrator calls it after the merge gate resolved to merge."""
+        args = {
+            "run_id": run_id,
+            "repo": repo,
+            "number": number,
+            "sha": sha,
+            "method": method,
+        }
         return await self.call(
             identity,
             "git.merge_pr",
             args,
-            lambda: self._git.merge_pr(repo, number, method),
+            lambda: self._git.merge_pr(repo, number, sha, method),
         )
 
     async def git_close_pr(

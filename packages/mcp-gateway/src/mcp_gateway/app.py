@@ -141,9 +141,10 @@ def create_app(
     async def sandbox_read_file(
         run_id: str, path: str, ctx: Context, view_range: tuple[int, int] | None = None
     ) -> dict[str, Any]:
-        """One file from the run's workspace — all of it, or the 1-based inclusive
-        `[start, end]` line range (`-1` for end of file) — with `start_line` and
-        `total_lines`."""
+        """One file from the run's workspace — from the top, or the 1-based
+        inclusive `[start, end]` line range (`-1` for end of file) — with
+        `start_line` and `total_lines`. A read without a range is cut short
+        on a long file; `total_lines` says how long it is."""
         args: dict[str, Any] = {"run_id": run_id, "path": path}
         if view_range is not None:
             args["view_range"] = view_range
@@ -188,7 +189,9 @@ def create_app(
 
     @mcp.tool(name="sandbox.list_dir")
     async def sandbox_list_dir(run_id: str, path: str, ctx: Context) -> dict[str, Any]:
-        """List a workspace directory."""
+        """The files under a workspace directory, recursively, as git sees them —
+        tracked and untracked, ignored ones left out — as workspace-relative
+        paths, capped; `omitted` counts what the cap left out."""
         return await sandbox_call(
             ctx, "sandbox.list_dir", {"run_id": run_id, "path": path}
         )
@@ -222,13 +225,24 @@ def create_app(
 
     @mcp.tool(name="sandbox.git_bundle")
     async def sandbox_git_bundle(
-        run_id: str, branch: str, ctx: Context
+        run_id: str, branch: str, message: str, ctx: Context
     ) -> dict[str, Any]:
-        """A git bundle of the named branch's commits since the recorded base ref,
-        base64-encoded. How work leaves the sandbox: as verifiable content, not
-        as a push."""
-        return await sandbox_call(
-            ctx, "sandbox.git_bundle", {"run_id": run_id, "branch": branch}
+        """Commit the run's workspace as it stands onto `branch` and return a git
+        bundle of it since the recorded base ref, base64-encoded. The commit is
+        the platform's — one commit over the base ref, whose tree is the
+        workspace, authored by the calling agent — so what is delivered is what
+        is in the sandbox. How work leaves the sandbox: as verifiable content,
+        not as a push."""
+        identity = identity_of(ctx)
+        args = {"run_id": run_id, "branch": branch, "message": message}
+        # The author is the verified caller, never an argument it chose.
+        return await service.call(
+            identity,
+            "sandbox.git_bundle",
+            args,
+            lambda: service.proxy_sandbox(
+                "sandbox.git_bundle", {**args, "author": identity.agent_id}
+            ),
         )
 
     @mcp.tool(name="repo.archive")
@@ -372,12 +386,22 @@ def create_app(
 
     @mcp.tool(name="git.merge_pr")
     async def git_merge_pr(
-        run_id: str, repo: str, number: int, ctx: Context, method: str = "merge"
+        run_id: str,
+        repo: str,
+        number: int,
+        sha: str,
+        ctx: Context,
+        method: str = "merge",
     ) -> dict[str, Any]:
-        """Merge the pull request. Compiled policy grants this to the platform
-        identity alone, and the orchestrator calls it only after the merge gate
-        resolved to merge. No blueprint can hand it to an agent role."""
-        return await service.git_merge_pr(identity_of(ctx), run_id, repo, number, method)
+        """Merge the pull request while its head is still `sha`, the commit
+        that was reviewed. A head that moved since merges nothing and
+        answers `merged: false` with the refusal. Compiled policy grants
+        this to the platform identity alone, and the orchestrator calls it
+        only after the merge gate resolved to merge. No blueprint can hand
+        it to an agent role."""
+        return await service.git_merge_pr(
+            identity_of(ctx), run_id, repo, number, sha, method
+        )
 
     @mcp.tool(name=GIT_CLOSE_PR)
     async def git_close_pr(

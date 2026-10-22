@@ -242,15 +242,21 @@ class GatewayClient:
         )
 
     async def merge_pr(
-        self, run_id: str, repo: str, number: int, method: str = "merge"
+        self, run_id: str, repo: str, number: int, sha: str, method: str = "merge"
     ) -> dict[str, Any]:
-        """The post-gate merge: only ever called by the review
-        workflow after the human merge gate approved, under the
+        """The post-gate merge of head `sha`: only ever called by the review
+        workflow after the merge gate resolved to merge, under the
         orchestrator's platform identity — policy restricts `git.merge_pr`
         to exactly that identity."""
         return await self._tool(
             "git.merge_pr",
-            {"run_id": run_id, "repo": repo, "number": number, "method": method},
+            {
+                "run_id": run_id,
+                "repo": repo,
+                "number": number,
+                "sha": sha,
+                "method": method,
+            },
         )
 
     async def close_pr(

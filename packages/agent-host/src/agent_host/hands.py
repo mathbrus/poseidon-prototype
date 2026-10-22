@@ -5,8 +5,9 @@ Two mechanisms worth stating:
 
 - `run_id` (and `target_repo`) are injected at call time and appear in no
   action schema — the model cannot see or forge them.
-- `open_pr` stays a composite: `sandbox.git_bundle` then `git.open_pr`, so
-  base64 bundles never enter the model context.
+- `open_pr` stays a composite: `sandbox.git_bundle` (the platform commits
+  the workspace as it stands) then `git.open_pr`, so base64 bundles never
+  enter the model context.
 
 A gateway denial (`ToolCallError`, carrying the OPA rule name) becomes the
 tool observation text (`ERROR: ...`) — denial-as-tool-result, the
@@ -36,24 +37,24 @@ from pydantic import Field
 
 from agent_host.config import AgentSettings
 from agent_host.gateway_client import ToolCallError
-from common.text import numbered_lines
+from common.text import clip_tail, numbered_lines
 
 # Per-procedure tool surfaces — the structural guarantee: implement has
 # no `open_pr` (delivery before the platform verify gate is impossible by
-# construction); review writes nothing but its findings comment and, at
-# most, one architecture request the platform files as a ticket.
+# construction), and deliver has nothing that changes the sandbox (what is
+# delivered is what the platform verified); review writes nothing but its
+# findings comment and, at most, one architecture request the platform
+# files as a ticket.
 IMPLEMENT_TOOLS = [
-    "list_dir",
     "read_file",
     "write_file",
     "edit_file",
     "exec",
     "request_architecture",
 ]
-DELIVER_TOOLS = ["list_dir", "read_file", "write_file", "edit_file", "exec", "open_pr"]
+DELIVER_TOOLS = ["read_file", "open_pr"]
 SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
 REVIEW_TOOLS = [
-    "list_dir",
     "read_file",
     "exec",
     "run_tests",
@@ -62,11 +63,15 @@ REVIEW_TOOLS = [
     "request_architecture",
     "verdict",
 ]
-# The tools that address the run's sandbox: a procedure holding any of
-# them gets the host's workspace survey before its first turn.
-WORKSPACE_TOOLS = frozenset(
-    {"list_dir", "read_file", "write_file", "edit_file", "exec", "run_tests"}
-)
+# The tools that work in the run's sandbox: a procedure holding any of
+# them gets the host's workspace survey before its first turn. Deliver,
+# which only reads there, opens on what it delivers instead.
+WORKSPACE_TOOLS = frozenset({"write_file", "edit_file", "exec", "run_tests"})
+
+
+# The most of one stream of a shell result (stdout, stderr) that reaches
+# the model: its tail, where a command says how it ended.
+SHELL_CLIP = 8000
 
 
 class GatewayCaller(Protocol):
@@ -87,6 +92,8 @@ class ToolRecords:
     # against compiled policy — never this record's.
     verdict: str | None = None
     verdict_rationale: str | None = None
+    # Deliver: the last refusal of an `open_pr`, the platform's words.
+    delivery_refusal: str | None = None
 
 
 @dataclass
@@ -116,10 +123,6 @@ def current_context() -> HandsContext:
 # --- action schemas (the model-facing contract, run_id-free) -----------------
 
 
-class ListDirAction(Action):
-    path: str = Field(description="Directory path, relative to the workspace root.")
-
-
 class ReadFileAction(Action):
     path: str = Field(description="File path, relative to the workspace root.")
     # A list, not a pair: model-facing schemas stay within what every
@@ -127,7 +130,8 @@ class ReadFileAction(Action):
     view_range: list[int] | None = Field(
         default=None,
         description="Optional [start, end] line range, 1-based and inclusive "
-        "(end -1 = end of file). Omit to read the whole file.",
+        "(end -1 = end of file). Omit to read from the top; a long file "
+        "comes back in part, and the reply says how to read on.",
     )
 
 
@@ -236,10 +240,6 @@ class GatewayObservation(Observation):
 # --- gateway mappings (run_id / target_repo injection lives here) ------------
 
 
-def _list_dir(ctx: HandsContext, a: ListDirAction) -> dict[str, Any]:
-    return ctx.bridge.call("sandbox.list_dir", {"run_id": ctx.run_id, "path": a.path})
-
-
 def _read_file(ctx: HandsContext, a: ReadFileAction) -> dict[str, Any]:
     args: dict[str, Any] = {"run_id": ctx.run_id, "path": a.path}
     if a.view_range is not None:
@@ -249,12 +249,16 @@ def _read_file(ctx: HandsContext, a: ReadFileAction) -> dict[str, Any]:
 
 def _render_read(a: ReadFileAction, result: dict[str, Any]) -> str:
     """Numbered lines — what str_replace and insert anchor on — under a
-    header saying which lines of how many these are."""
+    header saying which lines of how many these are, and how to read on
+    when a whole-file read was cut short."""
     lines = str(result["content"]).splitlines(keepends=True)
     first = int(result.get("start_line", 1))
     total = int(result.get("total_lines", len(lines)))
     last = first + len(lines) - 1 if lines else first
-    return f"{a.path}: lines {first}-{last} of {total}\n{numbered_lines(lines, first)}"
+    header = f"{a.path}: lines {first}-{last} of {total}"
+    if a.view_range is None and last < total:
+        header += "; pass view_range for the rest"
+    return f"{header}\n{numbered_lines(lines, first)}"
 
 
 def _write_file(ctx: HandsContext, a: WriteFileAction) -> dict[str, Any]:
@@ -293,22 +297,46 @@ def _run_tests(ctx: HandsContext, a: RunTestsAction) -> dict[str, Any]:
     return ctx.bridge.call("sandbox.run_tests", {"run_id": ctx.run_id})
 
 
+def shell_text(result: dict[str, Any]) -> str:
+    """A shell result as the model reads it — a command's or a test run's,
+    from a tool or from the host: the exit code, then each stream as plain
+    text, its tail kept."""
+    return (
+        f"exit code {result.get('exit_code')}\n"
+        f"stdout:\n{clip_tail(str(result.get('stdout') or ''), SHELL_CLIP)}\n"
+        f"stderr:\n{clip_tail(str(result.get('stderr') or ''), SHELL_CLIP)}"
+    )
+
+
+def _render_shell(a: ExecAction | RunTestsAction, result: dict[str, Any]) -> str:
+    return shell_text(result)
+
+
 def _open_pr(ctx: HandsContext, a: OpenPrAction) -> dict[str, Any]:
-    bundle = ctx.bridge.call(
-        "sandbox.git_bundle", {"run_id": ctx.run_id, "branch": a.branch}
-    )
-    result = ctx.bridge.call(
-        "git.open_pr",
-        {
-            "run_id": ctx.run_id,
-            "repo": ctx.settings.target_repo,
-            "branch": a.branch,
-            "title": a.title,
-            "body": a.body,
-            "bundle_b64": bundle["bundle_b64"],
-            "rationale": a.rationale,
-        },
-    )
+    """The platform commits the workspace under the PR title, then policy
+    decides the delivery. A refusal is kept: when no PR opens, it is what
+    the workflow hands the next implement dispatch, since only that one
+    can change the work."""
+    try:
+        bundle = ctx.bridge.call(
+            "sandbox.git_bundle",
+            {"run_id": ctx.run_id, "branch": a.branch, "message": a.title},
+        )
+        result = ctx.bridge.call(
+            "git.open_pr",
+            {
+                "run_id": ctx.run_id,
+                "repo": ctx.settings.target_repo,
+                "branch": a.branch,
+                "title": a.title,
+                "body": a.body,
+                "bundle_b64": bundle["bundle_b64"],
+                "rationale": a.rationale,
+            },
+        )
+    except ToolCallError as exc:
+        ctx.records.delivery_refusal = str(exc)
+        raise
     if result.get("pr_url"):
         ctx.records.pr_url = result["pr_url"]
     # The bundle never enters the model context; the observation is the PR.
@@ -415,12 +443,6 @@ class ToolSpec:
 
 
 _TOOLS: dict[str, ToolSpec] = {
-    "list_dir": ToolSpec(
-        "List entries of a directory inside the workspace.",
-        ListDirAction,
-        _list_dir,
-        read_only=True,
-    ),
     "read_file": ToolSpec(
         "Read a text file from the workspace, as numbered lines.",
         ReadFileAction,
@@ -443,20 +465,21 @@ _TOOLS: dict[str, ToolSpec] = {
         render=_render_edit,
     ),
     "exec": ToolSpec(
-        "Run a shell command in the workspace root (e.g. git, ls, python).",
+        "Run a shell command in the workspace root (e.g. git, rg, python).",
         ExecAction,
         _exec,
+        render=_render_shell,
     ),
     "run_tests": ToolSpec(
         "Run the repository's test suite in your sandbox.",
         RunTestsAction,
         _run_tests,
+        render=_render_shell,
     ),
     "open_pr": ToolSpec(
-        "Deliver the finished work: bundle the given branch and open a pull "
-        "request against the target repository, saying why the change is "
-        "complete and correct. Commit your changes on the branch first (via "
-        "exec).",
+        "Deliver the verified work: the platform commits the workspace onto "
+        "the given branch and opens a pull request against the target "
+        "repository, saying why the change is complete and correct.",
         OpenPrAction,
         _open_pr,
     ),

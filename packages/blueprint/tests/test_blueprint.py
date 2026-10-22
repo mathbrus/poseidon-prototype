@@ -80,7 +80,7 @@ def test_typo_in_a_key_is_rejected_not_ignored(blueprint):
 
 
 def test_unknown_tool_lists_what_is_allowed(blueprint):
-    blueprint["tools"]["reviewer"]["allow"].append("issues.delete")
+    blueprint["tools"]["reviewer"] = {"allow": ["git.read", "issues.delete"]}
     (problem,) = [p for p in problems_of(blueprint) if "issues.delete" in p]
     assert "tools.reviewer.allow" in problem
     assert "issues.create" in problem  # the allowed values are shown
@@ -100,7 +100,7 @@ def test_the_toolchain_is_declared_not_defaulted(blueprint):
 
 
 def test_an_empty_tool_scope_is_rejected(blueprint):
-    blueprint["tools"]["reviewer"]["allow"] = []
+    blueprint["tools"]["reviewer"] = {"allow": []}
     assert any(
         "tools.reviewer.allow" in p and "empty" in p for p in problems_of(blueprint)
     )
@@ -142,13 +142,13 @@ def test_a_tool_scope_for_an_unknown_role_is_caught(blueprint):
 def test_company_role_cannot_hold_the_platform_merge_tool(blueprint):
     """git.merge_pr is the orchestrator's after the gate. A blueprint
     that could grant it would make the human merge gate optional."""
-    blueprint["tools"]["reviewer"]["allow"].append("git.merge_pr")
+    blueprint["tools"]["reviewer"] = {"allow": ["git.read", "git.merge_pr"]}
     (problem,) = [p for p in problems_of(blueprint) if "git.merge_pr" in p]
     assert "platform identity" in problem
 
 
 def test_no_role_scope_can_hold_the_platform_merge_tool(blueprint):
-    blueprint["tools"]["reviewer"]["allow"].append("git.merge_pr")
+    blueprint["tools"]["reviewer"] = {"allow": ["git.read", "git.merge_pr"]}
     assert any("platform identity" in p for p in problems_of(blueprint))
 
 
@@ -156,7 +156,7 @@ def test_a_tool_scope_cannot_widen_the_catalog(blueprint):
     """The reviewer-cannot-deliver contract is a catalog property: a
     blueprint granting the reviewer `git.open_pr` must fail validation,
     not compile into a wider bundle."""
-    blueprint["tools"]["reviewer"]["allow"].append("git.open_pr")
+    blueprint["tools"]["reviewer"] = {"allow": ["git.read", "git.open_pr"]}
     (problem,) = [p for p in problems_of(blueprint) if "git.open_pr" in p]
     assert "never widens" in problem
     assert "sandbox.read_file" in problem  # the allowed values are shown

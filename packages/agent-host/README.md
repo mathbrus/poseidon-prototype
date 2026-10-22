@@ -38,19 +38,19 @@ The pod env sets `MCP_GATEWAY_URL`, `LLM_PROXY_URL`, `MODEL`, `ROLE`, `GATEWAY_T
 |---|---|---|
 | `scope` | `create_issue`, `read_issues`, `comment_issue` | tickets filed and the PM's summary commented; filing nothing is valid |
 | `decide` | none: one completion, no gateway session | a `DECISION:` line and a `RATIONALE:` line |
-| `implement` | `list_dir`, `read_file`, `write_file`, `edit_file`, `exec`, `request_architecture` | a completion claim after advisory green |
-| `deliver` | `list_dir`, `read_file`, `write_file`, `edit_file`, `exec`, `open_pr` | the PR URL |
-| `review` | `list_dir`, `read_file`, `exec`, `run_tests`, `read_pr`, `comment_pr`, `request_architecture`, `verdict` | a findings comment and a pass/fail verdict |
+| `implement` | `read_file`, `write_file`, `edit_file`, `exec`, `request_architecture` | a completion claim after advisory green |
+| `deliver` | `read_file`, `open_pr` | the PR URL, or the refusal that kept it from opening |
+| `review` | `read_file`, `exec`, `run_tests`, `read_pr`, `comment_pr`, `request_architecture`, `verdict` | a findings comment and a pass/fail verdict |
 
-The implement surface has no `open_pr`. Between conversation turns, `run_implement` calls `sandbox.run_tests` itself and feeds failures back, up to `VERIFY_CYCLES`. This advisory verify uses `common.verify`, the same rule as the platform's verify. The platform's own verify in the workflow is the gate of record. Only after it passes does the workflow dispatch `deliver`, whose surface holds `open_pr`.
+The implement surface has no `open_pr`. Between conversation turns, `run_implement` calls `sandbox.run_tests` itself and feeds failures back, up to `VERIFY_CYCLES`. This advisory verify uses `common.verify`, the same rule as the platform's verify. The platform's own verify in the workflow is the gate of record. Only after it passes does the workflow dispatch `deliver`, whose surface holds `open_pr` and nothing that changes the sandbox: `sandbox.git_bundle` makes the delivery commit of the workspace as it stands, so what is delivered is what was verified. The deliver dispatch opens on what changed, read by the host through `sandbox.exec`. When policy refuses the work itself, the refusal is the result's `delivery_refusal`, and the workflow hands it to the next implement dispatch.
 
 Results are facts captured at the tool executor (`ToolRecords`), never the model's prose. A deliver with no PR, a review with no findings or verdict, a scope that filed tickets without a summary, and a malformed decide reply all fail. So does a loop that hits the SDK's step cap or stuck detector.
 
 ### Every side effect goes through the gateway
 
-The SDK's built-in tools are never installed. Each tool resolves to an MCP call on the [mcp-gateway](../mcp-gateway/README.md), except `verdict`, which only records the answer. `hands.py` injects `run_id` and `target_repo`, which appear in no schema. `open_pr` bundles then opens the PR, and the model sees only the URL. A denial becomes an `ERROR: ...` observation naming the rule, so the model can recover.
+The SDK's built-in tools are never installed. Each tool resolves to an MCP call on the [mcp-gateway](../mcp-gateway/README.md), except `verdict`, which only records the answer. `hands.py` injects `run_id` and `target_repo`, which appear in no schema. `open_pr` has the platform commit and bundle the workspace, then opens the PR, and the model sees only the URL. A denial becomes an `ERROR: ...` observation naming the rule, so the model can recover.
 
-Before `implement`, `deliver` and `review` start, the host lists the sandbox root and reads `AGENTS.md`. That file and the company's documents reach the model inside the SDK's untrusted-content framing.
+Before `implement` and `review` start, the host lists the sandbox's files (`sandbox.list_dir`, recursive and .gitignore-aware) into the opening message and reads `AGENTS.md`. That file and the company's documents reach the model inside the SDK's untrusted-content framing. The model has no listing tool of its own; it searches with `rg` or `git grep` through `exec`.
 
 `GatewayBridge` opens and closes the MCP session in one task on its own thread, because the MCP client's cancel scopes are task-bound. Model calls go to the [llm-gateway](../llm-gateway/README.md) with `X-Poseidon-Run-Id` and `num_retries=1`, so a budget 429 surfaces at once. A batch of tool calls runs concurrently only when every call is read-only.
 

@@ -10,6 +10,7 @@ import re
 
 import pytest
 from conftest import (
+    AGENT_ID,
     AGENT_TOKEN,
     WORKER_TOKEN,
     audit_events,
@@ -134,7 +135,11 @@ async def test_all_sandbox_tools_map_to_tool_server_routes(app, backends):
         ("sandbox.list_dir", {"run_id": RUN_ID, "path": "."}, "/files/list"),
         ("sandbox.exec", {"run_id": RUN_ID, "cmd": "ls", "timeout_s": 5}, "/exec"),
         ("sandbox.run_tests", {"run_id": RUN_ID}, "/tests"),
-        ("sandbox.git_bundle", {"run_id": RUN_ID, "branch": "feature/x"}, "/bundle"),
+        (
+            "sandbox.git_bundle",
+            {"run_id": RUN_ID, "branch": "feature/x", "message": "Add x"},
+            "/bundle",
+        ),
     ]
     async with mcp_session(app, AGENT_TOKEN) as session:
         for tool, args, _route in calls:
@@ -148,6 +153,15 @@ async def test_all_sandbox_tools_map_to_tool_server_routes(app, backends):
         dict(p) for route, p in backends.sandbox_calls if route == "/exec"
     )
     assert exec_payload == {"cmd": "ls", "timeout_s": 5}
+    # The delivery commit's author is the verified caller, never an
+    # argument: the policy input saw only what the agent sent.
+    bundle_payload = next(p for route, p in backends.sandbox_calls if route == "/bundle")
+    assert bundle_payload == {
+        "branch": "feature/x",
+        "message": "Add x",
+        "author": AGENT_ID,
+    }
+    assert "author" not in backends.policy_inputs[-1]["args"]
 
 
 # --- deny path ---------------------------------------------------------------

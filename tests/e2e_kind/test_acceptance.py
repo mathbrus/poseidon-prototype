@@ -346,7 +346,10 @@ def test_live_implementer_cannot_exceed_its_compiled_allowlist(
                         "rationale": "red-team: probing the allowlist",
                     },
                 ),
-                ("git.merge_pr", {"run_id": run_id, "repo": repo, "number": 1}),
+                (
+                    "git.merge_pr",
+                    {"run_id": run_id, "repo": repo, "number": 1, "sha": "0" * 40},
+                ),
                 # The implementer never grades its own homework: closing a
                 # ticket or a pull request is the platform's alone.
                 (
