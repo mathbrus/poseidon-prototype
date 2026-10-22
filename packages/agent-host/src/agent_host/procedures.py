@@ -54,10 +54,12 @@ from agent_host.hands import (
     IMPLEMENT_TOOLS,
     REVIEW_TOOLS,
     SCOPE_TOOLS,
+    SHELL_CLIP,
     WORKSPACE_TOOLS,
     HandsContext,
     ToolRecords,
     hands,
+    shell_text,
 )
 from agent_host.models import family_of
 from agent_host.prompting import REPO_INSTRUCTIONS_FILE, system_prompt, untrusted_context
@@ -90,7 +92,6 @@ CONDENSER_MAX_SIZE = 120
 CONDENSER_KEEP_FIRST = 4
 # Tool calls from one reply that may run at once — only ever reads.
 TOOL_CONCURRENCY = 4
-_OUTPUT_CLIP = 4000
 
 log = get_logger("agent_host.procedures")
 
@@ -331,15 +332,11 @@ def _shell_result(bridge: GatewayBridge, run_id: str, cmd: str) -> str:
         )
     except ToolCallError as exc:
         return f"(unavailable: {exc})"
-    return clip_tail(str(result.get("stdout", "")), _OUTPUT_CLIP).strip()
+    return clip_tail(str(result.get("stdout", "")), SHELL_CLIP).strip()
 
 
 def _test_report(result: dict[str, Any]) -> str:
-    return (
-        f"Test run finished with exit code {result.get('exit_code')}.\n"
-        f"stdout:\n{clip_tail(str(result.get('stdout', '')), _OUTPUT_CLIP)}\n"
-        f"stderr:\n{clip_tail(str(result.get('stderr', '')), _OUTPUT_CLIP)}"
-    )
+    return f"The test suite ran in your sandbox: {shell_text(result)}"
 
 
 @dataclass

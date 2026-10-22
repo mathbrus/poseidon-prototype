@@ -141,9 +141,10 @@ def create_app(
     async def sandbox_read_file(
         run_id: str, path: str, ctx: Context, view_range: tuple[int, int] | None = None
     ) -> dict[str, Any]:
-        """One file from the run's workspace — all of it, or the 1-based inclusive
-        `[start, end]` line range (`-1` for end of file) — with `start_line` and
-        `total_lines`."""
+        """One file from the run's workspace — from the top, or the 1-based
+        inclusive `[start, end]` line range (`-1` for end of file) — with
+        `start_line` and `total_lines`. A read without a range is cut short
+        on a long file; `total_lines` says how long it is."""
         args: dict[str, Any] = {"run_id": run_id, "path": path}
         if view_range is not None:
             args["view_range"] = view_range

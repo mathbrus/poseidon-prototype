@@ -13,7 +13,9 @@ Runs inside the sandbox container and listens for the gateway only:
 `/files/edit` is the partial edit: `str_replace` swaps text that occurs
 exactly once, `insert` adds lines after a line number. Both answer with a
 numbered snippet around the change. `/files/read` takes an optional
-`[start, end]` line range (1-based, inclusive, `-1` for end of file).
+`[start, end]` line range (1-based, inclusive, `-1` for end of file);
+without one it returns the first `READ_LINE_LIMIT` lines, and
+`total_lines` says how many there are.
 
 `/tests` with `paths` appends them to the test command — the platform's
 scoped contract-verify run. Naming the paths explicitly means a pytest
@@ -55,6 +57,9 @@ TIMEOUT_EXIT_CODE = 124
 # Lines of context on each side of an edit in the snippet returned.
 SNIPPET_CONTEXT = 4
 GIT_TIMEOUT_S = 60
+# The most lines a read without a range returns; a longer file is read on
+# in ranges.
+READ_LINE_LIMIT = 2000
 # The delivery commit's author is the agent that asked for it; git wants an
 # address, and this domain says it is no mailbox.
 AUTHOR_EMAIL_DOMAIN = "agents.poseidon.invalid"
@@ -161,7 +166,11 @@ def create_app(workspace: Path | None = None) -> FastAPI:
         text = target.read_text()
         lines = text.splitlines(keepends=True)
         if req.view_range is None:
-            return {"content": text, "start_line": 1, "total_lines": len(lines)}
+            return {
+                "content": "".join(lines[:READ_LINE_LIMIT]),
+                "start_line": 1,
+                "total_lines": len(lines),
+            }
         start, end = req.view_range
         if end == -1:
             end = len(lines)

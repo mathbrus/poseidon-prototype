@@ -59,6 +59,22 @@ def test_read_file(client: TestClient):
     assert resp.json() == {"content": "hello\n", "start_line": 1, "total_lines": 1}
 
 
+def test_read_file_without_a_range_is_capped(client: TestClient, workspace: Path):
+    """A whole-file read returns at most READ_LINE_LIMIT lines; the total
+    says there is more, to read on in ranges."""
+    from sandbox.toolserver.app import READ_LINE_LIMIT
+
+    (workspace / "big.txt").write_text("".join(f"{n}\n" for n in range(5000)))
+    body = client.post("/files/read", json={"path": "big.txt"}).json()
+    assert body["content"].count("\n") == READ_LINE_LIMIT
+    assert body["content"].startswith("0\n")
+    assert body["total_lines"] == 5000
+    tail = client.post(
+        "/files/read", json={"path": "big.txt", "view_range": [4999, -1]}
+    ).json()
+    assert tail["content"] == "4998\n4999\n"
+
+
 def test_read_file_view_range(client: TestClient, workspace: Path):
     (workspace / "many.txt").write_text("a\nb\nc\nd\n")
     resp = client.post("/files/read", json={"path": "many.txt", "view_range": [2, 3]})

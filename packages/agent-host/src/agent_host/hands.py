@@ -37,7 +37,7 @@ from pydantic import Field
 
 from agent_host.config import AgentSettings
 from agent_host.gateway_client import ToolCallError
-from common.text import numbered_lines
+from common.text import clip_tail, numbered_lines
 
 # Per-procedure tool surfaces — the structural guarantee: implement has
 # no `open_pr` (delivery before the platform verify gate is impossible by
@@ -69,6 +69,11 @@ REVIEW_TOOLS = [
 # them gets the host's workspace survey before its first turn. Deliver,
 # which only reads there, opens on what it delivers instead.
 WORKSPACE_TOOLS = frozenset({"write_file", "edit_file", "exec", "run_tests"})
+
+
+# The most of one stream of a shell result (stdout, stderr) that reaches
+# the model: its tail, where a command says how it ended.
+SHELL_CLIP = 8000
 
 
 class GatewayCaller(Protocol):
@@ -131,7 +136,8 @@ class ReadFileAction(Action):
     view_range: list[int] | None = Field(
         default=None,
         description="Optional [start, end] line range, 1-based and inclusive "
-        "(end -1 = end of file). Omit to read the whole file.",
+        "(end -1 = end of file). Omit to read from the top; a long file "
+        "comes back in part, and the reply says how to read on.",
     )
 
 
@@ -253,12 +259,16 @@ def _read_file(ctx: HandsContext, a: ReadFileAction) -> dict[str, Any]:
 
 def _render_read(a: ReadFileAction, result: dict[str, Any]) -> str:
     """Numbered lines — what str_replace and insert anchor on — under a
-    header saying which lines of how many these are."""
+    header saying which lines of how many these are, and how to read on
+    when a whole-file read was cut short."""
     lines = str(result["content"]).splitlines(keepends=True)
     first = int(result.get("start_line", 1))
     total = int(result.get("total_lines", len(lines)))
     last = first + len(lines) - 1 if lines else first
-    return f"{a.path}: lines {first}-{last} of {total}\n{numbered_lines(lines, first)}"
+    header = f"{a.path}: lines {first}-{last} of {total}"
+    if a.view_range is None and last < total:
+        header += "; pass view_range for the rest"
+    return f"{header}\n{numbered_lines(lines, first)}"
 
 
 def _write_file(ctx: HandsContext, a: WriteFileAction) -> dict[str, Any]:
@@ -295,6 +305,21 @@ def _exec(ctx: HandsContext, a: ExecAction) -> dict[str, Any]:
 
 def _run_tests(ctx: HandsContext, a: RunTestsAction) -> dict[str, Any]:
     return ctx.bridge.call("sandbox.run_tests", {"run_id": ctx.run_id})
+
+
+def shell_text(result: dict[str, Any]) -> str:
+    """A shell result as the model reads it — a command's or a test run's,
+    from a tool or from the host: the exit code, then each stream as plain
+    text, its tail kept."""
+    return (
+        f"exit code {result.get('exit_code')}\n"
+        f"stdout:\n{clip_tail(str(result.get('stdout') or ''), SHELL_CLIP)}\n"
+        f"stderr:\n{clip_tail(str(result.get('stderr') or ''), SHELL_CLIP)}"
+    )
+
+
+def _render_shell(a: ExecAction | RunTestsAction, result: dict[str, Any]) -> str:
+    return shell_text(result)
 
 
 def _open_pr(ctx: HandsContext, a: OpenPrAction) -> dict[str, Any]:
@@ -459,11 +484,13 @@ _TOOLS: dict[str, ToolSpec] = {
         "Run a shell command in the workspace root (e.g. git, ls, python).",
         ExecAction,
         _exec,
+        render=_render_shell,
     ),
     "run_tests": ToolSpec(
         "Run the repository's test suite in your sandbox.",
         RunTestsAction,
         _run_tests,
+        render=_render_shell,
     ),
     "open_pr": ToolSpec(
         "Deliver the verified work: the platform commits the workspace onto "
