@@ -43,7 +43,7 @@ echo "user-visible surfaces touched since $BASE (any → a release is due, and a
 SURFACES='
 the blueprint and its policy|packages/blueprint/src packages/compiler/src crds examples
 the CLI|packages/cli/src
-the console|packages/console/src
+the console|packages/console/src packages/common/src/common/console
 the chart|deploy/helm
 the prompts|packages/agent-host/src/agent_host/prompts
 '
@@ -60,6 +60,13 @@ done <<<"$SURFACES"
 if [ "$touched" = 0 ]; then
   echo "  none: fixes, refactors, docs and tests only (a patch, if anything)"
 fi
+
+echo
+# A breaking change to the console interface is the clients' to know first:
+# the proposal's changelog says it under "Changed".
+INTERFACE=$(uv run python scripts/console_interface.py --breaking "$BASE" --against "$HEAD_REF" || true)
+echo "console interface: $(head -1 <<<"$INTERFACE") since $BASE"
+tail -n +2 <<<"$INTERFACE"
 
 echo
 echo "CHANGELOG.md, Unreleased:"

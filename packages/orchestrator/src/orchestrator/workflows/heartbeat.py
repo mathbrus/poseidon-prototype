@@ -83,6 +83,9 @@ from common.workflows import (
     BOOTSTRAP_GATE,
     DAILY_CAP_GATE,
     GATE_HALTED,
+    HEARTBEAT_PAUSED,
+    HEARTBEAT_SLEEPING,
+    HEARTBEAT_TICKING,
     TICK_IDLE,
     TICK_PAUSED,
     TICK_REFUSED,
@@ -116,7 +119,7 @@ class HeartbeatInput:
 @workflow.defn(name="heartbeat")
 class HeartbeatWorkflow(RunWorkflow):
     def __init__(self) -> None:
-        self._state = "ticking"
+        self._state = HEARTBEAT_TICKING
         self._woken = False
 
     @workflow.signal
@@ -159,7 +162,7 @@ class HeartbeatWorkflow(RunWorkflow):
             outcome, rule = await self._tick(input, config)
         await self._record(outcome, rule)
 
-        self._state = "paused" if outcome == TICK_PAUSED else "sleeping"
+        self._state = HEARTBEAT_PAUSED if outcome == TICK_PAUSED else HEARTBEAT_SLEEPING
         # A wake that landed during the tick skips the wait: one more tick
         # services it, however many wakes coalesced into the flag. The
         # reset before continue-as-new consumes the wake this run answers

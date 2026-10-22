@@ -263,17 +263,17 @@ def test_the_crew_was_fulfilled_under_conductor_authority(review_chain: dict) ->
 
 
 def test_gate_escalates_then_records_the_approval(review_chain: dict) -> None:
-    """Escalation, then the verdict: both transitions are process-gate
-    audit events carrying the workflow id, in order."""
+    """The park, the escalation, then the verdict: every transition is a
+    process-gate audit event carrying the workflow id, in order."""
     run_id = review_chain["review_run_id"]
     gate_events = [e for e in audit_story(run_id) if e["source"] == "process-gate"]
     rules = [e["rule"] for e in gate_events]
-    assert rules == ["gate_escalated", "gate_approved"]
+    assert rules == ["gate_parked", "gate_escalated", "gate_approved"]
     for event in gate_events:
         assert event["tool"] == gate_event(MERGE_GATE)
         assert event["workflow"] == f"review-{run_id}"
-    escalated, approved = gate_events
-    assert escalated["decision"] == "deny"
+    parked, escalated, approved = gate_events
+    assert parked["decision"] == escalated["decision"] == "deny"
     assert approved["decision"] == "allow"
 
 

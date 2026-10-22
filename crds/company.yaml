@@ -102,6 +102,20 @@ spec:
                   items:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
+                # The blueprint's text as a human applied it, written by the
+                # console after the apply decision: what `GET /blueprint`
+                # reads back. The compiled spec above is not the blueprint
+                # (it drops comments, defaults and ordering) and cannot be
+                # applied again; this can. Nothing downstream reads it, so
+                # the reconciler does not store it.
+                blueprintSource:
+                  type: object
+                  required: [text, sha256, appliedBy, appliedAt]
+                  properties:
+                    text: {type: string}
+                    sha256: {type: string}
+                    appliedBy: {type: string}
+                    appliedAt: {type: string}
             status:
               type: object
               properties:

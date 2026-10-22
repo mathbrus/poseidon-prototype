@@ -151,6 +151,14 @@ spec:
               app: opa
       ports:
         - port: 8181
+    # The MCP gateway, for the one read the company's bundle allows the
+    # console: the company's documents at the base ref.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mcp-gateway
+      ports:
+        - port: 8080
     - to:
         - podSelector:
             matchLabels:

@@ -35,10 +35,13 @@ from typing import Any
 from blueprint.catalog import STEWARD_ROLE
 from blueprint.gates import UNDELEGATABLE_PATHS
 from blueprint.tools import ARCHITECTURE_REQUEST, RUN_SCOPED
+from common.identity import LIFECYCLE_CONSOLE
 from common.policy import (
     BLUEPRINT_APPLY,
     COMPANY_DELETE,
+    CONSOLE_READ_DOCUMENT,
     CREW_REQUEST,
+    DEFAULT_DENY,
     GATE_RESOLVE,
     GIT_OPEN_PR_ARCHITECTURE_PATH,
     GIT_OPEN_PR_BRANCH_PATTERN,
@@ -76,7 +79,7 @@ package {package}
 import rego.v1
 
 # Default deny: a caller with no matching allow rule gets nothing.
-default decision := {{"allow": false, "rule": "default_deny"}}
+default decision := {{"allow": false, "rule": "{default_deny}"}}
 
 decision := {{"allow": false, "rule": min(deny_rules)}} if {{
 	count(deny_rules) > 0
@@ -200,7 +203,11 @@ def _run_binding(tool: str) -> str:
 def _decision_file(package: str, *rules: str) -> str:
     """The bundle's entrypoint file: the default-deny decision, then any
     rules that belong beside it rather than in a per-role file."""
-    return HEADER + _DECISION.format(package=package) + "".join(rules)
+    return (
+        HEADER
+        + _DECISION.format(package=package, default_deny=DEFAULT_DENY)
+        + "".join(rules)
+    )
 
 
 def _rego_file(company: str, body: str) -> str:
@@ -343,13 +350,23 @@ def _heartbeat_file(company: str, heartbeat: HeartbeatConfig) -> str:
     return _rego_file(company, allows + denies)
 
 
-def _console_file(company: str, humans: tuple[str, ...]) -> str:
+def _console_file(
+    company: str,
+    humans: tuple[str, ...],
+    repo_url: str,
+    base_ref: str,
+    documents: dict[str, str],
+) -> str:
     """The company's humans: who may act on it through the console. Every
     human act is a decision the console must win before it does anything —
     the `heartbeat.start` idiom, keyed on the `human` lifecycle so no
     workload can claim it. One allow per act, gate and verdict, so the
     audit row names what was granted; one deny for a verified person the
-    company did not name. Authority is the list, and the list is a diff."""
+    company did not name. Authority is the list, and the list is a diff.
+
+    And the console's own read: under the `console` lifecycle, the one
+    tool `repo.read_file`, on the company's repository, at its base ref,
+    of its two document paths — and nothing else, by default deny."""
     names = json.dumps(sorted(humans))
 
     def act(rule: str, tool: str, *facts: str) -> str:
@@ -391,6 +408,16 @@ def _console_file(company: str, humans: tuple[str, ...]) -> str:
         '\ndeny_rules contains "human_not_recognized" if {\n'
         '\tinput.lifecycle == "human"\n'
         f"\tnot input.agent_id in {names}\n"
+        "}\n"
+    )
+    body += (
+        f'\nallow_rules contains "{CONSOLE_READ_DOCUMENT}" if {{\n'
+        f"\tinput.lifecycle == {json.dumps(LIFECYCLE_CONSOLE)}\n"
+        f"\tinput.company == {json.dumps(company)}\n"
+        '\tinput.tool == "repo.read_file"\n'
+        f"\tinput.args.repo == {json.dumps(repo_url)}\n"
+        f"\tinput.args.ref == {json.dumps(base_ref)}\n"
+        f"\tinput.args.path in {json.dumps(sorted(documents.values()))}\n"
         "}\n"
     )
     return _rego_file(company, body)
@@ -724,6 +751,7 @@ def build_bundle(
     ephemeral_agents: list[EphemeralAgentSpec],
     policies: dict[str, Any],
     repo_url: str,
+    base_ref: str,
     heartbeat: HeartbeatConfig,
     documents: dict[str, str],
     humans: tuple[str, ...],
@@ -753,7 +781,7 @@ def build_bundle(
         files[name] = _crew_file(company, agent.crew, agent.role, list(agent.tools))
     files["policies.rego"] = _policies_file(company, policies, repo_url, documents)
     files["heartbeat.rego"] = _heartbeat_file(company, heartbeat)
-    files["console.rego"] = _console_file(company, humans)
+    files["console.rego"] = _console_file(company, humans, repo_url, base_ref, documents)
     if merge_gate is not None:
         files["merge_gate.rego"] = _merge_gate_file(company, humans, merge_gate, policies)
     return files

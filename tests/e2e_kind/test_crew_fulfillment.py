@@ -32,6 +32,7 @@ from .cluster import (
     gateway_url,
     kubectl,
     mcp_call,
+    participants,
     port_forward,
     projected_token,
     registry,
@@ -275,13 +276,10 @@ def test_worker_kill_leaks_no_crew(stack: None, env: dict) -> None:
     run_id = record["run_id"]
     implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
 
-    # Nothing leaked: the row is terminal and the pod is gone.
+    # Nothing leaked: the identity is revoked and the pod is gone.
+    crew = {agent.agent_id: agent.status for agent in participants(run_id)}
+    assert crew.get(implementer_id) == "terminated", crew
     with registry() as client:
-        rows = client.query(
-            "SELECT status FROM registry.run_participants WHERE agent_id = %s",
-            (implementer_id,),
-        )
-        assert rows and rows[0]["status"] == "terminated", rows
         client.execute(
             "DELETE FROM registry.run_participants WHERE run_id = %s", (run_id,)
         )

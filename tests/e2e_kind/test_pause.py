@@ -93,13 +93,13 @@ def test_a_paused_tick_starts_nothing_on_a_startable_backlog(held: dict, env: di
     """The act answered with who holds the loop; the tick it caused is a
     deny naming the person; no run exists on the ticket the loop would
     otherwise have implemented; the loop and the company both say so."""
-    assert held["paused"]["paused"]["by"] == HUMAN, held["paused"]
+    assert held["paused"].paused.by == HUMAN, held["paused"]
     assert held["tick"]["decision"] == "deny", held["tick"]
     assert held["tick"]["rule"] == tick_rule(TICK_PAUSED, HUMAN), held["tick"]
     assert run_by_task(held["task"], workflow="implement") is None
-    execution = console(env).heartbeat()["execution"]
-    assert execution["status"] == "RUNNING" and execution["state"] == "paused", execution
-    assert console(env).company()["paused"]["by"] == HUMAN
+    execution = console(env).heartbeat().execution
+    assert (execution.status, execution.state) == ("RUNNING", "paused"), execution
+    assert console(env).company().paused.by == HUMAN
 
 
 def test_the_pause_is_on_the_heartbeats_story_with_its_reason(held: dict):
@@ -133,7 +133,7 @@ def test_a_person_the_company_did_not_name_cannot_lift_the_pause(held: dict, env
         if e["tool"] == HEARTBEAT_RESUME and e["agent_id"] == "auditor"
     ]
     assert refusals and refusals[-1]["decision"] == "deny"
-    assert console(env).company()["paused"]["by"] == HUMAN
+    assert console(env).company().paused.by == HUMAN
 
 
 def test_resume_starts_the_held_work_and_a_run_in_flight_outlives_a_pause(
@@ -145,7 +145,7 @@ def test_resume_starts_the_held_work_and_a_run_in_flight_outlives_a_pause(
     ticks paused. The last resume leaves the loop asleep on its backlog."""
     mark = len(heartbeat_ticks(bare_heartbeat_id()))
     resumed = console(env).resume("read it; let the work go on")
-    assert resumed["paused"] is None
+    assert resumed.paused is None
     (tick,) = await_new_ticks(mark, 1)
     assert parse_tick_rule(tick["rule"])[0] == TICK_STARTED, tick
     started = await_run(held["task"], terminal=False, workflow="implement")
@@ -161,8 +161,8 @@ def test_resume_starts_the_held_work_and_a_run_in_flight_outlives_a_pause(
     # The run's end nudged the loop, which read the pause again.
     (tick,) = await_new_ticks(mark + 1, 1)
     assert tick["rule"] == tick_rule(TICK_PAUSED, HUMAN), tick
-    assert console(env).heartbeat()["execution"]["state"] == "paused"
+    assert console(env).heartbeat().execution.state == "paused"
 
     console(env).resume("done reading")
     await_bare_heartbeat_asleep()
-    assert console(env).company()["paused"] is None
+    assert console(env).company().paused is None

@@ -18,6 +18,7 @@ import kopf
 
 from common.policy import COMPANY_BUNDLE, PLATFORM_BUNDLE
 from common.telemetry import get_logger
+from common.topology import PHASE_ACTIVATING, PHASE_CONVERGED
 from reconciler import resources
 from reconciler.config import ReconcilerSettings
 from reconciler.kube import Cluster
@@ -54,6 +55,12 @@ def _settings() -> ReconcilerSettings:
     if _the_settings is None:
         _the_settings = ReconcilerSettings()
     return _the_settings
+
+
+# What the Company CR carries that the registry's compiled spec leaves
+# out: the bundle (stored and served on its own) and the blueprint's text
+# (the console reads it back from the CR; nothing downstream reads it).
+UNSTORED = ("policyBundle", "blueprintSource")
 
 
 @kopf.on.startup()
@@ -144,13 +151,13 @@ def reconcile_company(
         if activated_revision(opa_url, bundle_name) != stored_revision
     )
     if lagging:
-        patch.status["phase"] = "activating"
+        patch.status["phase"] = PHASE_ACTIVATING
         raise kopf.TemporaryError(
             f"OPA has not activated {', '.join(lagging)} yet", delay=ACTIVATION_POLL_S
         )
 
-    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k != "policyBundle"})
-    patch.status["phase"] = "converged"
+    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k not in UNSTORED})
+    patch.status["phase"] = PHASE_CONVERGED
 
 
 @kopf.on.delete("poseidon.dev", "v1", "companies")
@@ -203,7 +210,7 @@ def reconcile_instance(
         namespace=namespace,
     )
     _log.info("instance converged", extra={"agent_id": spec["agentId"]})
-    patch.status["phase"] = "converged"
+    patch.status["phase"] = PHASE_CONVERGED
 
 
 @kopf.on.delete("poseidon.dev", "v1", "agentinstances")

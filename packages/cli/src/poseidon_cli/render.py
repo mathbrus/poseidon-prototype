@@ -20,14 +20,28 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from common.console import (
+    EXECUTION_NOT_FOUND,
+    EXECUTION_RUNNING,
+    AuditEventView,
+    ExecutionStatus,
+)
+from common.topology import PHASE_ACTIVATING, PHASE_CONVERGED
 from common.workflows import (
     GATE_APPROVED,
     GATE_ESCALATED,
     GATE_EXPIRED,
     GATE_HALTED,
+    GATE_PARKED,
     GATE_REJECTED,
+    HEARTBEAT_SLEEPING,
+    HEARTBEAT_TICKING,
     HEARTBEAT_WORKFLOW,
     PARKED_PREFIX,
+    RUN_FINALIZING,
+    RUN_STATUS_DONE,
+    RUN_STATUS_FAILED,
+    RUN_STATUS_RUNNING,
     TICK_IDLE,
     TICK_PAUSED,
     TICK_REFUSED,
@@ -41,38 +55,38 @@ ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 
 # The one vocabulary of colour: a status word carries it, nothing else does.
 STATUS_STYLE = {
-    "running": "blue",
-    "RUNNING": "blue",
-    "ticking": "blue",
+    # A run's status and its workflow's state share the word `running`,
+    # and the heartbeat's `paused` state is its tick's outcome word.
+    RUN_STATUS_RUNNING: "blue",
+    RUN_FINALIZING: "blue",
+    EXECUTION_RUNNING: "blue",
+    HEARTBEAT_TICKING: "blue",
     TICK_STARTED: "blue",
-    "activating": "yellow",
+    PHASE_ACTIVATING: "yellow",
     TICK_PAUSED: "yellow",
+    GATE_PARKED: "yellow",
     GATE_ESCALATED: "yellow",
     GATE_HALTED: "yellow",
     GATE_EXPIRED: "yellow",
-    "done": "green",
-    "COMPLETED": "green",
-    "converged": "green",
+    RUN_STATUS_DONE: "green",
+    ExecutionStatus.COMPLETED: "green",
+    PHASE_CONVERGED: "green",
     GATE_APPROVED: "green",
-    "approve": "green",
     "allow": "green",
     "pass": "green",
-    "ok": "green",
-    "failed": "red",
-    "FAILED": "red",
+    RUN_STATUS_FAILED: "red",
+    ExecutionStatus.FAILED: "red",
     "deny": "red",
     GATE_REJECTED: "red",
-    "reject": "red",
     "fail": "red",
-    "error": "red",
-    "cancelled": "red",
-    "CANCELED": "red",
-    "TERMINATED": "red",
+    ExecutionStatus.CANCELED: "red",
+    ExecutionStatus.TERMINATED: "red",
+    ExecutionStatus.TIMED_OUT: "red",
     TICK_REFUSED: "red",
     TICK_STOPPED: "red",
-    "NOT_FOUND": "dim",
+    EXECUTION_NOT_FOUND: "dim",
     TICK_IDLE: "dim",
-    "sleeping": "dim",
+    HEARTBEAT_SLEEPING: "dim",
 }
 DIM = "dim"
 
@@ -89,20 +103,6 @@ def dim(value: Any) -> Text:
 
 
 # -- time and money --------------------------------------------------------------
-
-
-def parse_ts(value: Any) -> datetime | None:
-    """A registry timestamp (ISO 8601, with offset) as an aware datetime;
-    None for nothing or for something that is not a timestamp."""
-    if not value:
-        return None
-    if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=UTC)
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def duration(seconds: float | None) -> str:
@@ -122,12 +122,10 @@ def duration(seconds: float | None) -> str:
     return f"{days} d {hours} h"
 
 
-def ago(value: Any, now: datetime | None = None) -> str:
-    """`just now`, `12 min ago`, `4 h ago`, `3 d ago`; the value as given
-    when it is not a timestamp."""
-    then = parse_ts(value)
+def ago(then: datetime | None, now: datetime | None = None) -> str:
+    """`just now`, `12 min ago`, `4 h ago`, `3 d ago`; nothing for no time."""
     if then is None:
-        return str(value or "")
+        return ""
     now = now or datetime.now(UTC)
     seconds = (now - then).total_seconds()
     if seconds < 0:
@@ -141,18 +139,13 @@ def ago(value: Any, now: datetime | None = None) -> str:
     return f"{int(seconds // 86400)} d ago"
 
 
-def clock(value: Any) -> str:
+def clock(then: datetime) -> str:
     """`12:04:10` — the time of day a row landed, for a story's left edge."""
-    then = parse_ts(value)
-    return then.strftime("%H:%M:%S") if then else "--:--:--"
+    return then.strftime("%H:%M:%S")
 
 
-def usd(amount: Any) -> str:
+def usd(value: float) -> str:
     """`$4.20`, never `4.2000001`; `$0.0031` keeps the cents of a small call."""
-    try:
-        value = float(amount or 0.0)
-    except (TypeError, ValueError):
-        return str(amount)
     if 0 < value < 0.01:
         return f"${value:.4f}"
     return f"${value:,.2f}"
@@ -238,38 +231,35 @@ HEARTBEAT_PREFIX = workflow_id(HEARTBEAT_WORKFLOW, "")
 RULE_WIDTH = 96
 
 
-def row(event: dict[str, Any]) -> Text:
+def row(event: AuditEventView) -> Text:
     """One audit row, one line: the time, the run (or `heartbeat`), who
     acted, the tool, the decision in its colour, and the rule when it
-    names why — a denial, or a tick that ended on one. Rows carry a digest
-    of the arguments, never the arguments, so a line names the tool and
-    no more — except the actor's stated rationale, which follows on its
-    own line. The same line `follow`, `run story` and `runs` print."""
-    run_id = str(event.get("run_id", ""))
-    where = "heartbeat" if run_id.startswith(HEARTBEAT_PREFIX) else (run_id or "-")
-    who = (
-        "/".join(part for part in (event.get("role"), event.get("agent_id")) if part)
-        or "-"
-    )
-    decision = str(event.get("decision", ""))
-    rule = str(event.get("rule") or "")
+    names why — a denial, or a tick that ended on one. Rows carry no
+    arguments, so a line names the tool and no more — except the actor's
+    stated rationale, which follows on its own line. The same line
+    `follow`, `run story` and `runs` print."""
+    run_id = event.run_id
+    on_heartbeat = run_id.startswith(HEARTBEAT_PREFIX)
+    where = "heartbeat" if on_heartbeat else (run_id or "-")
+    who = "/".join(part for part in (event.role, event.agent_id) if part) or "-"
+    rule = event.rule or ""
     line = Text.assemble(
-        dim(clock(event.get("ts"))),
+        dim(clock(event.ts)),
         "  ",
         f"{where:<28}",
         "  ",
         f"{who:<26}",
         "  ",
-        str(event.get("tool", "")),
+        event.tool,
         "  ",
-        status(decision),
+        status(event.decision),
     )
-    if rule and (decision == "deny" or run_id.startswith(HEARTBEAT_PREFIX)):
+    if rule and (event.decision == "deny" or on_heartbeat):
         # A refused tick's rule can carry a whole error message; the line
         # names it, the row (`--json`) has all of it.
         short = rule if len(rule) <= RULE_WIDTH else rule[: RULE_WIDTH - 1] + "…"
         line.append(f" ({short})", style=DIM)
-    rationale = str(event.get("rationale") or "").strip()
+    rationale = (event.rationale or "").strip()
     if rationale:
         line.append("\n" + " " * 10 + rationale)
     return line

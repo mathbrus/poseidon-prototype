@@ -64,6 +64,14 @@ class InMemoryAuditStore:
             "ts": last.ts,
         }
 
+    def last_at(self, run_id: str, tool: str, rule: str) -> Any:
+        matching = [
+            e.ts
+            for e in self.events
+            if e.run_id == run_id and e.tool == tool and e.rule == rule
+        ]
+        return max(matching) if matching else None
+
     def after(
         self, company: str, after: int, run_id: str | None = None, limit: int = 500
     ) -> list[dict[str, Any]]:
@@ -79,8 +87,9 @@ class InMemoryAuditStore:
 
     @staticmethod
     def _row(e: AuditEvent) -> dict[str, Any]:
-        # The same projection and order as AuditStore.story — consumers must
-        # not come to depend on extra keys Postgres will never return.
+        # The same projection and order as AuditStore.story, less the id the
+        # callers prepend — consumers must not come to depend on extra keys
+        # Postgres will never return.
         return {
             "ts": e.ts,
             "run_id": e.run_id,
@@ -103,17 +112,18 @@ class InMemoryAuditStore:
     def story(
         self, run_id: str, since: str | None = None, decisions_only: bool = False
     ) -> list[dict[str, Any]]:
+        # The fake's ids are positions in the append order, from 1.
         return [
-            self._row(e)
-            for e in sorted(
+            {"id": index, **self._row(e)}
+            for index, e in sorted(
                 (
-                    e
-                    for e in self.events
+                    (index, e)
+                    for index, e in enumerate(self.events, start=1)
                     if e.run_id == run_id
                     and (since is None or e.ts >= since)
                     and (not decisions_only or e.rationale is not None)
                 ),
-                key=lambda e: e.ts,
+                key=lambda item: (item[1].ts, item[0]),
             )
         ]
 
@@ -195,6 +205,17 @@ class InMemoryFiledTickets:
             if r == repo and filed_at > horizon
         )
 
+    def filed(self, repo: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "number": number,
+                "run_id": run_id,
+                "filed_at": datetime.fromtimestamp(filed_at, UTC).isoformat(),
+            }
+            for (r, number), (run_id, filed_at) in sorted(self.rows.items())
+            if r == repo
+        ]
+
 
 class InMemorySandboxRegistrations:
     def __init__(self) -> None:
@@ -231,8 +252,8 @@ class InMemorySandboxRegistrations:
 
 
 class InMemoryCompanies:
-    """The reconciler's writes, the read side the worker and egress proxy
-    consume the infra IR through, and the console's pause."""
+    """The reconciler's compiled spec, the read side the worker and egress
+    proxy consume the infra IR through, and the console's pause."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}

@@ -319,7 +319,7 @@ def test_the_contract_was_authored_by_the_contract_crew(contract_first: dict):
     are the contract-authoring crew, a template the delivery crew does not
     contain — positional independence, not a promise."""
     run_id = contract_first["contract_implement"]["run_id"]
-    crews = {p["crew_template"] for p in participants(run_id)}
+    crews = {p.crew for p in participants(run_id)}
     assert crews == {"contract-authoring"}, crews
 
 

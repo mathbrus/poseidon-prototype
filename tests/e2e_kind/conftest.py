@@ -431,7 +431,7 @@ def await_gate(run_id: str, state: str, deadline_s: int = 600) -> None:
     deciding whether to answer would."""
     deadline = time.monotonic() + deadline_s
     while time.monotonic() < deadline:
-        if console().run(run_id)["execution"]["state"] == state:
+        if console().run(run_id).execution.state == state:
             return
         time.sleep(2)
     raise AssertionError(f"run {run_id} never reached {state!r}")
@@ -775,7 +775,7 @@ def lift_pause(env: dict) -> None:
     the owner, so the resume is on the record like any other. A loop
     nobody paused needs nothing."""
     with contextlib.suppress(Exception):
-        if console(env).company().get("paused"):
+        if console(env).company().paused:
             console(env).resume("harness: the module that paused is over")
 
 

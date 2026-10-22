@@ -1,0 +1,14 @@
+{
+  "request": {
+    "body": null,
+    "path": "/whoami",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "human": "owner",
+    "lifecycle": "human"
+  },
+  "route": "GET /whoami",
+  "status": 200
+}

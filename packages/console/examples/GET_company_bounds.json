@@ -1,0 +1,13 @@
+{
+  "request": {
+    "body": null,
+    "path": "/company/bounds",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "text": "Repository: github.com/example-org/hello-saas, base ref main.\nBranches: main is protected; a pull request's branch must match ^feature/[a-z0-9-]+$.\nPaths no pull request may change: .github/workflows/.\nContract tree: none declared.\nDocuments: docs/STRATEGY.md is the strategy and docs/ARCHITECTURE.md the architecture masterplan; only the steward delivers into them, and the strategy is written once.\nMerge: every pull request waits for a human's verdict."
+  },
+  "route": "GET /company/bounds",
+  "status": 200
+}

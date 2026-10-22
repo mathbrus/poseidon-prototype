@@ -28,6 +28,13 @@ LIFECYCLE_PLATFORM = "platform"
 # catalog lists what agents may be, and a human is never an agent.
 LIFECYCLE_HUMAN = "human"
 HUMAN_ROLE = "human"
+# The console itself, calling the MCP gateway to read the company's two
+# documents for a person. Never the platform lifecycle, whose rules allow
+# every platform tool, merge included: the company bundle allows this one
+# exactly one read, scoped to its repository, base ref and document paths.
+LIFECYCLE_CONSOLE = "console"
+CONSOLE_ID = "console"
+CONSOLE_ROLE = "console"
 
 
 class Identity(BaseModel):

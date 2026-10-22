@@ -1,0 +1,31 @@
+{
+  "request": {
+    "body": null,
+    "path": "/heartbeat",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "execution": {
+      "state": "sleeping",
+      "status": "RUNNING",
+      "workflow_id": "heartbeat-hello-saas"
+    },
+    "ticks": [
+      {
+        "detail": "implement#7_as_run-01IMPLEMENT",
+        "id": 1,
+        "outcome": "started",
+        "ts": "2025-12-31T23:39:00Z"
+      },
+      {
+        "detail": "max_concurrent_runs",
+        "id": 5,
+        "outcome": "idle",
+        "ts": "2025-12-31T23:58:00Z"
+      }
+    ]
+  },
+  "route": "GET /heartbeat",
+  "status": 200
+}

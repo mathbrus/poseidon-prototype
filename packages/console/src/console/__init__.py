@@ -15,10 +15,13 @@ Layout:
     config.py    settings: OPA, Temporal, the declared humans — never the
                  company, which is read from the registry
     service.py   the acts and the reads — verify, decide, do, audit
+    views.py     the one translation from registry rows, Temporal and the
+                 Company CR to the console interface (`common.console`)
     temporal.py  the Temporal client: start, signal, cancel, inspect
-    crs.py       the cluster touch: submit the Company and AgentInstance
-                 CRs, read the Company's phase, delete the Company
-    app.py       the FastAPI app: routes, the shared auth middleware
+    crs.py       the cluster touch: submit the Company (with the blueprint's
+                 text) and AgentInstance CRs, read the Company back, delete it
+    app.py       the FastAPI app: the interface's routes, the shared auth
+                 middleware
 
 Run with: uvicorn --factory console.app:create_app
 """

@@ -115,7 +115,7 @@ def apply_blueprint(path: Path) -> None:
     console compiles it against the live registry, decides, submits the
     CRs; the reconciler converges them."""
     result = console().apply(suite_document(path).read_text())
-    assert result["company"] == COMPANY, result
+    assert result.company == COMPANY, result
 
 
 def wait_for_convergence(timeout_s: int = 300) -> None:

@@ -1,0 +1,105 @@
+{
+  "request": {
+    "body": null,
+    "path": "/events",
+    "query": {
+      "after": 0
+    }
+  },
+  "response": {
+    "events": [
+      {
+        "agent_id": "orchestrator",
+        "company": "hello-saas",
+        "decision": "allow",
+        "id": 1,
+        "latency_ms": 4,
+        "lifecycle": "platform",
+        "parent_agent_id": "",
+        "rationale": null,
+        "role": "platform",
+        "rule": "tick_started:implement#7_as_run-01IMPLEMENT",
+        "run_id": "heartbeat-hello-saas",
+        "source": "process-lifecycle",
+        "tool": "heartbeat.tick",
+        "ts": "2025-12-31T23:39:00Z",
+        "workflow": "heartbeat-hello-saas"
+      },
+      {
+        "agent_id": "feature-delivery-implementer-run-01implement",
+        "company": "hello-saas",
+        "decision": "allow",
+        "id": 2,
+        "latency_ms": 4,
+        "lifecycle": "ephemeral",
+        "parent_agent_id": "pm-1",
+        "rationale": "slugify handles unicode, as the ticket asks",
+        "role": "implementer",
+        "rule": "crew_feature_delivery_implementer_git_open_pr",
+        "run_id": "run-01IMPLEMENT",
+        "source": "gateway",
+        "tool": "git.open_pr",
+        "ts": "2025-12-31T23:41:00Z",
+        "workflow": "implement-run-01IMPLEMENT"
+      },
+      {
+        "agent_id": "orchestrator",
+        "company": "hello-saas",
+        "decision": "allow",
+        "id": 3,
+        "latency_ms": 4,
+        "lifecycle": "platform",
+        "parent_agent_id": "",
+        "rationale": "the change does what the ticket asks; tests cover it",
+        "role": "platform",
+        "rule": "review_pass",
+        "run_id": "run-01REVIEW",
+        "source": "process-lifecycle",
+        "tool": "review.verdict",
+        "ts": "2025-12-31T23:56:00Z",
+        "workflow": "review-run-01REVIEW"
+      },
+      {
+        "agent_id": "orchestrator",
+        "company": "hello-saas",
+        "decision": "deny",
+        "id": 4,
+        "latency_ms": 4,
+        "lifecycle": "platform",
+        "parent_agent_id": "",
+        "rationale": null,
+        "role": "platform",
+        "rule": "gate_parked",
+        "run_id": "run-01REVIEW",
+        "source": "process-gate",
+        "tool": "gate.merge",
+        "ts": "2025-12-31T23:57:00Z",
+        "workflow": "review-run-01REVIEW"
+      },
+      {
+        "agent_id": "orchestrator",
+        "company": "hello-saas",
+        "decision": "allow",
+        "id": 5,
+        "latency_ms": 4,
+        "lifecycle": "platform",
+        "parent_agent_id": "",
+        "rationale": null,
+        "role": "platform",
+        "rule": "tick_idle:max_concurrent_runs",
+        "run_id": "heartbeat-hello-saas",
+        "source": "process-lifecycle",
+        "tool": "heartbeat.tick",
+        "ts": "2025-12-31T23:58:00Z",
+        "workflow": "heartbeat-hello-saas"
+      }
+    ],
+    "next": 5,
+    "spend": {
+      "run_usd": null,
+      "usd": 0.0042
+    }
+  },
+  "route": "GET /events",
+  "status": 200
+}

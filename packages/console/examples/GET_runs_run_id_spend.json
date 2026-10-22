@@ -1,0 +1,28 @@
+{
+  "request": {
+    "body": null,
+    "path": "/runs/run-01IMPLEMENT/spend",
+    "query": {}
+  },
+  "response": {
+    "entries": [
+      {
+        "agent_id": "feature-delivery-implementer-run-01implement",
+        "cached_tokens": 1024,
+        "completion_tokens": 212,
+        "model": "mock",
+        "parent_agent_id": "pm-1",
+        "prompt_tokens": 1830,
+        "reasoning_tokens": 0,
+        "role": "implementer",
+        "run_id": "run-01IMPLEMENT",
+        "ts": "2025-12-31T23:41:30Z",
+        "usd": 0.0042
+      }
+    ],
+    "run_id": "run-01IMPLEMENT",
+    "usd": 0.0042
+  },
+  "route": "GET /runs/{run_id}/spend",
+  "status": 200
+}

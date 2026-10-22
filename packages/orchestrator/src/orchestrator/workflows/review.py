@@ -61,6 +61,7 @@ from common.workflows import (
     BUDGET_GATE,
     GATE_APPROVED,
     GATE_ESCALATED,
+    GATE_PARKED,
     GATE_POLICY_DECLINED,
     GATE_POLICY_RESOLVED,
     GATE_REWORK_EXHAUSTED,
@@ -68,6 +69,8 @@ from common.workflows import (
     GATE_VERDICT_UNVERIFIED,
     MERGE_GATE,
     PARKED_STATE,
+    RUN_FINALIZING,
+    RUN_RUNNING,
 )
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
@@ -101,7 +104,7 @@ class ReviewWorkflow(RunWorkflow):
     WORKFLOW = "review"
 
     def __init__(self) -> None:
-        self._state = "running"
+        self._state = RUN_RUNNING
         self._budget_gate = Gate(BUDGET_GATE)
         self._merge_gate = Gate(MERGE_GATE)
 
@@ -366,6 +369,9 @@ class ReviewWorkflow(RunWorkflow):
         signal delivered by any other road (network reach to the workflow
         engine, a human the company did not name) finds no recorded
         verdict and ends the run unmerged, by a rule that says so."""
+        # The row first, then the state: a run that reads parked always has
+        # the row its deadlines are measured from.
+        await self.record_gate(input.run_id, MERGE_GATE, GATE_PARKED)
         self._state = PARKED_STATE[MERGE_GATE]
         outcome = await self._merge_gate.wait(
             **gate_deadline(gate["deadline_minutes"]),
@@ -373,7 +379,7 @@ class ReviewWorkflow(RunWorkflow):
                 input.run_id, MERGE_GATE, GATE_ESCALATED
             ),
         )
-        self._state = "running"
+        self._state = RUN_RUNNING
         await self.record_gate(input.run_id, MERGE_GATE, outcome.kind)
         if outcome.kind != GATE_APPROVED:
             return {"error": f"merge gate {outcome.kind}"}
@@ -537,7 +543,7 @@ class ReviewWorkflow(RunWorkflow):
         except ActivityError as exc:
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
-        self._state = "finalizing"
+        self._state = RUN_FINALIZING
         record = await self.teardown(input.run_id, handle, result, error)
         if not concluded:
             await self.record_attempts(input.run_id)

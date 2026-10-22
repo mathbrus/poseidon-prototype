@@ -432,12 +432,14 @@ name = "blueprint"
 version = "0.2.1+2026.10.22"
 source = { editable = "packages/blueprint" }
 dependencies = [
+    { name = "common" },
     { name = "jsonschema" },
     { name = "pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "common", editable = "packages/common" },
     { name = "jsonschema", specifier = ">=4.20" },
     { name = "pyyaml", specifier = ">=6" },
 ]
@@ -843,6 +845,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "kubernetes" },
+    { name = "mcp" },
     { name = "pyyaml" },
     { name = "registry" },
     { name = "temporalio" },
@@ -857,6 +860,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "kubernetes", specifier = ">=31" },
+    { name = "mcp", specifier = ">=1.12" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "registry", editable = "packages/registry" },
     { name = "temporalio", specifier = ">=1.31" },

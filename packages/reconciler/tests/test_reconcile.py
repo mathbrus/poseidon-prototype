@@ -158,6 +158,12 @@ COMPANY_SPEC = {
     "namespace": "hello-saas",
     "vision": "ship it",
     "policyBundle": {"authz.rego": "package poseidon.authz.hello_saas\n"},
+    "blueprintSource": {
+        "text": "company: {name: hello-saas}\n",
+        "sha256": "0" * 64,
+        "appliedBy": "owner",
+        "appliedAt": "2026-01-01T00:00:00+00:00",
+    },
     "platformBundle": {"platform.rego": "package poseidon.platform\n"},
     "infra": {
         "network_policy": {
@@ -210,7 +216,10 @@ def test_company_reconcile_converges_the_envelope(cluster, stores, opa):
     # The registry row records what was applied, minus the bundle (which
     # lives in policy_bundles under its own revision) — the policies
     # section included, which the worker reads to say the bounds.
+    # The registry stores the compiled spec: neither the bundle nor the
+    # blueprint's text, which the console reads back from the CR.
     assert "policyBundle" not in companies.rows["hello-saas"]
+    assert "blueprintSource" not in companies.rows["hello-saas"]
     assert companies.rows["hello-saas"]["policies"] == COMPANY_SPEC["policies"]
     assert patch.status["phase"] == "converged"
     assert patch.status["bundleRevision"] == "rev-company"

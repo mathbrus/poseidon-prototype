@@ -100,7 +100,9 @@ class TemporalWorkflows:
             description = await handle.describe()
         except RPCError as exc:
             raise _refusal(exc, wf_id) from exc
-        status = description.status.name if description.status else "UNKNOWN"
+        if description.status is None:
+            raise Unavailable(f"temporal described {wf_id} without a status")
+        status = description.status.name
         state = None
         if description.status == WorkflowExecutionStatus.RUNNING:
             try:

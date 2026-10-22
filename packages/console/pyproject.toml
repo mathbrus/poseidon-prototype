@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.115",
     "httpx>=0.27",
     "kubernetes>=31",
+    "mcp>=1.12",
     "pyyaml>=6",
     "temporalio>=1.31",
     "uvicorn>=0.30",

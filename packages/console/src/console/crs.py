@@ -9,6 +9,7 @@ Instances the plan no longer contains are deleted, which is what makes
 firing a blueprint diff rather than an ops task.
 """
 
+import hashlib
 import time
 from typing import Any
 
@@ -31,9 +32,25 @@ def _api() -> k8s.CustomObjectsApi:
     return k8s.CustomObjectsApi()
 
 
-def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
-    data = plan.as_dict()
+def blueprint_source(text: str, applied_by: str, applied_at: str) -> dict[str, str]:
+    """The blueprint's text as a human applied it, as the Company CR keeps
+    it (`spec.blueprintSource`)."""
     return {
+        "text": text,
+        "sha256": hashlib.sha256(text.encode()).hexdigest(),
+        "appliedBy": applied_by,
+        "appliedAt": applied_at,
+    }
+
+
+def company_cr(
+    plan: DeploymentPlan, source: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """The Company CR for a plan; `source` is the blueprint's text as a
+    human applied it (`{text, sha256, appliedBy, appliedAt}`), which an
+    apply always carries."""
+    data = plan.as_dict()
+    cr = {
         "apiVersion": f"{GROUP}/{VERSION}",
         "kind": "Company",
         "metadata": {"name": plan.company.name},
@@ -61,6 +78,9 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
             "heartbeat": data["heartbeat"],
         },
     }
+    if source is not None:
+        cr["spec"]["blueprintSource"] = source
+    return cr
 
 
 def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
@@ -82,16 +102,19 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
 
 
 def submit(
-    plan: DeploymentPlan, api: k8s.CustomObjectsApi | None = None
+    plan: DeploymentPlan,
+    source: dict[str, str],
+    api: k8s.CustomObjectsApi | None = None,
 ) -> tuple[int, int, int]:
-    """Submit the plan's CRs. Returns what was created, what was updated,
-    and the Company's generation this apply made — the number the phase
-    a reader waits for must answer for."""
+    """Submit the plan's CRs, the Company carrying the blueprint's text.
+    Returns what was created, what was updated, and the Company's
+    generation this apply made — the number the phase a reader waits for
+    must answer for."""
     api = api or _api()
     created = updated = 0
 
     existed, generation = _replace_cluster(
-        api, "companies", plan.company.name, company_cr(plan)
+        api, "companies", plan.company.name, company_cr(plan, source)
     )
     if existed:
         updated += 1
@@ -126,10 +149,10 @@ def submit(
 
 
 def read_company(api: k8s.CustomObjectsApi | None = None) -> dict[str, Any] | None:
-    """The one Company CR, as a reader of its phase sees it, or None when
-    none is applied. Read from the cluster, not the registry: the registry
-    row exists only once the company is converged, and the phase is what
-    says whether it is."""
+    """The one Company CR as the cluster holds it — its metadata, spec
+    and status — or None when none is applied. Read from the cluster,
+    not the registry: the registry row exists only once the company is
+    converged, and the phase is what says whether it is."""
     api = api or _api()
     items = api.list_cluster_custom_object(GROUP, VERSION, "companies").get("items", [])
     if not items:
@@ -137,17 +160,7 @@ def read_company(api: k8s.CustomObjectsApi | None = None) -> dict[str, Any] | No
     if len(items) > 1:
         names = sorted(item["metadata"]["name"] for item in items)
         raise RuntimeError(f"more than one company is applied: {names}")
-    item = items[0]
-    status = item.get("status") or {}
-    return {
-        "company": item["metadata"]["name"],
-        "namespace": item["spec"]["namespace"],
-        "generation": item["metadata"].get("generation", 0),
-        "phase": status.get("phase") or "activating",
-        "observedGeneration": status.get("observedGeneration", 0),
-        "bundleRevision": status.get("bundleRevision", ""),
-        "message": status.get("message", ""),
-    }
+    return items[0]
 
 
 def delete_company(

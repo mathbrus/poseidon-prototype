@@ -8,15 +8,22 @@ audit row naming the principal. Whether a *known* person may act is the
 blueprint's `company.humans`: a human the chart declares but the company
 did not name is refused by name, with nothing signalled. And no platform
 identity can mint a human's token: the humans exist only for the
-TokenRequest a person makes with their own cluster credentials.
+TokenRequest a person makes with their own cluster credentials. What a
+person applied reads back as they wrote it.
 """
+
+import hashlib
+import subprocess
+from pathlib import Path
 
 import httpx
 import pytest
 
+from common.console import Problem
 from common.topology import CONSOLE_TOKEN_AUDIENCE, TOKEN_AUDIENCE, human_service_account
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 
+from .blueprints import pristine_profile, restore_pristine, suite_document
 from .cluster import (
     COMPANY,
     COMPANY_NS,
@@ -25,9 +32,12 @@ from .cluster import (
     audit_story,
     authn_denies,
     console,
+    console_env,
     console_url,
     db_now,
+    events_since,
     gateway_url,
+    human_token,
     projected_token,
     run_kubectl,
 )
@@ -39,7 +49,7 @@ def _console_as(env: dict, token: str) -> ConsoleClient:
 
 def test_the_declared_human_is_known(stack: None, env: dict) -> None:
     who = console(env).whoami()
-    assert who == {"human": HUMAN, "lifecycle": "human", "company": COMPANY}
+    assert (who.human, who.lifecycle, who.company) == (HUMAN, "human", COMPANY)
 
 
 def test_a_humans_token_is_refused_at_the_gateway(stack: None, env: dict) -> None:
@@ -108,7 +118,7 @@ def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
     compiled rule that says so, audited under their name, and the nudge
     never reaches the heartbeat. The owner's same act goes through."""
     auditor = console(env, name="auditor")
-    assert auditor.whoami()["human"] == "auditor"
+    assert auditor.whoami().human == "auditor"
     with pytest.raises(PolicyDenied) as denied:
         auditor.wake()
     assert denied.value.rule == "human_not_recognized"
@@ -118,7 +128,26 @@ def test_a_known_human_the_company_did_not_name_is_denied_by_policy(
     ]
     assert refusals and refusals[-1]["decision"] == "deny"
     assert refusals[-1]["rule"] == "human_not_recognized"
-    assert console(env).wake() == {"company": COMPANY, "woken": True}
+    woken = console(env).wake()
+    assert (woken.company, woken.rule) == (COMPANY, "heartbeat_wake")
+
+
+def test_a_human_the_company_did_not_name_sees_every_act_refused(
+    stack: None, env: dict
+) -> None:
+    """The auditor asks what they may do: every act is refused, and every
+    act the company's state would allow is refused by the rule that says
+    why — the preview a web client's buttons read, recording nothing."""
+    since = db_now()
+    listed = console(env, name="auditor").acts().acts
+    assert listed, "the console listed no acts"
+    assert all(not view.allowed for view in listed), listed
+    by_policy = [view for view in listed if view.refusal.kind == "policy"]
+    assert by_policy, listed
+    assert {view.refusal.rule for view in by_policy} == {"human_not_recognized"}
+    assert not [e for e in events_since(since) if e["source"] == "console"], (
+        "a preview recorded a row"
+    )
 
 
 def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:
@@ -147,11 +176,54 @@ def test_no_platform_identity_can_mint_a_humans_token(stack: None) -> None:
 def test_what_cannot_be_acted_on_is_refused_before_policy(stack: None, env: dict) -> None:
     """What names nothing is refused before policy is even asked: a
     workflow no human may start by hand (`scope` reads the observation and
-    takes no text), and a run that does not exist."""
-    with pytest.raises(ConsoleError) as refused:
-        console(env).start_run("scope", 1)
-    assert refused.value.status == 422
+    takes no text), and a run that does not exist. The typed client would
+    not even send the first, so it goes as a person's raw request."""
+    scope = httpx.post(
+        f"{console_url(env)}/runs",
+        json={"workflow": "scope", "number": 1},
+        headers={"Authorization": f"Bearer {human_token()}"},
+        timeout=30,
+    )
+    assert scope.status_code == 422, scope.text
+    assert "workflow" in Problem.model_validate(scope.json()).detail
     with pytest.raises(ConsoleError) as refused:
         console(env).resolve("run-does-not-exist", "merge", True, "e2e: no such run")
     assert refused.value.status == 422
     assert not isinstance(refused.value, PolicyDenied)
+
+
+def _poseidon(env: dict, *args: str) -> subprocess.CompletedProcess:
+    """`poseidon …` as a person runs it, as the human `owner`."""
+    proc = subprocess.run(
+        ["uv", "run", "poseidon", *args],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=Path(__file__).resolve().parents[2],
+        env=console_env(env),
+    )
+    assert proc.returncode == 0, f"poseidon {args[0]}: {proc.stderr}\n{proc.stdout}"
+    return proc
+
+
+def test_the_applied_blueprint_reads_back_and_applies_again_unchanged(
+    stack: None, env: dict, tmp_path: Path
+) -> None:
+    """The Company CR keeps the text a person applied: the console reads
+    it back byte for byte under their name, once policy enforces it, and
+    `poseidon blueprint show`'s output previews as no change — the
+    compiled spec could never be applied again; this text can."""
+    restore_pristine()
+    applied = suite_document(pristine_profile()).read_text()
+    shown = console(env).blueprint()
+    assert shown.text == applied
+    assert shown.sha256 == hashlib.sha256(applied.encode()).hexdigest()
+    assert shown.applied_by == HUMAN
+    assert (shown.phase, shown.observed_generation) == ("converged", shown.generation)
+
+    printed = _poseidon(env, "blueprint", "show").stdout
+    assert printed == applied
+    again = tmp_path / "shown.yaml"
+    again.write_text(printed)
+    preview = _poseidon(env, "blueprint", "preview", str(again))
+    assert f"{COMPANY}: no changes" in preview.stdout, preview.stdout

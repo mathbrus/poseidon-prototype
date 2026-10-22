@@ -1,0 +1,20 @@
+{
+  "request": {
+    "body": null,
+    "path": "/runs/run-01REVIEW/crew",
+    "query": {}
+  },
+  "response": {
+    "agents": [
+      {
+        "agent_id": "feature-review-reviewer-run-01review",
+        "crew": "feature-review",
+        "role": "reviewer",
+        "status": "active"
+      }
+    ],
+    "run_id": "run-01REVIEW"
+  },
+  "route": "GET /runs/{run_id}/crew",
+  "status": 200
+}

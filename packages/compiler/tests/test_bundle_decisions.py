@@ -451,6 +451,7 @@ def test_crew_rule_compares_the_raw_role_name():
 
     files = build_bundle(
         repo_url=DECLARED_REPO,
+        base_ref="main",
         company="c",
         instances=[],
         ephemeral_agents=[
@@ -1292,6 +1293,59 @@ def test_an_agent_cannot_claim_human_authority(decide):
     as_human = decide(**human("owner", "issues.create", repo=DECLARED_REPO))
     assert as_pm == {"allow": False, "rule": "default_deny"}
     assert as_human == {"allow": False, "rule": "default_deny"}
+
+
+def console_read(
+    lifecycle: str = "console", tool: str = "repo.read_file", **args
+) -> dict:
+    """The console's call at the MCP gateway, as the gateway puts it to
+    policy: its own lifecycle, no run."""
+    read = {
+        "run_id": "",
+        "repo": DECLARED_REPO,
+        "ref": "main",
+        "path": "docs/STRATEGY.md",
+        **args,
+    }
+    return {
+        "company": "hello-saas",
+        "agent_id": "console",
+        "role": "console",
+        "lifecycle": lifecycle,
+        "parent_agent_id": "",
+        "run_id": "",
+        "workflow": "",
+        "tool": tool,
+        "args": read,
+        "run_binding_verified": False,
+    }
+
+
+def test_the_console_reads_the_two_documents_and_nothing_else(decide):
+    """The console's whole authority at the gateway: `repo.read_file` of
+    the company's two document paths, on its repository, at its base ref.
+    Any other tool, path, ref or repository is denied — and no other
+    lifecycle holds the rule."""
+    for path in ("docs/STRATEGY.md", "docs/ARCHITECTURE.md"):
+        assert decide(**console_read(path=path)) == {
+            "allow": True,
+            "rule": "console_read_document",
+        }
+    denied = [
+        console_read(path="README.md"),
+        console_read(path="../docs/STRATEGY.md"),
+        console_read(ref="feature/x"),
+        console_read(repo="github.com/attacker/repo"),
+        console_read(tool="repo.archive"),
+        console_read(tool="git.merge_pr", number=1),
+        console_read(tool="issues.create", title="t", body="b"),
+        console_read(lifecycle="standing"),
+    ]
+    for call in denied:
+        assert decide(**call) == {"allow": False, "rule": "default_deny"}, call
+    # A person by the console's name is a person the company does not name.
+    as_human = decide(**console_read(lifecycle="human"))
+    assert as_human == {"allow": False, "rule": "human_not_recognized"}
 
 
 def test_a_recorded_human_verdict_releases_the_merge(decide):

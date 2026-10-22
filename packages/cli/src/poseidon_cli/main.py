@@ -23,20 +23,31 @@ import json
 import sys
 import time
 from datetime import UTC, datetime
-from enum import Enum, StrEnum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 import httpx
 import typer
+from pydantic import BaseModel
 from rich.text import Text
 
+from common.console import (
+    EXECUTION_NOT_FOUND,
+    EXECUTION_RUNNING,
+    CompanyPhase,
+    Gate,
+    RunDetail,
+    RunStatus,
+    RunView,
+    TickView,
+)
 from common.topology import (
     CONSOLE_TOKEN_AUDIENCE,
     PLATFORM_NAMESPACE,
     human_service_account,
 )
-from common.workflows import GATES, parse_tick_rule
+from common.workflows import GATE_APPROVED, GATE_REJECTED, HEARTBEAT_PAUSED
 from poseidon_cli import render
 from poseidon_cli.client import (
     TOKEN_VAR,
@@ -89,9 +100,6 @@ class Verdict(StrEnum):
     reject = "reject"
 
 
-# The gates a run can park on, as an argument's closed choice list.
-Gate = Enum("Gate", {gate: gate for gate in GATES}, type=str)
-
 REASON_OPTION = typer.Option(
     ..., "--reason", help="Why. Recorded with the act, under your name."
 )
@@ -115,8 +123,10 @@ def _client() -> ConsoleClient:
     return client
 
 
-def _json(payload: Any) -> None:
-    """The console's answer, verbatim."""
+def _json(payload: BaseModel | dict[str, Any]) -> None:
+    """The console's answer, as it answered it."""
+    if isinstance(payload, BaseModel):
+        payload = payload.model_dump(mode="json")
     typer.echo(json.dumps(payload, indent=2))
 
 
@@ -124,8 +134,7 @@ def _call(fn, *args: Any, **kwargs: Any) -> Any:
     try:
         return fn(*args, **kwargs)
     except ConsoleError as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail)
-        render.error(detail, getattr(exc, "rule", None))
+        render.error(exc.detail, getattr(exc, "rule", None))
         if exc.status == 401 and getattr(fn, "__self__", None) is not None:
             client = fn.__self__
             if getattr(client, "token_source", "") == "file":
@@ -201,7 +210,7 @@ def version(as_json: bool = JSON_OPTION) -> None:
     cli_version = importlib.metadata.version("poseidon-cli")
     client = ConsoleClient.from_env()
     try:
-        console_version = client.healthz().get("version")
+        console_version = client.healthz().version
     except (ConsoleError, httpx.HTTPError):
         console_version = None
     if as_json:
@@ -222,8 +231,8 @@ def whoami(as_json: bool = JSON_OPTION) -> None:
     if as_json:
         _json(who)
         return
-    render.act(f"you are {who.get('human')} ({who.get('lifecycle')})")
-    company = who.get("company")
+    render.act(f"you are {who.human} ({who.lifecycle})")
+    company = who.company
     if not company:
         render.act(Text("no company applied", style=render.DIM))
         return
@@ -232,7 +241,7 @@ def whoami(as_json: bool = JSON_OPTION) -> None:
     except ConsoleError:
         render.act(f"company: {company}")
         return
-    render.act(Text.assemble(f"company: {company} · ", render.status(state.get("phase"))))
+    render.act(Text.assemble(f"company: {company} · ", render.status(state.phase)))
 
 
 # -- the blueprint -------------------------------------------------------------
@@ -274,12 +283,30 @@ def blueprint_new(
     render.act(Text(f"next: poseidon blueprint apply {target}", style=render.DIM))
 
 
+@blueprint_app.command(
+    "show",
+    epilog=examples(
+        "poseidon blueprint show > company.yaml",
+        "poseidon blueprint show --json",
+    ),
+)
+def blueprint_show(as_json: bool = JSON_OPTION) -> None:
+    """The blueprint the company was applied from, exactly as it was
+    written: applying the output again changes nothing. --json adds who
+    applied it, when, and whether policy enforces it yet."""
+    view = _call(_client().blueprint)
+    if as_json:
+        _json(view)
+        return
+    typer.echo(view.text, nl=False)
+
+
 @blueprint_app.command(epilog=examples("poseidon blueprint preview company.yaml"))
 def preview(blueprint: Path = typer.Argument(..., help="The blueprint file.")) -> None:
     """Show what applying BLUEPRINT would change — the diff against what
     the cluster hosts, and the budget. Changes nothing."""
     result = _call(_client().preview, blueprint.read_text())
-    render.diff(result["diff"])
+    render.diff(result.diff)
 
 
 CONVERGE_TIMEOUT_S = 600
@@ -304,20 +331,20 @@ def apply(
     and says how long that took. Prints what was created and updated."""
     client = _client()
     text = blueprint.read_text()
-    diff = _call(client.preview, text)["diff"]
+    diff = _call(client.preview, text).diff
     render.diff(diff, render.ERR)
     if not yes and "no changes" not in diff:
         typer.confirm("apply?", abort=True)
     result = _call(client.apply, text)
     render.act(
         Text.assemble(
-            f"applied {result['company']}: {result['created']} created,"
-            f" {result['updated']} updated ",
-            render.dim(f"({result['rule']})"),
+            f"applied {result.company}: {result.created} created,"
+            f" {result.updated} updated ",
+            render.dim(f"({result.rule})"),
         )
     )
     if not no_wait:
-        _await_converged(client, int(result.get("generation", 0)), wait_timeout)
+        _await_converged(client, result.generation, wait_timeout)
 
 
 def _await_converged(client: ConsoleClient, generation: int, timeout_s: int) -> None:
@@ -328,21 +355,24 @@ def _await_converged(client: ConsoleClient, generation: int, timeout_s: int) -> 
     said_activating = False
     while True:
         state = _call(client.company)
-        if state["phase"] == "converged" and state["observedGeneration"] >= generation:
+        if (
+            state.phase == CompanyPhase.converged
+            and state.observed_generation >= generation
+        ):
             render.act(
                 Text.assemble(
-                    render.status("converged"),
+                    render.status(state.phase),
                     render.dim(f" ({render.duration(time.monotonic() - started)})"),
                 )
             )
             return
         if not said_activating:
-            render.act(Text.assemble(render.status("activating"), " …"), render.ERR)
+            render.act(Text.assemble(render.status(state.phase), " …"), render.ERR)
             said_activating = True
         if time.monotonic() - started >= timeout_s:
             render.error(
-                f"still {state['phase']} after {timeout_s}s"
-                + (f": {state['message']}" if state.get("message") else "")
+                f"still {state.phase} after {timeout_s}s"
+                + (f": {state.message}" if state.message else "")
                 + " — `poseidon company show`, or `kubectl get company`"
             )
             raise typer.Exit(1)
@@ -361,27 +391,26 @@ def company_show(as_json: bool = JSON_OPTION) -> None:
     if as_json:
         _json(state)
         return
-    paused = state.get("paused") or {}
+    paused = state.paused
     render.record(
         [
-            ("company", state.get("company")),
-            ("phase", render.status(state.get("phase"))),
+            ("company", state.company),
+            ("phase", render.status(state.phase)),
             (
                 "generation",
-                f"{state.get('generation')} (observed {state.get('observedGeneration')})",
+                f"{state.generation} (observed {state.observed_generation})",
             ),
-            ("bundle", render.dim(state.get("bundleRevision") or "")),
-            ("namespace", render.dim(state.get("namespace") or "")),
+            ("bundle", render.dim(state.bundle_revision)),
             (
                 "heartbeat",
                 Text.assemble(
-                    render.status("paused"),
-                    f" by {paused['by']}, {render.ago(paused['at'])}",
+                    render.status(HEARTBEAT_PAUSED),
+                    f" by {paused.by}, {render.ago(paused.at)}",
                 )
                 if paused
-                else render.status("running"),
+                else render.status(RunStatus.running),
             ),
-            ("message", state.get("message")),
+            ("message", state.message),
         ]
     )
 
@@ -403,11 +432,11 @@ def company_delete(
     way to stop a company (`pause` holds it instead); applying its
     blueprint again brings it back."""
     client = _client()
-    company = _call(client.whoami).get("company")
+    company = _call(client.whoami).company
     if not company:
         render.error("no company is applied")
         raise typer.Exit(1)
-    running = [r for r in _call(client.runs) if r.get("status") == "running"]
+    running = [r for r in _call(client.runs).runs if r.status == RunStatus.running]
     render.act(
         f"{company}: {len(running)} running run(s)"
         + (" — they will be cancelled:" if running else ""),
@@ -416,16 +445,16 @@ def company_delete(
     if running:
         render.table(
             ("run", "workflow", "task"),
-            [(r["run_id"], r.get("workflow", ""), r.get("task", "")) for r in running],
+            [(r.run_id, r.workflow, r.task) for r in running],
             render.ERR,
         )
     if not yes:
         typer.confirm(f"delete {company}?", abort=True)
     result = _call(client.delete_company, reason, wait=not no_wait)
-    cancelled = result.get("runs_cancelled") or []
+    cancelled = result.runs_cancelled
     render.act(
-        f"{result.get('company', company)} deleted"
-        + (f" in {render.duration(result['elapsed_s'])}" if "elapsed_s" in result else "")
+        f"{result.company} deleted"
+        + (f" in {render.duration(result.elapsed_s)}" if not no_wait else "")
         + (f"; cancelled {', '.join(cancelled)}" if cancelled else "")
     )
 
@@ -444,13 +473,13 @@ def heartbeat_show(
     if as_json:
         _json(state)
         return
-    execution = state.get("execution") or {}
-    ticks = state.get("ticks") or []
-    line = Text.assemble("heartbeat ", render.status(execution.get("status")))
-    if execution.get("state"):
-        line.append(f" ({execution['state']})", style=render.DIM)
+    execution = state.execution
+    ticks = state.ticks
+    line = Text.assemble("heartbeat ", render.status(execution.status))
+    if execution.state:
+        line.append(f" ({execution.state})", style=render.DIM)
     if ticks:
-        line.append(f", last tick {render.ago(ticks[-1].get('ts'))}")
+        line.append(f", last tick {render.ago(ticks[-1].ts)}")
     render.act(line)
     render.table(
         ("when", "outcome", "detail"),
@@ -459,11 +488,9 @@ def heartbeat_show(
     )
 
 
-def _tick_row(tick: dict[str, Any]) -> tuple[Any, ...]:
-    """A tick's rule reads `tick_<outcome>:<detail>`; the outcome is the
-    coloured word, the detail says what (or why not)."""
-    outcome, detail = parse_tick_rule(str(tick.get("rule") or ""))
-    return (render.dim(render.ago(tick.get("ts"))), render.status(outcome), detail)
+def _tick_row(tick: TickView) -> tuple[Any, ...]:
+    """The outcome is the coloured word, the detail says what (or why not)."""
+    return (render.dim(render.ago(tick.ts)), render.status(tick.outcome), tick.detail)
 
 
 @heartbeat_app.command(epilog=examples("poseidon heartbeat wake"))
@@ -483,8 +510,7 @@ def pause(reason: str = REASON_OPTION) -> None:
     finish; you may still start a run, answer a gate or cancel by hand.
     Recorded under your name with your reason."""
     result = _call(_client().pause, reason)
-    paused = result.get("paused") or {}
-    render.act(f"heartbeat paused by {paused.get('by', '')}")
+    render.act(f"heartbeat paused by {result.paused.by if result.paused else ''}")
 
 
 @app.command(epilog=examples('poseidon resume --reason "read it"'))
@@ -499,12 +525,11 @@ def resume(reason: str = REASON_OPTION) -> None:
 # -- runs ------------------------------------------------------------------------
 
 
-def _elapsed(record: dict[str, Any]) -> str:
-    started = render.parse_ts(record.get("created_at"))
-    if started is None:
+def _elapsed(record: RunView) -> str:
+    if record.created_at is None:
         return ""
-    ended = render.parse_ts(record.get("finished_at")) or datetime.now(UTC)
-    return render.duration((ended - started).total_seconds())
+    ended = record.finished_at or datetime.now(UTC)
+    return render.duration((ended - record.created_at).total_seconds())
 
 
 @app.command(epilog=examples("poseidon runs", "poseidon runs --json"))
@@ -513,26 +538,26 @@ def runs(
     as_json: bool = JSON_OPTION,
 ) -> None:
     """The company's runs, newest first: id, workflow, task, status, when."""
-    records = _call(_client().runs, since)
+    listing = _call(_client().runs, since)
     if as_json:
-        _json(records)
+        _json(listing)
         return
     # The runs still going first, then the rest newest first.
     newest_first = sorted(
-        records, key=lambda r: str(r.get("created_at") or ""), reverse=True
+        listing.runs, key=lambda r: str(r.created_at or ""), reverse=True
     )
-    ordered = [r for r in newest_first if r.get("status") == "running"] + [
-        r for r in newest_first if r.get("status") != "running"
+    ordered = [r for r in newest_first if r.status == RunStatus.running] + [
+        r for r in newest_first if r.status != RunStatus.running
     ]
     render.table(
         ("run", "workflow", "task", "status", "started", "took"),
         [
             (
-                r.get("run_id", ""),
-                r.get("workflow", ""),
-                r.get("task", ""),
-                render.status(r.get("status")),
-                render.dim(render.ago(r.get("created_at"))),
+                r.run_id,
+                r.workflow,
+                r.task,
+                render.status(r.status),
+                render.dim(render.ago(r.created_at)),
                 render.dim(_elapsed(r)),
             )
             for r in ordered
@@ -554,32 +579,28 @@ def run_show(
     _render_run(record)
 
 
-def _render_run(record: dict[str, Any]) -> None:
-    execution = record.get("execution") or {}
+def _render_run(record: RunDetail) -> None:
+    execution = record.execution
     workflow_line = Text.assemble(
         "workflow ",
-        render.status(execution.get("status")),
-        render.dim(f" {execution.get('workflow_id', '')}"),
+        render.status(execution.status),
+        render.dim(f" {execution.workflow_id}"),
     )
-    if execution.get("state"):
-        workflow_line.append(f" ({execution['state']})", style=render.DIM)
-    error = record.get("error")
+    if execution.state:
+        workflow_line.append(f" ({execution.state})", style=render.DIM)
     render.record(
         [
-            ("run", record.get("run_id")),
-            ("workflow", record.get("workflow")),
-            ("task", record.get("task")),
-            ("status", render.status(record.get("status"))),
-            ("started", render.dim(render.ago(record.get("created_at")))),
+            ("run", record.run_id),
+            ("workflow", record.workflow),
+            ("task", record.task),
+            ("status", render.status(record.status)),
+            ("started", render.dim(render.ago(record.created_at))),
             ("took", render.dim(_elapsed(record))),
-            ("iterations", record.get("iterations") or None),
-            ("pull request", record.get("pr_url")),
-            ("tickets", ", ".join(record.get("ticket_urls") or []) or None),
-            (
-                "verdict",
-                render.status(record["verdict"]) if record.get("verdict") else None,
-            ),
-            ("error", Text(str(error), style="red") if error else None),
+            ("iterations", record.iterations or None),
+            ("pull request", record.pr_url),
+            ("tickets", ", ".join(record.ticket_urls) or None),
+            ("verdict", render.status(record.verdict) if record.verdict else None),
+            ("error", Text(record.error, style="red") if record.error else None),
             ("execution", workflow_line),
         ]
     )
@@ -604,13 +625,13 @@ def run_story(
     """The run's story: every audit row, from every source, in order —
     each tool call, decision, gate and verdict, with the actor's rationale
     where one was stated."""
-    rows = _call(_client().story, run_id, decisions)
+    story = _call(_client().story, run_id, decisions)
     if as_json:
-        _json(rows)
+        _json(story)
         return
-    if not rows:
+    if not story.events:
         render.act(Text("no rows yet", style=render.DIM))
-    for event in rows:
+    for event in story.events:
         render.OUT.print(render.row(event))
 
 
@@ -626,7 +647,7 @@ def run_cancel(
     your name, then stops the workflow; the run's sandbox and agents are
     torn down."""
     result = _call(_client().cancel, run_id, reason)
-    render.act(f"run {result.get('run_id', run_id)} cancelled")
+    render.act(f"run {result.run_id} cancelled")
 
 
 @start_app.command(
@@ -668,7 +689,7 @@ def _start(workflow: str, number: int, no_wait: bool, as_json: bool) -> None:
     started = _call(client.start_run, workflow, number)
     render.act(
         Text.assemble(
-            f"started {started['workflow_id']} ", render.dim(f"(run {started['run_id']})")
+            f"started {started.workflow_id} ", render.dim(f"(run {started.run_id})")
         ),
         render.ERR,
     )
@@ -676,21 +697,21 @@ def _start(workflow: str, number: int, no_wait: bool, as_json: bool) -> None:
         if as_json:
             _json(started)
         return
-    record = _await_run(client, started["run_id"])
+    record = _await_run(client, started.run_id)
     if as_json:
         _json(record)
     else:
         _render_run(record)
-    if record.get("status") != "done":
+    if record.status != RunStatus.done:
         sys.exit(1)
 
 
-def _await_run(client: ConsoleClient, run_id: str) -> dict[str, Any]:
+def _await_run(client: ConsoleClient, run_id: str) -> RunDetail:
     """Follow the run to its end, printing its rows as they land. The
     worker writes the run's row a moment after the start is accepted, so
     "no such run" is "not yet" within the grace, and a refusal after it."""
     born = time.monotonic()
-    record: dict[str, Any] = {}
+    record: RunDetail | None = None
 
     def ended() -> bool:
         nonlocal record
@@ -700,15 +721,19 @@ def _await_run(client: ConsoleClient, run_id: str) -> dict[str, Any]:
             if exc.status == 422 and time.monotonic() - born < START_GRACE_S:
                 return False
             raise
-        execution = record["execution"]["status"]
-        if record["status"] != "running" or execution not in ("RUNNING", "NOT_FOUND"):
+        execution = record.execution.status
+        if record.status != RunStatus.running or execution not in (
+            EXECUTION_RUNNING,
+            EXECUTION_NOT_FOUND,
+        ):
             return True
-        if execution == "NOT_FOUND" and time.monotonic() - born >= START_GRACE_S:
+        if execution == EXECUTION_NOT_FOUND and time.monotonic() - born >= START_GRACE_S:
             render.error(f"run {run_id} has no workflow after {START_GRACE_S:.0f}s")
             raise typer.Exit(1)
         return False
 
     follow_events(client, render.ERR.print, run_id=run_id, stop=ended)
+    assert record is not None  # `ended` read it before the follow could stop
     return record
 
 
@@ -735,10 +760,45 @@ def verdict(
     render.act(
         Text.assemble(
             "verdict recorded: ",
-            f"{result.get('gate', gate.value)} ",
-            render.status("approved" if result.get("approved", approved) else "rejected"),
-            f" for run {result.get('run_id', run_id)}, by {result.get('principal', '')}",
+            f"{result.gate} ",
+            render.status(GATE_APPROVED if result.approved else GATE_REJECTED),
+            f" for run {result.run_id}, by {result.human}",
         )
+    )
+
+
+@app.command(epilog=examples("poseidon acts", "poseidon acts auto-3d73e674"))
+def acts(
+    run_id: str = typer.Argument(None, help="A run's id; omit for the company's acts."),
+    as_json: bool = JSON_OPTION,
+) -> None:
+    """What you may do now, to the company or to one run: every act, with
+    the arguments that decide it, whether it owes --reason, and why not
+    when it would be refused. A preview: the act itself decides again,
+    and is recorded."""
+    listing = _call(_client().acts, run_id)
+    if as_json:
+        _json(listing)
+        return
+    render.table(
+        ("act", "with", "reason", "allowed", "why not"),
+        [
+            (
+                view.act,
+                ", ".join(
+                    f"{key}={value}"
+                    for key, value in view.args.items()
+                    if key != "run_id"
+                ),
+                "yes" if view.rationale_required else "",
+                render.status("allow" if view.allowed else "deny"),
+                ""
+                if view.refusal is None
+                else (view.refusal.rule or view.refusal.detail),
+            )
+            for view in listing.acts
+        ],
+        empty="no acts",
     )
 
 
@@ -785,10 +845,10 @@ def spend(
             return
         render.act(
             Text.assemble(
-                f"spent {render.usd(total.get('usd'))}",
+                f"spent {render.usd(total.usd)}",
                 render.dim(
-                    f"  ({total.get('prompt_tokens', 0):,} prompt,"
-                    f" {total.get('completion_tokens', 0):,} completion tokens)"
+                    f"  ({total.prompt_tokens:,} prompt,"
+                    f" {total.completion_tokens:,} completion tokens)"
                 ),
             )
         )
@@ -797,19 +857,18 @@ def spend(
     if as_json:
         _json(result)
         return
-    render.act(f"run {result.get('run_id', run_id)}: {render.usd(result.get('usd'))}")
+    render.act(f"run {result.run_id}: {render.usd(result.usd)}")
     render.table(
         ("when", "who", "model", "tokens in / cached / out", "cost"),
         [
             (
-                render.dim(render.clock(e.get("ts"))),
-                "/".join(p for p in (e.get("role"), e.get("agent_id")) if p),
-                e.get("model", ""),
-                f"{e.get('prompt_tokens', 0):,} / {e.get('cached_tokens', 0):,}"
-                f" / {e.get('completion_tokens', 0):,}",
-                render.usd(e.get("usd")),
+                render.dim(render.clock(e.ts)),
+                "/".join(p for p in (e.role, e.agent_id) if p),
+                e.model,
+                f"{e.prompt_tokens:,} / {e.cached_tokens:,} / {e.completion_tokens:,}",
+                render.usd(e.usd),
             )
-            for e in result.get("entries") or []
+            for e in result.entries
         ],
         empty="no model calls",
     )

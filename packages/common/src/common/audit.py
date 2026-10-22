@@ -65,6 +65,10 @@ Source = Literal[
 ]
 SOURCES: tuple[str, ...] = get_args(Source)
 
+# What every row says of the act it records.
+Decision = Literal["allow", "deny"]
+DECISIONS: tuple[str, ...] = get_args(Decision)
+
 # The heartbeat's journal, beyond the start decision.
 HEARTBEAT_TICK = "heartbeat.tick"
 HEARTBEAT_DECIDE = "heartbeat.decide"
@@ -182,13 +186,15 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         gate_event(MERGE_GATE),
         "process-gate",
-        "the merge gate's outcome: a human's verdict, policy's resolution or"
-        " decline, a rework filed or exhausted, an escalation or an expiry",
+        "the merge gate: a run parked on it, a human's verdict, policy's"
+        " resolution or decline, a rework filed or exhausted, an escalation or"
+        " an expiry",
     ),
     PlatformEvent(
         gate_event(BUDGET_GATE),
         "process-gate",
-        "the budget park's outcome: approved, rejected, escalated or expired",
+        "the budget park: a run parked at its cap, then approved, rejected,"
+        " escalated or expired",
     ),
     PlatformEvent(
         gate_event(ATTEMPTS_GATE),
@@ -240,6 +246,11 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
 # The platform events that owe a rationale — the suite asserts every row
 # under these names states one.
 RATIONALE_EVENTS = frozenset(e.name for e in PLATFORM_EVENTS if e.rationale)
+# The console's acts, by the decision each must win: a human's every
+# commitment through the console, in the order the reference lists them.
+CONSOLE_ACTS: tuple[str, ...] = tuple(
+    e.name for e in PLATFORM_EVENTS if e.source == "console"
+)
 
 
 def args_digest(payload: dict[str, Any]) -> str:
@@ -258,7 +269,7 @@ class AuditEvent(BaseModel):
     role: str
     tool: str
     args_digest: str
-    decision: Literal["allow", "deny"]
+    decision: Decision
     rule: str | None
     # The actor's own reason for a decision that committed the company —
     # the PM's for what to start, the reviewer's for a verdict, a human's

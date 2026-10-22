@@ -1,0 +1,14 @@
+{
+  "request": {
+    "body": null,
+    "path": "/heartbeat/wake",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "rule": "heartbeat_wake",
+    "workflow_id": "heartbeat-hello-saas"
+  },
+  "route": "POST /heartbeat/wake",
+  "status": 200
+}

@@ -12,7 +12,7 @@ Every command, with its options and examples, is on the [CLI reference](../../do
 
 | Module | Owns |
 |---|---|
-| `client.py` | `ConsoleClient`: one method per console route. `PolicyDenied` for a 403 with a rule, `ConsoleError` for any other refusal. The token and URL lookup. |
+| `client.py` | `ConsoleClient`: one method per console route, each answer parsed into its `common.console` model, so a field the console stops sending fails here. `PolicyDenied` for a 403 (`PolicyRefusal`), `ConsoleError` for any other refusal (`Problem`). The token and URL lookup. |
 | `main.py` | The typer app and every command. `login`, `version` and `blueprint new` are the commands that work without a token. |
 | `render.py` | How the CLI prints: a record, a table, an act, an error, and `row`, the one line an audit row becomes. |
 | `follow.py` | The cursor poll behind `poseidon follow` and behind `start`, which follows its own run. |
@@ -35,7 +35,7 @@ The CLI performs no act of its own. `_client()` reads the console's address from
 
 ### Rendering has four shapes
 
-`render.py` prints a record (label and value), a table, an act (one sentence) or an error (stderr). Color lives only on status words. `rich` turns it off when stdout is not a terminal or `NO_COLOR` is set. `--json` on every read prints the console's answer verbatim instead.
+`render.py` prints a record (label and value), a table, an act (one sentence) or an error (stderr). Color lives only on status words. `rich` turns it off when stdout is not a terminal or `NO_COLOR` is set. `--json` on every read prints the console's answer, as its model dumps it, instead.
 
 `render.row` is the one line an audit row becomes. It shows the time, the run (or `heartbeat`), the role and agent, the tool and the decision. The rule follows a denial or a heartbeat row. A rationale follows on its own line. `follow` and `run story` print rows this way.
 
@@ -63,7 +63,7 @@ The CLI performs no act of its own. `_client()` reads the console's address from
 uv run pytest packages/cli
 ```
 
-It needs no cluster or console (see [Contributing](../../docs/developing/contributing.md)). The console is an `httpx.MockTransport`, the commands run through typer's `CliRunner`, and the questionnaire runs against a script. On kind, `test_acceptance.py` and `test_review_gate.py` run `uv run poseidon`, and the suite's `cluster.py` helpers act through `ConsoleClient`.
+It needs no cluster or console (see [Contributing](../../docs/developing/contributing.md)). The console is an `httpx.MockTransport` answering the console's golden examples (`packages/console/examples/`), so a change to the console interface the CLI does not follow fails here, the commands run through typer's `CliRunner`, and the questionnaire runs against a script. On kind, `test_acceptance.py` and `test_review_gate.py` run `uv run poseidon`, and the suite's `cluster.py` helpers act through `ConsoleClient`.
 
 ## Related
 

@@ -1,10 +1,13 @@
 """`ConsoleClient`: the console's routes as methods.
 
-One method per route, JSON in and out, and the console's refusals as
-exceptions: `PolicyDenied` carries the rule policy named, `ConsoleError`
-carries the status and the detail for everything else. Nothing here
-decides anything — the client is the console's mouthpiece, and the
-console is policy's.
+One method per route of the console interface (`common.console`):
+requests built from its request models, answers parsed into its response
+models, so a field the console stops sending fails here, loudly, rather
+than in a rendering three calls later. The console's refusals are
+exceptions: `PolicyDenied` carries the rule policy named (a
+`PolicyRefusal`), `ConsoleError` the status and the detail of every other
+(`Problem`). Nothing here decides anything — the client is the
+console's mouthpiece, and the console is policy's.
 """
 
 import os
@@ -12,7 +15,45 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from pydantic import BaseModel, ValidationError
 
+from common.console import (
+    ActList,
+    AgentList,
+    ApplyResult,
+    BlueprintRequest,
+    BlueprintView,
+    BoundsView,
+    CancelRequest,
+    CompanyDeleted,
+    CompanyView,
+    CrewView,
+    DeleteRequest,
+    DocumentView,
+    EventsPage,
+    Health,
+    HeartbeatView,
+    Now,
+    PauseRequest,
+    PauseState,
+    PolicyRefusal,
+    PreviewResult,
+    Problem,
+    ResumeRequest,
+    RunCancelled,
+    RunDetail,
+    RunList,
+    RunSpendView,
+    RunStarted,
+    SpendView,
+    StartRunRequest,
+    StoryView,
+    TicketList,
+    VerdictRecorded,
+    VerdictRequest,
+    WhoAmI,
+    Woken,
+)
 from common.topology import CONSOLE_PORT, TEARDOWN_TIMEOUT_S
 
 DEFAULT_URL = f"http://127.0.0.1:{CONSOLE_PORT}"
@@ -37,7 +78,7 @@ def saved_token() -> str:
 
 
 class ConsoleError(Exception):
-    def __init__(self, status: int, detail: Any) -> None:
+    def __init__(self, status: int, detail: str) -> None:
         super().__init__(f"console answered {status}: {detail}")
         self.status = status
         self.detail = detail
@@ -46,7 +87,7 @@ class ConsoleError(Exception):
 class PolicyDenied(ConsoleError):
     """The console asked policy and policy said no; `rule` names why."""
 
-    def __init__(self, detail: Any, rule: str) -> None:
+    def __init__(self, detail: str, rule: str) -> None:
         super().__init__(403, detail)
         self.rule = rule
 
@@ -97,95 +138,174 @@ class ConsoleClient:
 
     # -- transport ------------------------------------------------------------
 
-    def _call(self, method: str, path: str, **kwargs: Any) -> Any:
+    def _call[M: BaseModel](
+        self,
+        method: str,
+        path: str,
+        answer: type[M],
+        body: BaseModel | None = None,
+        **kwargs: Any,
+    ) -> M:
+        if body is not None:
+            kwargs["json"] = body.model_dump(mode="json")
         response = self._http.request(method, path, **kwargs)
         if response.status_code >= 400:
-            try:
-                body = response.json()
-            except ValueError:
-                body = {"detail": response.text}
-            if response.status_code == 403 and "rule" in body:
-                raise PolicyDenied(body.get("detail"), body["rule"])
-            raise ConsoleError(response.status_code, body.get("detail", body))
-        return response.json()
+            raise _refusal(response)
+        return answer.model_validate(response.json())
 
     # -- the chokepoint -------------------------------------------------------------
 
-    def healthz(self) -> dict[str, Any]:
+    def healthz(self) -> Health:
         """The open route: liveness and the version the console runs."""
-        return self._call("GET", "/healthz")
+        return self._call("GET", "/healthz", Health)
 
-    def whoami(self) -> dict[str, Any]:
-        return self._call("GET", "/whoami")
+    def whoami(self) -> WhoAmI:
+        return self._call("GET", "/whoami", WhoAmI)
 
     # -- the blueprint --------------------------------------------------------
 
-    def preview(self, blueprint: str) -> dict[str, Any]:
-        return self._call("POST", "/blueprint/preview", json={"blueprint": blueprint})
+    def preview(self, blueprint: str) -> PreviewResult:
+        return self._call(
+            "POST",
+            "/blueprint/preview",
+            PreviewResult,
+            BlueprintRequest(blueprint=blueprint),
+        )
 
-    def apply(self, blueprint: str) -> dict[str, Any]:
-        return self._call("POST", "/blueprint/apply", json={"blueprint": blueprint})
+    def apply(self, blueprint: str) -> ApplyResult:
+        return self._call(
+            "POST", "/blueprint/apply", ApplyResult, BlueprintRequest(blueprint=blueprint)
+        )
 
-    def company(self) -> dict[str, Any]:
-        return self._call("GET", "/company")
+    def blueprint(self) -> BlueprintView:
+        return self._call("GET", "/blueprint", BlueprintView)
 
-    def delete_company(self, reason: str, wait: bool = True) -> dict[str, Any]:
-        return self._call("DELETE", "/company", json={"reason": reason, "wait": wait})
+    def document(self, kind: str) -> DocumentView:
+        return self._call("GET", f"/documents/{kind}", DocumentView)
+
+    def company(self) -> CompanyView:
+        return self._call("GET", "/company", CompanyView)
+
+    def bounds(self) -> BoundsView:
+        return self._call("GET", "/company/bounds", BoundsView)
+
+    def agents(self) -> AgentList:
+        return self._call("GET", "/agents", AgentList)
+
+    def tickets(self) -> TicketList:
+        return self._call("GET", "/tickets", TicketList)
+
+    def delete_company(self, rationale: str, wait: bool = True) -> CompanyDeleted:
+        return self._call(
+            "DELETE",
+            "/company",
+            CompanyDeleted,
+            DeleteRequest(rationale=rationale, wait=wait),
+        )
 
     # -- runs -----------------------------------------------------------------
 
-    def start_run(self, workflow: str, number: int) -> dict[str, Any]:
-        return self._call("POST", "/runs", json={"workflow": workflow, "number": number})
+    def start_run(self, workflow: str, number: int) -> RunStarted:
+        return self._call(
+            "POST",
+            "/runs",
+            RunStarted,
+            StartRunRequest(workflow=workflow, number=number),
+        )
 
-    def runs(self, since: str | None = None) -> list[dict[str, Any]]:
-        return self._call("GET", "/runs", params=_since(since))
+    def runs(self, since: str | None = None, parked: bool = False) -> RunList:
+        params = _since(since) | ({"state": "parked"} if parked else {})
+        return self._call("GET", "/runs", RunList, params=params)
 
-    def run(self, run_id: str) -> dict[str, Any]:
-        return self._call("GET", f"/runs/{run_id}")
+    def run(self, run_id: str) -> RunDetail:
+        return self._call("GET", f"/runs/{run_id}", RunDetail)
 
-    def story(self, run_id: str, decisions: bool = False) -> list[dict[str, Any]]:
+    def story(self, run_id: str, decisions: bool = False) -> StoryView:
         params = {"decisions": "true"} if decisions else None
-        return self._call("GET", f"/runs/{run_id}/story", params=params)
+        return self._call("GET", f"/runs/{run_id}/story", StoryView, params=params)
 
-    def spend(self, run_id: str) -> dict[str, Any]:
-        return self._call("GET", f"/runs/{run_id}/spend")
+    def spend(self, run_id: str) -> RunSpendView:
+        return self._call("GET", f"/runs/{run_id}/spend", RunSpendView)
+
+    def crew(self, run_id: str) -> CrewView:
+        return self._call("GET", f"/runs/{run_id}/crew", CrewView)
 
     def resolve(
-        self, run_id: str, gate: str, approved: bool, reason: str
-    ) -> dict[str, Any]:
+        self, run_id: str, gate: str, approved: bool, rationale: str
+    ) -> VerdictRecorded:
         return self._call(
             "POST",
             f"/runs/{run_id}/gates/{gate}",
-            json={"approved": approved, "reason": reason},
+            VerdictRecorded,
+            VerdictRequest(approved=approved, rationale=rationale),
         )
 
-    def cancel(self, run_id: str, reason: str) -> dict[str, Any]:
-        return self._call("POST", f"/runs/{run_id}/cancel", json={"reason": reason})
+    def cancel(self, run_id: str, rationale: str) -> RunCancelled:
+        return self._call(
+            "POST",
+            f"/runs/{run_id}/cancel",
+            RunCancelled,
+            CancelRequest(rationale=rationale),
+        )
 
     # -- the company ------------------------------------------------------------
 
-    def heartbeat(self, since: str | None = None) -> dict[str, Any]:
-        return self._call("GET", "/heartbeat", params=_since(since))
+    def heartbeat(self, since: str | None = None) -> HeartbeatView:
+        return self._call("GET", "/heartbeat", HeartbeatView, params=_since(since))
 
-    def wake(self) -> dict[str, Any]:
-        return self._call("POST", "/heartbeat/wake")
+    def wake(self) -> Woken:
+        return self._call("POST", "/heartbeat/wake", Woken)
 
-    def pause(self, reason: str) -> dict[str, Any]:
-        return self._call("POST", "/heartbeat/pause", json={"reason": reason})
+    def pause(self, rationale: str) -> PauseState:
+        return self._call(
+            "POST", "/heartbeat/pause", PauseState, PauseRequest(rationale=rationale)
+        )
 
-    def resume(self, reason: str) -> dict[str, Any]:
-        return self._call("POST", "/heartbeat/resume", json={"reason": reason})
+    def resume(self, rationale: str) -> PauseState:
+        return self._call(
+            "POST", "/heartbeat/resume", PauseState, ResumeRequest(rationale=rationale)
+        )
 
-    def spend_since(self, since: str | None = None) -> dict[str, Any]:
-        return self._call("GET", "/spend", params=_since(since))
+    def acts(self, run_id: str | None = None) -> ActList:
+        """What this human may do now — to the company, or to one run."""
+        path = f"/runs/{run_id}/acts" if run_id else "/acts"
+        return self._call("GET", path, ActList)
+
+    def spend_since(self, since: str | None = None) -> SpendView:
+        return self._call("GET", "/spend", SpendView, params=_since(since))
 
     def events(
         self, after: int = 0, run_id: str | None = None, limit: int = 200
-    ) -> dict[str, Any]:
+    ) -> EventsPage:
         params: dict[str, Any] = {"after": after, "limit": limit}
         if run_id:
             params["run"] = run_id
-        return self._call("GET", "/events", params=params)
+        return self._call("GET", "/events", EventsPage, params=params)
+
+    def now(self) -> Now:
+        """The registry's clock: the fence to take before acting."""
+        return self._call("GET", "/now", Now)
+
+
+def _refusal(response: httpx.Response) -> "ConsoleError":
+    """The console's refusal as the exception it means: a 403 is a
+    `PolicyRefusal`, every other refusal a `Problem`. A body that is
+    neither (a proxy's page, say) keeps its text as the detail."""
+    try:
+        body = response.json()
+    except ValueError:
+        return ConsoleError(response.status_code, response.text)
+    if response.status_code == 403:
+        try:
+            refusal = PolicyRefusal.model_validate(body)
+        except ValidationError:
+            pass
+        else:
+            return PolicyDenied(refusal.detail, refusal.rule)
+    try:
+        return ConsoleError(response.status_code, Problem.model_validate(body).detail)
+    except ValidationError:
+        return ConsoleError(response.status_code, response.text)
 
 
 def _since(since: str | None) -> dict[str, str]:

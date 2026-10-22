@@ -140,6 +140,17 @@ def test_a_signal_past_the_console_releases_nothing(raw_review: dict, delivered)
     assert pull["state"] == "open" and pull["merged"] is False
 
 
+def _merge_approval(env: dict, run_id: str):
+    """The run's preview of the approving merge verdict."""
+    return next(
+        view
+        for view in console(env).acts(run_id).acts
+        if view.act == GATE_RESOLVE
+        and view.args.get("gate") == "merge"
+        and view.args.get("approved") is True
+    )
+
+
 def test_the_same_verdict_through_the_console_merges(raw_review: dict, delivered) -> None:
     """The second PR's review, answered through the console: recorded
     under the human's name, released by policy on its human path,
@@ -151,8 +162,16 @@ def test_the_same_verdict_through_the_console_merges(raw_review: dict, delivered
     run_id = run_by_task(task, workflow="review")["run_id"]
     assert run_id != raw_review["run_id"]
     await_gate(run_id, "parked-merge_gate")
+    # The preview says what the act will: the merge verdict is the human's
+    # to give while the run is parked on it.
+    before = _merge_approval(env, run_id)
+    assert before.allowed, before
     verdict = console(env).resolve(run_id, "merge", True, "red-team: the real road")
-    assert verdict["principal"] == HUMAN
+    assert verdict.human == HUMAN
+    # Once answered, the question is no longer asked: refused by state.
+    after = _merge_approval(env, run_id)
+    assert not after.allowed and after.refusal.kind == "state", after
+    assert "not parked" in after.refusal.detail or "no workflow" in after.refusal.detail
     record = await_run(task, terminal=True, deadline_s=600, workflow="review")
     assert record["status"] == "done", record
 

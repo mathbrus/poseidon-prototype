@@ -19,6 +19,7 @@ from common.authn import (
 )
 from common.identity import (
     HUMAN_ROLE,
+    LIFECYCLE_CONSOLE,
     LIFECYCLE_HUMAN,
     LIFECYCLE_PLATFORM,
     LIFECYCLE_STANDING,
@@ -80,6 +81,7 @@ class Reviewer:
 OWNER = Principal.of(f"system:serviceaccount:{PLATFORM_NS}:human-owner")
 STRANGER = Principal.of(f"system:serviceaccount:{PLATFORM_NS}:human-stranger")
 WORKER = Principal.of(f"system:serviceaccount:{PLATFORM_NS}:orchestrator-worker")
+CONSOLE = Principal.of(f"system:serviceaccount:{PLATFORM_NS}:console")
 AGENT = Principal.of(f"system:serviceaccount:{COMPANY_NS}:implementer-1")
 OIDC = Principal.of("alice@example.com")
 
@@ -89,6 +91,7 @@ REVIEWS = {
     ("t-oidc", CONSOLE_TOKEN_AUDIENCE): OIDC,
     ("t-agent-at-console", CONSOLE_TOKEN_AUDIENCE): AGENT,
     ("t-worker", TOKEN_AUDIENCE): WORKER,
+    ("t-console", TOKEN_AUDIENCE): CONSOLE,
     ("t-agent", TOKEN_AUDIENCE): AGENT,
     ("t-oidc-at-gateway", TOKEN_AUDIENCE): OIDC,
     ("t-owner-at-gateway", TOKEN_AUDIENCE): OWNER,
@@ -186,6 +189,33 @@ async def test_an_identity_providers_user_is_refused_at_the_gateway(gateway, aud
     assert await gateway.authenticate("Bearer t-oidc-at-gateway", "/mcp") is None
     assert audit.rules == [("authn_not_a_workload", "alice@example.com")]
     assert audit.events[0].source == "gateway"
+
+
+class Companies:
+    def applied(self) -> str | None:
+        return "hello-saas"
+
+
+async def test_the_console_reads_as_the_console_at_the_mcp_gateway_only(
+    settings, audit, reviewer, gateway
+):
+    """The console's own ServiceAccount is the console identity — its own
+    lifecycle, for the applied company, never the platform's — where the
+    gateway passes the registry's companies (the MCP gateway); anywhere
+    else it is a ServiceAccount the registry does not know."""
+    mcp = Authenticator(
+        settings, audit, Instances(), Participants(), Companies(), reviewer=reviewer
+    )
+    identity = await mcp.authenticate("Bearer t-console", "/mcp")
+    assert identity is not None
+    assert (identity.agent_id, identity.role, identity.lifecycle, identity.company) == (
+        "console",
+        "console",
+        LIFECYCLE_CONSOLE,
+        "hello-saas",
+    )
+    assert await gateway.authenticate("Bearer t-console", "/chat") is None
+    assert audit.rules == [("authn_unknown_service_account", CONSOLE.username)]
 
 
 def test_workload_mode_needs_the_registry_readers(settings, audit):

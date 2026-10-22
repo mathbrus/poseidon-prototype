@@ -40,6 +40,42 @@ The acts, rendered from `common.audit`:
 
 <!-- gen: console-acts -->
 
+## The applied blueprint
+
+An apply keeps the blueprint's text on the Company resource
+(`spec.blueprintSource`): the text exactly as you sent it, its sha256,
+who applied it and when. `GET /blueprint` reads it back, with the
+Company's generation and phase, so you can tell whether the text shown
+is the one policy enforces yet (`activating`, then `converged`).
+`poseidon blueprint show` prints it, and applying that output again
+changes nothing. The compiled spec the platform runs on drops comments,
+defaults and ordering, so it is not the blueprint and can't be applied
+again.
+
+A blueprint may be at most 256 KiB (`common.topology.BLUEPRINT_LIMIT_BYTES`),
+so the Company resource stays well under the cluster store's object
+limit. The console refuses a longer one with a `422`.
+
+## What you may do now
+
+`GET /acts` lists the company's acts as you could ask for them now:
+apply, delete, wake, pause, resume, and a start per workflow a human may
+start. `GET /runs/{run_id}/acts` lists one run's: cancel, and a verdict
+per gate its workflow has, approved or not. `poseidon acts [RUN_ID]`
+prints either. Each act says whether it owes a rationale, whether it
+would be allowed, and if not, why: policy refuses you (`rule`, as the
+`403` would name it), or the company's state refuses the act (`detail`,
+as the `422` would say it), such as a verdict on a run not parked on
+that gate, or a resume of a company that isn't paused.
+
+The preview is advisory, and the act is the decision. Both are built
+from the same policy question and the same state check, and a test
+holds their answers equal. The preview records nothing and does
+nothing; the act decides again and is audited, so a stale preview costs
+at worst a `403` or a `422`. For a start and an apply, whose refusals
+also depend on what you send (the ticket's number, the blueprint), the
+preview answers for policy alone.
+
 ## Verdicts
 
 `POST /runs/{run_id}/gates/{gate}` answers only a run parked on that gate.
@@ -50,8 +86,8 @@ workflow, and the merge reads that record back
 ## Requests
 
 JSON in, JSON out. Acts are `POST` or `DELETE`, reads are `GET`. Every act
-that commits the company to something takes a `reason`, recorded as the
-audit row's rationale.
+that commits the company to something takes a `rationale` (the CLI's `--reason`),
+recorded beside the act's audit row.
 
 ```bash
 TOKEN=$(uv run poseidon login owner)
@@ -61,22 +97,17 @@ curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8090/company
 
 # Approve a parked merge
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"approved": true, "reason": "engine first"}' \
+  -d '{"approved": true, "rationale": "engine first"}' \
   http://127.0.0.1:8090/runs/auto-3d73e674/gates/merge
 
 # Pause the company
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"reason": "reading the ledger"}' \
+  -d '{"rationale": "reading the ledger"}' \
   http://127.0.0.1:8090/heartbeat/pause
 ```
 
-| Body | Used by |
-|---|---|
-| `{"blueprint": "<yaml text>"}` | `POST /blueprint/preview`, `POST /blueprint/apply` |
-| `{"workflow": "implement", "number": 42}` | `POST /runs` |
-| `{"approved": true, "reason": "…"}` | `POST /runs/{run_id}/gates/{gate}` |
-| `{"reason": "…"}` | `POST /runs/{run_id}/cancel`, `POST /heartbeat/pause`, `POST /heartbeat/resume` |
-| `{"reason": "…", "wait": true}` | `DELETE /company` |
+Every request and response body is a model of the
+[console interface](#the-console-interface).
 
 To read back your own writes, take a timestamp from `GET /now` before you
 act, then pass it as `?since=` to `/runs`, `/spend` or `/heartbeat`.
@@ -89,20 +120,66 @@ act, then pass it as `?since=` to `/runs`, `/spend` or `/heartbeat`.
 
 | Code | Body | Meaning |
 |---|---|---|
-| `200` | the result | Done. |
-| `401` | `{"detail": "unauthorized"}` | No token, or a token the console can't verify. |
-| `403` | `{"detail": "…", "rule": "human_not_recognized"}` | Policy refused the act. `rule` names the rule. |
-| `404` | `{"detail": "no company is applied"}` | The route needs a company and none is applied. |
-| `422` | `{"detail": "no run 'x'"}` | The request can't be acted on: an unknown run, a run not parked on that gate, a blueprint that doesn't validate, or another company's name. |
-| `503` | `{"detail": "temporal unreachable: …"}` | The workflow engine didn't answer. |
+| `200` | the route's response model | Done. |
+| `401` | `Problem`: `{"detail": "unauthorized"}` | No token, or a token the console can't verify. |
+| `403` | `PolicyRefusal`: `{"detail": "…", "rule": "human_not_recognized"}` | Policy refused the act. `rule` names the rule. |
+| `404` | `Problem`: `{"detail": "no company is applied"}` | The route needs a company and none is applied. |
+| `422` | `Problem`: `{"detail": "no run 'x'"}` | The request can't be acted on: a body that doesn't validate, an unknown run, a verdict on a run not parked on that gate, a pause of a paused company or a resume of one that isn't, a start of a ticket or pull request a live run already holds, a blueprint that doesn't compile or is over the limit, or another company's name. |
+| `503` | `Problem`: `{"detail": "temporal unreachable: …"}` | The workflow engine didn't answer. |
+
+## The console interface
+
+The routes, their request and response models and the closed sets
+they use are one interface, `common.console`, which every client is
+built on: the CLI, the acceptance suite and the web client to come. The
+console maps its registry rows, Temporal's answers and the Company CR
+onto it in one place, so those can change without a client noticing.
+Every model refuses fields it doesn't name.
+
+The interface is held still three ways:
+
+- **The snapshot.** `packages/console/openapi.json` is the console's
+  OpenAPI document, committed. CI renders it again and fails on any
+  difference, so a change to the interface is a reviewed diff in the
+  same pull request.
+- **The golden examples.** `packages/console/examples/` holds one
+  request and answer per route, rendered from a console over in-memory
+  fakes. The CLI's tests replay them, so a change the CLI doesn't follow
+  fails its tests.
+- **The breaking check.** `scripts/console_interface.py --breaking master`
+  says whether a branch's interface is `breaking` (a route or field
+  removed, a field retyped, a request field newly required, an enum
+  narrowed), `additive` or `unchanged`. The release proposal reports the
+  same since the last release.
+
+The interface has no version of its own. The release is the version,
+and `GET /healthz` answers it.
+
+```bash
+uv run python scripts/console_interface.py --write   # after changing the interface
+uv run python scripts/console_interface.py --check   # what CI runs
+```
+
+<!-- gen: console-interface -->
 
 ## What the console holds
 
-The registry's connection string and its own token for TokenReview. It
-holds no GitHub token, no model key and no signing key. In the cluster,
-it may create, update and delete the `Company` and `AgentInstance`
-resources, and read the company namespace. Its NetworkPolicy lets it reach OPA,
-Postgres, the Temporal frontend, DNS and the Kubernetes API, and nothing
-else.
+The registry's connection string, its own token for TokenReview, and a
+projected token for the MCP gateway's audience. It holds no GitHub
+token, no model key and no signing key. In the cluster, it may create,
+update and delete the `Company` and `AgentInstance` resources, and read
+the company namespace. Its NetworkPolicy lets it reach OPA, Postgres,
+the Temporal frontend, the MCP gateway, DNS and the Kubernetes API, and
+nothing else.
 
-It writes the audit table and the pause, and nothing else in the registry.
+At the MCP gateway it is the `console` identity, never the platform's.
+The company's bundle allows it exactly one read: `repo.read_file` of the
+company's two documents, on its repository, at its base ref
+(`console_read_document`). Every other call is denied by default. The
+gateway audits each read under `console`; your name is not forwarded,
+because the gateway trusts no forwarded identity. `GET /documents/{kind}`
+is that read, and like every `GET` the console itself records nothing.
+Agents' authority is unchanged: the console gains one read and no act.
+
+In the registry, it writes the audit table and the pause columns of
+`companies`, and nothing else.

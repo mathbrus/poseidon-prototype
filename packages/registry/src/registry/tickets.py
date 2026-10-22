@@ -4,8 +4,10 @@ The tickets the company filed, by repository and number, from the moment
 the git host created them. The host lists a new issue a beat late; the
 heartbeat's observation reads the ones filed within the host's lag window
 by number and completes the listing with them, so the loop never misses a
-ticket it filed itself.
+ticket it filed itself. The console reads them all, for a person.
 """
+
+from typing import Any
 
 from registry.db import Registry
 
@@ -37,3 +39,15 @@ class FiledTickets:
             (repo, seconds),
         )
         return [int(row["number"]) for row in rows]
+
+    def filed(self, repo: str) -> list[dict[str, Any]]:
+        """Every ticket filed on `repo`, ascending by number:
+        `{number, run_id, filed_at}`."""
+        return self._db.query(
+            """
+            SELECT number, run_id, filed_at FROM registry.filed_tickets
+             WHERE repo = %s
+             ORDER BY number
+            """,
+            (repo,),
+        )

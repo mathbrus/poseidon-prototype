@@ -1,0 +1,15 @@
+{
+  "request": {
+    "body": {
+      "blueprint": "<the text of examples/hello-saas.yaml>"
+    },
+    "path": "/blueprint/preview",
+    "query": {}
+  },
+  "response": {
+    "company": "hello-saas",
+    "diff": "hello-saas: no changes\n  budget: $5/run"
+  },
+  "route": "POST /blueprint/preview",
+  "status": 200
+}

@@ -1,0 +1,20 @@
+{
+  "request": {
+    "body": null,
+    "path": "/agents",
+    "query": {}
+  },
+  "response": {
+    "agents": [
+      {
+        "agent_id": "pm-1",
+        "conductor": true,
+        "role": "pm",
+        "standing_name": "pm",
+        "status": "converged"
+      }
+    ]
+  },
+  "route": "GET /agents",
+  "status": 200
+}

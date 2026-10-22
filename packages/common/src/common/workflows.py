@@ -8,6 +8,8 @@ wrong task queue would fail silently, and a heartbeat audit story keyed
 on a different id than the one the loop writes would be empty.
 """
 
+from datetime import timedelta
+
 # The workflows a run id (or, for the heartbeat, a company) addresses.
 # The `heartbeat` workflow is the company's standing loop — one durable
 # workflow per company. It is unrelated to Temporal's activity heartbeats,
@@ -39,6 +41,15 @@ GATES = (MERGE_GATE, BUDGET_GATE)
 ATTEMPTS_GATE = "heartbeat_attempts"
 BOOTSTRAP_GATE = "heartbeat_bootstrap_exhausted"
 DAILY_CAP_GATE = "heartbeat_daily_cap"
+
+
+def gate_timer(deadline_minutes: int) -> tuple[timedelta, timedelta]:
+    """A gate's timer from its declared wait: `(escalate_after, expire_after)`
+    — escalation halfway, expiry at the deadline. The workflow parks on it;
+    the console says when a parked run escalates and expires by it."""
+    return timedelta(seconds=deadline_minutes * 30), timedelta(minutes=deadline_minutes)
+
+
 # Which gates each run-shaped workflow has: a verdict on a gate a run
 # cannot park on is refused before policy is asked.
 GATES_OF = {
@@ -56,14 +67,39 @@ PARKED_STATE = {
     BUDGET_GATE: f"{PARKED_PREFIX}budget_exhausted",
 }
 
-# What a gate resolved to: one outcome per kind, written on the gate's
+# Every state a run-shaped workflow's `state()` query answers: working,
+# parked on a gate, or finalizing (tearing its crew and sandbox down).
+# The console passes it through as the execution's state; a workflow
+# that returned anything else would break every reader of it.
+RUN_RUNNING = "running"
+RUN_FINALIZING = "finalizing"
+RUN_STATES = (RUN_RUNNING, *PARKED_STATE.values(), RUN_FINALIZING)
+# Every state the heartbeat's `state()` query answers: sleeping between
+# ticks, ticking while a tick runs, paused while a human holds it.
+HEARTBEAT_SLEEPING = "sleeping"
+HEARTBEAT_TICKING = "ticking"
+HEARTBEAT_PAUSED = "paused"
+HEARTBEAT_STATES = (HEARTBEAT_SLEEPING, HEARTBEAT_TICKING, HEARTBEAT_PAUSED)
+
+# What a run's registry row says of it: running until its teardown
+# writes the terminal status, done or failed. Not the workflow's state:
+# a run parked on a gate is still `running` here.
+RUN_STATUS_RUNNING = "running"
+RUN_STATUS_DONE = "done"
+RUN_STATUS_FAILED = "failed"
+RUN_STATUSES = (RUN_STATUS_RUNNING, RUN_STATUS_DONE, RUN_STATUS_FAILED)
+
+# What happened at a gate: one outcome per kind, written on the gate's
 # process-gate audit row as `gate_<kind>` by the orchestrator and read
-# back by the CLI. A human answered (approved, rejected), nobody did
+# back by the console. A run began waiting on it (parked — the row a
+# parked run's deadlines are measured from), a human answered (approved,
+# rejected), nobody did
 # (escalated at half the deadline, expired at the end), policy answered
 # the merge (resolved it, or declined and fell back to the human), the
 # review filed a rework ticket or spent its last rework, an approving
 # signal arrived without a recorded verdict, the heartbeat halted a start
 # on a gate nobody resolves, or a text spent its last attempt.
+GATE_PARKED = "parked"
 GATE_APPROVED = "approved"
 GATE_REJECTED = "rejected"
 GATE_ESCALATED = "escalated"
@@ -76,6 +112,7 @@ GATE_VERDICT_UNVERIFIED = "verdict_unverified"
 GATE_HALTED = "halted"
 GATE_EXHAUSTED = "exhausted"
 GATE_OUTCOMES = (
+    GATE_PARKED,
     GATE_APPROVED,
     GATE_REJECTED,
     GATE_ESCALATED,

@@ -1,0 +1,28 @@
+{
+  "request": {
+    "body": null,
+    "path": "/company",
+    "query": {}
+  },
+  "response": {
+    "bundle_revision": "9f2c41d0",
+    "company": "hello-saas",
+    "generation": 2,
+    "limits": {
+      "daily_cap_usd": 20.0,
+      "gate_deadline_minutes": {
+        "budget": 60,
+        "merge": 1440
+      },
+      "max_concurrent_runs": 1,
+      "per_run_usd": 5.0,
+      "spent_today_usd": 0.0042
+    },
+    "message": "",
+    "observed_generation": 2,
+    "paused": null,
+    "phase": "converged"
+  },
+  "route": "GET /company",
+  "status": 200
+}

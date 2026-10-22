@@ -11,6 +11,21 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- The console's HTTP surface is one typed interface, `common.console`: a
+  request and a response model per route, closed sets for every state,
+  status and outcome, refusals as `Problem` or `PolicyRefusal`. Its
+  OpenAPI snapshot and golden examples are committed and checked in CI,
+  and `scripts/console_interface.py --breaking` says whether a change
+  breaks clients. The CLI parses every answer into its model. New reads:
+  parked runs with their deadlines, a run's crew, the standing agents,
+  the tickets filed, the company's limits and bounds, the applied
+  blueprint's text (`poseidon blueprint show`), the two documents
+  through the MCP gateway, and what a human may do now (`GET /acts`,
+  `poseidon acts`). *Changed:* request bodies say `rationale`, not
+  `reason`; `companies.blueprint` is `compiled_spec`; a gate's park is
+  recorded as `gate_parked`; a second start of a ticket or pull request
+  a live run holds is refused (#85)
+
 ## [0.2.1+2026.10.22] - 2026-10-22
 
 - The docs are rewritten for readers: a free Quickstart with real

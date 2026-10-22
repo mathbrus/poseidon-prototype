@@ -1,0 +1,75 @@
+{
+  "request": {
+    "body": null,
+    "path": "/runs/run-01REVIEW/acts",
+    "query": {}
+  },
+  "response": {
+    "acts": [
+      {
+        "act": "run.cancel",
+        "allowed": true,
+        "args": {
+          "run_id": "run-01REVIEW"
+        },
+        "rationale_required": true,
+        "refusal": null
+      },
+      {
+        "act": "gate.resolve",
+        "allowed": false,
+        "args": {
+          "approved": true,
+          "gate": "budget",
+          "run_id": "run-01REVIEW"
+        },
+        "rationale_required": true,
+        "refusal": {
+          "detail": "run 'run-01REVIEW' is not parked on its budget gate (state 'parked-merge_gate')",
+          "kind": "state",
+          "rule": null
+        }
+      },
+      {
+        "act": "gate.resolve",
+        "allowed": false,
+        "args": {
+          "approved": false,
+          "gate": "budget",
+          "run_id": "run-01REVIEW"
+        },
+        "rationale_required": true,
+        "refusal": {
+          "detail": "run 'run-01REVIEW' is not parked on its budget gate (state 'parked-merge_gate')",
+          "kind": "state",
+          "rule": null
+        }
+      },
+      {
+        "act": "gate.resolve",
+        "allowed": true,
+        "args": {
+          "approved": true,
+          "gate": "merge",
+          "run_id": "run-01REVIEW"
+        },
+        "rationale_required": true,
+        "refusal": null
+      },
+      {
+        "act": "gate.resolve",
+        "allowed": true,
+        "args": {
+          "approved": false,
+          "gate": "merge",
+          "run_id": "run-01REVIEW"
+        },
+        "rationale_required": true,
+        "refusal": null
+      }
+    ],
+    "run_id": "run-01REVIEW"
+  },
+  "route": "GET /runs/{run_id}/acts",
+  "status": 200
+}

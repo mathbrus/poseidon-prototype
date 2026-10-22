@@ -14,15 +14,45 @@ What must hold:
 """
 
 import asyncio
-from pathlib import Path
-from typing import Any
+import hashlib
 
 import httpx
 import pytest
 import yaml
 
-from common.audit import HEARTBEAT_TICK, AuditEvent
-from common.authn import Principal
+from blueprint.bounds import render_bounds
+from common.audit import HEARTBEAT_TICK, AuditEvent, gate_event
+from common.console import (
+    AgentList,
+    ApplyResult,
+    BlueprintView,
+    BoundsView,
+    CompanyDeleted,
+    CompanyView,
+    CrewView,
+    DocumentView,
+    EventsPage,
+    ExecutionView,
+    Health,
+    HeartbeatView,
+    LimitsView,
+    Now,
+    PauseState,
+    PolicyRefusal,
+    PreviewResult,
+    Problem,
+    RunCancelled,
+    RunDetail,
+    RunList,
+    RunSpendView,
+    RunStarted,
+    SpendView,
+    StoryView,
+    TicketList,
+    VerdictRecorded,
+    WhoAmI,
+    Woken,
+)
 from common.opa import NO_POLICY
 from common.policy import (
     BLUEPRINT_APPLY,
@@ -34,169 +64,36 @@ from common.policy import (
     RUN_CANCEL,
     RUN_START,
 )
-from common.topology import PLATFORM_NAMESPACE
-from compiler import DeploymentPlan
-from console import service as service_module
-from console.app import create_app
+from common.text import UNTRUSTED_CLIP, clip_head
+from common.topology import BLUEPRINT_LIMIT_BYTES, PLATFORM_NAMESPACE
+from common.workflows import GATE_PARKED, gate_rule
+from console import fakes
 from console.config import ConsoleSettings
-from console.temporal import WorkflowNotFound
-from registry.memory import (
-    InMemoryAgentInstances,
-    InMemoryAuditStore,
-    InMemoryBudgetLedger,
-    InMemoryCompanies,
-    InMemoryRuns,
-)
+from console.fakes import COMPANY, World, applied_spec, as_owner, company_cr
 
 pytestmark = pytest.mark.anyio
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-HELLO_SAAS = (REPO_ROOT / "examples" / "hello-saas.yaml").read_text()
+HELLO_SAAS = fakes.HELLO_SAAS.read_text()
 PLATFORM_NS = PLATFORM_NAMESPACE
-COMPANY = "hello-saas"
 RUN_ID = "run-01CONSOLE"
 
 
-@pytest.fixture
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-class FakeReviewer:
-    async def review(self, token: str, audience: str) -> Principal | None:
-        if audience != "poseidon-console":
-            return None
-        return {
-            "t-owner": Principal.of(f"system:serviceaccount:{PLATFORM_NS}:human-owner"),
-            "t-stranger": Principal.of(f"system:serviceaccount:{PLATFORM_NS}:human-x"),
-            "t-agent": Principal.of(f"system:serviceaccount:{COMPANY}:pm-1"),
-        }.get(token)
-
-
-class FakeWorkflows:
-    """Records what the console asked Temporal for, in order."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, Any]] = []
-        self.running: dict[str, str] = {}
-
-    async def start(self, workflow: str, key: str, payload: dict[str, Any]) -> str:
-        wf_id = f"{workflow}-{key}"
-        self.calls.append(("start", (workflow, key, payload)))
-        self.running[wf_id] = "running"
-        return wf_id
-
-    async def signal(self, wf_id: str, name: str, args: list[Any]) -> None:
-        if wf_id not in self.running:
-            raise WorkflowNotFound(wf_id)
-        self.calls.append(("signal", (wf_id, name, args)))
-
-    async def cancel(self, wf_id: str) -> None:
-        if wf_id not in self.running:
-            raise WorkflowNotFound(wf_id)
-        self.calls.append(("cancel", wf_id))
-
-    async def inspect(self, wf_id: str) -> dict[str, Any]:
-        if wf_id not in self.running:
-            raise WorkflowNotFound(wf_id)
-        return {"workflow_id": wf_id, "status": "RUNNING", "state": self.running[wf_id]}
-
-
-class World:
-    def __init__(self) -> None:
-        self.audit = InMemoryAuditStore()
-        self.runs = InMemoryRuns()
-        self.ledger = InMemoryBudgetLedger()
-        self.instances = InMemoryAgentInstances()
-        # The reconciler's record of the applied company; the console reads
-        # which company it hosts from here.
-        self.companies = InMemoryCompanies()
-        self.companies.upsert(COMPANY, {"namespace": "poseidon-company"})
-        self.workflows = FakeWorkflows()
-        self.submitted: list[DeploymentPlan] = []
-        self.deleted: list[str] = []
-        self.waited: list[bool] = []
-        self.cr: dict[str, Any] | None = None
-        # What OPA answers, per tool; the default is the rule the compiled
-        # bundle would name for the owner.
-        self.decisions: dict[str, dict[str, Any]] = {}
-        self.asked: list[dict[str, Any]] = []
-
-    def submit(self, plan: DeploymentPlan) -> tuple[int, int, int]:
-        self.submitted.append(plan)
-        # What the CR says afterwards: the generation this apply made,
-        # still activating until the fake reconciler is told otherwise.
-        self.cr = {
-            "company": plan.company.name,
-            "namespace": plan.company.namespace,
-            "generation": len(self.submitted),
-            "phase": "activating",
-            "observedGeneration": 0,
-            "bundleRevision": "",
-            "message": "",
-        }
-        return (1, 0, len(self.submitted))
-
-    def read_company(self) -> dict[str, Any] | None:
-        return self.cr
-
-    def delete(self, company: str, wait: bool = True) -> None:
-        self.deleted.append(company)
-        self.waited.append(wait)
-        self.companies.delete(company)
-
-    async def evaluate(self, opa_url: str, company: str, decision_input: dict) -> dict:
-        self.asked.append(decision_input)
-        tool = decision_input["tool"]
-        if tool in self.decisions:
-            return dict(self.decisions[tool])
-        args = decision_input["args"]
-        if tool == GATE_RESOLVE:
-            verdict = "approve" if args["approved"] else "reject"
-            return {"allow": True, "rule": f"gate_resolve_{args['gate']}_{verdict}"}
-        return {"allow": True, "rule": tool.replace(".", "_")}
-
-    @property
-    def events(self) -> list[tuple[str, str, str]]:
-        return [(e.tool, e.decision, e.rule or "") for e in self.audit.events]
+def model(cls, response: httpx.Response):
+    """The response, parsed as the interface model the route declares."""
+    assert response.status_code == 200, response.text
+    return cls.model_validate(response.json())
 
 
 @pytest.fixture
 def world(monkeypatch) -> World:
     w = World()
-    monkeypatch.setattr(service_module, "evaluate_decision", w.evaluate)
+    w.patch(monkeypatch.setattr)
     return w
 
 
 @pytest.fixture
 def client(world: World) -> httpx.AsyncClient:
-    settings = ConsoleSettings(
-        platform_namespace=PLATFORM_NS,
-        opa_url="http://opa.test:8181",
-        temporal_address="temporal.test:7233",
-        console_humans="owner",
-    )
-    app = create_app(
-        settings,
-        audit=world.audit,
-        runs=world.runs,
-        ledger=world.ledger,
-        instances=world.instances,
-        companies=world.companies,
-        token_reviewer=FakeReviewer(),
-        workflows=world.workflows,
-        submit_crs=world.submit,
-        delete_company=world.delete,
-        read_company=world.read_company,
-        clock=lambda: "2026-01-01T00:00:00+00:00",
-    )
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://console.test"
-    )
-
-
-def as_owner() -> dict[str, str]:
-    return {"Authorization": "Bearer t-owner"}
+    return world.client()
 
 
 def a_review_run(world: World) -> None:
@@ -217,12 +114,11 @@ async def test_the_health_probe_names_the_running_version(client, monkeypatch):
     """The images are stamped with the version at build time; the console
     is where a person reads which one the cluster runs."""
     monkeypatch.setenv("POSEIDON_VERSION", "v0.1.0+2026.10.21")
-    assert (await client.get("/healthz")).json() == {
-        "ok": True,
-        "version": "v0.1.0+2026.10.21",
-    }
+    assert model(Health, await client.get("/healthz")) == Health(
+        ok=True, version="v0.1.0+2026.10.21"
+    )
     monkeypatch.delenv("POSEIDON_VERSION")
-    assert (await client.get("/healthz")).json()["version"] == "unreleased"
+    assert model(Health, await client.get("/healthz")).version == "unreleased"
 
 
 async def test_a_rejected_token_is_audited_with_its_principal(client, world):
@@ -237,7 +133,9 @@ async def test_a_rejected_token_is_audited_with_its_principal(client, world):
 
 async def test_whoami_names_the_human_and_the_company(client):
     response = await client.get("/whoami", headers=as_owner())
-    assert response.json() == {"human": "owner", "lifecycle": "human", "company": COMPANY}
+    assert model(WhoAmI, response) == WhoAmI(
+        human="owner", lifecycle="human", company=COMPANY
+    )
 
 
 # -- a verdict: recorded, then delivered --------------------------------------
@@ -247,11 +145,12 @@ async def test_a_verdict_is_recorded_under_the_humans_name_then_delivered(client
     a_review_run(world)
     response = await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "reason": "reviewed: findings are clean"},
+        json={"approved": True, "rationale": "reviewed: findings are clean"},
         headers=as_owner(),
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["principal"] == "owner"
+    recorded = model(VerdictRecorded, response)
+    assert (recorded.human, recorded.gate, recorded.approved) == ("owner", "merge", True)
+    assert recorded.rule == "gate_resolve_merge_approve"
     # The row first, under the rule the workflow reads it back by and with
     # the person's reason as its rationale, then the signal — the verdict
     # alone, the row being the record — and the registry's read agrees.
@@ -277,11 +176,11 @@ async def test_a_denied_verdict_is_a_403_that_signals_nothing(client, world):
     world.decisions[GATE_RESOLVE] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "reason": "looks fine"},
+        json={"approved": True, "rationale": "looks fine"},
         headers=as_owner(),
     )
     assert response.status_code == 403
-    assert response.json()["rule"] == "human_not_recognized"
+    assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
     assert world.events == [(GATE_RESOLVE, "deny", "human_not_recognized")]
     assert world.workflows.calls == []
     assert world.audit.latest_human_verdict(RUN_ID, "merge") is None
@@ -292,7 +191,7 @@ async def test_a_rejection_is_recorded_as_one(client, world):
     world.workflows.running[f"review-{RUN_ID}"] = "parked-budget_exhausted"
     response = await client.post(
         f"/runs/{RUN_ID}/gates/budget",
-        json={"approved": False, "reason": "not worth more spend"},
+        json={"approved": False, "rationale": "not worth more spend"},
         headers=as_owner(),
     )
     assert response.status_code == 200
@@ -304,25 +203,29 @@ async def test_a_rejection_is_recorded_as_one(client, world):
     assert world.audit.events[0].rationale == "not worth more spend"
 
 
-async def test_an_act_without_a_reason_is_refused_before_anything_happens(client, world):
-    """A person's reason is part of the act: a verdict, a cancel, a
+async def test_an_act_without_a_rationale_is_refused_before_anything_happens(
+    client, world
+):
+    """A person's rationale is part of the act: a verdict, a cancel, a
     delete, a pause and a resume without one are 422s that ask no policy,
     record nothing and signal nothing."""
     a_review_run(world)
     attempts = (
         ("POST", f"/runs/{RUN_ID}/gates/merge", {"approved": True}),
-        ("POST", f"/runs/{RUN_ID}/gates/merge", {"approved": True, "reason": ""}),
+        ("POST", f"/runs/{RUN_ID}/gates/merge", {"approved": True, "rationale": ""}),
         ("POST", f"/runs/{RUN_ID}/cancel", None),
-        ("POST", f"/runs/{RUN_ID}/cancel", {"reason": ""}),
+        ("POST", f"/runs/{RUN_ID}/cancel", {"rationale": ""}),
         ("DELETE", "/company", None),
-        ("DELETE", "/company", {"reason": "x" * 1001}),
+        ("DELETE", "/company", {"rationale": "x" * 1001}),
         ("POST", "/heartbeat/pause", None),
-        ("POST", "/heartbeat/pause", {"reason": ""}),
+        ("POST", "/heartbeat/pause", {"rationale": ""}),
         ("POST", "/heartbeat/resume", None),
     )
     for method, path, body in attempts:
         response = await client.request(method, path, json=body, headers=as_owner())
         assert response.status_code == 422, (method, path, body, response.text)
+        detail = Problem.model_validate(response.json()).detail
+        assert "rationale" in detail or detail == "body: Field required", detail
     assert world.audit.events == [] and world.workflows.calls == []
 
 
@@ -344,10 +247,11 @@ async def test_a_verdict_answers_only_a_question_that_was_asked(client, world):
     for run_id, gate in refusals:
         response = await client.post(
             f"/runs/{run_id}/gates/{gate}",
-            json={"approved": True, "reason": "yes"},
+            json={"approved": True, "rationale": "yes"},
             headers=as_owner(),
         )
         assert response.status_code == 422, (run_id, gate, response.text)
+        Problem.model_validate(response.json())
     assert world.audit.events == []
     assert world.workflows.calls == []
 
@@ -359,9 +263,10 @@ async def test_starting_a_run_is_decided_then_started(client, world):
     response = await client.post(
         "/runs", json={"workflow": "implement", "number": 42}, headers=as_owner()
     )
-    assert response.status_code == 200, response.text
-    run_id = response.json()["run_id"]
-    assert response.json()["workflow_id"] == f"implement-{run_id}"
+    started = model(RunStarted, response)
+    run_id = started.run_id
+    assert started.workflow_id == f"implement-{run_id}"
+    assert started.rule == "run_start"
     assert world.asked[0]["tool"] == RUN_START
     assert world.asked[0]["args"] == {"workflow": "implement", "number": 42}
     assert world.asked[0]["lifecycle"] == "human"
@@ -369,6 +274,30 @@ async def test_starting_a_run_is_decided_then_started(client, world):
         ("start", ("implement", run_id, {"run_id": run_id, "issue_number": 42}))
     ]
     assert world.events == [(RUN_START, "allow", "run_start")]
+
+
+async def test_a_second_start_of_a_held_item_is_refused_before_policy(client, world):
+    """One live run per work item: starting a ticket a live implement run
+    holds (or a pull request a live review holds) is a 422 that asks no
+    policy and starts nothing; once that run ends, the item may start
+    again."""
+    world.runs.start("run-live", "implement issue #42", "implement", None, COMPANY)
+    world.runs.start("run-rev", "review pull request #7", "review", None, COMPANY)
+    for workflow, number, item in (
+        ("implement", 42, "ticket #42"),
+        ("review", 7, "pull request #7"),
+    ):
+        response = await client.post(
+            "/runs", json={"workflow": workflow, "number": number}, headers=as_owner()
+        )
+        assert response.status_code == 422, response.text
+        assert item in Problem.model_validate(response.json()).detail
+    assert world.asked == [] and world.workflows.calls == []
+    world.runs.finish("run-live", "failed", error="aborted")
+    again = await client.post(
+        "/runs", json={"workflow": "implement", "number": 42}, headers=as_owner()
+    )
+    assert model(RunStarted, again).workflow == "implement"
 
 
 async def test_only_the_human_startable_workflows_can_be_started(client, world):
@@ -383,10 +312,13 @@ async def test_cancel_and_wake_are_decided_acts(client, world):
     a_review_run(world)
     world.workflows.running[f"heartbeat-{COMPANY}"] = "sleeping"
     cancelled = await client.post(
-        f"/runs/{RUN_ID}/cancel", json={"reason": "enough"}, headers=as_owner()
+        f"/runs/{RUN_ID}/cancel", json={"rationale": "enough"}, headers=as_owner()
     )
     woken = await client.post("/heartbeat/wake", headers=as_owner())
-    assert cancelled.status_code == woken.status_code == 200
+    assert model(RunCancelled, cancelled).workflow_id == f"review-{RUN_ID}"
+    assert model(Woken, woken) == Woken(
+        company=COMPANY, workflow_id=f"heartbeat-{COMPANY}", rule="heartbeat_wake"
+    )
     assert world.workflows.calls == [
         ("cancel", f"review-{RUN_ID}"),
         ("signal", (f"heartbeat-{COMPANY}", "wake", [])),
@@ -403,12 +335,11 @@ async def test_pause_is_recorded_before_the_loop_hears_and_resume_mirrors_it(
     heartbeat's story with the reason, the registry fact every tick reads,
     then one wake. `GET /company` shows who holds it; resume clears it."""
     world.workflows.running[f"heartbeat-{COMPANY}"] = "sleeping"
-    world.cr = {"company": COMPANY, "namespace": "poseidon-company", "phase": "converged"}
+    world.cr = company_cr(COMPANY, phase="converged")
     paused = await client.post(
-        "/heartbeat/pause", json={"reason": "reading the ledger"}, headers=as_owner()
+        "/heartbeat/pause", json={"rationale": "reading the ledger"}, headers=as_owner()
     )
-    assert paused.status_code == 200, paused.text
-    assert paused.json()["paused"]["by"] == "owner"
+    assert model(PauseState, paused).paused.by == "owner"
     assert world.companies.paused(COMPANY)["by"] == "owner"
     assert world.workflows.calls == [("signal", (f"heartbeat-{COMPANY}", "wake", []))]
     assert world.events == [(HEARTBEAT_PAUSE, "allow", "heartbeat_pause")]
@@ -416,18 +347,20 @@ async def test_pause_is_recorded_before_the_loop_hears_and_resume_mirrors_it(
     assert row.rationale == "reading the ledger"
     assert row.run_id == f"heartbeat-{COMPANY}" and row.agent_id == "owner"
     shown = await client.get("/company", headers=as_owner())
-    assert shown.json()["paused"]["by"] == "owner"
+    assert model(CompanyView, shown).paused.by == "owner"
 
     resumed = await client.post(
-        "/heartbeat/resume", json={"reason": "read it"}, headers=as_owner()
+        "/heartbeat/resume", json={"rationale": "read it"}, headers=as_owner()
     )
-    assert resumed.status_code == 200, resumed.text
-    assert resumed.json()["paused"] is None
+    assert model(PauseState, resumed).paused is None
     assert world.companies.paused(COMPANY) is None
     assert world.workflows.calls[-1] == ("signal", (f"heartbeat-{COMPANY}", "wake", []))
     assert world.events[-1] == (HEARTBEAT_RESUME, "allow", "heartbeat_resume")
     assert world.audit.events[-1].rationale == "read it"
-    assert (await client.get("/company", headers=as_owner())).json()["paused"] is None
+    assert (
+        model(CompanyView, await client.get("/company", headers=as_owner())).paused
+        is None
+    )
 
 
 async def test_a_pause_nobody_asked_for_is_refused_before_policy(client, world):
@@ -435,12 +368,12 @@ async def test_a_pause_nobody_asked_for_is_refused_before_policy(client, world):
     no policy asked, no row, no signal — the verdict-on-no-gate idiom."""
     world.workflows.running[f"heartbeat-{COMPANY}"] = "sleeping"
     resumed = await client.post(
-        "/heartbeat/resume", json={"reason": "go"}, headers=as_owner()
+        "/heartbeat/resume", json={"rationale": "go"}, headers=as_owner()
     )
     assert resumed.status_code == 422
-    await client.post("/heartbeat/pause", json={"reason": "hold"}, headers=as_owner())
+    await client.post("/heartbeat/pause", json={"rationale": "hold"}, headers=as_owner())
     again = await client.post(
-        "/heartbeat/pause", json={"reason": "hold again"}, headers=as_owner()
+        "/heartbeat/pause", json={"rationale": "hold again"}, headers=as_owner()
     )
     assert again.status_code == 422
     assert [e[0] for e in world.events] == [HEARTBEAT_PAUSE]
@@ -452,9 +385,11 @@ async def test_a_pause_holds_a_loop_the_worker_has_not_started_yet(client, world
     pause is still written, and the loop reads it when the worker starts
     it."""
     paused = await client.post(
-        "/heartbeat/pause", json={"reason": "before the first tick"}, headers=as_owner()
+        "/heartbeat/pause",
+        json={"rationale": "before the first tick"},
+        headers=as_owner(),
     )
-    assert paused.status_code == 200, paused.text
+    assert model(PauseState, paused).paused.by == "owner"
     assert world.companies.paused(COMPANY)["by"] == "owner"
     assert world.workflows.calls == []
 
@@ -462,10 +397,10 @@ async def test_a_pause_holds_a_loop_the_worker_has_not_started_yet(client, world
 async def test_a_stranger_cannot_pause_the_company(client, world):
     world.decisions[HEARTBEAT_PAUSE] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.post(
-        "/heartbeat/pause", json={"reason": "mine now"}, headers=as_owner()
+        "/heartbeat/pause", json={"rationale": "mine now"}, headers=as_owner()
     )
     assert response.status_code == 403
-    assert response.json()["rule"] == "human_not_recognized"
+    assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
     assert world.companies.paused(COMPANY) is None and world.workflows.calls == []
     assert world.events == [(HEARTBEAT_PAUSE, "deny", "human_not_recognized")]
 
@@ -478,9 +413,9 @@ async def test_the_first_apply_is_the_bootstrap_rule(client, world):
     response = await client.post(
         "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["rule"] == "blueprint_apply_bootstrap"
-    assert response.json()["created"] == 1
+    applied = model(ApplyResult, response)
+    assert applied.rule == "blueprint_apply_bootstrap"
+    assert applied.created == 1
     assert [p.company.name for p in world.submitted] == [COMPANY]
     assert world.events == [(BLUEPRINT_APPLY, "allow", "blueprint_apply_bootstrap")]
 
@@ -489,8 +424,7 @@ async def test_a_later_apply_is_policys(client, world):
     response = await client.post(
         "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )
-    assert response.status_code == 200
-    assert response.json()["rule"] == "blueprint_apply"
+    assert model(ApplyResult, response).rule == "blueprint_apply"
     world.decisions[BLUEPRINT_APPLY] = {"allow": False, "rule": "human_not_recognized"}
     denied = await client.post(
         "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
@@ -507,11 +441,12 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     then the Company CR deleted and the teardown waited for."""
     a_review_run(world)
     response = await client.request(
-        "DELETE", "/company", json={"reason": "wrong vision"}, headers=as_owner()
+        "DELETE", "/company", json={"rationale": "wrong vision"}, headers=as_owner()
     )
-    assert response.status_code == 200, response.text
-    assert response.json()["company"] == COMPANY
-    assert response.json()["runs_cancelled"] == [RUN_ID]
+    deleted = model(CompanyDeleted, response)
+    assert deleted.company == COMPANY
+    assert deleted.runs_cancelled == [RUN_ID]
+    assert deleted.rule == "company_delete"
     assert world.deleted == [COMPANY]
     assert world.workflows.calls == [("cancel", f"review-{RUN_ID}")]
     # The delete is recorded before anything is cancelled, and the cancel
@@ -528,7 +463,7 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     # Nothing is left to act on.
     assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
     again = await client.request(
-        "DELETE", "/company", json={"reason": "again"}, headers=as_owner()
+        "DELETE", "/company", json={"rationale": "again"}, headers=as_owner()
     )
     assert again.status_code == 404
 
@@ -541,22 +476,27 @@ async def test_the_company_read_is_the_crs_phase(client, world):
     applied = await client.post(
         "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )
-    assert applied.status_code == 200 and applied.json()["generation"] == 1
-    state = (await client.get("/company", headers=as_owner())).json()
-    assert state["company"] == COMPANY and state["phase"] == "activating"
-    assert state["generation"] == 1 and state["observedGeneration"] == 0
-    world.cr.update(phase="converged", observedGeneration=1, bundleRevision="r1")
-    state = (await client.get("/company", headers=as_owner())).json()
-    assert state["phase"] == "converged" and state["bundleRevision"] == "r1"
+    assert model(ApplyResult, applied).generation == 1
+    state = model(CompanyView, await client.get("/company", headers=as_owner()))
+    assert state.company == COMPANY and state.phase == "activating"
+    assert state.generation == 1 and state.observed_generation == 0
+    world.cr["status"].update(
+        phase="converged", observedGeneration=1, bundleRevision="r1"
+    )
+    state = model(CompanyView, await client.get("/company", headers=as_owner()))
+    assert state.phase == "converged" and state.bundle_revision == "r1"
 
 
 async def test_a_delete_may_decline_to_wait_for_the_teardown(client, world):
     """`wait: false` is the CLI's `--no-wait`: the act and the teardown
     are the same, only the answer comes before the namespace is gone."""
     response = await client.request(
-        "DELETE", "/company", json={"reason": "quick", "wait": False}, headers=as_owner()
+        "DELETE",
+        "/company",
+        json={"rationale": "quick", "wait": False},
+        headers=as_owner(),
     )
-    assert response.status_code == 200, response.text
+    model(CompanyDeleted, response)
     assert world.deleted == [COMPANY] and world.waited == [False]
 
 
@@ -564,12 +504,55 @@ async def test_a_stranger_cannot_delete_the_company(client, world):
     a_review_run(world)
     world.decisions[COMPANY_DELETE] = {"allow": False, "rule": "human_not_recognized"}
     response = await client.request(
-        "DELETE", "/company", json={"reason": "mine now"}, headers=as_owner()
+        "DELETE", "/company", json={"rationale": "mine now"}, headers=as_owner()
     )
     assert response.status_code == 403
-    assert response.json()["rule"] == "human_not_recognized"
+    assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
     assert world.deleted == [] and world.workflows.calls == []
     assert world.events == [(COMPANY_DELETE, "deny", "human_not_recognized")]
+
+
+async def test_the_applied_blueprint_reads_back_byte_for_byte(client, world):
+    """The CR keeps the text a human applied — comments, ordering and all
+    — with who applied it and when; the generation and phase say whether
+    policy enforces it yet."""
+    assert (await client.get("/blueprint", headers=as_owner())).status_code == 404
+    text = "# the owner's own words\n" + HELLO_SAAS
+    applied = await client.post(
+        "/blueprint/apply", json={"blueprint": text}, headers=as_owner()
+    )
+    assert model(ApplyResult, applied).generation == 1
+    shown = model(BlueprintView, await client.get("/blueprint", headers=as_owner()))
+    assert shown.text == text
+    assert shown.sha256 == hashlib.sha256(text.encode()).hexdigest()
+    assert (shown.applied_by, shown.applied_at.isoformat()) == ("owner", world.now)
+    assert (shown.generation, shown.observed_generation, shown.phase) == (
+        1,
+        0,
+        "activating",
+    )
+    world.cr["status"].update(phase="converged", observedGeneration=1)
+    shown = model(BlueprintView, await client.get("/blueprint", headers=as_owner()))
+    assert shown.phase == "converged"
+
+
+async def test_a_blueprint_over_the_limit_is_refused(client, world):
+    """The CR keeps the text, so the text is bounded: a longer one is a 422
+    before anything is compiled, decided or written — counted in bytes,
+    so text in any script is held to the same limit."""
+    padding = "#" + "x" * BLUEPRINT_LIMIT_BYTES + "\n"
+    long = await client.post(
+        "/blueprint/apply", json={"blueprint": padding + HELLO_SAAS}, headers=as_owner()
+    )
+    assert long.status_code == 422, long.text
+    wide = "# " + "é" * (BLUEPRINT_LIMIT_BYTES // 2) + "\n" + HELLO_SAAS
+    assert len(wide) <= BLUEPRINT_LIMIT_BYTES < len(wide.encode())
+    refused = await client.post(
+        "/blueprint/apply", json={"blueprint": wide}, headers=as_owner()
+    )
+    assert refused.status_code == 422, refused.text
+    assert "bytes" in Problem.model_validate(refused.json()).detail
+    assert world.submitted == [] and world.audit.events == []
 
 
 async def test_another_companys_blueprint_is_refused_while_one_is_applied(client, world):
@@ -581,9 +564,8 @@ async def test_another_companys_blueprint_is_refused_while_one_is_applied(client
         headers=as_owner(),
     )
     assert response.status_code == 422
-    assert (
-        "other-co" in response.json()["detail"] and COMPANY in response.json()["detail"]
-    )
+    detail = Problem.model_validate(response.json()).detail
+    assert "other-co" in detail and COMPANY in detail
     assert world.submitted == [] and world.audit.events == []
 
 
@@ -610,10 +592,11 @@ async def test_before_the_first_apply_any_name_applies_and_nothing_else_answers(
     say so, `whoami` names none, and the first apply may bring any name."""
     world.companies.delete(COMPANY)
     who = await client.get("/whoami", headers=as_owner())
-    assert who.json()["company"] is None
+    assert model(WhoAmI, who).company is None
     for method, path in (("GET", "/heartbeat"), ("GET", "/spend"), ("GET", "/runs")):
         response = await client.request(method, path, headers=as_owner())
         assert response.status_code == 404, (path, response.text)
+        Problem.model_validate(response.json())
     wake = await client.post("/heartbeat/wake", headers=as_owner())
     assert wake.status_code == 404 and world.audit.events == []
     document = yaml.safe_load(HELLO_SAAS)
@@ -623,8 +606,7 @@ async def test_before_the_first_apply_any_name_applies_and_nothing_else_answers(
         json={"blueprint": yaml.safe_dump(document)},
         headers=as_owner(),
     )
-    assert applied.status_code == 200, applied.text
-    assert applied.json()["company"] == "other-co"
+    assert model(ApplyResult, applied).company == "other-co"
     assert [e.company for e in world.audit.events] == ["other-co"]
 
 
@@ -634,15 +616,14 @@ async def test_preview_compiles_against_the_live_registry_and_writes_nothing(
     fresh = await client.post(
         "/blueprint/preview", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )
-    assert fresh.status_code == 200, fresh.text
-    assert fresh.json()["plan"]["humans"] == ["owner"]
-    assert "pm" in fresh.json()["diff"]
+    assert model(PreviewResult, fresh).company == COMPANY
+    assert "pm" in model(PreviewResult, fresh).diff
     # Once the registry knows the hire, the same document changes nothing.
     world.instances.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY)
     applied = await client.post(
         "/blueprint/preview", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )
-    assert "no changes" in applied.json()["diff"]
+    assert "no changes" in model(PreviewResult, applied).diff
     assert world.submitted == [] and world.audit.events == []
 
 
@@ -651,7 +632,7 @@ async def test_an_invalid_blueprint_says_what_is_wrong(client, world):
         "/blueprint/preview", json={"blueprint": "company: {name: x}"}, headers=as_owner()
     )
     assert response.status_code == 422
-    assert "required" in response.json()["detail"]
+    assert "required" in Problem.model_validate(response.json()).detail
 
 
 # -- the reads ---------------------------------------------------------------
@@ -675,22 +656,23 @@ async def test_the_reads_need_a_human_and_touch_nothing(client, world):
     for path in (f"/runs/{RUN_ID}", "/runs", "/spend", "/heartbeat", "/now"):
         assert (await client.get(path)).status_code == 401, path
 
-    run = (await client.get(f"/runs/{RUN_ID}", headers=as_owner())).json()
-    assert run["execution"] == {
-        "workflow_id": f"review-{RUN_ID}",
-        "status": "RUNNING",
-        "state": "parked-merge_gate",
-    }
-    runs = (await client.get("/runs", headers=as_owner())).json()
-    assert [r["run_id"] for r in runs] == [RUN_ID]
-    spend = (await client.get(f"/runs/{RUN_ID}/spend", headers=as_owner())).json()
-    assert spend["usd"] == 0.25 and len(spend["entries"]) == 1
-    total = (await client.get("/spend", headers=as_owner())).json()
-    assert total == {"usd": 0.25, "prompt_tokens": 10, "completion_tokens": 5}
-    now = (await client.get("/now", headers=as_owner())).json()
-    assert now == {"now": "2026-01-01T00:00:00+00:00"}
-    heartbeat = (await client.get("/heartbeat", headers=as_owner())).json()
-    assert heartbeat["execution"]["status"] == "NOT_FOUND" and heartbeat["ticks"] == []
+    run = model(RunDetail, await client.get(f"/runs/{RUN_ID}", headers=as_owner()))
+    assert run.execution == ExecutionView(
+        workflow_id=f"review-{RUN_ID}", status="RUNNING", state="parked-merge_gate"
+    )
+    assert (run.workflow, run.status, run.task) == ("review", "running", "Review PR #41")
+    runs = model(RunList, await client.get("/runs", headers=as_owner()))
+    assert [r.run_id for r in runs.runs] == [RUN_ID]
+    spend = model(
+        RunSpendView, await client.get(f"/runs/{RUN_ID}/spend", headers=as_owner())
+    )
+    assert spend.usd == 0.25 and [e.model for e in spend.entries] == ["mock"]
+    total = model(SpendView, await client.get("/spend", headers=as_owner()))
+    assert total == SpendView(usd=0.25, prompt_tokens=10, completion_tokens=5)
+    now = model(Now, await client.get("/now", headers=as_owner()))
+    assert now.now.isoformat() == "2026-01-01T00:00:00+00:00"
+    heartbeat = model(HeartbeatView, await client.get("/heartbeat", headers=as_owner()))
+    assert heartbeat.execution.status == "NOT_FOUND" and heartbeat.ticks == []
     assert world.workflows.calls == [] and world.audit.events == []
 
 
@@ -734,16 +716,19 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
     )
     assert (await client.get("/events")).status_code == 401
 
-    page = (await client.get("/events", headers=as_owner())).json()
-    assert [e["id"] for e in page["events"]] == [1, 2, 3]
-    assert page["next"] == 3 and page["spend"] == {"usd": 0.25}
-    later = (await client.get("/events?after=2", headers=as_owner())).json()
-    assert [e["tool"] for e in later["events"]] == ["git.open_pr"] and later["next"] == 3
-    nothing = (await client.get("/events?after=3", headers=as_owner())).json()
-    assert nothing["events"] == [] and nothing["next"] == 3
-    one_run = (await client.get(f"/events?run={RUN_ID}", headers=as_owner())).json()
-    assert [e["id"] for e in one_run["events"]] == [2]
-    assert one_run["spend"] == {"usd": 0.25, "run_usd": 0.25}
+    async def page(query: str = "") -> EventsPage:
+        return model(EventsPage, await client.get(f"/events{query}", headers=as_owner()))
+
+    first = await page()
+    assert [e.id for e in first.events] == [1, 2, 3]
+    assert first.next == 3 and (first.spend.usd, first.spend.run_usd) == (0.25, None)
+    later = await page("?after=2")
+    assert [e.tool for e in later.events] == ["git.open_pr"] and later.next == 3
+    nothing = await page("?after=3")
+    assert nothing.events == [] and nothing.next == 3
+    one_run = await page(f"?run={RUN_ID}")
+    assert [e.id for e in one_run.events] == [2]
+    assert (one_run.spend.usd, one_run.spend.run_usd) == (0.25, 0.25)
     assert world.audit.events[-1].tool == "git.open_pr"  # a read: nothing appended
 
     world.companies.delete(COMPANY)
@@ -772,15 +757,18 @@ async def test_a_decisions_story_is_the_rows_with_a_rationale(client, world):
     )
     await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "reason": "clean findings"},
+        json={"approved": True, "rationale": "clean findings"},
         headers=as_owner(),
     )
-    everything = (await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())).json()
-    decisions = (
-        await client.get(f"/runs/{RUN_ID}/story?decisions=true", headers=as_owner())
-    ).json()
-    assert [e["tool"] for e in everything] == ["git.read", GATE_RESOLVE]
-    assert [(e["tool"], e["rationale"]) for e in decisions] == [
+    everything = model(
+        StoryView, await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())
+    )
+    decisions = model(
+        StoryView,
+        await client.get(f"/runs/{RUN_ID}/story?decisions=true", headers=as_owner()),
+    )
+    assert [e.tool for e in everything.events] == ["git.read", GATE_RESOLVE]
+    assert [(e.tool, e.rationale) for e in decisions.events] == [
         (GATE_RESOLVE, "clean findings")
     ]
 
@@ -789,45 +777,183 @@ async def test_a_story_is_the_runs_events_in_order(client, world):
     a_review_run(world)
     await client.post(
         f"/runs/{RUN_ID}/gates/merge",
-        json={"approved": True, "reason": "reviewed"},
+        json={"approved": True, "rationale": "reviewed"},
         headers=as_owner(),
     )
-    story = (await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())).json()
-    assert [(e["tool"], e["agent_id"], e["source"]) for e in story] == [
+    story = model(
+        StoryView, await client.get(f"/runs/{RUN_ID}/story", headers=as_owner())
+    )
+    assert story.run_id == RUN_ID
+    assert [(e.tool, e.agent_id, e.source) for e in story.events] == [
         (GATE_RESOLVE, "owner", "console")
     ]
 
 
-def test_the_route_table_matches_the_app():
-    """The documentation renders ROUTES; every route the app serves is in
-    it and nothing more."""
-    from console.app import ROUTES
+# -- what a web client reads ---------------------------------------------------
 
-    settings = ConsoleSettings(
-        platform_namespace=PLATFORM_NS,
-        opa_url="http://opa.test:8181",
-        temporal_address="temporal.test:7233",
+
+def park(world: World, run_id: str, gate: str, ts: str) -> None:
+    """The `parked` gate row a workflow writes before it reads parked."""
+    world.audit.append(
+        AuditEvent(
+            ts=ts,
+            run_id=run_id,
+            agent_id="orchestrator",
+            role="platform",
+            tool=gate_event(gate),
+            args_digest="d",
+            decision="deny",
+            rule=gate_rule(GATE_PARKED),
+            latency_ms=1,
+            backend_status=None,
+            source="process-gate",
+            company=COMPANY,
+        )
     )
-    app = create_app(
-        settings,
-        audit=InMemoryAuditStore(),
-        runs=InMemoryRuns(),
-        ledger=InMemoryBudgetLedger(),
-        instances=InMemoryAgentInstances(),
-        companies=InMemoryCompanies(),
-        workflows=FakeWorkflows(),
-        submit_crs=lambda plan: (0, 0, 1),
-        read_company=lambda: None,
-        clock=lambda: "",
+
+
+async def test_parked_runs_carry_their_gate_and_deadlines(client, world):
+    """`?state=parked` keeps the runs parked on a gate, each with the
+    deadline the applied spec gives it, measured from its `parked` row:
+    escalation at half, expiry at the end."""
+    a_review_run(world)
+    park(world, RUN_ID, "merge", "2026-01-01T00:00:00+00:00")
+    world.runs.start("run-impl", "implement issue #7", "implement", None, COMPANY)
+    world.workflows.running["implement-run-impl"] = "running"
+
+    every = model(RunList, await client.get("/runs", headers=as_owner()))
+    assert [(r.run_id, r.parked is not None) for r in every.runs] == [
+        (RUN_ID, True),
+        ("run-impl", False),
+    ]
+    parked = model(RunList, await client.get("/runs?state=parked", headers=as_owner()))
+    (run,) = parked.runs
+    assert run.run_id == RUN_ID and run.parked.gate == "merge"
+    assert run.parked.deadline_minutes == 1440
+    assert run.parked.since.isoformat() == "2026-01-01T00:00:00+00:00"
+    assert run.parked.escalates_at.isoformat() == "2026-01-01T12:00:00+00:00"
+    assert run.parked.expires_at.isoformat() == "2026-01-02T00:00:00+00:00"
+    detail = model(RunDetail, await client.get(f"/runs/{RUN_ID}", headers=as_owner()))
+    assert detail.parked == run.parked
+    assert world.audit.events[-1].rule == gate_rule(GATE_PARKED)  # a read wrote nothing
+
+
+async def test_a_budget_park_is_measured_by_the_budget_deadline(client, world):
+    a_review_run(world)
+    world.workflows.running[f"review-{RUN_ID}"] = "parked-budget_exhausted"
+    park(world, RUN_ID, "budget", "2026-01-01T00:00:00+00:00")
+    run = model(RunDetail, await client.get(f"/runs/{RUN_ID}", headers=as_owner()))
+    assert (run.parked.gate, run.parked.deadline_minutes) == ("budget", 60)
+    assert run.parked.expires_at.isoformat() == "2026-01-01T01:00:00+00:00"
+
+
+async def test_a_runs_crew_is_every_identity_ever_bound(client, world):
+    a_review_run(world)
+    world.participants.add(
+        "reviewer-1", RUN_ID, "pm-1", "feature-review", "reviewer", COMPANY
     )
-    served = {
-        (method, route.path)
-        for route in app.routes
-        if hasattr(route, "methods")
-        for method in route.methods
-        if method != "HEAD" and not route.path.startswith(("/docs", "/redoc", "/openapi"))
-    }
-    assert served == {(method, path) for method, path, _, _ in ROUTES}
+    world.participants.add("other-1", "run-other", "pm-1", "feature-review", "reviewer")
+    world.participants.terminate("reviewer-1")
+    crew = model(CrewView, await client.get(f"/runs/{RUN_ID}/crew", headers=as_owner()))
+    assert [(a.agent_id, a.crew, a.role, a.status) for a in crew.agents] == [
+        ("reviewer-1", "feature-review", "reviewer", "terminated")
+    ]
+    unknown = await client.get("/runs/run-nope/crew", headers=as_owner())
+    assert unknown.status_code == 422
+
+
+async def test_the_standing_agents_name_the_conductor(client, world):
+    world.instances.upsert("pm-1", COMPANY, "pm", "pm", namespace="poseidon-company")
+    world.instances.upsert("qa-1", COMPANY, "qa", "reviewer", status="pending")
+    agents = model(AgentList, await client.get("/agents", headers=as_owner()))
+    assert [(a.standing_name, a.conductor, a.status) for a in agents.agents] == [
+        ("pm", True, "converged"),
+        ("qa", False, "pending"),
+    ]
+
+
+async def test_the_tickets_are_the_ones_filed_on_the_company_repository(client, world):
+    repo = applied_spec()["repo"]["url"]
+    world.tickets.record(repo, 9, "run-scope")
+    world.tickets.record(repo, 3, "heartbeat-hello-saas")
+    world.tickets.record("github.com/elsewhere/repo", 1, "run-x")
+    tickets = model(TicketList, await client.get("/tickets", headers=as_owner()))
+    assert tickets.repo == repo
+    assert [(t.number, t.run_id) for t in tickets.tickets] == [
+        (3, "heartbeat-hello-saas"),
+        (9, "run-scope"),
+    ]
+
+
+async def test_the_documents_are_read_live_at_the_base_ref(client, world):
+    """Each of the two documents, read through the gateway at the company's
+    repository and base ref, clipped as a crew reads it; an absent one is
+    `present: false`, not an error."""
+    spec = applied_spec()
+    world.documents.files[spec["documents"]["strategy"]] = "x" * (UNTRUSTED_CLIP + 10)
+    strategy = model(
+        DocumentView, await client.get("/documents/strategy", headers=as_owner())
+    )
+    assert (strategy.kind, strategy.path, strategy.ref, strategy.present) == (
+        "strategy",
+        spec["documents"]["strategy"],
+        spec["repo"]["base_ref"],
+        True,
+    )
+    assert strategy.text == clip_head("x" * (UNTRUSTED_CLIP + 10))
+    architecture = model(
+        DocumentView, await client.get("/documents/architecture", headers=as_owner())
+    )
+    assert architecture.present is False and architecture.text is None
+    assert world.documents.reads == [
+        (spec["repo"]["url"], spec["repo"]["base_ref"], spec["documents"][name])
+        for name in ("strategy", "architecture")
+    ]
+    unknown = await client.get("/documents/roadmap", headers=as_owner())
+    assert unknown.status_code == 422 and world.audit.events == []
+
+
+async def test_the_company_carries_its_limits_and_its_bounds(client, world):
+    world.cr = company_cr(COMPANY, phase="converged", observedGeneration=1)
+    world.ledger.record(
+        company=COMPANY,
+        run_id=RUN_ID,
+        agent_id="reviewer-1",
+        parent_agent_id="pm-1",
+        role="reviewer",
+        model="mock",
+        prompt_tokens=1,
+        completion_tokens=1,
+        cached_tokens=0,
+        reasoning_tokens=0,
+        usd=1.5,
+    )
+    limits = model(CompanyView, await client.get("/company", headers=as_owner())).limits
+    assert limits == LimitsView(
+        per_run_usd=5.0,
+        daily_cap_usd=20.0,
+        spent_today_usd=1.5,
+        max_concurrent_runs=1,
+        gate_deadline_minutes={"budget": 60, "merge": 1440},
+    )
+    bounds = model(BoundsView, await client.get("/company/bounds", headers=as_owner()))
+    assert bounds.text == render_bounds(applied_spec())
+    assert bounds.text.endswith("Merge: every pull request waits for a human's verdict.")
+
+
+async def test_before_it_converges_a_company_has_no_limits_and_no_bounds(client, world):
+    """The CR is there, the reconciler's copy of the spec is not yet: the
+    company reads activating without limits, and what needs the applied
+    spec says so."""
+    world.companies.delete(COMPANY)
+    await client.post(
+        "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
+    )
+    shown = model(CompanyView, await client.get("/company", headers=as_owner()))
+    assert shown.phase == "activating" and shown.limits is None
+    for path in ("/company/bounds", "/agents", "/tickets"):
+        response = await client.get(path, headers=as_owner())
+        assert response.status_code == 404, (path, response.text)
 
 
 def test_settings_split_the_declared_humans():

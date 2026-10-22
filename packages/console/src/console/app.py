@@ -1,39 +1,47 @@
 """The console's HTTP surface.
 
 JSON in, JSON out, a bearer token on every request but the health probe.
-Acts are POSTs and answer 403 with the denying rule when policy says no;
-reads are GETs. 422 names what could not be acted on (an unknown run, a
-blueprint that does not validate), 503 says Temporal was unreachable.
-The route table below is what the reference documentation renders.
+Every route is one entry of `common.console.ROUTES`, the console
+interface, served with that entry's request and response models, and
+every refusal is one of the interface's two error bodies: a `Problem`
+(401 no verified human, 404 no company applied, 422 something that
+cannot be acted on, 503 Temporal unreachable) or, for an act policy
+refuses, a 403 `PolicyRefusal` naming the rule.
 
 Run with: uvicorn --factory console.app:create_app
 """
 
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 
-from common.audit import RATIONALE_LIMIT
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
-from common.policy import (
-    BLUEPRINT_APPLY,
-    COMPANY_DELETE,
-    GATE_RESOLVE,
-    HEARTBEAT_PAUSE,
-    HEARTBEAT_RESUME,
-    HEARTBEAT_WAKE,
-    RUN_CANCEL,
-    RUN_START,
+from common.console import (
+    BlueprintRequest,
+    CancelRequest,
+    DeleteRequest,
+    DocumentKind,
+    Gate,
+    Health,
+    PauseRequest,
+    PolicyRefusal,
+    Problem,
+    ResumeRequest,
+    StartRunRequest,
+    VerdictRequest,
+    WhoAmI,
+    route,
 )
 from common.topology import CONSOLE_TOKEN_AUDIENCE
 from common.version import running_version
 from compiler import DeploymentPlan
 from console import crs
 from console.config import ConsoleSettings
+from console.documents import Documents, DocumentsUnavailable, GatewayDocuments
 from console.service import ConsoleService, Invalid, NoCompany, PolicyDenied
 from console.temporal import TemporalWorkflows, Unavailable, Workflows
 from registry import (
@@ -41,121 +49,29 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
+    FiledTickets,
+    RunParticipants,
     Runs,
     open_registry,
 )
 
-# The routes, for the documentation: method, path, what it does, the
-# decision an act must win (reads decide nothing).
-ROUTES: tuple[tuple[str, str, str, str], ...] = (
-    (
-        "GET",
-        "/healthz",
-        "liveness and the running version; the one unauthenticated route",
-        "",
-    ),
-    ("GET", "/whoami", "the verified human and the applied company, if any", ""),
-    (
-        "POST",
-        "/blueprint/preview",
-        "compile against the live registry; the diff and the plan",
-        "",
-    ),
-    (
-        "POST",
-        "/blueprint/apply",
-        "compile and submit the Company and AgentInstance CRs",
-        BLUEPRINT_APPLY,
-    ),
-    (
-        "GET",
-        "/company",
-        "the applied company's phase, generation and bundle revision from its CR,"
-        " and its pause from the registry",
-        "",
-    ),
-    (
-        "DELETE",
-        "/company",
-        "stop the company: cancel its runs, delete its CR, wait for the teardown",
-        COMPANY_DELETE,
-    ),
-    ("POST", "/runs", "start one implement or review run by hand", RUN_START),
-    ("GET", "/runs", "the company's runs since a fence (`?since=`)", ""),
-    ("GET", "/runs/{run_id}", "the run record and its workflow's execution", ""),
-    (
-        "GET",
-        "/runs/{run_id}/story",
-        "the run's audit story, every source; `?decisions=true` keeps the rows"
-        " carrying a rationale",
-        "",
-    ),
-    ("GET", "/runs/{run_id}/spend", "the run's attributed spend", ""),
-    (
-        "POST",
-        "/runs/{run_id}/gates/{gate}",
-        "record a verdict, then deliver it",
-        GATE_RESOLVE,
-    ),
-    ("POST", "/runs/{run_id}/cancel", "cancel a run; teardown compensates", RUN_CANCEL),
-    (
-        "GET",
-        "/heartbeat",
-        "the standing loop's execution and its ticks since a fence",
-        "",
-    ),
-    ("POST", "/heartbeat/wake", "nudge the loop to look now", HEARTBEAT_WAKE),
-    (
-        "POST",
-        "/heartbeat/pause",
-        "hold the loop: it starts nothing until resumed; runs in flight finish",
-        HEARTBEAT_PAUSE,
-    ),
-    ("POST", "/heartbeat/resume", "lift the pause and wake the loop", HEARTBEAT_RESUME),
-    ("GET", "/spend", "the company's spend since a fence", ""),
-    (
-        "GET",
-        "/events",
-        "the company's audit rows after a cursor (`?after=&run=`), with its spend to date",
-        "",
-    ),
-    ("GET", "/now", "the registry's clock: the fence to take before acting", ""),
-)
+# The error bodies every route may answer, and the one only an act may.
+READ_ERRORS: dict[int | str, dict[str, Any]] = {
+    status: {"model": Problem} for status in (401, 404, 422, 503)
+}
+ACT_ERRORS = {**READ_ERRORS, 403: {"model": PolicyRefusal}}
 
 
-class BlueprintRequest(BaseModel):
-    blueprint: str
+def _problem(status: int, detail: str) -> JSONResponse:
+    return JSONResponse(Problem(detail=detail).model_dump(), status_code=status)
 
 
-class StartRunRequest(BaseModel):
-    workflow: str
-    number: int
-
-
-# A person's reason is part of the act: a verdict, a cancel, a pause, a
-# resume or a delete without one is refused, and the reason is stored
-# beside the row as its rationale.
-Reason = Field(min_length=1, max_length=RATIONALE_LIMIT)
-
-
-class VerdictRequest(BaseModel):
-    approved: bool
-    reason: str = Reason
-
-
-class CancelRequest(BaseModel):
-    reason: str = Reason
-
-
-class DeleteRequest(BaseModel):
-    reason: str = Reason
-    # Whether to wait for the reconciler's teardown before answering; the
-    # act is the same either way, and the teardown proceeds regardless.
-    wait: bool = True
-
-
-class HoldRequest(BaseModel):
-    reason: str = Reason
+def _validation_detail(exc: RequestValidationError) -> str:
+    """FastAPI's list of errors as one sentence: where, and what."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+        for error in exc.errors()
+    )
 
 
 def create_app(
@@ -165,15 +81,19 @@ def create_app(
     ledger: BudgetLedger | None = None,
     instances: AgentInstances | None = None,
     companies: Companies | None = None,
+    participants: RunParticipants | None = None,
+    tickets: FiledTickets | None = None,
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
-    submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]] | None = None,
+    documents: Documents | None = None,
+    submit_crs: Callable[[DeploymentPlan, dict[str, str]], tuple[int, int, int]]
+    | None = None,
     delete_company: Callable[[str, bool], None] | None = None,
     read_company: Callable[[], dict[str, Any] | None] | None = None,
     clock: Callable[[], str] | None = None,
 ) -> FastAPI:
     settings = settings or ConsoleSettings()
-    accessors = (audit, runs, ledger, instances, companies)
+    accessors = (audit, runs, ledger, instances, companies, participants, tickets)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -182,6 +102,8 @@ def create_app(
         ledger = BudgetLedger(registry)
         instances = AgentInstances(registry)
         companies = Companies(registry)
+        participants = RunParticipants(registry)
+        tickets = FiledTickets(registry)
         clock = clock or registry.now
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
@@ -203,7 +125,10 @@ def create_app(
         ledger,
         instances,
         companies,
+        participants,
+        tickets,
         workflows or TemporalWorkflows(settings.temporal_address),
+        documents or GatewayDocuments(settings.platform_namespace),
         submit_crs or crs.submit,
         delete_company or crs.delete_company,
         read_company or crs.read_company,
@@ -216,120 +141,178 @@ def create_app(
         if registry is not None:
             registry.close()
 
-    app = FastAPI(title="poseidon-console", lifespan=lifespan)
+    app = FastAPI(
+        title="poseidon-console",
+        description="The console interface: the one way a person acts on a company"
+        " and reads it. Every act is decided by policy and audited under the"
+        " human's name.",
+        version=running_version(),
+        lifespan=lifespan,
+    )
+
+    def serve(method: str, path: str):
+        """Register a handler for one route of the interface, with its
+        response model and the errors it may answer."""
+        entry = route(method, path)
+        return app.api_route(
+            path,
+            methods=[method],
+            response_model=entry.response,
+            responses=ACT_ERRORS if entry.decision else READ_ERRORS,
+            summary=entry.summary,
+        )
 
     @app.exception_handler(PolicyDenied)
     async def denied(_: Request, exc: PolicyDenied) -> JSONResponse:
-        return JSONResponse({"detail": str(exc), "rule": exc.rule}, status_code=403)
+        refusal = PolicyRefusal(detail=str(exc), rule=exc.rule)
+        return JSONResponse(refusal.model_dump(), status_code=403)
 
     @app.exception_handler(Invalid)
     async def invalid(_: Request, exc: Invalid) -> JSONResponse:
-        return JSONResponse({"detail": str(exc)}, status_code=422)
+        return _problem(422, str(exc))
+
+    @app.exception_handler(RequestValidationError)
+    async def malformed(_: Request, exc: RequestValidationError) -> JSONResponse:
+        return _problem(422, _validation_detail(exc))
 
     @app.exception_handler(NoCompany)
     async def no_company(_: Request, exc: NoCompany) -> JSONResponse:
-        return JSONResponse({"detail": str(exc)}, status_code=404)
+        return _problem(404, str(exc))
 
     @app.exception_handler(Unavailable)
     async def unavailable(_: Request, exc: Unavailable) -> JSONResponse:
-        return JSONResponse({"detail": f"temporal unreachable: {exc}"}, status_code=503)
+        return _problem(503, f"temporal unreachable: {exc}")
+
+    @app.exception_handler(DocumentsUnavailable)
+    async def no_documents(_: Request, exc: DocumentsUnavailable) -> JSONResponse:
+        return _problem(503, str(exc))
 
     def identity_of(request: Request):
         return request.state.identity
 
-    @app.get("/healthz")
-    async def healthz() -> dict[str, Any]:
-        return {"ok": True, "version": running_version()}
+    @serve("GET", "/healthz")
+    async def healthz():
+        return Health(ok=True, version=running_version())
 
-    @app.get("/whoami")
-    async def whoami(request: Request) -> dict[str, Any]:
+    @serve("GET", "/whoami")
+    async def whoami(request: Request):
         identity = identity_of(request)
-        return {
-            "human": identity.agent_id,
-            "lifecycle": identity.lifecycle,
-            "company": await service.applied(),
-        }
-
-    @app.post("/blueprint/preview")
-    async def preview(body: BlueprintRequest) -> dict[str, Any]:
-        return await service.preview(body.blueprint)
-
-    @app.post("/blueprint/apply")
-    async def apply(request: Request, body: BlueprintRequest) -> dict[str, Any]:
-        return await service.apply(identity_of(request), body.blueprint)
-
-    @app.get("/company")
-    async def company() -> dict[str, Any]:
-        return await service.company()
-
-    @app.delete("/company")
-    async def delete_company_route(
-        request: Request, body: DeleteRequest
-    ) -> dict[str, Any]:
-        return await service.delete(identity_of(request), body.reason, body.wait)
-
-    @app.post("/runs")
-    async def start_run(request: Request, body: StartRunRequest) -> dict[str, Any]:
-        return await service.start_run(identity_of(request), body.workflow, body.number)
-
-    @app.get("/runs")
-    async def runs_since(since: str | None = None) -> list[dict[str, Any]]:
-        return await service.runs_since(since)
-
-    @app.get("/runs/{run_id}")
-    async def run(run_id: str) -> dict[str, Any]:
-        return await service.run(run_id)
-
-    @app.get("/runs/{run_id}/story")
-    async def story(run_id: str, decisions: bool = False) -> list[dict[str, Any]]:
-        return await service.story(run_id, decisions)
-
-    @app.get("/runs/{run_id}/spend")
-    async def spend(run_id: str) -> dict[str, Any]:
-        return await service.spend(run_id)
-
-    @app.post("/runs/{run_id}/gates/{gate}")
-    async def resolve_gate(
-        request: Request, run_id: str, gate: str, body: VerdictRequest
-    ) -> dict[str, Any]:
-        return await service.resolve_gate(
-            identity_of(request), run_id, gate, body.approved, body.reason
+        return WhoAmI(
+            human=identity.agent_id,
+            lifecycle=identity.lifecycle,
+            company=await service.applied(),
         )
 
-    @app.post("/runs/{run_id}/cancel")
-    async def cancel_run(
-        request: Request, run_id: str, body: CancelRequest
-    ) -> dict[str, Any]:
-        return await service.cancel_run(identity_of(request), run_id, body.reason)
+    @serve("POST", "/blueprint/preview")
+    async def preview(body: BlueprintRequest):
+        return await service.preview(body.blueprint)
 
-    @app.get("/heartbeat")
-    async def heartbeat(since: str | None = None) -> dict[str, Any]:
+    @serve("POST", "/blueprint/apply")
+    async def apply(request: Request, body: BlueprintRequest):
+        return await service.apply(identity_of(request), body.blueprint)
+
+    @serve("GET", "/blueprint")
+    async def blueprint():
+        return await service.blueprint()
+
+    @serve("GET", "/company")
+    async def company():
+        return await service.company()
+
+    @serve("GET", "/company/bounds")
+    async def bounds():
+        return await service.bounds()
+
+    @serve("GET", "/documents/{kind}")
+    async def document(kind: DocumentKind):
+        return await service.document(kind.value)
+
+    @serve("GET", "/agents")
+    async def agents():
+        return await service.agents()
+
+    @serve("GET", "/tickets")
+    async def tickets_filed():
+        return await service.tickets()
+
+    @serve("DELETE", "/company")
+    async def delete_company_route(request: Request, body: DeleteRequest):
+        return await service.delete(identity_of(request), body.rationale, body.wait)
+
+    @serve("POST", "/runs")
+    async def start_run(request: Request, body: StartRunRequest):
+        return await service.start_run(
+            identity_of(request), body.workflow.value, body.number
+        )
+
+    @serve("GET", "/runs")
+    async def runs_since(
+        since: str | None = None, state: Literal["parked"] | None = None
+    ):
+        return await service.runs_since(since, parked_only=state == "parked")
+
+    @serve("GET", "/runs/{run_id}")
+    async def run(run_id: str):
+        return await service.run(run_id)
+
+    @serve("GET", "/runs/{run_id}/story")
+    async def story(run_id: str, decisions: bool = False):
+        return await service.story(run_id, decisions)
+
+    @serve("GET", "/runs/{run_id}/spend")
+    async def spend(run_id: str):
+        return await service.spend(run_id)
+
+    @serve("GET", "/runs/{run_id}/crew")
+    async def crew(run_id: str):
+        return await service.crew(run_id)
+
+    @serve("POST", "/runs/{run_id}/gates/{gate}")
+    async def resolve_gate(
+        request: Request, run_id: str, gate: Gate, body: VerdictRequest
+    ):
+        return await service.resolve_gate(
+            identity_of(request), run_id, gate.value, body.approved, body.rationale
+        )
+
+    @serve("POST", "/runs/{run_id}/cancel")
+    async def cancel_run(request: Request, run_id: str, body: CancelRequest):
+        return await service.cancel_run(identity_of(request), run_id, body.rationale)
+
+    @serve("GET", "/heartbeat")
+    async def heartbeat(since: str | None = None):
         return await service.heartbeat(since)
 
-    @app.post("/heartbeat/wake")
-    async def wake(request: Request) -> dict[str, Any]:
+    @serve("POST", "/heartbeat/wake")
+    async def wake(request: Request):
         return await service.wake(identity_of(request))
 
-    @app.post("/heartbeat/pause")
-    async def pause(request: Request, body: HoldRequest) -> dict[str, Any]:
-        return await service.pause(identity_of(request), body.reason)
+    @serve("POST", "/heartbeat/pause")
+    async def pause(request: Request, body: PauseRequest):
+        return await service.pause(identity_of(request), body.rationale)
 
-    @app.post("/heartbeat/resume")
-    async def resume(request: Request, body: HoldRequest) -> dict[str, Any]:
-        return await service.resume(identity_of(request), body.reason)
+    @serve("POST", "/heartbeat/resume")
+    async def resume(request: Request, body: ResumeRequest):
+        return await service.resume(identity_of(request), body.rationale)
 
-    @app.get("/spend")
-    async def spend_since(since: str | None = None) -> dict[str, Any]:
+    @serve("GET", "/spend")
+    async def spend_since(since: str | None = None):
         return await service.spend_since(since)
 
-    @app.get("/events")
-    async def events(
-        after: int = 0, run: str | None = None, limit: int = 200
-    ) -> dict[str, Any]:
+    @serve("GET", "/events")
+    async def events(after: int = 0, run: str | None = None, limit: int = 200):
         return await service.events(after, run, max(1, min(limit, 1000)))
 
-    @app.get("/now")
-    async def now() -> dict[str, str]:
+    @serve("GET", "/acts")
+    async def acts(request: Request):
+        return await service.acts(identity_of(request))
+
+    @serve("GET", "/runs/{run_id}/acts")
+    async def run_acts(request: Request, run_id: str):
+        return await service.run_acts(identity_of(request), run_id)
+
+    @serve("GET", "/now")
+    async def now():
         return await service.now()
 
     app.add_middleware(

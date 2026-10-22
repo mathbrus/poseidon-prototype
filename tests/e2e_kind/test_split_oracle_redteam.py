@@ -333,7 +333,12 @@ def test_the_red_contract_fed_the_bounded_rework_loop(laundered: dict):
     record, not an abandoned run."""
     story = audit_story(laundered["review_run_id"])
     rules = gate_merge_rules(story)
-    assert rules == ["gate_rework_exhausted", "gate_escalated", "gate_expired"], rules
+    assert rules == [
+        "gate_rework_exhausted",
+        "gate_parked",
+        "gate_escalated",
+        "gate_expired",
+    ], rules
     assert laundered["review"].get("error") == "merge gate expired"
 
 
@@ -393,8 +398,8 @@ def test_the_ticket_routed_to_the_contract_crew(gutted: dict):
     the prose: the run's participants are the contract-authoring crew, a
     template the delivery crew does not contain — so the spec's author is
     positionally independent of the implementer by construction."""
-    crews = {p["crew_template"] for p in participants(gutted["implement_run_id"])}
-    roles = {p["role"] for p in participants(gutted["implement_run_id"])}
+    crews = {p.crew for p in participants(gutted["implement_run_id"])}
+    roles = {p.role for p in participants(gutted["implement_run_id"])}
     assert crews == {"contract-authoring"}, crews
     assert roles == {"contract-author"}, roles
 

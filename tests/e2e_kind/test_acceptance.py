@@ -115,6 +115,7 @@ from .cluster import (
     COMPANY,
     COMPANY_NS,
     audit_story,
+    console,
     console_env,
     crew_activities,
     events_since,
@@ -270,6 +271,11 @@ def test_the_registry_roster_is_the_lean_blueprint(stack) -> None:
     assert [(r["agent_id"], r["role"], r["namespace"]) for r in rows] == [
         ("pm-1", "pm", COMPANY_NS)
     ], f"the registry's standing agents are not the lean blueprint's: {rows}"
+    # The console reads the same roster, the conductor marked.
+    agents = console().agents().agents
+    assert [(a.agent_id, a.standing_name, a.role, a.conductor) for a in agents] == [
+        ("pm-1", "pm", "pm", True)
+    ], agents
 
     # And the CRs still agree at suite end (drift check after all the
     # module finalizers): the PM is the only standing instance.

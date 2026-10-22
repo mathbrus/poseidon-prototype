@@ -51,7 +51,9 @@ from .blueprints import DELEGATED, restore_pristine, single_attempt
 from .cluster import (
     audit_story,
     bare_heartbeat_id,
+    console,
     db_now,
+    events_since,
     filed_tickets_since,
     participants,
     wake_and_await_ticks,
@@ -193,7 +195,7 @@ def test_the_steward_wrote_each_document_and_it_merged(bootstrapped: dict):
     document now on the base ref is what the steward wrote."""
     env = bootstrapped["env"]
     for name, run in bootstrapped["runs"].items():
-        crews = {p["crew_template"] for p in participants(run["implement"]["run_id"])}
+        crews = {p.crew for p in participants(run["implement"]["run_id"])}
         assert crews == {"stewardship"}, (name, crews)
         files = github_api(
             env, "GET", f"/repos/{target_slug(env)}/pulls/{run['pr']}/files"
@@ -206,6 +208,29 @@ def test_the_steward_wrote_each_document_and_it_merged(bootstrapped: dict):
         "strategy": STRATEGY_MD,
         "architecture": ARCHITECTURE_MD,
     }
+
+
+def test_a_person_reads_the_documents_through_the_console(bootstrapped: dict):
+    """The console reads what the steward wrote, live at the base ref,
+    through the MCP gateway under its own identity: the gateway decided
+    and audited the read under `console`, by the one rule the company's
+    bundle gives it."""
+    since = db_now()
+    strategy = console().document("strategy")
+    assert strategy.present, strategy
+    assert strategy.text == bootstrapped["documents"]["strategy"]
+    assert strategy.path == DOCUMENT_PATHS["strategy"]
+    reads = [
+        e
+        for e in events_since(since)
+        if e["tool"] == "repo.read_file" and e["agent_id"] == "console"
+    ]
+    assert reads, "the gateway recorded no read under the console"
+    assert (reads[-1]["source"], reads[-1]["lifecycle"]) == ("gateway", "console")
+    assert (reads[-1]["decision"], reads[-1]["rule"]) == (
+        "allow",
+        "console_read_document",
+    )
 
 
 def test_the_loop_files_nothing_twice_and_idles_on_a_resting_strategy(bootstrapped: dict):
@@ -326,7 +351,7 @@ def test_the_steward_revised_the_plan_on_a_later_tick(requested: dict):
     plan on the base ref carries the revision."""
     env = requested["env"]
     revision = requested["revision"]
-    crews = {p["crew_template"] for p in participants(revision["implement"]["run_id"])}
+    crews = {p.crew for p in participants(revision["implement"]["run_id"])}
     assert crews == {"stewardship"}, crews
     files = github_api(
         env, "GET", f"/repos/{target_slug(env)}/pulls/{revision['pr']}/files"

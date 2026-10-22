@@ -23,6 +23,11 @@ CONSOLE_PORT = 8090
 # error. The console waits this long; its clients wait longer than it.
 TEARDOWN_TIMEOUT_S = 600
 
+# The most a blueprint's text may be, in bytes. The Company CR keeps the
+# text a human applied beside the compiled bundle, and the console refuses
+# a longer one, so the CR stays well under etcd's object limit (1.5 MiB).
+BLUEPRINT_LIMIT_BYTES = 256 * 1024
+
 # Platform Service names, as the chart names them.
 MCP_GATEWAY = "mcp-gateway"
 LLM_GATEWAY = "llm-gateway"
@@ -41,6 +46,9 @@ PEER_PORTS = {
 # The ServiceAccount the orchestrator worker acts as — the one caller the
 # gateways treat as the platform identity.
 ORCHESTRATOR_SERVICE_ACCOUNT = "orchestrator-worker"
+# The ServiceAccount the console runs as; at the MCP gateway its projected
+# token is the console identity, which may read the company's documents.
+CONSOLE_SERVICE_ACCOUNT = "console"
 
 # The namespace the platform is installed into: the chart's release
 # namespace, which every template hands its pod. In-cluster nothing needs
@@ -55,6 +63,13 @@ PLATFORM_NAMESPACE = "poseidon-platform"
 # it by this literal, the compiler writes it into the Company CR, and the
 # worker puts sandboxes and ephemeral pods here.
 COMPANY_NAMESPACE = "poseidon-company"
+
+# The Company CR's phase, written by the reconciler and read through the
+# console: activating until OPA serves the stored bundle revisions,
+# converged once it does.
+PHASE_ACTIVATING = "activating"
+PHASE_CONVERGED = "converged"
+COMPANY_PHASES = (PHASE_ACTIVATING, PHASE_CONVERGED)
 
 # Workload identity: every agent pod and the worker present a kubelet-
 # rotated projected ServiceAccount token scoped to this audience; both

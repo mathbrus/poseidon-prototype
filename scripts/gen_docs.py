@@ -18,7 +18,10 @@ import ast
 import dataclasses
 import inspect
 import re
+import types
+import typing
 from collections.abc import Callable
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -32,10 +35,12 @@ from blueprint.bounds import render_bounds
 from blueprint.catalog import CREW_TEMPLATES, PROCEDURES, ROLES
 from blueprint.schema import BLUEPRINT_SCHEMA
 from common.audit import PLATFORM_EVENTS
+from common.console import ROUTES
+from common.console import enums as console_enums
+from common.console import models as console_models
 from common.policy import GATE_RESOLVE, RULES, RUN_START, rego_slug
 from common.workflows import WORKFLOWS, workflow_id
 from compiler import compile_blueprint
-from console.app import ROUTES
 from console.crs import company_cr
 from orchestrator import workflows
 from poseidon_cli.main import app as cli_app
@@ -259,12 +264,58 @@ def cli(_: str | None) -> str:
 
 
 def console_routes(_: str | None) -> str:
-    """The console's route table, as the app declares it."""
+    """The console's route table, as the console interface declares it."""
     rows = [
-        [code(f"{method} {path}"), what, code(decision) if decision else "—"]
-        for method, path, what, decision in ROUTES
+        [code(f"{r.method} {r.path}"), r.summary, code(r.decision) if r.decision else "—"]
+        for r in ROUTES
     ]
     return table(["Route", "What it does", "Decision"], rows)
+
+
+def _type_name(annotation: Any) -> str:
+    """A field's type as a reader of the interface spells it."""
+    args = typing.get_args(annotation)
+    origin = typing.get_origin(annotation)
+    if origin in (typing.Union, types.UnionType):
+        return " \\| ".join("null" if a is type(None) else _type_name(a) for a in args)
+    if origin is list:
+        return f"list[{_type_name(args[0])}]"
+    return getattr(annotation, "__name__", str(annotation))
+
+
+def console_interface(_: str | None) -> str:
+    """The console interface's models and closed sets, from `common.console`:
+    every response, request and error body with its fields, then every
+    enum with its values."""
+    models = [
+        value
+        for value in vars(console_models).values()
+        if isinstance(value, type)
+        and issubclass(value, console_models.Model)
+        and value is not console_models.Model
+    ]
+    rows = [
+        [
+            code(model.__name__),
+            " ".join((model.__doc__ or "").split()),
+            ", ".join(
+                f"`{name}`: {_type_name(field.annotation)}"
+                for name, field in model.model_fields.items()
+            ),
+        ]
+        for model in models
+    ]
+    enums = [
+        value
+        for value in vars(console_enums).values()
+        if isinstance(value, type) and issubclass(value, StrEnum) and value is not StrEnum
+    ]
+    enum_rows = [[code(e.__name__), codes([m.value for m in e])] for e in enums]
+    return (
+        table(["Model", "What it is", "Fields"], rows)
+        + "\n\n"
+        + table(["Closed set", "Values"], enum_rows)
+    )
 
 
 def console_acts(_: str | None) -> str:
@@ -549,6 +600,7 @@ GENERATORS: dict[str, Callable[[str | None], str]] = {
     "cli": cli,
     "console": console_routes,
     "console-acts": console_acts,
+    "console-interface": console_interface,
     "audit-events": audit_events,
     "models": models,
     "workflows": workflow_table,

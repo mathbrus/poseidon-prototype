@@ -6,9 +6,11 @@ import json
 
 import httpx
 import pytest
+from golden import golden, golden_answers
 from typer.testing import CliRunner
 
-from common.audit import HEARTBEAT_DECIDE
+from common.audit import REVIEW_VERDICT
+from common.console import ROUTES, PolicyRefusal, Problem, RunDetail
 from common.topology import PLATFORM_NAMESPACE
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 from poseidon_cli import main as cli
@@ -24,72 +26,29 @@ def config_home(tmp_path, monkeypatch):
     return tmp_path
 
 
+REVIEW = "run-01REVIEW"
+IMPLEMENT = "run-01IMPLEMENT"
+
+
 class Console:
-    """A scripted console: records every request, answers from a table."""
+    """A scripted console: records every request, answers from the
+    golden examples — plus the refusals they do not show, in the
+    interface's error bodies."""
 
     def __init__(self) -> None:
         self.requests: list[tuple[str, str, dict | None, str]] = []
-        self.answers: dict[tuple[str, str], tuple[int, dict | list]] = {
-            ("GET", "/healthz"): (200, {"ok": True, "version": "v0.1.0+2026.10.21"}),
-            ("GET", "/whoami"): (
-                200,
-                {"human": "owner", "lifecycle": "human", "company": "hello-saas"},
-            ),
-            ("POST", "/runs/run-1/gates/merge"): (
-                200,
-                {
-                    "run_id": "run-1",
-                    "gate": "merge",
-                    "approved": True,
-                    "principal": "owner",
-                },
-            ),
-            ("POST", "/runs/run-2/gates/merge"): (
-                403,
-                {
-                    "detail": "denied by policy: human_not_recognized",
-                    "rule": "human_not_recognized",
-                },
-            ),
-            ("GET", "/runs/run-9"): (422, {"detail": "no run 'run-9'"}),
-            ("GET", "/runs"): (
-                200,
-                [
-                    {"run_id": "run-1", "status": "running"},
-                    {"run_id": "run-0", "status": "done"},
-                ],
-            ),
-            ("DELETE", "/company"): (
-                200,
-                {"company": "hello-saas", "runs_cancelled": ["run-1"], "elapsed_s": 3},
-            ),
-            ("POST", "/blueprint/preview"): (
-                200,
-                {"diff": "hello-saas: no changes", "plan": {}},
-            ),
-            ("POST", "/blueprint/apply"): (
-                200,
-                {
-                    "company": "hello-saas",
-                    "created": 0,
-                    "updated": 1,
-                    "rule": "blueprint_apply",
-                    "generation": 3,
-                },
-            ),
-            ("GET", "/company"): (
-                200,
-                {
-                    "company": "hello-saas",
-                    "namespace": "poseidon-company",
-                    "generation": 3,
-                    "phase": "converged",
-                    "observedGeneration": 3,
-                    "bundleRevision": "r3",
-                    "message": "",
-                },
-            ),
-        }
+        self.answers = golden_answers()
+        self.answers[("POST", "/runs/run-2/gates/merge")] = (
+            403,
+            PolicyRefusal(
+                detail="denied by policy: human_not_recognized",
+                rule="human_not_recognized",
+            ).model_dump(),
+        )
+        self.answers[("GET", "/runs/run-9")] = (
+            422,
+            Problem(detail="no run 'run-9'").model_dump(),
+        )
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
@@ -101,7 +60,10 @@ class Console:
                 request.headers.get("authorization", ""),
             )
         )
-        status, payload = self.answers.get((request.method, request.url.path), (404, {}))
+        status, payload = self.answers.get(
+            (request.method, request.url.path),
+            (404, Problem(detail="no such route").model_dump()),
+        )
         return httpx.Response(status, json=payload)
 
 
@@ -118,18 +80,69 @@ def client(console: Console) -> ConsoleClient:
 
 
 def test_every_call_carries_the_token(client, console):
-    assert client.whoami()["human"] == "owner"
-    assert client.company()["phase"] == "converged"
+    assert client.whoami().human == "owner"
+    assert client.company().phase == "converged"
     assert {auth for _, _, _, auth in console.requests} == {"Bearer t-owner"}
 
 
+def test_every_answer_is_its_interface_model(client):
+    """The client parses what the console answers; a field the console
+    stopped sending would fail here, not in a rendering."""
+    assert isinstance(client.run(REVIEW), RunDetail)
+    assert client.run(REVIEW).execution.state == "parked-merge_gate"
+    assert [r.run_id for r in client.runs().runs] == [IMPLEMENT, REVIEW]
+    assert client.heartbeat().ticks[-1].outcome == "idle"
+
+
+def test_the_client_reaches_every_route_of_the_interface(client):
+    """One method per route, each answer its route's model: a route the
+    client cannot call is a route neither the CLI nor the acceptance
+    suite can read through it."""
+    calls = {
+        ("GET", "/healthz"): client.healthz,
+        ("GET", "/whoami"): client.whoami,
+        ("POST", "/blueprint/preview"): lambda: client.preview("company: {}"),
+        ("POST", "/blueprint/apply"): lambda: client.apply("company: {}"),
+        ("GET", "/blueprint"): client.blueprint,
+        ("GET", "/company"): client.company,
+        ("GET", "/company/bounds"): client.bounds,
+        ("GET", "/documents/{kind}"): lambda: client.document("strategy"),
+        ("GET", "/agents"): client.agents,
+        ("GET", "/tickets"): client.tickets,
+        ("DELETE", "/company"): lambda: client.delete_company("why"),
+        ("POST", "/runs"): lambda: client.start_run("implement", 7),
+        ("GET", "/runs"): client.runs,
+        ("GET", "/runs/{run_id}"): lambda: client.run(REVIEW),
+        ("GET", "/runs/{run_id}/story"): lambda: client.story(REVIEW),
+        ("GET", "/runs/{run_id}/spend"): lambda: client.spend(IMPLEMENT),
+        ("GET", "/runs/{run_id}/crew"): lambda: client.crew(REVIEW),
+        ("POST", "/runs/{run_id}/gates/{gate}"): lambda: client.resolve(
+            REVIEW, "merge", True, "why"
+        ),
+        ("POST", "/runs/{run_id}/cancel"): lambda: client.cancel(REVIEW, "why"),
+        ("GET", "/heartbeat"): client.heartbeat,
+        ("POST", "/heartbeat/wake"): client.wake,
+        ("POST", "/heartbeat/pause"): lambda: client.pause("why"),
+        ("POST", "/heartbeat/resume"): lambda: client.resume("why"),
+        ("GET", "/spend"): client.spend_since,
+        ("GET", "/events"): client.events,
+        ("GET", "/now"): client.now,
+        ("GET", "/acts"): client.acts,
+        ("GET", "/runs/{run_id}/acts"): lambda: client.acts(REVIEW),
+    }
+    assert set(calls) == {(r.method, r.path) for r in ROUTES}
+    for entry in ROUTES:
+        answer = calls[(entry.method, entry.path)]()
+        assert isinstance(answer, entry.response), entry
+
+
 def test_a_verdict_is_one_call(client, console):
-    result = client.resolve("run-1", "merge", True, "reviewed")
-    assert result["principal"] == "owner"
+    result = client.resolve(REVIEW, "merge", True, "reviewed")
+    assert result.human == "owner" and result.rule == "gate_resolve_merge_approve"
     assert console.requests[-1][:3] == (
         "POST",
-        "/runs/run-1/gates/merge",
-        {"approved": True, "reason": "reviewed"},
+        f"/runs/{REVIEW}/gates/merge",
+        {"approved": True, "rationale": "reviewed"},
     )
 
 
@@ -188,6 +201,10 @@ def test_version_names_both_sides(runner, console, monkeypatch):
     what the cluster runs. The health route is open, so no token is
     needed and none is required."""
     monkeypatch.delenv("POSEIDON_TOKEN")
+    console.answers[("GET", "/healthz")] = (
+        200,
+        {**golden("GET /healthz"), "version": "v0.1.0+2026.10.21"},
+    )
     result = runner.invoke(cli.app, ["version", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == {
@@ -199,7 +216,7 @@ def test_version_names_both_sides(runner, console, monkeypatch):
 
 
 def test_version_without_a_console_still_names_the_cli(runner, console):
-    console.answers[("GET", "/healthz")] = (503, {"detail": "down"})
+    console.answers[("GET", "/healthz")] = (503, Problem(detail="down").model_dump())
     result = runner.invoke(cli.app, ["version", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["console"] is None
@@ -208,33 +225,39 @@ def test_version_without_a_console_still_names_the_cli(runner, console):
 
 def test_verdict_prints_the_recorded_verdict(runner, console):
     result = runner.invoke(
-        cli.app, ["verdict", "run-1", "merge", "approve", "--reason", "ok"]
+        cli.app, ["verdict", REVIEW, "merge", "approve", "--reason", "ok"]
     )
     assert result.exit_code == 0, result.output
-    assert "verdict recorded: merge approved for run run-1, by owner" in result.output
-    assert console.requests[-1][2] == {"approved": True, "reason": "ok"}
+    assert f"verdict recorded: merge approved for run {REVIEW}, by owner" in result.output
+    assert console.requests[-1][2] == {"approved": True, "rationale": "ok"}
 
 
 def test_a_verdict_is_approve_or_reject_on_a_known_gate(runner, console):
     """The words are the glossary's, and the choice is closed: no boolean
     flag, no gate the console does not have."""
-    console.answers[("POST", "/runs/run-1/gates/budget")] = (
+    console.answers[("POST", f"/runs/{REVIEW}/gates/budget")] = (
         200,
-        {"run_id": "run-1", "gate": "budget", "approved": False, "principal": "owner"},
+        {
+            **golden("POST /runs/{run_id}/gates/{gate}"),
+            "gate": "budget",
+            "approved": False,
+            "rule": "gate_resolve_budget_reject",
+        },
     )
     rejected = runner.invoke(
-        cli.app, ["verdict", "run-1", "budget", "reject", "--reason", "no more spend"]
+        cli.app, ["verdict", REVIEW, "budget", "reject", "--reason", "no more spend"]
     )
     assert rejected.exit_code == 0, rejected.output
+    assert "budget rejected" in rejected.output
     assert console.requests[-1][:3] == (
         "POST",
-        "/runs/run-1/gates/budget",
-        {"approved": False, "reason": "no more spend"},
+        f"/runs/{REVIEW}/gates/budget",
+        {"approved": False, "rationale": "no more spend"},
     )
     for args in (
-        ["verdict", "run-1", "merge", "maybe", "--reason", "x"],
-        ["verdict", "run-1", "door", "approve", "--reason", "x"],
-        ["verdict", "run-1", "merge", "approve"],
+        ["verdict", REVIEW, "merge", "maybe", "--reason", "x"],
+        ["verdict", REVIEW, "door", "approve", "--reason", "x"],
+        ["verdict", REVIEW, "merge", "approve"],
     ):
         result = runner.invoke(cli.app, args)
         assert result.exit_code == 2, (args, result.output)
@@ -252,45 +275,48 @@ def test_a_denied_verdict_exits_with_the_rule(runner):
 def test_runs_lists_the_companys_runs(runner, console):
     result = runner.invoke(cli.app, ["runs", "--json"])
     assert result.exit_code == 0, result.output
-    assert [r["run_id"] for r in json.loads(result.output)] == ["run-1", "run-0"]
+    assert json.loads(result.output) == golden("GET /runs")
     rendered = runner.invoke(cli.app, ["runs"])
     assert rendered.exit_code == 0, rendered.output
-    assert "run-1" in rendered.output and "running" in rendered.output
+    # The run still going first.
+    assert rendered.output.index(REVIEW) < rendered.output.index(IMPLEMENT)
+    assert "running" in rendered.output and "done" in rendered.output
 
 
 def test_spend_is_the_companys_without_a_run_and_a_runs_with_one(runner, console):
-    console.answers[("GET", "/spend")] = (200, {"usd": 3.1, "entries": 4})
-    console.answers[("GET", "/runs/run-1/spend")] = (200, {"run_id": "run-1", "usd": 0.5})
     company = runner.invoke(cli.app, ["spend", "--json"])
-    assert company.exit_code == 0 and json.loads(company.output)["usd"] == 3.1
-    one = runner.invoke(cli.app, ["spend", "run-1", "--json"])
-    assert one.exit_code == 0 and json.loads(one.output)["run_id"] == "run-1"
-    assert "$3.10" in runner.invoke(cli.app, ["spend"]).output
-    assert "$0.50" in runner.invoke(cli.app, ["spend", "run-1"]).output
-    assert [p for _, p, _, _ in console.requests][:2] == ["/spend", "/runs/run-1/spend"]
+    assert company.exit_code == 0 and json.loads(company.output) == golden("GET /spend")
+    one = runner.invoke(cli.app, ["spend", IMPLEMENT, "--json"])
+    assert one.exit_code == 0 and json.loads(one.output)["run_id"] == IMPLEMENT
+    assert "spent $0.0042" in runner.invoke(cli.app, ["spend"]).output
+    per_run = runner.invoke(cli.app, ["spend", IMPLEMENT]).output
+    assert f"run {IMPLEMENT}: $0.0042" in per_run and "23:41:30" in per_run
+    assert [p for _, p, _, _ in console.requests][:2] == [
+        "/spend",
+        f"/runs/{IMPLEMENT}/spend",
+    ]
 
 
 def test_run_story_can_keep_only_the_decisions(runner, console):
-    console.answers[("GET", "/runs/run-1/story")] = (200, [])
-    runner.invoke(cli.app, ["run", "story", "run-1", "--decisions"])
-    assert console.requests[-1][:2] == ("GET", "/runs/run-1/story")
+    runner.invoke(cli.app, ["run", "story", REVIEW, "--decisions"])
+    assert console.requests[-1][:2] == ("GET", f"/runs/{REVIEW}/story")
 
 
 def test_company_delete_names_the_running_runs_then_asks_the_console(runner, console):
     result = runner.invoke(cli.app, ["company", "delete", "--yes", "--reason", "done"])
     assert result.exit_code == 0, result.output
-    assert "hello-saas: 1 running run(s)" in result.output and "run-1" in result.output
-    assert "hello-saas deleted in 3 s; cancelled run-1" in result.output
+    assert "hello-saas: 1 running run(s)" in result.output and REVIEW in result.output
+    assert f"hello-saas deleted in 0 s; cancelled {REVIEW}" in result.output
     assert console.requests[-1][:3] == (
         "DELETE",
         "/company",
-        {"reason": "done", "wait": True},
+        {"rationale": "done", "wait": True},
     )
     quick = runner.invoke(
         cli.app, ["company", "delete", "--yes", "--no-wait", "--reason", "done"]
     )
     assert quick.exit_code == 0, quick.output
-    assert console.requests[-1][2] == {"reason": "done", "wait": False}
+    assert console.requests[-1][2] == {"rationale": "done", "wait": False}
 
 
 def test_company_delete_asks_before_acting(runner, console):
@@ -304,10 +330,8 @@ def test_apply_waits_for_converged_and_says_so(runner, console, tmp_path, monkey
     blueprint = tmp_path / "company.yaml"
     blueprint.write_text("company: {name: hello-saas}\n")
     # The first read still says activating for an older generation.
-    stale = dict(
-        console.answers[("GET", "/company")][1], phase="activating", observedGeneration=2
-    )
-    answers = iter([(200, stale), console.answers[("GET", "/company")]])
+    stale = {**golden("GET /company"), "phase": "activating", "observed_generation": 0}
+    answers = iter([(200, stale), (200, golden("GET /company"))])
     original = console.handler
 
     def handler(request):
@@ -329,11 +353,7 @@ def test_apply_gives_up_after_the_wait_timeout(runner, console, tmp_path):
     blueprint.write_text("company: {name: hello-saas}\n")
     console.answers[("GET", "/company")] = (
         200,
-        dict(
-            console.answers[("GET", "/company")][1],
-            phase="activating",
-            observedGeneration=0,
-        ),
+        {**golden("GET /company"), "phase": "activating", "observed_generation": 0},
     )
     result = runner.invoke(
         cli.app, ["blueprint", "apply", str(blueprint), "--yes", "--wait-timeout", "0"]
@@ -345,43 +365,27 @@ def test_apply_gives_up_after_the_wait_timeout(runner, console, tmp_path):
 def test_company_show_prints_the_crs_phase_and_the_pause(runner, console):
     result = runner.invoke(cli.app, ["company", "show", "--json"])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["phase"] == "converged"
+    assert json.loads(result.output) == golden("GET /company")
     rendered = runner.invoke(cli.app, ["company", "show"])
     assert rendered.exit_code == 0, rendered.output
-    assert "converged" in rendered.output and "3 (observed 3)" in rendered.output
+    assert "converged" in rendered.output and "2 (observed 2)" in rendered.output
     assert "heartbeat" in rendered.output and "running" in rendered.output
-    status, payload = console.answers[("GET", "/company")]
     console.answers[("GET", "/company")] = (
-        status,
-        {**payload, "paused": {"by": "owner", "at": "2026-01-01T00:00:00+00:00"}},
+        200,
+        {**golden("GET /company"), "paused": golden("POST /heartbeat/pause")["paused"]},
     )
     held = runner.invoke(cli.app, ["company", "show"])
     assert "paused by owner" in held.output, held.output
 
 
 def test_pause_and_resume_carry_the_reason_and_wake_carries_none(runner, console):
-    console.answers[("POST", "/heartbeat/pause")] = (
-        200,
-        {
-            "company": "hello-saas",
-            "paused": {"by": "owner", "at": "2026-01-01T00:00:00Z"},
-        },
-    )
-    console.answers[("POST", "/heartbeat/resume")] = (
-        200,
-        {"company": "hello-saas", "paused": None},
-    )
-    console.answers[("POST", "/heartbeat/wake")] = (
-        200,
-        {"company": "hello-saas", "woken": True},
-    )
     paused = runner.invoke(cli.app, ["pause", "--reason", "reading the ledger"])
     assert paused.exit_code == 0, paused.output
     assert "heartbeat paused by owner" in paused.output
     assert console.requests[-1][:3] == (
         "POST",
         "/heartbeat/pause",
-        {"reason": "reading the ledger"},
+        {"rationale": "reading the ledger"},
     )
     resumed = runner.invoke(cli.app, ["resume", "--reason", "read it"])
     assert resumed.exit_code == 0, resumed.output
@@ -389,7 +393,7 @@ def test_pause_and_resume_carry_the_reason_and_wake_carries_none(runner, console
     assert console.requests[-1][:3] == (
         "POST",
         "/heartbeat/resume",
-        {"reason": "read it"},
+        {"rationale": "read it"},
     )
     woken = runner.invoke(cli.app, ["heartbeat", "wake"])
     assert woken.exit_code == 0, woken.output
@@ -401,63 +405,73 @@ def test_pause_and_resume_carry_the_reason_and_wake_carries_none(runner, console
     assert console.requests[-1][:2] == ("POST", "/heartbeat/wake")
 
 
+def test_heartbeat_show_prints_the_ticks(runner, console):
+    result = runner.invoke(cli.app, ["heartbeat", "show"])
+    assert result.exit_code == 0, result.output
+    assert "heartbeat RUNNING (sleeping)" in result.output
+    assert "max_concurrent_runs" in result.output and "idle" in result.output
+    raw = runner.invoke(cli.app, ["heartbeat", "show", "--json"])
+    assert json.loads(raw.output) == golden("GET /heartbeat")
+
+
 def test_whoami_is_two_lines_for_a_person(runner, console):
     result = runner.invoke(cli.app, ["whoami"])
     assert result.exit_code == 0, result.output
     assert "you are owner (human)" in result.output
     assert "company: hello-saas · converged" in result.output
     raw = runner.invoke(cli.app, ["whoami", "--json"])
-    assert json.loads(raw.output)["company"] == "hello-saas"
+    assert json.loads(raw.output) == golden("GET /whoami")
 
 
 def test_run_show_is_a_record_and_story_is_lines(runner, console):
-    console.answers[("GET", "/runs/run-1")] = (
-        200,
-        {
-            "run_id": "run-1",
-            "task": "Implement #42",
-            "status": "failed",
-            "workflow": "implement",
-            "pr_url": None,
-            "verdict": None,
-            "ticket_urls": [],
-            "iterations": 2,
-            "error": "verify never went green",
-            "created_at": "2026-09-13T10:00:00+00:00",
-            "finished_at": "2026-09-13T10:04:02+00:00",
-            "company": "hello-saas",
-            "execution": {
-                "workflow_id": "implement-run-1",
-                "status": "COMPLETED",
-                "state": None,
-            },
+    failed = {
+        **golden("GET /runs/{run_id}"),
+        "status": "failed",
+        "error": "verify never went green",
+        "created_at": "2026-09-13T10:00:00Z",
+        "finished_at": "2026-09-13T10:04:02Z",
+        "execution": {
+            "workflow_id": f"review-{REVIEW}",
+            "status": "COMPLETED",
+            "state": None,
         },
-    )
-    console.answers[("GET", "/runs/run-1/story")] = (
-        200,
-        [
-            {
-                "ts": "2026-09-13T10:00:01+00:00",
-                "run_id": "run-1",
-                "agent_id": "pm-1",
-                "role": "pm",
-                "tool": HEARTBEAT_DECIDE,
-                "decision": "allow",
-                "rule": "decision_valid",
-                "rationale": "the slice is next",
-            }
-        ],
-    )
-    shown = runner.invoke(cli.app, ["run", "show", "run-1"])
+    }
+    console.answers[("GET", f"/runs/{REVIEW}")] = (200, failed)
+    shown = runner.invoke(cli.app, ["run", "show", REVIEW])
     assert shown.exit_code == 0, shown.output
-    for expected in ("Implement #42", "failed", "4 min 02 s", "verify never went green"):
+    for expected in (
+        "review pull request #12",
+        "failed",
+        "4 min 02 s",
+        "verify never went green",
+    ):
         assert expected in shown.output, shown.output
-    story = runner.invoke(cli.app, ["run", "story", "run-1"])
+    story = runner.invoke(cli.app, ["run", "story", REVIEW])
     assert story.exit_code == 0, story.output
-    assert "10:00:01" in story.output and HEARTBEAT_DECIDE in story.output
-    assert "the slice is next" in story.output
-    raw = runner.invoke(cli.app, ["run", "story", "run-1", "--json"])
-    assert json.loads(raw.output)[0]["rationale"] == "the slice is next"
+    assert "23:56:00" in story.output and REVIEW_VERDICT in story.output
+    assert "the change does what the ticket asks" in story.output
+    raw = runner.invoke(cli.app, ["run", "story", REVIEW, "--json"])
+    assert json.loads(raw.output) == golden("GET /runs/{run_id}/story")
+
+
+def test_acts_prints_what_a_human_may_do_now(runner, console):
+    company = runner.invoke(cli.app, ["acts"])
+    assert company.exit_code == 0, company.output
+    assert "heartbeat.pause" in company.output and "run.start" in company.output
+    assert "deny" in company.output  # the resume: the company is not paused
+    run = runner.invoke(cli.app, ["acts", REVIEW, "--json"])
+    assert json.loads(run.output) == golden("GET /runs/{run_id}/acts")
+    assert console.requests[-1][:2] == ("GET", f"/runs/{REVIEW}/acts")
+
+
+def test_blueprint_show_prints_the_applied_text_exactly(runner, console):
+    """Round-trippable: what `show` prints is what was applied, byte for
+    byte, so it can be edited and applied again."""
+    result = runner.invoke(cli.app, ["blueprint", "show"])
+    assert result.exit_code == 0, result.output
+    assert result.output == golden("GET /blueprint")["text"]
+    raw = runner.invoke(cli.app, ["blueprint", "show", "--json"])
+    assert json.loads(raw.output) == golden("GET /blueprint")
 
 
 def test_apply_previews_first_and_applies_with_yes(runner, console, tmp_path):
@@ -471,7 +485,7 @@ def test_apply_previews_first_and_applies_with_yes(runner, console, tmp_path):
         "/blueprint/preview",
         "/blueprint/apply",
     ]
-    assert "applied hello-saas: 0 created, 1 updated (blueprint_apply)" in result.output
+    assert "applied hello-saas: 1 created, 0 updated (blueprint_apply)" in result.output
 
 
 def test_without_a_token_the_cli_says_how_to_get_one(monkeypatch):

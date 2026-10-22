@@ -7,6 +7,9 @@
 # It holds no secret but the registry DSN: no GIT_TOKEN, no provider key.
 # Its cluster authority is exactly what an apply needs — the two CRDs and
 # a look at the company namespace — which the reconciler deliberately lacks.
+# At the MCP gateway it is the `console` identity, through a projected
+# token for the gateway's audience, which the company's bundle allows one
+# read: the company's two documents at the base ref.
 {{ include "poseidon.authDelegator" (dict "root" . "name" "console") }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -71,6 +74,17 @@ spec:
       serviceAccountName: console
       securityContext:
         {{- include "poseidon.podSecurityContext" . | nindent 8 }}
+      volumes:
+        # The console's identity at the MCP gateway, for reading the
+        # company's documents: useless at the API server, as the API
+        # server's token is at the gateway.
+        - name: gateway-identity
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: poseidon-mcp-gateway
+                  expirationSeconds: 3600
+                  path: token
       containers:
         - name: console
           image: "{{ .Values.images.console.repository }}:{{ .Values.images.console.tag }}"
@@ -79,6 +93,10 @@ spec:
             {{- include "poseidon.containerSecurityContext" . | nindent 12 }}
           ports:
             - containerPort: 8090
+          volumeMounts:
+            - name: gateway-identity
+              mountPath: /var/run/poseidon/identity
+              readOnly: true
           env:
             - name: OPA_URL
               value: http://opa:8181

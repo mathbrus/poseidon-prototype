@@ -114,6 +114,7 @@ def compile_blueprint(
             ephemeral_agents=list(ephemeral_agents),
             policies=policies,
             repo_url=repo.url,
+            base_ref=repo.base_ref,
             heartbeat=heartbeat,
             documents=company_cr.documents,
             humans=tuple(company_section["humans"]),

@@ -1,0 +1,13 @@
+{
+  "request": {
+    "body": null,
+    "path": "/healthz",
+    "query": {}
+  },
+  "response": {
+    "ok": true,
+    "version": "unreleased"
+  },
+  "route": "GET /healthz",
+  "status": 200
+}
