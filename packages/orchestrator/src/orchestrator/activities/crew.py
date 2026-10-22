@@ -45,6 +45,7 @@ from common.topology import (
     llm_gateway_url,
     mcp_gateway_url,
 )
+from common.workflows import RUN_STATUS_DONE, RUN_STATUS_FAILED
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
 from orchestrator.audit import record_event
@@ -265,7 +266,7 @@ class CrewActivities:
         record = self._runs.get(run_id)
         # A missing run row is not evidence of finalization (the e2e
         # fixtures delete rows); only an explicitly terminal one is.
-        return record is None or record.status not in ("done", "failed")
+        return record is None or record.status not in (RUN_STATUS_DONE, RUN_STATUS_FAILED)
 
     @activity.defn(name="destroy_ephemeral_pods")
     async def destroy_ephemeral_pods(self, run_id: str) -> list[str]:

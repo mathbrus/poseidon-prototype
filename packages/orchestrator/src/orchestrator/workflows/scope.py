@@ -27,7 +27,7 @@ from temporalio import workflow
 from temporalio.exceptions import ActivityError
 
 from common.tasks import SCOPE_TASK
-from common.workflows import BUDGET_GATE
+from common.workflows import BUDGET_GATE, RUN_FINALIZING, RUN_RUNNING
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import STEP_RETRY, RunWorkflow
 
@@ -43,7 +43,7 @@ class ScopeWorkflow(RunWorkflow):
     CREWLESS = True
 
     def __init__(self) -> None:
-        self._state = "running"
+        self._state = RUN_RUNNING
         self._budget_gate = Gate(BUDGET_GATE)
 
     @workflow.signal
@@ -76,7 +76,7 @@ class ScopeWorkflow(RunWorkflow):
         except ActivityError as exc:
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
-        self._state = "finalizing"
+        self._state = RUN_FINALIZING
         record = await self.teardown(input.run_id, None, result, error)
         # The tickets this run filed are the standing heartbeat's next
         # backlog — nudge it; the reconcile timer covers a nudge that

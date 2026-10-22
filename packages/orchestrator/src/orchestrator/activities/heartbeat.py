@@ -38,6 +38,8 @@ from common.policy import HEARTBEAT_START
 from common.telemetry import get_logger
 from common.workflows import (
     HEARTBEAT_WORKFLOW,
+    RUN_STATUS_DONE,
+    RUN_STATUS_FAILED,
     TEMPORAL_NAMESPACE,
     TICK_STARTED,
     heartbeat_run_id,
@@ -182,7 +184,7 @@ class HeartbeatActivities:
             heartbeat_run_id(self._company()),
             self._company(),
         )
-        terminal, terminal_error = "done", None
+        terminal, terminal_error = RUN_STATUS_DONE, None
         try:
             prompt = decision_prompt(observed, may_start)
             status = await dispatch_and_poll(
@@ -216,7 +218,7 @@ class HeartbeatActivities:
             self._log.info("heartbeat decision", extra=decision)
             return decision
         except BaseException as exc:
-            terminal, terminal_error = "failed", str(exc)[:ERROR_CLIP]
+            terminal, terminal_error = RUN_STATUS_FAILED, str(exc)[:ERROR_CLIP]
             raise
         finally:
             # Tidy the decision row on every exit. A started child reclaims

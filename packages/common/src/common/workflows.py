@@ -56,6 +56,28 @@ PARKED_STATE = {
     BUDGET_GATE: f"{PARKED_PREFIX}budget_exhausted",
 }
 
+# Every state a run-shaped workflow's `state()` query answers: working,
+# parked on a gate, or finalizing (tearing its crew and sandbox down).
+# The console passes it through as the execution's state; a workflow
+# that returned anything else would break every reader of it.
+RUN_RUNNING = "running"
+RUN_FINALIZING = "finalizing"
+RUN_STATES = (RUN_RUNNING, *PARKED_STATE.values(), RUN_FINALIZING)
+# Every state the heartbeat's `state()` query answers: sleeping between
+# ticks, ticking while a tick runs, paused while a human holds it.
+HEARTBEAT_SLEEPING = "sleeping"
+HEARTBEAT_TICKING = "ticking"
+HEARTBEAT_PAUSED = "paused"
+HEARTBEAT_STATES = (HEARTBEAT_SLEEPING, HEARTBEAT_TICKING, HEARTBEAT_PAUSED)
+
+# What a run's registry row says of it: running until its teardown
+# writes the terminal status, done or failed. Not the workflow's state:
+# a run parked on a gate is still `running` here.
+RUN_STATUS_RUNNING = "running"
+RUN_STATUS_DONE = "done"
+RUN_STATUS_FAILED = "failed"
+RUN_STATUSES = (RUN_STATUS_RUNNING, RUN_STATUS_DONE, RUN_STATUS_FAILED)
+
 # What a gate resolved to: one outcome per kind, written on the gate's
 # process-gate audit row as `gate_<kind>` by the orchestrator and read
 # back by the CLI. A human answered (approved, rejected), nobody did

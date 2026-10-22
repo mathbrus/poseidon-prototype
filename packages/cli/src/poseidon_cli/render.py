@@ -26,8 +26,14 @@ from common.workflows import (
     GATE_EXPIRED,
     GATE_HALTED,
     GATE_REJECTED,
+    HEARTBEAT_SLEEPING,
+    HEARTBEAT_TICKING,
     HEARTBEAT_WORKFLOW,
     PARKED_PREFIX,
+    RUN_FINALIZING,
+    RUN_STATUS_DONE,
+    RUN_STATUS_FAILED,
+    RUN_STATUS_RUNNING,
     TICK_IDLE,
     TICK_PAUSED,
     TICK_REFUSED,
@@ -41,16 +47,19 @@ ERR = Console(stderr=True, highlight=False, soft_wrap=True)
 
 # The one vocabulary of colour: a status word carries it, nothing else does.
 STATUS_STYLE = {
-    "running": "blue",
+    # A run's status and its workflow's state share the word `running`,
+    # and the heartbeat's `paused` state is its tick's outcome word.
+    RUN_STATUS_RUNNING: "blue",
+    RUN_FINALIZING: "blue",
     "RUNNING": "blue",
-    "ticking": "blue",
+    HEARTBEAT_TICKING: "blue",
     TICK_STARTED: "blue",
     "activating": "yellow",
     TICK_PAUSED: "yellow",
     GATE_ESCALATED: "yellow",
     GATE_HALTED: "yellow",
     GATE_EXPIRED: "yellow",
-    "done": "green",
+    RUN_STATUS_DONE: "green",
     "COMPLETED": "green",
     "converged": "green",
     GATE_APPROVED: "green",
@@ -58,7 +67,7 @@ STATUS_STYLE = {
     "allow": "green",
     "pass": "green",
     "ok": "green",
-    "failed": "red",
+    RUN_STATUS_FAILED: "red",
     "FAILED": "red",
     "deny": "red",
     GATE_REJECTED: "red",
@@ -72,7 +81,7 @@ STATUS_STYLE = {
     TICK_STOPPED: "red",
     "NOT_FOUND": "dim",
     TICK_IDLE: "dim",
-    "sleeping": "dim",
+    HEARTBEAT_SLEEPING: "dim",
 }
 DIM = "dim"
 

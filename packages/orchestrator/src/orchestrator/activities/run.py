@@ -41,6 +41,8 @@ from common.workflows import (
     ATTEMPTS_GATE,
     GATE_EXHAUSTED,
     GATE_RELEASING,
+    RUN_STATUS_DONE,
+    RUN_STATUS_FAILED,
     gate_rule,
     workflow_id,
 )
@@ -274,7 +276,7 @@ class RunActivities:
         record = await asyncio.to_thread(
             self._runs.finish,
             run_id,
-            "failed" if error else "done",
+            RUN_STATUS_FAILED if error else RUN_STATUS_DONE,
             result.get("pr_url"),
             result.get("iterations", 0),
             error,

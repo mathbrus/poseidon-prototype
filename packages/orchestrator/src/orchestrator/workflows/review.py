@@ -68,6 +68,8 @@ from common.workflows import (
     GATE_VERDICT_UNVERIFIED,
     MERGE_GATE,
     PARKED_STATE,
+    RUN_FINALIZING,
+    RUN_RUNNING,
 )
 from orchestrator.gates import Gate
 from orchestrator.workflows.base import (
@@ -101,7 +103,7 @@ class ReviewWorkflow(RunWorkflow):
     WORKFLOW = "review"
 
     def __init__(self) -> None:
-        self._state = "running"
+        self._state = RUN_RUNNING
         self._budget_gate = Gate(BUDGET_GATE)
         self._merge_gate = Gate(MERGE_GATE)
 
@@ -373,7 +375,7 @@ class ReviewWorkflow(RunWorkflow):
                 input.run_id, MERGE_GATE, GATE_ESCALATED
             ),
         )
-        self._state = "running"
+        self._state = RUN_RUNNING
         await self.record_gate(input.run_id, MERGE_GATE, outcome.kind)
         if outcome.kind != GATE_APPROVED:
             return {"error": f"merge gate {outcome.kind}"}
@@ -537,7 +539,7 @@ class ReviewWorkflow(RunWorkflow):
         except ActivityError as exc:
             cause = exc.cause
             error = f"{exc.message}: {cause}" if cause else exc.message
-        self._state = "finalizing"
+        self._state = RUN_FINALIZING
         record = await self.teardown(input.run_id, handle, result, error)
         if not concluded:
             await self.record_attempts(input.run_id)

@@ -12,7 +12,13 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
-from common.workflows import BUDGET_GATE, GATE_APPROVED, GATE_ESCALATED, PARKED_STATE
+from common.workflows import (
+    BUDGET_GATE,
+    GATE_APPROVED,
+    GATE_ESCALATED,
+    PARKED_STATE,
+    RUN_RUNNING,
+)
 from orchestrator.gates import Gate
 
 # The marker of the LLM gateway's refusal at the cap: a dispatch whose error carries it
@@ -291,7 +297,7 @@ class RunWorkflow:
                 **gate_deadline(self._config["budget_deadline_minutes"]),
                 on_escalate=lambda: self.record_gate(run_id, BUDGET_GATE, GATE_ESCALATED),
             )
-            self._state = "running"
+            self._state = RUN_RUNNING
             await self.record_gate(run_id, BUDGET_GATE, outcome.kind)
             if outcome.kind != GATE_APPROVED:
                 return result
