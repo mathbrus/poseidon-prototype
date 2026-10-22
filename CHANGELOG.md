@@ -11,6 +11,8 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+## [0.4.0+2026.10.22] - 2026-10-22
+
 - Nothing an agent does in its sandbox moves a platform check or what is
   delivered or merged. A review pins the pull request's head commit:
   every sandbox is built from it and the merge names it, so a push after
