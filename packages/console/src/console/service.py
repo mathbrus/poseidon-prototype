@@ -28,12 +28,17 @@ from blueprint import validate_blueprint
 from blueprint.validate import ValidationError
 from common.audit import AuditEvent, args_digest
 from common.console import (
+    AgentList,
     ApplyResult,
+    BoundsView,
     CompanyDeleted,
     CompanyView,
+    CrewView,
     EventsPage,
+    ExecutionView,
     HeartbeatView,
     Now,
+    ParkedView,
     PauseState,
     PreviewResult,
     RunCancelled,
@@ -43,6 +48,7 @@ from common.console import (
     RunStarted,
     SpendView,
     StoryView,
+    TicketList,
     VerdictRecorded,
     Woken,
 )
@@ -64,6 +70,7 @@ from common.telemetry import get_logger
 from common.workflows import (
     GATES_OF,
     PARKED_STATE,
+    RUN_STATUS_RUNNING,
     heartbeat_run_id,
     workflow_id,
 )
@@ -83,6 +90,8 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
+    FiledTickets,
+    RunParticipants,
     RunRecord,
     Runs,
 )
@@ -116,6 +125,8 @@ class ConsoleService:
         ledger: BudgetLedger,
         instances: AgentInstances,
         companies: Companies,
+        participants: RunParticipants,
+        tickets: FiledTickets,
         workflows: Workflows,
         submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]],
         delete_company: Callable[[str, bool], None],
@@ -128,6 +139,8 @@ class ConsoleService:
         self._ledger = ledger
         self._instances = instances
         self._companies = companies
+        self._participants = participants
+        self._tickets = tickets
         self._workflows = workflows
         self._submit = submit_crs
         self._delete = delete_company
@@ -147,6 +160,18 @@ class ConsoleService:
         if company is None:
             raise NoCompany("no company is applied")
         return company
+
+    async def _spec(self, company: str) -> dict[str, Any] | None:
+        """The applied spec the platform enforces — the reconciler's copy,
+        there once the company has converged."""
+        return await asyncio.to_thread(self._companies.get, company)
+
+    async def _converged_spec(self) -> tuple[str, dict[str, Any]]:
+        company = await self._company()
+        spec = await self._spec(company)
+        if spec is None:
+            raise NoCompany(f"{company!r} has not converged yet")
+        return company, spec
 
     # -- verify → decide → do → audit ---------------------------------------
 
@@ -333,8 +358,29 @@ class ConsoleService:
         cr = await asyncio.to_thread(self._read_company)
         if cr is None:
             raise NoCompany("no company is applied")
-        paused = await asyncio.to_thread(self._companies.paused, cr["metadata"]["name"])
-        return views.company_view(cr, paused)
+        company = cr["metadata"]["name"]
+        paused = await asyncio.to_thread(self._companies.paused, company)
+        spec = await self._spec(company)
+        limits = None
+        if spec is not None:
+            spent = await asyncio.to_thread(self._ledger.spent_today, company)
+            limits = views.limits_view(spec, spent)
+        return views.company_view(cr, paused, limits)
+
+    async def bounds(self) -> BoundsView:
+        """The bounds every dispatch carries, from the applied spec."""
+        company, spec = await self._converged_spec()
+        return views.bounds_view(company, spec)
+
+    async def agents(self) -> AgentList:
+        company, spec = await self._converged_spec()
+        rows = await asyncio.to_thread(self._instances.for_company, company)
+        return views.agent_list(rows, spec["heartbeat"]["conductor"])
+
+    async def tickets(self) -> TicketList:
+        _, spec = await self._converged_spec()
+        repo = spec["repo"]["url"]
+        return views.ticket_list(repo, await asyncio.to_thread(self._tickets.filed, repo))
 
     async def delete(
         self, identity: Identity, rationale: str, wait: bool = True
@@ -484,7 +530,7 @@ class ConsoleService:
             raise Invalid(f"run {run_id!r} has no workflow to cancel") from exc
         return RunCancelled(run_id=run_id, workflow_id=wf_id, rule=decision["rule"])
 
-    async def _execution(self, wf_id: str):
+    async def _execution(self, wf_id: str) -> ExecutionView:
         """The workflow's execution, or the answer for one Temporal does
         not know."""
         try:
@@ -492,14 +538,48 @@ class ConsoleService:
         except WorkflowNotFound:
             return views.missing_execution(wf_id)
 
+    async def _parked(
+        self, record: RunRecord, execution: ExecutionView
+    ) -> ParkedView | None:
+        """Where the run waits, if its execution says it is parked: since
+        its `parked` gate row, for the deadline the applied spec gives
+        the gate."""
+        gate = views.parked_gate(execution)
+        if gate is None:
+            return None
+        story = await asyncio.to_thread(self._audit.story, record.run_id)
+        spec = await self._spec(record.company or "")
+        deadline = views.gate_deadlines(spec).get(gate) if spec else None
+        return views.parked_view(gate, views.park_since(story, gate), deadline)
+
     async def run(self, run_id: str) -> RunDetail:
         record, wf_id = await asyncio.to_thread(self._run_of, run_id)
-        return views.run_detail(record, await self._execution(wf_id))
+        execution = await self._execution(wf_id)
+        return views.run_detail(record, execution, await self._parked(record, execution))
 
-    async def runs_since(self, since: str | None) -> RunList:
+    async def runs_since(self, since: str | None, parked_only: bool = False) -> RunList:
+        """The company's runs since a fence. The ones still running are
+        inspected, all at once, so each says whether it is parked."""
         company = await self._company()
         records = await asyncio.to_thread(self._runs.since, company, since)
-        return RunList(runs=[views.run_view(r) for r in records])
+        running = [r for r in records if r.status == RUN_STATUS_RUNNING]
+        executions = await asyncio.gather(
+            *(self._execution(views.run_workflow_id(r)) for r in running)
+        )
+        parks = await asyncio.gather(
+            *(self._parked(r, e) for r, e in zip(running, executions, strict=True))
+        )
+        parked = {r.run_id: park for r, park in zip(running, parks, strict=True)}
+        listed = [views.run_view(r, parked.get(r.run_id)) for r in records]
+        if parked_only:
+            listed = [view for view in listed if view.parked is not None]
+        return RunList(runs=listed)
+
+    async def crew(self, run_id: str) -> CrewView:
+        """Every ephemeral agent ever bound to the run, revoked included."""
+        await asyncio.to_thread(self._run_of, run_id)
+        rows = await asyncio.to_thread(self._participants.for_run, run_id)
+        return views.crew_view(run_id, rows)
 
     async def story(self, run_id: str, decisions: bool = False) -> StoryView:
         """The run's audit rows in order; with `decisions`, only those that

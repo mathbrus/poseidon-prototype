@@ -61,6 +61,7 @@ from common.workflows import (
     BUDGET_GATE,
     GATE_APPROVED,
     GATE_ESCALATED,
+    GATE_PARKED,
     GATE_POLICY_DECLINED,
     GATE_POLICY_RESOLVED,
     GATE_REWORK_EXHAUSTED,
@@ -368,6 +369,9 @@ class ReviewWorkflow(RunWorkflow):
         signal delivered by any other road (network reach to the workflow
         engine, a human the company did not name) finds no recorded
         verdict and ends the run unmerged, by a rule that says so."""
+        # The row first, then the state: a run that reads parked always has
+        # the row its deadlines are measured from.
+        await self.record_gate(input.run_id, MERGE_GATE, GATE_PARKED)
         self._state = PARKED_STATE[MERGE_GATE]
         outcome = await self._merge_gate.wait(
             **gate_deadline(gate["deadline_minutes"]),

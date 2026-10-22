@@ -15,14 +15,9 @@ from temporalio.client import WorkflowExecutionStatus
 from common.audit import AuditEvent
 from common.console import ROUTES, AuditEventView, ExecutionStatus, enums, models
 from console import views
-from console.app import create_app
-from console.config import ConsoleSettings
+from console.fakes import World
 from registry.memory import (
-    InMemoryAgentInstances,
     InMemoryAuditStore,
-    InMemoryBudgetLedger,
-    InMemoryCompanies,
-    InMemoryRuns,
 )
 
 SOURCE = Path(views.__file__).parent
@@ -41,22 +36,7 @@ def test_the_service_builds_no_response_dicts():
 
 
 def test_every_served_route_declares_its_interface_model():
-    app = create_app(
-        ConsoleSettings(
-            platform_namespace="poseidon-platform",
-            opa_url="http://opa.test:8181",
-            temporal_address="temporal.test:7233",
-        ),
-        audit=InMemoryAuditStore(),
-        runs=InMemoryRuns(),
-        ledger=InMemoryBudgetLedger(),
-        instances=InMemoryAgentInstances(),
-        companies=InMemoryCompanies(),
-        workflows=object(),
-        submit_crs=lambda plan: (0, 0, 1),
-        read_company=lambda: None,
-        clock=lambda: "",
-    )
+    app = World().app()
     served = {
         (method, route.path): route.response_model
         for route in app.routes

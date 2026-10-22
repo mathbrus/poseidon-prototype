@@ -16,6 +16,7 @@ from common.workflows import (
     BUDGET_GATE,
     GATE_APPROVED,
     GATE_ESCALATED,
+    GATE_PARKED,
     PARKED_STATE,
     RUN_RUNNING,
 )
@@ -292,6 +293,9 @@ class RunWorkflow:
             )
             if BUDGET_MARKER not in ((result or {}).get("error") or ""):
                 return result
+            # The row first, then the state: a run that reads parked always
+            # has the row its deadlines are measured from.
+            await self.record_gate(run_id, BUDGET_GATE, GATE_PARKED)
             self._state = PARKED_STATE[BUDGET_GATE]
             outcome = await self._budget_gate.wait(
                 **gate_deadline(self._config["budget_deadline_minutes"]),

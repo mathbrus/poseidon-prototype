@@ -67,8 +67,15 @@ A run waiting for you is in one of two states:
 | `parked-merge_gate` | Your merge verdict on the pull request it reviewed. |
 | `parked-budget_exhausted` | Your verdict to continue past `budgets.per_run.usd`. |
 
-A gate doesn't wait forever. It escalates at half its `deadline_minutes`
-and expires at the end, and both events are recorded.
+A gate doesn't wait forever. The park is recorded when it begins
+(`gate_parked`), it escalates at half its `deadline_minutes` and expires
+at the end, and each of these is recorded too. The console lists every
+run waiting for you, with when it escalates and expires:
+
+```bash
+TOKEN=$(uv run poseidon login owner)
+curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8090/runs?state=parked"
+```
 
 ## Answer the gate
 

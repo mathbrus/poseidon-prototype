@@ -19,12 +19,12 @@ profile so later suites run against the real cap.
 
 import secrets
 import time
-from typing import Any
 
 import httpx
 import pytest
 
 from common.audit import gate_event
+from common.console import SpendEntryView
 from common.tasks import issue_run_task
 from common.workflows import BUDGET_GATE
 
@@ -36,14 +36,12 @@ from .blueprints import (
     single_attempt,
 )
 from .cluster import (
-    COMPANY,
     COMPANY_NS,
     audit_story,
     await_run,
     console,
     port_forward,
     projected_token,
-    psql_json,
     run_by_task,
 )
 from .conftest import (
@@ -87,13 +85,9 @@ def tiny_cap_applied(stack: None, env: dict) -> None:
     apply_profile(_tiny_cap(), env)
 
 
-def ledger_entries(run_id: str) -> list[dict[str, Any]]:
-    return psql_json(
-        "SELECT COALESCE(json_agg(l ORDER BY l.ts, l.id), '[]'::json) FROM ("
-        "SELECT * FROM registry.budget_ledger WHERE run_id = :'run_id'"
-        ") l",
-        run_id=run_id,
-    )
+def ledger_entries(run_id: str) -> list[SpendEntryView]:
+    """Every model call attributed to the run, as the console reads them."""
+    return console().spend(run_id).entries
 
 
 def _parked_run(env: dict) -> tuple[int, str]:
@@ -148,20 +142,19 @@ def test_tiny_cap_refuses_parks_and_attributes(tiny_cap_applied, env) -> None:
 
     implementer_id = ephemeral_agent_id("feature-delivery", "implementer", run_id)
     entries = ledger_entries(run_id)
-    assert [e["agent_id"] for e in entries[:2]] == ["pm-1", implementer_id], entries
+    assert [e.agent_id for e in entries[:2]] == ["pm-1", implementer_id], entries
     for entry in entries:
-        assert entry["run_id"] == run_id
-        assert entry["company"] == COMPANY
-        assert entry["model"] == "mock-brain"
-        assert entry["prompt_tokens"] > 0
-        if entry["agent_id"] == "pm-1":
-            assert entry["role"] == "pm"
+        assert entry.run_id == run_id
+        assert entry.model == "mock-brain"
+        assert entry.prompt_tokens > 0
+        if entry.agent_id == "pm-1":
+            assert entry.role == "pm"
         else:
-            assert entry["agent_id"] == implementer_id
-            assert entry["parent_agent_id"] == "pm-1"
-            assert entry["role"] == "implementer"
-            assert int(entry["cached_tokens"]) > 0
-    assert sum(float(e["usd"]) for e in entries) >= TINY_CAP
+            assert entry.agent_id == implementer_id
+            assert entry.parent_agent_id == "pm-1"
+            assert entry.role == "implementer"
+            assert entry.cached_tokens > 0
+    assert sum(e.usd for e in entries) >= TINY_CAP
 
     # Budget events are in the one audit story: metered allows and the
     # cap's deny, all source=llm-gateway.
@@ -187,15 +180,15 @@ def test_tiny_cap_refuses_parks_and_attributes(tiny_cap_applied, env) -> None:
     ]
     assert late_allows == [], f"model calls after the cap's deny: {late_allows}"
 
-    # And the park is in the story as first-class gate outcomes: the
-    # escalation at half-deadline, then the human's rejection — same
+    # And the park is in the story as first-class gate outcomes: the park
+    # itself, the escalation at half-deadline, then the human's rejection — same
     # process-gate contract as the merge gate.
     gate_rules = [
         e["rule"]
         for e in story
         if e["source"] == "process-gate" and e["tool"] == gate_event(BUDGET_GATE)
     ]
-    assert gate_rules == ["gate_escalated", "gate_rejected"], gate_rules
+    assert gate_rules == ["gate_parked", "gate_escalated", "gate_rejected"], gate_rules
     gate_events = [e for e in story if e["source"] == "process-gate"]
     assert all(e["workflow"] == f"implement-{run_id}" for e in gate_events), gate_events
 
@@ -232,7 +225,7 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
     number, run_id = _parked_run(env)
     record = None
     try:
-        spend_at_park = sum(float(e["usd"]) for e in ledger_entries(run_id))
+        spend_at_park = sum(e.usd for e in ledger_entries(run_id))
         # The human raises the cap: re-apply the real blueprint (the gateway
         # reads the cap from the registry per call, so the upsert is enough),
         # then approve — the run may continue.
@@ -254,7 +247,7 @@ def test_approval_raises_the_cap_and_the_run_completes(tiny_cap_applied, env) ->
         # The run spent *more* after the cap was raised: the pre-park total
         # already exceeds TINY_CAP by construction, so only a strictly larger
         # final total proves the approval actually resumed real model work.
-        final_spend = sum(float(e["usd"]) for e in ledger_entries(run_id))
+        final_spend = sum(e.usd for e in ledger_entries(run_id))
         assert final_spend > spend_at_park, (
             f"no spend past the raised cap ({final_spend} == {spend_at_park}) — "
             "the run never resumed real work"

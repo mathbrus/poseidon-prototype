@@ -33,23 +33,27 @@ import os
 import subprocess
 import sys
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from common.audit import HEARTBEAT_TICK, REVIEW_VERDICT, AuditEvent
+from common.audit import HEARTBEAT_TICK, REVIEW_VERDICT, AuditEvent, gate_event
 from common.console import ROUTES, Route
 from common.tasks import issue_run_task, review_run_task
 from common.topology import COMPANY_NAMESPACE, PHASE_CONVERGED
 from common.version import VERSION_VAR
 from common.workflows import (
+    GATE_PARKED,
+    MERGE_GATE,
     PARKED_STATE,
     TICK_IDLE,
     TICK_STARTED,
+    gate_rule,
     heartbeat_run_id,
     tick_rule,
     workflow_id,
 )
-from console.fakes import COMPANY, World, as_owner, company_cr
+from console.fakes import COMPANY, World, applied_spec, as_owner, company_cr
 
 ROOT = Path(__file__).resolve().parents[1]
 SNAPSHOT = ROOT / "packages" / "console" / "openapi.json"
@@ -58,6 +62,8 @@ SNAPSHOT_PATH = SNAPSHOT.relative_to(ROOT).as_posix()
 HELLO_SAAS = (ROOT / "examples" / "hello-saas.yaml").read_text()
 
 REPO = "https://github.com/acme/hello-saas"
+IMPLEMENTER = "feature-delivery-implementer-run-01implement"
+REVIEWER = "feature-review-reviewer-run-01review"
 IMPLEMENT_RUN = "run-01IMPLEMENT"
 REVIEW_RUN = "run-01REVIEW"
 STARTED_RUN = "run-01STARTED"
@@ -81,7 +87,8 @@ def _row(ts: str, run_id: str, **fields: Any) -> AuditEvent:
 def seeded() -> World:
     """One company, converged: a delivered implement run, a review run
     parked on its merge gate, a sleeping heartbeat with two ticks, the
-    rows and the spend behind them."""
+    crews, the ticket the company filed, the rows and the spend behind
+    them."""
     world = World()
     world.cr = company_cr(
         COMPANY,
@@ -117,6 +124,19 @@ def seeded() -> World:
     world.workflows.running[workflow_id("heartbeat", COMPANY)] = "sleeping"
     world.run_ids = [STARTED_RUN]
 
+    world.participants.add(
+        IMPLEMENTER, IMPLEMENT_RUN, "pm-1", "feature-delivery", "implementer", COMPANY
+    )
+    world.participants.terminate(IMPLEMENTER)
+    world.participants.add(
+        REVIEWER, REVIEW_RUN, "pm-1", "feature-review", "reviewer", COMPANY
+    )
+    filed_at = datetime.fromisoformat("2025-12-31T23:30:00+00:00").timestamp()
+    world.tickets.rows[(applied_spec()["repo"]["url"], 7)] = (
+        heartbeat_run_id(COMPANY),
+        filed_at,
+    )
+
     heartbeat = heartbeat_run_id(COMPANY)
     platform = {"agent_id": "orchestrator", "role": "platform", "lifecycle": "platform"}
     for event in (
@@ -133,7 +153,7 @@ def seeded() -> World:
         _row(
             "2025-12-31T23:41:00+00:00",
             IMPLEMENT_RUN,
-            agent_id="feature-delivery-implementer-run-01implement",
+            agent_id=IMPLEMENTER,
             role="implementer",
             tool="git.open_pr",
             decision="allow",
@@ -157,6 +177,16 @@ def seeded() -> World:
             **platform,
         ),
         _row(
+            "2025-12-31T23:57:00+00:00",
+            REVIEW_RUN,
+            tool=gate_event(MERGE_GATE),
+            decision="deny",
+            rule=gate_rule(GATE_PARKED),
+            source="process-gate",
+            workflow=workflow_id("review", REVIEW_RUN),
+            **platform,
+        ),
+        _row(
             "2025-12-31T23:58:00+00:00",
             heartbeat,
             tool=HEARTBEAT_TICK,
@@ -173,7 +203,7 @@ def seeded() -> World:
             "ts": "2025-12-31T23:41:30+00:00",
             "company": COMPANY,
             "run_id": IMPLEMENT_RUN,
-            "agent_id": "feature-delivery-implementer-run-01implement",
+            "agent_id": IMPLEMENTER,
             "parent_agent_id": "pm-1",
             "role": "implementer",
             "model": "mock",
@@ -197,6 +227,9 @@ REQUESTS: dict[tuple[str, str], tuple[str, dict[str, Any], dict[str, Any] | None
     ("POST", "/blueprint/preview"): ("/blueprint/preview", {}, {"blueprint": HELLO_SAAS}),
     ("POST", "/blueprint/apply"): ("/blueprint/apply", {}, {"blueprint": HELLO_SAAS}),
     ("GET", "/company"): ("/company", {}, None),
+    ("GET", "/company/bounds"): ("/company/bounds", {}, None),
+    ("GET", "/agents"): ("/agents", {}, None),
+    ("GET", "/tickets"): ("/tickets", {}, None),
     ("DELETE", "/company"): (
         "/company",
         {},
@@ -207,6 +240,7 @@ REQUESTS: dict[tuple[str, str], tuple[str, dict[str, Any], dict[str, Any] | None
     ("GET", "/runs/{run_id}"): (f"/runs/{REVIEW_RUN}", {}, None),
     ("GET", "/runs/{run_id}/story"): (f"/runs/{REVIEW_RUN}/story", {}, None),
     ("GET", "/runs/{run_id}/spend"): (f"/runs/{IMPLEMENT_RUN}/spend", {}, None),
+    ("GET", "/runs/{run_id}/crew"): (f"/runs/{REVIEW_RUN}/crew", {}, None),
     ("POST", "/runs/{run_id}/gates/{gate}"): (
         f"/runs/{REVIEW_RUN}/gates/merge",
         {},

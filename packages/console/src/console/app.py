@@ -13,7 +13,7 @@ Run with: uvicorn --factory console.app:create_app
 
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -47,6 +47,8 @@ from registry import (
     AuditStore,
     BudgetLedger,
     Companies,
+    FiledTickets,
+    RunParticipants,
     Runs,
     open_registry,
 )
@@ -77,6 +79,8 @@ def create_app(
     ledger: BudgetLedger | None = None,
     instances: AgentInstances | None = None,
     companies: Companies | None = None,
+    participants: RunParticipants | None = None,
+    tickets: FiledTickets | None = None,
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
     submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]] | None = None,
@@ -85,7 +89,7 @@ def create_app(
     clock: Callable[[], str] | None = None,
 ) -> FastAPI:
     settings = settings or ConsoleSettings()
-    accessors = (audit, runs, ledger, instances, companies)
+    accessors = (audit, runs, ledger, instances, companies, participants, tickets)
     registry = None
     if all(a is None for a in accessors):
         registry = open_registry()
@@ -94,6 +98,8 @@ def create_app(
         ledger = BudgetLedger(registry)
         instances = AgentInstances(registry)
         companies = Companies(registry)
+        participants = RunParticipants(registry)
+        tickets = FiledTickets(registry)
         clock = clock or registry.now
     elif any(a is None for a in accessors):
         raise ValueError("inject all registry accessors, or none")
@@ -115,6 +121,8 @@ def create_app(
         ledger,
         instances,
         companies,
+        participants,
+        tickets,
         workflows or TemporalWorkflows(settings.temporal_address),
         submit_crs or crs.submit,
         delete_company or crs.delete_company,
@@ -198,6 +206,18 @@ def create_app(
     async def company():
         return await service.company()
 
+    @serve("GET", "/company/bounds")
+    async def bounds():
+        return await service.bounds()
+
+    @serve("GET", "/agents")
+    async def agents():
+        return await service.agents()
+
+    @serve("GET", "/tickets")
+    async def tickets_filed():
+        return await service.tickets()
+
     @serve("DELETE", "/company")
     async def delete_company_route(request: Request, body: DeleteRequest):
         return await service.delete(identity_of(request), body.rationale, body.wait)
@@ -209,8 +229,10 @@ def create_app(
         )
 
     @serve("GET", "/runs")
-    async def runs_since(since: str | None = None):
-        return await service.runs_since(since)
+    async def runs_since(
+        since: str | None = None, state: Literal["parked"] | None = None
+    ):
+        return await service.runs_since(since, parked_only=state == "parked")
 
     @serve("GET", "/runs/{run_id}")
     async def run(run_id: str):
@@ -223,6 +245,10 @@ def create_app(
     @serve("GET", "/runs/{run_id}/spend")
     async def spend(run_id: str):
         return await service.spend(run_id)
+
+    @serve("GET", "/runs/{run_id}/crew")
+    async def crew(run_id: str):
+        return await service.crew(run_id)
 
     @serve("POST", "/runs/{run_id}/gates/{gate}")
     async def resolve_gate(

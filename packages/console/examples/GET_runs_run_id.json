@@ -15,6 +15,13 @@
     },
     "finished_at": null,
     "iterations": 0,
+    "parked": {
+      "deadline_minutes": 1440,
+      "escalates_at": "2026-01-01T11:57:00Z",
+      "expires_at": "2026-01-01T23:57:00Z",
+      "gate": "merge",
+      "since": "2025-12-31T23:57:00Z"
+    },
     "pr_url": null,
     "run_id": "run-01REVIEW",
     "status": "running",

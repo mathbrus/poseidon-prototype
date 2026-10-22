@@ -193,7 +193,7 @@ def test_the_steward_wrote_each_document_and_it_merged(bootstrapped: dict):
     document now on the base ref is what the steward wrote."""
     env = bootstrapped["env"]
     for name, run in bootstrapped["runs"].items():
-        crews = {p["crew_template"] for p in participants(run["implement"]["run_id"])}
+        crews = {p.crew for p in participants(run["implement"]["run_id"])}
         assert crews == {"stewardship"}, (name, crews)
         files = github_api(
             env, "GET", f"/repos/{target_slug(env)}/pulls/{run['pr']}/files"
@@ -326,7 +326,7 @@ def test_the_steward_revised_the_plan_on_a_later_tick(requested: dict):
     plan on the base ref carries the revision."""
     env = requested["env"]
     revision = requested["revision"]
-    crews = {p["crew_template"] for p in participants(revision["implement"]["run_id"])}
+    crews = {p.crew for p in participants(revision["implement"]["run_id"])}
     assert crews == {"stewardship"}, crews
     files = github_api(
         env, "GET", f"/repos/{target_slug(env)}/pulls/{revision['pr']}/files"

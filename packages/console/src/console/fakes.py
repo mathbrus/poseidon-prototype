@@ -15,15 +15,19 @@ same on every run.
 """
 
 from collections.abc import Callable
+from functools import cache
+from pathlib import Path
 from typing import Any
 
 import httpx
+import yaml
 from fastapi import FastAPI
 
 from common.authn import Principal
 from common.policy import GATE_RESOLVE, verdict_rule
 from common.topology import COMPANY_NAMESPACE, CONSOLE_TOKEN_AUDIENCE, PLATFORM_NAMESPACE
-from compiler import DeploymentPlan
+from compiler import DeploymentPlan, compile_blueprint
+from console import crs
 from console import service as service_module
 from console.app import create_app
 from console.config import ConsoleSettings
@@ -33,10 +37,14 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
+    InMemoryFiledTickets,
+    InMemoryRunParticipants,
     InMemoryRuns,
 )
 
 COMPANY = "hello-saas"
+# The example the world's company is applied from.
+HELLO_SAAS = Path(__file__).resolve().parents[4] / "examples" / "hello-saas.yaml"
 NOW = "2026-01-01T00:00:00+00:00"
 # The tokens the fake TokenReview knows: a declared human, a human the
 # console does not declare, and an agent's workload token.
@@ -107,6 +115,15 @@ class FixedCompanies(InMemoryCompanies):
         return self.pauses[name]
 
 
+@cache
+def applied_spec() -> dict[str, Any]:
+    """What the reconciler stores in `companies` for hello-saas: the
+    Company CR's spec, less the bundle."""
+    plan = compile_blueprint(yaml.safe_load(HELLO_SAAS.read_text()))
+    spec = crs.company_cr(plan)["spec"]
+    return {k: v for k, v in spec.items() if k != "policyBundle"}
+
+
 def company_cr(name: str, generation: int = 1, **status: Any) -> dict[str, Any]:
     """A Company CR as the cluster holds it."""
     return {
@@ -123,10 +140,12 @@ class World:
         self.runs = InMemoryRuns()
         self.ledger = InMemoryBudgetLedger()
         self.instances = InMemoryAgentInstances()
+        self.participants = InMemoryRunParticipants()
+        self.tickets = InMemoryFiledTickets()
         # The reconciler's record of the applied company; the console reads
         # which company it hosts from here.
         self.companies = FixedCompanies(lambda: self.now)
-        self.companies.upsert(COMPANY, {"namespace": COMPANY_NAMESPACE})
+        self.companies.upsert(COMPANY, applied_spec())
         self.workflows = FakeWorkflows()
         self.submitted: list[DeploymentPlan] = []
         self.deleted: list[str] = []
@@ -192,6 +211,8 @@ class World:
             ledger=self.ledger,
             instances=self.instances,
             companies=self.companies,
+            participants=self.participants,
+            tickets=self.tickets,
             token_reviewer=FakeReviewer(),
             workflows=self.workflows,
             submit_crs=self.submit,

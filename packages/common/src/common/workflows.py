@@ -78,14 +78,17 @@ RUN_STATUS_DONE = "done"
 RUN_STATUS_FAILED = "failed"
 RUN_STATUSES = (RUN_STATUS_RUNNING, RUN_STATUS_DONE, RUN_STATUS_FAILED)
 
-# What a gate resolved to: one outcome per kind, written on the gate's
+# What happened at a gate: one outcome per kind, written on the gate's
 # process-gate audit row as `gate_<kind>` by the orchestrator and read
-# back by the CLI. A human answered (approved, rejected), nobody did
+# back by the console. A run began waiting on it (parked — the row a
+# parked run's deadlines are measured from), a human answered (approved,
+# rejected), nobody did
 # (escalated at half the deadline, expired at the end), policy answered
 # the merge (resolved it, or declined and fell back to the human), the
 # review filed a rework ticket or spent its last rework, an approving
 # signal arrived without a recorded verdict, the heartbeat halted a start
 # on a gate nobody resolves, or a text spent its last attempt.
+GATE_PARKED = "parked"
 GATE_APPROVED = "approved"
 GATE_REJECTED = "rejected"
 GATE_ESCALATED = "escalated"
@@ -98,6 +101,7 @@ GATE_VERDICT_UNVERIFIED = "verdict_unverified"
 GATE_HALTED = "halted"
 GATE_EXHAUSTED = "exhausted"
 GATE_OUTCOMES = (
+    GATE_PARKED,
     GATE_APPROVED,
     GATE_REJECTED,
     GATE_ESCALATED,

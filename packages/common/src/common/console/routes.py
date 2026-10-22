@@ -65,6 +65,24 @@ ROUTES: tuple[Route, ...] = (
         m.CompanyView,
     ),
     Route(
+        "GET",
+        "/company/bounds",
+        "the charter's gates and limits as every dispatch carries them",
+        m.BoundsView,
+    ),
+    Route(
+        "GET",
+        "/agents",
+        "the company's standing agents, the conductor marked",
+        m.AgentList,
+    ),
+    Route(
+        "GET",
+        "/tickets",
+        "every ticket the company filed on its repository",
+        m.TicketList,
+    ),
+    Route(
         "DELETE",
         "/company",
         "stop the company: cancel its runs, delete its CR, wait for the teardown",
@@ -80,7 +98,13 @@ ROUTES: tuple[Route, ...] = (
         m.StartRunRequest,
         RUN_START,
     ),
-    Route("GET", "/runs", "the company's runs since a fence (`?since=`)", m.RunList),
+    Route(
+        "GET",
+        "/runs",
+        "the company's runs since a fence (`?since=`); `?state=parked` keeps those"
+        " parked on a gate, with their deadlines",
+        m.RunList,
+    ),
     Route(
         "GET",
         "/runs/{run_id}",
@@ -95,6 +119,12 @@ ROUTES: tuple[Route, ...] = (
         m.StoryView,
     ),
     Route("GET", "/runs/{run_id}/spend", "the run's attributed spend", m.RunSpendView),
+    Route(
+        "GET",
+        "/runs/{run_id}/crew",
+        "every ephemeral agent bound to the run, active or revoked",
+        m.CrewView,
+    ),
     Route(
         "POST",
         "/runs/{run_id}/gates/{gate}",

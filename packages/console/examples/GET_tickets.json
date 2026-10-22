@@ -1,0 +1,19 @@
+{
+  "request": {
+    "body": null,
+    "path": "/tickets",
+    "query": {}
+  },
+  "response": {
+    "repo": "github.com/example-org/hello-saas",
+    "tickets": [
+      {
+        "filed_at": "2025-12-31T23:30:00Z",
+        "number": 7,
+        "run_id": "heartbeat-hello-saas"
+      }
+    ]
+  },
+  "route": "GET /tickets",
+  "status": 200
+}

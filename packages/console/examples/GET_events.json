@@ -62,8 +62,25 @@
       {
         "agent_id": "orchestrator",
         "company": "hello-saas",
-        "decision": "allow",
+        "decision": "deny",
         "id": 4,
+        "latency_ms": 4,
+        "lifecycle": "platform",
+        "parent_agent_id": "",
+        "rationale": null,
+        "role": "platform",
+        "rule": "gate_parked",
+        "run_id": "run-01REVIEW",
+        "source": "process-gate",
+        "tool": "gate.merge",
+        "ts": "2025-12-31T23:57:00Z",
+        "workflow": "review-run-01REVIEW"
+      },
+      {
+        "agent_id": "orchestrator",
+        "company": "hello-saas",
+        "decision": "allow",
+        "id": 5,
         "latency_ms": 4,
         "lifecycle": "platform",
         "parent_agent_id": "",
@@ -77,7 +94,7 @@
         "workflow": "heartbeat-hello-saas"
       }
     ],
-    "next": 4,
+    "next": 5,
     "spend": {
       "run_usd": null,
       "usd": 0.0042

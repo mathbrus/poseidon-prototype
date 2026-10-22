@@ -1,6 +1,24 @@
 {
   "components": {
     "schemas": {
+      "AgentList": {
+        "additionalProperties": false,
+        "description": "`GET /agents`: the company's standing agents.",
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/StandingAgentView"
+            },
+            "title": "Agents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agents"
+        ],
+        "title": "AgentList",
+        "type": "object"
+      },
       "ApplyResult": {
         "additionalProperties": false,
         "description": "`POST /blueprint/apply`: the CRs created and updated, the\ngeneration this apply made (the one to wait `converged` for), and\nthe rule the apply was allowed under.",
@@ -166,6 +184,26 @@
         "title": "BlueprintRequest",
         "type": "object"
       },
+      "BoundsView": {
+        "additionalProperties": false,
+        "description": "`GET /company/bounds`: the charter's gates and limits as they bind\nthe company's work, the text every dispatch carries into a\nprocedure's system prompt.",
+        "properties": {
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "company",
+          "text"
+        ],
+        "title": "BoundsView",
+        "type": "object"
+      },
       "CancelRequest": {
         "additionalProperties": false,
         "description": "`POST /runs/{run_id}/cancel`.",
@@ -226,7 +264,7 @@
       },
       "CompanyView": {
         "additionalProperties": false,
-        "description": "`GET /company`: the applied company as its Company CR says \u2014\n`activating` until OPA serves its policy, `converged` after; the\ngeneration the phase answers for \u2014 and its pause.",
+        "description": "`GET /company`: the applied company as its Company CR says \u2014\n`activating` until OPA serves its policy, `converged` after; the\ngeneration the phase answers for \u2014 its pause, and its limits (null\nuntil the company has converged once).",
         "properties": {
           "bundle_revision": {
             "title": "Bundle Revision",
@@ -239,6 +277,16 @@
           "generation": {
             "title": "Generation",
             "type": "integer"
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LimitsView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "message": {
             "title": "Message",
@@ -269,9 +317,33 @@
           "observed_generation",
           "bundle_revision",
           "message",
-          "paused"
+          "paused",
+          "limits"
         ],
         "title": "CompanyView",
+        "type": "object"
+      },
+      "CrewView": {
+        "additionalProperties": false,
+        "description": "`GET /runs/{run_id}/crew`: every identity ever bound to the run.",
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/EphemeralAgentView"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "agents"
+        ],
+        "title": "CrewView",
         "type": "object"
       },
       "Decision": {
@@ -302,6 +374,36 @@
           "rationale"
         ],
         "title": "DeleteRequest",
+        "type": "object"
+      },
+      "EphemeralAgentView": {
+        "additionalProperties": false,
+        "description": "One ephemeral agent bound to a run: its crew and role, and whether\nits identity is still active or was revoked at teardown.",
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "crew": {
+            "title": "Crew",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "crew",
+          "role",
+          "status"
+        ],
+        "title": "EphemeralAgentView",
         "type": "object"
       },
       "EventsPage": {
@@ -470,6 +572,47 @@
         "title": "HeartbeatView",
         "type": "object"
       },
+      "LimitsView": {
+        "additionalProperties": false,
+        "description": "The charter's caps as they bind the company now, beside what they\nare measured against: the per-run cap, the daily cap and today's\nspend (since UTC midnight), how many runs may be live at once, and\nhow long each gate waits for a human before it expires (it escalates\nat half).",
+        "properties": {
+          "daily_cap_usd": {
+            "title": "Daily Cap Usd",
+            "type": "number"
+          },
+          "gate_deadline_minutes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/Gate"
+            },
+            "title": "Gate Deadline Minutes",
+            "type": "object"
+          },
+          "max_concurrent_runs": {
+            "title": "Max Concurrent Runs",
+            "type": "integer"
+          },
+          "per_run_usd": {
+            "title": "Per Run Usd",
+            "type": "number"
+          },
+          "spent_today_usd": {
+            "title": "Spent Today Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "per_run_usd",
+          "daily_cap_usd",
+          "spent_today_usd",
+          "max_concurrent_runs",
+          "gate_deadline_minutes"
+        ],
+        "title": "LimitsView",
+        "type": "object"
+      },
       "Now": {
         "additionalProperties": false,
         "description": "`GET /now`: the registry's clock, the fence a reader takes before\nacting and passes back as `?since=`.",
@@ -484,6 +627,71 @@
           "now"
         ],
         "title": "Now",
+        "type": "object"
+      },
+      "ParkedView": {
+        "additionalProperties": false,
+        "description": "Where a parked run waits: the gate, since when (its `parked` gate\nrow), and when nobody answering escalates it (half the deadline) and\nexpires it. The times are null when the park's row or the gate's\ndeadline cannot be read.",
+        "properties": {
+          "deadline_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline Minutes"
+          },
+          "escalates_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalates At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "gate": {
+            "$ref": "#/components/schemas/Gate"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          }
+        },
+        "required": [
+          "gate",
+          "deadline_minutes",
+          "since",
+          "escalates_at",
+          "expires_at"
+        ],
+        "title": "ParkedView",
         "type": "object"
       },
       "PauseRequest": {
@@ -709,6 +917,16 @@
             "title": "Iterations",
             "type": "integer"
           },
+          "parked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParkedView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "pr_url": {
             "anyOf": [
               {
@@ -771,6 +989,7 @@
           "error",
           "created_at",
           "finished_at",
+          "parked",
           "execution"
         ],
         "title": "RunDetail",
@@ -778,7 +997,7 @@
       },
       "RunList": {
         "additionalProperties": false,
-        "description": "`GET /runs`: the company's runs, oldest first.",
+        "description": "`GET /runs`: the company's runs, oldest first; with `?state=parked`,\nonly those parked on a gate.",
         "properties": {
           "runs": {
             "items": {
@@ -872,7 +1091,7 @@
       },
       "RunView": {
         "additionalProperties": false,
-        "description": "One run's record: its task, status and what it delivered.",
+        "description": "One run's record: its task, status and what it delivered, and the\ngate it is parked on, if any (null for a run that is not).",
         "properties": {
           "company": {
             "anyOf": [
@@ -923,6 +1142,16 @@
           "iterations": {
             "title": "Iterations",
             "type": "integer"
+          },
+          "parked": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParkedView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "pr_url": {
             "anyOf": [
@@ -985,7 +1214,8 @@
           "iterations",
           "error",
           "created_at",
-          "finished_at"
+          "finished_at",
+          "parked"
         ],
         "title": "RunView",
         "type": "object"
@@ -1081,6 +1311,41 @@
         "title": "SpendView",
         "type": "object"
       },
+      "StandingAgentView": {
+        "additionalProperties": false,
+        "description": "One standing agent: its hire's name, its catalog role, whether the\nreconciler converged it, and whether it is the conductor the\ncompany's runs are requested under.",
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "conductor": {
+            "title": "Conductor",
+            "type": "boolean"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "standing_name": {
+            "title": "Standing Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "standing_name",
+          "role",
+          "status",
+          "conductor"
+        ],
+        "title": "StandingAgentView",
+        "type": "object"
+      },
       "StartRunRequest": {
         "additionalProperties": false,
         "description": "`POST /runs`: a run on a ticket (`implement`) or a pull request\n(`review`), by its number on the company repository.",
@@ -1171,6 +1436,55 @@
           "detail"
         ],
         "title": "TickView",
+        "type": "object"
+      },
+      "TicketList": {
+        "additionalProperties": false,
+        "description": "`GET /tickets`: every ticket the company filed on its repository,\nascending by number \u2014 the ones its agents and the platform filed,\nwhatever the git host says of them since.",
+        "properties": {
+          "repo": {
+            "title": "Repo",
+            "type": "string"
+          },
+          "tickets": {
+            "items": {
+              "$ref": "#/components/schemas/TicketView"
+            },
+            "title": "Tickets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "repo",
+          "tickets"
+        ],
+        "title": "TicketList",
+        "type": "object"
+      },
+      "TicketView": {
+        "additionalProperties": false,
+        "description": "One ticket the company filed: its number on the repository, the\nrun that filed it, when.",
+        "properties": {
+          "filed_at": {
+            "format": "date-time",
+            "title": "Filed At",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "run_id",
+          "filed_at"
+        ],
+        "title": "TicketView",
         "type": "object"
       },
       "VerdictRecorded": {
@@ -1305,6 +1619,64 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/agents": {
+      "get": {
+        "operationId": "agents_agents_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "the company's standing agents, the conductor marked"
+      }
+    },
     "/blueprint/apply": {
       "post": {
         "operationId": "apply_blueprint_apply_post",
@@ -1583,6 +1955,64 @@
           }
         },
         "summary": "the applied company's phase, generation and bundle revision from its CR, and its pause from the registry"
+      }
+    },
+    "/company/bounds": {
+      "get": {
+        "operationId": "bounds_company_bounds_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoundsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "the charter's gates and limits as every dispatch carries them"
       }
     },
     "/events": {
@@ -2116,6 +2546,23 @@
               ],
               "title": "Since"
             }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "parked",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
           }
         ],
         "responses": {
@@ -2170,7 +2617,7 @@
             "description": "Service Unavailable"
           }
         },
-        "summary": "the company's runs since a fence (`?since=`)"
+        "summary": "the company's runs since a fence (`?since=`); `?state=parked` keeps those parked on a gate, with their deadlines"
       },
       "post": {
         "operationId": "start_run_runs_post",
@@ -2405,6 +2852,75 @@
           }
         },
         "summary": "cancel a run; teardown compensates"
+      }
+    },
+    "/runs/{run_id}/crew": {
+      "get": {
+        "operationId": "crew_runs__run_id__crew_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrewView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "every ephemeral agent bound to the run, active or revoked"
       }
     },
     "/runs/{run_id}/gates/{gate}": {
@@ -2726,6 +3242,64 @@
           }
         },
         "summary": "the company's spend since a fence"
+      }
+    },
+    "/tickets": {
+      "get": {
+        "operationId": "tickets_filed_tickets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "every ticket the company filed on its repository"
       }
     },
     "/whoami": {

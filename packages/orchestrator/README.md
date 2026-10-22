@@ -82,8 +82,10 @@ and [The heartbeat](../../docs/explanation/heartbeat.md).
 A `Gate` keeps the first signal. It escalates at
 half its deadline and expires at the end. Each transition is a
 `process-gate` row written by `record_gate_outcome`, which refuses any
-kind outside `common.workflows.GATE_OUTCOMES`. The `state` query shows
-`parked-<gate>`. The budget park lives in `RunWorkflow.dispatch`. A
+kind outside `common.workflows.GATE_OUTCOMES`. The park itself is the
+first (`gate_parked`), written before the `state` query shows
+`parked-<gate>`, so a run that reads parked always has the row its
+deadlines are measured from. The budget park lives in `RunWorkflow.dispatch`. A
 `budget_exhausted` result parks on the `budget` signal. An approving
 verdict re-dispatches under the cap as currently applied.
 

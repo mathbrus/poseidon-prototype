@@ -19,6 +19,7 @@ import subprocess
 import tarfile
 import time
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ import pytest
 import yaml
 
 from common.audit import HEARTBEAT_TICK
+from common.console import EphemeralAgentView
 from common.topology import (
     COMPANY_NAMESPACE,
     CONSOLE_TOKEN_AUDIENCE,
@@ -511,25 +513,15 @@ def await_run(
 
 
 def run_spend(run_id: str) -> float:
-    """The run's ledger spend — the per-run cap is enforced there,
-    not in the audit stream (audit events carry no usd)."""
-    return float(
-        psql(
-            "SELECT COALESCE(SUM(usd), 0) FROM registry.budget_ledger"
-            " WHERE run_id = :'run_id'",
-            run_id=run_id,
-        )
-        or 0
-    )
+    """The run's ledger spend, as the console reads it — the per-run cap is
+    enforced there, not in the audit stream (audit events carry no usd)."""
+    return console().spend(run_id).usd
 
 
-def participants(run_id: str) -> list[dict[str, Any]]:
-    """The run's crew, as the registry bound it."""
-    return psql_json(
-        "SELECT COALESCE(json_agg(row_to_json(p)), '[]'::json)"
-        " FROM registry.run_participants p WHERE p.run_id = :'run_id'",
-        run_id=run_id,
-    )
+def participants(run_id: str) -> list[EphemeralAgentView]:
+    """The run's crew, every identity ever bound to it, as the console
+    reads it."""
+    return console().crew(run_id).agents
 
 
 def non_terminal_runs() -> list[dict[str, Any]]:
@@ -875,12 +867,8 @@ def wake_and_await_ticks(n: int = 1) -> list[dict[str, Any]]:
 
 def filed_tickets_since(since: str) -> list[int]:
     """The tickets the company filed after `since` (a registry timestamp
-    from `db_now`), by number — read from the registry the way the loop
-    reads its own writes, so a module never waits on the host's listing
-    for a ticket the platform just filed."""
-    rows = psql_json(
-        "SELECT COALESCE(json_agg(t.number ORDER BY t.number), '[]'::json) "
-        "FROM registry.filed_tickets t WHERE t.filed_at > :'since'::timestamptz",
-        since=since,
-    )
-    return [int(n) for n in rows]
+    from `db_now`), by number — the platform's own record, as the console
+    reads it, so a module never waits on the host's listing for a ticket
+    the platform just filed."""
+    fence = datetime.fromisoformat(since)
+    return [t.number for t in console().tickets().tickets if t.filed_at > fence]

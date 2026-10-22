@@ -20,15 +20,21 @@ import httpx
 import pytest
 import yaml
 
-from common.audit import HEARTBEAT_TICK, AuditEvent
+from blueprint.bounds import render_bounds
+from common.audit import HEARTBEAT_TICK, AuditEvent, gate_event
 from common.console import (
+    ROUTES,
+    AgentList,
     ApplyResult,
+    BoundsView,
     CompanyDeleted,
     CompanyView,
+    CrewView,
     EventsPage,
     ExecutionView,
     Health,
     HeartbeatView,
+    LimitsView,
     Now,
     PauseState,
     PolicyRefusal,
@@ -41,6 +47,7 @@ from common.console import (
     RunStarted,
     SpendView,
     StoryView,
+    TicketList,
     VerdictRecorded,
     WhoAmI,
     Woken,
@@ -57,16 +64,9 @@ from common.policy import (
     RUN_START,
 )
 from common.topology import PLATFORM_NAMESPACE
-from console.app import create_app
+from common.workflows import GATE_PARKED, gate_rule
 from console.config import ConsoleSettings
-from console.fakes import COMPANY, FakeWorkflows, World, as_owner, company_cr
-from registry.memory import (
-    InMemoryAgentInstances,
-    InMemoryAuditStore,
-    InMemoryBudgetLedger,
-    InMemoryCompanies,
-    InMemoryRuns,
-)
+from console.fakes import COMPANY, World, applied_spec, as_owner, company_cr
 
 pytestmark = pytest.mark.anyio
 
@@ -725,28 +725,149 @@ async def test_a_story_is_the_runs_events_in_order(client, world):
     ]
 
 
-def test_the_route_table_matches_the_app():
-    """The documentation renders ROUTES; every route the app serves is in
-    it and nothing more."""
-    from common.console import ROUTES
+# -- what a web client reads ---------------------------------------------------
 
-    settings = ConsoleSettings(
-        platform_namespace=PLATFORM_NS,
-        opa_url="http://opa.test:8181",
-        temporal_address="temporal.test:7233",
+
+def park(world: World, run_id: str, gate: str, ts: str) -> None:
+    """The `parked` gate row a workflow writes before it reads parked."""
+    world.audit.append(
+        AuditEvent(
+            ts=ts,
+            run_id=run_id,
+            agent_id="orchestrator",
+            role="platform",
+            tool=gate_event(gate),
+            args_digest="d",
+            decision="deny",
+            rule=gate_rule(GATE_PARKED),
+            latency_ms=1,
+            backend_status=None,
+            source="process-gate",
+            company=COMPANY,
+        )
     )
-    app = create_app(
-        settings,
-        audit=InMemoryAuditStore(),
-        runs=InMemoryRuns(),
-        ledger=InMemoryBudgetLedger(),
-        instances=InMemoryAgentInstances(),
-        companies=InMemoryCompanies(),
-        workflows=FakeWorkflows(),
-        submit_crs=lambda plan: (0, 0, 1),
-        read_company=lambda: None,
-        clock=lambda: "",
+
+
+async def test_parked_runs_carry_their_gate_and_deadlines(client, world):
+    """`?state=parked` keeps the runs parked on a gate, each with the
+    deadline the applied spec gives it, measured from its `parked` row:
+    escalation at half, expiry at the end."""
+    a_review_run(world)
+    park(world, RUN_ID, "merge", "2026-01-01T00:00:00+00:00")
+    world.runs.start("run-impl", "implement issue #7", "implement", None, COMPANY)
+    world.workflows.running["implement-run-impl"] = "running"
+
+    every = model(RunList, await client.get("/runs", headers=as_owner()))
+    assert [(r.run_id, r.parked is not None) for r in every.runs] == [
+        (RUN_ID, True),
+        ("run-impl", False),
+    ]
+    parked = model(RunList, await client.get("/runs?state=parked", headers=as_owner()))
+    (run,) = parked.runs
+    assert run.run_id == RUN_ID and run.parked.gate == "merge"
+    assert run.parked.deadline_minutes == 1440
+    assert run.parked.since.isoformat() == "2026-01-01T00:00:00+00:00"
+    assert run.parked.escalates_at.isoformat() == "2026-01-01T12:00:00+00:00"
+    assert run.parked.expires_at.isoformat() == "2026-01-02T00:00:00+00:00"
+    detail = model(RunDetail, await client.get(f"/runs/{RUN_ID}", headers=as_owner()))
+    assert detail.parked == run.parked
+    assert world.audit.events[-1].rule == gate_rule(GATE_PARKED)  # a read wrote nothing
+
+
+async def test_a_budget_park_is_measured_by_the_budget_deadline(client, world):
+    a_review_run(world)
+    world.workflows.running[f"review-{RUN_ID}"] = "parked-budget_exhausted"
+    park(world, RUN_ID, "budget", "2026-01-01T00:00:00+00:00")
+    run = model(RunDetail, await client.get(f"/runs/{RUN_ID}", headers=as_owner()))
+    assert (run.parked.gate, run.parked.deadline_minutes) == ("budget", 60)
+    assert run.parked.expires_at.isoformat() == "2026-01-01T01:00:00+00:00"
+
+
+async def test_a_runs_crew_is_every_identity_ever_bound(client, world):
+    a_review_run(world)
+    world.participants.add(
+        "reviewer-1", RUN_ID, "pm-1", "feature-review", "reviewer", COMPANY
     )
+    world.participants.add("other-1", "run-other", "pm-1", "feature-review", "reviewer")
+    world.participants.terminate("reviewer-1")
+    crew = model(CrewView, await client.get(f"/runs/{RUN_ID}/crew", headers=as_owner()))
+    assert [(a.agent_id, a.crew, a.role, a.status) for a in crew.agents] == [
+        ("reviewer-1", "feature-review", "reviewer", "terminated")
+    ]
+    unknown = await client.get("/runs/run-nope/crew", headers=as_owner())
+    assert unknown.status_code == 422
+
+
+async def test_the_standing_agents_name_the_conductor(client, world):
+    world.instances.upsert("pm-1", COMPANY, "pm", "pm", namespace="poseidon-company")
+    world.instances.upsert("qa-1", COMPANY, "qa", "reviewer", status="pending")
+    agents = model(AgentList, await client.get("/agents", headers=as_owner()))
+    assert [(a.standing_name, a.conductor, a.status) for a in agents.agents] == [
+        ("pm", True, "converged"),
+        ("qa", False, "pending"),
+    ]
+
+
+async def test_the_tickets_are_the_ones_filed_on_the_company_repository(client, world):
+    repo = applied_spec()["repo"]["url"]
+    world.tickets.record(repo, 9, "run-scope")
+    world.tickets.record(repo, 3, "heartbeat-hello-saas")
+    world.tickets.record("github.com/elsewhere/repo", 1, "run-x")
+    tickets = model(TicketList, await client.get("/tickets", headers=as_owner()))
+    assert tickets.repo == repo
+    assert [(t.number, t.run_id) for t in tickets.tickets] == [
+        (3, "heartbeat-hello-saas"),
+        (9, "run-scope"),
+    ]
+
+
+async def test_the_company_carries_its_limits_and_its_bounds(client, world):
+    world.cr = company_cr(COMPANY, phase="converged", observedGeneration=1)
+    world.ledger.record(
+        company=COMPANY,
+        run_id=RUN_ID,
+        agent_id="reviewer-1",
+        parent_agent_id="pm-1",
+        role="reviewer",
+        model="mock",
+        prompt_tokens=1,
+        completion_tokens=1,
+        cached_tokens=0,
+        reasoning_tokens=0,
+        usd=1.5,
+    )
+    limits = model(CompanyView, await client.get("/company", headers=as_owner())).limits
+    assert limits == LimitsView(
+        per_run_usd=5.0,
+        daily_cap_usd=20.0,
+        spent_today_usd=1.5,
+        max_concurrent_runs=1,
+        gate_deadline_minutes={"budget": 60, "merge": 1440},
+    )
+    bounds = model(BoundsView, await client.get("/company/bounds", headers=as_owner()))
+    assert bounds.text == render_bounds(applied_spec())
+    assert bounds.text.endswith("Merge: every pull request waits for a human's verdict.")
+
+
+async def test_before_it_converges_a_company_has_no_limits_and_no_bounds(client, world):
+    """The CR is there, the reconciler's copy of the spec is not yet: the
+    company reads activating without limits, and what needs the applied
+    spec says so."""
+    world.companies.delete(COMPANY)
+    await client.post(
+        "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
+    )
+    shown = model(CompanyView, await client.get("/company", headers=as_owner()))
+    assert shown.phase == "activating" and shown.limits is None
+    for path in ("/company/bounds", "/agents", "/tickets"):
+        response = await client.get(path, headers=as_owner())
+        assert response.status_code == 404, (path, response.text)
+
+
+def test_the_route_table_matches_the_app():
+    """The documentation renders the interface's ROUTES; every route the
+    app serves is in it and nothing more."""
+    app = World().app()
     served = {
         (method, route.path)
         for route in app.routes

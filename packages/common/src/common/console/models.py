@@ -148,10 +148,25 @@ class PauseView(Model):
     at: datetime
 
 
+class LimitsView(Model):
+    """The charter's caps as they bind the company now, beside what they
+    are measured against: the per-run cap, the daily cap and today's
+    spend (since UTC midnight), how many runs may be live at once, and
+    how long each gate waits for a human before it expires (it escalates
+    at half)."""
+
+    per_run_usd: float
+    daily_cap_usd: float
+    spent_today_usd: float
+    max_concurrent_runs: int
+    gate_deadline_minutes: dict[Gate, int]
+
+
 class CompanyView(Model):
     """`GET /company`: the applied company as its Company CR says —
     `activating` until OPA serves its policy, `converged` after; the
-    generation the phase answers for — and its pause."""
+    generation the phase answers for — its pause, and its limits (null
+    until the company has converged once)."""
 
     company: str
     phase: CompanyPhase
@@ -160,6 +175,52 @@ class CompanyView(Model):
     bundle_revision: str
     message: str
     paused: PauseView | None
+    limits: LimitsView | None
+
+
+class BoundsView(Model):
+    """`GET /company/bounds`: the charter's gates and limits as they bind
+    the company's work, the text every dispatch carries into a
+    procedure's system prompt."""
+
+    company: str
+    text: str
+
+
+class StandingAgentView(Model):
+    """One standing agent: its hire's name, its catalog role, whether the
+    reconciler converged it, and whether it is the conductor the
+    company's runs are requested under."""
+
+    agent_id: str
+    standing_name: str
+    role: str
+    status: str
+    conductor: bool
+
+
+class AgentList(Model):
+    """`GET /agents`: the company's standing agents."""
+
+    agents: list[StandingAgentView]
+
+
+class TicketView(Model):
+    """One ticket the company filed: its number on the repository, the
+    run that filed it, when."""
+
+    number: int
+    run_id: str
+    filed_at: datetime
+
+
+class TicketList(Model):
+    """`GET /tickets`: every ticket the company filed on its repository,
+    ascending by number — the ones its agents and the platform filed,
+    whatever the git host says of them since."""
+
+    repo: str
+    tickets: list[TicketView]
 
 
 class PreviewResult(Model):
@@ -206,8 +267,22 @@ class ExecutionView(Model):
     state: RunState | HeartbeatState | None
 
 
+class ParkedView(Model):
+    """Where a parked run waits: the gate, since when (its `parked` gate
+    row), and when nobody answering escalates it (half the deadline) and
+    expires it. The times are null when the park's row or the gate's
+    deadline cannot be read."""
+
+    gate: Gate
+    deadline_minutes: int | None
+    since: datetime | None
+    escalates_at: datetime | None
+    expires_at: datetime | None
+
+
 class RunView(Model):
-    """One run's record: its task, status and what it delivered."""
+    """One run's record: its task, status and what it delivered, and the
+    gate it is parked on, if any (null for a run that is not)."""
 
     run_id: str
     workflow: Workflow
@@ -223,6 +298,7 @@ class RunView(Model):
     error: str | None
     created_at: datetime | None
     finished_at: datetime | None
+    parked: ParkedView | None
 
 
 class RunDetail(RunView):
@@ -232,9 +308,27 @@ class RunDetail(RunView):
 
 
 class RunList(Model):
-    """`GET /runs`: the company's runs, oldest first."""
+    """`GET /runs`: the company's runs, oldest first; with `?state=parked`,
+    only those parked on a gate."""
 
     runs: list[RunView]
+
+
+class EphemeralAgentView(Model):
+    """One ephemeral agent bound to a run: its crew and role, and whether
+    its identity is still active or was revoked at teardown."""
+
+    agent_id: str
+    crew: str
+    role: str
+    status: str
+
+
+class CrewView(Model):
+    """`GET /runs/{run_id}/crew`: every identity ever bound to the run."""
+
+    run_id: str
+    agents: list[EphemeralAgentView]
 
 
 class RunStarted(Model):

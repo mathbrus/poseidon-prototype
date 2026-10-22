@@ -186,13 +186,15 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         gate_event(MERGE_GATE),
         "process-gate",
-        "the merge gate's outcome: a human's verdict, policy's resolution or"
-        " decline, a rework filed or exhausted, an escalation or an expiry",
+        "the merge gate: a run parked on it, a human's verdict, policy's"
+        " resolution or decline, a rework filed or exhausted, an escalation or"
+        " an expiry",
     ),
     PlatformEvent(
         gate_event(BUDGET_GATE),
         "process-gate",
-        "the budget park's outcome: approved, rejected, escalated or expired",
+        "the budget park: a run parked at its cap, then approved, rejected,"
+        " escalated or expired",
     ),
     PlatformEvent(
         gate_event(ATTEMPTS_GATE),

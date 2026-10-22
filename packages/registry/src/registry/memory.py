@@ -197,6 +197,17 @@ class InMemoryFiledTickets:
             if r == repo and filed_at > horizon
         )
 
+    def filed(self, repo: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "number": number,
+                "run_id": run_id,
+                "filed_at": datetime.fromtimestamp(filed_at, UTC).isoformat(),
+            }
+            for (r, number), (run_id, filed_at) in sorted(self.rows.items())
+            if r == repo
+        ]
+
 
 class InMemorySandboxRegistrations:
     def __init__(self) -> None:

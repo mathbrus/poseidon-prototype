@@ -693,7 +693,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
         assert harness.resolve_args == []
         assert harness.depth_calls == 0
         assert harness.reworks == []
-        assert harness.gate_events == ["policy_declined"]
+        assert harness.gate_events == ["policy_declined", "parked"]
         assert harness.merges == []
         await handle.signal("merge", args=[True])
         record = await handle.result()
@@ -702,7 +702,7 @@ async def test_a_contract_tree_pr_parks_before_any_layer_is_spent(env):
 
     # The human's approving verdict is the one authority that merges an oracle
     # edit — and it still works, findings and facts already on the PR.
-    assert harness.gate_events == ["policy_declined", "approved"]
+    assert harness.gate_events == ["policy_declined", "parked", "approved"]
     assert harness.merges == [PR]
     assert record["status"] == "done"
     assert record["merged"] is True
@@ -734,7 +734,7 @@ async def test_a_rejected_contract_pr_fails_honestly(env):
     assert harness.merges == []
     assert harness.reworks == []
     assert harness.effects == []
-    assert harness.gate_events == ["policy_declined", "rejected"]
+    assert harness.gate_events == ["policy_declined", "parked", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
 
@@ -754,14 +754,14 @@ async def test_a_policy_decline_parks_on_the_human_who_can_release(env):
     worker, handle = await start_review(env.client, harness)
     try:
         await wait_for_park(handle)
-        assert harness.gate_events == ["policy_declined"]
+        assert harness.gate_events == ["policy_declined", "parked"]
         assert harness.merges == []
         await handle.signal("merge", args=[True])
         record = await handle.result()
     finally:
         await worker.__aexit__(None, None, None)
 
-    assert harness.gate_events == ["policy_declined", "approved"]
+    assert harness.gate_events == ["policy_declined", "parked", "approved"]
     assert harness.merges == [PR]
     assert record["status"] == "done"
     assert record["merged"] is True
@@ -779,7 +779,7 @@ async def test_revocation_mid_flight_flips_the_gate_to_human_only(env):
     record = await run_review(env.client, harness)
 
     assert harness.merges == []
-    assert harness.gate_events == ["policy_declined", "escalated", "expired"]
+    assert harness.gate_events == ["policy_declined", "parked", "escalated", "expired"]
     assert record["status"] == "failed"
     assert "merge gate expired" in record["error"]
 
@@ -800,7 +800,7 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
     try:
         await wait_for_park(handle)
         assert harness.reworks == []
-        assert harness.gate_events == ["rework_exhausted"]
+        assert harness.gate_events == ["rework_exhausted", "parked"]
         await handle.signal("merge", args=[False])
         record = await handle.result()
     finally:
@@ -809,7 +809,7 @@ async def test_an_exhausted_rework_chain_escalates_to_the_human(env):
     assert harness.merges == []
     # No ticket filed, so the PR is not superseded; no merge, no close.
     assert harness.effects == []
-    assert harness.gate_events == ["rework_exhausted", "rejected"]
+    assert harness.gate_events == ["rework_exhausted", "parked", "rejected"]
     assert record["status"] == "failed"
     assert "merge gate rejected" in record["error"]
 
@@ -833,7 +833,7 @@ async def test_a_human_gate_never_touches_the_policy_machinery(env):
         ["human", {"human_verdict": {"principal": "owner", "approved": True, "ts": "t0"}}]
     ]
     assert harness.depth_calls == 0
-    assert harness.gate_events == ["approved"]
+    assert harness.gate_events == ["parked", "approved"]
     assert harness.merges == [PR]
     assert harness.effects == ["merge", f"close_tickets #{PR} abc123 Add slugify utility"]
     assert record["merged"] is True
@@ -876,7 +876,7 @@ async def test_a_signal_without_a_recorded_verdict_merges_nothing(env):
 
     assert harness.resolve_args == [["human", {}]]
     assert harness.merges == []
-    assert harness.gate_events == ["approved", "verdict_unverified"]
+    assert harness.gate_events == ["parked", "approved", "verdict_unverified"]
     assert record["status"] == "failed"
     assert "no verified human verdict (merge_resolve_no_human_verdict)" in record["error"]
 
@@ -898,7 +898,7 @@ async def test_a_signal_contradicting_the_record_merges_nothing(env):
         await worker.__aexit__(None, None, None)
 
     assert harness.merges == []
-    assert harness.gate_events == ["approved", "verdict_unverified"]
+    assert harness.gate_events == ["parked", "approved", "verdict_unverified"]
     assert record["status"] == "failed"
 
 
@@ -919,7 +919,7 @@ async def test_a_policy_decline_released_by_a_human_reads_the_record_too(env):
         await worker.__aexit__(None, None, None)
 
     assert [args[0] for args in harness.resolve_args] == ["policy", "human"]
-    assert harness.gate_events == ["policy_declined", "approved"]
+    assert harness.gate_events == ["policy_declined", "parked", "approved"]
     assert harness.merges == [PR]
     assert record["merged"] is True
 

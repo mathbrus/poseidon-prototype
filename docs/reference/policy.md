@@ -79,7 +79,7 @@ Every component writes the same event shape to one table, so one query by
 | `gateway` | the MCP gateway | every tool call: decision, rule, outcome |
 | `llm-gateway` | the LLM gateway | every model call and its cost; budget refusals |
 | `sandbox-infra` | the egress proxy | every allowed and denied egress attempt |
-| `process-gate` | the orchestrator | gate outcomes: verdicts, escalations, expiries, budget parks, and halts |
+| `process-gate` | the orchestrator | gate outcomes: parks, verdicts, escalations, expiries, and halts |
 | `process-lifecycle` | the orchestrator | crews formed, the review's facts, the heartbeat's decisions |
 | `console` | the console | every act of a person, under their name, and every token it refused |
 

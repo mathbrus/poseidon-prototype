@@ -659,6 +659,10 @@ def test_filed_tickets_are_remembered_within_the_lag_window(registry: Registry):
     filed.record("github.com/example/other", 3, RUN_ID)
     assert FiledTickets(registry).filed_since("github.com/example/repo", 60) == [7, 9]
     assert FiledTickets(registry).filed_since("github.com/example/repo", 0) == []
+    # The console's read: every ticket on the repository, with who filed it.
+    rows = FiledTickets(registry).filed("github.com/example/repo")
+    assert [(r["number"], r["run_id"]) for r in rows] == [(7, RUN_ID), (9, RUN_ID)]
+    assert all(r["filed_at"] is not None for r in rows)
 
 
 def test_count_allowed_counts_answered_allows_only(registry: Registry):
