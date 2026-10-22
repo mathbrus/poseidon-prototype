@@ -16,6 +16,7 @@ from common.console import (
     EXECUTION_NOT_FOUND,
     AgentList,
     AuditEventView,
+    BlueprintView,
     BoundsView,
     CompanyView,
     CrewView,
@@ -79,6 +80,25 @@ def limits_view(spec: dict[str, Any], spent_today: float) -> LimitsView:
         spent_today_usd=spent_today,
         max_concurrent_runs=int(spec["heartbeat"]["max_concurrent_runs"]),
         gate_deadline_minutes=gate_deadlines(spec),
+    )
+
+
+def blueprint_view(cr: dict[str, Any]) -> BlueprintView | None:
+    """The blueprint's text the Company CR keeps (`spec.blueprintSource`),
+    with the CR's generation and phase; None for a CR without one."""
+    source = cr["spec"].get("blueprintSource")
+    if not source:
+        return None
+    status = cr.get("status") or {}
+    return BlueprintView(
+        company=cr["metadata"]["name"],
+        generation=cr["metadata"].get("generation", 0),
+        observed_generation=status.get("observedGeneration", 0),
+        phase=status.get("phase") or PHASE_ACTIVATING,
+        text=source["text"],
+        sha256=source["sha256"],
+        applied_by=source["appliedBy"],
+        applied_at=source["appliedAt"],
     )
 
 

@@ -8,8 +8,13 @@ audit row naming the principal. Whether a *known* person may act is the
 blueprint's `company.humans`: a human the chart declares but the company
 did not name is refused by name, with nothing signalled. And no platform
 identity can mint a human's token: the humans exist only for the
-TokenRequest a person makes with their own cluster credentials.
+TokenRequest a person makes with their own cluster credentials. What a
+person applied reads back as they wrote it.
 """
+
+import hashlib
+import subprocess
+from pathlib import Path
 
 import httpx
 import pytest
@@ -18,6 +23,7 @@ from common.console import Problem
 from common.topology import CONSOLE_TOKEN_AUDIENCE, TOKEN_AUDIENCE, human_service_account
 from poseidon_cli import ConsoleClient, ConsoleError, PolicyDenied
 
+from .blueprints import pristine_profile, restore_pristine, suite_document
 from .cluster import (
     COMPANY,
     COMPANY_NS,
@@ -26,6 +32,7 @@ from .cluster import (
     audit_story,
     authn_denies,
     console,
+    console_env,
     console_url,
     db_now,
     gateway_url,
@@ -41,7 +48,7 @@ def _console_as(env: dict, token: str) -> ConsoleClient:
 
 def test_the_declared_human_is_known(stack: None, env: dict) -> None:
     who = console(env).whoami()
-    assert who == {"human": HUMAN, "lifecycle": "human", "company": COMPANY}
+    assert (who.human, who.lifecycle, who.company) == (HUMAN, "human", COMPANY)
 
 
 def test_a_humans_token_is_refused_at_the_gateway(stack: None, env: dict) -> None:
@@ -164,3 +171,40 @@ def test_what_cannot_be_acted_on_is_refused_before_policy(stack: None, env: dict
         console(env).resolve("run-does-not-exist", "merge", True, "e2e: no such run")
     assert refused.value.status == 422
     assert not isinstance(refused.value, PolicyDenied)
+
+
+def _poseidon(env: dict, *args: str) -> subprocess.CompletedProcess:
+    """`poseidon …` as a person runs it, as the human `owner`."""
+    proc = subprocess.run(
+        ["uv", "run", "poseidon", *args],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=Path(__file__).resolve().parents[2],
+        env=console_env(env),
+    )
+    assert proc.returncode == 0, f"poseidon {args[0]}: {proc.stderr}\n{proc.stdout}"
+    return proc
+
+
+def test_the_applied_blueprint_reads_back_and_applies_again_unchanged(
+    stack: None, env: dict, tmp_path: Path
+) -> None:
+    """The Company CR keeps the text a person applied: the console reads
+    it back byte for byte under their name, once policy enforces it, and
+    `poseidon blueprint show`'s output previews as no change — the
+    compiled spec could never be applied again; this text can."""
+    restore_pristine()
+    applied = suite_document(pristine_profile()).read_text()
+    shown = console(env).blueprint()
+    assert shown.text == applied
+    assert shown.sha256 == hashlib.sha256(applied.encode()).hexdigest()
+    assert shown.applied_by == HUMAN
+    assert (shown.phase, shown.observed_generation) == ("converged", shown.generation)
+
+    printed = _poseidon(env, "blueprint", "show").stdout
+    assert printed == applied
+    again = tmp_path / "shown.yaml"
+    again.write_text(printed)
+    preview = _poseidon(env, "blueprint", "preview", str(again))
+    assert f"{COMPANY}: no changes" in preview.stdout, preview.stdout

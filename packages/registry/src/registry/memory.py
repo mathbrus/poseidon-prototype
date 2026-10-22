@@ -244,8 +244,8 @@ class InMemorySandboxRegistrations:
 
 
 class InMemoryCompanies:
-    """The reconciler's writes, the read side the worker and egress proxy
-    consume the infra IR through, and the console's pause."""
+    """The reconciler's compiled spec, the read side the worker and egress
+    proxy consume the infra IR through, and the console's pause."""
 
     def __init__(self) -> None:
         self.rows: dict[str, dict[str, Any]] = {}

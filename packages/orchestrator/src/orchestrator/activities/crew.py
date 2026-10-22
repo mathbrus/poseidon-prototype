@@ -330,10 +330,10 @@ class CrewActivities:
             spec["workflow"],
         )
 
-        blueprint = await asyncio.to_thread(self._companies.get, spec["company"]) or {}
+        compiled = await asyncio.to_thread(self._companies.get, spec["company"]) or {}
         agents = [
             m
-            for m in blueprint.get("ephemeralAgents") or []
+            for m in compiled.get("ephemeralAgents") or []
             if m.get("crew") == crew_template
         ]
         if len(agents) != 1:

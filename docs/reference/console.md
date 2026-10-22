@@ -40,6 +40,22 @@ The acts, rendered from `common.audit`:
 
 <!-- gen: console-acts -->
 
+## The applied blueprint
+
+An apply keeps the blueprint's text on the Company resource
+(`spec.blueprintSource`): the text exactly as you sent it, its sha256,
+who applied it and when. `GET /blueprint` reads it back, with the
+Company's generation and phase, so you can tell whether the text shown
+is the one policy enforces yet (`activating`, then `converged`).
+`poseidon blueprint show` prints it, and applying that output again
+changes nothing. The compiled spec the platform runs on drops comments,
+defaults and ordering, so it is not the blueprint and can't be applied
+again.
+
+A blueprint may be at most 256 KiB (`common.topology.BLUEPRINT_LIMIT_BYTES`),
+so the Company resource stays well under the cluster store's object
+limit. The console refuses a longer one with a `422`.
+
 ## Verdicts
 
 `POST /runs/{run_id}/gates/{gate}` answers only a run parked on that gate.

@@ -59,6 +59,13 @@ ROUTES: tuple[Route, ...] = (
     ),
     Route(
         "GET",
+        "/blueprint",
+        "the blueprint's text as a human applied it, who applied it, and whether"
+        " policy enforces it yet",
+        m.BlueprintView,
+    ),
+    Route(
+        "GET",
         "/company",
         "the applied company's phase, generation and bundle revision from its CR,"
         " and its pause from the registry",

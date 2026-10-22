@@ -171,9 +171,10 @@
       },
       "BlueprintRequest": {
         "additionalProperties": false,
-        "description": "`POST /blueprint/preview`, `POST /blueprint/apply`: the blueprint's\nYAML text.",
+        "description": "`POST /blueprint/preview`, `POST /blueprint/apply`: the blueprint's\nYAML text, at most `BLUEPRINT_LIMIT_BYTES` bytes.",
         "properties": {
           "blueprint": {
+            "maxLength": 262144,
             "title": "Blueprint",
             "type": "string"
           }
@@ -182,6 +183,56 @@
           "blueprint"
         ],
         "title": "BlueprintRequest",
+        "type": "object"
+      },
+      "BlueprintView": {
+        "additionalProperties": false,
+        "description": "`GET /blueprint`: the blueprint's text exactly as a human applied\nit \u2014 applying it again changes nothing \u2014 who applied it and when, and\nwhether policy enforces it yet: the Company's generation, the one its\nphase answers for, and the phase (`activating` until the text applied\nis the one policy enforces, `converged` after).",
+        "properties": {
+          "applied_at": {
+            "format": "date-time",
+            "title": "Applied At",
+            "type": "string"
+          },
+          "applied_by": {
+            "title": "Applied By",
+            "type": "string"
+          },
+          "company": {
+            "title": "Company",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "observed_generation": {
+            "title": "Observed Generation",
+            "type": "integer"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/CompanyPhase"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "company",
+          "generation",
+          "observed_generation",
+          "phase",
+          "text",
+          "sha256",
+          "applied_by",
+          "applied_at"
+        ],
+        "title": "BlueprintView",
         "type": "object"
       },
       "BoundsView": {
@@ -1675,6 +1726,64 @@
           }
         },
         "summary": "the company's standing agents, the conductor marked"
+      }
+    },
+    "/blueprint": {
+      "get": {
+        "operationId": "blueprint_blueprint_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlueprintView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "the blueprint's text as a human applied it, who applied it, and whether policy enforces it yet"
       }
     },
     "/blueprint/apply": {

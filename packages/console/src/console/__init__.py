@@ -18,8 +18,8 @@ Layout:
     views.py     the one translation from registry rows, Temporal and the
                  Company CR to the console interface (`common.console`)
     temporal.py  the Temporal client: start, signal, cancel, inspect
-    crs.py       the cluster touch: submit the Company and AgentInstance
-                 CRs, read the Company's phase, delete the Company
+    crs.py       the cluster touch: submit the Company (with the blueprint's
+                 text) and AgentInstance CRs, read the Company back, delete it
     app.py       the FastAPI app: the interface's routes, the shared auth
                  middleware
 

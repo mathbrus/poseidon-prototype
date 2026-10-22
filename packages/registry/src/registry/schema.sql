@@ -23,16 +23,19 @@ CREATE SCHEMA IF NOT EXISTS registry;
 
 -- Standing structure, written by the reconciler at blueprint apply.
 CREATE TABLE IF NOT EXISTS registry.companies (
-    name        text PRIMARY KEY,
-    blueprint   jsonb,
+    name          text PRIMARY KEY,
+    -- The compiled spec the reconciler stores from the Company CR: what
+    -- the platform enforces and reads. Not the blueprint a human wrote,
+    -- whose text the CR keeps (`spec.blueprintSource`).
+    compiled_spec jsonb,
     -- The pause: who holds the heartbeat paused and since when, written by the console
     -- under a human's act and read by the heartbeat on every tick. NULL
     -- means the loop may start work. The reason lives on the act's audit
     -- row, like every rationale.
-    paused_by   text,
-    paused_at   timestamptz,
-    created_at  timestamptz NOT NULL DEFAULT now(),
-    updated_at  timestamptz NOT NULL DEFAULT now()
+    paused_by     text,
+    paused_at     timestamptz,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS registry.agent_instances (

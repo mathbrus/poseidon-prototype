@@ -23,6 +23,11 @@ CONSOLE_PORT = 8090
 # error. The console waits this long; its clients wait longer than it.
 TEARDOWN_TIMEOUT_S = 600
 
+# The most a blueprint's text may be, in bytes. The Company CR keeps the
+# text a human applied beside the compiled bundle, and the console refuses
+# a longer one, so the CR stays well under etcd's object limit (1.5 MiB).
+BLUEPRINT_LIMIT_BYTES = 256 * 1024
+
 # Platform Service names, as the chart names them.
 MCP_GATEWAY = "mcp-gateway"
 LLM_GATEWAY = "llm-gateway"

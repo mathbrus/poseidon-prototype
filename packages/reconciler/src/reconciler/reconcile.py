@@ -57,6 +57,12 @@ def _settings() -> ReconcilerSettings:
     return _the_settings
 
 
+# What the Company CR carries that the registry's compiled spec leaves
+# out: the bundle (stored and served on its own) and the blueprint's text
+# (the console reads it back from the CR; nothing downstream reads it).
+UNSTORED = ("policyBundle", "blueprintSource")
+
+
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_: Any) -> None:
     """Keep kopf's bookkeeping in annotations. The CRDs declare structural
@@ -150,7 +156,7 @@ def reconcile_company(
             f"OPA has not activated {', '.join(lagging)} yet", delay=ACTIVATION_POLL_S
         )
 
-    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k != "policyBundle"})
+    Companies(_db()).upsert(name, {k: v for k, v in spec.items() if k not in UNSTORED})
     patch.status["phase"] = PHASE_CONVERGED
 
 

@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import difflib
+import hashlib
 import json
 import logging
 import os
@@ -98,6 +99,12 @@ def seeded() -> World:
         bundleRevision="9f2c41d0",
         message="",
     )
+    world.cr["spec"]["blueprintSource"] = {
+        "text": HELLO_SAAS,
+        "sha256": hashlib.sha256(HELLO_SAAS.encode()).hexdigest(),
+        "appliedBy": "owner",
+        "appliedAt": "2025-12-31T23:00:00+00:00",
+    }
     world.instances.upsert("pm-1", COMPANY, "pm", "pm", namespace=COMPANY_NAMESPACE)
 
     runs = world.runs
@@ -226,6 +233,7 @@ REQUESTS: dict[tuple[str, str], tuple[str, dict[str, Any], dict[str, Any] | None
     ("GET", "/whoami"): ("/whoami", {}, None),
     ("POST", "/blueprint/preview"): ("/blueprint/preview", {}, {"blueprint": HELLO_SAAS}),
     ("POST", "/blueprint/apply"): ("/blueprint/apply", {}, {"blueprint": HELLO_SAAS}),
+    ("GET", "/blueprint"): ("/blueprint", {}, None),
     ("GET", "/company"): ("/company", {}, None),
     ("GET", "/company/bounds"): ("/company/bounds", {}, None),
     ("GET", "/agents"): ("/agents", {}, None),

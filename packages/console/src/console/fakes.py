@@ -160,11 +160,15 @@ class World:
 
     # -- the doubles the console is built over -------------------------------
 
-    def submit(self, plan: DeploymentPlan) -> tuple[int, int, int]:
+    def submit(
+        self, plan: DeploymentPlan, source: dict[str, str]
+    ) -> tuple[int, int, int]:
         self.submitted.append(plan)
-        # What the CR says afterwards: the generation this apply made,
-        # with no status until the fake reconciler is told otherwise.
+        # What the CR says afterwards: the generation this apply made and
+        # the text applied, with no status until the fake reconciler is
+        # told otherwise.
         self.cr = company_cr(plan.company.name, generation=len(self.submitted))
+        self.cr["spec"]["blueprintSource"] = source
         return (1, 0, len(self.submitted))
 
     def read_company(self) -> dict[str, Any] | None:

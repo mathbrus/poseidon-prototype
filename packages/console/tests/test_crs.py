@@ -37,3 +37,17 @@ def test_the_bounds_render_from_the_submitted_spec():
     delegated = render_bounds(spec_of("hello-saas-delegated.yaml"))
     assert "Contract tree: tests/contract/, written only by contract-author" in delegated
     assert "every changed path is under docs/, slugify.py or tests/unit/" in delegated
+
+
+def test_the_cr_carries_the_blueprints_text_when_applied():
+    """An apply writes the text a human applied beside the compiled spec;
+    the compiled spec alone is not the blueprint."""
+    plan = compile_blueprint(yaml.safe_load((EXAMPLES / "hello-saas.yaml").read_text()))
+    assert "blueprintSource" not in company_cr(plan)["spec"]
+    source = {
+        "text": "company: {}\n",
+        "sha256": "0" * 64,
+        "appliedBy": "owner",
+        "appliedAt": "2026-01-01T00:00:00+00:00",
+    }
+    assert company_cr(plan, source)["spec"]["blueprintSource"] == source

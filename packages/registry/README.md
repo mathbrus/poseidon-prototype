@@ -14,7 +14,7 @@ imports it and connects with its own `REGISTRY_DSN`.
 |---|---|
 | `db.py` | `Registry`: the pool, `migrate()`, and `now()`, the database clock a reader takes as a fence. `open_registry()` opens and migrates. |
 | `schema.sql` | The nine tables and their indexes, all `IF NOT EXISTS`. |
-| `companies.py` | `Companies`: the applied spec and the pause. `applied()` raises if two companies are applied. |
+| `companies.py` | `Companies`: the compiled spec and the pause. `applied()` raises if two companies are applied. |
 | `instances.py` | `AgentInstances`: the standing agents. |
 | `policy.py` | `pack()` and `tombstone()` build bundle tarballs. `PolicyBundles` stores them per slot (`platform`, `company`) with `put`, `get` and `revoke`. |
 | `runs.py` | `Runs`: the run record, attempt counts and delivered pull requests. |
@@ -29,7 +29,7 @@ imports it and connects with its own `REGISTRY_DSN`.
 
 | Table | Written by | Records |
 |---|---|---|
-| `companies` | reconciler, console | The applied spec (reconciler). Who paused the heartbeat, and when (console). |
+| `companies` | reconciler, console | The compiled spec (reconciler): not the blueprint's text, which stays on the Company CR. Who paused the heartbeat, and when (console). |
 | `agent_instances` | reconciler | Standing agents, with their namespace. |
 | `policy_bundles` | reconciler | Bundle tarball and revision, one row per slot. |
 | `runs` | orchestrator | Task, status, artifacts, and the conclusion (`pr_url`, `verdict`). |

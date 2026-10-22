@@ -29,6 +29,7 @@ from common.console.enums import (
     TickOutcome,
     Workflow,
 )
+from common.topology import BLUEPRINT_LIMIT_BYTES
 
 
 class Model(BaseModel):
@@ -66,9 +67,9 @@ Rationale = Field(min_length=1, max_length=RATIONALE_LIMIT)
 
 class BlueprintRequest(Model):
     """`POST /blueprint/preview`, `POST /blueprint/apply`: the blueprint's
-    YAML text."""
+    YAML text, at most `BLUEPRINT_LIMIT_BYTES` bytes."""
 
-    blueprint: str
+    blueprint: str = Field(max_length=BLUEPRINT_LIMIT_BYTES)
 
 
 class StartRunRequest(Model):
@@ -176,6 +177,23 @@ class CompanyView(Model):
     message: str
     paused: PauseView | None
     limits: LimitsView | None
+
+
+class BlueprintView(Model):
+    """`GET /blueprint`: the blueprint's text exactly as a human applied
+    it — applying it again changes nothing — who applied it and when, and
+    whether policy enforces it yet: the Company's generation, the one its
+    phase answers for, and the phase (`activating` until the text applied
+    is the one policy enforces, `converged` after)."""
+
+    company: str
+    generation: int
+    observed_generation: int
+    phase: CompanyPhase
+    text: str
+    sha256: str
+    applied_by: str
+    applied_at: datetime
 
 
 class BoundsView(Model):

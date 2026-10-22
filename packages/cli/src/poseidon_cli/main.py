@@ -283,6 +283,24 @@ def blueprint_new(
     render.act(Text(f"next: poseidon blueprint apply {target}", style=render.DIM))
 
 
+@blueprint_app.command(
+    "show",
+    epilog=examples(
+        "poseidon blueprint show > company.yaml",
+        "poseidon blueprint show --json",
+    ),
+)
+def blueprint_show(as_json: bool = JSON_OPTION) -> None:
+    """The blueprint the company was applied from, exactly as it was
+    written: applying the output again changes nothing. --json adds who
+    applied it, when, and whether policy enforces it yet."""
+    view = _call(_client().blueprint)
+    if as_json:
+        _json(view)
+        return
+    typer.echo(view.text, nl=False)
+
+
 @blueprint_app.command(epilog=examples("poseidon blueprint preview company.yaml"))
 def preview(blueprint: Path = typer.Argument(..., help="The blueprint file.")) -> None:
     """Show what applying BLUEPRINT would change — the diff against what

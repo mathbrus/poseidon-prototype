@@ -83,7 +83,8 @@ def create_app(
     tickets: FiledTickets | None = None,
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
-    submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]] | None = None,
+    submit_crs: Callable[[DeploymentPlan, dict[str, str]], tuple[int, int, int]]
+    | None = None,
     delete_company: Callable[[str, bool], None] | None = None,
     read_company: Callable[[], dict[str, Any] | None] | None = None,
     clock: Callable[[], str] | None = None,
@@ -201,6 +202,10 @@ def create_app(
     @serve("POST", "/blueprint/apply")
     async def apply(request: Request, body: BlueprintRequest):
         return await service.apply(identity_of(request), body.blueprint)
+
+    @serve("GET", "/blueprint")
+    async def blueprint():
+        return await service.blueprint()
 
     @serve("GET", "/company")
     async def company():

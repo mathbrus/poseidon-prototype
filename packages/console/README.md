@@ -16,7 +16,7 @@ The acts, the decision each must win, and the routes are on the [console referen
 | `service.py` | `ConsoleService`: every act as decide, record, do, and the reads beside them. The bootstrap rule for a first apply. |
 | `views.py` | The one translation layer: registry rows, run records, Temporal's answers and the Company CR mapped onto the console interface's models. Nothing else knows both sides. |
 | `temporal.py` | The Temporal client: start, signal, cancel and inspect, addressed by `common.workflows`. Unreachable Temporal raises `Unavailable`. |
-| `crs.py` | The only cluster touch: submit the Company and AgentInstance CRs, read the Company's phase, delete the Company. |
+| `crs.py` | The only cluster touch: submit the Company and AgentInstance CRs (the Company carrying the blueprint's text as applied), read the Company back, delete the Company. |
 | `config.py` | `ConsoleSettings`: the shared authn fields, `opa_url`, `temporal_address` and `console_humans`. |
 | `fakes.py` | A console over the registry's in-memory fakes, a recording Temporal and a scripted OPA, on a fixed clock. For tests and the golden examples only; nothing running imports it. |
 
@@ -66,6 +66,7 @@ All in `tests/test_console.py` unless noted.
 - The route table matches the app: `test_the_route_table_matches_the_app`.
 - Every served route declares its interface model, and the service builds no response dicts: `test_views.py`.
 - The Company CR carries the policies section: `test_crs.py::test_the_cr_carries_the_policies_section`.
+- The applied blueprint reads back byte for byte, and a blueprint over the limit is refused: `test_the_applied_blueprint_reads_back_byte_for_byte`, `test_a_blueprint_over_the_limit_is_refused`.
 
 ## Testing
 

@@ -412,6 +412,16 @@ def test_run_show_is_a_record_and_story_is_lines(runner, console):
     assert json.loads(raw.output) == golden("GET /runs/{run_id}/story")
 
 
+def test_blueprint_show_prints_the_applied_text_exactly(runner, console):
+    """Round-trippable: what `show` prints is what was applied, byte for
+    byte, so it can be edited and applied again."""
+    result = runner.invoke(cli.app, ["blueprint", "show"])
+    assert result.exit_code == 0, result.output
+    assert result.output == golden("GET /blueprint")["text"]
+    raw = runner.invoke(cli.app, ["blueprint", "show", "--json"])
+    assert json.loads(raw.output) == golden("GET /blueprint")
+
+
 def test_apply_previews_first_and_applies_with_yes(runner, console, tmp_path):
     blueprint = tmp_path / "company.yaml"
     blueprint.write_text("company: {name: hello-saas}\n")

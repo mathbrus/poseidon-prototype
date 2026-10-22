@@ -18,6 +18,7 @@ the signal.
 """
 
 import asyncio
+import hashlib
 import time
 from collections.abc import Callable
 from typing import Any
@@ -30,6 +31,7 @@ from common.audit import AuditEvent, args_digest
 from common.console import (
     AgentList,
     ApplyResult,
+    BlueprintView,
     BoundsView,
     CompanyDeleted,
     CompanyView,
@@ -67,6 +69,7 @@ from common.policy import (
     verdict_rule,
 )
 from common.telemetry import get_logger
+from common.topology import BLUEPRINT_LIMIT_BYTES
 from common.workflows import (
     GATES_OF,
     PARKED_STATE,
@@ -128,7 +131,7 @@ class ConsoleService:
         participants: RunParticipants,
         tickets: FiledTickets,
         workflows: Workflows,
-        submit_crs: Callable[[DeploymentPlan], tuple[int, int, int]],
+        submit_crs: Callable[[DeploymentPlan, dict[str, str]], tuple[int, int, int]],
         delete_company: Callable[[str, bool], None],
         read_company: Callable[[], dict[str, Any] | None],
         clock: Callable[[], str],
@@ -273,6 +276,13 @@ class ConsoleService:
     # -- the blueprint --------------------------------------------------------
 
     def _plan(self, blueprint_text: str) -> tuple[DeploymentPlan, RegistrySnapshot]:
+        size = len(blueprint_text.encode())
+        if size > BLUEPRINT_LIMIT_BYTES:
+            # The CR keeps the text; the limit keeps the CR storable.
+            raise Invalid(
+                f"the blueprint is {size} bytes; the most a blueprint may be is"
+                f" {BLUEPRINT_LIMIT_BYTES}"
+            )
         try:
             document = yaml.safe_load(blueprint_text)
         except yaml.YAMLError as exc:
@@ -339,7 +349,15 @@ class ConsoleService:
             company=plan.company.name,
             bootstrap_rule=BOOTSTRAP_RULE,
         )
-        created, updated, generation = await asyncio.to_thread(self._submit, plan)
+        # The text itself rides the Company CR, the record of intent: the
+        # compiled spec is not the blueprint and cannot be applied again.
+        source = {
+            "text": blueprint_text,
+            "sha256": hashlib.sha256(blueprint_text.encode()).hexdigest(),
+            "appliedBy": identity.agent_id,
+            "appliedAt": await asyncio.to_thread(self._clock),
+        }
+        created, updated, generation = await asyncio.to_thread(self._submit, plan, source)
         return ApplyResult(
             company=plan.company.name,
             generation=generation,
@@ -366,6 +384,14 @@ class ConsoleService:
             spent = await asyncio.to_thread(self._ledger.spent_today, company)
             limits = views.limits_view(spec, spent)
         return views.company_view(cr, paused, limits)
+
+    async def blueprint(self) -> BlueprintView:
+        """The blueprint's text as it was applied, from the Company CR."""
+        cr = await asyncio.to_thread(self._read_company)
+        view = views.blueprint_view(cr) if cr is not None else None
+        if view is None:
+            raise NoCompany("no blueprint is applied")
+        return view
 
     async def bounds(self) -> BoundsView:
         """The bounds every dispatch carries, from the applied spec."""

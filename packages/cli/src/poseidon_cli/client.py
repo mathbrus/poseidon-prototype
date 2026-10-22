@@ -20,6 +20,7 @@ from pydantic import BaseModel, ValidationError
 from common.console import (
     ApplyResult,
     BlueprintRequest,
+    BlueprintView,
     CancelRequest,
     CompanyDeleted,
     CompanyView,
@@ -168,6 +169,9 @@ class ConsoleClient:
         return self._call(
             "POST", "/blueprint/apply", ApplyResult, BlueprintRequest(blueprint=blueprint)
         )
+
+    def blueprint(self) -> BlueprintView:
+        return self._call("GET", "/blueprint", BlueprintView)
 
     def company(self) -> CompanyView:
         return self._call("GET", "/company", CompanyView)

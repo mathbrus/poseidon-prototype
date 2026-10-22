@@ -31,9 +31,14 @@ def _api() -> k8s.CustomObjectsApi:
     return k8s.CustomObjectsApi()
 
 
-def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
+def company_cr(
+    plan: DeploymentPlan, source: dict[str, str] | None = None
+) -> dict[str, Any]:
+    """The Company CR for a plan; `source` is the blueprint's text as a
+    human applied it (`{text, sha256, appliedBy, appliedAt}`), which an
+    apply always carries."""
     data = plan.as_dict()
-    return {
+    cr = {
         "apiVersion": f"{GROUP}/{VERSION}",
         "kind": "Company",
         "metadata": {"name": plan.company.name},
@@ -61,6 +66,9 @@ def company_cr(plan: DeploymentPlan) -> dict[str, Any]:
             "heartbeat": data["heartbeat"],
         },
     }
+    if source is not None:
+        cr["spec"]["blueprintSource"] = source
+    return cr
 
 
 def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
@@ -82,16 +90,19 @@ def instance_cr(plan: DeploymentPlan, instance) -> dict[str, Any]:
 
 
 def submit(
-    plan: DeploymentPlan, api: k8s.CustomObjectsApi | None = None
+    plan: DeploymentPlan,
+    source: dict[str, str],
+    api: k8s.CustomObjectsApi | None = None,
 ) -> tuple[int, int, int]:
-    """Submit the plan's CRs. Returns what was created, what was updated,
-    and the Company's generation this apply made — the number the phase
-    a reader waits for must answer for."""
+    """Submit the plan's CRs, the Company carrying the blueprint's text.
+    Returns what was created, what was updated, and the Company's
+    generation this apply made — the number the phase a reader waits for
+    must answer for."""
     api = api or _api()
     created = updated = 0
 
     existed, generation = _replace_cluster(
-        api, "companies", plan.company.name, company_cr(plan)
+        api, "companies", plan.company.name, company_cr(plan, source)
     )
     if existed:
         updated += 1

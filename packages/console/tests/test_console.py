@@ -14,6 +14,7 @@ What must hold:
 """
 
 import asyncio
+import hashlib
 from pathlib import Path
 
 import httpx
@@ -26,6 +27,7 @@ from common.console import (
     ROUTES,
     AgentList,
     ApplyResult,
+    BlueprintView,
     BoundsView,
     CompanyDeleted,
     CompanyView,
@@ -63,7 +65,7 @@ from common.policy import (
     RUN_CANCEL,
     RUN_START,
 )
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import BLUEPRINT_LIMIT_BYTES, PLATFORM_NAMESPACE
 from common.workflows import GATE_PARKED, gate_rule
 from console.config import ConsoleSettings
 from console.fakes import COMPANY, World, applied_spec, as_owner, company_cr
@@ -489,6 +491,49 @@ async def test_a_stranger_cannot_delete_the_company(client, world):
     assert PolicyRefusal.model_validate(response.json()).rule == "human_not_recognized"
     assert world.deleted == [] and world.workflows.calls == []
     assert world.events == [(COMPANY_DELETE, "deny", "human_not_recognized")]
+
+
+async def test_the_applied_blueprint_reads_back_byte_for_byte(client, world):
+    """The CR keeps the text a human applied — comments, ordering and all
+    — with who applied it and when; the generation and phase say whether
+    policy enforces it yet."""
+    assert (await client.get("/blueprint", headers=as_owner())).status_code == 404
+    text = "# the owner's own words\n" + HELLO_SAAS
+    applied = await client.post(
+        "/blueprint/apply", json={"blueprint": text}, headers=as_owner()
+    )
+    assert model(ApplyResult, applied).generation == 1
+    shown = model(BlueprintView, await client.get("/blueprint", headers=as_owner()))
+    assert shown.text == text
+    assert shown.sha256 == hashlib.sha256(text.encode()).hexdigest()
+    assert (shown.applied_by, shown.applied_at.isoformat()) == ("owner", world.now)
+    assert (shown.generation, shown.observed_generation, shown.phase) == (
+        1,
+        0,
+        "activating",
+    )
+    world.cr["status"].update(phase="converged", observedGeneration=1)
+    shown = model(BlueprintView, await client.get("/blueprint", headers=as_owner()))
+    assert shown.phase == "converged"
+
+
+async def test_a_blueprint_over_the_limit_is_refused(client, world):
+    """The CR keeps the text, so the text is bounded: a longer one is a 422
+    before anything is compiled, decided or written — counted in bytes,
+    so text in any script is held to the same limit."""
+    padding = "#" + "x" * BLUEPRINT_LIMIT_BYTES + "\n"
+    long = await client.post(
+        "/blueprint/apply", json={"blueprint": padding + HELLO_SAAS}, headers=as_owner()
+    )
+    assert long.status_code == 422, long.text
+    wide = "# " + "é" * (BLUEPRINT_LIMIT_BYTES // 2) + "\n" + HELLO_SAAS
+    assert len(wide) <= BLUEPRINT_LIMIT_BYTES < len(wide.encode())
+    refused = await client.post(
+        "/blueprint/apply", json={"blueprint": wide}, headers=as_owner()
+    )
+    assert refused.status_code == 422, refused.text
+    assert "bytes" in Problem.model_validate(refused.json()).detail
+    assert world.submitted == [] and world.audit.events == []
 
 
 async def test_another_companys_blueprint_is_refused_while_one_is_applied(client, world):
