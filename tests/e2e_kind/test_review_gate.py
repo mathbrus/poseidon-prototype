@@ -380,6 +380,9 @@ def moved_head(stack: None, baseline_env: dict) -> dict:
         result["pr_number"] = number
         run_id = console().start_run("review", number).run_id
         result["run_id"] = run_id
+        # The workflow writes the run's row; the console knows the run
+        # only from then on.
+        await_run(review_run_task(number), terminal=False, workflow="review")
         await_gate(run_id, "parked-merge_gate")
         result["pushed"] = put_branch_file(
             env, branch, path, "# Notes\n\nText nobody reviewed.\n", "a push after review"
@@ -410,7 +413,10 @@ def test_an_approval_of_a_moved_head_merges_nothing(moved_head: dict) -> None:
     story = moved_head["story"]
     gates = [e["rule"] for e in story if e["source"] == "process-gate"]
     assert gates[0] == "gate_parked" and "gate_approved" in gates, gates
+    # Right after a push GitHub may first answer that the PR is not
+    # mergeable yet; the retry then gets the refusal. Either way every
+    # attempt was the platform's, and none landed.
     merges = [e for e in story if e["tool"] == "git.merge_pr"]
-    assert [e["decision"] for e in merges] == ["allow"], merges
+    assert merges and all(e["decision"] == "allow" for e in merges), merges
     # Nothing merged, so nothing the PR would fulfil was closed.
     assert not any(e["tool"] == "issues.close" for e in story)
