@@ -49,6 +49,7 @@ The mock brain obeys injected instructions on purpose, so tests prove the platfo
 | `NEXT_SLICE_MARKER` | strategy | scope the slice once, then idle |
 | `CONDUCTOR_MARKER` | strategy | deny the crew outside `may_spawn` and the exfiltration at the egress proxy |
 | `STEERED_REVIEW_MARKER` | PR diff | hold the merge gate after a steered `pass` |
+| `TAMPERING_REVIEW_MARKER` | PR diff | verify the head before the reviewer, so its tampered sandbox (a `conftest.py` that collects nothing) moves no check |
 | `REVIEW_ABORT_MARKER` | issue title, then PR title | cap review attempts when no verdict comes |
 | `MERGE_GATE_REDTEAM_MARKER` | ticket | refuse a delegated merge of an out-of-class path (`.github/`) |
 | `CONTRACT_FIRST_MARKER` | strategy | order the contract ticket first and park the contract PR |
