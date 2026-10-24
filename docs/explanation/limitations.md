@@ -15,7 +15,7 @@ guarantees stop. Read it before you trust it with anything that matters.
 | [Base images are pinned by tag, not digest](#base-images-are-pinned-by-tag-not-digest) | `python:3.12-slim` can change under you. | Python dependencies are locked; CI audits them. |
 | [Tested on kind only](#tested-on-kind-only) | Nothing has run on a managed cluster or in production. | One replica per service, development defaults for internal secrets. |
 | [An agent pod that dies starts over](#an-agent-pod-that-dies-starts-over) | The model's conversation is lost; the files it wrote survive. | The orchestrator itself is durable. |
-| [A delegated merge trusts the contract](#a-delegated-merge-trusts-the-contract) | Code that meets the contract but is wrong elsewhere still merges. | Contract changes always need you. |
+| [An automated merge trusts the contract](#an-automated-merge-trusts-the-contract) | Code that meets the contract but is wrong elsewhere still merges. | Contract changes always need you. |
 | [The company writes its own strategy](#the-company-writes-its-own-strategy) | The first strategy is the agents' reading of your vision, and nothing revises it. | Review the strategy pull request yourself. |
 
 ## The sandbox is a container, not a VM
@@ -108,9 +108,9 @@ Keeping the conversation would need somewhere the agent can write that is
 neither its pod nor the sandbox. That would be new authority for the one
 process assumed compromised, so it hasn't been added.
 
-## A delegated merge trusts the contract
+## An automated merge trusts the contract
 
-When policy resolves the merge gate:
+When the merge gate is automated:
 
 - **Code that meets the contract but is wrong elsewhere still merges.**
   The implementer can't weaken the contract, because it comes from the
@@ -130,7 +130,7 @@ contract author against it on every acceptance run.
 ## The company writes its own strategy
 
 - **The first strategy is the agents' reading of your vision.** Under a
-  human merge gate, its pull request waits for you. Under a delegated gate
+  human merge gate, its pull request waits for you. Under an automated gate
   that includes `docs/`, it merges on the reviewer's verdict alone,
   because a document has no tests.
 - **Nothing revises the strategy.** It's written once, and policy denies

@@ -13,7 +13,7 @@
 | `schema.py` | `BLUEPRINT_SCHEMA`, the JSON Schema (draft 2020-12) for `apiVersion: poseidon.dev/v1` and its eight sections. |
 | `validate.py` | `validate_blueprint()`, `load_blueprint()` and `ValidationError`, which carries every problem as a `problems` list. |
 | `coherence.py` | Catalog cross-checks: hires name catalog roles and crews, tool scopes narrow their role, no platform-only tool, contract owners are catalog roles. |
-| `gates.py` | Merge-gate, contract-tree and document-path checks, and `UNDELEGATABLE_PATHS` (`.github/`). |
+| `gates.py` | Merge-gate, contract-tree and document-path checks, and `NEVER_AUTOMATED_PATHS` (`.github/`). |
 | `catalog.py` | `ROLES`, `CREW_TEMPLATES`, `PROCEDURES`, `STEWARD_ROLE` and `STEWARDSHIP_CREW`. |
 | `tools.py` | The 20 gateway tool names (`KNOWN_TOOLS`) and the subsets policy keys on: `PLATFORM_ONLY`, `RUN_SCOPED`, `RATIONALE_TOOLS`. |
 | `documents.py` | The two company documents by name (`strategy`, `architecture`) and the label a model sees each under. |
@@ -27,7 +27,7 @@
 
 1. The schema pass. Each `jsonschema` error is rewritten as a document path plus what to write instead. An `enum` failure lists the allowed values. An unknown key says to check the spelling, because every object in the schema sets `additionalProperties: false`.
 2. The catalog pass (`coherence.py`): roles, crews, tool scopes, contract owners.
-3. The gate and document passes (`gates.py`): a policy-resolved merge gate declares a `delegate`, a human-resolved gate declares none, and no delegated path overlaps `.github/`, `deny_paths` or the contract tree. The two document paths must be distinct, inside the repository, and outside `deny_paths` and the contract tree.
+3. The gate and document passes (`gates.py`): no path in a merge gate's `automate` block overlaps `.github/`, `deny_paths` or the contract tree. The two document paths must be distinct, inside the repository, and outside `deny_paths` and the contract tree.
 
 Each check skips values it cannot read, because the schema pass already reports them. `load_blueprint` adds YAML parsing, and a syntax error becomes a validation problem too. The compiler imports the same check functions, because it accepts dicts that never went through `validate_blueprint`.
 
@@ -55,7 +55,7 @@ The catalog holds five roles and four crews, rendered on [Roles and crews](../..
 - No role, in the catalog or a blueprint, holds a platform-only tool: `tests/test_catalog.py::test_no_role_carries_a_platform_only_tool`, `tests/test_blueprint.py::test_no_role_scope_can_hold_the_platform_merge_tool`.
 - Every catalog tool is a known tool: `tests/test_catalog.py::test_every_role_scope_is_a_known_tool`.
 - The implementer can deliver and the reviewer cannot: `tests/test_catalog.py::test_implementer_can_deliver_and_reviewer_cannot`.
-- `.github/`, `deny_paths` and the contract tree are never delegated: `tests/test_blueprint.py::test_repo_automation_can_never_be_delegated`, `::test_a_deny_path_can_never_be_delegated`, `::test_the_contract_tree_can_never_be_delegated`.
+- `.github/`, `deny_paths` and the contract tree are never automated: `tests/test_blueprint.py::test_ci_configuration_can_never_be_automated`, `::test_a_deny_path_can_never_be_automated`, `::test_the_contract_tree_can_never_be_automated`.
 - A standing implementer still validates, because the compiler owns that rule: `tests/test_blueprint.py::test_lean_roster_profile_validates`.
 - Every shipped example declares a heartbeat: `tests/test_blueprint.py::test_every_example_declares_a_heartbeat`.
 - The bounds keep one line per section in a fixed order, and an absent fact says so: `tests/test_bounds.py`.

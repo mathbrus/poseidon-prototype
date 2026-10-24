@@ -68,9 +68,9 @@ first.
 | **company** | what a blueprint declares and the platform runs: its vision, heartbeat, standing agents and runs, in the company namespace; a cluster hosts one | tenant, org, project |
 | **run** | one execution of `scope`, `implement` or `review`: a run id, a registry row, its ephemeral agents and sandbox, from start to teardown | job, execution, task (the text a run works) |
 | **heartbeat** | the company's standing workflow, `heartbeat-<company>`: each tick observes, asks the conductor to decide, and starts at most one run under policy and the caps; every company has one | scheduler, cron, conduct |
-| **gate** | a point where a run parks until it is resolved: `merge` and `budget`; the blueprint declares who resolves it (`resolved_by`) and how long it waits (`deadline_minutes`) | approval step, checkpoint |
-| **delegation** | a merge gate `resolved_by: policy`: its `delegate` block names the paths policy may merge on its own and the rework bound | auto-merge |
-| **contract tree** | the paths `policies.contract_tests` declares: acceptance tests only the named roles may deliver into, read from `base_ref` to grade a delegated merge | oracle (prose may say it once, defined), spec tree |
+| **gate** | a point where a run parks until it is resolved: `merge` and `budget`; the blueprint declares how long it waits (`deadline_minutes`) and, for `merge`, what may merge without a person (`automate`) | approval step, checkpoint |
+| **automation** | a merge gate's `automate` block: the paths policy may merge without a person's verdict, and the rework bound; a merge it releases is an automated merge | delegation, policy-resolved, auto-merge (GitHub's feature) |
+| **contract tree** | the paths `policies.contract_tests` declares: acceptance tests only the named roles may deliver into, read from `base_ref` to grade an automated merge | oracle (prose may say it once, defined), spec tree |
 | **sandbox** | a run's Kubernetes Job where code runs: no credentials, no cluster API, egress only through the egress proxy | workspace (the files inside it), container, VM |
 | **gateway** | a chokepoint an agent acts through: verifies the caller, asks policy, acts, audits; the MCP gateway for tools, the LLM gateway for models | proxy (the llm-proxy and the egress proxy are not gateways) |
 | **platform identity** | the orchestrator's own principal (`lifecycle: platform`), under which the platform runs the verify gate, files bootstrap and rework tickets, and merges | system user, bot |

@@ -21,7 +21,7 @@ The command asks for what is yours to decide:
 - who may act on it,
 - the repository and its test command,
 - the hosts the sandbox may reach,
-- who decides merges, and which paths may merge on their own,
+- whether routine changes merge without you, and in which paths,
 - the budgets.
 
 Every question has the shipped example's answer as its default, so you can
@@ -66,11 +66,11 @@ are the mistakes people make most often, with the message you see:
 | A standing agent that writes code | `standing.coder: standing count 1 on non-spawner role 'implementer' — execution is ephemeral crews` |
 | Giving a role a tool its catalog entry lacks | `tools.reviewer.allow: 'git.open_pr' is not in the 'reviewer' role's catalog tools — the blueprint narrows the catalog, never widens it` |
 | A workflow's crew missing from the PM's `may_spawn` | `workflows.review: conductor 'pm' may not spawn 'feature-review' — add it to may_spawn.crew` |
-| Delegating a protected path | `workflows.review.gates.merge.delegate.paths: '.github/' overlaps '.github/', which can never be delegated` |
+| Automating a protected path | `workflows.review.gates.merge.automate.paths: '.github/' overlaps '.github/', which is never automated` |
 | A daily cap smaller than one run's budget | `heartbeat.daily_cap.usd: 1 cannot fund a single run (budgets.per_run.usd is 5)` |
 
 ## Next steps
 
 - [Blueprint reference](../reference/blueprint.md): every field
-- [Delegate merges](delegate-merges.md)
+- [Automate merges](automate-merges.md)
 - [Use a paid brain](paid-brain.md)

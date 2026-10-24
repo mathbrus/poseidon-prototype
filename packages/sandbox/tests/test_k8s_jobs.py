@@ -10,7 +10,7 @@ from sandbox.k8s_jobs import _PREPARE_CMD
 def test_prepare_keeps_platform_and_build_artifacts_out_of_deliveries():
     """The delivered diff must be the agent's own changes only: the
     platform marker and build artifacts go into git's local exclude, so a
-    policy-resolved merge gate's narrow path class is not tripped by
+    an automated merge gate's narrow automated paths are not tripped by
     incidental files."""
     cmd = _PREPARE_CMD.format(workspace="/workspace")
     assert ".git/info/exclude" in cmd

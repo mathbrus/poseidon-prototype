@@ -1,4 +1,4 @@
-# Delegate merges
+# Automate merges
 
 By default, every pull request the company delivers waits for you to
 approve the merge. This guide lets policy merge the company's own work in
@@ -19,19 +19,19 @@ Policy merges a pull request only when all of these hold:
 - the independent reviewer passed it,
 - the platform's own run of the tests is green,
 - the reviewer is a different agent from the implementer,
-- every changed path is in the class you delegate,
+- every changed path is in the paths you automate,
 - the acceptance contract, if you declare one, is green.
 
-Anything else still waits for you: a path outside the class, a change to
+Anything else still waits for you: a path you don't automate, a change to
 `.github/`, and any change to the contract tests. A failed review or a
 red test run files a rework ticket instead, up to `max_reworks` times.
 
 ## Steps
 
-### 1. Declare the delegated paths
+### 1. Declare the automated paths
 
-In your blueprint, change the merge gate's resolver from `human` to
-`policy` and list the paths policy may merge:
+In your blueprint, add an `automate` block to the merge gate and list the
+paths policy may merge:
 
 ```diff
  workflows:
@@ -39,22 +39,20 @@ In your blueprint, change the merge gate's resolver from `human` to
      crew: feature-review
      gates:
        merge:
--        resolved_by: human
-+        resolved_by: policy
-+        # The wait when policy declines and the merge falls back to you.
++        # The wait when automation declines and the merge falls back to you.
          deadline_minutes: 1440
-+        delegate:
++        automate:
 +          paths: [slugify.py, tests/unit/, docs/]
 +          max_reworks: 1
 ```
 
 `docs/` holds the company's strategy and architecture plan. If you
-delegate it, the first strategy merges on the reviewer's verdict alone.
+automate it, the first strategy merges on the reviewer's verdict alone.
 Leave `docs/` out if you want to read it yourself.
 
 ### 2. Optional: add tests the implementer can't rewrite
 
-Delegating on "the tests pass" is only safe if the agent that writes the
+Automating on "the tests pass" is only safe if the agent that writes the
 code can't also weaken the tests. Declare a contract tree that a separate
 crew writes and only you merge:
 
@@ -75,7 +73,7 @@ Then let the PM start the crew that writes those tests:
 +      crew: [contract-authoring, feature-delivery, feature-review, stewardship]
 ```
 
-A delegated path can't overlap the contract tree, `.github/` or
+An automated path can't overlap the contract tree, `.github/` or
 `policies.deny_paths`. The compiler refuses the blueprint if it does.
 
 `examples/hello-saas-automated.yaml` is the shipped example with both
@@ -96,20 +94,21 @@ Watch the next review run:
 uv run poseidon follow
 ```
 
-A delegated merge appears as a `merge.resolve` row allowed by the rule
-`merge_resolve_delegated`, with no verdict from you. A pull request that
-falls outside the class parks as before, in the state `parked-merge_gate`.
+An automated merge appears as a `merge.resolve` row allowed by the rule
+`merge_resolve_automated`, with no verdict from you, and a gate outcome
+`automated`. A pull request outside the automated paths parks as before,
+in the state `parked-merge_gate`.
 
 ## Undo it
 
-Delegation is a line in the blueprint, so revoking it is a diff. Set
-`resolved_by` back to `human`, remove the `delegate` block, and apply
-again. From the next review on, every merge waits for you.
+Automation is a block in the blueprint, so revoking it is a diff. Remove
+the `automate` block and apply again. From the next review on, every
+merge waits for you.
 
 ## Next steps
 
 - [Pause, resume or delete the company](pause-resume-delete.md)
 - [The merge gate](../explanation/merge-gate.md):
   every fact policy checks, and what happens when one fails
-- [Limitations](../explanation/limitations.md): what a delegated gate
+- [Limitations](../explanation/limitations.md): what an automated gate
   still can't catch

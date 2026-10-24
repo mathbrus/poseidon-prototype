@@ -4,7 +4,7 @@
     PR's live state under the platform identity; a merged or closed PR
     is refused here as `pr_not_open`, before any sandbox is spent) ->
     fetch_workspace (the PR's head commit, pinned for the whole run) ->
-    provision_sandbox -> platform_verify (under a delegated gate only,
+    provision_sandbox -> platform_verify (under an automated gate only,
     before any agent holds the sandbox; red files rework and ends the run
     with no reviewer dispatched) ->
     fulfill_crew (feature-review under the PM's conductor authority —
@@ -18,21 +18,21 @@
     PR fulfilled (issues.close); reject/timeout: honest failure ->
     teardown.
 
-The merge gate owns the merge guarantee, and the blueprint names its
-resolver — gate config comes from the compiled plan, never hardcoded.
-`resolved_by: human` parks on the `merge` signal. `resolved_by: policy`
-adds the platform's own layers before anything merges: the platform
-verify of the PR head, run before the reviewer in the sandbox as
-provisioned (the same activity that gates implement delivery), the
-reviewer's journaled verdict, the contract verify when a
+The merge gate owns the merge guarantee, and the blueprint says whether
+it is automated — gate config comes from the compiled plan, never
+hardcoded. A gate without `automate` parks on the `merge` signal. An
+`automate` block adds the platform's own layers before anything merges:
+the platform verify of the PR head, run before the reviewer in the
+sandbox as provisioned (the same activity that gates implement
+delivery), the reviewer's journaled verdict, the contract verify when a
 contract tree is declared (the base ref's contract tests, composed over
 the PR head and run scoped — a baseline nothing in the PR can rewrite),
 the registry-checked reviewer-independence fact, and one evaluation of
 the compiled merge.resolve decision — allow releases the merge, deny
 falls back to the human signal, so the human override survives
-delegation. A diff touching the contract tree itself skips the layers
-entirely: it can never policy-merge (the compiled carve-out), so the
-gate declines up front and the PR parks on the human with the
+automation. A diff touching the contract tree itself skips the layers
+entirely: it is never an automated merge (the compiled carve-out), so
+the gate declines up front and the PR parks on the human with the
 deletion facts already posted — a decline, not a failure. Nobody
 home at a park? The timer escalates at half the deadline and expires the
 gate at the end; the park is API-visible (`state` query), every
@@ -43,7 +43,7 @@ merge.
 
 Review is orchestrator-sequenced over HTTP. A human reject stays the
 honest minimum: findings are already on the PR, the run finalizes failed
-with the gate's verdict. Under a policy-resolved gate, a failed quality
+with the gate's verdict. Under an automated gate, a failed quality
 layer instead feeds the bounded rework loop: the findings become a
 backlog ticket the conductor consumes, the platform closes the PR the
 ticket supersedes (git.close_pr), the chain depth rides the canonical

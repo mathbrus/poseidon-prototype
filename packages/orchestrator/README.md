@@ -72,9 +72,9 @@ On the merge gate's human path, an approving `merge` signal is not the
 release. `read_human_verdict` reads the verdict the console recorded,
 and `resolve_merge` evaluates `merge.resolve` on it. With no recorded
 verdict, the run ends unmerged with a `gate_verdict_unverified` event.
-On the policy path, a failed layer files a rework ticket and closes the
-pull request. At `max_reworks`, or on a policy decline, the run parks on
-the human. See [The merge gate](../../docs/explanation/merge-gate.md)
+On the automated path, a failed layer files a rework ticket and closes
+the pull request. At `max_reworks`, or when automation declines, the run
+parks on the human. See [The merge gate](../../docs/explanation/merge-gate.md)
 and [The heartbeat](../../docs/explanation/heartbeat.md).
 
 ### Waits are gates, and teardown always runs

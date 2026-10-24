@@ -124,15 +124,15 @@ def contract_edit_comment(deletions: dict[str, int]) -> str:
     approve it."""
     return (
         "**Contract tree edited.** This pull request changes the "
-        "contract/acceptance tests the delegated merge gate is graded by, "
-        "so it never merges under policy — it parks on the human `merge` "
+        "contract/acceptance tests automated merges are graded by, so it "
+        "is never an automated merge — it parks on the human `merge` "
         "signal.\n\n"
         f"- test functions: −{deletions['removed_tests']} "
         f"/ +{deletions['added_tests']}\n"
         f"- assertions: −{deletions['removed_asserts']} "
         f"/ +{deletions['added_asserts']}\n\n"
         "Counted by the platform from the diff. A net loss of tests or "
-        "assertions weakens the spec every future delegated merge is "
+        "assertions weakens the spec every future automated merge is "
         "graded by — approve deliberately."
     )
 

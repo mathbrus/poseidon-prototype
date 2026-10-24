@@ -102,7 +102,7 @@ boundaries:
   that rewrites its sandbox changes only what it sees itself.
 
 The red-team suite drives a reviewer that does exactly that
-(`tests/e2e_kind/test_delegated.py`). The pull request doesn't merge.
+(`tests/e2e_kind/test_automated.py`). The pull request doesn't merge.
 
 ## A blocked attack, step by step
 

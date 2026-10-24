@@ -118,8 +118,8 @@ The rest of the file is the company:
 
 - `company.vision` is what it builds. Keep the example's for now.
 - `company.humans` lists who may act on it: you, as `owner`.
-- `workflows.review.gates.merge.resolved_by: human` means every merge waits
-  for you.
+- `workflows.review.gates.merge` has no `automate` block, so every merge
+  waits for you.
 - `budgets` and `heartbeat` cap what it spends and how much it does at once.
 
 ## 5. Apply it

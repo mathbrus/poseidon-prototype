@@ -675,7 +675,7 @@ def start_review(
 ) -> None:
     """Start a review run on a pull request and follow it to its end. The
     run parks on its merge gate until `poseidon verdict <run_id> merge
-    approve|reject` answers, or policy merges on its own."""
+    approve|reject` answers, or automation merges it."""
     _start("review", pr, no_wait, as_json)
 
 

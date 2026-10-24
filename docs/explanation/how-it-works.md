@@ -146,8 +146,8 @@ A fresh sandbox is built from the pull request's head commit. A reviewer
 agent, which holds no tool that delivers anything, reads the diff against
 the documents, runs the tests, posts its findings, and gives a pass or
 fail verdict. Then the [merge gate](merge-gate.md) decides: by default it
-waits for your verdict, and you can delegate it to policy for the paths
-you choose.
+waits for your verdict, and you can automate it for the paths you
+choose.
 
 ### Teardown
 

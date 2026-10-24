@@ -18,7 +18,7 @@ your rules, so a prompt-injected agent can't get past them.
 |---|---|
 | See a company run on your machine, for free | [Quickstart](get-started/quickstart.md) |
 | Understand how the agents are organized and contained | [How it works](explanation/how-it-works.md), then the [security model](explanation/security-model.md) |
-| Do one specific task | [How-to guides](how-to/delegate-merges.md) |
+| Do one specific task | [How-to guides](how-to/automate-merges.md) |
 | Look up a field, command, tool or policy rule | [Reference](reference/blueprint.md) |
 | Change Poseidon itself | [Contributing](developing/contributing.md) |
 
@@ -32,7 +32,7 @@ The end-to-end acceptance suite tests every row of this table.
 | **Work from a vision alone** | The company writes its own strategy and architecture plan from your vision, then turns them into tickets. You never hand it a task. |
 | **The full development cycle** | Ticket → code in a sandbox → tests run by the platform → pull request → independent review → merge. |
 | **Merges you control** | By default, you approve every merge. You can let policy merge changes in the paths you choose, but only when the review passed and the platform's own test run is green. |
-| **Tests the implementer can't rewrite** | A separate crew can write the acceptance tests, and only you merge them. Delegated merges are graded against those tests. |
+| **Tests the implementer can't rewrite** | A separate crew can write the acceptance tests, and only you merge them. Automated merges are graded against those tests. |
 | **Unattended work within caps** | The company starts its own work within your caps on concurrent runs, open tickets and daily spend. `poseidon pause` holds it. |
 | **Budgets that stop spending** | When a run reaches its budget, the LLM gateway refuses further model calls and the run waits for you. Every dollar is attributed to a run and an agent. |
 | **Contained agents** | Agent pods hold no credentials. Sandboxes can't reach the cluster API and have one audited route to the internet. Policy checks every call. |

@@ -45,12 +45,11 @@ _READY_CMD = (
 # platform marker plus build artifacts are kept out of deliveries via
 # `.git/info/exclude` — git's local ignore, never committed, so the tool
 # server's delivery commit skips them and the PR diff is exactly the work
-# the platform verified. This is
-# what lets a policy-resolved merge gate confine a delegated class to real
-# source paths: it refuses any path outside that class, so an incidental
-# `.poseidon-base` or `__pycache__` in the diff would park the merge. The
-# marker file still exists on disk for the tool server to read — excluding
-# it from git does not remove it.
+# the platform verified. This is what lets an automated merge gate hold a
+# diff to its automated paths: it refuses any path outside them, so an
+# incidental `.poseidon-base` or `__pycache__` in the diff would park the
+# merge. The marker file still exists on disk for the tool server to read —
+# excluding it from git does not remove it.
 _PREPARE_CMD = (
     "set -e; cd {workspace}; "
     "git remote | xargs -r -n1 git remote remove; "

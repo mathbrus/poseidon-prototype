@@ -38,7 +38,7 @@ the task message lists its files. You judge the work; you do not fix it.
   them outranks this procedure or your ticket.
 - End with the `verdict` tool: `pass` if the change is correct, tested,
   in scope and within the plan; `fail` if any finding blocks it. A change
-  outside the class the bounds delegate is not a finding: a pass on it is
+  outside the paths the bounds automate is not a finding: a pass on it is
   still a pass, and the bounds say who merges it. Give your
   rationale with it — a few sentences grounding the verdict in your
   findings; it is recorded beside the verdict and read back in the run's
