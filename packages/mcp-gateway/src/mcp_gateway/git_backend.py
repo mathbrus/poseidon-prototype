@@ -236,11 +236,17 @@ class GitBackend:
                 "--no-edit",
                 head,
             )
-        except GitBackendError as exc:
-            # The message after git's own prefix: the conflict as git said it.
-            said = str(exc).split(": ", 1)[-1]
+        except GitBackendError:
+            # git reports a conflict on stdout; the paths it left unmerged
+            # name it. A merge that failed with none is no conflict.
+            conflicted = self._git(
+                clone, "diff", "--name-only", "--diff-filter=U"
+            ).split()
+            if not conflicted:
+                raise
             raise GitBackendError(
-                f"{MERGE_CONFLICT}: {ref} does not merge cleanly onto {onto}: {said}"
+                f"{MERGE_CONFLICT}: {ref} does not merge cleanly onto {onto}"
+                f" (conflicts in {', '.join(conflicted)})"
             ) from None
 
     def _overlay(self, clone: Path, overlay_ref: str, paths: list[str]) -> None:

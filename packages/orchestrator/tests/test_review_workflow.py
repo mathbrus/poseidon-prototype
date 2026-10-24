@@ -254,7 +254,7 @@ class Harness:
                 if harness.merge_conflicts:
                     raise ApplicationError(
                         f"merge conflict: {ref} does not merge cleanly onto"
-                        f" {merge_onto}: CONFLICT (content): slugify.py",
+                        f" {merge_onto} (conflicts in slugify.py)",
                         type="merge conflict",
                         non_retryable=True,
                     )

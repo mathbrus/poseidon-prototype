@@ -153,9 +153,14 @@ class ImplementActivities:
                     merge_onto,
                 )
             except GatewayError as exc:
-                if merge_onto and MERGE_CONFLICT in str(exc):
+                said = str(exc)
+                if merge_onto and MERGE_CONFLICT in said:
+                    # The conflict as the gateway named it, without the tool
+                    # call's error prefix: the refusal reason a person reads.
                     raise ApplicationError(
-                        str(exc), type=MERGE_CONFLICT, non_retryable=True
+                        said[said.index(MERGE_CONFLICT) :],
+                        type=MERGE_CONFLICT,
+                        non_retryable=True,
                     ) from None
                 raise
         self._log.bind(run_id=run_id).info(

@@ -160,7 +160,10 @@ def test_a_merge_conflict_is_named_not_retried(activities, monkeypatch, fake_gat
 
     failures = iter(
         [
-            GatewayError("merge conflict: f00d does not merge cleanly onto ba5e"),
+            GatewayError(
+                "Error executing tool repo.archive: merge conflict: f00d does not"
+                " merge cleanly onto ba5e (conflicts in app.py)"
+            ),
             GatewayError("git clone failed: network"),
         ]
     )
@@ -174,6 +177,9 @@ def test_a_merge_conflict_is_named_not_retried(activities, monkeypatch, fake_gat
     with pytest.raises(ApplicationError) as caught:
         asyncio.run(activities.fetch_workspace(RUN_ID, "f00d", None, "ba5e"))
     assert caught.value.type == "merge conflict" and caught.value.non_retryable
+    assert caught.value.message == (
+        "merge conflict: f00d does not merge cleanly onto ba5e (conflicts in app.py)"
+    )
     with pytest.raises(GatewayError, match="network"):
         asyncio.run(activities.fetch_workspace(RUN_ID, "f00d", None, "ba5e"))
 

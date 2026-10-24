@@ -197,8 +197,12 @@ def test_a_head_that_conflicts_with_the_moved_base_names_the_conflict(
     tip = _moved_base(
         target_repo, tmp_path, ("app.py", "def hello():\n    return 'bonjour'\n")
     )
-    with pytest.raises(GitBackendError, match="merge conflict: feature/greet"):
+    with pytest.raises(GitBackendError) as caught:
         _backend()._archive_sync(str(target_repo), "feature/greet", merge_onto=tip)
+    assert str(caught.value) == (
+        f"merge conflict: feature/greet does not merge cleanly onto {tip}"
+        " (conflicts in app.py)"
+    )
 
 
 async def test_read_pr_answers_the_base_branchs_tip(app, backends):
