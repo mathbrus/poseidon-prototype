@@ -10,7 +10,7 @@ so each later fixture reads the world the earlier one left.
   from: the heartbeat observes both documents absent, files the two
   bootstrap tickets under its own identity (once — the second tick finds
   them open), the stewardship crew writes each document from the vision,
-  and the pull requests merge like any other in-class change — a suite
+  and the pull requests merge like any other automated change — a suite
   that collects nothing is not red, and a declared contract tree the base
   ref does not hold replays nothing. Scoping waits until both exist.
 - **An architecture request.** An implementer whose ticket contradicts the
@@ -25,8 +25,8 @@ so each later fixture reads the world the earlier one left.
 None of the assertions check that a model refused. They check that the
 platform did, and that each attack really landed first.
 
-Applies the delegated example as the one-shot company: documents merge
-under policy (they are in the delegated class), and a run meant to fail
+Applies the automated example as the one-shot company: documents merge
+without a person (they are in the automated paths), and a run meant to fail
 is the company's last word on its ticket. The resting documents and the
 pristine profile are restored after.
 """
@@ -103,7 +103,7 @@ def _open_issue_numbers(env: dict, title: str) -> list[int]:
 
 
 @pytest.fixture(scope="module")
-def one_shot_delegated(stack: None, baseline_env: dict):
+def one_shot_automated(stack: None, baseline_env: dict):
     apply_profile(single_attempt(AUTOMATED), baseline_env)
     yield baseline_env
     restore_strategy(baseline_env)
@@ -120,12 +120,12 @@ def one_shot_delegated(stack: None, baseline_env: dict):
 
 
 @pytest.fixture(scope="module")
-def bootstrapped(one_shot_delegated: dict) -> dict:
+def bootstrapped(one_shot_automated: dict) -> dict:
     """Strip main to a README (the declared deviation: every baseline
     file goes), wake the loop, and let it write the documents back through
     the stewardship crew. The code and the tests return with the fixture;
     the documents stay as the company wrote them."""
-    env = one_shot_delegated
+    env = one_shot_automated
     for path in REPO_BASELINE:
         delete_repo_file(env, path, f"e2e: vision-only repository ({path})")
     heartbeat_id = bare_heartbeat_id()
@@ -347,7 +347,7 @@ def test_the_requesting_run_delivered_nothing(requested: dict):
 
 def test_the_steward_revised_the_plan_on_a_later_tick(requested: dict):
     """The loop implemented the stewardship ticket like any other: the
-    steward's PR touched only the masterplan, policy merged it, and the
+    steward's PR touched only the masterplan, automation merged it, and the
     plan on the base ref carries the revision."""
     env = requested["env"]
     revision = requested["revision"]

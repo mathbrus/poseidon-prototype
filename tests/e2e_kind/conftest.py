@@ -154,7 +154,7 @@ DOCUMENT_PATHS: dict[str, str] = yaml.safe_load(HELLO_SAAS.read_text())["company
 ORDERED_LAST = [
     "test_acceptance.py",
     "test_overnight.py",
-    "test_delegated.py",
+    "test_automated.py",
     "test_quiet.py",
 ]
 
@@ -409,7 +409,7 @@ def run_review(
     `pr_number` (the run that delivered it wakes the loop; the wake here
     covers a backlog read that landed too early), driven to a terminal
     state. With `approve` None, no human touches the `merge` signal — an
-    in-class PR merges under policy on its own, a declined one parks,
+    automated PR merges on its own, a declined one parks,
     escalates and expires under the suite's gate clock. With `approve` a
     bool, wait for the merge-gate park and deliver that one human verdict.
     Returns the review run id and its terminal record. `review` must be
