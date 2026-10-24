@@ -145,7 +145,8 @@ REGISTRY_DSN=postgresql://poseidon:ci@127.0.0.1:5432/poseidon uv run pytest pack
 CI runs the same container. Run tests per package
 ([Contributing](../../docs/developing/contributing.md)). On the cluster,
 `tests/e2e_kind/test_registry_durability.py` checks that a run's record
-and sandbox registration survive a gateway restart.
+and sandbox registration survive a gateway restart, and
+`tests/e2e_kind/test_delete.py` that a deleted company leaves no row.
 
 ## Related
 

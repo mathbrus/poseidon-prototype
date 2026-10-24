@@ -56,6 +56,12 @@ activity.
 | `implement` | birth → `read_issue` → `fetch_workspace` → `provision_sandbox` → `fulfill_crew` → `dispatch_documents` → `implement` / `platform_verify` loop → `deliver` → teardown |
 | `review` | birth → `read_pr` → `fetch_workspace` → `provision_sandbox` → `fulfill_crew` → `review` → `record_verdict` → merge gate (`vacate` before a park) → `pr_tips` [→ the merge verify on a moved base] → `merge_pr` → `close_tickets`, or `refuse_delivery` → teardown |
 
+The heartbeat ends at `heartbeat_config` once its company is no longer
+applied, and writes nothing on the way out: the delete erased the
+company's history. `record_tick` writes only while the company's row is
+there (`AuditStore.append_while_applied`), so a tick in flight across the
+teardown sweep leaves no row behind it.
+
 Birth is `create_run` → `check_budget` → `workflow_config`. A run born
 without budget headroom fails before any dispatch. Every dispatch
 carries the bounds `workflow_config` rendered. After teardown, a run
@@ -151,8 +157,11 @@ none yet.
   `test_review_workflow.py::test_a_signal_without_a_recorded_verdict_merges_nothing`.
 - A paused tick starts nothing:
   `test_heartbeat_workflow.py::test_a_paused_tick_looks_at_nothing_and_a_resumed_one_starts_work`.
-- Deleting the company stops its heartbeat:
-  `test_deleting_the_company_stops_a_running_loop`.
+- Deleting the company stops its heartbeat, and the stop writes nothing:
+  `test_deleting_the_company_stops_a_running_loop`,
+  `test_a_deleted_companys_heartbeat_completes_and_writes_nothing`.
+- A tick of a deleted company leaves no row:
+  `test_heartbeat_activities.py::test_a_tick_of_a_deleted_company_leaves_no_row`.
 - The fast profile is tighter on every bound:
   `test_workflow_timeouts.py::test_fast_profile_is_strictly_tighter_on_every_bound`.
 

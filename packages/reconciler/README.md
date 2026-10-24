@@ -146,9 +146,10 @@ handlers against a fake `Cluster`, registry and OPA. Run tests per
 package ([Contributing](../../docs/developing/contributing.md)).
 
 On the cluster, `tests/e2e_kind/test_reconciler_lifecycle.py` applies a
-company, checks that OPA activated both bundles, rolls a blueprint edit,
-and deletes the company to check that a working credential is refused
-afterwards.
+company, checks that OPA activated both bundles and rolls a blueprint
+edit. `tests/e2e_kind/test_delete.py` deletes the company and checks that
+a working credential is refused afterwards and that no row of the company
+is left.
 
 ## Related
 
