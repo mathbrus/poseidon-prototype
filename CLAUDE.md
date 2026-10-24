@@ -124,8 +124,9 @@ first.
 
 - **A company always has a heartbeat**: a blueprint without one does not
   compile, work originates only from its ticks, and stopping the company
-  is deleting it. Pausing it (`poseidon pause`) holds the heartbeat and
-  nothing else: runs in flight finish, the company stays. There is no
+  is deleting it, and deleting it erases everything the platform recorded
+  about it. Pausing it (`poseidon pause`) holds the heartbeat and nothing
+  else: runs in flight finish, the company stays. There is no
   human-started mode and no goal file.
 - **LLM cost guardrail**: the mock LLM is the default for e2e runs.
   Never set `REAL_LLM=1` or use a paid provider without explicit

@@ -28,7 +28,7 @@ The end-to-end acceptance suite tests every row of this table.
 
 | Capability | What it means |
 |---|---|
-| **A company from one file** | You compile, preview, apply, edit and delete a whole company from one blueprint. `poseidon blueprint preview` shows every change before it happens. |
+| **A company from one file** | You compile, preview, apply, edit and delete a whole company from one blueprint. `poseidon blueprint preview` shows every change before it happens. Deleting erases everything the platform recorded about the company. |
 | **Work from a vision alone** | The company writes its own strategy and architecture plan from your vision, then turns them into tickets. You never hand it a task. |
 | **The full development cycle** | Ticket → code in a sandbox → tests run by the platform → pull request → independent review → merge. |
 | **Merges you control** | By default, you approve every merge. You can let policy merge changes in the paths you choose, but only when the review passed and the platform's own test run is green. |

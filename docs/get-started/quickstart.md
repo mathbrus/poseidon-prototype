@@ -235,7 +235,9 @@ auto-f0fa3f44   implement   implement issue #2557
 hello-saas deleted in 12 s; cancelled auto-f0fa3f44
 ```
 
-Your repository keeps the pull requests and issues the company opened.
+Deleting erases everything the platform recorded about the company. Your
+repository keeps the pull requests and issues the company opened, unless
+you add `--purge-remote` ([Purge the repository too](../how-to/pause-resume-delete.md#purge-the-repository-too)).
 
 ## Next steps
 

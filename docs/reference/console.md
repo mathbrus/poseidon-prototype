@@ -59,8 +59,8 @@ limit. The console refuses a longer one with a `422`.
 ## What you may do now
 
 `GET /acts` lists the company's acts as you could ask for them now:
-apply, delete, wake, pause, resume, and a start per workflow a human may
-start. `GET /runs/{run_id}/acts` lists one run's: cancel, and a verdict
+apply, delete (with and without the repository's purge), wake, pause,
+resume, and a start per workflow a human may start. `GET /runs/{run_id}/acts` lists one run's: cancel, and a verdict
 per gate its workflow has, approved or not. `poseidon acts [RUN_ID]`
 prints either. Each act says whether it owes a rationale, whether it
 would be allowed, and if not, why: policy refuses you (`rule`, as the
@@ -173,13 +173,17 @@ the Temporal frontend, the MCP gateway, DNS and the Kubernetes API, and
 nothing else.
 
 At the MCP gateway it is the `console` identity, never the platform's.
-The company's bundle allows it exactly one read: `repo.read_file` of the
-company's two documents, on its repository, at its base ref
-(`console_read_document`). Every other call is denied by default. The
-gateway audits each read under `console`; your name is not forwarded,
-because the gateway trusts no forwarded identity. `GET /documents/{kind}`
-is that read, and like every `GET` the console itself records nothing.
-Agents' authority is unchanged: the console gains one read and no act.
+The company's bundle allows it one read and one write. The read is
+`repo.read_file` of the company's two documents, on its repository, at
+its base ref (`console_read_document`). `GET /documents/{kind}` is that
+read, and like every `GET` the console itself records nothing. The write
+is `repo.purge` of the company's repository at its base ref
+(`console_repo_purge`), made only for a delete with `purge_remote`. No
+agent or blueprint can be granted it, and the platform's identity doesn't
+hold it. Every other call is denied by default. The gateway audits each
+call under `console`; your name is not forwarded, because the gateway
+trusts no forwarded identity. Agents' authority is unchanged.
 
 In the registry, it writes the audit table and the pause columns of
-`companies`, and nothing else.
+`companies`, and nothing else. In Temporal, it deletes a deleted
+company's workflow histories.

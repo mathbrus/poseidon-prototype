@@ -46,6 +46,7 @@ What the attacker wants, from most to least damaging, and what stops it:
 | **Exfiltrate data** | The sandbox has no DNS and no direct route out. The egress proxy allows only the hosts in `egress_allow` and records every attempt. |
 | **Burn the budget** | The LLM gateway refuses calls past the run's budget, and the heartbeat stops starting runs at the daily cap. |
 | **Erase the backlog** by steering the PM to dismiss tickets | Policy allows `issues.dismiss` only during a live scope run, three times per run at most, and never on a ticket the company is working on or one the platform filed for a missing document. Each dismissal closes the ticket as not planned with the PM's reason on it, and the ticket can be reopened. |
+| **Erase the record or the repository** | Only deleting the company erases its records, and only a person the blueprint's `company.humans` names can delete it, through the console. The repository's purge is the console's own call to the gateway during such a delete. Policy allows it to the console alone, and no blueprint can grant it to an agent. |
 | **Move sideways** to the cluster API, other pods or another run | NetworkPolicy denies all traffic not explicitly allowed. Sandboxes mount no Kubernetes token. Policy binds sandbox tools to the caller's own run. |
 
 **Out of scope:**

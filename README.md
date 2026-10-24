@@ -20,8 +20,9 @@ your rules in infrastructure, not in prompts.
   goes through a gateway that checks compiled policy first. A
   prompt-injected agent can try anything, but it can only do what the
   policy allows.
-- **Everything is on the record.** Every decision, tool call, verdict
-  and dollar spent is an audit row you can read back, run by run.
+- **Everything is on the record while the company lives.** Every
+  decision, tool call, verdict and dollar spent is an audit row you can
+  read back, run by run. Deleting the company erases them with it.
 
 ## How it works
 
