@@ -569,6 +569,30 @@ async def test_another_companys_blueprint_is_refused_while_one_is_applied(client
     assert world.submitted == [] and world.audit.events == []
 
 
+async def test_the_repository_cannot_change_while_the_company_lives(client, world):
+    """Preview and apply both refuse another `stack.repo.url`, naming both
+    repositories and the way out; the same repository with other changes
+    still applies."""
+    document = yaml.safe_load(HELLO_SAAS)
+    document["stack"]["repo"]["url"] = "github.com/example-org/elsewhere"
+    for path in ("/blueprint/preview", "/blueprint/apply"):
+        response = await client.post(
+            path, json={"blueprint": yaml.safe_dump(document)}, headers=as_owner()
+        )
+        assert response.status_code == 422, path
+        detail = Problem.model_validate(response.json()).detail
+        assert "github.com/example-org/hello-saas" in detail
+        assert "github.com/example-org/elsewhere" in detail
+        assert "delete the company" in detail
+    assert world.submitted == [] and world.audit.events == []
+    same = yaml.safe_load(HELLO_SAAS)
+    same["budgets"]["per_run"]["usd"] = 7
+    applied = await client.post(
+        "/blueprint/apply", json={"blueprint": yaml.safe_dump(same)}, headers=as_owner()
+    )
+    assert model(ApplyResult, applied).company == COMPANY
+
+
 async def test_a_blueprint_naming_a_stranger_is_refused(client, world):
     """The console verifies humans, it does not make them: where the chart
     declares who a person can be, a blueprint may only name those people."""

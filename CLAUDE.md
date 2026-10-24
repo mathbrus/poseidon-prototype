@@ -65,7 +65,7 @@ first.
 <!-- --8<-- [start:glossary] -->
 | Term | Meaning | Not |
 |---|---|---|
-| **company** | what a blueprint declares and the platform runs: its vision, heartbeat, standing agents and runs, in the company namespace; a cluster hosts one | tenant, org, project |
+| **company** | what a blueprint declares and the platform runs: its vision, heartbeat, standing agents and runs, in the company namespace, on one repository for its life; a cluster hosts one | tenant, org, project |
 | **run** | one execution of `scope`, `implement` or `review`: a run id, a registry row, its ephemeral agents and sandbox, from start to teardown | job, execution, task (the text a run works) |
 | **heartbeat** | the company's standing workflow, `heartbeat-<company>`: each tick observes, asks the conductor to decide, and starts at most one run under policy and the caps; every company has one | scheduler, cron, conduct |
 | **gate** | a point where a run parks until it is resolved: `merge` and `budget`; the blueprint declares how long it waits (`deadline_minutes`) and, for `merge`, what may merge without a person (`automate`) | approval step, checkpoint |
