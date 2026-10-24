@@ -22,6 +22,14 @@ allow_rules contains "role_pm_issues_create" if {
 }
 
 # pm: standing pm.
+allow_rules contains "role_pm_issues_dismiss" if {
+	input.lifecycle == "standing"
+	input.company == "hello-saas"
+	input.role == "pm"
+	input.tool == "issues.dismiss"
+}
+
+# pm: standing pm.
 allow_rules contains "role_pm_issues_read" if {
 	input.lifecycle == "standing"
 	input.company == "hello-saas"

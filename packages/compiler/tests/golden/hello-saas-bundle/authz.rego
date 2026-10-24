@@ -50,3 +50,50 @@ deny_rules contains "architecture_request_count_missing" if {
 	input.tool == "architecture.request"
 	not is_number(object.get(input, ["architecture_requests"], null))
 }
+
+dismiss_facts_complete if {
+	is_boolean(input.run_live)
+	is_number(input.dismissals)
+	is_boolean(input.dismiss_target.open)
+	is_boolean(input.dismiss_target.bootstrap)
+	is_boolean(input.dismiss_target.in_flight)
+}
+
+deny_rules contains "issues_dismiss_facts_missing" if {
+	input.tool == "issues.dismiss"
+	not dismiss_facts_complete
+}
+
+# Only while scoping: the claimed run is a live scope run of the company.
+deny_rules contains "issues_dismiss_not_scoping" if {
+	input.tool == "issues.dismiss"
+	input.workflow != "scope"
+}
+
+deny_rules contains "issues_dismiss_not_scoping" if {
+	input.tool == "issues.dismiss"
+	input.run_live == false
+}
+
+deny_rules contains "issues_dismiss_not_open" if {
+	input.tool == "issues.dismiss"
+	input.dismiss_target.open == false
+}
+
+# A bootstrap ticket is the heartbeat's: dismissed, it would be filed again.
+deny_rules contains "issues_dismiss_bootstrap_ticket" if {
+	input.tool == "issues.dismiss"
+	input.dismiss_target.bootstrap == true
+}
+
+# A ticket a live run holds, or whose delivery stands, is being worked.
+deny_rules contains "issues_dismiss_in_flight" if {
+	input.tool == "issues.dismiss"
+	input.dismiss_target.in_flight == true
+}
+
+# At most 3 dismissals per scope run.
+deny_rules contains "issues_dismiss_over_cap" if {
+	input.tool == "issues.dismiss"
+	input.dismissals >= 3
+}

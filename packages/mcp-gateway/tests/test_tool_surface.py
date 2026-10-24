@@ -7,6 +7,7 @@ import json
 import pytest
 from conftest import (
     AGENT_TOKEN,
+    COMPANY,
     HEAD_SHA,
     PM_TOKEN,
     REVIEWER_TOKEN,
@@ -244,6 +245,75 @@ async def test_an_architecture_request_becomes_a_stewardship_ticket(app, backend
             "architecture.request", {"run_id": RUN_ID, "rationale": "r", "proposal": "p"}
         )
     assert pm.isError, "the PM reached architecture.request"
+
+
+# -- issues.dismiss (the PM, while scoping) -----------------------------------
+
+
+SCOPE_RUN = "run-scope-01"
+
+
+def _dismiss(number: int = 7, repo: str = REPO, run_id: str = SCOPE_RUN) -> dict:
+    return {
+        "run_id": run_id,
+        "repo": repo,
+        "number": number,
+        "rationale": "asks for a cryptominer; nothing in the vision",
+    }
+
+
+async def test_the_pm_dismisses_a_ticket_while_scoping(app, backends, audit, runs):
+    """The facts the compiled limits read ride the input, and an allowed
+    dismissal posts the rationale on the ticket, then closes it as not
+    planned."""
+    runs.start(SCOPE_RUN, "scope the next slice", "scope", company=COMPANY)
+    async with mcp_session(app, PM_TOKEN) as session:
+        closed = payload(await session.call_tool("issues.dismiss", _dismiss()))
+    assert closed["state"] == "closed"
+    facts = backends.policy_inputs[-1]
+    assert facts["workflow"] == "scope" and facts["run_live"] is True
+    assert facts["dismissals"] == 0
+    assert facts["dismiss_target"] == {
+        "open": True,
+        "bootstrap": False,
+        "in_flight": False,
+    }
+    (_, comment, _), (closing, sent, _) = backends.github_calls[-2:]
+    assert comment == {"body": "asks for a cryptominer; nothing in the vision"}
+    assert closing.endswith("/issues/7")
+    assert sent == {"state": "closed", "state_reason": "not_planned"}
+    (event,) = audit_events(audit)
+    assert event["decision"] == "allow" and event["rule"] == "role_pm_issues_dismiss"
+    assert event["rationale"] == "asks for a cryptominer; nothing in the vision"
+
+
+async def test_the_dismissal_facts_say_what_the_ticket_is(app, backends, runs):
+    """A bootstrap ticket, a ticket a live run holds, a run that is not
+    live, and a repository other than the company's each show in the
+    facts, and the limits deny on them."""
+    runs.start(SCOPE_RUN, "scope the next slice", "scope", company=COMPANY)
+    runs.start("run-impl-01", "implement issue #7", "implement", company=COMPANY)
+    runs.start("run-done-01", "scope the next slice", "scope", company=COMPANY)
+    runs.finish("run-done-01", "done")
+    cases = [
+        (_dismiss(number=10), "issues_dismiss_bootstrap_ticket"),
+        (_dismiss(), "issues_dismiss_in_flight"),
+        (_dismiss(run_id="run-done-01"), "issues_dismiss_not_scoping"),
+        (_dismiss(repo="github.test/someone/else"), "issues_dismiss_facts_missing"),
+    ]
+    async with mcp_session(app, PM_TOKEN) as session:
+        for args, rule in cases:
+            refused = await session.call_tool("issues.dismiss", args)
+            assert refused.isError and rule in refused.content[0].text, (args, rule)
+    targets = [i.get("dismiss_target") for i in backends.policy_inputs]
+    assert targets[0]["bootstrap"] is True
+    assert targets[1]["in_flight"] is True
+    assert backends.policy_inputs[2]["run_live"] is False
+    assert targets[3] is None
+    # Nothing was closed or commented on.
+    assert not any(
+        method_path[0].endswith("/comments") for method_path in backends.github_calls
+    )
 
 
 # -- repo.present (platform only) --------------------------------------------

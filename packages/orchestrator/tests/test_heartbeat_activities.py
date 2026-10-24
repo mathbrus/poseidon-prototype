@@ -518,7 +518,7 @@ def test_observe_skips_an_unreadable_delivered_pr(
 
 
 def _bootstrap_issue(name: str, number: int) -> dict[str, Any]:
-    from orchestrator.activities.documents import BOOTSTRAP_TITLES
+    from common.documents import BOOTSTRAP_TITLES
 
     return {**_issue(number), "title": BOOTSTRAP_TITLES[name]}
 

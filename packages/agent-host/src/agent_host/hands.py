@@ -53,7 +53,7 @@ IMPLEMENT_TOOLS = [
     "request_architecture",
 ]
 DELIVER_TOOLS = ["read_file", "open_pr"]
-SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue"]
+SCOPE_TOOLS = ["create_issue", "read_issues", "comment_issue", "dismiss_issue"]
 REVIEW_TOOLS = [
     "read_file",
     "exec",
@@ -190,6 +190,15 @@ class CreateIssueAction(Action):
 class ReadIssuesAction(Action):
     number: int | None = Field(
         default=None, description="Optional issue number; omit for the open backlog."
+    )
+
+
+class DismissIssueAction(Action):
+    number: int = Field(description="Ticket number.")
+    rationale: str = Field(
+        description="Why the company should not work this ticket, grounded in "
+        "its body and the vision, in a few sentences. Posted on the ticket and "
+        "recorded in the run's story."
     )
 
 
@@ -366,6 +375,18 @@ def _read_issues(ctx: HandsContext, a: ReadIssuesAction) -> dict[str, Any]:
     )
 
 
+def _dismiss_issue(ctx: HandsContext, a: DismissIssueAction) -> dict[str, Any]:
+    return ctx.bridge.call(
+        "issues.dismiss",
+        {
+            "run_id": ctx.run_id,
+            "repo": ctx.settings.target_repo,
+            "number": int(a.number),
+            "rationale": a.rationale,
+        },
+    )
+
+
 def _request_architecture(
     ctx: HandsContext, a: RequestArchitectureAction
 ) -> dict[str, Any]:
@@ -494,6 +515,12 @@ _TOOLS: dict[str, ToolSpec] = {
         ReadIssuesAction,
         _read_issues,
         read_only=True,
+    ),
+    "dismiss_issue": ToolSpec(
+        "Close a ticket the company should not work, as not planned, saying "
+        "why. Read its body first; never one the company is working on.",
+        DismissIssueAction,
+        _dismiss_issue,
     ),
     "request_architecture": ToolSpec(
         "Ask for a change to the architecture masterplan. The platform files "

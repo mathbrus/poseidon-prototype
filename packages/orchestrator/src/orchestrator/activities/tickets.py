@@ -23,10 +23,10 @@ import re
 from typing import Any
 
 from common.audit import RATIONALE_LIMIT
+from common.documents import BOOTSTRAP_TITLES
 from common.tasks import CLOSE_COMPLETED, CLOSE_NOT_PLANNED, ISSUE_TASK_RE
 from common.telemetry import get_logger
 from common.workflows import PR_MERGED, PR_REFUSED
-from orchestrator.activities.documents import BOOTSTRAP_TITLES
 from orchestrator.clients import GatewayClient
 from registry import Runs
 

@@ -22,14 +22,6 @@ from registry import Companies
 # are the contract the mock brain parses.
 ABSENT = "(absent)"
 
-# The fixed titles of the tickets the platform files for an absent
-# document: what the observation matches an open ticket against, so a
-# document is never bootstrapped twice.
-BOOTSTRAP_TITLES = {
-    "strategy": "Bootstrap: strategy",
-    "architecture": "Bootstrap: architecture masterplan",
-}
-
 
 def bootstrap_body(name: str, path: str, branch: str) -> str:
     """The steward's whole brief for writing one absent document: the

@@ -156,6 +156,36 @@ RULES: tuple[PolicyRule, ...] = (
         "deny",
         "An architecture request without the run's request count.",
     ),
+    # -- dismissals
+    PolicyRule(
+        "issues_dismiss_facts_missing",
+        "deny",
+        "A dismissal without the facts the gateway reads: the scope run, the"
+        " ticket's state, and the run's dismissal count.",
+    ),
+    PolicyRule(
+        "issues_dismiss_not_scoping",
+        "deny",
+        "A dismissal outside a live scope run of the company.",
+    ),
+    PolicyRule(
+        "issues_dismiss_not_open", "deny", "Dismissing a ticket that is not open."
+    ),
+    PolicyRule(
+        "issues_dismiss_bootstrap_ticket",
+        "deny",
+        "Dismissing a ticket the platform filed for an absent document.",
+    ),
+    PolicyRule(
+        "issues_dismiss_in_flight",
+        "deny",
+        "Dismissing a ticket a live run holds or whose delivery stands.",
+    ),
+    PolicyRule(
+        "issues_dismiss_over_cap",
+        "deny",
+        "A fourth dismissal in one scope run.",
+    ),
     # -- deliveries
     PolicyRule(
         GIT_OPEN_PR_PROTECTED_BRANCH,

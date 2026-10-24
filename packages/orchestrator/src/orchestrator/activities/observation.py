@@ -32,12 +32,12 @@ from typing import Any
 from temporalio import activity
 
 from blueprint.documents import DOCUMENT_NAMES
+from common.documents import BOOTSTRAP_TITLES
 from common.telemetry import get_logger
 from common.workflows import heartbeat_run_id
 from orchestrator.activities.blueprint import company_repo
 from orchestrator.activities.company import applied_company
 from orchestrator.activities.documents import (
-    BOOTSTRAP_TITLES,
     company_documents,
     read_documents,
     sections,

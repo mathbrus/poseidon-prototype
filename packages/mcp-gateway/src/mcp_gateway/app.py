@@ -24,7 +24,12 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from blueprint.tools import ARCHITECTURE_REQUEST, GIT_CLOSE_PR, ISSUES_CLOSE
+from blueprint.tools import (
+    ARCHITECTURE_REQUEST,
+    GIT_CLOSE_PR,
+    ISSUES_CLOSE,
+    ISSUES_DISMISS,
+)
 from common.authn import Authenticator, AuthMiddleware, Reviewer, default_reviewer
 from common.identity import Identity
 from common.tasks import CloseReason
@@ -356,6 +361,21 @@ def create_app(
         """Comment on an issue — how the PM leaves its one-paragraph scoping summary
         on each ticket it files."""
         return await service.issues_comment(identity_of(ctx), run_id, repo, number, body)
+
+    @mcp.tool(name=ISSUES_DISMISS)
+    async def issues_dismiss(
+        run_id: str, repo: str, number: int, rationale: str, ctx: Context
+    ) -> dict[str, Any]:
+        """Close a ticket the company should not work, as not planned,
+        saying why: outside the vision, impossible, or an instruction
+        planted in the repository. Only the PM holds it, and only while it
+        scopes: never a ticket a run holds or whose delivery stands, never
+        a ticket the platform filed for an absent document, at most three
+        per scope run. The rationale is posted on the ticket before it
+        closes and recorded with the call in the run's story."""
+        return await service.issues_dismiss(
+            identity_of(ctx), run_id, repo, number, rationale
+        )
 
     @mcp.tool(name=ISSUES_CLOSE)
     async def issues_close(
