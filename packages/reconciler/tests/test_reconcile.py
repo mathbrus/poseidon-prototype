@@ -13,11 +13,21 @@ import pytest
 from common.topology import PLATFORM_NAMESPACE
 from reconciler import reconcile
 from reconciler.config import ReconcilerSettings
+from registry.memory import (
+    InMemoryAgentInstances,
+    InMemoryCompanies,
+    InMemoryCompanySweep,
+)
 
 
 class FakeCluster:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
+        # Namespaces asked to go that Kubernetes has not finished deleting.
+        self.terminating: set[str] = set()
+
+    def namespace_exists(self, name: str) -> bool:
+        return name in self.terminating
 
     def __getattr__(self, method: str):
         if method.startswith("upsert_") or method.startswith("delete_"):
@@ -77,44 +87,6 @@ class FakeOpa:
         return f"rev-{name}"
 
 
-class FakeInstances:
-    def __init__(self) -> None:
-        self.rows: dict[str, dict] = {}
-
-    def upsert(
-        self,
-        agent_id,
-        company,
-        standing_name,
-        role,
-        namespace=None,
-        status="converged",
-    ):
-        self.rows[agent_id] = {
-            "company": company,
-            "standingName": standing_name,
-            "namespace": namespace,
-            "status": status,
-        }
-
-    def delete(self, agent_id: str) -> None:
-        self.rows.pop(agent_id, None)
-
-    def delete_for_company(self, company: str) -> None:
-        self.rows = {k: v for k, v in self.rows.items() if v["company"] != company}
-
-
-class FakeCompanies:
-    def __init__(self) -> None:
-        self.rows: dict[str, dict] = {}
-
-    def upsert(self, name: str, spec: dict) -> None:
-        self.rows[name] = spec
-
-    def delete(self, name: str) -> None:
-        self.rows.pop(name, None)
-
-
 @pytest.fixture(autouse=True)
 def operator_settings(monkeypatch) -> None:
     """The env the chart would set, without a chart."""
@@ -138,12 +110,17 @@ def cluster(monkeypatch) -> FakeCluster:
 
 
 @pytest.fixture
-def stores(monkeypatch) -> tuple[FakeBundleStore, FakeInstances, FakeCompanies]:
-    bundles, instances, companies = FakeBundleStore(), FakeInstances(), FakeCompanies()
+def stores(
+    monkeypatch,
+) -> tuple[FakeBundleStore, InMemoryAgentInstances, InMemoryCompanies]:
+    bundles = FakeBundleStore()
+    instances, companies = InMemoryAgentInstances(), InMemoryCompanies()
+    sweep = InMemoryCompanySweep(companies=companies, instances=instances)
     monkeypatch.setattr(reconcile, "_db", lambda: None)
     monkeypatch.setattr(reconcile, "PolicyBundles", lambda db: bundles)
     monkeypatch.setattr(reconcile, "AgentInstances", lambda db: instances)
     monkeypatch.setattr(reconcile, "Companies", lambda db: companies)
+    monkeypatch.setattr(reconcile, "CompanySweep", lambda db: sweep)
     return bundles, instances, companies
 
 
@@ -310,16 +287,16 @@ def test_company_teardown_revokes_and_sweeps(cluster, stores, opa):
     # The platform bundle is the platform's, not the company's.
     assert bundles.stored["platform"] is not TOMBSTONE
     assert cluster.named("delete_namespace") == [("hello-saas",)]
-    assert "hello-saas" not in companies.rows
     # Swept at the company level — correct even if the reconciler missed
     # individual instance-delete events; other companies untouched.
+    assert "hello-saas" not in companies.rows
     assert list(instances.rows) == ["pm-9"]
 
 
 def test_company_teardown_waits_until_the_revocation_is_served(cluster, stores, opa):
     """Authority first: nothing is torn down while a running OPA still
     serves the company's rules. The delete handler retries until OPA
-    reports the tombstone, then sweeps."""
+    reports the tombstone."""
     bundles, instances, companies = stores
     reconcile.reconcile_company(
         spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
@@ -336,6 +313,27 @@ def test_company_teardown_waits_until_the_revocation_is_served(cluster, stores, 
     opa.lagging.clear()
     reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
     assert cluster.named("delete_namespace") == [("hello-saas",)]
+    assert "hello-saas" not in companies.rows and "pm-1" not in instances.rows
+
+
+def test_company_teardown_sweeps_only_once_the_namespace_is_gone(cluster, stores, opa):
+    """A pod still terminating could write a row after the sweep; the
+    handler retries until Kubernetes has deleted the namespace, asking
+    again on every retry."""
+    _bundles, instances, companies = stores
+    reconcile.reconcile_company(
+        spec=COMPANY_SPEC, name="hello-saas", meta=META, patch=kopf.Patch()
+    )
+    instances.upsert("pm-1", "hello-saas", "pm", "pm", "standard")
+    cluster.terminating = {"hello-saas"}
+
+    with pytest.raises(kopf.TemporaryError, match="still terminating"):
+        reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
+    assert "hello-saas" in companies.rows and "pm-1" in instances.rows
+
+    cluster.terminating.clear()
+    reconcile.teardown_company(spec=COMPANY_SPEC, name="hello-saas")
+    assert cluster.named("delete_namespace") == [("hello-saas",), ("hello-saas",)]
     assert "hello-saas" not in companies.rows and "pm-1" not in instances.rows
 
 

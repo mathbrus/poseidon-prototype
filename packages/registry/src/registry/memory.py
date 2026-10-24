@@ -22,7 +22,13 @@ from typing import Any
 from common.audit import AuditEvent
 from common.policy import GATE_RESOLVE, verdict_rule
 from common.tasks import ISSUE_TASK_RE, REVIEW_TASK_RE, issue_run_task
-from common.workflows import HEARTBEAT_WORKFLOW, PR_REFUSED, RUN_WORKFLOWS
+from common.workflows import (
+    HEARTBEAT_WORKFLOW,
+    PR_REFUSED,
+    RUN_WORKFLOWS,
+    heartbeat_run_id,
+    workflow_id,
+)
 from registry.participants import ParticipantRevoked
 from registry.runs import Attempts, RunRecord
 
@@ -287,10 +293,6 @@ class InMemoryCompanies:
                 return spec
         return None
 
-    def delete(self, name: str) -> None:
-        self.rows.pop(name, None)
-        self.pauses.pop(name, None)
-
 
 class InMemoryAgentInstances:
     """The gateway's read side of `agent_instances` (workload identity)
@@ -325,6 +327,9 @@ class InMemoryAgentInstances:
 
     def get(self, agent_id: str) -> dict[str, Any] | None:
         return self.rows.get(agent_id)
+
+    def delete(self, agent_id: str) -> None:
+        self.rows.pop(agent_id, None)
 
 
 class InMemoryRunParticipants:
@@ -631,3 +636,83 @@ class InMemoryRuns:
             if r.company == company and r.workflow != HEARTBEAT_WORKFLOW
         ]
         return work[-limit:][::-1]
+
+
+class InMemoryCompanySweep:
+    """The teardown sweep over the doubles it is given: the same rows go,
+    by company or by run id, as `CompanySweep` deletes in Postgres. A test
+    passes the doubles its world holds; the others are not there to
+    sweep."""
+
+    def __init__(
+        self,
+        *,
+        companies: InMemoryCompanies | None = None,
+        instances: InMemoryAgentInstances | None = None,
+        runs: InMemoryRuns | None = None,
+        participants: InMemoryRunParticipants | None = None,
+        sandboxes: InMemorySandboxRegistrations | None = None,
+        tickets: InMemoryFiledTickets | None = None,
+        ledger: InMemoryBudgetLedger | None = None,
+        audit: InMemoryAuditStore | None = None,
+    ) -> None:
+        self._companies = companies
+        self._instances = instances
+        self._runs = runs
+        self._participants = participants
+        self._sandboxes = sandboxes
+        self._tickets = tickets
+        self._ledger = ledger
+        self._audit = audit
+
+    def sweep(self, company: str) -> None:
+        heartbeat = workflow_id(HEARTBEAT_WORKFLOW, company)
+        spec = self._companies.get(company) if self._companies else None
+        repo = ((spec or {}).get("repo") or {}).get("url")
+        run_ids = {heartbeat_run_id(company)}
+        if self._runs:
+            run_ids |= {
+                r.run_id for r in self._runs.rows.values() if r.company == company
+            }
+        if self._audit:
+            self._audit.events = [
+                e
+                for e in self._audit.events
+                if e.company != company
+                and e.run_id not in run_ids
+                and e.workflow != heartbeat
+            ]
+        if self._ledger:
+            self._ledger.entries = [
+                e
+                for e in self._ledger.entries
+                if e["company"] != company and e["run_id"] not in run_ids
+            ]
+        if self._sandboxes:
+            for run_id in run_ids:
+                self._sandboxes.rows.pop(run_id, None)
+        if self._participants:
+            self._participants.rows = {
+                agent_id: row
+                for agent_id, row in self._participants.rows.items()
+                if row["company"] != company and row["run_id"] not in run_ids
+            }
+        if self._tickets:
+            self._tickets.rows = {
+                key: row
+                for key, row in self._tickets.rows.items()
+                if key[0] != repo and row[0] not in run_ids
+            }
+        if self._runs:
+            self._runs.rows = {
+                run_id: r for run_id, r in self._runs.rows.items() if r.company != company
+            }
+        if self._instances:
+            self._instances.rows = {
+                agent_id: row
+                for agent_id, row in self._instances.rows.items()
+                if row["company"] != company
+            }
+        if self._companies:
+            self._companies.rows.pop(company, None)
+            self._companies.pauses.pop(company, None)

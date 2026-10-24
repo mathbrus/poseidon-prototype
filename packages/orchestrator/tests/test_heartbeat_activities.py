@@ -32,6 +32,7 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
+    InMemoryCompanySweep,
     InMemoryFiledTickets,
     InMemoryRuns,
 )
@@ -258,14 +259,14 @@ def test_config_carries_the_pause(activities, companies):
 def test_config_is_none_without_an_applied_company(activities, companies):
     """The fail-closed half of teardown: a deleted company stops the loop
     at its next tick."""
-    companies.delete(COMPANY)
+    InMemoryCompanySweep(companies=companies).sweep(COMPANY)
     assert asyncio.run(activities.heartbeat_config(COMPANY)) is None
 
 
 def test_config_is_none_for_a_heartbeat_of_another_company(activities, companies):
     """A heartbeat that outlived its company must not tick on the next
     company's blueprint: the config read answers for its own name only."""
-    companies.delete(COMPANY)
+    InMemoryCompanySweep(companies=companies).sweep(COMPANY)
     companies.upsert("other-co", {"heartbeat": HEARTBEAT_SPEC})
     assert asyncio.run(activities.heartbeat_config(COMPANY)) is None
 

@@ -23,7 +23,8 @@ imports it and connects with its own `REGISTRY_DSN`.
 | `tickets.py` | `FiledTickets`: so the heartbeat reads its own tickets before the git host lists them. |
 | `ledger.py` | `BudgetLedger`: spend rows and their sums. |
 | `audit.py` | `AuditStore`: `append`, `story(run_id)`, `after` for followers, `count_allowed`, `latest_human_verdict`. |
-| `memory.py` | In-memory doubles of every accessor except `PolicyBundles`, for other packages' unit tests. They fail the way the real accessors do. No running service imports it. |
+| `sweep.py` | `CompanySweep`: the teardown's one write, every row of a deleted company in one transaction. |
+| `memory.py` | In-memory doubles of every accessor except `PolicyBundles`, and of the sweep, for other packages' unit tests. They fail the way the real accessors do. No running service imports it. |
 
 ### The nine tables
 
@@ -37,7 +38,7 @@ imports it and connects with its own `REGISTRY_DSN`.
 | `sandbox_registrations` | mcp-gateway | Run to sandbox address. |
 | `filed_tickets` | mcp-gateway | Each ticket the company filed. |
 | `budget_ledger` | llm-gateway | One spend entry per model call. |
-| `audit_events` | mcp-gateway, llm-gateway, egress proxy, orchestrator, console | Every decision, append only. |
+| `audit_events` | mcp-gateway, llm-gateway, egress proxy, orchestrator, console | Every decision, append only while its company lives. |
 
 ## How it works
 
@@ -54,6 +55,21 @@ The `rationale` column is the only cleartext the actor wrote.
 `audit_events.run_id` and `sandbox_registrations.run_id` carry no
 foreign key, so an event whose run claim failed verification is still
 recorded.
+
+### Deleting a company erases its rows
+
+The one deleter of every table is the reconciler's teardown, through
+`CompanySweep`, once the tombstone is served and the namespace is gone.
+In one transaction it deletes every row of the company: by its company
+column, or by run id where a writer knows only the run (egress attempts,
+the platform identity's calls under `heartbeat-<company>`, bootstrap
+tickets). The runs are the company's runs plus `heartbeat-<company>`;
+its filed tickets are also matched by the applied repository. A company
+applied again under the same name starts with no history.
+
+What stays is the platform's: the policy bundles, the company slot
+holding the tombstone, and audit rows that name neither the company nor
+one of its runs, such as an unknown caller's rejected authentication.
 
 ### Every service migrates at startup
 
@@ -104,6 +120,8 @@ each write is safe to repeat:
   `test_story_spans_every_source`.
 - A re-apply keeps the pause:
   `test_the_pause_is_a_company_fact_that_survives_a_re_apply`.
+- A deleted company leaves no row:
+  `test_the_teardown_sweep_erases_every_row_of_the_company`.
 - Identical policy packs identically:
   `test_bundles.py::test_identical_files_pack_identically`.
 - Bundle roots come from the files' `package` lines:

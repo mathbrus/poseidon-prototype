@@ -39,6 +39,7 @@ from registry.memory import (
     InMemoryAuditStore,
     InMemoryBudgetLedger,
     InMemoryCompanies,
+    InMemoryCompanySweep,
     InMemoryFiledTickets,
     InMemoryRunParticipants,
     InMemoryRuns,
@@ -208,7 +209,15 @@ class World:
     def delete(self, company: str, wait: bool = True) -> None:
         self.deleted.append(company)
         self.waited.append(wait)
-        self.companies.delete(company)
+        InMemoryCompanySweep(
+            companies=self.companies,
+            instances=self.instances,
+            runs=self.runs,
+            participants=self.participants,
+            tickets=self.tickets,
+            ledger=self.ledger,
+            audit=self.audit,
+        ).sweep(company)
 
     async def evaluate(self, opa_url: str, company: str, decision_input: dict) -> dict:
         self.asked.append(decision_input)

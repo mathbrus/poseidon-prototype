@@ -450,17 +450,9 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     assert deleted.rule == "company_delete"
     assert world.deleted == [COMPANY]
     assert world.workflows.calls == [("cancel", f"review-{RUN_ID}")]
-    # The delete is recorded before anything is cancelled, and the cancel
-    # under the same name says why.
-    assert world.events == [
-        (COMPANY_DELETE, "allow", "company_delete"),
-        (RUN_CANCEL, "allow", "run_cancel"),
-    ]
-    assert world.audit.events[0].agent_id == "owner"
-    assert [e.rationale for e in world.audit.events] == [
-        "wrong vision",
-        "company deleted: wrong vision",
-    ]
+    # The delete's own rows went with every other row of the company: the
+    # response is the receipt.
+    assert world.audit.events == [] and world.runs.rows == {}
     # Nothing is left to act on.
     assert (await client.get("/heartbeat", headers=as_owner())).status_code == 404
     again = await client.request(
@@ -615,7 +607,7 @@ async def test_before_the_first_apply_any_name_applies_and_nothing_else_answers(
 ):
     """A fresh cluster hosts no company: the reads and acts that need one
     say so, `whoami` names none, and the first apply may bring any name."""
-    world.companies.delete(COMPANY)
+    del world.companies.rows[COMPANY]
     who = await client.get("/whoami", headers=as_owner())
     assert model(WhoAmI, who).company is None
     for method, path in (("GET", "/heartbeat"), ("GET", "/spend"), ("GET", "/runs")):
@@ -756,7 +748,7 @@ async def test_events_are_the_companys_rows_after_a_cursor_with_spend(client, wo
     assert (one_run.spend.usd, one_run.spend.run_usd) == (0.25, 0.25)
     assert world.audit.events[-1].tool == "git.open_pr"  # a read: nothing appended
 
-    world.companies.delete(COMPANY)
+    del world.companies.rows[COMPANY]
     assert (await client.get("/events", headers=as_owner())).status_code == 404
 
 
@@ -970,7 +962,7 @@ async def test_before_it_converges_a_company_has_no_limits_and_no_bounds(client,
     """The CR is there, the reconciler's copy of the spec is not yet: the
     company reads activating without limits, and what needs the applied
     spec says so."""
-    world.companies.delete(COMPANY)
+    del world.companies.rows[COMPANY]
     await client.post(
         "/blueprint/apply", json={"blueprint": HELLO_SAAS}, headers=as_owner()
     )
