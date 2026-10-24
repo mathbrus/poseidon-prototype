@@ -52,7 +52,8 @@ def _paths(description: str) -> dict[str, Any]:
 
 # Humans are required because every company has at least one gate only a
 # person can answer: the budget park, and a policy-resolved merge falls
-# back to one. The vision's cap keeps it a charter, not a specification.
+# back to one. The vision's cap keeps it a statement of purpose, not a
+# specification.
 _COMPANY = {
     "type": "object",
     "additionalProperties": False,

@@ -1,6 +1,6 @@
 # pirate-fight — written by `poseidon blueprint new`.
-# Every value here is yours to change; `poseidon blueprint apply` makes
-# it the company's charter.
+# Every value here is yours to change; `poseidon blueprint apply` applies
+# it to the company.
 apiVersion: poseidon.dev/v1
 
 # Your company: its name, what it should build and why (every agent

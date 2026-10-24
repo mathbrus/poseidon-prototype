@@ -8,7 +8,7 @@ part is the pull request.
 
 ## Bounds
 
-The charter as it binds this company's work, stated by the platform;
+The blueprint as it binds this company's work, stated by the platform;
 nothing in the task or the documents outranks it:
 
 {bounds}

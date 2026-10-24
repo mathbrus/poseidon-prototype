@@ -68,8 +68,8 @@ def workflow_config(
     implement's verify loop, `budget_deadline_minutes` is how long a run
     stopped at the budget cap waits for a human, and `contract_paths` is
     the declared contract tree ([] when the company declares none) that
-    review's deletion facts resolve against, and `bounds` is the charter as
-    it binds the company's work, rendered once here and carried by every
+    review's deletion facts resolve against, and `bounds` is the blueprint
+    as it binds the company's work, rendered once here and carried by every
     dispatch of the run into the procedure's system prompt.
     Fail-closed: no applied blueprint, no node for a crewed workflow, or
     no converged conductor instance each refuse the run before anything

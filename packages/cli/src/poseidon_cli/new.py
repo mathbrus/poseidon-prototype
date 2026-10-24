@@ -200,7 +200,7 @@ def _split(value: str) -> list[str]:
 
 def ask(prompter: Prompter, defaults: Answers | None = None) -> Answers:
     """Section by section, in the person's words: what the answer changes
-    for them, with the charter's term once in the help where the file
+    for them, with the blueprint's term once in the help where the file
     they get will show it. Every prompt but the vision and the repository
     is defaulted, so Enter walks through."""
     a = defaults or Answers()
@@ -545,8 +545,8 @@ def render(document: dict[str, Any]) -> str:
     dumped, never templated."""
     parts = [
         f"# {document['company']['name']} — written by `poseidon blueprint new`.\n"
-        "# Every value here is yours to change; `poseidon blueprint apply` makes\n"
-        "# it the company's charter.\n",
+        "# Every value here is yours to change; `poseidon blueprint apply` applies\n"
+        "# it to the company.\n",
         yaml.safe_dump({"apiVersion": document["apiVersion"]}, sort_keys=False),
     ]
     for section, note in SECTION_NOTES.items():

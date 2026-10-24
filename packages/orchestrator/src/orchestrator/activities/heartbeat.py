@@ -160,7 +160,7 @@ class HeartbeatActivities:
         the company did what it did. The dispatch runs under `run_id` (the
         run the tick would start), so the decision's own LLM spend is
         attributed to the work it chose. The bounds ride the dispatch like
-        every other: the conductor decides under the charter as it binds
+        every other: the conductor decides under the blueprint as it binds
         the company, rendered from the same applied spec its address is
         read from."""
 

@@ -1,4 +1,4 @@
-"""The bounds: the applied charter as every dispatch says it.
+"""The bounds: the applied blueprint as every dispatch says it.
 
 The text is read by models and asserted on by humans, so its shape is
 pinned here line by line: one line per section, in a fixed order, facts

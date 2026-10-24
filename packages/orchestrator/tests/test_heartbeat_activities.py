@@ -831,7 +831,7 @@ def test_decide_dispatches_the_observation_and_journals(
     }
     (run_id, procedure, prompt, bounds) = agent.dispatched[0]
     assert (run_id, procedure) == ("auto-1", "decide")
-    # The charter rides the decide dispatch, rendered from the applied spec.
+    # The blueprint rides the decide dispatch, rendered from the applied spec.
     assert bounds.startswith("Repository: github.com/example/repo, base ref main.")
     # Dispatched at the conductor's Service, derived from the converged
     # instance — never a configured address.

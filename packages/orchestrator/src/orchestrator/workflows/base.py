@@ -268,7 +268,7 @@ class RunWorkflow:
         finalize.
         Escalation and verdict are process-gate audit events, like the
         merge gate's — one Gate spine, one audit contract. Every dispatch
-        carries the bounds the run's shape rendered — the charter as it
+        carries the bounds the run's shape rendered — the blueprint as it
         binds this work, trusted like the vision; `documents` are the
         company's documents the procedure reads as untrusted context, and
         a procedure that judges nothing (deliver) carries none."""

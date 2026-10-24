@@ -153,7 +153,7 @@ class PauseView(Model):
 
 
 class LimitsView(Model):
-    """The charter's caps as they bind the company now, beside what they
+    """The blueprint's caps as they bind the company now, beside what they
     are measured against: the per-run cap, the daily cap and today's
     spend (since UTC midnight), how many runs may be live at once, and
     how long each gate waits for a human before it expires (it escalates
@@ -214,7 +214,7 @@ class DocumentView(Model):
 
 
 class BoundsView(Model):
-    """`GET /company/bounds`: the charter's gates and limits as they bind
+    """`GET /company/bounds`: the blueprint's gates and limits as they bind
     the company's work, the text every dispatch carries into a
     procedure's system prompt."""
 

@@ -37,7 +37,7 @@ class TaskRequest(BaseModel):
     run_id: str
     procedure: Procedure
     task_text: str
-    # The bounds: the charter as it binds this company's work, rendered by
+    # The bounds: the blueprint as it binds this company's work, rendered by
     # the platform from the applied blueprint. Trusted like the vision —
     # it lands in the procedure's system prompt — and required: a
     # dispatch that does not say what binds the work is refused.

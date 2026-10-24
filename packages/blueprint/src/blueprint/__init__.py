@@ -3,7 +3,7 @@
 The blueprint is the one source of truth the compiler turns into
 every enforcement projection. This package owns what a blueprint may say —
 JSON Schema for the nine sections plus the versioned role and crew
-catalogs — and how the applied charter is said to the agents it binds
+catalogs — and how the applied blueprint is said to the agents it binds
 (`bounds`); nothing about what it compiles to.
 """
 
