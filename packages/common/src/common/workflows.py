@@ -102,6 +102,10 @@ PR_MERGED = "merged"
 PR_REFUSED = "refused"
 PR_SUPERSEDED = "superseded"
 PR_SETTLED = (PR_MERGED, PR_REFUSED, PR_SUPERSEDED)
+# The gateway's word when a pull request's head does not merge cleanly
+# onto its moved base: the archive refuses with it, and the review refuses
+# the delivery on it.
+MERGE_CONFLICT = "merge conflict"
 
 # What happened at a gate: one outcome per kind, written on the gate's
 # process-gate audit row as `gate_<kind>` by the orchestrator and read

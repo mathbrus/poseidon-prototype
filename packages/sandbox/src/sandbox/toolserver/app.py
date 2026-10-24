@@ -51,6 +51,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
+from common.identity import COMMIT_EMAIL_DOMAIN
 from common.telemetry import get_logger
 from common.text import numbered_lines
 
@@ -66,9 +67,6 @@ GIT_TIMEOUT_S = 60
 READ_LINE_LIMIT = 2000
 # The most paths a listing returns.
 LIST_LIMIT = 500
-# The delivery commit's author is the agent that asked for it; git wants an
-# address, and this domain says it is no mailbox.
-AUTHOR_EMAIL_DOMAIN = "agents.poseidon.invalid"
 # Where the delivery commit is staged: inside `.git`, so never in the tree,
 # and apart from the workspace's own index, which stays as the agent left it.
 DELIVERY_INDEX = "poseidon-delivery-index"
@@ -321,7 +319,8 @@ def create_app(workspace: Path | None = None) -> FastAPI:
                 status_code=400,
                 detail="nothing to deliver: the workspace matches the base ref",
             )
-        email = f"{req.author}@{AUTHOR_EMAIL_DOMAIN}"
+        # The delivery commit's author is the agent that asked for it.
+        email = f"{req.author}@{COMMIT_EMAIL_DOMAIN}"
         identity = {
             **os.environ,
             "GIT_AUTHOR_NAME": req.author,

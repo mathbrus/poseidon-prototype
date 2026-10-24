@@ -51,6 +51,8 @@ BOUNDS = "Repository: github.com/example/repo, base ref main."
 PR = 41
 # The head commit read_pr reports: every fetch and the merge name it.
 HEAD_SHA = "f00d5ha"
+# The base branch's tip the review ran against.
+BASE_SHA = "ba5e000"
 
 AUTOMATED_GATE = {
     "deadline_minutes": 1,
@@ -113,8 +115,21 @@ class Harness:
     )
     depth: dict[str, Any] = field(default_factory=lambda: {"depth": 0, "root_pr": PR})
     # Someone pushed to the PR branch after the run read its head: the
-    # pinned merge is refused, as the real activity refuses it.
+    # merge site's read finds the head moved — or, pushed after that read,
+    # the host refuses the pinned merge.
     head_moved: bool = False
+    head_moved_at_merge: bool = False
+    # The base tips the merge site reads, one per read; the review's own
+    # base once they run out.
+    bases: list[str] = field(default_factory=list)
+    # The head merged onto a moved base: whether it conflicts, and how its
+    # suite runs (green unless stated).
+    merge_conflicts: bool = False
+    merge_verify: dict[str, Any] = field(default_factory=lambda: {"passed": True})
+    # The bases each merge verify built the head onto.
+    merge_verifies: list[str] = field(default_factory=list)
+    # The tree the sandbox was last provisioned from.
+    provisioned: str = ""
 
     verify_calls: int = 0
     scoped_verifies: list[list[str]] = field(default_factory=list)
@@ -203,10 +218,17 @@ class Harness:
                 "title": "Add slugify utility",
                 "head": "feature/slugify-x",
                 "head_sha": HEAD_SHA,
+                "base_sha": BASE_SHA,
                 "url": f"https://git.test/r/pulls/{pr_number}",
                 "paths": list(harness.pr_paths),
                 "contract_deletions": harness.deletions,
             }
+
+        @activity.defn(name="pr_tips")
+        async def pr_tips(run_id: str, pr_number: int) -> dict[str, Any]:
+            base = harness.bases.pop(0) if harness.bases else BASE_SHA
+            head = "pu5h3d" if harness.head_moved else HEAD_SHA
+            return {"head_sha": head, "base_sha": base, "settled": None}
 
         @activity.defn(name="warn_contract_edit")
         async def warn_contract_edit(
@@ -222,14 +244,28 @@ class Harness:
 
         @activity.defn(name="fetch_workspace")
         async def fetch_workspace(
-            run_id: str, ref: str, overlay_paths: list[str] | None = None
+            run_id: str,
+            ref: str,
+            overlay_paths: list[str] | None = None,
+            merge_onto: str | None = None,
         ) -> str:
+            if merge_onto:
+                harness.merge_verifies.append(merge_onto)
+                if harness.merge_conflicts:
+                    raise ApplicationError(
+                        f"merge conflict: {ref} does not merge cleanly onto"
+                        f" {merge_onto}: CONFLICT (content): slugify.py",
+                        type="merge conflict",
+                        non_retryable=True,
+                    )
+                return "merged-tar"
             harness.fetches.append([ref, overlay_paths])
             return "workspace-tar"
 
         @activity.defn(name="provision_sandbox")
         async def provision_sandbox(run_id: str, tar: str) -> dict[str, Any]:
             harness.provisions += 1
+            harness.provisioned = tar
             return {"sandbox": "sbx-1"}
 
         @activity.defn(name="fulfill_crew")
@@ -277,6 +313,9 @@ class Harness:
             if paths:
                 harness.scoped_verifies.append(list(paths))
                 return dict(harness.contract_verify)
+            if harness.provisioned == "merged-tar":
+                harness.sequence.append("merge verify")
+                return dict(harness.merge_verify)
             harness.verify_calls += 1
             harness.sequence.append("verify")
             return dict(harness.verify)
@@ -343,7 +382,7 @@ class Harness:
         @activity.defn(name="merge_pr")
         async def merge_pr(run_id: str, pr_number: int, head_sha: str) -> dict[str, Any]:
             harness.merge_heads.append(head_sha)
-            if harness.head_moved:
+            if harness.head_moved_at_merge:
                 return {
                     "merged": False,
                     "sha": "",
@@ -425,6 +464,7 @@ class Harness:
             file_rework,
             close_superseded_pr,
             refuse_delivery,
+            pr_tips,
             record_gate_outcome,
             merge_pr,
             close_tickets,
@@ -1041,13 +1081,22 @@ async def test_a_close_that_keeps_failing_ends_the_run_with_the_merge_recorded(e
     assert record["merge_sha"] == "abc123"
 
 
-@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
-async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
+@pytest.mark.parametrize(
+    ("gate", "moved"),
+    [
+        (HUMAN_GATE, "head_moved"),
+        (AUTOMATED_GATE, "head_moved"),
+        (HUMAN_GATE, "head_moved_at_merge"),
+        (AUTOMATED_GATE, "head_moved_at_merge"),
+    ],
+)
+async def test_a_head_that_moved_after_review_merges_nothing(env, gate, moved):
     """A push to the PR branch after the run read its head: both resolvers
-    merge through the same pinned call, the host refuses it, and the run
+    reach the one merge site, which reads the PR again and finds it — or,
+    pushed after that read, the host refuses the pinned merge. The run
     fails with the refusal — no merge, no ticket closed, and the delivery
-    refused with the host's words, so its ticket comes back."""
-    harness = Harness(merge_gate=gate, head_moved=True)
+    refused, so its ticket comes back."""
+    harness = Harness(merge_gate=gate, **{moved: True})
     worker, handle = await start_review(env.client, harness)
     try:
         if gate is HUMAN_GATE:
@@ -1057,12 +1106,91 @@ async def test_a_head_that_moved_after_review_merges_nothing(env, gate):
     finally:
         await worker.__aexit__(None, None, None)
 
-    assert harness.merge_heads == [HEAD_SHA]
+    assert harness.merge_heads == ([] if moved == "head_moved" else [HEAD_SHA])
     assert harness.merges == []
     assert harness.effects == [f"refuse #{PR}"]
     assert harness.refusals[0].startswith("head moved after review")
     assert record["status"] == "failed"
     assert "head moved after review" in record["error"]
+
+
+# -- a moved base is verified before the merge --------------------------------
+
+
+async def _approved_review(env, harness: Harness) -> dict[str, Any]:
+    """The review to its end, a person approving when the gate parks."""
+    if harness.merge_gate is not HUMAN_GATE:
+        return await run_review(env.client, harness)
+    worker, handle = await start_review(env.client, harness)
+    try:
+        await wait_for_park(handle)
+        await handle.signal("merge", args=[True])
+        return await handle.result()
+    finally:
+        await worker.__aexit__(None, None, None)
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+async def test_a_base_that_held_still_merges_without_a_verify(env, gate):
+    harness = Harness(merge_gate=gate)
+    record = await _approved_review(env, harness)
+    assert harness.merge_verifies == []
+    assert record["merged"] is True
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+async def test_a_moved_base_is_verified_then_merged(env, gate):
+    """The base moved since the review: the head merged onto the new base
+    is built in a fresh sandbox and run by the platform, the sandbox given
+    back, and — green, the base still there — the head merges, still
+    pinned."""
+    harness = Harness(merge_gate=gate, bases=["ba5e001", "ba5e001"])
+    record = await _approved_review(env, harness)
+    assert harness.merge_verifies == ["ba5e001"]
+    assert harness.sequence[-1] == "merge verify"
+    # The verify's sandbox is given back, the run's place untouched.
+    assert harness.vacated[-1][:2] == ({"sandbox": "sbx-1"}, True)
+    assert harness.merge_heads == [HEAD_SHA]
+    assert record["merged"] is True
+    assert harness.torn_down_handles == [None]
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+@pytest.mark.parametrize(
+    ("scripted", "reason"),
+    [
+        (
+            {"merge_verify": {"passed": False, "output": "1 failed"}},
+            "the head merged onto the moved base ba5e001 is red: 1 failed",
+        ),
+        (
+            {"merge_conflicts": True},
+            f"merge conflict: {HEAD_SHA} does not merge cleanly onto ba5e001",
+        ),
+    ],
+)
+async def test_a_red_or_conflicting_merge_onto_a_moved_base_is_refused(
+    env, gate, scripted, reason
+):
+    harness = Harness(merge_gate=gate, bases=["ba5e001"], **scripted)
+    record = await _approved_review(env, harness)
+    assert harness.merges == [] and harness.merge_heads == []
+    assert harness.refusals[0].startswith(reason)
+    assert record["status"] == "failed"
+
+
+@pytest.mark.parametrize("gate", [HUMAN_GATE, AUTOMATED_GATE])
+async def test_a_base_that_keeps_moving_is_refused(env, gate):
+    """Each green verify finds the base moved again: after
+    `MERGE_VERIFY_ROUNDS` verifies the merge is refused."""
+    harness = Harness(merge_gate=gate, bases=["b1", "b2", "b3"])
+    record = await _approved_review(env, harness)
+    assert harness.merge_verifies == ["b1", "b2"]
+    assert harness.merges == []
+    assert harness.refusals == [
+        "the base kept moving: it moved again after 2 verifies of the head merged onto it"
+    ]
+    assert record["status"] == "failed"
 
 
 # -- the release is the recorded verdict, not the signal ---------------------

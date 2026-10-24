@@ -28,7 +28,9 @@ from typing import Any
 
 import httpx
 
+from common.identity import COMMIT_EMAIL_DOMAIN, ORCHESTRATOR_ID
 from common.telemetry import get_logger
+from common.workflows import MERGE_CONFLICT
 from mcp_gateway.config import McpGatewaySettings
 
 GIT_TIMEOUT_S = 300
@@ -163,9 +165,10 @@ class GitBackend:
         ref: str,
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> dict[str, Any]:
         return await asyncio.to_thread(
-            self._archive_sync, repo, ref, overlay_ref, overlay_paths
+            self._archive_sync, repo, ref, overlay_ref, overlay_paths, merge_onto
         )
 
     def _archive_sync(
@@ -174,22 +177,33 @@ class GitBackend:
         ref: str,
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> dict[str, Any]:
         _require_safe_ref("ref", ref)
         if overlay_ref is not None:
             _require_safe_ref("overlay_ref", overlay_ref)
+        if merge_onto is not None:
+            _require_safe_ref("merge_onto", merge_onto)
         for path in overlay_paths or []:
             _require_safe_overlay_path(path)
         self._log.info(
             "archive",
-            extra={"repo": repo_slug(repo), "ref": ref, "overlay_ref": overlay_ref},
+            extra={
+                "repo": repo_slug(repo),
+                "ref": ref,
+                "overlay_ref": overlay_ref,
+                "merge_onto": merge_onto,
+            },
         )
         with tempfile.TemporaryDirectory(prefix="poseidon-archive-") as tmp:
             clone = Path(tmp) / "repo"
             self._git(None, "clone", "--", self._clone_url(repo), str(clone))
-            # `<ref> --` pins the argument as a revision, never an option
-            # or a path.
-            self._git(clone, "checkout", ref, "--")
+            if merge_onto is None:
+                # `<ref> --` pins the argument as a revision, never an
+                # option or a path.
+                self._git(clone, "checkout", ref, "--")
+            else:
+                self._merge(clone, ref, merge_onto)
             if overlay_ref is not None:
                 self._overlay(clone, overlay_ref, overlay_paths or [])
             # Removing the remote drops the credentialed URL and all
@@ -200,6 +214,34 @@ class GitBackend:
                 for child in sorted(clone.iterdir()):
                     tar.add(child, arcname=child.name)
             return {"archive_b64": base64.b64encode(buf.getvalue()).decode()}
+
+    def _merge(self, clone: Path, ref: str, onto: str) -> None:
+        """The tree a merge of `ref` onto `onto` would land: `onto` checked
+        out, `ref` merged into it as the platform. A conflict is an error
+        that names it — there is no tree to verify."""
+        # `ref` resolved the way the plain archive resolves it — a branch
+        # name exists only as a remote-tracking ref until checked out.
+        self._git(clone, "checkout", ref, "--")
+        head = self._git(clone, "rev-parse", "HEAD").strip()
+        self._git(clone, "checkout", "--detach", onto, "--")
+        try:
+            self._git(
+                clone,
+                "-c",
+                f"user.name={ORCHESTRATOR_ID}",
+                "-c",
+                f"user.email={ORCHESTRATOR_ID}@{COMMIT_EMAIL_DOMAIN}",
+                "merge",
+                "--no-ff",
+                "--no-edit",
+                head,
+            )
+        except GitBackendError as exc:
+            # The message after git's own prefix: the conflict as git said it.
+            said = str(exc).split(": ", 1)[-1]
+            raise GitBackendError(
+                f"{MERGE_CONFLICT}: {ref} does not merge cleanly onto {onto}: {said}"
+            ) from None
 
     def _overlay(self, clone: Path, overlay_ref: str, paths: list[str]) -> None:
         """Mirror `paths` from the overlay ref into the checked-out tree —
@@ -442,6 +484,10 @@ class GitBackend:
         slug = repo_slug(repo)
         pr = await self._github("GET", f"/repos/{slug}/pulls/{number}")
         files = await self._github("GET", f"/repos/{slug}/pulls/{number}/files")
+        # The base branch's tip as it stands now: the pull request's own
+        # `base.sha` is not kept current when the base moves.
+        base = (pr.get("base") or {}).get("ref", "")
+        tip = await self._github("GET", f"/repos/{slug}/git/ref/heads/{base}")
         return {
             "number": pr["number"],
             "title": pr.get("title", ""),
@@ -450,7 +496,8 @@ class GitBackend:
             "url": pr.get("html_url", ""),
             "head": (pr.get("head") or {}).get("ref", ""),
             "head_sha": (pr.get("head") or {}).get("sha", ""),
-            "base": (pr.get("base") or {}).get("ref", ""),
+            "base": base,
+            "base_sha": (tip.get("object") or {}).get("sha", ""),
             "merged": bool(pr.get("merged")),
             "files": [
                 {

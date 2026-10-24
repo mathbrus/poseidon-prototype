@@ -483,21 +483,24 @@ class GatewayService:
         ref: str,
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> Any:
         # run_id rides the args so the workspace fetch is attributable like
         # every other step: without it this event is the one hole in "the
-        # whole story for run X". The overlay composition is part of
-        # the audited args for the same reason: which tree was built is
-        # part of what happened.
+        # whole story for run X". The overlay composition and the merge
+        # are part of the audited args for the same reason: which tree was
+        # built is part of what happened.
         args: dict[str, Any] = {"run_id": run_id, "repo": repo, "ref": ref}
         if overlay_ref:
             args["overlay_ref"] = overlay_ref
             args["overlay_paths"] = overlay_paths or []
+        if merge_onto:
+            args["merge_onto"] = merge_onto
         return await self.call(
             identity,
             "repo.archive",
             args,
-            lambda: self._git.archive(repo, ref, overlay_ref, overlay_paths),
+            lambda: self._git.archive(repo, ref, overlay_ref, overlay_paths, merge_onto),
         )
 
     async def read_file(

@@ -63,7 +63,7 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import workflow
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from common.tasks import review_run_task
 from common.workflows import (
@@ -77,6 +77,7 @@ from common.workflows import (
     GATE_REWORK_EXHAUSTED,
     GATE_REWORK_FILED,
     GATE_VERDICT_UNVERIFIED,
+    MERGE_CONFLICT,
     MERGE_GATE,
     PARKED_STATE,
     RUN_FINALIZING,
@@ -89,6 +90,15 @@ from orchestrator.workflows.base import (
     RunWorkflow,
     gate_deadline,
 )
+
+# How many times the one merge site verifies a head merged onto a base that
+# keeps moving before it refuses the merge.
+MERGE_VERIFY_ROUNDS = 2
+
+
+def refusal(reason: str) -> dict[str, Any]:
+    """A merge-gate ending that refuses the delivery, `reason` its error."""
+    return {"error": reason, "refused": reason}
 
 
 @dataclass
@@ -355,9 +365,49 @@ class ReviewWorkflow(RunWorkflow):
         """The merge itself — one platform tool call, issued only after a
         gate (human or automated) resolved to merge. Both resolvers land here,
         so there is exactly one place the branch reaches `main`, and it
-        names the head this run read: what was reviewed is what merges. A
-        head that moved since is the host's refusal, and the delivery is
-        refused with it."""
+        names the head this run read: what was reviewed is what merges.
+
+        The pull request is read again first. A head that moved since the
+        run pinned it is refused. A base that moved since the review is
+        verified before the merge: the head merged onto the new base, built
+        in a fresh sandbox and run by the platform (`_verify_merge`) —
+        green, the merge goes ahead still pinned to the head, so the
+        verdict stands; red or conflicting, the delivery is refused. A base
+        that keeps moving is verified at most `MERGE_VERIFY_ROUNDS` times.
+        A window stays between the last read and the host's merge, which
+        pins the head, not the base."""
+        verified = pr.get("base_sha") or ""
+        rounds = 0
+        while True:
+            tips = await workflow.execute_activity(
+                "pr_tips",
+                args=[input.run_id, input.pr_number],
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+                retry_policy=STEP_RETRY,
+            )
+            if tips.get("settled"):
+                # Settled by hand while the run waited; the read settled it.
+                return {
+                    "error": f"pull request #{input.pr_number} was {tips['settled']}"
+                    " outside the platform before the merge"
+                }
+            if tips["head_sha"] != pr["head_sha"]:
+                return refusal(
+                    f"head moved after review: pull request #{input.pr_number} is no"
+                    f" longer at {pr['head_sha']}"
+                )
+            if tips["base_sha"] == verified:
+                break
+            if rounds == MERGE_VERIFY_ROUNDS:
+                return refusal(
+                    f"the base kept moving: it moved again after {rounds} verifies"
+                    " of the head merged onto it"
+                )
+            rounds += 1
+            refused = await self._verify_merge(input, pr, tips["base_sha"])
+            if refused:
+                return refusal(refused)
+            verified = tips["base_sha"]
         merged = await workflow.execute_activity(
             "merge_pr",
             args=[input.run_id, input.pr_number, pr["head_sha"]],
@@ -365,8 +415,46 @@ class ReviewWorkflow(RunWorkflow):
             retry_policy=STEP_RETRY,
         )
         if merged.get("refused"):
-            return {"error": merged["refused"], "refused": merged["refused"]}
+            return refusal(merged["refused"])
         return {"released": merged}
+
+    async def _verify_merge(
+        self, input: "ReviewInput", pr: dict[str, Any], base_sha: str
+    ) -> str | None:
+        """The head merged onto the moved base `base_sha`, built in a fresh
+        sandbox under the run's name, its suite run by the platform, then
+        the sandbox given back. Returns why the merge is refused — the
+        conflict, or the red suite's tail — or None when it is green."""
+        try:
+            merged_tar = await workflow.execute_activity(
+                "fetch_workspace",
+                args=[input.run_id, pr["head_sha"], None, base_sha],
+                start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+                retry_policy=STEP_RETRY,
+            )
+        except ActivityError as exc:
+            cause = exc.cause
+            if isinstance(cause, ApplicationError) and cause.type == MERGE_CONFLICT:
+                return cause.message
+            raise
+        self._handle = await workflow.execute_activity(
+            "provision_sandbox",
+            args=[input.run_id, merged_tar],
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        verify = await self._verify(input)
+        await workflow.execute_activity(
+            "vacate",
+            args=[input.run_id, self._handle, True],
+            start_to_close_timeout=timedelta(seconds=self._profile.step_s),
+            retry_policy=STEP_RETRY,
+        )
+        self._handle = None
+        if verify.get("passed"):
+            return None
+        tail = (verify.get("output") or "")[-600:]
+        return f"the head merged onto the moved base {base_sha[:12]} is red: {tail}"
 
     async def _refuse(self, input: "ReviewInput", reason: str) -> None:
         """The merge gate ended without a merge or a rework: the PR closes

@@ -396,8 +396,7 @@ def test_a_run_parked_on_a_merge_verdict_holds_no_place(
     assert (observed["active_runs"], observed["waiting_runs"]) == (1, 1)
     prompt = decision_prompt(observed, ["implement"])
     assert prompt.startswith(
-        "Heartbeat tick. Runs in flight: 1 (1 more waiting on a person's merge"
-        " verdict)."
+        "Heartbeat tick. Runs in flight: 1 (1 more waiting on a person's merge verdict)."
     )
 
 

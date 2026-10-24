@@ -898,6 +898,33 @@ def test_read_pr_settles_a_pr_settled_by_hand(settings, monkeypatch, merged, clo
         assert runs.issue_attempts("hello-saas")[7].concluded is False
 
 
+def test_pr_tips_answer_the_head_and_the_base_tip(settings, monkeypatch):
+    """The merge site's read: the head and the base branch's tip as they
+    stand; a PR someone closed meanwhile is settled — refused, its ticket
+    told — and answered `settled`."""
+    import orchestrator.activities.review as module
+
+    gateway = FakeIssueGateway(issues={7: _issue(7, "Add slugify")})
+    states = iter([{"state": "open"}, {"state": "closed"}])
+
+    async def read_pr(run_id, repo, number):
+        return {"number": number, "head_sha": "h1", "base_sha": "b2", **next(states)}
+
+    gateway.read_pr = read_pr
+    monkeypatch.setattr(module, "GatewayClient", gateway)
+    runs = InMemoryRuns()
+    _delivered(runs, "run-impl", "implement issue #7", 41)
+    activities = _activities(settings, REVIEW_SPEC, FakeInstances([PM_ROW]), runs=runs)
+    assert asyncio.run(activities.pr_tips(RUN_ID, 41)) == {
+        "head_sha": "h1",
+        "base_sha": "b2",
+        "settled": None,
+    }
+    assert asyncio.run(activities.pr_tips(RUN_ID, 41))["settled"] == "closed"
+    assert runs.get("run-impl").pr_settled == "refused"
+    assert gateway.closed_prs == [(41, "closed outside the platform")]
+
+
 def test_close_superseded_pr_names_the_rework_ticket(settings, monkeypatch):
     """Superseded, not refused: the rework ticket carries the work on, so
     the ticket the PR delivered stays concluded."""

@@ -149,6 +149,35 @@ def test_read_issue_returns_the_view_and_links_the_ticket(
     ]
 
 
+def test_a_merge_conflict_is_named_not_retried(activities, monkeypatch, fake_gateway):
+    """A head that does not merge onto the moved base is a non-retryable
+    error of its own type, the conflict in its message; any other failure
+    of the same fetch is an ordinary, retryable one."""
+    from temporalio.exceptions import ApplicationError
+
+    import orchestrator.activities.implement as module
+    from orchestrator.clients import GatewayError
+
+    failures = iter(
+        [
+            GatewayError("merge conflict: f00d does not merge cleanly onto ba5e"),
+            GatewayError("git clone failed: network"),
+        ]
+    )
+
+    async def fetch_workspace(self, *args):
+        raise next(failures)
+
+    monkeypatch.setattr(
+        module, "GatewayClient", fake_gateway(fetch_workspace=fetch_workspace)
+    )
+    with pytest.raises(ApplicationError) as caught:
+        asyncio.run(activities.fetch_workspace(RUN_ID, "f00d", None, "ba5e"))
+    assert caught.value.type == "merge conflict" and caught.value.non_retryable
+    with pytest.raises(GatewayError, match="network"):
+        asyncio.run(activities.fetch_workspace(RUN_ID, "f00d", None, "ba5e"))
+
+
 def test_read_issue_refuses_a_closed_issue(activities, monkeypatch, fake_gateway):
     """Implement consumes open work — a closed ticket is finished, not a
     spec to re-run."""

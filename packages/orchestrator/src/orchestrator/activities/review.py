@@ -16,6 +16,9 @@ Retry safety, per activity:
                           an idempotent update.
     reviewer_independent— read-only against the registry; safe.
     read_human_verdict  — read-only against the audit store; safe.
+    pr_tips             — read-only against GitHub via the gateway, but a
+                          PR found settled is settled like `read_pr`
+                          settles it; safe the same way.
     resolve_merge       — re-evaluates the compiled merge.resolve decision
                           and re-audits; the honest record of what was
                           asked (the heartbeat_authorize posture).
@@ -267,6 +270,37 @@ class ReviewActivities:
             pr.get("files") or [], contract_paths or []
         )
         return shaped
+
+    @activity.defn(name="pr_tips")
+    async def pr_tips(self, run_id: str, pr_number: int) -> dict[str, Any]:
+        """The pull request's head and its base branch's tip as they stand
+        now — what the one merge site compares with the head the run
+        pinned and the base it was reviewed against. A PR someone merged
+        or closed while the run waited is settled here as `read_pr`
+        settles it, and answered `settled`."""
+        company = self._company()
+        repo_url = (await self._repo())["url"]
+        async with GatewayClient(
+            self._settings.mcp_gateway_url, self._settings.gateway_token()
+        ) as gateway:
+            pr = await gateway.read_pr(run_id, repo_url, pr_number)
+            settled = pr_settled(pr)
+            if settled:
+                await settle_delivery(
+                    gateway,
+                    self._runs,
+                    company,
+                    run_id,
+                    repo_url,
+                    pr_number,
+                    settled,
+                    await asyncio.to_thread(self._max_attempts),
+                )
+        return {
+            "head_sha": pr.get("head_sha") or "",
+            "base_sha": pr.get("base_sha") or "",
+            "settled": "merged" if pr.get("merged") else "closed" if settled else None,
+        }
 
     @activity.defn(name="contract_tree")
     async def contract_tree(self, run_id: str, contract_paths: list[str]) -> list[str]:
@@ -671,6 +705,7 @@ class ReviewActivities:
     def all(self) -> list[Any]:
         return [
             self.read_pr,
+            self.pr_tips,
             self.contract_tree,
             self.record_verdict,
             self.reviewer_independent,

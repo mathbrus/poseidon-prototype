@@ -116,14 +116,19 @@ class GatewayClient:
         ref: str,
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> bytes:
         """Archive `ref` — optionally with `overlay_paths` mirrored from
-        `overlay_ref`, the composed tree the contract verify runs on."""
+        `overlay_ref`, the composed tree the contract verify runs on, or
+        merged onto `merge_onto`, the tree a merge onto a moved base would
+        land."""
         assert self._session is not None, "use `async with GatewayClient(...)`"
         args: dict[str, Any] = {"run_id": run_id, "repo": repo, "ref": ref}
         if overlay_ref:
             args["overlay_ref"] = overlay_ref
             args["overlay_paths"] = overlay_paths or []
+        if merge_onto:
+            args["merge_onto"] = merge_onto
         result = await self._tool("repo.archive", args)
         return base64.b64decode(result["archive_b64"])
 

@@ -259,19 +259,23 @@ def create_app(
         ctx: Context,
         overlay_ref: str | None = None,
         overlay_paths: list[str] | None = None,
+        merge_onto: str | None = None,
     ) -> dict[str, Any]:
         """Clone `repo` at `ref` with the platform token, strip the remote (and
         with it the credentialed URL), and return the workspace as a base64
         tarball. With `overlay_paths`, those paths are mirrored from
         `overlay_ref` over the checkout — removed first, then re-checked-out —
-        which is how the platform composes the contract-verify tree. Platform
-        lifecycle only: how code enters a sandbox during fulfilment."""
+        which is how the platform composes the contract-verify tree. With
+        `merge_onto`, the workspace is `ref` merged onto that commit, as the
+        platform — the tree a merge onto a moved base would land; a conflict
+        is an error that names it. Platform lifecycle only: how code enters a
+        sandbox during fulfilment."""
         # The composed tree: `ref`'s code with `overlay_paths` mirrored
         # from `overlay_ref` — how the platform builds the baseline the
         # contract verify runs (head code, the contract tree as it stands
         # on the base ref).
         return await service.archive_repo(
-            identity_of(ctx), run_id, repo, ref, overlay_ref, overlay_paths
+            identity_of(ctx), run_id, repo, ref, overlay_ref, overlay_paths, merge_onto
         )
 
     @mcp.tool(name="repo.read_file")

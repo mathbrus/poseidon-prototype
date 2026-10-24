@@ -298,6 +298,9 @@ class Backends:
                     },
                 ],
             )
+        if method == "GET" and "/git/ref/heads/" in path:
+            # The base branch's tip, which a PR's own base.sha lags.
+            return httpx.Response(200, json={"object": {"sha": "ba5e5ha"}})
         if method == "GET" and "/pulls/" in path:
             # Number 6 is a pull request somebody already closed.
             number = 6 if path.endswith("/6") else 5
