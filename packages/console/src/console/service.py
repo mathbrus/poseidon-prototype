@@ -94,7 +94,7 @@ from compiler import (
 from compiler.errors import CompileError
 from console import acts, crs, views
 from console.config import ConsoleSettings
-from console.documents import Documents
+from console.gateway import Gateway
 from console.temporal import AlreadyStarted, WorkflowNotFound, Workflows
 from registry import (
     AgentInstances,
@@ -154,7 +154,7 @@ class ConsoleService:
         participants: RunParticipants,
         tickets: FiledTickets,
         workflows: Workflows,
-        documents: Documents,
+        gateway: Gateway,
         submit_crs: Callable[[DeploymentPlan, dict[str, str]], tuple[int, int, int]],
         delete_company: Callable[[str, float], None],
         read_company: Callable[[], dict[str, Any] | None],
@@ -169,7 +169,7 @@ class ConsoleService:
         self._participants = participants
         self._tickets = tickets
         self._workflows = workflows
-        self._documents = documents
+        self._gateway = gateway
         self._submit = submit_crs
         self._delete = delete_company
         self._read_company = read_company
@@ -393,7 +393,8 @@ class ConsoleService:
             asyncio.to_thread(self._ledger.spent_today, company),
         )
         limits = views.limits_view(spec, spent) if spec is not None else None
-        return views.company_view(cr, paused, limits)
+        repo = spec["repo"]["url"] if spec is not None else None
+        return views.company_view(cr, paused, repo, limits)
 
     async def blueprint(self) -> BlueprintView:
         """The blueprint's text as it was applied, from the Company CR."""
@@ -408,7 +409,7 @@ class ConsoleService:
         MCP gateway under the console's own identity."""
         _, spec = await self._converged_spec()
         repo = spec["repo"]
-        read = await self._documents.read(
+        read = await self._gateway.read(
             repo["url"], repo["base_ref"], spec["documents"][kind]
         )
         read_at = await asyncio.to_thread(self._clock)
@@ -429,7 +430,9 @@ class ConsoleService:
         repo = spec["repo"]["url"]
         return views.ticket_list(repo, await asyncio.to_thread(self._tickets.filed, repo))
 
-    async def delete(self, identity: Identity, rationale: str) -> CompanyDeleted:
+    async def delete(
+        self, identity: Identity, rationale: str, purge_remote: bool = False
+    ) -> CompanyDeleted:
         """Delete the company: the one stop there is (a pause is not one —
         the company stays, held), and it erases everything the platform
         recorded about the company. In order:
@@ -441,28 +444,35 @@ class ConsoleService:
         3. every running run cancelled through the path `cancel_run`
            takes, and waited for until its workflow is closed, its own
            teardown done;
-        4. the Company CR deleted and the reconciler's teardown waited for:
+        4. with `purge_remote`, the repository reset in place through the
+           gateway's `repo.purge`, while the company's policy still
+           allows the console that one call;
+        5. the Company CR deleted and the reconciler's teardown waited for:
            the tombstone served, the namespace gone, every registry row of
            the company swept, this act's own rows with them;
-        5. the company's workflow histories deleted from Temporal, the
+        6. the company's workflow histories deleted from Temporal, the
            heartbeat's whole continue-as-new chain included.
 
         The whole delete waits at most `TEARDOWN_TIMEOUT_S`. A step that
-        cannot finish fails the act with what was done standing, the
-        company held and its runs ended, and a second delete finishes it:
-        every step is safe to repeat. The answer is the receipt."""
+        cannot finish — a purge the git host refuses included — fails the
+        act with what was done standing, the company still applied, held
+        and its runs ended, and a second delete finishes it: every step is
+        safe to repeat. The answer is the receipt."""
         company = await self._company()
         started = time.monotonic()
         deadline = started + TEARDOWN_TIMEOUT_S
         decision = await self._act(
             identity,
             COMPANY_DELETE,
-            acts.NO_ARGS,
+            acts.delete_args(purge_remote),
             company=company,
             rationale=rationale,
         )
         await self._hold_for_delete(identity, company, deadline)
         cancelled = await self._end_runs(identity, company, rationale, deadline)
+        if purge_remote:
+            repo = (await self._spec(company) or {})["repo"]
+            await self._gateway.purge(repo["url"], repo["base_ref"])
         histories = await self._workflow_ids(company)
         try:
             await asyncio.to_thread(
@@ -474,6 +484,7 @@ class ConsoleService:
         return CompanyDeleted(
             company=company,
             runs_cancelled=cancelled,
+            purged_remote=purge_remote,
             elapsed_s=int(time.monotonic() - started),
             rule=decision["rule"],
         )
@@ -892,8 +903,9 @@ class ConsoleService:
 
     async def acts(self, identity: Identity) -> ActList:
         """The company's acts as this person could ask for them now:
-        apply, delete, wake, pause, resume, and a start per workflow a
-        human may start. Policy's questions are asked all at once."""
+        apply, delete (with and without the repository's purge), wake,
+        pause, resume, and a start per workflow a human may start.
+        Policy's questions are asked all at once."""
         company = await self._company()
         paused, heartbeat = await asyncio.gather(
             asyncio.to_thread(self._companies.paused, company),
@@ -902,7 +914,10 @@ class ConsoleService:
         loop = heartbeat_run_id(company)
         plans = [
             (BLUEPRINT_APPLY, acts.apply_args(company), "", None),
-            (COMPANY_DELETE, acts.NO_ARGS, "", None),
+            *(
+                (COMPANY_DELETE, acts.delete_args(purge_remote), "", None)
+                for purge_remote in (False, True)
+            ),
             (HEARTBEAT_WAKE, acts.NO_ARGS, loop, acts.wake_refusal(company, heartbeat)),
             (HEARTBEAT_PAUSE, acts.NO_ARGS, loop, acts.pause_refusal(company, paused)),
             (HEARTBEAT_RESUME, acts.NO_ARGS, loop, acts.resume_refusal(company, paused)),

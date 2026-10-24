@@ -71,6 +71,14 @@ RATIONALE_TOOLS = frozenset(
     ]
 )
 
+# The console's one write at the gateway: resetting the company's
+# repository in place, when a person deletes the company with
+# `--purge-remote`. Only the compiled `console_repo_purge` rule allows it,
+# to the console, on the declared repository: the platform identity does
+# not hold it, and no role may.
+REPO_PURGE = "repo.purge"
+CONSOLE_TOOLS = [REPO_PURGE]
+
 KNOWN_TOOLS = frozenset(
     SANDBOX_TOOLS
     + GIT_TOOLS
@@ -78,11 +86,15 @@ KNOWN_TOOLS = frozenset(
     + REVIEW_TOOLS
     + ARCHITECTURE_TOOLS
     + PLATFORM_TOOLS
+    + CONSOLE_TOOLS
 )
 
 # Tools no company role may declare: the platform identity holds them, and a
 # blueprint that could grant them would make the merge gate optional.
 PLATFORM_ONLY = frozenset(PLATFORM_TOOLS)
+# Nor these: the console calls them for a person, and a role that held one
+# could erase the company's repository.
+CONSOLE_ONLY = frozenset(CONSOLE_TOOLS)
 
 # Tools whose compiled rules additionally require a verified run binding in
 # the decision input — a role allow-list without run binding reopens

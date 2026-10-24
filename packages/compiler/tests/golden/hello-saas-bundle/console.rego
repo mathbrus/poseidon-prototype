@@ -96,6 +96,15 @@ allow_rules contains "company_delete" if {
 	input.lifecycle == "human"
 	input.company == "hello-saas"
 	input.tool == "company.delete"
+	input.args.purge_remote == false
+	input.agent_id in ["owner"]
+}
+
+allow_rules contains "company_delete_purge_remote" if {
+	input.lifecycle == "human"
+	input.company == "hello-saas"
+	input.tool == "company.delete"
+	input.args.purge_remote == true
 	input.agent_id in ["owner"]
 }
 
@@ -111,4 +120,12 @@ allow_rules contains "console_read_document" if {
 	input.args.repo == "github.com/example-org/hello-saas"
 	input.args.ref == "main"
 	input.args.path in ["docs/ARCHITECTURE.md", "docs/STRATEGY.md"]
+}
+
+allow_rules contains "console_repo_purge" if {
+	input.lifecycle == "console"
+	input.company == "hello-saas"
+	input.tool == "repo.purge"
+	input.args.repo == "github.com/example-org/hello-saas"
+	input.args.base_ref == "main"
 }

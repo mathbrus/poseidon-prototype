@@ -156,6 +156,14 @@ def test_no_role_scope_can_hold_the_platform_merge_tool(blueprint):
     assert any("platform identity" in p for p in problems_of(blueprint))
 
 
+def test_no_role_scope_can_hold_the_repository_purge(blueprint):
+    """`repo.purge` resets the repository when a person deletes the
+    company: the console calls it, and no blueprint can hand it on."""
+    blueprint["tools"]["pm"] = {"allow": ["issues.read", "repo.purge"]}
+    (problem,) = [p for p in problems_of(blueprint) if "repo.purge" in p]
+    assert "only by the console" in problem
+
+
 def test_a_tool_scope_cannot_widen_the_catalog(blueprint):
     """The reviewer-cannot-deliver contract is a catalog property: a
     blueprint granting the reviewer `git.open_pr` must fail validation,

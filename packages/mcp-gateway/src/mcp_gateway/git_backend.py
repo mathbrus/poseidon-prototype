@@ -25,6 +25,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -99,6 +100,12 @@ class PreparedBundle:
 
 
 GITHUB_API_URL = "https://api.github.com"
+# How many items one page of a GitHub listing carries, at most.
+GITHUB_PAGE = 100
+# Git's empty tree: every repository has it without storing it, and GitHub
+# accepts a commit on it while refusing to create an empty tree.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+PURGE_MESSAGE = "Purged: the company that worked on this repository was deleted"
 
 
 class GitBackend:
@@ -396,6 +403,20 @@ class GitBackend:
             )
         return resp.json()
 
+    async def _all(self, path: str) -> list[dict[str, Any]]:
+        """Every item of a paginated GitHub listing, page after page."""
+        items: list[dict[str, Any]] = []
+        separator = "&" if "?" in path else "?"
+        page = 1
+        while True:
+            batch = await self._github(
+                "GET", f"{path}{separator}per_page={GITHUB_PAGE}&page={page}"
+            )
+            items += batch
+            if len(batch) < GITHUB_PAGE:
+                return items
+            page += 1
+
     @staticmethod
     def _issue_view(issue: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -563,12 +584,67 @@ class GitBackend:
             await self._delete_branch(slug, head["ref"])
         return {"number": pr["number"], "state": pr.get("state", "")}
 
+    async def purge(self, repo: str, base_ref: str) -> dict[str, Any]:
+        """Reset the repository in place: `base_ref` and the default branch
+        forced to one new root commit with an empty tree, every open pull
+        request closed, every open issue closed as not planned, every other
+        branch deleted. The reset comes first: a host that refuses it (a
+        protected branch) refuses before anything else changed. Closed
+        issues and pull requests stay on the host, which deletes neither
+        without admin rights. Safe to repeat."""
+        _require_safe_ref("base_ref", base_ref)
+        slug = repo_slug(repo)
+        default = (await self._github("GET", f"/repos/{slug}"))["default_branch"]
+        kept = sorted({base_ref, default})
+        commit = await self._github(
+            "POST",
+            f"/repos/{slug}/git/commits",
+            json={"message": PURGE_MESSAGE, "tree": EMPTY_TREE, "parents": []},
+        )
+        for branch in kept:
+            await self._github(
+                "PATCH",
+                f"/repos/{slug}/git/refs/heads/{quote(branch)}",
+                json={"sha": commit["sha"], "force": True},
+            )
+        pulls = await self._all(f"/repos/{slug}/pulls?state=open")
+        for pr in pulls:
+            await self._github(
+                "PATCH", f"/repos/{slug}/pulls/{pr['number']}", json={"state": "closed"}
+            )
+        issues = [
+            issue
+            for issue in await self._all(f"/repos/{slug}/issues?state=open")
+            if "pull_request" not in issue
+        ]
+        for issue in issues:
+            await self._github(
+                "PATCH",
+                f"/repos/{slug}/issues/{issue['number']}",
+                json={"state": "closed", "state_reason": "not_planned"},
+            )
+        branches = [
+            branch["name"]
+            for branch in await self._all(f"/repos/{slug}/branches")
+            if branch["name"] not in kept
+        ]
+        for branch in branches:
+            await self._delete_branch(slug, branch)
+        self._log.info("repository purged", extra={"repo": slug})
+        return {
+            "reset": kept,
+            "commit": commit["sha"],
+            "pull_requests_closed": [pr["number"] for pr in pulls],
+            "issues_closed": [issue["number"] for issue in issues],
+            "branches_deleted": branches,
+        }
+
     async def _delete_branch(self, slug: str, branch: str) -> None:
         """Delete a branch; one already gone (GitHub answers 404 or 422) is
         not an error."""
         try:
             await self._github(
-                "DELETE", f"/repos/{slug}/git/refs/heads/{branch}", missing_ok=True
+                "DELETE", f"/repos/{slug}/git/refs/heads/{quote(branch)}", missing_ok=True
             )
         except GitBackendError as exc:
             if " failed: 422 " not in str(exc):

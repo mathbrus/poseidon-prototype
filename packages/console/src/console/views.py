@@ -141,16 +141,20 @@ def bounds_view(company: str, spec: dict[str, Any]) -> BoundsView:
 
 
 def company_view(
-    cr: dict[str, Any], paused: dict[str, Any] | None, limits: LimitsView | None
+    cr: dict[str, Any],
+    paused: dict[str, Any] | None,
+    repo: str | None,
+    limits: LimitsView | None,
 ) -> CompanyView:
-    """The Company CR as `crs.read_company` reads it, the pause and the
-    limits."""
+    """The Company CR as `crs.read_company` reads it, the pause, the
+    repository and the limits."""
     status = cr.get("status") or {}
     return CompanyView(
         **_cr_state(cr),
         bundle_revision=status.get("bundleRevision", ""),
         message=status.get("message", ""),
         paused=pause_view(paused),
+        repo=repo,
         limits=limits,
     )
 

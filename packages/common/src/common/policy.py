@@ -48,9 +48,11 @@ HEARTBEAT_PAUSE = "heartbeat.pause"
 HEARTBEAT_RESUME = "heartbeat.resume"
 BLUEPRINT_APPLY = "blueprint.apply"
 COMPANY_DELETE = "company.delete"
-# The one read the console makes at the MCP gateway, for a person: the
-# company's documents at the base ref.
+# The console's two calls at the MCP gateway, for a person: the read of
+# the company's documents at the base ref, and the reset of its
+# repository when the company is deleted with `--purge-remote`.
 CONSOLE_READ_DOCUMENT = "console_read_document"
+CONSOLE_REPO_PURGE = "console_repo_purge"
 
 # The rules the blueprint's `policies` section and the company's document
 # paths compile to over a delivery (`git.open_pr`), and the repository
@@ -318,7 +320,15 @@ RULES: tuple[PolicyRule, ...] = (
         "blueprint_apply", "allow", "A person `company.humans` names applies a blueprint."
     ),
     PolicyRule(
-        "company_delete", "allow", "A person `company.humans` names deletes the company."
+        "company_delete",
+        "allow",
+        "A person `company.humans` names deletes the company, its repository left"
+        " as it is.",
+    ),
+    PolicyRule(
+        "company_delete_purge_remote",
+        "allow",
+        "A person `company.humans` names deletes the company and purges its repository.",
     ),
     PolicyRule(
         "human_not_recognized",
@@ -330,6 +340,12 @@ RULES: tuple[PolicyRule, ...] = (
         "allow",
         "The console reads one of the company's two documents, on its repository"
         " at the base ref, for a person.",
+    ),
+    PolicyRule(
+        CONSOLE_REPO_PURGE,
+        "allow",
+        "The console purges the company's repository, at its base ref, for a"
+        " person deleting the company.",
     ),
     # -- the merge gate
     PolicyRule(

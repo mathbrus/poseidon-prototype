@@ -34,12 +34,13 @@ from typing import Any
 
 from blueprint.catalog import STEWARD_ROLE
 from blueprint.gates import NEVER_AUTOMATED_PATHS
-from blueprint.tools import ARCHITECTURE_REQUEST, ISSUES_DISMISS, RUN_SCOPED
+from blueprint.tools import ARCHITECTURE_REQUEST, ISSUES_DISMISS, REPO_PURGE, RUN_SCOPED
 from common.identity import LIFECYCLE_CONSOLE
 from common.policy import (
     BLUEPRINT_APPLY,
     COMPANY_DELETE,
     CONSOLE_READ_DOCUMENT,
+    CONSOLE_REPO_PURGE,
     CREW_REQUEST,
     DEFAULT_DENY,
     GATE_RESOLVE,
@@ -419,9 +420,12 @@ def _console_file(
     audit row names what was granted; one deny for a verified person the
     company did not name. Authority is the list, and the list is a diff.
 
-    And the console's own read: under the `console` lifecycle, the one
-    tool `repo.read_file`, on the company's repository, at its base ref,
-    of its two document paths — and nothing else, by default deny."""
+    And the console's own two calls, under the `console` lifecycle: the
+    read `repo.read_file`, on the company's repository, at its base ref,
+    of its two document paths; and `repo.purge` of that repository at
+    that base ref, for a person deleting the company — nothing else, by
+    default deny. A delete names whether it purges (`args.purge_remote`),
+    and each answer has its own rule, like a verdict."""
     names = json.dumps(sorted(humans))
 
     def act(rule: str, tool: str, *facts: str) -> str:
@@ -458,7 +462,12 @@ def _console_file(
     body += act("heartbeat_pause", HEARTBEAT_PAUSE)
     body += act("heartbeat_resume", HEARTBEAT_RESUME)
     body += act("blueprint_apply", BLUEPRINT_APPLY)
-    body += act("company_delete", COMPANY_DELETE)
+    body += act("company_delete", COMPANY_DELETE, "input.args.purge_remote == false")
+    body += act(
+        "company_delete_purge_remote",
+        COMPANY_DELETE,
+        "input.args.purge_remote == true",
+    )
     body += (
         '\ndeny_rules contains "human_not_recognized" if {\n'
         '\tinput.lifecycle == "human"\n'
@@ -473,6 +482,15 @@ def _console_file(
         f"\tinput.args.repo == {json.dumps(repo_url)}\n"
         f"\tinput.args.ref == {json.dumps(base_ref)}\n"
         f"\tinput.args.path in {json.dumps(sorted(documents.values()))}\n"
+        "}\n"
+    )
+    body += (
+        f'\nallow_rules contains "{CONSOLE_REPO_PURGE}" if {{\n'
+        f"\tinput.lifecycle == {json.dumps(LIFECYCLE_CONSOLE)}\n"
+        f"\tinput.company == {json.dumps(company)}\n"
+        f'\tinput.tool == "{REPO_PURGE}"\n'
+        f"\tinput.args.repo == {json.dumps(repo_url)}\n"
+        f"\tinput.args.base_ref == {json.dumps(base_ref)}\n"
         "}\n"
     )
     return _rego_file(company, body)

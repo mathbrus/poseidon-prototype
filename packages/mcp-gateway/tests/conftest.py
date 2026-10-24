@@ -22,7 +22,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from common.authn import Principal, ServiceAccount
-from common.topology import PLATFORM_NAMESPACE
+from common.topology import CONSOLE_SERVICE_ACCOUNT, PLATFORM_NAMESPACE
 from mcp_gateway.app import create_app
 from mcp_gateway.config import McpGatewaySettings
 from mcp_gateway.git_backend import GITHUB_API_URL
@@ -40,6 +40,7 @@ AGENT_TOKEN = "agent-secret"
 WORKER_TOKEN = "worker-secret"
 PM_TOKEN = "pm-secret"
 REVIEWER_TOKEN = "reviewer-secret"
+CONSOLE_TOKEN = "console-secret"
 GIT_TOKEN = "git-platform-secret"
 OPA_URL = "http://opa.test"
 SANDBOX_URL = "http://sbx.test:8000"
@@ -67,6 +68,7 @@ class FakeReviewer:
         WORKER_TOKEN: ServiceAccount(PLATFORM_NS, "orchestrator-worker"),
         PM_TOKEN: ServiceAccount(COMPANY_NS, "pm-1"),
         REVIEWER_TOKEN: ServiceAccount(COMPANY_NS, "ephemeral-reviewer-01x"),
+        CONSOLE_TOKEN: ServiceAccount(PLATFORM_NS, CONSOLE_SERVICE_ACCOUNT),
     }
 
     async def review(self, token: str, audience: str) -> Principal | None:
@@ -130,6 +132,16 @@ class Backends:
             # An uninstalled company package: OPA answers with no result;
             # the handler below turns this marker into that answer.
             return {"no_result": True}
+        if policy_input.get("lifecycle") == "console":
+            # The compiled console rule: the purge of the declared
+            # repository at its base ref, and nothing else here.
+            if (
+                tool == "repo.purge"
+                and args.get("repo") == REPO
+                and args.get("base_ref") == "main"
+            ):
+                return {"allow": True, "rule": "console_repo_purge"}
+            return {"allow": False, "rule": "default_deny"}
         if (
             policy_input.get("lifecycle") == "standing"
             and policy_input.get("company") == COMPANY
@@ -237,6 +249,18 @@ class Backends:
                 **overrides,
             }
 
+        # The purge's calls: the repository, a root commit, forced refs,
+        # and the listings it closes and deletes from.
+        if method == "GET" and path.endswith("/repos/example/target"):
+            return httpx.Response(200, json={"default_branch": "main"})
+        if method == "POST" and path.endswith("/git/commits"):
+            return httpx.Response(201, json={"sha": "r00t5ha"})
+        if method == "PATCH" and "/git/refs/heads/" in path:
+            return httpx.Response(200, json={"object": {"sha": payload.get("sha")}})
+        if method == "GET" and path.endswith("/pulls"):
+            return httpx.Response(200, json=[])
+        if method == "GET" and path.endswith("/branches"):
+            return httpx.Response(200, json=[{"name": "main"}, {"name": "feature/x"}])
         if method == "POST" and path.endswith("/pulls"):
             return httpx.Response(201, json={"html_url": PR_URL})
         if method == "POST" and path.endswith("/comments"):

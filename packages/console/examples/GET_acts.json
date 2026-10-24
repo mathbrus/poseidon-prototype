@@ -18,7 +18,18 @@
       {
         "act": "company.delete",
         "allowed": true,
-        "args": {},
+        "args": {
+          "purge_remote": false
+        },
+        "rationale_required": true,
+        "refusal": null
+      },
+      {
+        "act": "company.delete",
+        "allowed": true,
+        "args": {
+          "purge_remote": true
+        },
         "rationale_required": true,
         "refusal": null
       },

@@ -1332,7 +1332,7 @@ def test_a_human_may_start_cancel_wake_pause_resume_apply_and_delete(decide):
     pause = decide(**human("owner", "heartbeat.pause", reason="reading the ledger"))
     resume = decide(**human("owner", "heartbeat.resume", reason="read"))
     apply = decide(**human("owner", "blueprint.apply"))
-    delete = decide(**human("owner", "company.delete", reason="done"))
+    delete = decide(**human("owner", "company.delete", purge_remote=False))
     assert start == {"allow": True, "rule": "run_start_implement"}
     assert scope == {"allow": False, "rule": "default_deny"}
     assert cancel == {"allow": True, "rule": "run_cancel"}
@@ -1341,6 +1341,17 @@ def test_a_human_may_start_cancel_wake_pause_resume_apply_and_delete(decide):
     assert resume == {"allow": True, "rule": "heartbeat_resume"}
     assert apply == {"allow": True, "rule": "blueprint_apply"}
     assert delete == {"allow": True, "rule": "company_delete"}
+
+
+def test_a_delete_names_whether_it_purges_and_each_answer_has_its_rule(decide):
+    """Like a verdict: the rule says which delete was allowed, and a delete
+    that does not say whether it purges the repository is not."""
+    purge = decide(**human("owner", "company.delete", purge_remote=True))
+    unsaid = decide(**human("owner", "company.delete"))
+    stranger = decide(**human("stranger", "company.delete", purge_remote=True))
+    assert purge == {"allow": True, "rule": "company_delete_purge_remote"}
+    assert unsaid == {"allow": False, "rule": "default_deny"}
+    assert stranger == {"allow": False, "rule": "human_not_recognized"}
 
 
 def test_an_unlisted_human_is_denied_by_name(decide):
@@ -1416,6 +1427,38 @@ def test_the_console_reads_the_two_documents_and_nothing_else(decide):
     # A person by the console's name is a person the company does not name.
     as_human = decide(**console_read(lifecycle="human"))
     assert as_human == {"allow": False, "rule": "human_not_recognized"}
+
+
+def console_purge(lifecycle: str = "console", **args) -> dict:
+    """The console's purge at the MCP gateway, as the gateway puts it."""
+    call = console_read(lifecycle, "repo.purge")
+    call["args"] = {"run_id": "", "repo": DECLARED_REPO, "base_ref": "main", **args}
+    return call
+
+
+def test_only_the_console_may_purge_and_only_the_declared_repository(decide):
+    """`repo.purge` resets a repository for a person deleting the company:
+    the console alone holds it, on the company's repository at its base
+    ref. Not the platform identity, no role, no person directly."""
+    assert decide(**console_purge()) == {"allow": True, "rule": "console_repo_purge"}
+    denied = [
+        console_purge(repo="github.com/attacker/repo"),
+        console_purge(base_ref="feature/x"),
+        console_purge(lifecycle="standing"),
+        console_purge(lifecycle="ephemeral"),
+    ]
+    for call in denied:
+        assert decide(**call) == {"allow": False, "rule": "default_deny"}, call
+    as_human = decide(**console_purge(lifecycle="human"))
+    assert as_human == {"allow": False, "rule": "human_not_recognized"}
+    as_platform = decide(PLATFORM_QUERY, **console_purge(lifecycle="platform"))
+    assert as_platform == {"allow": False, "rule": "default_deny"}
+    as_pm = decide(
+        **standing(
+            "pm", tool="repo.purge", args={"repo": DECLARED_REPO, "base_ref": "main"}
+        )
+    )
+    assert as_pm == {"allow": False, "rule": "default_deny"}
 
 
 def test_a_recorded_human_verdict_releases_the_merge(decide):

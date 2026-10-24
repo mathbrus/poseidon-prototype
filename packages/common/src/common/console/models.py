@@ -110,9 +110,13 @@ class ResumeRequest(Model):
 
 class DeleteRequest(Model):
     """`DELETE /company`. The console answers once the company is gone:
-    its runs ended, its rows swept, its workflow histories deleted."""
+    its runs ended, its rows swept, its workflow histories deleted. With
+    `purge_remote`, its repository is reset in place first: every open
+    pull request and issue closed, every branch but the base and default
+    ones deleted, and those forced to one empty root commit."""
 
     rationale: str = Rationale
+    purge_remote: bool = False
 
 
 # -- the chokepoint ------------------------------------------------------------
@@ -168,8 +172,9 @@ class LimitsView(Model):
 class CompanyView(Model):
     """`GET /company`: the applied company as its Company CR says —
     `activating` until OPA serves its policy, `converged` after; the
-    generation the phase answers for — its pause, and its limits (null
-    until the company has converged once)."""
+    generation the phase answers for — its pause, and the repository it
+    works on and its limits (null until the company has converged
+    once)."""
 
     company: str
     phase: CompanyPhase
@@ -178,6 +183,7 @@ class CompanyView(Model):
     bundle_revision: str
     message: str
     paused: PauseView | None
+    repo: str | None
     limits: LimitsView | None
 
 
@@ -279,12 +285,13 @@ class ApplyResult(Model):
 
 
 class CompanyDeleted(Model):
-    """`DELETE /company`: the runs cancelled on the way, and how long the
-    delete took. The receipt: nothing else of the company is left to
-    read."""
+    """`DELETE /company`: the runs cancelled on the way, whether the
+    repository was purged, and how long the delete took. The receipt:
+    nothing else of the company is left to read."""
 
     company: str
     runs_cancelled: list[str]
+    purged_remote: bool
     elapsed_s: int
     rule: str
 

@@ -131,7 +131,7 @@ def seeded() -> World:
     world.workflows.running[workflow_id("heartbeat", COMPANY)] = HEARTBEAT_SLEEPING
     world.run_ids = [STARTED_RUN]
 
-    world.documents.files[applied_spec()["documents"]["strategy"]] = (
+    world.gateway.files[applied_spec()["documents"]["strategy"]] = (
         "# Strategy\n\nShip slugify first: every later slice builds on it.\n"
     )
     world.participants.add(

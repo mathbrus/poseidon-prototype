@@ -307,7 +307,36 @@ def test_company_delete_names_the_running_runs_then_asks_the_console(runner, con
     assert result.exit_code == 0, result.output
     assert "hello-saas: 1 running run(s)" in result.output and REVIEW in result.output
     assert f"hello-saas deleted in 0 s; cancelled {REVIEW}" in result.output
-    assert console.requests[-1][:3] == ("DELETE", "/company", {"rationale": "done"})
+    assert console.requests[-1][:3] == (
+        "DELETE",
+        "/company",
+        {"rationale": "done", "purge_remote": False},
+    )
+
+
+def test_a_purge_asks_for_the_repositorys_name_typed_out(runner, console):
+    """`--purge-remote` names the repository and what the purge does, and
+    takes the repository's `owner/name`, typed, for its confirmation: a
+    wrong name deletes nothing."""
+    wrong = runner.invoke(
+        cli.app,
+        ["company", "delete", "--reason", "start over", "--purge-remote"],
+        input="example-org/other\n",
+    )
+    assert wrong.exit_code == 1
+    assert "github.com/example-org/hello-saas in place" in wrong.output
+    assert ("DELETE", "/company") not in [(m, p) for m, p, _, _ in console.requests]
+    typed = runner.invoke(
+        cli.app,
+        ["company", "delete", "--reason", "start over", "--purge-remote"],
+        input="example-org/hello-saas\n",
+    )
+    assert typed.exit_code == 0, typed.output
+    assert console.requests[-1][:3] == (
+        "DELETE",
+        "/company",
+        {"rationale": "start over", "purge_remote": True},
+    )
 
 
 def test_company_delete_asks_before_acting(runner, console):

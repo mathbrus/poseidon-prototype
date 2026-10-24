@@ -506,6 +506,58 @@ async def test_deleting_the_company_is_decided_audited_and_ends_its_runs_first(
     assert again.status_code == 404
 
 
+async def test_a_delete_may_purge_the_repository_once_the_runs_have_ended(client, world):
+    """`purge_remote`: decided under its own rule, then the repository
+    reset through the gateway after the runs closed and before the Company
+    CR goes — while the company's policy still allows the console that one
+    call."""
+    heartbeat = f"heartbeat-{COMPANY}"
+    world.workflows.running[heartbeat] = "sleeping"
+    a_review_run(world)
+    response = await client.request(
+        "DELETE",
+        "/company",
+        json={"rationale": "start over", "purge_remote": True},
+        headers=as_owner(),
+    )
+    deleted = model(CompanyDeleted, response)
+    assert deleted.purged_remote is True
+    assert deleted.rule == "company_delete_purge_remote"
+    repo = applied_spec()["repo"]
+    assert world.gateway.purges == [(repo["url"], repo["base_ref"])]
+    assert world.running_at_purge == {heartbeat: "paused"}
+    assert world.purged_at_delete == world.gateway.purges
+
+
+async def test_a_refused_purge_fails_the_delete_before_the_company_goes(client, world):
+    """A git host that refuses the reset — a protected base branch — fails
+    the act: the company stays applied and held, its runs ended, and a
+    second delete finishes it once the branch allows it."""
+    a_review_run(world)
+    world.gateway.purge_refusal = "Cannot force-push to this branch"
+    response = await client.request(
+        "DELETE",
+        "/company",
+        json={"rationale": "start over", "purge_remote": True},
+        headers=as_owner(),
+    )
+    assert response.status_code == 503
+    assert "Cannot force-push" in Problem.model_validate(response.json()).detail
+    assert world.deleted == [] and world.companies.applied() == COMPANY
+    assert world.companies.paused(COMPANY)["by"] == "owner"
+    assert world.workflows.closed == {f"review-{RUN_ID}": "CANCELED"}
+
+    world.gateway.purge_refusal = None
+    again = await client.request(
+        "DELETE",
+        "/company",
+        json={"rationale": "again", "purge_remote": True},
+        headers=as_owner(),
+    )
+    assert model(CompanyDeleted, again).purged_remote is True
+    assert world.deleted == [COMPANY]
+
+
 async def test_a_delete_that_cannot_finish_leaves_the_company_held_and_a_second_finishes(
     client, world, monkeypatch
 ):
@@ -977,7 +1029,7 @@ async def test_the_documents_are_read_live_at_the_base_ref(client, world):
     repository and base ref, clipped as a crew reads it; an absent one is
     `present: false`, not an error."""
     spec = applied_spec()
-    world.documents.files[spec["documents"]["strategy"]] = "x" * (UNTRUSTED_CLIP + 10)
+    world.gateway.files[spec["documents"]["strategy"]] = "x" * (UNTRUSTED_CLIP + 10)
     strategy = model(
         DocumentView, await client.get("/documents/strategy", headers=as_owner())
     )
@@ -992,7 +1044,7 @@ async def test_the_documents_are_read_live_at_the_base_ref(client, world):
         DocumentView, await client.get("/documents/architecture", headers=as_owner())
     )
     assert architecture.present is False and architecture.text is None
-    assert world.documents.reads == [
+    assert world.gateway.reads == [
         (spec["repo"]["url"], spec["repo"]["base_ref"], spec["documents"][name])
         for name in ("strategy", "architecture")
     ]

@@ -41,7 +41,7 @@ from common.version import running_version
 from compiler import DeploymentPlan
 from console import crs
 from console.config import ConsoleSettings
-from console.documents import Documents, DocumentsUnavailable, GatewayDocuments
+from console.gateway import Gateway, GatewayUnavailable, McpGateway
 from console.service import ConsoleService, Invalid, NoCompany, PolicyDenied, Unfinished
 from console.temporal import TemporalWorkflows, Unavailable, Workflows
 from registry import (
@@ -85,7 +85,7 @@ def create_app(
     tickets: FiledTickets | None = None,
     token_reviewer: Reviewer | None = None,
     workflows: Workflows | None = None,
-    documents: Documents | None = None,
+    gateway: Gateway | None = None,
     submit_crs: Callable[[DeploymentPlan, dict[str, str]], tuple[int, int, int]]
     | None = None,
     delete_company: Callable[[str, float], None] | None = None,
@@ -128,7 +128,7 @@ def create_app(
         participants,
         tickets,
         workflows or TemporalWorkflows(settings.temporal_address),
-        documents or GatewayDocuments(settings.platform_namespace),
+        gateway or McpGateway(settings.platform_namespace),
         submit_crs or crs.submit,
         delete_company or crs.delete_company,
         read_company or crs.read_company,
@@ -187,8 +187,8 @@ def create_app(
     async def unfinished(_: Request, exc: Unfinished) -> JSONResponse:
         return _problem(503, str(exc))
 
-    @app.exception_handler(DocumentsUnavailable)
-    async def no_documents(_: Request, exc: DocumentsUnavailable) -> JSONResponse:
+    @app.exception_handler(GatewayUnavailable)
+    async def no_gateway(_: Request, exc: GatewayUnavailable) -> JSONResponse:
         return _problem(503, str(exc))
 
     def identity_of(request: Request):
@@ -241,7 +241,9 @@ def create_app(
 
     @serve("DELETE", "/company")
     async def delete_company_route(request: Request, body: DeleteRequest):
-        return await service.delete(identity_of(request), body.rationale)
+        return await service.delete(
+            identity_of(request), body.rationale, body.purge_remote
+        )
 
     @serve("POST", "/runs")
     async def start_run(request: Request, body: StartRunRequest):

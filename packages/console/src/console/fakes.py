@@ -26,7 +26,7 @@ from fastapi import FastAPI
 from common.audit import AuditEvent
 from common.authn import Principal
 from common.console import EXECUTION_RUNNING
-from common.policy import GATE_RESOLVE, verdict_rule
+from common.policy import COMPANY_DELETE, DEFAULT_DENY, GATE_RESOLVE, verdict_rule
 from common.topology import COMPANY_NAMESPACE, CONSOLE_TOKEN_AUDIENCE, PLATFORM_NAMESPACE
 from common.workflows import (
     HEARTBEAT_PAUSED,
@@ -39,6 +39,7 @@ from console import crs
 from console import service as service_module
 from console.app import create_app
 from console.config import ConsoleSettings
+from console.gateway import GatewayUnavailable
 from console.temporal import WorkflowNotFound
 from registry.memory import (
     InMemoryAgentInstances,
@@ -146,18 +147,31 @@ class FakeWorkflows:
         }
 
 
-class FakeDocuments:
-    """The gateway's `repo.read_file`, over a dict of path to text; records
-    what it was asked."""
+class FakeGateway:
+    """The gateway's `repo.read_file` over a dict of path to text, and its
+    `repo.purge`; records what it was asked. `purge_refusal` is what the
+    git host answers a purge with, when it refuses one."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_purge: Callable[[], None] = lambda: None) -> None:
         self.files: dict[str, str] = {}
         self.reads: list[tuple[str, str, str]] = []
+        self.purges: list[tuple[str, str]] = []
+        self.purge_refusal: str | None = None
+        self._on_purge = on_purge
 
     async def read(self, repo: str, ref: str, path: str) -> dict[str, Any]:
         self.reads.append((repo, ref, path))
         text = self.files.get(path)
         return {"present": text is not None, "text": text}
+
+    async def purge(self, repo: str, base_ref: str) -> dict[str, Any]:
+        if self.purge_refusal is not None:
+            raise GatewayUnavailable(
+                f"mcp gateway refused repo.purge: {self.purge_refusal}"
+            )
+        self.purges.append((repo, base_ref))
+        self._on_purge()
+        return {"reset": [base_ref], "commit": "r00t"}
 
 
 class FixedCompanies(InMemoryCompanies):
@@ -209,7 +223,7 @@ class World:
         self.workflows = FakeWorkflows(
             held=lambda: self.companies.paused(COMPANY) is not None
         )
-        self.documents = FakeDocuments()
+        self.gateway = FakeGateway(on_purge=self._purged)
         self.submitted: list[DeploymentPlan] = []
         self.deleted: list[str] = []
         # What the world looked like when the Company CR went: the rows the
@@ -218,6 +232,9 @@ class World:
         self.erased: list[AuditEvent] = []
         self.paused_at_delete: dict[str, Any] | None = None
         self.running_at_delete: dict[str, str] = {}
+        self.purged_at_delete: list[tuple[str, str]] = []
+        # What Temporal still ran when the repository was purged.
+        self.running_at_purge: dict[str, str] | None = None
         self.cr: dict[str, Any] | None = None
         # What OPA answers, per tool; the default is the rule the compiled
         # bundle would name: the act's for a human the company names,
@@ -252,6 +269,7 @@ class World:
         self.erased = list(self.audit.events)
         self.paused_at_delete = self.companies.paused(company)
         self.running_at_delete = dict(self.workflows.running)
+        self.purged_at_delete = list(self.gateway.purges)
         InMemoryCompanySweep(
             companies=self.companies,
             instances=self.instances,
@@ -261,6 +279,9 @@ class World:
             ledger=self.ledger,
             audit=self.audit,
         ).sweep(company)
+
+    def _purged(self) -> None:
+        self.running_at_purge = dict(self.workflows.running)
 
     async def evaluate(self, opa_url: str, company: str, decision_input: dict) -> dict:
         self.asked.append(decision_input)
@@ -272,6 +293,12 @@ class World:
         args = decision_input["args"]
         if tool == GATE_RESOLVE:
             return {"allow": True, "rule": verdict_rule(args["gate"], args["approved"])}
+        if tool == COMPANY_DELETE:
+            purge = args.get("purge_remote")
+            if not isinstance(purge, bool):
+                return {"allow": False, "rule": DEFAULT_DENY}
+            rule = "company_delete_purge_remote" if purge else "company_delete"
+            return {"allow": True, "rule": rule}
         return {"allow": True, "rule": tool.replace(".", "_")}
 
     def new_run_id(self) -> str:
@@ -304,7 +331,7 @@ class World:
             tickets=self.tickets,
             token_reviewer=FakeReviewer(),
             workflows=self.workflows,
-            documents=self.documents,
+            gateway=self.gateway,
             submit_crs=self.submit,
             delete_company=self.delete,
             read_company=self.read_company,
