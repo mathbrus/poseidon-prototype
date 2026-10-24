@@ -51,7 +51,7 @@ The mock brain obeys injected instructions on purpose, so tests prove the platfo
 | `STEERED_REVIEW_MARKER` | PR diff | hold the merge gate after a steered `pass` |
 | `TAMPERING_REVIEW_MARKER` | PR diff | verify the head before the reviewer, so its tampered sandbox (a `conftest.py` that collects nothing) moves no check |
 | `REVIEW_ABORT_MARKER` | issue title, then PR title | cap review attempts when no verdict comes |
-| `MERGE_GATE_REDTEAM_MARKER` | ticket | refuse a delegated merge of an out-of-class path (`.github/`) |
+| `MERGE_GATE_REDTEAM_MARKER` | ticket | refuse an automated merge of a path it does not automate (`.github/`) |
 | `CONTRACT_FIRST_MARKER` | strategy | order the contract ticket first and park the contract PR |
 | `ARCH_REQUEST_MARKER` | ticket | file a stewardship ticket; the run waits on it |
 | `MASTERPLAN_EDIT_MARKER` | ticket | deny the masterplan edit (`git_open_pr_architecture_path`); implement restores the plan |

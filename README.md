@@ -93,7 +93,7 @@ and shows the output you should see.
 | Section | Read it to… |
 |---|---|
 | [Get started](docs/get-started/quickstart.md) | Run a company on your machine. |
-| [How-to guides](docs/how-to/delegate-merges.md) | Do one specific thing: delegate merges, pause the company, use a paid brain. |
+| [How-to guides](docs/how-to/automate-merges.md) | Do one specific thing: automate merges, pause the company, use a paid brain. |
 | [Explanation](docs/explanation/how-it-works.md) | Understand the design and the security model. |
 | [Reference](docs/reference/blueprint.md) | Look up a blueprint field, a CLI command, a tool or a policy rule. |
 | [Contributing](docs/developing/contributing.md) | Change the code, run the tests, cut a release. |

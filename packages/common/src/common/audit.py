@@ -149,7 +149,7 @@ PLATFORM_EVENTS: tuple[PlatformEvent, ...] = (
     PlatformEvent(
         MERGE_RESOLVE,
         "process-lifecycle",
-        "policy's answer on merging: released by a human's verdict or delegated",
+        "policy's answer on merging: released by a human's verdict or automated",
     ),
     # -- the crew lifecycle -----------------------------------------------
     PlatformEvent(

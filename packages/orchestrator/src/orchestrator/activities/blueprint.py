@@ -63,13 +63,13 @@ def workflow_config(
     `crew` is the ephemeral crew the workflow executes through, or None
     for a `crewless` workflow — one that dispatches the conductor directly
     and declares it has no node.
-    `gates` is the block as the blueprint wrote it (`{merge: {resolved_by,
-    deadline_minutes, delegate?}}`, ...), `max_verify_retries` bounds
+    `gates` is the block as the blueprint wrote it (`{merge:
+    {deadline_minutes, automate?}}`, ...), `max_verify_retries` bounds
     implement's verify loop, `budget_deadline_minutes` is how long a run
     stopped at the budget cap waits for a human, and `contract_paths` is
     the declared contract tree ([] when the company declares none) that
-    review's deletion facts resolve against, and `bounds` is the charter as
-    it binds the company's work, rendered once here and carried by every
+    review's deletion facts resolve against, and `bounds` is the blueprint
+    as it binds the company's work, rendered once here and carried by every
     dispatch of the run into the procedure's system prompt.
     Fail-closed: no applied blueprint, no node for a crewed workflow, or
     no converged conductor instance each refuse the run before anything

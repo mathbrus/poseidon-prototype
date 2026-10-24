@@ -4,8 +4,8 @@ prompt for a procedure, and the repository's own instructions.
 The system prompt is the procedure's own text (one prose file per
 procedure under `prompts/`, each opening with the `PROCEDURE_HEADER` line
 that names it — the one line the mock brain keys on), with the platform's
-two texts substituted into it — the vision and the bounds, the charter as
-it binds this company's work, both rendered by the platform from the
+two texts substituted into it — the vision and the bounds, the blueprint
+as it binds this company's work, both rendered by the platform from the
 applied blueprint and trusted exactly because of that — followed by the
 coding heuristics the OpenHands SDK ships as prompt sections. The SDK's default prompt body
 is deliberately not used: it addresses a user who is in the loop, gives

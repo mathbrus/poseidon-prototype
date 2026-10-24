@@ -11,6 +11,25 @@ How a release is decided is the Releasing page of the docs site
 
 ## [Unreleased]
 
+- One name per concept for the company's document and for merging
+  without a person. The company's document is the blueprint, never "the
+  charter": the agent prompts introduce the bounds as "The blueprint as
+  it binds this company's work", the console's limits and bounds
+  descriptions say "blueprint", and `poseidon blueprint new` ends its
+  header with "`poseidon blueprint apply` applies it to the company."
+  A merge gate is automated when it has an `automate` block (its `paths`
+  and `max_reworks`), and the bounds text and the review prompt say
+  "automated". *Changed:* the merge gate drops `resolved_by` and
+  `delegate`, and a blueprint carrying either is refused; the merge rules
+  `merge_resolve_delegated` and `merge_resolve_undelegated_path` are now
+  `merge_resolve_automated` and `merge_resolve_path_not_automated`, and
+  `merge.resolve` takes `resolver: automated`; the gate outcomes
+  `policy_resolved` and `policy_declined` are now `automated` and
+  `automation_declined` (rows already written keep their names);
+  `poseidon blueprint new` asks whether routine changes may merge without
+  a person instead of who decides; `examples/hello-saas-delegated.yaml`
+  is `examples/hello-saas-automated.yaml` (#97)
+
 ## [0.4.0+2026.10.22] - 2026-10-22
 
 - Nothing an agent does in its sandbox moves a platform check or what is

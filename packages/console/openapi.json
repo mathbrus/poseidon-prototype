@@ -365,7 +365,7 @@
       },
       "BoundsView": {
         "additionalProperties": false,
-        "description": "`GET /company/bounds`: the charter's gates and limits as they bind\nthe company's work, the text every dispatch carries into a\nprocedure's system prompt.",
+        "description": "`GET /company/bounds`: the blueprint's gates and limits as they bind\nthe company's work, the text every dispatch carries into a\nprocedure's system prompt.",
         "properties": {
           "company": {
             "title": "Company",
@@ -808,7 +808,7 @@
       },
       "LimitsView": {
         "additionalProperties": false,
-        "description": "The charter's caps as they bind the company now, beside what they\nare measured against: the per-run cap, the daily cap and today's\nspend (since UTC midnight), how many runs may be live at once, and\nhow long each gate waits for a human before it expires (it escalates\nat half).",
+        "description": "The blueprint's caps as they bind the company now, beside what they\nare measured against: the per-run cap, the daily cap and today's\nspend (since UTC midnight), how many runs may be live at once, and\nhow long each gate waits for a human before it expires (it escalates\nat half).",
         "properties": {
           "daily_cap_usd": {
             "title": "Daily Cap Usd",
@@ -2370,7 +2370,7 @@
             "description": "Service Unavailable"
           }
         },
-        "summary": "the charter's gates and limits as every dispatch carries them"
+        "summary": "the blueprint's gates and limits as every dispatch carries them"
       }
     },
     "/documents/{kind}": {

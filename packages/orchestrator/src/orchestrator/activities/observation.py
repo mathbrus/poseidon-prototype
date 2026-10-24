@@ -65,7 +65,7 @@ def consumed(attempts: Attempts | None, max_attempts: int) -> bool:
     reached a verdict), or the blueprint's attempt cap is spent. Nothing
     else consumes: a run that aborted before any conclusion (a timed-out
     model call, a step cap, a cancel) leaves the item for another try,
-    as many as the charter allows. `max_attempts: 1` is the one-shot
+    as many as the blueprint allows. `max_attempts: 1` is the one-shot
     company, where every run is the only try."""
     if attempts is None:
         return False

@@ -1,4 +1,4 @@
-"""The bounds: the charter's gates and limits as they bind one company's
+"""The bounds: the blueprint's gates and limits as they bind one company's
 work, said once.
 
 Compiled policy enforces the blueprint at the gateway, and a denial names
@@ -17,7 +17,7 @@ from typing import Any
 
 from blueprint.catalog import STEWARD_ROLE
 from blueprint.documents import DOCUMENT_LABELS
-from blueprint.gates import UNDELEGATABLE_PATHS
+from blueprint.gates import NEVER_AUTOMATED_PATHS
 
 NONE_DECLARED = "none declared"
 
@@ -27,14 +27,14 @@ def render_bounds(spec: dict[str, Any]) -> str:
     CR's `repo`, `documents`, `policies` and `workflows`."""
     policies = spec.get("policies") or {}
     gate = _merge_gate(spec.get("workflows") or [])
-    delegated = gate is not None and gate.get("resolved_by") == "policy"
+    automated = "automate" in (gate or {})
     return "\n".join(
         [
             f"Repository: {spec['repo']['url']}, base ref {spec['repo']['base_ref']}.",
             f"Branches: {_branches(policies.get('branch_protection') or {})}",
             "Paths no pull request may change: "
             f"{_listed(policies.get('deny_paths') or [])}.",
-            f"Contract tree: {_contract_tree(policies.get('contract_tests'), delegated)}",
+            f"Contract tree: {_contract_tree(policies.get('contract_tests'), automated)}",
             f"Documents: {_documents(spec['documents'])}",
             f"Merge: {_merge(gate, policies)}",
         ]
@@ -63,7 +63,7 @@ def _branches(protection: dict[str, Any]) -> str:
     return "; ".join(facts) + "." if facts else f"{NONE_DECLARED}."
 
 
-def _contract_tree(contract: dict[str, Any] | None, delegated: bool) -> str:
+def _contract_tree(contract: dict[str, Any] | None, automated: bool) -> str:
     if not contract:
         return f"{NONE_DECLARED}."
     paths = sorted(contract.get("paths") or [])
@@ -72,9 +72,9 @@ def _contract_tree(contract: dict[str, Any] | None, delegated: bool) -> str:
         f"{_listed(paths)}, written only by {_either(roles, 'or')}; "
         "a change to it waits for a human"
     )
-    if delegated:
+    if automated:
         text += (
-            ", and a merge is delegated only when the tree as it stands on the "
+            ", and a merge is automated only when the tree as it stands on the "
             "base ref is green against the change"
         )
     return text + "."
@@ -92,11 +92,11 @@ def _documents(documents: dict[str, str]) -> str:
 def _merge(gate: dict[str, Any] | None, policies: dict[str, Any]) -> str:
     if gate is None:
         return "no merge gate is declared; a review ends without merging."
-    if gate.get("resolved_by") != "policy":
+    automate = gate.get("automate")
+    if automate is None:
         return "every pull request waits for a human's verdict."
-    delegate = gate.get("delegate") or {}
-    paths = sorted(delegate.get("paths") or [])
-    reworks = int(delegate.get("max_reworks") or 0)
+    paths = sorted(automate.get("paths") or [])
+    reworks = int(automate.get("max_reworks") or 0)
     after_failure = (
         f"files a rework ticket, at most {reworks}; after that the pull request "
         "waits for a human."
@@ -104,7 +104,8 @@ def _merge(gate: dict[str, Any] | None, policies: dict[str, Any]) -> str:
         else "sends the pull request to a human."
     )
     return (
-        "policy merges a pull request without a human when the review passed, "
+        "policy merges a pull request without a human, an automated merge, when "
+        "the review passed, "
         "the platform's checks are green and every changed path is under "
         f"{_either(paths, 'or')}; a pull request changing any other path, or "
         f"anything under {_either(_carved(policies), 'or')}, waits for a human. "
@@ -113,11 +114,11 @@ def _merge(gate: dict[str, Any] | None, policies: dict[str, Any]) -> str:
 
 
 def _carved(policies: dict[str, Any]) -> list[str]:
-    """The prefixes no delegation covers, as the bundle unions them —
-    `UNDELEGATABLE_PATHS` and the deny paths — with a prefix another one
+    """The prefixes no automation covers, as the bundle unions them —
+    `NEVER_AUTOMATED_PATHS` and the deny paths — with a prefix another one
     already covers left out: `.github/workflows/` says nothing `.github/`
     did not."""
-    carved = sorted({*UNDELEGATABLE_PATHS, *(policies.get("deny_paths") or [])})
+    carved = sorted({*NEVER_AUTOMATED_PATHS, *(policies.get("deny_paths") or [])})
     return [
         path
         for path in carved

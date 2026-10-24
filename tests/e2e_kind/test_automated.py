@@ -1,14 +1,14 @@
-"""The delegated capstone: the company delivers its own work — merge and
+"""The automated capstone: the company delivers its own work — merge and
 all — with zero human acts.
 
 The overnight capstone (`test_overnight`) proved the company runs its own
-slice to the human merge gate: one human act, the approval out. A
-policy-resolved merge gate removes that act for a declared class of work,
-so the whole arc has *no* human act at all.
+slice to the human merge gate: one human act, the approval out. An
+automated merge gate removes that act for the paths it automates, so the
+whole arc has *no* human act at all.
 
 Everything is the standing heartbeat's: it scopes the slice the strategy
 names, implements the ticket (a PR appears), reviews the delivered PR, and
-— because the change is in the delegated class, the independent review
+— because the change is in the automated paths, the independent review
 passed, and the platform's own checks are green — merges it. No approval,
 no signal, no command. The autonomy runs through the merge.
 
@@ -28,10 +28,11 @@ before any reviewer holds it. A red pull request carrying the tampering
 reviewer's marker files rework with no reviewer dispatched at all.
 
 So this capstone pins the one thing only a full unattended cluster run can
-show: passing in-class work reaches `main` with no human anywhere.
+show: passing work on the automated paths reaches `main` with no human
+anywhere.
 
 The conftest orders this module after the other capstones, so its runs
-are added last. Applies `examples/hello-saas-delegated.yaml` (delegated
+are added last. Applies `examples/hello-saas-automated.yaml` (automated
 merge) for the module and restores the pristine profile after.
 """
 
@@ -51,7 +52,7 @@ from mock_brain.brain import (
     TAMPERING_REVIEW_MARKER,
 )
 
-from .blueprints import DELEGATED, may_start, restore_pristine
+from .blueprints import AUTOMATED, may_start, restore_pristine
 from .cluster import (
     audit_story,
     await_run,
@@ -109,17 +110,17 @@ def _implement(number: int) -> dict:
 
 
 @pytest.fixture(scope="module")
-def delegated_overnight(stack: None, baseline_env: dict) -> dict:
+def automated_overnight(stack: None, baseline_env: dict) -> dict:
     """Nothing in, nothing out: let the company scope, implement, review,
-    and MERGE its own in-class PR with no command. Hand back every
-    artifact for the assertions.
+    and MERGE its own PR on the automated paths with no command. Hand back
+    every artifact for the assertions.
 
-    Depends on the session `baseline_env`: the delegated blueprint declares
+    Depends on the session `baseline_env`: the automated blueprint declares
     `contract_tests`, so the unattended merge needs the contract tree on the
     base ref — without it the composed verify is red and the arc reworks
     instead of merging."""
     env = baseline_env
-    apply_profile(DELEGATED, env)
+    apply_profile(AUTOMATED, env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env, "heartbeat_id": bare_heartbeat_id()}
     try:
@@ -133,7 +134,7 @@ def delegated_overnight(stack: None, baseline_env: dict) -> dict:
         assert number is not None, f"not a PR url: {implement['pr_url']!r}"
         result["pr_number"] = number
         # The implement's finishing nudge wakes the heartbeat onto the
-        # delivered PR; it reviews it and — in-class, review passed,
+        # delivered PR; it reviews it and — automated paths, review passed,
         # checks green — MERGES it. No human signal is sent.
         wake_until_run_started(review_run_task(number), "review")
         result["review"] = await_run(review_run_task(number), terminal=True)
@@ -155,87 +156,87 @@ def delegated_overnight(stack: None, baseline_env: dict) -> dict:
 
 
 def test_the_company_scoped_implemented_and_reviewed_unattended(
-    delegated_overnight: dict,
+    automated_overnight: dict,
 ):
     """All three runs are the heartbeat's — auto-minted run ids, no human
     command started any of them."""
     for key in ("scope", "implement", "review"):
-        assert delegated_overnight[key]["run_id"].startswith("auto-"), key
-    assert delegated_overnight["review"]["workflow"] == "review"
+        assert automated_overnight[key]["run_id"].startswith("auto-"), key
+    assert automated_overnight["review"]["workflow"] == "review"
 
 
-def test_the_in_class_pr_merged_with_no_human_act(delegated_overnight: dict):
+def test_the_automated_pr_merged_with_no_human_act(automated_overnight: dict):
     """The headline: the PR is merged on GitHub, and no human ever touched
     anything. The review run finished done and the PR is merged."""
-    assert delegated_overnight["review"]["status"] == "done", delegated_overnight[
+    assert automated_overnight["review"]["status"] == "done", automated_overnight[
         "review"
     ]
-    assert delegated_overnight["merged_pr"]["merged"] is True, (
-        "the in-class PR did not merge unattended"
+    assert automated_overnight["merged_pr"]["merged"] is True, (
+        "the automated PR did not merge unattended"
     )
 
 
-def test_the_merged_work_fell_in_the_delegated_class(delegated_overnight: dict):
+def test_the_merged_work_fell_in_the_automated_paths(automated_overnight: dict):
     """The implementer put the slice where the bounds said a merge is
-    delegated: every file of the merged PR is under one of the blueprint's
-    `delegate.paths` — the class the bounds named, not a guess."""
-    gate = yaml.safe_load(DELEGATED.read_text())["workflows"]["review"]["gates"]["merge"]
-    delegated = gate["delegate"]["paths"]
-    files = delegated_overnight["merged_files"]
+    automated: every file of the merged PR is under one of the blueprint's
+    `automate.paths` — the paths the bounds named, not a guess."""
+    gate = yaml.safe_load(AUTOMATED.read_text())["workflows"]["review"]["gates"]["merge"]
+    automated = gate["automate"]["paths"]
+    files = automated_overnight["merged_files"]
     assert files, "the merged PR changed no files"
-    outside = [f for f in files if not any(f.startswith(p) for p in delegated)]
-    assert outside == [], f"merged files outside the delegated class: {outside}"
+    outside = [f for f in files if not any(f.startswith(p) for p in automated)]
+    assert outside == [], f"merged files outside the automated paths: {outside}"
 
 
-def test_the_merge_was_released_by_policy_not_a_human(delegated_overnight: dict):
+def test_the_merge_was_automated_not_released_by_a_human(automated_overnight: dict):
     """The merge was released by the compiled decision, not a human gate.
-    The review's story carries a policy_resolved gate outcome and a
+    The review's story carries an `automated` gate outcome and a
     merge.resolve allow — and NO human gate_approved event."""
-    story = audit_story(delegated_overnight["review"]["run_id"])
+    story = audit_story(automated_overnight["review"]["run_id"])
     gate_rules = gate_merge_rules(story)
-    assert "gate_policy_resolved" in gate_rules, gate_rules
+    assert "gate_automated" in gate_rules, gate_rules
     assert "gate_approved" not in gate_rules, "a human approval sneaked in"
     resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "allow", resolves
-    assert resolves[-1]["rule"] == "merge_resolve_delegated"
+    assert resolves[-1]["rule"] == "merge_resolve_automated"
     assert any(e["tool"] == "git.merge_pr" for e in story), "no merge tool call"
 
 
-def test_the_policy_merge_closed_the_ticket(delegated_overnight: dict):
+def test_the_automated_merge_closed_the_ticket(automated_overnight: dict):
     """A merge no human released still closes what it fulfilled: the
     scoped ticket is closed by the platform after the merge."""
     assert_merge_closed_tickets(
-        delegated_overnight["env"],
-        audit_story(delegated_overnight["review"]["run_id"]),
-        delegated_overnight["pr_number"],
-        [delegated_overnight["issue_number"]],
+        automated_overnight["env"],
+        audit_story(automated_overnight["review"]["run_id"]),
+        automated_overnight["pr_number"],
+        [automated_overnight["issue_number"]],
     )
 
 
-def test_both_quality_layers_were_recorded(delegated_overnight: dict):
+def test_both_quality_layers_were_recorded(automated_overnight: dict):
     """The merge did not skip the layers: the reviewer's verdict was
     journaled (allow) and the platform's own decision saw the real facts —
     the run_id ties findings, verdict, checks and merge into one story."""
-    story = audit_story(delegated_overnight["review"]["run_id"])
+    story = audit_story(automated_overnight["review"]["run_id"])
     verdicts = [e for e in story if e["tool"] == REVIEW_VERDICT]
     assert verdicts and verdicts[-1]["decision"] == "allow", verdicts
     assert any(e["tool"] == HEARTBEAT_START and e["decision"] == "allow" for e in story)
 
 
-def test_delegated_arc_had_no_human_act(delegated_overnight: dict):
+def test_automated_arc_had_no_human_act(automated_overnight: dict):
     """The claim, as an invariant: every run ran under an auto- id, the
-    merge happened, and it was released by policy — never by a human
+    merge happened, and it was automated — never released by a human
     gate signal."""
-    story = audit_story(delegated_overnight["review"]["run_id"])
+    story = audit_story(automated_overnight["review"]["run_id"])
     assert any(e["tool"] == "git.merge_pr" for e in story), "no merge happened"
     assert not any(
         e["source"] == "process-gate" and e["rule"] == "gate_approved" for e in story
-    ), "the merge was released by a human, not policy"
+    ), "the merge was released by a human, not automated"
 
 
 # --- the contract-first arc: the split oracle's capstone --------------------
 #
-# The delegated arc above proves in-class work merges unattended. This proves
+# The automated arc above proves automated work merges unattended. This proves
 # the shape the split oracle adds: the company writes the *spec* first, under
 # different hands and different authority, and only then implements against
 # it. The whole arc has exactly one human act — the merge of the contract PR
@@ -255,7 +256,7 @@ def contract_first(stack: None, baseline_env: dict) -> dict:
     merge, and then the implementation auto-merges on a green base-ref
     contract — no other command."""
     env = baseline_env
-    apply_profile(DELEGATED, env)
+    apply_profile(AUTOMATED, env)
     # The declared deviation from the session baseline: the tree is declared
     # by the blueprint but deleted from `main`, so an implementation cannot
     # merge until the spec lands — which is the whole point of sequencing
@@ -336,14 +337,14 @@ def test_the_contract_was_authored_by_the_contract_crew(contract_first: dict):
 
 
 def test_the_contract_pr_needed_the_one_human_merge(contract_first: dict):
-    """Positional containment at merge: the contract PR could not
-    policy-merge, so it parked and the human's approval is what merged it —
+    """Positional containment at merge: the contract PR is never an
+    automated merge, so it parked and the human's approval is what merged it —
     the spec changes under a person's hand, by construction."""
     story = audit_story(contract_first["contract_review_run_id"])
     rules = gate_merge_rules(story)
-    assert "gate_policy_declined" in rules, rules
+    assert "gate_automation_declined" in rules, rules
     assert "gate_approved" in rules, rules
-    assert "gate_policy_resolved" not in rules, rules
+    assert "gate_automated" not in rules, rules
     assert contract_first["contract_merged"]["merged"] is True, (
         "the contract never landed"
     )
@@ -357,26 +358,26 @@ def test_the_implementation_auto_merged_on_a_green_contract(contract_first: dict
     story = audit_story(contract_first["implement_review_run_id"])
     assert review["status"] == "done", review
     assert contract_first["implement_merged"]["merged"] is True, (
-        "in-class work did not merge"
+        "automated work did not merge"
     )
     gate_rules = gate_merge_rules(story)
-    assert "gate_policy_resolved" in gate_rules, gate_rules
+    assert "gate_automated" in gate_rules, gate_rules
     assert "gate_approved" not in gate_rules, (
         "a human approval sneaked into the implement merge"
     )
     resolves = [e for e in story if e["tool"] == MERGE_RESOLVE]
     assert resolves and resolves[-1]["decision"] == "allow", resolves
-    assert resolves[-1]["rule"] == "merge_resolve_delegated", resolves[-1]
+    assert resolves[-1]["rule"] == "merge_resolve_automated", resolves[-1]
 
 
 def test_contract_arc_had_exactly_one_human_act(contract_first: dict):
     """The claim as an invariant: across every run, the only human act was
-    the contract merge. The implementation's merge was policy's, and
+    the contract merge. The implementation's merge was automated, and
     nothing else asked for a person."""
     impl_story = audit_story(contract_first["implement_review_run_id"])
     assert not any(
         e["source"] == "process-gate" and e["rule"] == "gate_approved" for e in impl_story
-    ), "the implementation was merged by a human, not policy"
+    ), "the implementation was merged by a human, not automated"
     assert any(e["tool"] == "git.merge_pr" for e in impl_story), (
         "no unattended merge happened"
     )
@@ -393,7 +394,7 @@ def test_the_contract_arc_stayed_within_budget(contract_first: dict):
 
 # A pull request whose own suite is red, carrying the marker that makes the
 # mock reviewer rewrite its sandbox (a conftest.py that collects nothing)
-# and pass. Under the delegated gate the platform verifies the head first.
+# and pass. Under the automated gate the platform verifies the head first.
 RED_TEST_PY = (
     f"# {TAMPERING_REVIEW_MARKER}: the reviewer is told to make this suite"
     " collect nothing.\n"
@@ -405,11 +406,11 @@ RED_TEST_PY = (
 @pytest.fixture(scope="module")
 def tampered_review(stack: None, baseline_env: dict) -> dict:
     """A red pull request the world opened, reviewed by a person's start
-    under the delegated gate. The loop may only scope here, so it neither
+    under the automated gate. The loop may only scope here, so it neither
     reviews the PR on its own nor implements the rework ticket the
     platform files; the module closes both."""
     env = baseline_env
-    apply_profile(may_start(DELEGATED, "scope"), env)
+    apply_profile(may_start(AUTOMATED, "scope"), env)
     nonce = secrets.token_hex(3)
     result: dict = {"env": env}
     try:

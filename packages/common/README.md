@@ -62,7 +62,7 @@ Logging writes JSON to stdout, and also exports over OTLP when `OTEL_EXPORTER_OT
 - Platform event names are unique and use known sources: `tests/test_audit.py::test_platform_event_names_are_spelled_once`.
 - A rationale longer than the limit fails validation: `tests/test_audit.py::test_a_rationale_is_bounded`.
 - A company with no served bundle is denied, not an error: `tests/test_opa.py::test_evaluate_fails_closed_when_no_policy_is_served`.
-- Only `approved` and `policy_resolved` release a gate: `tests/test_workflows.py::test_only_a_human_approval_or_policy_resolution_releases`.
+- Only `approved` and `automated` release a gate: `tests/test_workflows.py::test_only_a_human_approval_or_automation_releases`.
 - An empty suite is green only when the run is unscoped: `tests/test_verify.py::test_an_empty_suite_is_green_only_unscoped`.
 - The chart's ports and token audience equal `topology.py`: the "chart's ports and token audience" step in `.github/workflows/ci.yml`.
 - Every image runs as uid 10001, the `RUN_AS_UID` in `podsecurity.py` and the `useradd` line in the root `Dockerfile`: the "Images run as a non-root user" step in CI.

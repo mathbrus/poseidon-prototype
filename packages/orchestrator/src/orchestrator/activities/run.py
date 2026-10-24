@@ -192,10 +192,11 @@ class RunActivities:
         """One `source=process-gate` audit event: parked gates,
         escalations and verdicts become first-class rows in the run's
         story, carrying the workflow id that maps back to run_id. The
-        policy kinds keep human and policy resolutions distinguishable
-        forever: `policy_resolved` released a merge, `policy_declined`
-        fell back to the human signal. An unknown kind is refused before
-        anything is written: the vocabulary is `common.workflows`'."""
+        automation kinds keep a human's release and an automated one
+        distinguishable forever: `automated` released a merge,
+        `automation_declined` fell back to the human signal. An unknown
+        kind is refused before anything is written: the vocabulary is
+        `common.workflows`'."""
         rule = gate_rule(kind)
         await record_event(
             self._audit,

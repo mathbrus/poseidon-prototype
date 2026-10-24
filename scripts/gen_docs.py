@@ -49,7 +49,7 @@ REPO = Path(__file__).resolve().parent.parent
 DOCS = REPO / "docs"
 GATEWAY_APP = REPO / "packages/mcp-gateway/src/mcp_gateway/app.py"
 ENV_EXAMPLE = REPO / "deploy/kind/.env.example"
-CHARTER = REPO / "CLAUDE.md"
+CLAUDE_MD = REPO / "CLAUDE.md"
 
 MARKER = re.compile(r"<!-- gen: ([\w.-]+)(?::([\w.-]+))? -->")
 
@@ -560,10 +560,10 @@ GLOSSARY_ROW = re.compile(r"^\| \*\*(.+?)\*\* \| (.+?) \| .+ \|$")
 
 
 def glossary(_: str | None) -> str:
-    """The charter's glossary for a reader: every term and its meaning,
-    alphabetical. The charter's third column, the names to avoid, is for
-    contributors and stays in CLAUDE.md."""
-    text = CHARTER.read_text()
+    """The glossary of `CLAUDE.md` for a reader: every term and its
+    meaning, alphabetical. Its third column, the names to avoid, is for
+    contributors and stays in `CLAUDE.md`."""
+    text = CLAUDE_MD.read_text()
     start = text.index("[start:glossary]")
     end = text.index("[end:glossary]")
     terms = sorted(

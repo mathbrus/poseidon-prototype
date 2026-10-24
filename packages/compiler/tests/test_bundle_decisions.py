@@ -667,35 +667,34 @@ def test_heartbeat_grants_no_new_path_to_merge(decide_heartbeat):
     assert as_platform["allow"] is True
 
 
-# -- the policy-resolved merge gate ----------------------------------------
+# -- the automated merge gate ----------------------------------------------
 
 
-DELEGATED_MERGE = {
-    "resolved_by": "policy",
+AUTOMATED_MERGE = {
     "deadline_minutes": 1440,
-    "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+    "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
 }
 
 
 @pytest.fixture(scope="module")
-def decide_delegated(tmp_path_factory):
-    """The same company with a policy-resolved merge gate declared."""
+def decide_automated(tmp_path_factory):
+    """The same company with an automated merge gate declared."""
 
-    def delegated(blueprint: dict) -> None:
+    def automated(blueprint: dict) -> None:
         blueprint["workflows"]["review"]["gates"]["merge"] = copy.deepcopy(
-            DELEGATED_MERGE
+            AUTOMATED_MERGE
         )
 
-    return _decider(tmp_path_factory, _company(delegated))
+    return _decider(tmp_path_factory, _company(automated))
 
 
 def merge_resolve(**args) -> dict:
     # Independence and the contract fact default to true here so each test
     # isolates the layer it is about; the dedicated tests below flip them.
     # (Under a bundle with no contract tree the fact is simply unread.)
-    # The resolver defaults to the policy path; the human-path tests below
+    # The resolver defaults to the automated path; the human-path tests below
     # name theirs.
-    args.setdefault("resolver", "policy")
+    args.setdefault("resolver", "automated")
     args.setdefault("reviewer_independent", True)
     args.setdefault("contract_green", True)
     return {
@@ -706,72 +705,72 @@ def merge_resolve(**args) -> dict:
     }
 
 
-def test_no_delegation_means_no_unattended_merge(decide):
+def test_no_automation_means_no_unattended_merge(decide):
     """Opt-in all the way down to the decision, the heartbeat.start posture:
-    a human-resolved gate compiles no delegated merge.resolve authority, so
-    the policy path falls to default deny."""
+    a gate without `automate` compiles no automated merge.resolve authority,
+    so the automated path falls to default deny."""
     decision = decide(
         **merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
     )
     assert decision == {"allow": False, "rule": "default_deny"}
 
 
-def test_delegated_merge_resolves_when_both_layers_pass(decide_delegated):
-    decision = decide_delegated(
+def test_automated_merge_resolves_when_both_layers_pass(decide_automated):
+    decision = decide_automated(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
             paths=["src/a.py", "tests/test_a.py"],
         )
     )
-    assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
+    assert decision == {"allow": True, "rule": "merge_resolve_automated"}
 
 
-def test_a_steered_verdict_alone_merges_nothing(decide_delegated):
+def test_a_steered_verdict_alone_merges_nothing(decide_automated):
     """The model-free layer is required: a reviewer talked into 'pass'
     cannot merge past red platform checks."""
-    decision = decide_delegated(
+    decision = decide_automated(
         **merge_resolve(verdict="pass", checks_green=False, paths=["src/a.py"])
     )
     assert decision == {"allow": False, "rule": "merge_resolve_checks_not_green"}
 
 
-def test_green_checks_without_a_passing_verdict_merge_nothing(decide_delegated):
-    decision = decide_delegated(
+def test_green_checks_without_a_passing_verdict_merge_nothing(decide_automated):
+    decision = decide_automated(
         **merge_resolve(verdict="fail", checks_green=True, paths=["src/a.py"])
     )
     assert decision == {"allow": False, "rule": "merge_resolve_verdict_not_pass"}
 
 
-def test_a_path_outside_the_delegated_class_denies(decide_delegated):
-    decision = decide_delegated(
+def test_a_path_not_automated_denies(decide_automated):
+    decision = decide_automated(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
             paths=["src/a.py", "deploy/values.yaml"],
         )
     )
-    assert decision == {"allow": False, "rule": "merge_resolve_undelegated_path"}
+    assert decision == {"allow": False, "rule": "merge_resolve_path_not_automated"}
 
 
-def test_merge_resolve_fails_closed_without_the_paths(decide_delegated):
+def test_merge_resolve_fails_closed_without_the_paths(decide_automated):
     """The git.open_pr posture: without the changed paths in the input the
-    class cannot be checked, so the resolve is denied by name."""
-    decision = decide_delegated(**merge_resolve(verdict="pass", checks_green=True))
+    automated paths cannot be checked, so the resolve is denied by name."""
+    decision = decide_automated(**merge_resolve(verdict="pass", checks_green=True))
     assert decision == {"allow": False, "rule": "merge_resolve_paths_missing"}
 
 
-def test_an_empty_diff_is_not_a_merge_policy_resolves(decide_delegated):
-    decision = decide_delegated(
+def test_an_empty_diff_is_not_an_automated_merge(decide_automated):
+    decision = decide_automated(
         **merge_resolve(verdict="pass", checks_green=True, paths=[])
     )
     assert decision["allow"] is False
 
 
-def test_a_carved_out_path_denies_by_name(decide_delegated):
+def test_a_carved_out_path_denies_by_name(decide_automated):
     """The belt under the compile-time refusal: a changed path under a
-    carve-out denies the resolve whatever the delegated class says."""
-    decision = decide_delegated(
+    carve-out denies the resolve whatever the automated paths say."""
+    decision = decide_automated(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
@@ -781,11 +780,11 @@ def test_a_carved_out_path_denies_by_name(decide_delegated):
     assert decision == {"allow": False, "rule": "merge_resolve_carved_out_path"}
 
 
-def test_a_non_independent_review_merges_nothing(decide_delegated):
+def test_a_non_independent_review_merges_nothing(decide_automated):
     """The registry-checked fact is a required input: a reviewer that
     shares identity with the implementer (or cannot be attributed at all)
     denies by name."""
-    decision = decide_delegated(
+    decision = decide_automated(
         **merge_resolve(
             verdict="pass",
             checks_green=True,
@@ -796,36 +795,36 @@ def test_a_non_independent_review_merges_nothing(decide_delegated):
     assert decision == {"allow": False, "rule": "merge_resolve_not_independent"}
 
 
-def test_independence_fails_closed_when_absent(decide_delegated):
+def test_independence_fails_closed_when_absent(decide_automated):
     """Fail-safe defaults: the dangerous condition is the absent input."""
     args = merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
     del args["args"]["reviewer_independent"]
-    decision = decide_delegated(**args)
+    decision = decide_automated(**args)
     assert decision == {"allow": False, "rule": "merge_resolve_not_independent"}
 
 
-def test_agents_cannot_claim_the_merge_resolve(decide_delegated):
+def test_agents_cannot_claim_the_merge_resolve(decide_automated):
     """merge.resolve allows only the platform lifecycle: a standing caller
     reciting the tool name matches no rule."""
-    decision = decide_delegated(
+    decision = decide_automated(
         **standing("pm", tool="merge.resolve"),
         args={"verdict": "pass", "checks_green": True, "paths": ["src/a.py"]},
     )
     assert decision["allow"] is False
 
 
-def test_delegation_grants_no_new_path_to_merge_pr(decide_delegated):
-    """Authority not looser: the delegation adds the resolve decision and
+def test_automation_grants_no_new_path_to_merge_pr(decide_automated):
+    """Authority not looser: the automation adds the resolve decision and
     nothing else — git.merge_pr stays unreachable for every company role."""
-    as_pm = decide_delegated(**standing("pm", tool="git.merge_pr", args={"number": 4}))
+    as_pm = decide_automated(**standing("pm", tool="git.merge_pr", args={"number": 4}))
     assert as_pm["allow"] is False
 
 
-def test_the_rework_write_belongs_to_the_platform(decide_delegated):
+def test_the_rework_write_belongs_to_the_platform(decide_automated):
     """file_rework files the ticket under the platform identity; the
     reviewer that produced the findings holds no issues.create at all —
     a steered reviewer can fail a PR, never flood the backlog itself."""
-    as_platform = decide_delegated(
+    as_platform = decide_automated(
         PLATFORM_QUERY,
         lifecycle="platform",
         tool="issues.create",
@@ -833,7 +832,7 @@ def test_the_rework_write_belongs_to_the_platform(decide_delegated):
         args={"title": "Rework 1 for PR #41: x", "body": "…"},
     )
     assert as_platform["allow"] is True
-    as_reviewer = decide_delegated(
+    as_reviewer = decide_automated(
         **ephemeral(
             "feature-review",
             "reviewer",
@@ -936,13 +935,13 @@ CONTRACT_TESTS = {"paths": ["tests/contract/"], "roles": ["contract-author"]}
 @pytest.fixture(scope="module")
 def decide_split(tmp_path_factory):
     """The company with the oracle split declared: a protected contract
-    tree owned by the contract-authoring crew's role, beside a
-    delegated class that cannot contain it."""
+    tree owned by the contract-authoring crew's role, beside automated
+    paths that cannot contain it."""
     return _decider(tmp_path_factory, _company(_split))
 
 
 def _split(blueprint: dict) -> None:
-    """Declare the contract tree, its authoring crew, and a delegated class
+    """Declare the contract tree, its authoring crew, and automated paths
     beside it."""
     blueprint["policies"]["contract_tests"] = copy.deepcopy(CONTRACT_TESTS)
     _contract_crew(blueprint)
@@ -951,9 +950,8 @@ def _split(blueprint: dict) -> None:
 def _contract_crew(blueprint: dict) -> None:
     blueprint["standing"]["pm"]["may_spawn"]["crew"].append("contract-authoring")
     blueprint["workflows"]["review"]["gates"]["merge"] = {
-        "resolved_by": "policy",
         "deadline_minutes": 1440,
-        "delegate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
+        "automate": {"paths": ["src/", "tests/unit/"], "max_reworks": 2},
     }
 
 
@@ -1046,7 +1044,7 @@ def test_a_declared_owner_passes_the_contract_rule(tmp_path_factory, blueprint):
     assert decision["allow"] is True
 
 
-def test_a_contract_path_never_policy_merges(decide_split):
+def test_a_contract_path_is_never_an_automated_merge(decide_split):
     """Every fact green and the resolve still denies by the class's own
     name: oracle edits never auto-merge with the code they certify — they
     park on the human `merge` signal like any carve-out."""
@@ -1060,7 +1058,7 @@ def test_a_contract_path_never_policy_merges(decide_split):
     assert decision == {"allow": False, "rule": "merge_resolve_contract_path"}
 
 
-def test_the_delegated_class_still_resolves_beside_the_contract_tree(decide_split):
+def test_the_automated_paths_still_resolve_beside_the_contract_tree(decide_split):
     decision = decide_split(
         **merge_resolve(
             verdict="pass",
@@ -1068,7 +1066,7 @@ def test_the_delegated_class_still_resolves_beside_the_contract_tree(decide_spli
             paths=["src/a.py", "tests/unit/test_a.py"],
         )
     )
-    assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
+    assert decision == {"allow": True, "rule": "merge_resolve_automated"}
 
 
 def test_a_red_contract_verify_merges_nothing(decide_split):
@@ -1087,7 +1085,7 @@ def test_a_red_contract_verify_merges_nothing(decide_split):
 
 
 def test_the_contract_fact_fails_closed_when_absent(decide_split):
-    """A declared contract tree prices its fact into the delegation: the
+    """A declared contract tree prices its fact into the automation: the
     absent key denies, the checks_not_green idiom."""
     args = merge_resolve(verdict="pass", checks_green=True, paths=["src/a.py"])
     del args["args"]["contract_green"]
@@ -1095,16 +1093,16 @@ def test_the_contract_fact_fails_closed_when_absent(decide_split):
     assert decision == {"allow": False, "rule": "merge_resolve_contract_not_green"}
 
 
-def test_no_contract_tree_means_no_contract_fact(decide_delegated):
+def test_no_contract_tree_means_no_contract_fact(decide_automated):
     """Vacuous only by declaration: a company without `contract_tests`
-    compiled no contract rule, so the delegation reads exactly the facts
+    compiled no contract rule, so the automation reads exactly the facts
     it always did — the fact is not a new global requirement."""
     args = merge_resolve(
         verdict="pass", checks_green=True, paths=["src/a.py", "tests/test_a.py"]
     )
     del args["args"]["contract_green"]
-    decision = decide_delegated(**args)
-    assert decision == {"allow": True, "rule": "merge_resolve_delegated"}
+    decision = decide_automated(**args)
+    assert decision == {"allow": True, "rule": "merge_resolve_automated"}
 
 
 # -- the contract tree's authority is not looser, and it revokes like authority
@@ -1187,7 +1185,7 @@ def decide_revoked(tmp_path_factory):
 def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
     """The contract tree is authority, so it revokes like authority: with
     the declaration gone the ownership deny is gone — the implementer
-    reaches the tree again — and the delegation reads the facts of an
+    reaches the tree again — and the automation reads the facts of an
     undeclared company, the contract fact not priced in."""
     reopened = decide_revoked(
         **ephemeral(
@@ -1204,13 +1202,13 @@ def test_revocation_by_blueprint_diff_restores_the_single_tree(decide_revoked):
     )
     del args["args"]["contract_green"]
     resolved = decide_revoked(**args)
-    assert resolved == {"allow": True, "rule": "merge_resolve_delegated"}
+    assert resolved == {"allow": True, "rule": "merge_resolve_automated"}
 
 
-def test_revocation_leaves_the_tree_undelegated_not_unguarded(decide_revoked):
+def test_revocation_leaves_the_tree_not_automated_not_unguarded(decide_revoked):
     """No looseness through the diff either: the revoked tree is ordinary
-    code outside the delegated class, so its merges still park on the
-    human — by class membership now, not by carve-out."""
+    code outside the automated paths, so its merges still park on the
+    human — by the automated paths now, not by carve-out."""
     decision = decide_revoked(
         **merge_resolve(
             verdict="pass",
@@ -1218,7 +1216,7 @@ def test_revocation_leaves_the_tree_undelegated_not_unguarded(decide_revoked):
             paths=["src/a.py", "tests/contract/test_api.py"],
         )
     )
-    assert decision == {"allow": False, "rule": "merge_resolve_undelegated_path"}
+    assert decision == {"allow": False, "rule": "merge_resolve_path_not_automated"}
 
 
 # -- the human path of the merge gate, and the console's acts ---------------
@@ -1377,11 +1375,11 @@ def test_merge_resolve_fails_closed_without_a_resolver(decide):
     assert decision == {"allow": False, "rule": "merge_resolve_resolver_missing"}
 
 
-def test_a_human_release_ignores_delegation_facts(decide_delegated):
-    """The human override: a recorded approving verdict releases a change the
-    delegated class would refuse — a carve-out, an undelegated path, red
-    checks — because the person, not the class, is the authority."""
-    decision = decide_delegated(
+def test_a_human_release_ignores_automation_facts(decide_automated):
+    """The human override: a recorded approving verdict releases a change
+    automation would refuse — a carve-out, a path not automated, red
+    checks — because the person, not the automated paths, is the authority."""
+    decision = decide_automated(
         **human_resolve(
             {"principal": "owner", "approved": True},
             verdict="fail",
@@ -1392,10 +1390,10 @@ def test_a_human_release_ignores_delegation_facts(decide_delegated):
     assert decision == {"allow": True, "rule": "merge_resolve_human"}
 
 
-def test_delegation_denies_stay_on_the_policy_path(decide_delegated):
-    """And the converse: the policy path is held to every delegated fact
+def test_automation_denies_stay_on_the_automated_path(decide_automated):
+    """And the converse: the automated path is held to every automation fact
     whatever verdict a human may have recorded."""
-    decision = decide_delegated(
+    decision = decide_automated(
         **merge_resolve(
             verdict="pass",
             checks_green=True,

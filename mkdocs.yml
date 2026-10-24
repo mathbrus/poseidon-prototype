@@ -75,7 +75,7 @@ nav:
   - How-to guides:
       - Write your blueprint: how-to/write-a-blueprint.md
       - Answer gates and follow a run: how-to/gates-and-runs.md
-      - Delegate merges: how-to/delegate-merges.md
+      - Automate merges: how-to/automate-merges.md
       - Pause, resume or delete: how-to/pause-resume-delete.md
       - Use a paid brain: how-to/paid-brain.md
       - Act as another person: how-to/act-as-another-human.md

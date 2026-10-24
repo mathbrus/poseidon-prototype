@@ -4,7 +4,7 @@
     PR's live state under the platform identity; a merged or closed PR
     is refused here as `pr_not_open`, before any sandbox is spent) ->
     fetch_workspace (the PR's head commit, pinned for the whole run) ->
-    provision_sandbox -> platform_verify (under a delegated gate only,
+    provision_sandbox -> platform_verify (under an automated gate only,
     before any agent holds the sandbox; red files rework and ends the run
     with no reviewer dispatched) ->
     fulfill_crew (feature-review under the PM's conductor authority —
@@ -18,21 +18,21 @@
     PR fulfilled (issues.close); reject/timeout: honest failure ->
     teardown.
 
-The merge gate owns the merge guarantee, and the blueprint names its
-resolver — gate config comes from the compiled plan, never hardcoded.
-`resolved_by: human` parks on the `merge` signal. `resolved_by: policy`
-adds the platform's own layers before anything merges: the platform
-verify of the PR head, run before the reviewer in the sandbox as
-provisioned (the same activity that gates implement delivery), the
-reviewer's journaled verdict, the contract verify when a
+The merge gate owns the merge guarantee, and the blueprint says whether
+it is automated — gate config comes from the compiled plan, never
+hardcoded. A gate without `automate` parks on the `merge` signal. An
+`automate` block adds the platform's own layers before anything merges:
+the platform verify of the PR head, run before the reviewer in the
+sandbox as provisioned (the same activity that gates implement
+delivery), the reviewer's journaled verdict, the contract verify when a
 contract tree is declared (the base ref's contract tests, composed over
 the PR head and run scoped — a baseline nothing in the PR can rewrite),
 the registry-checked reviewer-independence fact, and one evaluation of
 the compiled merge.resolve decision — allow releases the merge, deny
 falls back to the human signal, so the human override survives
-delegation. A diff touching the contract tree itself skips the layers
-entirely: it can never policy-merge (the compiled carve-out), so the
-gate declines up front and the PR parks on the human with the
+automation. A diff touching the contract tree itself skips the layers
+entirely: it is never an automated merge (the compiled carve-out), so
+the gate declines up front and the PR parks on the human with the
 deletion facts already posted — a decline, not a failure. Nobody
 home at a park? The timer escalates at half the deadline and expires the
 gate at the end; the park is API-visible (`state` query), every
@@ -43,7 +43,7 @@ merge.
 
 Review is orchestrator-sequenced over HTTP. A human reject stays the
 honest minimum: findings are already on the PR, the run finalizes failed
-with the gate's verdict. Under a policy-resolved gate, a failed quality
+with the gate's verdict. Under an automated gate, a failed quality
 layer instead feeds the bounded rework loop: the findings become a
 backlog ticket the conductor consumes, the platform closes the PR the
 ticket supersedes (git.close_pr), the chain depth rides the canonical
@@ -65,10 +65,10 @@ from common.tasks import review_run_task
 from common.workflows import (
     BUDGET_GATE,
     GATE_APPROVED,
+    GATE_AUTOMATED,
+    GATE_AUTOMATION_DECLINED,
     GATE_ESCALATED,
     GATE_PARKED,
-    GATE_POLICY_DECLINED,
-    GATE_POLICY_RESOLVED,
     GATE_REWORK_EXHAUSTED,
     GATE_REWORK_FILED,
     GATE_VERDICT_UNVERIFIED,
@@ -134,9 +134,9 @@ class ReviewWorkflow(RunWorkflow):
 
     def _touches_contract(self, pr: dict[str, Any], config: dict[str, Any]) -> bool:
         """Whether the platform-read diff edits the declared contract tree.
-        Such a PR can never policy-merge: the compiled carve-out denies its
-        resolve whatever the facts say (pinned in the bundle tests), and the
-        workflow knows the same thing positionally, from the
+        Such a PR is never an automated merge: the compiled carve-out denies
+        its resolve whatever the facts say (pinned in the bundle tests), and
+        the workflow knows the same thing positionally, from the
         blueprint-declared tree and the diff, before it spends anything."""
         contract_paths = config.get("contract_paths") or []
         return any(
@@ -159,7 +159,7 @@ class ReviewWorkflow(RunWorkflow):
             retry_policy=STEP_RETRY,
         )
 
-    async def _policy_merge(
+    async def _automated_merge(
         self,
         input: "ReviewInput",
         pr: dict[str, Any],
@@ -167,7 +167,7 @@ class ReviewWorkflow(RunWorkflow):
         config: dict[str, Any],
         verify: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        """The policy-resolved path, after the reviewer and a green
+        """The automated path, after the reviewer and a green
         platform verify (`verify`, run before the reviewer was dispatched).
         A diff touching the declared contract tree declines: it is the
         human's to merge, so no layer is spent on it and no rework ticket
@@ -182,8 +182,8 @@ class ReviewWorkflow(RunWorkflow):
         caller-verified facts (verdict, checks, independence, contract) and
         the changed paths: allow releases the merge under the platform
         identity; deny is a *decline*, not a failure — good work outside
-        the delegation falls back to the human signal, so the human
-        override survives delegation by construction.
+        the automated paths falls back to the human signal, so the human
+        override survives automation by construction.
 
         The verified tree, the reviewed tree and the merged commit are one
         head, pinned at the run's start: every sandbox is provisioned from
@@ -194,7 +194,7 @@ class ReviewWorkflow(RunWorkflow):
             # Decline, not failure: park. At bootstrap this also keeps the
             # first contract PR off the composed baseline, which has no
             # tree to run yet.
-            await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_DECLINED)
+            await self.record_gate(input.run_id, MERGE_GATE, GATE_AUTOMATION_DECLINED)
             return {}
         verdict = result["verdict"]
         if verdict != "pass":
@@ -261,7 +261,7 @@ class ReviewWorkflow(RunWorkflow):
         )
         resolve = await self._resolve(
             input,
-            "policy",
+            "automated",
             {
                 "verdict": verdict,
                 "checks_green": bool(verify and verify.get("passed")),
@@ -275,7 +275,7 @@ class ReviewWorkflow(RunWorkflow):
             },
         )
         if not resolve.get("allow"):
-            await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_DECLINED)
+            await self.record_gate(input.run_id, MERGE_GATE, GATE_AUTOMATION_DECLINED)
             return {}
         return await self._release(input, pr)
 
@@ -300,7 +300,7 @@ class ReviewWorkflow(RunWorkflow):
             start_to_close_timeout=timedelta(seconds=self._profile.step_s),
             retry_policy=STEP_RETRY,
         )
-        limit = int((gate.get("delegate") or {}).get("max_reworks") or 0)
+        limit = int((gate.get("automate") or {}).get("max_reworks") or 0)
         if depth["depth"] >= limit:
             await self.record_gate(input.run_id, MERGE_GATE, GATE_REWORK_EXHAUSTED)
             return {}
@@ -330,13 +330,13 @@ class ReviewWorkflow(RunWorkflow):
         )
         await self.record_gate(input.run_id, MERGE_GATE, GATE_REWORK_FILED)
         return {
-            "error": f"policy merge gate: {reason} — rework ticket filed:"
+            "error": f"automated merge gate: {reason} — rework ticket filed:"
             f" {ticket.get('url')}"
         }
 
     async def _merge_pr(self, input: "ReviewInput", pr: dict[str, Any]) -> dict[str, Any]:
         """The merge itself — one platform tool call, issued only after a
-        gate (human or policy) resolved to merge. Both resolvers land here,
+        gate (human or automated) resolved to merge. Both resolvers land here,
         so there is exactly one place the branch reaches `main`, and it
         names the head this run read: what was reviewed is what merges."""
         return await workflow.execute_activity(
@@ -361,11 +361,11 @@ class ReviewWorkflow(RunWorkflow):
     async def _human_merge(
         self, input: "ReviewInput", pr: dict[str, Any], gate: dict[str, Any]
     ) -> dict[str, Any]:
-        """The human gate: the declared `resolved_by: human` resolver, and
-        the fallback whenever a policy gate declines or its rework chain is
-        spent. Park on the signal, escalate at half the deadline, expire at
-        the end — every transition a process-gate audit event — and return
-        the same `{released}|{error}` shape the policy path does, so the run
+        """The human gate: every gate without `automate`, and the fallback
+        whenever automation declines or its rework chain is spent. Park on
+        the signal, escalate at half the deadline, expire at the end — every
+        transition a process-gate audit event — and return the same
+        `{released}|{error}` shape the automated path does, so the run
         has one merge-application site.
 
         An approving signal is not the release. The release is policy's:
@@ -405,9 +405,9 @@ class ReviewWorkflow(RunWorkflow):
         return {"released": await self._merge_pr(input, pr)}
 
     async def _release(self, input: "ReviewInput", pr: dict[str, Any]) -> dict[str, Any]:
-        """The policy release: gate outcome first, then the merge — strictly
-        after the compiled allow."""
-        await self.record_gate(input.run_id, MERGE_GATE, GATE_POLICY_RESOLVED)
+        """The automated release: gate outcome first, then the merge —
+        strictly after the compiled allow."""
+        await self.record_gate(input.run_id, MERGE_GATE, GATE_AUTOMATED)
         return {"released": await self._merge_pr(input, pr)}
 
     @workflow.run
@@ -460,14 +460,14 @@ class ReviewWorkflow(RunWorkflow):
                 retry_policy=STEP_RETRY,
             )
             gate = config["gates"].get(MERGE_GATE) or {}
-            delegated = gate.get("resolved_by") == "policy"
-            # Under a delegated gate the platform verifies the head first,
+            automated = "automate" in gate
+            # Under an automated gate the platform verifies the head first,
             # in the sandbox as provisioned: the reviewer holds a shell
             # there, so a verify run after it could read whatever the
             # reviewer left. A contract-tree PR is the human's whatever the
             # suite says, so nothing is spent on it.
             verify: dict[str, Any] | None = None
-            if delegated and not self._touches_contract(pr, config):
+            if automated and not self._touches_contract(pr, config):
                 verify = await self._verify(input)
                 if not verify.get("passed"):
                     rework = await self._rework(
@@ -486,9 +486,9 @@ class ReviewWorkflow(RunWorkflow):
                         error = rework["error"]
                         raise _ReviewOver()
                     # The rework chain is spent: the reviewer still runs, so
-                    # the human park carries its findings, and the policy
+                    # the human park carries its findings, and the automated
                     # layers are skipped — the PR goes to the human.
-                    delegated = False
+                    automated = False
             # The review crew is fulfilled under the conductor's authority
             # — the compiled crew.request decision, evaluated as the
             # conductor — and reads the company's documents as they stand
@@ -530,20 +530,20 @@ class ReviewWorkflow(RunWorkflow):
                 # The blueprint declared no merge gate: the findings are
                 # the deliverable and the workflow ends without merging —
                 # an unattended auto-merge is not a default anyone gets
-                # implicitly. (Distinct from a policy gate: no rework, no
+                # implicitly. (Distinct from an automated gate: no rework, no
                 # park; an advisory review.)
                 raise _ReviewOver()
 
-            # One dispatch, two resolvers with one contract. A policy gate
-            # runs its layers first: a failed layer files a bounded rework
-            # and ends the run (its `error`); an allow releases the merge; a
-            # decline or spent rework chain leaves `{}`, which falls through
-            # to the human gate — the same gate a `resolved_by: human`
-            # review uses, so the human signal resolves every gate and the
-            # override survives delegation.
+            # One dispatch, two resolvers with one contract. An automated
+            # gate runs its layers first: a failed layer files a bounded
+            # rework and ends the run (its `error`); an allow releases the
+            # merge; a decline or spent rework chain leaves `{}`, which falls
+            # through to the human gate — the same gate a review without
+            # `automate` uses, so the human signal resolves every gate and
+            # the override survives automation.
             outcome: dict[str, Any] = {}
-            if delegated:
-                outcome = await self._policy_merge(input, pr, result, config, verify)
+            if automated:
+                outcome = await self._automated_merge(input, pr, result, config, verify)
                 if outcome.get("error"):
                     error = outcome["error"]
                     raise _ReviewOver()

@@ -142,6 +142,6 @@ uv run poseidon run cancel <run_id> --reason "…"   # stop a run
 
 ## Next steps
 
-- [Delegate merges](delegate-merges.md), so in-scope work merges without you
+- [Automate merges](automate-merges.md), so in-scope work merges without you
 - [Pause, resume or delete the company](pause-resume-delete.md)
 - [CLI reference](../reference/cli.md)

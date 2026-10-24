@@ -4,7 +4,7 @@
 Two layers. The OPA half is a smoke pair against the running OPA's decision
 path (port-forward): what it asserts is that the bundle the reconciler
 actually served decides. The decision *matrix* — per-role scoping, branch
-and path policies, tenancy, crew narrowing, merge delegation — is pinned
+and path policies, tenancy, crew narrowing, merge automation — is pinned
 per-decision against the real OPA in
 packages/compiler/tests/test_bundle_decisions.py, and test_acceptance
 proves the served revision is this compiler's output for this blueprint.

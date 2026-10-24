@@ -44,15 +44,15 @@ coordination survive a restart — and authority is not looser than
 before.
 
 A change that only furnishes the cage, or that buys capability by
-weakening the charter, is the wrong direction even if it ships.
+weakening `CLAUDE.md`, is the wrong direction even if it ships.
 
-## The tree is not the charter
+## The tree is not `CLAUDE.md`
 
 This file is the source of truth. The tree is not always caught up —
-it lags the charter between releases, and leftovers from earlier ones
+it lags `CLAUDE.md` between releases, and leftovers from earlier ones
 remain. Old names, old control flow, old assumptions.
 
-When you find something incoherent with this charter, stop and ask.
+When you find something incoherent with `CLAUDE.md`, stop and ask.
 Do not paper over it, do not reinterpret it into the new world, do
 not silently delete it. We will sort it out together.
 
@@ -68,9 +68,9 @@ first.
 | **company** | what a blueprint declares and the platform runs: its vision, heartbeat, standing agents and runs, in the company namespace; a cluster hosts one | tenant, org, project |
 | **run** | one execution of `scope`, `implement` or `review`: a run id, a registry row, its ephemeral agents and sandbox, from start to teardown | job, execution, task (the text a run works) |
 | **heartbeat** | the company's standing workflow, `heartbeat-<company>`: each tick observes, asks the conductor to decide, and starts at most one run under policy and the caps; every company has one | scheduler, cron, conduct |
-| **gate** | a point where a run parks until it is resolved: `merge` and `budget`; the blueprint declares who resolves it (`resolved_by`) and how long it waits (`deadline_minutes`) | approval step, checkpoint |
-| **delegation** | a merge gate `resolved_by: policy`: its `delegate` block names the paths policy may merge on its own and the rework bound | auto-merge |
-| **contract tree** | the paths `policies.contract_tests` declares: acceptance tests only the named roles may deliver into, read from `base_ref` to grade a delegated merge | oracle (prose may say it once, defined), spec tree |
+| **gate** | a point where a run parks until it is resolved: `merge` and `budget`; the blueprint declares how long it waits (`deadline_minutes`) and, for `merge`, what may merge without a person (`automate`) | approval step, checkpoint |
+| **automation** | a merge gate's `automate` block: the paths policy may merge without a person's verdict, and the rework bound; a merge it releases is an automated merge | delegation, policy-resolved, auto-merge (GitHub's feature) |
+| **contract tree** | the paths `policies.contract_tests` declares: acceptance tests only the named roles may deliver into, read from `base_ref` to grade an automated merge | oracle (prose may say it once, defined), spec tree |
 | **sandbox** | a run's Kubernetes Job where code runs: no credentials, no cluster API, egress only through the egress proxy | workspace (the files inside it), container, VM |
 | **gateway** | a chokepoint an agent acts through: verifies the caller, asks policy, acts, audits; the MCP gateway for tools, the LLM gateway for models | proxy (the llm-proxy and the egress proxy are not gateways) |
 | **platform identity** | the orchestrator's own principal (`lifecycle: platform`), under which the platform runs the verify gate, files bootstrap and rework tickets, and merges | system user, bot |
@@ -88,10 +88,9 @@ first.
 | **workflow** | a Temporal workflow the heartbeat may start: `scope`, `implement`, `review`; plus `heartbeat` itself | family, intake |
 | **task** | the text an implement or review run works: a ticket, a pull request | goal, brief |
 | **observation** | the platform-composed reading of the world a conductor decides or scopes on: the documents, the open tickets, the delivered pull requests, the recent runs, capacity and spend | goal, prompt, context |
-| **blueprint** | the YAML document a human applies; the charter is what it declares; validated against the `blueprint` package's JSON Schema | spec file, company file, schema (the package's old name) |
-| **charter** | the blueprint a human applies: the vision, the budgets, the gates, the policies; `CLAUDE.md` is the charter of the project, not of a company | mission, constitution, goal file |
-| **vision** | the human's statement of purpose in the charter, `company.vision`; reaches every procedure but `deliver` through the static prompt; changed only by applying the blueprint again | mission, goal, purpose |
-| **bounds** | the charter's gates and limits as they bind this company's work — repository, branches, denied paths, contract tree, documents, merge — rendered once from the applied spec by `blueprint.bounds.render_bounds`, carried by every dispatch into the procedure's system prompt, trusted like the vision | rules, guardrails, constraints, policy summary |
+| **blueprint** | the YAML document a human applies and what it declares: the vision, the budgets, the gates, the policies; validated against the `blueprint` package's JSON Schema | charter, spec file, company file, schema (the package's old name) |
+| **vision** | the human's statement of purpose in the blueprint, `company.vision`; reaches every procedure but `deliver` through the static prompt; changed only by applying the blueprint again | mission, goal, purpose |
+| **bounds** | the blueprint's gates and limits as they bind this company's work — repository, branches, denied paths, contract tree, documents, merge — rendered once from the applied spec by `blueprint.bounds.render_bounds`, carried by every dispatch into the procedure's system prompt, trusted like the vision | rules, guardrails, constraints, policy summary |
 | **strategy** | the document at `company.documents.strategy` on `base_ref`; the steward writes it once from the vision; no current role may change it afterwards (a future observer would) | roadmap, plan |
 | **architecture masterplan** | the document at `company.documents.architecture` on `base_ref`; the steward writes it at bootstrap and revises it only to fulfill an architecture request; `architecture` in identifiers | ADR, design doc, `AGENTS.md` |
 | **architecture request** | a proposal an ephemeral agent records with `architecture.request`; the platform turns it into a stewardship ticket | change request, RFC |
@@ -111,7 +110,7 @@ first.
 | **pause** | the human act that holds the heartbeat: `heartbeat.pause` through the console, lifted by `heartbeat.resume` (`poseidon pause` / `poseidon resume`); a paused loop ticks, records `tick_paused` and starts nothing; runs in flight finish; not a stop — the company stays, deleting it is the one stop | freeze, halt, suspend, stop, sleep |
 | **sleeping** | the heartbeat's state between ticks, waiting for a wake signal or the backstop cadence; `ticking` while a tick runs, `paused` while a human holds it; prose may say asleep | idle (a tick's outcome, not the loop's state), dormant, waiting, frozen |
 | **halted** | a start the heartbeat refuses on a gate nobody resolves, recorded as the process-gate outcome `halted` (`gate.heartbeat_daily_cap`, `gate.heartbeat_bootstrap_exhausted`); lifted by the world changing (tomorrow's cap, a fulfilled bootstrap), never by a verdict; the loop keeps ticking | stopped, paused, parked, blocked |
-| **cap** | a budget's number in the charter (`budgets.per_run.usd`, `heartbeat.daily_cap.usd`): the LLM gateway refuses a model call once the run's ledger SUM reaches the per-run cap, and the run parks; the heartbeat halts starts once the day's spend reaches the daily cap | hard stop, limit (a node's sizing), ceiling, budget (the section, not the number) |
+| **cap** | a budget's number in the blueprint (`budgets.per_run.usd`, `heartbeat.daily_cap.usd`): the LLM gateway refuses a model call once the run's ledger SUM reaches the per-run cap, and the run parks; the heartbeat halts starts once the day's spend reaches the daily cap | hard stop, limit (a node's sizing), ceiling, budget (the section, not the number) |
 | **reconciler** | the Kubernetes controller that converges `Company` and `AgentInstance` into the company namespace and writes `converged`; the `reconciler` package, image `poseidon-reconciler` | operator, controller |
 | **converged** | the Company phase the reconciler writes once OPA serves the stored bundle revisions, the platform's and the company's; `activating` until then | ready, applied, installed |
 | **tombstone** | the empty bundle over a torn-down company's roots that the bundle server keeps serving, so OPA's next poll erases its rules | deleted bundle, 404 |
@@ -152,7 +151,7 @@ first.
   implementation plan. Never mention phases, contract IDs (C2, C4,
   …), or how the code used to work. If you find such comments, strip
   them as you touch the file — they are debris, not documentation.
-- **Leftovers**: if code, docs, or names contradict the charter above,
+- **Leftovers**: if code, docs, or names contradict `CLAUDE.md`,
   ask immediately. Do not guess which world they belong to.
 - **Releases**: Poseidon has one version, the git tag
   `vMAJOR.MINOR.PATCH+YYYY.MM.DD`, spelled once in the root

@@ -238,9 +238,9 @@ def _workflows(blueprint: dict[str, Any]) -> tuple[WorkflowConfig, ...]:
 
 def _merge_gate(workflows: tuple[WorkflowConfig, ...]) -> dict[str, Any] | None:
     """The one merge gate, if any workflow declares one — what
-    `merge.resolve` compiles from: the human path always, the delegated
-    path when the gate is policy-resolved. No gate compiles no rule, so a
-    review under a company that declared none ends without merging."""
+    `merge.resolve` compiles from: the human path always, the automated
+    path when the gate has an `automate` block. No gate compiles no rule,
+    so a review under a company that declared none ends without merging."""
     for config in workflows:
         gate = config.gates.get("merge")
         if gate:

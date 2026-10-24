@@ -20,7 +20,7 @@ def spec_of(example: str) -> dict:
     return company_cr(compile_blueprint(document))["spec"]
 
 
-@pytest.mark.parametrize("example", ["hello-saas.yaml", "hello-saas-delegated.yaml"])
+@pytest.mark.parametrize("example", ["hello-saas.yaml", "hello-saas-automated.yaml"])
 def test_the_cr_carries_the_policies_section(example):
     spec = spec_of(example)
     assert spec["policies"]["branch_protection"]["protected"] == ["main"]
@@ -30,13 +30,13 @@ def test_the_cr_carries_the_policies_section(example):
 
 def test_the_bounds_render_from_the_submitted_spec():
     """The spec the console submits is the one the worker renders the
-    bounds from, so both examples must render — the delegated one
-    naming its class and its contract tree."""
+    bounds from, so both examples must render — the automated one
+    naming its paths and its contract tree."""
     human = render_bounds(spec_of("hello-saas.yaml"))
     assert human.endswith("Merge: every pull request waits for a human's verdict.")
-    delegated = render_bounds(spec_of("hello-saas-delegated.yaml"))
-    assert "Contract tree: tests/contract/, written only by contract-author" in delegated
-    assert "every changed path is under docs/, slugify.py or tests/unit/" in delegated
+    automated = render_bounds(spec_of("hello-saas-automated.yaml"))
+    assert "Contract tree: tests/contract/, written only by contract-author" in automated
+    assert "every changed path is under docs/, slugify.py or tests/unit/" in automated
 
 
 def test_the_cr_carries_the_blueprints_text_when_applied():

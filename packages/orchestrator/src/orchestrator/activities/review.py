@@ -124,15 +124,15 @@ def contract_edit_comment(deletions: dict[str, int]) -> str:
     approve it."""
     return (
         "**Contract tree edited.** This pull request changes the "
-        "contract/acceptance tests the delegated merge gate is graded by, "
-        "so it never merges under policy — it parks on the human `merge` "
+        "contract/acceptance tests automated merges are graded by, so it "
+        "is never an automated merge — it parks on the human `merge` "
         "signal.\n\n"
         f"- test functions: −{deletions['removed_tests']} "
         f"/ +{deletions['added_tests']}\n"
         f"- assertions: −{deletions['removed_asserts']} "
         f"/ +{deletions['added_asserts']}\n\n"
         "Counted by the platform from the diff. A net loss of tests or "
-        "assertions weakens the spec every future delegated merge is "
+        "assertions weakens the spec every future automated merge is "
         "graded by — approve deliberately."
     )
 
@@ -350,7 +350,7 @@ class ReviewActivities:
         crew, and that is exactly the self-review this check refuses to
         call independent. Fail closed on absence — a PR no implement run
         attributes, or a review with no bound reviewer, is not eligible
-        for a policy-resolved merge (the human signal still is)."""
+        for an automated merge (the human signal still is)."""
 
         def read() -> dict[str, Any]:
             implement = self._runs.implement_run_for_pr(self._company(), pr_number)
@@ -531,13 +531,13 @@ class ReviewActivities:
         """Evaluate the compiled `merge.resolve` decision — the
         heartbeat_authorize idiom: the caller-verified facts ride the input,
         the compiled literals bind as policy, and the answer is audited
-        either way. On the `policy` resolver the facts are the delegated
-        layers (verdict, checks, independence, the contract fact, the
-        changed paths); on the `human` resolver the one fact is the
+        either way. On the `automated` resolver the facts are the
+        automation facts (verdict, checks, independence, the contract fact,
+        the changed paths); on the `human` resolver the one fact is the
         console-recorded verdict. Unlike heartbeat.start, a deny is a
-        routed outcome, not an error: good work outside the delegation
-        falls back to the human signal, and an unrecorded human signal
-        ends the run unmerged."""
+        routed outcome, not an error: good work outside the automated
+        paths falls back to the human signal, and an unrecorded human
+        signal ends the run unmerged."""
         company = self._company()
         decision_input = {
             "company": company,

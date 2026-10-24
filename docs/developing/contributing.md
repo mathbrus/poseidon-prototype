@@ -13,7 +13,7 @@ Dockerfile         one recipe for every image; deploy/build-images.sh builds the
 deploy/helm/       the Poseidon chart, and Temporal's values
 deploy/kind/       kind bring-up and teardown, and .env.example
 crds/              the Company and AgentInstance resource definitions
-examples/          hello-saas.yaml and hello-saas-delegated.yaml (one company, two profiles), pirate-fight.yaml
+examples/          hello-saas.yaml and hello-saas-automated.yaml (one company, two profiles), pirate-fight.yaml
 tests/e2e_kind/    the acceptance suite, run against a live cluster
 ```
 

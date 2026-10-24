@@ -46,9 +46,9 @@ What the suite proves, and where:
                   may_spawn nor exfiltrate) and test_overnight (the whole
                   arc — scope, implement, review — with one human act: the
                   merge approval out; nothing in).
-  9 merge policy  test_delegated (in-class passing work is scoped,
-                  implemented, reviewed and merged with no human act at
-                  all — the arc runs through the merge) and
+  9 automation    test_automated (passing work on the automated paths is
+                  scoped, implemented, reviewed and merged with no human
+                  act at all — the arc runs through the merge) and
                   test_split_oracle_redteam (a steered reviewer smuggling
                   a carve-out change is refused by the compiled decision,
                   not the model).
@@ -56,9 +56,9 @@ What the suite proves, and where:
                   contract tree, cannot launder a red baseline to green
                   through a committed collect-ignore, and a steered contract
                   author's gutted spec parks on a human with its deletions
-                  counted) and test_delegated's contract arc (the PM files
+                  counted) and test_automated's contract arc (the PM files
                   contract-then-implement, the contract PR parks for one human
-                  merge, then in-class work auto-merges on a green base-ref
+                  merge, then automated work merges on a green base-ref
                   contract).
  11 documents     test_documents (a vision-only repository bootstraps both
                   documents through the steward; an architecture request

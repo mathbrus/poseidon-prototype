@@ -19,7 +19,7 @@ HELLO_SAAS = REPO_ROOT / "examples" / "hello-saas.yaml"
 
 VISION = "What should this company build, and why?"
 REPOSITORY = "GitHub repository"
-MERGE = "Who decides whether a pull request merges?"
+AUTOMATE = "May routine changes merge without a person?"
 CONTRACT = "Keep acceptance tests the code's author may not edit?"
 ADVANCED = "Fine-tune the advanced settings?"
 # A repository of the person's own: the example's owner is a placeholder
@@ -139,12 +139,11 @@ def test_the_multiline_hint_is_on_screen_with_the_prompt():
     assert new.instruction("short") == "(short)" and new.instruction("") is None
 
 
-def test_policy_resolution_brings_the_delegation_and_the_contract_crew():
-    answers = new.ask(example_answers(**{MERGE: "policy"}))
+def test_automation_brings_the_automate_block_and_the_contract_crew():
+    answers = new.ask(example_answers(**{AUTOMATE: True}))
     built = new.build(answers)
     merge = built["workflows"]["review"]["gates"]["merge"]
-    assert merge["resolved_by"] == "policy"
-    assert merge["delegate"] == {
+    assert merge["automate"] == {
         "paths": ["src/", "tests/unit/", "docs/"],
         "max_reworks": 1,
     }
@@ -156,17 +155,17 @@ def test_policy_resolution_brings_the_delegation_and_the_contract_crew():
     assert new.problems(built) == []
 
     without_tree = new.build(
-        new.ask(example_answers(**{MERGE: "policy", CONTRACT: False}))
+        new.ask(example_answers(**{AUTOMATE: True, CONTRACT: False}))
     )
     assert "contract_tests" not in without_tree["policies"]
     assert "contract-authoring" not in without_tree["standing"]["pm"]["may_spawn"]["crew"]
     assert new.problems(without_tree) == []
 
 
-def test_a_human_resolved_gate_carries_no_delegation():
+def test_a_gate_without_automation_carries_no_automate_block():
     prompter = example_answers()
     built = new.build(new.ask(prompter))
-    assert "delegate" not in built["workflows"]["review"]["gates"]["merge"]
+    assert built["workflows"]["review"]["gates"]["merge"] == {"deadline_minutes": 1440}
     assert "contract_tests" not in built["policies"]
     assert "Folders where a change may merge without a person" not in prompter.asked
 

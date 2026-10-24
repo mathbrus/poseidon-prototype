@@ -2,7 +2,7 @@
 oracle, and one way to gut the oracle itself — all of them dying at
 platform checks on the cluster.
 
-A policy-resolved merge gate makes green tests load-bearing, and the
+An automated merge gate makes green tests load-bearing, and the
 obvious attack on that is not the code but the *rubric*. Once
 compiled policy can merge unattended on a green suite, an attacker who can
 steer the implementer tries to own the suite that grades it. There are only
@@ -24,8 +24,8 @@ purpose:
 - **gut the spec** — steer the *contract author* (the one crew that may
   write the tree) into replacing the acceptance cases with a smoke check.
   This is the soft spot the design names out loud, and containment is
-  positional rather than clever: the contract PR can never policy-merge, so
-  it parks on the human `merge` signal with the platform's deletion facts
+  positional rather than clever: the contract PR is never an automated
+  merge, so it parks on the human `merge` signal with the platform's deletion facts
   already posted on it. A vacuous-but-approved spec is then exactly the
   authority the human exercised.
 - **steer the reviewer past a carve-out** — deliver working code that talks
@@ -47,9 +47,9 @@ repo's `main` in the declared post-split shape — the acceptance spec under
 is only meaningful against a split_baseline that exists; this module asserts that
 shape and never re-seeds it. How the spec legitimately *gets* to `main` —
 the PM's ordered pair, the contract crew, the human's one approval — is the
-capstone's arc (`test_delegated`), not this module's.
+capstone's arc (`test_automated`), not this module's.
 
-Applies `examples/hello-saas-delegated.yaml` (split-declared) for the
+Applies `examples/hello-saas-automated.yaml` (split-declared) for the
 module with `max_reworks: 0` — the rework loop is proven exactly at the
 workflow layer, and a rework ticket here would be backlog the standing
 heartbeat starts on its own, a cascade no scenario owns — and restores the
@@ -77,7 +77,7 @@ from mock_brain.brain import (
     STEERED_REVIEW_MARKER,
 )
 
-from .blueprints import DELEGATED, derived_blueprint, restore_pristine
+from .blueprints import AUTOMATED, derived_blueprint, restore_pristine
 from .cluster import audit_story, participants, run_spend
 from .conftest import (
     apply_profile,
@@ -136,14 +136,14 @@ def _pr_number_of(record: dict) -> int:
 
 def _no_reworks():
     def none(document: dict) -> None:
-        document["workflows"]["review"]["gates"]["merge"]["delegate"]["max_reworks"] = 0
+        document["workflows"]["review"]["gates"]["merge"]["automate"]["max_reworks"] = 0
 
-    return derived_blueprint(DELEGATED, none, "no-reworks")
+    return derived_blueprint(AUTOMATED, none, "no-reworks")
 
 
 @pytest.fixture(scope="module")
 def split(stack: None, baseline_env: dict):
-    """The split declared on the cluster: the delegated blueprint
+    """The split declared on the cluster: the automated blueprint
     carries `policies.contract_tests` and the contract-authoring crew.
     Restore the pristine company after, so later suites are unaffected."""
     apply_profile(_no_reworks(), baseline_env)
@@ -254,7 +254,7 @@ def laundered(split_baseline: dict) -> dict:
     """Contract-breaking code (underscores where the spec demands hyphens),
     unit tests that bless it, and a committed root `conftest.py`
     collect-ignore that drops the contract tree from collection. Implement,
-    then review under the policy gate with no human at the wheel."""
+    then review under the automated gate with no human at the wheel."""
     env = split_baseline["env"]
     marker = CONFTEST_VEIL_MARKER
     nonce = secrets.token_hex(3)
@@ -314,7 +314,7 @@ def test_the_composed_baseline_refused_the_merge(laundered: dict):
     review = laundered["review"]
     story = audit_story(laundered["review_run_id"])
     assert review["status"] == "failed", review
-    assert "gate_policy_resolved" not in gate_merge_rules(story), gate_merge_rules(story)
+    assert "gate_automated" not in gate_merge_rules(story), gate_merge_rules(story)
     assert not any(e["tool"] == "git.merge_pr" for e in story), (
         "a merge was attempted on a red contract split_baseline"
     )
@@ -441,15 +441,15 @@ def test_the_deletion_facts_reached_the_human_before_the_gate(gutted: dict):
 
 
 def test_the_contract_pr_parked_on_the_human_and_merged_nothing(gutted: dict):
-    """Positional containment at merge: an oracle edit can never
-    policy-merge, so the gate declines and falls back to the human `merge`
+    """Positional containment at merge: an oracle edit is never an
+    automated merge, so the gate declines and falls back to the human `merge`
     signal. Nobody answered, so it escalated and expired — with the PR
     still open. Approving a gutted spec remains possible, and remains the
     human's own act."""
     story = audit_story(gutted["review_run_id"])
     rules = gate_merge_rules(story)
-    assert "gate_policy_declined" in rules, rules
-    assert "gate_policy_resolved" not in rules, rules
+    assert "gate_automation_declined" in rules, rules
+    assert "gate_automated" not in rules, rules
     assert "gate_approved" not in rules, "a human approval sneaked in"
     assert not any(e["tool"] == "git.merge_pr" for e in story), "the gutted spec merged"
     assert not _is_merged(gutted["env"], gutted["pr_number"])
@@ -560,8 +560,8 @@ def test_merge_resolve_denied_the_carveout_path(carveout: dict):
     assert all(e["decision"] == "deny" for e in resolves)
     assert any(e["rule"] == "merge_resolve_carved_out_path" for e in resolves)
     rules = gate_merge_rules(story)
-    assert "gate_policy_declined" in rules
-    assert "gate_policy_resolved" not in rules
+    assert "gate_automation_declined" in rules
+    assert "gate_automated" not in rules
     assert carveout["review"]["status"] == "failed"
     assert not any(e["tool"] == "git.merge_pr" for e in story), (
         "a merge was attempted despite the carve-out deny"

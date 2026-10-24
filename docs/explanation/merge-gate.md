@@ -1,9 +1,9 @@
 # The merge gate
 
-The merge gate decides whether a reviewed pull request merges. The
-blueprint names who resolves it: you (`resolved_by: human`) or policy
-(`resolved_by: policy`). This page explains both, and why your verdict
-counts only once it is recorded.
+The merge gate decides whether a reviewed pull request merges. By
+default you resolve it. With an `automate` block, policy may merge the
+paths you choose without you: an automated merge. This page explains
+both, and why your verdict counts only once it is recorded.
 
 Without a `gates.merge` section, a review ends without merging anything.
 No company merges automatically by default.
@@ -15,7 +15,6 @@ workflows:
   review:
     gates:
       merge:
-        resolved_by: human
         deadline_minutes: 1440
 ```
 
@@ -40,16 +39,15 @@ unmerged, and the refusal is recorded as `gate_verdict_unverified`.
 If nobody answers, the gate escalates at half of `deadline_minutes` and
 expires at the end. Both events are recorded.
 
-## When policy resolves it
+## When the merge is automated
 
 ```yaml
 workflows:
   review:
     gates:
       merge:
-        resolved_by: policy
         deadline_minutes: 1440
-        delegate:
+        automate:
           paths: [slugify.py, tests/unit/, docs/]
           max_reworks: 1
 ```
@@ -63,7 +61,7 @@ agent's word.
 - The independent reviewer's verdict passed.
 - The registry confirms the reviewer is a different agent from the
   implementer.
-- Every changed path is inside `delegate.paths`.
+- Every changed path is inside `automate.paths`.
 - If the company declares a contract tree, the contract is green (see
   below).
 
@@ -84,12 +82,12 @@ Anything short of that is never a quiet merge:
 
 | The pull request | What happens |
 |---|---|
-| Every fact holds, every path in the class | Policy merges it (rule `merge_resolve_delegated`). |
-| Touches `.github/` or a path outside the class | It parks on you, as if the gate were `human`. |
+| Every fact holds, every path automated | Policy merges it (rule `merge_resolve_automated`, gate outcome `automated`). |
+| Touches `.github/` or a path not automated | Automation declines (gate outcome `automation_declined`), and it parks on you as if the gate had no `automate` block. |
 | Touches the contract tree | It parks on you at once, before any check runs. Only a person merges the tests that grade the code. |
 | The verdict failed, the tests are red, or the contract is red | The findings become a rework ticket, and the platform closes the pull request. After `max_reworks` rounds, it parks on you, with the reviewer's findings on it. |
 
-`delegate.paths` can never include `.github/`, a path in
+`automate.paths` can never include `.github/`, a path in
 `policies.deny_paths`, or the contract tree. The compiler refuses such a
 blueprint, because a merged pull request must never be able to rewrite
 the rules or the tests that govern merging.
@@ -146,7 +144,7 @@ is every ticket in the chain.
 
 ## What it doesn't guarantee
 
-A delegated gate merges code that meets the contract but is wrong in ways
+An automated gate merges code that meets the contract but is wrong in ways
 the contract doesn't test. The record your verdict lives in is an
 unsigned audit row. [Limitations](limitations.md) lists these edges in
 full.

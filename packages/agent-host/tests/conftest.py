@@ -27,7 +27,7 @@ COMMENT_URL = "https://github.test/example/target/pull/7#issuecomment-1"
 ISSUE_COMMENT_URL = "https://github.test/example/target/issues/7#issuecomment-2"
 # The stewardship ticket the platform files for an architecture request.
 ARCHITECTURE_TICKET_URL = "https://github.test/example/target/issues/9"
-# The bounds every test dispatch carries: the charter of a company whose
+# The bounds every test dispatch carries: the blueprint of a company whose
 # branch pattern the fake gateway enforces, rendered by the real renderer
 # so the text the model reads is the one it would read on a cluster.
 BRANCH_PATTERN = r"^feature/[a-z0-9-]+$"
@@ -49,7 +49,7 @@ BOUNDS = render_bounds(
         "workflows": [
             {
                 "name": "review",
-                "gates": {"merge": {"resolved_by": "human", "deadline_minutes": 60}},
+                "gates": {"merge": {"deadline_minutes": 60}},
             }
         ],
     }

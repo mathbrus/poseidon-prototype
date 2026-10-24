@@ -57,9 +57,8 @@ def test_pm_holds_no_implementer_tools(blueprint):
     assert {"issues.create", "issues.read", "issues.comment"} == pm_tools
 
 
-def test_review_merge_gate_is_human_resolved(blueprint):
+def test_review_merge_gate_waits_for_a_person(blueprint):
     assert blueprint["workflows"]["review"]["gates"]["merge"] == {
-        "resolved_by": "human",
         "deadline_minutes": 1440,
     }
 
@@ -188,22 +187,20 @@ def test_lean_roster_profile_validates(blueprint):
 # -- the merge gate --------------------------------------------------------
 
 
-def delegated_merge() -> dict:
+def automated_merge() -> dict:
     return {
-        "resolved_by": "policy",
         "deadline_minutes": 1440,
-        "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+        "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
     }
 
 
-def test_policy_resolved_merge_validates(blueprint):
-    blueprint["workflows"]["review"]["gates"]["merge"] = delegated_merge()
+def test_an_automated_merge_validates(blueprint):
+    blueprint["workflows"]["review"]["gates"]["merge"] = automated_merge()
     validate_blueprint(blueprint)
 
 
-def test_a_gate_must_be_an_object_naming_its_resolver(blueprint):
-    """A gate is an object naming its resolver; a bare string does not
-    validate anywhere."""
+def test_a_gate_must_be_an_object(blueprint):
+    """A gate is an object; a bare string does not validate anywhere."""
     blueprint["workflows"]["review"]["gates"]["merge"] = "human_approval"
     assert problems_of(blueprint)
 
@@ -215,58 +212,53 @@ def test_an_undeclared_merge_gate_is_legal(blueprint):
     validate_blueprint(blueprint)
 
 
-def test_policy_without_a_delegation_is_refused(blueprint):
-    blueprint["workflows"]["review"]["gates"]["merge"] = {
-        "resolved_by": "policy",
-        "deadline_minutes": 1440,
-    }
-    (problem,) = [p for p in problems_of(blueprint) if "delegate" in p]
-    assert "authority nobody wrote down" in problem
+def test_the_resolver_fields_are_refused(blueprint):
+    """The merge gate is automated by its `automate` block and nothing
+    else: `resolved_by` and `delegate` are not part of the shape."""
+    for field, value in (
+        ("resolved_by", "policy"),
+        ("delegate", {"paths": ["src/"], "max_reworks": 1}),
+    ):
+        document = copy.deepcopy(blueprint)
+        document["workflows"]["review"]["gates"]["merge"][field] = value
+        assert any(field in p for p in problems_of(document))
 
 
-def test_delegation_under_a_human_gate_is_dead_configuration(blueprint):
-    gate = delegated_merge()
-    gate["resolved_by"] = "human"
-    blueprint["workflows"]["review"]["gates"]["merge"] = gate
-    (problem,) = [p for p in problems_of(blueprint) if "dead configuration" in p]
-    assert "delegate" in problem
-
-
-def test_delegation_declares_every_bound_or_nothing(blueprint):
+def test_automation_declares_every_bound_or_nothing(blueprint):
     """Explicit paths and an explicit rework bound, the heartbeat stance: a
     defaulted bound is authority nobody wrote down."""
     for field in ("paths", "max_reworks"):
         document = copy.deepcopy(blueprint)
-        gate = delegated_merge()
-        del gate["delegate"][field]
+        gate = automated_merge()
+        del gate["automate"][field]
         document["workflows"]["review"]["gates"]["merge"] = gate
         assert any(field in p for p in problems_of(document))
 
 
-def test_repo_automation_can_never_be_delegated(blueprint):
+def test_ci_configuration_can_never_be_automated(blueprint):
     """A merged PR must not be able to rewrite the surface that governs
-    merging — `.github/` is refused whatever else the delegation says."""
-    gate = delegated_merge()
-    gate["delegate"]["paths"].append(".github/")
+    merging — `.github/` is refused whatever else the automation says."""
+    gate = automated_merge()
+    gate["automate"]["paths"].append(".github/")
     blueprint["workflows"]["review"]["gates"]["merge"] = gate
-    assert any("can never be delegated" in p for p in problems_of(blueprint))
+    assert any("never automated" in p for p in problems_of(blueprint))
 
 
 def test_a_broad_prefix_containing_a_carveout_is_refused(blueprint):
-    """Overlap goes both ways: delegating a prefix that contains `.github/`
-    would put the carve-out inside the delegated class."""
-    gate = delegated_merge()
-    gate["delegate"]["paths"] = ["."]
+    """Overlap goes both ways: automating a prefix that contains `.github/`
+    would put the carve-out inside the automated paths."""
+    gate = automated_merge()
+    gate["automate"]["paths"] = ["."]
     blueprint["workflows"]["review"]["gates"]["merge"] = gate
-    assert any("can never be delegated" in p for p in problems_of(blueprint))
+    assert any("never automated" in p for p in problems_of(blueprint))
 
 
-def test_a_deny_path_can_never_be_delegated(blueprint):
-    """Delegating a path no PR may touch is contradictory configuration,
+def test_a_deny_path_can_never_be_automated(blueprint):
+    """Automating a path no PR may touch is contradictory configuration,
     and dead configuration is an error."""
     blueprint["policies"]["deny_paths"] = [".github/workflows/", "docs/secrets/"]
-    gate = delegated_merge()
-    gate["delegate"]["paths"] = ["docs/"]
+    gate = automated_merge()
+    gate["automate"]["paths"] = ["docs/"]
     blueprint["workflows"]["review"]["gates"]["merge"] = gate
     assert any("deny_paths" in p for p in problems_of(blueprint))
 
@@ -283,21 +275,21 @@ def test_a_declared_contract_tree_validates(blueprint):
     validate_blueprint(blueprint)
 
 
-def test_the_contract_tree_can_never_be_delegated(blueprint):
-    """The oracle never merges under the delegation it certifies — refused
-    at validate time, whatever else the delegated class says."""
+def test_the_contract_tree_can_never_be_automated(blueprint):
+    """The contract tree never merges under the automation it grades —
+    refused at validate time, whatever else the automated paths say."""
     blueprint["policies"]["contract_tests"] = contract_tests_section()
-    gate = delegated_merge()
-    gate["delegate"]["paths"] = ["src/", "tests/contract/api/"]
+    gate = automated_merge()
+    gate["automate"]["paths"] = ["src/", "tests/contract/api/"]
     blueprint["workflows"]["review"]["gates"]["merge"] = gate
-    assert any("contract_tests" in p and "oracle" in p for p in problems_of(blueprint))
+    assert any("contract_tests" in p and "grades" in p for p in problems_of(blueprint))
 
 
 def test_a_prefix_containing_the_contract_tree_is_refused(blueprint):
-    """Overlap goes both ways, the `.github/` posture: delegating `tests/`
-    would put the contract tree inside the delegated class."""
+    """Overlap goes both ways, the `.github/` posture: automating `tests/`
+    would put the contract tree inside the automated paths."""
     blueprint["policies"]["contract_tests"] = contract_tests_section()
-    blueprint["workflows"]["review"]["gates"]["merge"] = delegated_merge()
+    blueprint["workflows"]["review"]["gates"]["merge"] = automated_merge()
     assert any("contract_tests" in p for p in problems_of(blueprint))
 
 

@@ -5,8 +5,8 @@ import pytest
 
 from common.workflows import (
     GATE_APPROVED,
+    GATE_AUTOMATED,
     GATE_OUTCOMES,
-    GATE_POLICY_RESOLVED,
     GATE_RELEASING,
     TICK_OUTCOMES,
     gate_rule,
@@ -30,8 +30,8 @@ def test_gate_rule_refuses_an_unknown_outcome():
             gate_rule(kind)
 
 
-def test_only_a_human_approval_or_policy_resolution_releases():
-    assert GATE_RELEASING == (GATE_APPROVED, GATE_POLICY_RESOLVED)
+def test_only_a_human_approval_or_automation_releases():
+    assert GATE_RELEASING == (GATE_APPROVED, GATE_AUTOMATED)
     assert set(GATE_RELEASING) < set(GATE_OUTCOMES)
 
 

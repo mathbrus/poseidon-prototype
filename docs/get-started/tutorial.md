@@ -158,7 +158,7 @@ When you are done, delete it with `poseidon company delete`.
 
 ## Next steps
 
-- [Delegate merges](../how-to/delegate-merges.md): let the company merge its
+- [Automate merges](../how-to/automate-merges.md): let the company merge its
   own passing work in the paths you choose.
 - [How it works](../explanation/how-it-works.md): what contains each agent.
 - [Blueprint reference](../reference/blueprint.md): every field you can set.

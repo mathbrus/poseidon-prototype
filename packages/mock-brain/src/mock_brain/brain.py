@@ -90,7 +90,7 @@ SCENARIOS: dict[str, tuple[str, str, str]] = {
     "MERGE_GATE_REDTEAM_MARKER": (
         "a ticket body",
         "deliver",
-        "the delegated merge gate refuses an out-of-class path",
+        "the automated merge gate refuses a path it does not automate",
     ),
     "CONTRACT_FIRST_MARKER": (
         "the strategy",
@@ -908,7 +908,7 @@ def _contract_author_completion(
                 "title": title,
                 "body": (
                     "The executable acceptance spec under `tests/contract/` "
-                    "— the tree delegated merges are graded by."
+                    "— the tree automated merges are graded by."
                 ),
             },
         ),

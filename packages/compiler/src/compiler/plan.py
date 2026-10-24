@@ -51,7 +51,8 @@ class AgentInstanceCR:
     tools: tuple[str, ...]
     # What the pod is told about its company: the repository it works on
     # and the vision its prompts carry. Riding the instance means an edit
-    # to either rolls the pod — a re-charter restarts the conductor.
+    # to either rolls the pod — applying the blueprint again restarts the
+    # conductor.
     repo: Repo
     vision: str
     may_spawn: tuple[str, ...] = ()
@@ -75,7 +76,7 @@ class WorkflowConfig:
 
     name: str
     crew: str
-    # Gate objects as the blueprint wrote them: `{resolved_by, delegate?}`.
+    # Gate objects as the blueprint wrote them: `{deadline_minutes, automate?}`.
     # A gate nobody declares is absent, and absent means the workflow does
     # not stop there.
     gates: dict[str, Any]

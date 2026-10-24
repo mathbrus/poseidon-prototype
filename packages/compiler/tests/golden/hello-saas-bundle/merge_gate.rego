@@ -7,7 +7,7 @@ import rego.v1
 
 deny_rules contains "merge_resolve_resolver_missing" if {
 	input.tool == "merge.resolve"
-	not object.get(input, ["args", "resolver"], "") in ["human", "policy"]
+	not object.get(input, ["args", "resolver"], "") in ["human", "automated"]
 }
 
 allow_rules contains "merge_resolve_human" if {

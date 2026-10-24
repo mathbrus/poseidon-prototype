@@ -74,7 +74,7 @@ ROUTES: tuple[Route, ...] = (
     Route(
         "GET",
         "/company/bounds",
-        "the charter's gates and limits as every dispatch carries them",
+        "the blueprint's gates and limits as every dispatch carries them",
         m.BoundsView,
     ),
     Route(

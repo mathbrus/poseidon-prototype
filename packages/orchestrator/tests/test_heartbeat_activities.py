@@ -430,7 +430,7 @@ def test_observe_excludes_a_review_that_concluded_whatever_its_status(
     runs.finish("run-a", "done", pr_url="https://github.test/example/repo/pull/4")
     runs.start("run-b", "review pull request #4", "review", company=COMPANY)
     runs.record_verdict("run-b", "fail")
-    runs.finish("run-b", "failed", error="policy merge gate: rework ticket filed")
+    runs.finish("run-b", "failed", error="automated merge gate: rework ticket filed")
     observed = asyncio.run(observation.heartbeat_observe(MAX_ATTEMPTS))
     assert observed["reviewable_prs"] == []
 
@@ -831,7 +831,7 @@ def test_decide_dispatches_the_observation_and_journals(
     }
     (run_id, procedure, prompt, bounds) = agent.dispatched[0]
     assert (run_id, procedure) == ("auto-1", "decide")
-    # The charter rides the decide dispatch, rendered from the applied spec.
+    # The blueprint rides the decide dispatch, rendered from the applied spec.
     assert bounds.startswith("Repository: github.com/example/repo, base ref main.")
     # Dispatched at the conductor's Service, derived from the converged
     # instance — never a configured address.

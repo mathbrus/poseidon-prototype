@@ -192,63 +192,53 @@ def test_heartbeat_daily_cap_must_fund_a_run(blueprint):
     assert "cannot fund a single run" in problem
 
 
-# -- the merge delegation ---------------------------------------------------
+# -- the merge automation ---------------------------------------------------
 
 
-def test_delegated_merge_compiles_the_gate_into_the_bundle(blueprint):
+def test_automated_merge_compiles_the_gate_into_the_bundle(blueprint):
     blueprint["workflows"]["review"]["gates"]["merge"] = {
-        "resolved_by": "policy",
         "deadline_minutes": 1440,
-        "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+        "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
     }
     plan = compile_blueprint(blueprint)
     assert "merge_gate.rego" in plan.bundle.files
 
 
-def test_no_delegation_compiles_no_delegated_rule(blueprint):
-    """Revocation is a blueprint diff: a human-resolved gate emits the human
-    path of merge.resolve and no delegated one, so an unattended merge
-    falls to default deny."""
+def test_no_automation_compiles_no_automated_rule(blueprint):
+    """Revocation is a blueprint diff: a gate without `automate` emits the
+    human path of merge.resolve and no automated one, so an unattended
+    merge falls to default deny."""
     gate_file = compile_blueprint(blueprint).bundle.files["merge_gate.rego"]
     assert "merge_resolve_human" in gate_file
-    assert "merge_resolve_delegated" not in gate_file
+    assert "merge_resolve_automated" not in gate_file
 
 
-def test_compiler_fails_closed_on_a_carved_out_delegation(blueprint):
-    """`compile_blueprint` accepts unvalidated dicts — the undelegatable
-    carve-out must refuse here too, not only in validate_blueprint."""
+def test_compiler_fails_closed_on_a_carved_out_automation(blueprint):
+    """`compile_blueprint` accepts unvalidated dicts — the carve-out that is
+    never automated must refuse here too, not only in validate_blueprint."""
     blueprint["workflows"]["review"]["gates"]["merge"] = {
-        "resolved_by": "policy",
         "deadline_minutes": 1440,
-        "delegate": {"paths": [".github/"], "max_reworks": 2},
+        "automate": {"paths": [".github/"], "max_reworks": 2},
     }
-    assert any("can never be delegated" in p for p in problems_of(blueprint))
-
-
-def test_compiler_fails_closed_on_policy_without_a_delegation(blueprint):
-    blueprint["workflows"]["review"]["gates"]["merge"] = {
-        "resolved_by": "policy",
-        "deadline_minutes": 1440,
-    }
-    assert any("delegate" in p for p in problems_of(blueprint))
+    assert any("never automated" in p for p in problems_of(blueprint))
 
 
 # -- the contract tree --------------------------------------------------------
 
 
-def test_compiler_fails_closed_on_a_delegated_contract_tree(blueprint):
+def test_compiler_fails_closed_on_an_automated_contract_tree(blueprint):
     """The document-level refusal repeated at compile, the carve-out
-    posture: the oracle never merges under the delegation it certifies."""
+    posture: the contract tree never merges under the automation it
+    grades."""
     blueprint["policies"]["contract_tests"] = {
         "paths": ["tests/contract/"],
         "roles": ["reviewer"],
     }
     blueprint["workflows"]["review"]["gates"]["merge"] = {
-        "resolved_by": "policy",
         "deadline_minutes": 1440,
-        "delegate": {"paths": ["src/", "tests/"], "max_reworks": 2},
+        "automate": {"paths": ["src/", "tests/"], "max_reworks": 2},
     }
-    assert any("contract_tests" in p and "oracle" in p for p in problems_of(blueprint))
+    assert any("contract_tests" in p and "grades" in p for p in problems_of(blueprint))
 
 
 def test_compiler_fails_closed_on_an_unknown_contract_owner(blueprint):

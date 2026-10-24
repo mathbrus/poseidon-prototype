@@ -328,49 +328,49 @@ RULES: tuple[PolicyRule, ...] = (
         "A merge decision that doesn't say which resolver it asks for.",
     ),
     PolicyRule(
-        "merge_resolve_delegated",
+        "merge_resolve_automated",
         "allow",
-        "A policy merge: verdict passed, tests green, reviewer independent,"
-        " every path delegated, and the contract green when one is declared.",
+        "An automated merge: verdict passed, tests green, reviewer independent,"
+        " every path automated, and the contract green when one is declared.",
     ),
     PolicyRule(
         "merge_resolve_verdict_not_pass",
         "deny",
-        "Policy merge refused: the reviewer's verdict failed.",
+        "Automated merge refused: the reviewer's verdict failed.",
     ),
     PolicyRule(
         "merge_resolve_checks_not_green",
         "deny",
-        "Policy merge refused: the platform's test run is red.",
+        "Automated merge refused: the platform's test run is red.",
     ),
     PolicyRule(
         "merge_resolve_not_independent",
         "deny",
-        "Policy merge refused: the reviewer is the implementer.",
+        "Automated merge refused: the reviewer is the implementer.",
     ),
     PolicyRule(
         "merge_resolve_paths_missing",
         "deny",
-        "Policy merge refused: the changed paths are missing from the input.",
+        "Automated merge refused: the changed paths are missing from the input.",
     ),
     PolicyRule(
         "merge_resolve_carved_out_path",
         "deny",
-        "Policy merge refused: a path under `.github/` or `policies.deny_paths`.",
+        "Automated merge refused: a path under `.github/` or `policies.deny_paths`.",
     ),
     PolicyRule(
-        "merge_resolve_undelegated_path",
+        "merge_resolve_path_not_automated",
         "deny",
-        "Policy merge refused: a path outside `delegate.paths`.",
+        "Automated merge refused: a path outside `automate.paths`.",
     ),
     PolicyRule(
         "merge_resolve_contract_path",
         "deny",
-        "Policy merge refused: the pull request changes the contract tree.",
+        "Automated merge refused: the pull request changes the contract tree.",
     ),
     PolicyRule(
         "merge_resolve_contract_not_green",
         "deny",
-        "Policy merge refused: the base branch's contract tests fail on the pull request's code.",
+        "Automated merge refused: the base branch's contract tests fail on the pull request's code.",
     ),
 )
